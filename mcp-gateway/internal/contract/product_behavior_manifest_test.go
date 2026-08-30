@@ -8,7 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProductBehaviorManifestSchema(t *testing.T) {
+func TestProductBehaviorManifest(t *testing.T) {
+	t.Run("schema", testProductBehaviorManifestSchema)
+	t.Run("stable and disjoint IDs", testProductBehaviorManifestIDsAreStableAndDisjoint)
+	t.Run("independent values", testProductBehaviorManifestReturnsIndependentValues)
+}
+
+func testProductBehaviorManifestSchema(t *testing.T) {
 	assert.Equal(t, 1, ProductBehaviorManifestVersion)
 	product := ProductBehaviorManifest()
 	require.Len(t, product, 140)
@@ -28,7 +34,7 @@ func TestProductBehaviorManifestSchema(t *testing.T) {
 	assert.Len(t, EvidenceTierManifest(), 16)
 }
 
-func TestProductBehaviorManifestIDsAreStableAndDisjoint(t *testing.T) {
+func testProductBehaviorManifestIDsAreStableAndDisjoint(t *testing.T) {
 	validID := regexp.MustCompile(`^(product|security|docs|cli|frontend|tier)\.[a-z0-9]+(?:[._][a-z0-9]+)*$`)
 	legacyPointer := regexp.MustCompile(`(?:^|[._-])(?:AC-[0-9]+|[TM][0-9]+|s[1-6])(?:$|[._-])`)
 	seen := map[string]struct{}{}
@@ -71,7 +77,7 @@ func TestProductBehaviorManifestIDsAreStableAndDisjoint(t *testing.T) {
 	}
 }
 
-func TestProductBehaviorManifestReturnsIndependentValues(t *testing.T) {
+func testProductBehaviorManifestReturnsIndependentValues(t *testing.T) {
 	product := ProductBehaviorManifest()
 	product[0].ID = "changed"
 	assert.NotEqual(t, "changed", ProductBehaviorManifest()[0].ID)

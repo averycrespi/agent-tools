@@ -83,25 +83,26 @@ func TestCLIOutputMatrix(t *testing.T) {
 
 	categories := map[string][]string{
 		"read": {
-			"status", "admin-credential list", "admin-credential get ID", "backup list", "backup get BACKUP_ID",
+			"status", "admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
 			"server list", "server get ID", "server operation list ID", "server operation get ID OPERATION_ID",
 			"server auth-flow list ID", "server auth-flow get ID FLOW_ID", "server descriptor list ID", "server descriptor get ID TOOL_ID",
 			"catalog list", "principal list", "principal get ID", "grant list", "grant get ID",
 			"grant-request list", "grant-request get REQUEST_ID", "invocation list", "invocation get INVOCATION_ID",
 		},
 		"mutation": {
-			"backup create", "server create --file PATH", "server update ID --etag ETAG --file PATH", "server delete ID --etag ETAG",
-			"server operation start ID --etag ETAG --file PATH", "server credential replace ID --etag ETAG --file PATH",
-			"principal create --file PATH", "principal update ID --etag ETAG --file PATH", "principal credential revoke ID --etag ETAG",
-			"grant create --file PATH", "grant-request approve REQUEST_ID --etag ETAG --file PATH", "grant-request reject REQUEST_ID --etag ETAG --file PATH",
+			"backup create", "server create --file PATH", "server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "server delete ID [--etag ETAG]",
+			"server operation start ID --kind KIND [--etag ETAG]", "server credential replace ID --file PATH [--etag ETAG]",
+			"principal create --display-name NAME --visibility VISIBILITY", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE]", "principal credential revoke ID [--etag ETAG]",
+			"grant create --principal-id ID --effect EFFECT --server-id ID [--upstream-name NAME] [--expires-at RFC3339] [--file PATH]", "grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--file PATH]", "grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
 		},
 		"no_content": {
-			"admin-credential revoke ID", "backup delete BACKUP_ID", "server auth-flow cancel ID FLOW_ID", "grant delete ID",
+			"admin credential revoke ID", "backup delete BACKUP_ID", "server auth-flow cancel ID FLOW_ID", "grant delete ID",
 		},
 		"one_time_secret": {
-			"admin-credential create --file PATH [--secret-output NEW_PATH]", "principal credential issue ID --etag ETAG [--secret-output NEW_PATH]",
+			"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH",
+			"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]",
 		},
-		"terminal_auth_flow": {"server auth-flow start ID --etag ETAG [--open]"},
+		"terminal_auth_flow": {"server auth-flow start ID [--etag ETAG] [--open]"},
 	}
 	seen := make(map[string]string)
 	for category, uses := range categories {

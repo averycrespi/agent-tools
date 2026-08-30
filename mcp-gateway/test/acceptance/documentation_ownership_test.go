@@ -13,7 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDocumentationGuideOwnership(t *testing.T) {
+func TestDocumentationOwnership(t *testing.T) {
+	t.Run("guide ownership", testDocumentationGuideOwnership)
+	t.Run("closed owners", testDocumentationOwnersAreClosed)
+	t.Run("fresh user graph", testFreshUserDocumentationGraph)
+	t.Run("CLI and recovery contracts", testCLIAndRecoveryGuidesOwnDetailedContracts)
+	t.Run("behavior manifest coverage", testOperationalGuidesCoverBehaviorManifest)
+}
+
+func testDocumentationGuideOwnership(t *testing.T) {
 	root := frontendDevelopmentModuleRoot(t)
 	guides := contract.DocumentationGuideManifest()
 	expectedPaths := make([]string, 0, len(guides))
@@ -44,7 +52,7 @@ func TestDocumentationGuideOwnership(t *testing.T) {
 	assert.Equal(t, expectedPaths, actualPaths, "focused guides must have exactly one manifest owner")
 }
 
-func TestDocumentationOwnersAreClosed(t *testing.T) {
+func testDocumentationOwnersAreClosed(t *testing.T) {
 	owners := make(map[string]int)
 	for _, command := range contract.DocumentationCommandManifest() {
 		owners[command.ID]++
@@ -63,7 +71,7 @@ func TestDocumentationOwnersAreClosed(t *testing.T) {
 	}
 }
 
-func TestFreshUserDocumentationGraph(t *testing.T) {
+func testFreshUserDocumentationGraph(t *testing.T) {
 	root := frontendDevelopmentModuleRoot(t)
 	readmeBytes, err := os.ReadFile(filepath.Join(root, "README.md"))
 	require.NoError(t, err)
@@ -98,7 +106,7 @@ func TestFreshUserDocumentationGraph(t *testing.T) {
 	assert.Contains(t, gatewayOverview, "mcp-gateway/docs/cli-local-administration.md")
 }
 
-func TestCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
+func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	root := frontendDevelopmentModuleRoot(t)
 	read := func(path string) string {
 		t.Helper()
@@ -118,14 +126,14 @@ func TestCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	recovery := read("docs/recovery.md")
 	for _, phrase := range []string{
 		"mcp-gateway backup create", "mcp-gateway restore --verify-current", "mcp-gateway restore BACKUP_ID",
-		"mcp-gateway admin-reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
+		"mcp-gateway admin reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
 		"invalidates every restored agent credential", "does not rewrite the default `admin-bearer`", "Failed commands leave stdout empty",
 	} {
 		assert.Contains(t, recovery, phrase)
 	}
 }
 
-func TestOperationalGuidesCoverBehaviorManifest(t *testing.T) {
+func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 	root := frontendDevelopmentModuleRoot(t)
 	read := func(path string) string {
 		t.Helper()

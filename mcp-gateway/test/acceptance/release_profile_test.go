@@ -10,6 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestReleaseProfileDefinitions(t *testing.T) {
+	profile, err := finalReleaseProfile(repositoryRoot(t))
+	require.NoError(t, err)
+	require.NoError(t, validateFinalReleaseProfile(profile))
+	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
+	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
+	assert.Len(t, profile.Coverage.ProductBehaviors, 232)
+	assert.Len(t, profile.Checks, 21)
+}
+
 func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	profile, err := finalReleaseProfile(repositoryRoot(t))
 	require.NoError(t, err)

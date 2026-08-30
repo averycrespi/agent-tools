@@ -25,6 +25,7 @@ Exact syntax and defaults:
 - `mcp-gateway initialize --help`
 - `mcp-gateway serve --help`
 - `mcp-gateway status --help`
+- `mcp-gateway admin --help`
 - `mcp-gateway admin credential --help`
 - `mcp-gateway admin reset --help`
 

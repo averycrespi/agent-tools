@@ -8,7 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDocumentationOwnershipManifestSchema(t *testing.T) {
+func TestDocumentationOwnership(t *testing.T) {
+	t.Run("schema", testDocumentationOwnershipManifestSchema)
+	t.Run("independent values", testDocumentationOwnershipManifestReturnsIndependentValues)
+}
+
+func testDocumentationOwnershipManifestSchema(t *testing.T) {
 	assert.Equal(t, 1, DocumentationOwnershipManifestVersion)
 	guides := DocumentationGuideManifest()
 	commands := DocumentationCommandManifest()
@@ -58,7 +63,7 @@ func TestDocumentationOwnershipManifestSchema(t *testing.T) {
 	}
 }
 
-func TestDocumentationOwnershipManifestReturnsIndependentValues(t *testing.T) {
+func testDocumentationOwnershipManifestReturnsIndependentValues(t *testing.T) {
 	guides := DocumentationGuideManifest()
 	guides[0].Path = "changed"
 	assert.NotEqual(t, "changed", DocumentationGuideManifest()[0].Path)

@@ -54,10 +54,10 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 
 	require.Equal(t, "mcp-gateway", cmd.Use)
 	require.Contains(t, cmd.Short, "deny-by-default")
-	for _, name := range []string{"admin-reset", "initialize", "restore", "serve"} {
-		command, _, err := cmd.Find([]string{name})
+	for _, path := range [][]string{{"admin", "reset"}, {"initialize"}, {"restore"}, {"serve"}} {
+		command, _, err := cmd.Find(path)
 		require.NoError(t, err)
-		assert.Equal(t, name, command.Name())
+		assert.Equal(t, path[len(path)-1], command.Name())
 	}
 	require.True(t, cmd.SilenceUsage)
 	require.True(t, cmd.SilenceErrors)
@@ -263,7 +263,7 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	command = newRootCmd()
 	command.SetOut(new(bytes.Buffer))
 	command.SetErr(stderr)
-	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--output", "json"})
+	command.SetArgs([]string{"admin", "reset", "--data-dir", root, "--output", "json"})
 	err = command.ExecuteContext(ctx)
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
@@ -274,9 +274,9 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	command = newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--secret-output", resetSecret, "--output", "json"})
+	command.SetArgs([]string{"admin", "reset", "--data-dir", root, "--secret-output", resetSecret, "--output", "json"})
 	require.NoError(t, command.ExecuteContext(ctx))
-	assert.JSONEq(t, `{"ok":true,"operation":"admin-reset","installation_id":"`+initialized["installation_id"].(string)+`","revision":"2"}`, stdout.String())
+	assert.JSONEq(t, `{"ok":true,"operation":"reset","installation_id":"`+initialized["installation_id"].(string)+`","revision":"2"}`, stdout.String())
 	resetBearer, err := os.ReadFile(resetSecret)
 	require.NoError(t, err)
 	assert.NotEqual(t, initialBearer, resetBearer)
@@ -287,7 +287,7 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	command = newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"admin-reset", "--data-dir", root, "--secret-output", guidanceSecret})
+	command.SetArgs([]string{"admin", "reset", "--data-dir", root, "--secret-output", guidanceSecret})
 	require.NoError(t, command.ExecuteContext(ctx))
 	assert.Contains(t, stdout.String(), "--admin-bearer-file")
 	assert.Contains(t, stdout.String(), "printf '%b_'")

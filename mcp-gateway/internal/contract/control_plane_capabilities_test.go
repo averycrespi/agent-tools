@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestControlPlaneCapabilityManifestIsClosedAndCopySafe(t *testing.T) {
+func TestControlPlaneCapabilityManifest(t *testing.T) {
 	capabilities := ControlPlaneCapabilityManifest()
 	require.Len(t, capabilities, 31)
 	productIDs := make([]string, 0, len(capabilities))

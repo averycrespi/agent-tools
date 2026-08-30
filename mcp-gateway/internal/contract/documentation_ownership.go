@@ -33,8 +33,8 @@ var documentationGuides = []DocumentationGuide{
 }
 
 var documentationCommandFamilies = []DocumentationCommandFamily{
-	{ID: "docs.command.admin.credential", CommandPath: "admin-credential", CanonicalOwner: "docs/cli-local-administration.md", HelpInvocation: "mcp-gateway admin-credential --help"},
-	{ID: "docs.command.admin.reset", CommandPath: "admin-reset", CanonicalOwner: "docs/recovery.md", HelpInvocation: "mcp-gateway admin-reset --help"},
+	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/cli-local-administration.md", HelpInvocation: "mcp-gateway admin credential --help"},
+	{ID: "docs.command.admin.reset", CommandPath: "admin reset", CanonicalOwner: "docs/recovery.md", HelpInvocation: "mcp-gateway admin reset --help"},
 	{ID: "docs.command.backup", CommandPath: "backup", CanonicalOwner: "docs/recovery.md", HelpInvocation: "mcp-gateway backup --help"},
 	{ID: "docs.command.catalog", CommandPath: "catalog", CanonicalOwner: "docs/server-configuration.md", HelpInvocation: "mcp-gateway catalog --help"},
 	{ID: "docs.command.grant", CommandPath: "grant", CanonicalOwner: "docs/access-policy.md", HelpInvocation: "mcp-gateway grant --help"},
@@ -49,13 +49,13 @@ var documentationCommandFamilies = []DocumentationCommandFamily{
 }
 
 var documentationSecurityContracts = []DocumentationSecurityContract{
-	{ID: "docs.security.admin.authority", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"initialize", "admin-credential"}},
+	{ID: "docs.security.admin.authority", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"initialize", "admin credential"}},
 	{ID: "docs.security.local.control", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"serve", "status"}},
-	{ID: "docs.security.one.time.sinks", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"admin-credential", "principal", "server"}},
+	{ID: "docs.security.one.time.sinks", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"admin credential", "principal", "server"}},
 	{ID: "docs.security.server.credentials.oauth", CanonicalOwner: "docs/server-configuration.md", HelpFamilies: []string{"server"}},
 	{ID: "docs.security.principal.policy", CanonicalOwner: "docs/access-policy.md", HelpFamilies: []string{"principal", "grant", "grant-request"}},
 	{ID: "docs.security.invocation.uncertainty", CanonicalOwner: "docs/invocation-evidence.md", HelpFamilies: []string{"invocation"}},
-	{ID: "docs.security.backup.recovery", CanonicalOwner: "docs/recovery.md", HelpFamilies: []string{"backup", "restore", "admin-reset"}},
+	{ID: "docs.security.backup.recovery", CanonicalOwner: "docs/recovery.md", HelpFamilies: []string{"admin reset", "backup", "restore"}},
 	{ID: "docs.security.frontend.trust", CanonicalOwner: "docs/frontend-development.md", HelpFamilies: []string{"serve"}},
 }
 

@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCLIDocumentationDrift(t *testing.T) {
+func testCLIDocumentationDrift(t *testing.T) {
 	root := newRootCmd()
 	var snapshot strings.Builder
 	var walk func(*cobra.Command)
@@ -41,10 +41,10 @@ func TestCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:868ad13462a7c57a1f4157d5169e257e7563085168c70cbd3ee5961f6c2f94dc", digest)
+	assert.Equal(t, "sha256:8605cd38ea6ae6cc204001346b4be46c3633e4eb89aec53d6c30b881c7d8b862", digest)
 }
 
-func TestCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
+func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
 	_, current, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
@@ -74,7 +74,11 @@ func TestCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
 	assert.Contains(t, guides["docs/cli-local-administration.md"], contract.CanonicalOrigin)
 }
 
-func TestCLISharedContract(t *testing.T) {
+func TestCLIContract(t *testing.T) {
+	t.Run("documentation snapshot", testCLIDocumentationDrift)
+	t.Run("guide help projection", testCLIGuideGeneratedHelpAndDefaultDrift)
+	t.Run("documentation command ownership", testDocumentationCommandHelpProjection)
+	t.Run("command errors", testCLICommandErrors)
 	root := newRootCmd()
 
 	t.Run("frozen capability uses match Cobra leaves", func(t *testing.T) {
@@ -103,24 +107,26 @@ func TestCLISharedContract(t *testing.T) {
 	t.Run("online flags remain command scoped", func(t *testing.T) {
 		assert.Nil(t, root.PersistentFlags().Lookup("address"))
 		assert.NotNil(t, root.PersistentFlags().Lookup("data-dir"))
-		for name, expectedFlags := range map[string][]string{
-			"initialize":  {"data-dir", "json", "output", "secret-output"},
-			"admin-reset": {"data-dir", "json", "output", "secret-output"},
-			"restore":     {"data-dir", "json", "output", "secret-output", "verify-current"},
-			"serve":       {"data-dir", "json", "listen", "output"},
-		} {
-			command, _, err := root.Find([]string{name})
+		cases := []struct {
+			path  []string
+			use   string
+			flags []string
+		}{
+			{path: []string{"initialize"}, use: "initialize", flags: []string{"data-dir", "json", "output", "secret-output"}},
+			{path: []string{"admin", "reset"}, use: "reset", flags: []string{"data-dir", "json", "output", "secret-output"}},
+			{path: []string{"restore"}, use: "restore [backup-id]", flags: []string{"data-dir", "json", "output", "secret-output", "verify-current"}},
+			{path: []string{"serve"}, use: "serve", flags: []string{"data-dir", "json", "listen", "output"}},
+		}
+		for _, test := range cases {
+			name := strings.Join(test.path, " ")
+			command, _, err := root.Find(test.path)
 			require.NoError(t, err)
-			expectedUse := name
-			if name == "restore" {
-				expectedUse = "restore [backup-id]"
-			}
-			assert.Equal(t, expectedUse, command.Use, name)
+			assert.Equal(t, test.use, command.Use, name)
 			flags := make([]string, 0)
 			command.Flags().VisitAll(func(flag *pflag.Flag) { flags = append(flags, flag.Name) })
 			sort.Strings(flags)
-			sort.Strings(expectedFlags)
-			assert.Equal(t, expectedFlags, flags, name)
+			sort.Strings(test.flags)
+			assert.Equal(t, test.flags, flags, name)
 		}
 	})
 
@@ -141,8 +147,8 @@ func TestCLISharedContract(t *testing.T) {
 			Title string `json:"title"`
 		}
 		require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
-		assert.Equal(t, "client_bearer_missing", problem.Code)
-		assert.Contains(t, problem.Title, filepath.Join(dataDir, "admin-bearer"))
+		assert.Equal(t, "client_invalid_input", problem.Code)
+		assert.Equal(t, "The Gateway address is invalid.", problem.Title)
 
 		assert.Equal(t, 1, commandExitCode(commandFailure{}))
 		assert.Equal(t, 1, commandExitCode(assert.AnError))
