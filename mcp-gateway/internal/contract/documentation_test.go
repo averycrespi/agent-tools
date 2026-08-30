@@ -181,9 +181,9 @@ func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 	}
 
 	ownedRanges := [][2]string{
-		{"## Purpose", "## Admin authority lifecycle"},
-		{"## Keyring capability and generation cutover", "## Deterministic test foundation"},
-		{"## MCP ingress and governed invocation", "## Current executable state"},
+		{"## Purpose", "## Administrative authority and sessions"},
+		{"## Keyring capability and generation cutover", "## Verification and release evidence"},
+		{"## MCP ingress and governed invocation", "## Operational composition and compatibility"},
 	}
 	phaseResidue := regexp.MustCompile(`(?i)\bS[1-6](?:\.\d+)?\b|\bimplemented\b|\bfoundation\b|\btask owner\b|\bmilestone owner\b`)
 	for _, bounds := range ownedRanges {
@@ -217,6 +217,65 @@ func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 	for id, claim := range behaviorClaims {
 		require.Contains(t, manifestIDs, id)
 		require.Contains(t, text, claim, id)
+	}
+}
+
+func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T) {
+	t.Parallel()
+
+	document, err := os.ReadFile("../../DESIGN.md")
+	require.NoError(t, err)
+	text := string(document)
+
+	for _, heading := range []string{
+		"## Administrative authority and sessions",
+		"## Verification and release evidence",
+		"## HTTP administration and control-plane clients",
+		"### Browser production and development boundaries",
+		"### Browser state and workflow ownership",
+		"### CLI authority, output, and recovery",
+		"## Events, limits, and shutdown",
+		"## Operational composition and compatibility",
+		"## Non-goals",
+	} {
+		require.Contains(t, text, heading)
+	}
+
+	currentDesign := strings.ReplaceAll(text, "`mcp-gateway/s2`", "")
+	chronology := regexp.MustCompile(`(?i)\bS[1-6](?:\.\d+)?\b|\bAC-[0-9]+\b|\bimplemented\b|\bfoundation\b|\btask owner\b|\bmilestone owner\b|planned.{0,20}executable`)
+	require.Empty(t, chronology.FindString(currentDesign))
+
+	for _, guide := range []string{
+		"docs/cli-local-administration.md",
+		"docs/server-configuration.md",
+		"docs/access-policy.md",
+		"docs/invocation-evidence.md",
+		"docs/recovery.md",
+		"docs/frontend-development.md",
+		"docs/release-verification.md",
+	} {
+		require.Equal(t, 1, strings.Count(text, "("+guide+")"), guide)
+	}
+
+	for _, claim := range []string{
+		"Bearer exchange reserves one of 128 in-memory session slots",
+		"Epoch changes abort tracked requests/streams",
+		"never replay a mutation",
+		"The checked-in bundle contains no external or inline active content",
+		"OAuth URLs are text, never links",
+		"All polling pauses while hidden",
+		"Linux Chromium is blocking",
+		"there is no prompt, argv, or environment fallback",
+		"No command polls, refetches a precondition",
+		"`accept` composes disjoint leaves directly",
+		"Reports from superseded definitions are incompatible",
+		"`skipped` remains additive",
+		"no-check adopter",
+		"clean unchanged revision",
+		"A second signal invokes immediate forced exit",
+		"Product compatibility preserves public HTTP and MCP JSON",
+	} {
+		require.Contains(t, text, claim)
 	}
 }
 
