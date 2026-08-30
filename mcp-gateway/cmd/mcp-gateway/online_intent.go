@@ -278,8 +278,8 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		},
 	},
 	"server operation start": {
-		fileMembers: []string{"kind"},
-		direct:      []onlineDirectFlag{{name: "kind", values: []string{"reload", "retry", "refresh_catalog", "disconnect_credentials"}, required: true}},
+		direct:        []onlineDirectFlag{{name: "kind", values: []string{"reload", "retry", "refresh_catalog", "disconnect_credentials"}, required: true}},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {
 			return marshalIntent(map[string]any{"kind": values["kind"]})
 		},
@@ -339,8 +339,8 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		},
 	},
 	"grant-request reject": {
-		fileMembers: []string{"reason"},
-		direct:      []onlineDirectFlag{{name: "reason", values: []string{"not_approved", "existing_access", "scope_too_broad", "policy_conflict"}, required: true}},
+		direct:        []onlineDirectFlag{{name: "reason", values: []string{"not_approved", "existing_access", "scope_too_broad", "policy_conflict"}, required: true}},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {
 			return marshalIntent(map[string]any{"reason": values["reason"]})
 		},
