@@ -23,6 +23,10 @@ func authFlowListPath(options *onlineOptions, args []string) (string, error) {
 }
 
 func runServerAuthFlowStart(command *cobra.Command, options *onlineOptions, args []string) error {
+	return runServerAuthFlowStartWithTerminal(command, options, args, nil)
+}
+
+func runServerAuthFlowStartWithTerminal(command *cobra.Command, options *onlineOptions, args []string, openTerminal func() (io.WriteCloser, error)) error {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 	}
@@ -30,20 +34,20 @@ func runServerAuthFlowStart(command *cobra.Command, options *onlineOptions, args
 	if err != nil {
 		return writeOnlineFailure(command, string(controlclient.OutputHuman), controlclient.NewInputError("The output mode is invalid."))
 	}
-	matches := serverETagPattern.FindStringSubmatch(options.etag)
-	if len(matches) != 3 || matches[1] != args[0] {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ETag is invalid or belongs to another server."))
-	}
-	sink, err := controlclient.PrepareSensitiveSink(controlclient.SinkOptions{})
+	sink, err := controlclient.PrepareSensitiveSink(controlclient.SinkOptions{OpenTerminal: openTerminal})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	defer func() { _ = sink.Cleanup() }()
+	etag, failure := resolveMutationETag(command, options, onlineItemServer, args[0])
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: options.etag})
+	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: etag})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}

@@ -135,6 +135,8 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runPrincipalUpdate(command, options, args)
 	case "principal credential issue":
 		return runPrincipalCredentialIssue(command, options, args)
+	case "principal credential rotate":
+		return runPrincipalCredentialRotate(command, options, args)
 	case "principal credential revoke":
 		return runPrincipalCredentialRevoke(command, options, args)
 	case "grant list":

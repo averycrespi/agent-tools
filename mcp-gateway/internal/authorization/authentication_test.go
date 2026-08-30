@@ -73,6 +73,22 @@ func TestAuthenticateRejectsWrongDomainMalformedAndUnknownWithoutEnumeration(t *
 	}
 }
 
+func TestAgentCredentialReplacementRemainsAtomic(t *testing.T) {
+	repository, _ := newRepository(t, nil)
+	principal := mustCreatePrincipal(t, repository)
+	first, err := repository.IssueCredential(context.Background(), principal.ID, principal.Revision)
+	require.NoError(t, err)
+	second, err := repository.IssueCredential(context.Background(), principal.ID, first.Principal.Revision)
+	require.NoError(t, err)
+	require.NotNil(t, second.Principal.Credential)
+	assert.NotEqual(t, first.Principal.Credential.ID, second.Principal.Credential.ID)
+	_, err = repository.Authenticate(context.Background(), first.Bearer)
+	assert.ErrorIs(t, err, ErrAuthenticationRequired)
+	lease, err := repository.Authenticate(context.Background(), second.Bearer)
+	require.NoError(t, err)
+	lease.Release()
+}
+
 func TestAuthenticateRejectsReplacedRevokedDisabledAndAbsentAuthority(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
