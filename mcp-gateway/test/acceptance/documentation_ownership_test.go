@@ -209,6 +209,52 @@ func TestOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 	}
 }
 
+func TestMaintainerGuidanceAndReleaseDocumentation(t *testing.T) {
+	root := frontendDevelopmentModuleRoot(t)
+	read := func(path string) string {
+		t.Helper()
+		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		require.NoError(t, err)
+		return string(contents)
+	}
+	gatewayGuidance := read("CLAUDE.md")
+	rootGuidance := read("../CLAUDE.md")
+	release := read("docs/release-verification.md")
+	frontend := read("docs/frontend-development.md")
+
+	assert.Less(t, len(gatewayGuidance), 20000, "maintainer guidance must link to product contracts rather than copy them")
+	for _, heading := range []string{"## Development", "## Package layout", "## Editing invariants", "## Dependency flow"} {
+		assert.Contains(t, gatewayGuidance, heading)
+	}
+	for _, link := range []string{"docs/frontend-development.md", "docs/release-verification.md"} {
+		assert.Contains(t, gatewayGuidance, link)
+		assert.Contains(t, rootGuidance, "mcp-gateway/"+link)
+	}
+	assert.NotContains(t, gatewayGuidance, "## Quick start")
+
+	for _, phrase := range []string{
+		"## Purpose-based verification DAG", "`test` aggregates `test-unit` and `test-integration` only",
+		"`accept` invokes disjoint leaves directly", "complete nonbrowser E2E", "five named stress scenarios",
+		"## CI mapping", "superseded report definitions are incompatible", "candidate revision",
+		"typed `passed`, `skipped`, or `failed`", "blocking", "additive", "qualify-external-evidence",
+		"## Failure discipline", "Do not rerun `accept` unchanged", "## Report adoption", "no-check adoption",
+		"does not rerun product checks",
+	} {
+		assert.Contains(t, release, phrase)
+	}
+	for _, phrase := range []string{
+		"two independently owned loopback processes", "trusted local process", "OAuth callback remains on the Gateway origin",
+		"Production is separate and deterministic", "npm run ui:dev", "npm run ui:build", "internal/api/static",
+	} {
+		assert.Contains(t, frontend, phrase)
+	}
+
+	residue := regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|accept-s[0-9]|test-task|test-milestone|task owner|milestone owner|planned.{0,20}executable)`)
+	for path, document := range map[string]string{"CLAUDE.md": gatewayGuidance, "../CLAUDE.md": rootGuidance, "release": release, "frontend": frontend} {
+		assert.NotRegexp(t, residue, document, path)
+	}
+}
+
 func assertMarkdownLinksResolve(t *testing.T, path, contents string) {
 	t.Helper()
 	links := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`).FindAllStringSubmatch(contents, -1)

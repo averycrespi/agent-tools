@@ -6,7 +6,7 @@ Purpose: Run trusted live reload without changing the production asset boundary.
 
 See [DESIGN](../DESIGN.md) for the normative production trust boundary and [maintainer guidance](../CLAUDE.md) for package ownership and editing invariants.
 
-Use the development server to work on the authored TypeScript, Preact, and CSS with Vite live reload. It is a separate trusted local process, not a mode of the production Gateway binary.
+Use the development server to work on the authored TypeScript, Preact, and CSS with Vite live reload. The workflow uses two independently owned loopback processes. The development server is a separate trusted local process, not a mode of the production Gateway binary.
 
 ## Start both processes
 
@@ -98,4 +98,4 @@ The combined development owner runs the Node proxy matrix and both real-Gateway 
 make -C mcp-gateway test-frontend-development
 ```
 
-Production bundle, static handler, and browser acceptance remain separate owners; the development target does not nest them.
+Production bundle, static handler, and browser acceptance remain separate owners; the development target does not nest them. Follow [release verification](release-verification.md) when composing those owners for a clean candidate.

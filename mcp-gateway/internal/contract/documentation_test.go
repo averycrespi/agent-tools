@@ -19,7 +19,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"locally secure, deny-by-default service", "never queues or automatically replays", "mcp-gateway/docs/cli-local-administration.md",
 		},
 		"../../../CLAUDE.md": {
-			"S6 manifest-controlled task, milestone, and final owners", "npm run ui:verify-supply-chain", "npm run ui:audit",
+			"mcp-gateway/docs/release-verification.md", "Gateway release acceptance is a separate owner", "npm run ui:verify-supply-chain", "npm run ui:audit",
 		},
 		"../../README.md": {
 			"## Current capabilities", "## Common workflows", "docs/cli-local-administration.md", "docs/recovery.md",
@@ -36,8 +36,8 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"Automated accessibility qualification", "grant_requests", "sole online schema-10 DML owner", "no-check adopter",
 		},
 		"../../CLAUDE.md": {
-			"implemented S1–S6 routes", "online S4 invocation SQL belongs to `internal/invocation`", "online schema-10 request identity",
-			"browser, visual, accessibility, and external-evidence tiers", "npm run ui:verify-supply-chain", "exactly-once effects", "guaranteed secret detection",
+			"`internal/contract` is the only source", "`internal/composition` is the sole production constructor", "`internal/remote` is the sole production downstream/OAuth HTTP client",
+			"Online CLI commands acquire one selected administrator bearer", "docs/release-verification.md", "npm run ui:verify-supply-chain",
 		},
 	}
 	prohibited := []string{
