@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6Inventory(t *testing.T) {
+func TestAcceptanceOwnerInventory(t *testing.T) {
 	owners := S6PlannedInventory()
 	require.Len(t, owners, 69)
 	assert.Len(t, S6FinalInventory(), 16)
@@ -52,7 +52,7 @@ func TestS6Inventory(t *testing.T) {
 	assert.Regexp(t, `^sha256:[0-9a-f]{64}$`, S6InventoryDefinitionHash())
 }
 
-func TestS6PlannedCommand(t *testing.T) {
+func TestAcceptanceOwnerCommands(t *testing.T) {
 	require.NoError(t, ValidateS6OwnerForExecution("T1"))
 	require.NoError(t, ValidateS6OwnerForExecution("T2"))
 	require.NoError(t, ValidateS6OwnerForExecution("T3"))
@@ -130,7 +130,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	require.Len(t, owner.Leaves, 1)
 	leaf := owner.Leaves[0]
 	assert.Equal(t, 5, leaf.ExpectedMatches)
-	assert.Contains(t, leaf.Argv, "^Test(LegacyControlPlaneManifest|S6(Inventory|PlannedCommand|Capability|Documentation))$")
+	assert.Contains(t, leaf.Argv, "^Test(LegacyControlPlaneManifest|Acceptance(OwnerInventory|OwnerCommands|CapabilityCoverage|DocumentationCoverage))$")
 
 	anchored := regexp.MustCompile(`^\^.*\$$`)
 	for _, planned := range S6PlannedInventory() {
@@ -156,7 +156,7 @@ func TestS6PlannedCommand(t *testing.T) {
 	}
 }
 
-func TestS6Capability(t *testing.T) {
+func TestAcceptanceCapabilityCoverage(t *testing.T) {
 	rows := contract.S6CapabilityManifest()
 	require.Len(t, rows, 31)
 	ids := make(map[string]bool)
@@ -178,7 +178,7 @@ func TestS6Capability(t *testing.T) {
 	assert.Equal(t, "cli-restore", lifecycle[len(lifecycle)-1].ID)
 }
 
-func TestS6Documentation(t *testing.T) {
+func TestAcceptanceDocumentationCoverage(t *testing.T) {
 	rows := contract.S6DocumentationManifest()
 	require.Len(t, rows, 40)
 	ids := make(map[string]bool)

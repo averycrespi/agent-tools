@@ -216,7 +216,7 @@ func (harness *gatewayHarness) RestoreBackup(backupID string) testutil.ProcessRe
 	harness.t.Helper()
 	require.Nil(harness.t, harness.process, "restore requires a stopped Gateway")
 	secretPath := filepath.Join(harness.t.TempDir(), "restored-admin")
-	result, err := harness.runner.Run(harness.ctx, harness.binary, "restore", backupID, "--data-dir", harness.root, "--secret-output", secretPath)
+	result, err := harness.runner.Run(harness.ctx, harness.binary, "restore", backupID, "--data-dir", harness.root, "--secret-output", secretPath, "--output", "json")
 	require.NoError(harness.t, err, string(result.Stderr))
 	require.False(harness.t, result.StdoutTruncated)
 	require.False(harness.t, result.StderrTruncated)

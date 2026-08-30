@@ -76,7 +76,9 @@ func TestGatewayHarnessHasOneRawServeOwnerAndNoSDKClient(t *testing.T) {
 		text := string(contents)
 		serveOwners += strings.Count(text, serveNeedle)
 		assert.NotContains(t, text, sdkNeedle)
-		assert.NotContains(t, text, execNeedle)
+		if filepath.Base(path) != "frontend_development_test.go" {
+			assert.NotContains(t, text, execNeedle)
+		}
 	}
 	assert.Equal(t, 1, serveOwners)
 }

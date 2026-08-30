@@ -34,7 +34,7 @@ func TestRestoreVerifyCurrentRealBinary(t *testing.T) {
 
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
-	result, err := runner.Run(ctx, binary, "restore", "--verify-current", "--data-dir", root)
+	result, err := runner.Run(ctx, binary, "restore", "--verify-current", "--data-dir", root, "--output", "json")
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
 	assert.JSONEq(t, `{"ok":true,"operation":"restore","mode":"verify_current","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"0"}`, string(result.Stdout))
@@ -68,7 +68,7 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	require.NoError(t, ownership.Close())
 
 	replacementSecret := filepath.Join(t.TempDir(), "replacement")
-	result, err = runner.Run(ctx, binary, "restore", artifact.ID, "--data-dir", root, "--secret-output", replacementSecret)
+	result, err = runner.Run(ctx, binary, "restore", artifact.ID, "--data-dir", root, "--secret-output", replacementSecret, "--output", "json")
 	require.NoError(t, err, "restore: %s", result.Stdout)
 	assert.JSONEq(t, `{"ok":true,"operation":"restore","mode":"backup","installation_id":"`+artifact.InstallationID+`","revision":"2","backup_id":"`+artifact.ID+`"}`, string(result.Stdout))
 	replacementBearer, err := os.ReadFile(replacementSecret)

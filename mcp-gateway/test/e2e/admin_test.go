@@ -30,7 +30,7 @@ func TestAdminAuthorityRealBinaryIsOneTimeAndResetIsAtomic(t *testing.T) {
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
 
-	initialized, err := runner.Run(ctx, binary, "initialize", "--data-dir", root, "--secret-output", initialPath)
+	initialized, err := runner.Run(ctx, binary, "initialize", "--data-dir", root, "--secret-output", initialPath, "--output", "json")
 	require.NoError(t, err)
 	assert.Equal(t, 0, initialized.ExitCode)
 	assert.Empty(t, initialized.Stderr)
@@ -40,7 +40,7 @@ func TestAdminAuthorityRealBinaryIsOneTimeAndResetIsAtomic(t *testing.T) {
 	initialBearer := readBearer(t, initialPath)
 	assert.NotContains(t, string(initialized.Stdout), initialBearer)
 
-	reset, err := runner.Run(ctx, binary, "admin-reset", "--data-dir", root, "--secret-output", resetPath)
+	reset, err := runner.Run(ctx, binary, "admin-reset", "--data-dir", root, "--secret-output", resetPath, "--output", "json")
 	require.NoError(t, err)
 	assert.Equal(t, 0, reset.ExitCode)
 	assert.Empty(t, reset.Stderr)
@@ -48,11 +48,19 @@ func TestAdminAuthorityRealBinaryIsOneTimeAndResetIsAtomic(t *testing.T) {
 	assert.NotEqual(t, initialBearer, resetBearer)
 	assert.NotContains(t, string(reset.Stdout), resetBearer)
 
-	failed, err := runner.Run(ctx, binary, "admin-reset", "--data-dir", root, "--secret-output", resetPath)
+	failed, err := runner.Run(ctx, binary, "admin-reset", "--data-dir", root, "--secret-output", resetPath, "--output", "json")
 	assert.Error(t, err)
-	assert.Equal(t, 1, failed.ExitCode)
-	assert.JSONEq(t, `{"ok":false,"operation":"admin-reset","code":"secret_output_unavailable"}`, string(failed.Stdout))
-	assert.Empty(t, failed.Stderr)
+	assert.Equal(t, 2, failed.ExitCode)
+	assert.Empty(t, failed.Stdout)
+	var problem struct {
+		Code      string `json:"code"`
+		ExitCode  int    `json:"exit_code"`
+		Uncertain bool   `json:"uncertain"`
+	}
+	require.NoError(t, json.Unmarshal(failed.Stderr, &problem))
+	assert.Equal(t, "secret_output_unavailable", problem.Code)
+	assert.Equal(t, 2, problem.ExitCode)
+	assert.False(t, problem.Uncertain)
 
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)

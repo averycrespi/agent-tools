@@ -118,13 +118,15 @@ func TestCLIUsabilityTarget(t *testing.T) {
 		}
 	}
 	sort.Strings(selected)
-	assert.Equal(t, []string{
+	expected := []string{
 		"TestCLIAutomaticBearerSelection", "TestCLICommandErrors", "TestCLICredentialFailureProblems", "TestCLIFirstRun",
 		"TestCLIHelpTree", "TestCLIOutputMatrix", "TestCLIServeOutputLifecycle", "TestCLIXDGAndOverrides",
 		"TestCLIAdminCredentials", "TestCLIAuthFlows", "TestCLIBackups", "TestCLIGrantRequests", "TestCLIGrants",
 		"TestCLIPrincipalCredentials", "TestCLIPrincipals", "TestCLIServerCatalogReads", "TestCLIServerCreateUpdate",
 		"TestCLIServerCredentials", "TestCLIServerDelete", "TestCLIServerOperations", "TestCLIStatusInvocations",
-	}, selected)
+	}
+	sort.Strings(expected)
+	assert.Equal(t, expected, selected)
 }
 
 func TestCLIUsabilityFinalOwnerInventory(t *testing.T) {
@@ -142,7 +144,7 @@ func TestCLIUsabilityFinalOwnerInventory(t *testing.T) {
 		{id: "cli_e2e", class: "e2e", command: "make -C mcp-gateway test-cli-usability-e2e", target: "test-cli-usability-e2e", packages: []string{"./test/e2e"}, selector: cliUsabilityE2ESelector},
 		{id: "cli_source", class: "source", command: "go -C mcp-gateway test -race -count=1 -timeout=30s -run '" + cliSourceSelector + "' ./internal/composition ./cmd/mcp-gateway", packages: []string{"./internal/composition", "./cmd/mcp-gateway"}, selector: cliSourceSelector},
 		{id: "cli_security", class: "security", command: "go -C mcp-gateway tool govulncheck ./...", packages: []string{"./..."}},
-		{id: "cli_documentation", class: "documentation", command: "go -C mcp-gateway test -race -count=1 -timeout=60s -run '" + cliDocumentationSelector + "' ./internal/contract", packages: []string{"./internal/contract"}, selector: cliDocumentationSelector},
+		{id: "cli_documentation", class: "documentation", command: "go -C mcp-gateway test -race -count=1 -timeout=60s -run '" + cliDocumentationSelector + "' ./internal/contract ./cmd/mcp-gateway", packages: []string{"./internal/contract", "./cmd/mcp-gateway"}, selector: cliDocumentationSelector},
 	}
 	classes := make(map[string]string, len(owners))
 	ids := make(map[string]struct{}, len(owners))
@@ -186,7 +188,7 @@ func TestCLIUsabilityFinalOwnerInventory(t *testing.T) {
 
 	selectedSource := selectedTests(t, cliSourceSelector, []string{"./internal/composition", "./cmd/mcp-gateway"})
 	assert.Equal(t, []string{"TestCLIControlBoundary", "TestProductionSourceOwnershipGuards"}, selectedSource)
-	selectedDocumentation := selectedTests(t, cliDocumentationSelector, []string{"./internal/contract"})
+	selectedDocumentation := selectedTests(t, cliDocumentationSelector, []string{"./internal/contract", "./cmd/mcp-gateway"})
 	assert.Equal(t, []string{"TestCLIDocumentationDrift", "TestCLIUsabilityDocumentationDrift", "TestDocumentationContractDrift", "TestReadmeRelativeLinksResolve"}, selectedDocumentation)
 
 	criterionPrimaryOwners := map[string]string{

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS6AcceptanceProfile(t *testing.T) {
+func TestAcceptanceProfileContract(t *testing.T) {
 	t.Run("closed direct profile", func(t *testing.T) {
 		commands, err := ProfileCommands(ProfileS6)
 		require.NoError(t, err)
