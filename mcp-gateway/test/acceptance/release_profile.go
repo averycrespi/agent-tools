@@ -106,6 +106,9 @@ func finalReleaseCheckSpecs() ([]finalReleaseCheckSpec, error) {
 		if id == "test-stress" {
 			argv = []string{"make", "-C", "mcp-gateway", "STRESS_COUNT=20", "test-stress"}
 		}
+		if id == "test-keyring-native" {
+			argv = []string{"mcp-gateway/test/keyring-native.sh"}
+		}
 		return finalReleaseCheckSpec{ID: id, Argv: argv, Timeout: leaf.Timeout, Budget: leaf.Budget, Repeats: leaf.Repeats, GatewayStarts: leaf.GatewayStarts, BrowserStarts: leaf.BrowserStarts, Native: id == "test-keyring-native"}, nil
 	}
 	special := map[string]finalReleaseCheckSpec{

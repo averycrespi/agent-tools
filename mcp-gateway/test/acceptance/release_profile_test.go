@@ -82,6 +82,9 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 			assert.Equal(t, []string{"make", "-C", "mcp-gateway", "STRESS_COUNT=20", "test-stress"}, check.Argv)
 			continue
 		}
+		if check.ID == "test-keyring-native" {
+			assert.Equal(t, []string{"mcp-gateway/test/keyring-native.sh"}, check.Argv)
+		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}
 	assert.Equal(t, 105, gatewayStarts)
