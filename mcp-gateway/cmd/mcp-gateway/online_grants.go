@@ -36,7 +36,7 @@ func runGrantCreate(command *cobra.Command, options *onlineOptions) error {
 
 func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byte, error) {
 	allowed := []string{"principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"}
-	body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: allowed})
+	body, err := readOnlineJSONInput(command, options, allowed)
 	if err != nil {
 		return nil, err
 	}

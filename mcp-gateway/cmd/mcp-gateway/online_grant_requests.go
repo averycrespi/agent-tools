@@ -73,7 +73,7 @@ func validGrantRequestArgs(options *onlineOptions, args []string) (string, bool)
 }
 
 func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([]byte, contract.Policy, error) {
-	body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: []string{"approved_policy"}})
+	body, err := readOnlineJSONInput(command, options, []string{"approved_policy"})
 	if err != nil {
 		return nil, contract.Policy{}, err
 	}
@@ -123,7 +123,7 @@ func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([
 }
 
 func readGrantRequestRejection(command *cobra.Command, options *onlineOptions) ([]byte, contract.GrantRequestRejectionReason, error) {
-	body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: []string{"reason"}})
+	body, err := readOnlineJSONInput(command, options, []string{"reason"})
 	if err != nil {
 		return nil, "", err
 	}

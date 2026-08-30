@@ -30,7 +30,7 @@ func runServerCredentialReplace(command *cobra.Command, options *onlineOptions, 
 	if len(matches) != 3 || matches[1] != args[0] {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ETag is invalid or belongs to another server."))
 	}
-	body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: []string{"kind", "expected_revision", "values", "client_secret"}})
+	body, err := readOnlineJSONInput(command, options, []string{"kind", "expected_revision", "values", "client_secret"})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}

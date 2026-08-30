@@ -60,7 +60,7 @@ func runAdminCredentialCreate(command *cobra.Command, options *onlineOptions) er
 }
 
 func readAdminCredentialCreateInput(command *cobra.Command, options *onlineOptions) ([]byte, error) {
-	body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: []string{"expires_at"}})
+	body, err := readOnlineJSONInput(command, options, []string{"expires_at"})
 	if err != nil {
 		return nil, err
 	}

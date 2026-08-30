@@ -26,6 +26,7 @@ type onlineAdminBearer struct {
 }
 
 type onlineOptions struct {
+	intent         onlineIntent
 	address        string
 	bearerFile     string
 	bearerStdin    bool
@@ -40,6 +41,8 @@ type onlineOptions struct {
 	limit          int
 	yes            bool
 	open           bool
+	direct         map[string]*string
+	toggles        map[string]*bool
 	filters        map[string]*string
 }
 
@@ -83,7 +86,7 @@ func newOnlineCommands() []*cobra.Command {
 }
 
 func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
-	options := &onlineOptions{filters: make(map[string]*string)}
+	options := &onlineOptions{direct: make(map[string]*string), toggles: make(map[string]*bool), filters: make(map[string]*string)}
 	command := &cobra.Command{
 		Use:     spec.Use,
 		Short:   spec.Short,
@@ -109,6 +112,11 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 				return writeOnlineFailure(command, string(controlclient.OutputHuman), onlineUsageProblem(spec, "Choose either --output human or --output json; --json is the JSON shorthand."))
 			}
 			options.output = string(resolved.Output)
+			intent, failure := prepareOnlineIntent(command, spec, options, args)
+			if failure != nil {
+				return writeOnlineFailure(command, options.output, failure)
+			}
+			options.intent = intent
 			for _, required := range spec.RequiredFlags {
 				if !command.Flags().Changed(required) {
 					return writeOnlineFailure(command, options.output, onlineUsageProblem(spec, "The --"+required+" flag is required."))
@@ -129,6 +137,18 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 	flags.StringVar(&options.output, "output", string(controlclient.OutputHuman), "output mode: human or json")
 	flags.BoolVar(&options.jsonOutput, "json", false, "shorthand for --output json")
 	for _, flag := range spec.Flags {
+		if direct, toggle := onlineIntentFlag(spec, flag); direct {
+			if toggle {
+				value := false
+				options.toggles[flag] = &value
+				flags.BoolVar(options.toggles[flag], flag, false, "direct command input")
+			} else {
+				value := ""
+				options.direct[flag] = &value
+				flags.StringVar(options.direct[flag], flag, "", "direct command input")
+			}
+			continue
+		}
 		switch flag {
 		case "file":
 			flags.StringVar(&options.file, flag, "", "one strict JSON input document path or -")
@@ -278,7 +298,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"status"}, "status", "status"),
 		onlineSpec([]string{"admin-credential", "list"}, "list", "admin-credential list", "limit", "cursor"),
 		onlineSpec([]string{"admin-credential", "get"}, "get ID", "admin-credential get ID"),
-		onlineSpec([]string{"admin-credential", "create"}, "create", "admin-credential create --file PATH [--secret-output NEW_PATH]", "file", "secret-output"),
+		onlineSpec([]string{"admin-credential", "create"}, "create", "admin-credential create --file PATH [--secret-output NEW_PATH]", "file", "expires-at", "secret-output"),
 		onlineSpec([]string{"admin-credential", "revoke"}, "revoke ID", "admin-credential revoke ID", "yes"),
 		onlineSpec([]string{"backup", "list"}, "list", "backup list", "limit", "cursor"),
 		onlineSpec([]string{"backup", "get"}, "get BACKUP_ID", "backup get BACKUP_ID"),
@@ -287,11 +307,11 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"server", "list"}, "list", "server list", "limit", "cursor"),
 		onlineSpec([]string{"server", "get"}, "get ID", "server get ID"),
 		onlineSpec([]string{"server", "create"}, "create", "server create --file PATH", "file", "idempotency-key"),
-		onlineSpec([]string{"server", "update"}, "update ID", "server update ID --etag ETAG --file PATH", "etag", "file", "yes"),
+		onlineSpec([]string{"server", "update"}, "update ID", "server update ID --etag ETAG --file PATH", "etag", "file", "display-name", "enable", "disable", "yes"),
 		onlineSpec([]string{"server", "delete"}, "delete ID", "server delete ID --etag ETAG", "etag", "yes"),
 		onlineSpec([]string{"server", "operation", "list"}, "list ID", "server operation list ID", "limit", "cursor"),
 		onlineSpec([]string{"server", "operation", "get"}, "get ID OPERATION_ID", "server operation get ID OPERATION_ID"),
-		onlineSpec([]string{"server", "operation", "start"}, "start ID", "server operation start ID --etag ETAG --file PATH", "etag", "file", "idempotency-key", "yes"),
+		onlineSpec([]string{"server", "operation", "start"}, "start ID", "server operation start ID --etag ETAG --file PATH", "etag", "file", "kind", "idempotency-key", "yes"),
 		onlineSpec([]string{"server", "credential", "replace"}, "replace ID", "server credential replace ID --etag ETAG --file PATH", "etag", "file", "yes"),
 		onlineSpec([]string{"server", "auth-flow", "list"}, "list ID", "server auth-flow list ID", "limit", "cursor"),
 		onlineSpec([]string{"server", "auth-flow", "get"}, "get ID FLOW_ID", "server auth-flow get ID FLOW_ID"),
@@ -302,18 +322,18 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"catalog", "list"}, "list", "catalog list", "limit", "cursor"),
 		onlineSpec([]string{"principal", "list"}, "list", "principal list", "limit", "cursor"),
 		onlineSpec([]string{"principal", "get"}, "get ID", "principal get ID"),
-		onlineSpec([]string{"principal", "create"}, "create", "principal create --file PATH", "file"),
-		onlineSpec([]string{"principal", "update"}, "update ID", "principal update ID --etag ETAG --file PATH", "etag", "file", "yes"),
+		onlineSpec([]string{"principal", "create"}, "create", "principal create --file PATH", "file", "display-name", "visibility"),
+		onlineSpec([]string{"principal", "update"}, "update ID", "principal update ID --etag ETAG --file PATH", "etag", "file", "display-name", "visibility", "state", "yes"),
 		onlineSpec([]string{"principal", "credential", "issue"}, "issue ID", "principal credential issue ID --etag ETAG [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
 		onlineSpec([]string{"principal", "credential", "revoke"}, "revoke ID", "principal credential revoke ID --etag ETAG", "etag", "yes"),
 		onlineSpec([]string{"grant", "list"}, "list", "grant list", "limit", "cursor", "principal-id", "server-id"),
 		onlineSpec([]string{"grant", "get"}, "get ID", "grant get ID"),
-		onlineSpec([]string{"grant", "create"}, "create", "grant create --file PATH", "file"),
+		onlineSpec([]string{"grant", "create"}, "create", "grant create --file PATH", "file", "principal-id", "effect", "server-id", "upstream-name", "expires-at"),
 		onlineSpec([]string{"grant", "delete"}, "delete ID", "grant delete ID", "yes"),
 		onlineSpec([]string{"grant-request", "list"}, "list", "grant-request list", "limit", "cursor", "principal-id", "state"),
 		onlineSpec([]string{"grant-request", "get"}, "get REQUEST_ID", "grant-request get REQUEST_ID"),
-		onlineSpec([]string{"grant-request", "approve"}, "approve REQUEST_ID", "grant-request approve REQUEST_ID --etag ETAG --file PATH", "etag", "file", "yes"),
-		onlineSpec([]string{"grant-request", "reject"}, "reject REQUEST_ID", "grant-request reject REQUEST_ID --etag ETAG --file PATH", "etag", "file", "yes"),
+		onlineSpec([]string{"grant-request", "approve"}, "approve REQUEST_ID", "grant-request approve REQUEST_ID --etag ETAG --file PATH", "etag", "file", "scope", "target", "duration-seconds", "acknowledge-future-tools", "yes"),
+		onlineSpec([]string{"grant-request", "reject"}, "reject REQUEST_ID", "grant-request reject REQUEST_ID --etag ETAG --file PATH", "etag", "file", "reason", "yes"),
 		onlineSpec([]string{"invocation", "list"}, "list", "invocation list", "limit", "cursor", "principal-id", "server-id", "requested-name", "admission-class", "decision", "outcome"),
 		onlineSpec([]string{"invocation", "get"}, "get INVOCATION_ID", "invocation get INVOCATION_ID"),
 	}

@@ -199,7 +199,7 @@ func readServerMutationInput(command *cobra.Command, options *onlineOptions, cre
 	if create {
 		allowed = append([]string{"namespace"}, allowed...)
 	}
-	body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: allowed})
+	body, err := readOnlineJSONInput(command, options, allowed)
 	if err != nil {
 		return nil, nil, err
 	}

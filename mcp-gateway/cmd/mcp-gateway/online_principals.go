@@ -46,7 +46,7 @@ func readPrincipalInput(command *cobra.Command, options *onlineOptions, create b
 	if !create {
 		allowed = append(allowed, "state")
 	}
-	body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: allowed})
+	body, err := readOnlineJSONInput(command, options, allowed)
 	if err != nil {
 		return nil, nil, err
 	}
