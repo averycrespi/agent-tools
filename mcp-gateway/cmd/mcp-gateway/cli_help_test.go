@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,35 @@ func TestCLIHelpTree(t *testing.T) {
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
 	assert.Equal(t, "sha256:3e7585715b560042743db7e50d13c3662b70edcb005bfa27b8ed44395c4a3f95", digest)
+}
+
+func TestDocumentationCommandHelpProjection(t *testing.T) {
+	root := newRootCmd()
+	manifest := contract.DocumentationCommandManifest()
+	manifestPaths := make([]string, 0, len(manifest))
+	for _, family := range manifest {
+		manifestPaths = append(manifestPaths, family.CommandPath)
+		command, remaining, err := root.Find(strings.Fields(family.CommandPath))
+		require.NoError(t, err, family.ID)
+		assert.Empty(t, remaining, family.ID)
+		assert.Equal(t, "mcp-gateway "+family.CommandPath, command.CommandPath(), family.ID)
+		assert.Equal(t, command.CommandPath()+" --help", family.HelpInvocation, family.ID)
+		output := new(bytes.Buffer)
+		command.SetOut(output)
+		require.NoError(t, command.Help(), family.ID)
+		assert.NotEmpty(t, output.String(), family.ID)
+	}
+	sort.Strings(manifestPaths)
+
+	actualPaths := make([]string, 0)
+	for _, command := range root.Commands() {
+		if command.Name() == "completion" || command.Name() == "help" {
+			continue
+		}
+		actualPaths = append(actualPaths, command.Name())
+	}
+	sort.Strings(actualPaths)
+	assert.Equal(t, manifestPaths, actualPaths)
 }
 
 func TestCLICommandErrors(t *testing.T) {

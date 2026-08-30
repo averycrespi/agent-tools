@@ -1,5 +1,11 @@
 # Frontend development
 
+Audience: Maintainers developing the Gateway web application
+
+Purpose: Run trusted live reload without changing the production asset boundary.
+
+See [DESIGN](../DESIGN.md) for the normative production trust boundary and [maintainer guidance](../CLAUDE.md) for package ownership and editing invariants.
+
 Use the development server to work on the authored TypeScript, Preact, and CSS with Vite live reload. It is a separate trusted local process, not a mode of the production Gateway binary.
 
 ## Start both processes
