@@ -31,6 +31,8 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runOnlineRead(command, options, "/api/v1/admin-credentials/"+args[0], adminCredentialItemTable)
 	case "admin credential create":
 		return runAdminCredentialCreate(command, options)
+	case "admin credential rotate":
+		return runAdminCredentialRotate(command, options, args)
 	case "admin credential revoke":
 		return runAdminCredentialRevoke(command, options, args)
 	case "backup list":

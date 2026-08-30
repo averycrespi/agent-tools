@@ -299,6 +299,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"admin", "credential", "list"}, "list", "admin credential list", "limit", "cursor"),
 		onlineSpec([]string{"admin", "credential", "get"}, "get ID", "admin credential get ID"),
 		onlineSpec([]string{"admin", "credential", "create"}, "create", "admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "expires-at", "secret-output"),
+		onlineSpec([]string{"admin", "credential", "rotate"}, "rotate OLD_CREDENTIAL_ID", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH", "secret-output", "yes"),
 		onlineSpec([]string{"admin", "credential", "revoke"}, "revoke ID", "admin credential revoke ID", "yes"),
 		onlineSpec([]string{"backup", "list"}, "list", "backup list", "limit", "cursor"),
 		onlineSpec([]string{"backup", "get"}, "get BACKUP_ID", "backup get BACKUP_ID"),
@@ -371,6 +372,7 @@ var onlineLeafDescriptions = map[string]string{
 	"admin credential list":   "List administrator credentials",
 	"admin credential get ID": "Show an administrator credential",
 	"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]": "Create an administrator credential",
+	"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH":        "Rotate an administrator credential with durable replacement verification",
 	"admin credential revoke ID": "Revoke an administrator credential",
 	"backup list":                "List recovery backups",
 	"backup get BACKUP_ID":       "Show a recovery backup",
@@ -412,6 +414,7 @@ var onlineLeafDescriptions = map[string]string{
 }
 
 var onlineRequiredFlags = map[string][]string{
+	"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH": {"secret-output"},
 	"server create --file PATH":                              {"file"},
 	"server credential replace ID --file PATH [--etag ETAG]": {"file"},
 }
