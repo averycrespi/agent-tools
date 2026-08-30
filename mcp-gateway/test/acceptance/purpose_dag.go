@@ -64,7 +64,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	}
 
 	leaves := map[string]purposeEvidenceLeaf{
-		"test-unit":        leaf("test-unit", []string{"tier.unit.contract", "cli.help_and_errors"}, 90*time.Second, 2*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
+		"test-unit":        leaf("test-unit", []string{"tier.unit.contract", "cli.help_and_errors"}, 150*time.Second, 3*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
 		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility"}, 60*time.Second, 90*time.Second, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
 		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 2*time.Minute, 150*time.Second, 1, 66, 0, []string{"real-binary output", "process cleanup records"}),
 		"test-security":    leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),

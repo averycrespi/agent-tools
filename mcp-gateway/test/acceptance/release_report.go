@@ -218,8 +218,23 @@ func validateReleaseReport(report releaseReport, definition releaseProfileDefini
 	}
 	for index, check := range report.Checks {
 		expected := definition.Checks[index]
-		if check.ID != expected.ID || !reflect.DeepEqual(check.Argv, expected.Argv) || !reflect.DeepEqual(check.Coverage, expected.Coverage) || !reflect.DeepEqual(check.Artifacts, expected.Artifacts) || !reflect.DeepEqual(check.CleanupRequirements, expected.CleanupRequirements) || check.TimeoutMillis != expected.TimeoutMillis {
-			return errors.New("release check does not match the closed profile")
+		if check.ID != expected.ID {
+			return fmt.Errorf("release check %d ID does not match the closed profile", index)
+		}
+		if !reflect.DeepEqual(check.Argv, expected.Argv) {
+			return fmt.Errorf("release check %s command does not match the closed profile", check.ID)
+		}
+		if !reflect.DeepEqual(check.Coverage, expected.Coverage) {
+			return fmt.Errorf("release check %s coverage does not match the closed profile", check.ID)
+		}
+		if !reflect.DeepEqual(check.Artifacts, expected.Artifacts) {
+			return fmt.Errorf("release check %s artifacts do not match the closed profile", check.ID)
+		}
+		if !reflect.DeepEqual(check.CleanupRequirements, expected.CleanupRequirements) {
+			return fmt.Errorf("release check %s cleanup requirements do not match the closed profile", check.ID)
+		}
+		if check.TimeoutMillis != expected.TimeoutMillis {
+			return fmt.Errorf("release check %s timeout does not match the closed profile", check.ID)
 		}
 		if err := validateTiming(check.StartedAt, check.EndedAt, check.DurationMillis); err != nil {
 			return fmt.Errorf("invalid release check timing: %w", err)
