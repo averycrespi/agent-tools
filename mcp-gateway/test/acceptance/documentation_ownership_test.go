@@ -63,6 +63,68 @@ func TestDocumentationOwnersAreClosed(t *testing.T) {
 	}
 }
 
+func TestFreshUserDocumentationGraph(t *testing.T) {
+	root := frontendDevelopmentModuleRoot(t)
+	readmeBytes, err := os.ReadFile(filepath.Join(root, "README.md"))
+	require.NoError(t, err)
+	readme := string(readmeBytes)
+	assert.Less(t, len(readmeBytes), 12000, "README must remain a concise entry point")
+	for _, heading := range []string{"## Installation", "## Quick start", "## Common workflows", "## Security", "## Guides", "## Development"} {
+		assert.Contains(t, readme, heading)
+	}
+	for _, command := range []string{"make install", "mcp-gateway initialize", "mcp-gateway serve", "mcp-gateway status"} {
+		assert.Contains(t, readme, command)
+	}
+	for _, guide := range contract.DocumentationGuideManifest() {
+		assert.Contains(t, readme, "("+guide.Path+")", guide.ID)
+	}
+	for _, detailed := range []string{"XDG_DATA_HOME", "--admin-bearer-stdin", "--verify-current", "schema 10"} {
+		assert.NotContains(t, readme, detailed, "detailed contracts belong in focused guides")
+	}
+	assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|executable|milestone|implementation phase)`), readme)
+
+	rootReadmeBytes, err := os.ReadFile(filepath.Join(filepath.Dir(root), "README.md"))
+	require.NoError(t, err)
+	rootReadme := string(rootReadmeBytes)
+	start := strings.Index(rootReadme, "### MCP Gateway")
+	require.NotEqual(t, -1, start)
+	end := strings.Index(rootReadme[start+len("### MCP Gateway"):], "\n### ")
+	require.NotEqual(t, -1, end)
+	gatewayOverview := rootReadme[start : start+len("### MCP Gateway")+end]
+	assert.Less(t, len(gatewayOverview), 1800)
+	assert.NotContains(t, gatewayOverview, "being built")
+	assert.NotRegexp(t, regexp.MustCompile(`\bS[1-6]\b`), gatewayOverview)
+	assert.Contains(t, gatewayOverview, "mcp-gateway/README.md")
+	assert.Contains(t, gatewayOverview, "mcp-gateway/docs/cli-local-administration.md")
+}
+
+func TestCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
+	root := frontendDevelopmentModuleRoot(t)
+	read := func(path string) string {
+		t.Helper()
+		contents, err := os.ReadFile(filepath.Join(root, path))
+		require.NoError(t, err)
+		return string(contents)
+	}
+	cli := read("docs/cli-local-administration.md")
+	for _, phrase := range []string{
+		"$XDG_DATA_HOME/mcp-gateway", "~/.local/share/mcp-gateway", "`--data-dir` has highest precedence",
+		"Online administrator authentication never prompts", "--admin-bearer-file", "--admin-bearer-stdin",
+		"Human output is the default", "`--output json`", "stdout", "stderr", "typed exit",
+		"http://127.0.0.1:8210", "never accepted in argv or environment", "never retries automatically",
+	} {
+		assert.Contains(t, cli, phrase)
+	}
+	recovery := read("docs/recovery.md")
+	for _, phrase := range []string{
+		"mcp-gateway backup create", "mcp-gateway restore --verify-current", "mcp-gateway restore BACKUP_ID",
+		"mcp-gateway admin-reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
+		"invalidates every restored agent credential", "does not rewrite the default `admin-bearer`", "Failed commands leave stdout empty",
+	} {
+		assert.Contains(t, recovery, phrase)
+	}
+}
+
 func assertMarkdownLinksResolve(t *testing.T, path, contents string) {
 	t.Helper()
 	links := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`).FindAllStringSubmatch(contents, -1)

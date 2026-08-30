@@ -16,14 +16,20 @@ func TestDocumentationContractDrift(t *testing.T) {
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"embedded browser control plane", "complete online CLI", "six fixed local self-service handlers", "only an explicit fresh call can use a resulting grant",
+			"locally secure, deny-by-default service", "never queues or automatically replays", "mcp-gateway/docs/cli-local-administration.md",
 		},
 		"../../../CLAUDE.md": {
 			"S6 manifest-controlled task, milestone, and final owners", "npm run ui:verify-supply-chain", "npm run ui:audit",
 		},
 		"../../README.md": {
-			"Web application, recovery, and accessibility", "Online commands use public HTTP only", "The retained projection distinguishes", "poll every two visible seconds",
-			"browser_one_time_display", "stopped-process `initialize`", "npm run ui:verify-supply-chain", "Qualification treats Linux Chromium", "go-keyring` v0.2.7 is context-free",
+			"## Current capabilities", "## Common workflows", "docs/cli-local-administration.md", "docs/recovery.md",
+			"at most one automatic attempt", "deny by default", "Native keyring operations may prompt", "## Coexistence with MCP Broker",
+		},
+		"../../docs/cli-local-administration.md": {
+			"$XDG_DATA_HOME/mcp-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
+		},
+		"../../docs/recovery.md": {
+			"Gateway must be stopped", "mcp-gateway restore --verify-current", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
 		},
 		"../../DESIGN.md": {
 			"Closed S1–S6 contract", "complete public-HTTP online CLI command tree", "`internal/controlclient` is the sole online CLI transport owner",
@@ -71,22 +77,32 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	require.NoError(t, err)
 	readme := string(readmeBytes)
 	quickStart := strings.Index(readme, "## Quick start")
-	currentStatus := strings.Index(readme, "## Current status")
+	currentCapabilities := strings.Index(readme, "## Current capabilities")
 	require.NotEqual(t, -1, quickStart)
-	require.NotEqual(t, -1, currentStatus)
-	require.Less(t, quickStart, currentStatus)
-	for _, phrase := range []string{
-		"`--data-dir` has highest precedence",
-		"Online administrator authentication never prompts",
-		"Human output is the default",
-		"does not rewrite or promote the default `admin-bearer`",
-		"online recovery must explicitly select the replacement",
-		"public canonical numeric-loopback HTTP control API",
-	} {
+	require.NotEqual(t, -1, currentCapabilities)
+	require.Less(t, quickStart, currentCapabilities)
+	for _, phrase := range []string{"make install", "mcp-gateway initialize", "mcp-gateway serve", "mcp-gateway status"} {
 		require.Contains(t, readme, phrase)
 	}
-	require.Contains(t, readme, "make install\nmcp-gateway initialize\nmcp-gateway serve")
-	require.Equal(t, 3, strings.Count(readme, "--admin-bearer-file"), "the default command catalog must not require repeated bearer flags")
+	for _, detailed := range []string{"XDG_DATA_HOME", "--admin-bearer-stdin", "--verify-current", "schema 10"} {
+		require.NotContains(t, readme, detailed)
+	}
+
+	cliBytes, err := os.ReadFile("../../docs/cli-local-administration.md")
+	require.NoError(t, err)
+	cli := string(cliBytes)
+	for _, phrase := range []string{
+		"`--data-dir` has highest precedence", "Online administrator authentication never prompts", "Human output is the default",
+		"never accepted in argv or environment", "The CLI never retries automatically", "http://127.0.0.1:8210",
+	} {
+		require.Contains(t, cli, phrase)
+	}
+	recoveryBytes, err := os.ReadFile("../../docs/recovery.md")
+	require.NoError(t, err)
+	recovery := string(recoveryBytes)
+	for _, phrase := range []string{"mcp-gateway restore --verify-current", "does not rewrite the default `admin-bearer`", "--admin-bearer-file"} {
+		require.Contains(t, recovery, phrase)
+	}
 	for _, phrase := range []string{
 		"the CLI prompts on the controlling terminal without echo",
 		"no-echo controlling-terminal prompt",

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,36 @@ func TestCLIDocumentationDrift(t *testing.T) {
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
 	assert.Equal(t, "sha256:868ad13462a7c57a1f4157d5169e257e7563085168c70cbd3ee5961f6c2f94dc", digest)
+}
+
+func TestCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
+	_, current, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
+	guides := map[string]string{}
+	for _, path := range []string{"docs/cli-local-administration.md", "docs/recovery.md"} {
+		contents, err := os.ReadFile(filepath.Join(moduleRoot, filepath.FromSlash(path)))
+		require.NoError(t, err)
+		guides[path] = string(contents)
+	}
+	for _, family := range contract.DocumentationCommandManifest() {
+		guide, owned := guides[family.CanonicalOwner]
+		if owned {
+			assert.Contains(t, guide, "`"+family.HelpInvocation+"`", family.ID)
+		}
+	}
+
+	root := newRootCmd()
+	assert.Equal(t, "", root.PersistentFlags().Lookup("data-dir").DefValue)
+	serve, _, err := root.Find([]string{"serve"})
+	require.NoError(t, err)
+	assert.Equal(t, contract.DefaultAuthority, serve.Flags().Lookup("listen").DefValue)
+	assert.Equal(t, "human", serve.Flags().Lookup("output").DefValue)
+	status, _, err := root.Find([]string{"status"})
+	require.NoError(t, err)
+	assert.Equal(t, controlclient.DefaultAddress, status.Flags().Lookup("address").DefValue)
+	assert.Equal(t, "human", status.Flags().Lookup("output").DefValue)
+	assert.Contains(t, guides["docs/cli-local-administration.md"], contract.CanonicalOrigin)
 }
 
 func TestCLISharedContract(t *testing.T) {

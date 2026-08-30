@@ -1,24 +1,73 @@
 # MCP Gateway
 
-MCP Gateway is a locally secure, deny-by-default service foundation for governing MCP access. It is developed beside MCP Broker as an independent Go module and clean-start successor; it does not change MCP Broker behavior or migrate its state.
+MCP Gateway is a locally secure, deny-by-default service for governing access to MCP servers. It runs on an exact numeric loopback address, keeps administrator and agent credentials separate, applies principal-specific grants before tool execution, and retains bounded redacted invocation evidence.
 
-## Quick start
+Gateway is installed and operated independently beside MCP Broker. It does not read or migrate Broker configuration or state.
 
-Install the binary, initialize the default installation, and start its loopback service:
+## Installation
+
+Requirements: Go 1.25.13 or later, GNU Make, and a supported operating-system keyring for server credentials.
+
+From the `mcp-gateway` directory:
 
 ```bash
 make install
+```
+
+The installed `mcp-gateway` binary owns its data directory, SQLite database, administrator authority, and local service lifecycle. See [CLI and local administration](docs/cli-local-administration.md) for installation paths and credential selection.
+
+## Quick start
+
+Initialize the default owner-only installation and start the loopback service:
+
+```bash
 mcp-gateway initialize
 mcp-gateway serve
 ```
 
-In another terminal, inspect the running Gateway. The command automatically reads the default administrator bearer and uses the public loopback HTTP API:
+In another terminal, verify the running Gateway:
 
 ```bash
 mcp-gateway status
 ```
 
-Initialization creates the default owner-only data directory and a new `admin-bearer` file within it. The command prints safe next steps, never the bearer. See [Installation paths and credentials](#installation-paths-and-credentials) for overrides and precedence.
+`initialize` creates a new administrator bearer file and prints safe next steps, never the bearer value. `status` reads that default bearer and uses the public loopback control API. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
+
+## Current capabilities
+
+Gateway provides:
+
+- strict local HTTP control and modern/legacy MCP ingress;
+- durable server configuration, credential and OAuth authority, runtime supervision, and active catalog publication;
+- permanent principals, one current agent credential per principal, immutable grants, and self-service grant requests;
+- governed tool calls with at most one automatic attempt and bounded redacted invocation evidence;
+- an embedded browser application and a matching public-HTTP administration CLI;
+- verified backups, stopped-process restore and recovery, and ordered shutdown.
+
+The [DESIGN](DESIGN.md) document is the source of truth for architecture, behavior, limits, failure semantics, and security decisions.
+
+## Common workflows
+
+Generated `mcp-gateway --help` and subcommand help are the exact command reference.
+
+- Resolve local paths, authenticate the CLI, select output, and inspect status with [CLI and local administration](docs/cli-local-administration.md).
+- Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Server configuration and credentials](docs/server-configuration.md).
+- Create principals, issue agent credentials, and manage grants or requests with [Principals, grants, and requests](docs/access-policy.md).
+- Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/invocation-evidence.md).
+- Create backups or perform stopped-process verification, restore, and administrator reset with [Backup, restore, and recovery](docs/recovery.md).
+
+Gateway never automatically replays a mutation or governed tool call. Follow the command-specific read guidance before deciding whether an explicit retry is safe.
+
+## Security
+
+- Loopback limits network reachability but does not isolate untrusted processes running as the same operating-system user.
+- Raw administrator, agent, server, and OAuth secrets must not be placed in arguments, environment variables, configuration, URLs, logs, SQLite, backups, browser storage, or read APIs.
+- Gateway is deny by default: only a current credential for an active principal can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
+- One-time secrets and OAuth URLs use prepared terminal, owner-only file, browser display, clipboard, or opener sinks. Lost one-time values cannot be recovered from metadata.
+- An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
+- Native keyring operations may prompt, fail, or outlive cancellation. Gateway never falls back to plaintext credential storage.
+
+See [DESIGN](DESIGN.md) for the complete trust boundary and [Invocation evidence](docs/invocation-evidence.md) for outcome interpretation.
 
 ## Guides
 
@@ -30,291 +79,20 @@ Initialization creates the default owner-only data directory and a new `admin-be
 - [Frontend development](docs/frontend-development.md)
 - [Release verification and acceptance evidence](docs/release-verification.md)
 
-## Current status
-
-The current executable implements the complete S1 filesystem, SQLite, admin authority, typed keyring/generation, strict loopback HTTP, control API, isolated dual-era MCP ingress, verified backup/restore, invalidation events, fixed admission, and lifecycle foundations. The S2 foundation adds the closed dynamic-server contract, shared bounded strict JSON, a durable server-domain repository, transaction-fenced server credential publication/invalidation, and authenticated desired-server and operation resources. Server definitions are secret-free and strictly validate the stdio or Streamable HTTP union before durable commit; creation/operation idempotency, snapshot pagination, strong ETags, exact preconditions, permanent tombstones, closed explicit-operation admission, refresh attachment, and behavioral supersession are enforced. A process-local manager now reconstructs enabled desired state after readiness, serializes each server behind a global-four nonblocking bound, fences stale results, and applies the fixed coalesced retry schedule through an injected driver. A bounded direct stdio supervisor provides clean runtime-only environments, process groups, framed output limits, safe exit classes, and verified graceful/forced cleanup. Behavioral lifecycle work fences and withdraws publication before stop, gates replacement after `stop_unconfirmed`, and publishes only the current replacement before operation success; ownership is memory-only, so restart never acts on stale PIDs and an uncatchable Gateway crash may require operator cleanup of an orphan. A Gateway-owned downstream foundation now adds strict local JSON-RPC envelopes/IDs, bounded stdio and Streamable HTTP exchanges, exact role-built MCP headers, exact modern/legacy/auto negotiation, immutable runtime-local legacy sessions, and a shared hardened remote factory with canonical destinations, fresh DNS validation, address-pinned dialing, platform TLS, and no proxy, redirect, cookie, compression, retry, or permissive SDK transport path. The production composition constructs one concrete mixed runtime owner, hardened stdio/HTTP driver, dual-era negotiator, catalog coordinator, and authoritative active registry. After listener readiness, asynchronous reconstruction validates only the credential generations required by each transport—exact static slot sets, bearer authority, or current OAuth registration/client/token bindings and expiry—then activates the selected runtime and traverses and publishes its catalog. Credential-free transports perform no keyring work. Missing, locked, interaction-required, unavailable, and unsupported provider states remain distinct safe status/reason classes; admission saturation affects only the dependent reconciliation. Listener readiness and unrelated runtimes do not wait for credential reads. First-signal shutdown fences and withdraws every active runtime synchronously, launches all runtime stops concurrently outside reconciliation admission, drains keyring consumers before storage closure, and remains bounded by the existing ten-second process deadline; unverified cleanup leaves the run marker unclean for startup verification. Production composition now owns and startup-validates one internal principal/grant/credential authority and one invocation repository/service, synchronously fences new invocation pipelines before authority and route withdrawal, and publishes one atomic principal-credential authenticator/discovery/call/status bundle to `/mcp`. Only the invocation service can consume active downstream capabilities, and only after an acknowledged durable ALLOW admission. Authenticated principal list/create/read/PATCH control routes now consume that sole authority with strict singleton queries, exact strong ETags, and post-commit ID-free authorization invalidation. Authenticated credential issue/replace/revoke routes expose an agent bearer only in the successful one-time creation response. Authenticated immutable grant list/create/read/delete routes accept exact nullable scope, constraint, and expiry members, use filter-bound snapshot cursors, and have no ETag or idempotency machinery. System status reports real principal and grant occupancy while protocol status honestly reports `principal_credentials`. Governed invocation, its internal bounded audit history, and S5 self-service grant requests are implemented. Six fixed `mcp_gateway` tools let an admitted principal inspect its own identity, grants, and requests or create/cancel a request; authenticated administrators review and adjudicate those requests. Authenticated read-only invocation list/item resources are available. The embedded application now provides safe browser sign-in, reload/new-tab session recovery, logout, authentication-epoch fencing, an Overview assembled from authoritative bounded status, server, request, and invocation reads, and retained invocation list/detail inspection with safe pagination, filtering, polling, and item-only inert captures; the server/catalog lifecycle screens, principal/credential and complete immutable-grant workflows, and the request queue/evidence detail and consequence-confirmed adjudication are available, administrator credential and backup System workflows are available with stopped-process recovery boundaries. Invalidation events trigger authoritative rereads only for owned visible snapshots, while storage-latch posture remains global across navigation; events never author records or replay mutations. Neither reading, approval, nor recovery submits or replays a call. The online CLI exposes its frozen command/help tree and strict shared input, output, problem, exit, consequence-confirmation, and prepared terminal/file sink foundation. Its `status`, `admin-credential list|get|create|revoke`, `backup list|get|create|delete`, `principal list|get|create|update`, `principal credential issue|revoke`, `grant list|get|create|delete`, `grant-request list|get|approve|reject`, `invocation list|get`, `server list|get|create|update|delete`, `server operation list|get|start`, `server credential replace`, `server auth-flow list|get|start|cancel`, `server descriptor list|get`, and `catalog list` leaves are executable, completing the frozen online command tree.
-
 ## Development
 
-Requirements: Go 1.25.13 or later, GNU Make, and the repository's development tools.
-
-For frontend live reload, start the Gateway independently, then run the authored-source development server from the repository root:
-
-```bash
-mcp-gateway serve
-# In another terminal:
-npm run ui:dev
-```
-
-Open `http://127.0.0.1:5173`. This trusted local development process handles administrator authentication and session traffic; it is separate from the deterministic production bundle generated by `npm run ui:build` and never writes development output into the embedded asset directory. See the [frontend development guide](docs/frontend-development.md) for the exact selector grammar, trust and cookie boundary, OAuth callback authority, shutdown, troubleshooting, and focused tests.
+Maintainers should start with [CLAUDE.md](CLAUDE.md) for package ownership, editing invariants, and verification commands.
 
 ```bash
 make build
 make test
-make test-keyring-native # schema-validated passed/skipped/failed native evidence
-make accept-s2-1        # compatibility S2.1 acceptance report
-make accept-s3          # compatibility S3 acceptance report
-make test-unit          # count-one ordinary correctness tier
-make test-integration-s5 # selected real-SQLite/filesystem tier
-make test-security-s5   # count-one durable/static/report sink tier
-make test-stress-s5 STRESS_COUNT=10 # five named calibration scenarios only
-make test-e2e           # count-one real-binary tier
-make verify             # nonmutating tidy/format/lint verification
-make accept-s4          # compatibility S4 acceptance report
-make accept-s5 REPORT=/absolute/path/report.json # retained S5 compatibility report
-make test-task-s6 TASK=T<n>       # one executable bounded S6 owner
-make test-milestone-s6 MILESTONE=M<n> # one executable bounded S6 gate
-make qualify-external-s6              # validate exact-candidate external sidecars only
-make accept-s6 REPORT=/absolute/path/report.json # run the frozen clean S6 profile once
-go run ./test/acceptance/cmd --adopt /absolute/path/report.json --output /absolute/path/adoption.json # no-check adoption
+make verify
 npm run ui:typecheck
-make -C mcp-gateway test-frontend-development # Node proxy matrix + two real-browser dev workflows
 npm run ui:build
-npm run ui:verify-generated
-npm run ui:verify-supply-chain
-npm run ui:audit                  # unsuppressed high-severity frontend audit
-make lint
-make audit
 ```
 
-From the repository root, `make build`, `make test`, and `make check` include MCP Gateway; `make check-other-tools` deliberately excludes it. S2.1–S5 acceptance profiles are retained compatibility evidence, not the final S6 owner. S6 task and milestone commands execute only manifest rows explicitly transitioned to executable, with bounded multiplicity and definition hashes. The final profile owns count-one automated tiers, unsuppressed vulnerability checks, external-evidence validation, cleanup, and clean unchanged HEAD; its no-check adopter reruns no product checks.
-
-A retained S5 report can still be adopted without rerunning checks:
-
-```bash
-go run ./test/acceptance/cmd --adopt /absolute/path/report.json --output /absolute/path/adoption.json
-```
-
-The adopter hashes and reparses the immutable report, rechecks definitions, HEAD, and status, and writes a distinct sidecar. A failure or native `failed` blocks; native `skipped` is additive.
-
-The retained S4 compatibility evidence is split by observable boundary:
-
-| Layer                        | Cases                                                                                                                                                                                                                                                                         |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Concrete runtime/composition | Exact credential-free, static, bearer, public OAuth, and confidential OAuth authority; modern, legacy, and every strict auto-fallback class; current-runtime lookup, catalog/OAuth barriers, internal route acquisition, mixed capacity, failure isolation, and ordered drain |
-| Real binary                  | Stdio and hardened HTTP activation with nonempty catalogs; display continuity, behavioral replacement and reload; disconnect, disable and delete; restart absence and fresh reconstruction; two-server isolation; graceful, blocked, and forced shutdown                      |
-| Compatibility/security       | S2.1/S3 compatibility, S4 source/SQL/privacy guards, secret canaries, backup/restore, docs, full repository checks, unsuppressed vulnerability scan, and separately classified native keyring evidence                                                                        |
-
-The shared `internal/strictjson` parser requires explicit byte/depth bounds, rejects invalid UTF-8, duplicate members, excessive depth or size, trailing values, and unknown members for closed destinations, and supplies object-order-independent canonical equality while preserving array order. `internal/contract` remains the sole implemented S1–S6 vocabulary owner.
-
-## Installation paths and credentials
-
-The zero-argument commands use one deterministic installation root. `--data-dir` has highest precedence. Otherwise Gateway uses `$XDG_DATA_HOME/mcp-gateway` when `XDG_DATA_HOME` is absolute, then the operating-system account home at `~/.local/share/mcp-gateway`. A relative XDG value is rejected; the `$HOME` environment variable is not an authority source.
-
-`initialize` writes its new administrator bearer to `<effective-data-dir>/admin-bearer` unless `--secret-output` selects a different new file. Online administrator authentication never prompts. An explicit `--admin-bearer-file` or `--admin-bearer-stdin` source is used when selected; the two conflict. With neither, the CLI reads `<effective-data-dir>/admin-bearer`. Bearers are never accepted in argv or environment.
-
-For a separate installation, apply `--data-dir` consistently to stopped-process, `serve`, and online commands. `--address` independently selects another canonical numeric-loopback HTTP listener:
-
-```bash
-mcp-gateway initialize --data-dir /path/to/mcp-gateway-data
-mcp-gateway serve --data-dir /path/to/mcp-gateway-data
-mcp-gateway --data-dir /path/to/mcp-gateway-data status
-```
-
-## Offline admin authority
-
-Zero-argument `initialize` creates the resolved owner-only installation and publishes a new `0600` administrator bearer before activating its verifier. It never overwrites an existing file and prints only safe next steps. Use `--secret-output /new/path` to select another new output file.
-
-`admin-reset` requires an explicit fresh replacement path while Gateway is stopped:
-
-```bash
-mcp-gateway admin-reset --secret-output /safe/new/replacement-file
-```
-
-A successful reset revokes every prior admin bearer and activates the published replacement in one storage transaction. It does not rewrite or promote the default `admin-bearer`; after restart, pass `--admin-bearer-file /safe/new/replacement-file` to online commands. A failed secret publication activates nothing and leaves existing known authority valid.
-
-## Local service and control API
-
-Start the resolved installation on the exact default authority:
-
-```bash
-mcp-gateway serve
-```
-
-While Gateway is running, inspect status and retained invocation evidence through public HTTP only:
-
-```bash
-mcp-gateway status
-mcp-gateway admin-credential list
-mcp-gateway admin-credential get CREDENTIAL_ID
-mcp-gateway admin-credential create --file credential.json --secret-output /new/owner-only-bearer
-mcp-gateway admin-credential revoke CREDENTIAL_ID --yes
-mcp-gateway backup create
-mcp-gateway backup list
-mcp-gateway backup get BACKUP_ID
-mcp-gateway backup delete BACKUP_ID --yes
-mcp-gateway principal list
-mcp-gateway principal get PRINCIPAL_ID
-mcp-gateway principal create --file principal.json
-mcp-gateway principal update PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --file patch.json --yes
-mcp-gateway principal credential issue PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --secret-output /new/agent-bearer --yes
-mcp-gateway principal credential revoke PRINCIPAL_ID --etag '"principal-PRINCIPAL_ID-REVISION"' --yes
-mcp-gateway grant create --file grant.json
-mcp-gateway grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID
-mcp-gateway grant get GRANT_ID
-mcp-gateway grant delete GRANT_ID --yes
-mcp-gateway grant-request list --principal-id PRINCIPAL_ID --state pending
-mcp-gateway grant-request get REQUEST_ID
-mcp-gateway grant-request approve REQUEST_ID --etag '"grant-request-REQUEST_ID-REVISION"' --file approval.json --yes
-mcp-gateway grant-request reject REQUEST_ID --etag '"grant-request-REQUEST_ID-REVISION"' --file rejection.json --yes
-mcp-gateway invocation list --limit 50
-mcp-gateway invocation get INVOCATION_ID
-mcp-gateway server list --limit 50
-mcp-gateway server get SERVER_ID
-mcp-gateway server create --file server.json
-mcp-gateway server update SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file patch.json --yes
-mcp-gateway server delete SERVER_ID --etag '"server-SERVER_ID-REVISION"' --yes
-mcp-gateway server operation list SERVER_ID
-mcp-gateway server operation get SERVER_ID OPERATION_ID
-mcp-gateway server operation start SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file operation.json
-mcp-gateway server credential replace SERVER_ID --etag '"server-SERVER_ID-REVISION"' --file credential.json --yes
-mcp-gateway server auth-flow list SERVER_ID
-mcp-gateway server auth-flow get SERVER_ID FLOW_ID
-mcp-gateway server auth-flow start SERVER_ID --etag '"server-SERVER_ID-REVISION"' --open
-mcp-gateway server auth-flow cancel SERVER_ID FLOW_ID --yes
-mcp-gateway server descriptor list SERVER_ID --retired include
-mcp-gateway server descriptor get SERVER_ID TOOL_ID
-mcp-gateway catalog list
-```
-
-Online commands use public HTTP only. They resolve and read only the selected administrator bearer, then use the public canonical numeric-loopback HTTP control API through the hardened control client; they never read private Gateway state or call private package authority. `--data-dir` selects the default credential location, not another transport path. Use `--address http://127.x.y.z:PORT` only for another canonical numeric-loopback Gateway. The client disables redirects, proxies, cookies, compression, connection reuse, and automatic retries.
-
-Human output is the default. `--output json` or its `--json` shorthand selects the exact JSON success projection; conflicting output selectors fail before work. Finite successes are written to stdout, while finite and pre-start failures leave stdout empty and write one bounded mode-appropriate problem to stderr with a stable typed exit class. Lists return one page and support only their command-scoped filters, limit, and cursor flags. Missing terminal invocation evidence is an unknown outcome, not proof of nonexecution: Gateway never replays it automatically, and an explicit retry may duplicate an effect. Pre-handoff transport failure is safe to retry; post-handoff mutation uncertainty is never retried automatically and requires the command-specific read guidance. Admin credential creation publishes its bearer exactly once to the controlling terminal or a newly created owner-only `--secret-output` file; normal output contains metadata only. Creation and confirmed revocation never replay automatically, and metadata reads cannot recover a lost bearer. Backup creation generates or accepts an idempotency key and retains it with the fixed `{}` digest on uncertainty for deliberate same-tuple replay; it never retries automatically. Backup deletion requires confirmation and read-before-retry recovery. Principal create/update accepts only the closed state and visibility vocabulary and never silently refetches an ETag or replays. State-bearing patches require confirmation because disablement clears credential authority and sessions, while re-enablement restores neither credentials nor deleted grants; display/visibility-only patches do not prompt. Principal credential issue/replacement and revocation require exact ETags and consequence confirmation. A newly issued bearer is published once to a prepared controlling terminal or fresh owner-only file; replacement has no authority overlap, metadata cannot recover a lost bearer, and no credential mutation is replayed automatically. Grant creation requires all six scope members, including explicit nullable fields, and supports only the bounded scalar-equality constraint shape. It has no idempotency or ETag surface. Confirmed deletion warns that expired/default grants retain capacity or self-service consequences, and visibility alone never authorizes calls; uncertain create/delete outcomes require narrow reads rather than replay. Grant-request reads keep collection summaries separate from item-only evidence/current-target comparison. Approval and rejection require strict closed bodies, exact request ETags, and consequence confirmation; they never execute or resume the motivating call, never retry automatically, and use request/grant reads only as bounded recovery evidence. A failed read is safe to repeat after checking Gateway availability. Server creation generates an idempotency key unless one is supplied; an uncertain result reports that key and the canonical input digest for deliberate same-input replay. Updates require an explicit current server ETag, never replay automatically, and require confirmation when `enabled` or `transport` is present; a display-name-only patch does not prompt. Permanent deletion also requires the exact ID-bound ETag and interactive confirmation or `--yes`; it has no force path, and scheduled cleanup cannot guarantee remote revocation. Explicit operations accept only `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`; reload and credential disconnect require confirmation. Starts generate or accept an idempotency key but never retry or poll automatically, and uncertain results retain the key, ETag, and canonical input digest for read-before-replay recovery. Credential replacement accepts only the complete write-only static-slot or OAuth-client-secret variant, always requires confirmation, and never emits, digests, or replays a submitted secret. Native keyring interaction may prompt, fail, or outlive cancellation; uncertain replacement requires server and operation reads, which cannot prove which secret became authoritative. Auth-flow start requires a prepared controlling terminal in both output modes, publishes the one-time authorization URL only there, emits only safe flow metadata on stdout, and optionally opens the validated URL without a referrer. It never retries a start or reconstructs a lost URL. Cancellation first reads an eligible preparing or awaiting-callback flow, requires confirmation, and leaves the API authoritative against state races. Durable descriptor rows are historical evidence rather than callability claims; the active catalog table reports page-level publication posture without inventing per-tool authorization.
-
-Use `--listen 127.0.0.1:<port>` to select another numeric IPv4 loopback authority. Host aliases, wildcard and non-loopback binds, forwarding headers, alternate Host values, cross-origin requests, CORS, unknown paths, and unsupported methods are rejected. Successful startup emits exactly one safe acknowledgement in the selected output mode containing the authority and installation ID. Clean shutdown emits no trailer; a later lifecycle failure emits one bounded terminal problem on stderr. Detailed status requires admin authentication.
-
-`GET /livez` reports only process liveness and `GET /readyz` reports only ready/not-ready. The control surface exchanges an admin bearer at `POST /api/v1/admin-sessions`, manages bounded admin credential metadata at `/api/v1/admin-credentials`, and exposes `GET /api/v1/system-status`. Grant-request administration uses `GET /api/v1/grant-requests`, `GET /api/v1/grant-requests/{id}`, `POST /api/v1/grant-requests/{id}/approve`, and `POST /api/v1/grant-requests/{id}/reject`; item and adjudication requests use exact strong request ETags and `If-Match`. A browser client signs in by posting exact `{}` with the bearer, then keeps the returned CSRF value only in memory and uses the host-only, `HttpOnly`, `SameSite=Strict` session cookie. On load or reload it posts exact `{}` with exact Origin to `/api/v1/admin-sessions/current` to recover the CSRF value from a current cookie; unusable cookie authority is expired before another bearer exchange, and bootstrap never reissues the cookie. Session requests require the exact configured Origin. Because browsers omit Origin on same-origin GET, a safe read may instead present the in-memory CSRF header; that fallback requires the exact live token. Unsafe requests still require exact Origin, JSON, and the CSRF header, with bootstrap as the sole semantically read-only CSRF exception. Logout, expiry, parent revocation, shutdown, and restart close the session. Every API response is `no-store`, and no endpoint emits CORS headers. Strong ETags are emitted only by contract-declared server, principal, and grant-request item/adjudication operations; principal PATCH and credential POST/DELETE require the exact current principal `If-Match`, request adjudication requires the exact request `If-Match`, while grants have no ETag or precondition machinery. A newly created bearer appears only in its authenticated creation response.
-
-## Web application, recovery, and accessibility
-
-Open `/` on the configured loopback authority and enter a current administrator bearer. The value is cleared before request settlement; only an HttpOnly session cookie survives, while CSRF authority remains in memory. Reload and a new tab recover that in-memory authority once from a current cookie. Logout, expiry, parent revocation, invalid bootstrap, Gateway shutdown, or process restart closes the session and requires sign-in again. The web application cannot initialize, reset, verify, or restore an installation: those remain stopped-process `initialize`, `admin-reset`, `restore --verify-current`, and `restore BACKUP_ID` commands, while System shows guidance only.
-
-The completed destinations cover Overview, servers/catalog, principals and credentials, immutable grants, grant requests and adjudication, invocations, administrator credentials, backups, and System status. Operations and OAuth flows poll every two visible seconds while nonterminal; invocation views poll every five visible seconds. Polling pauses while hidden. Invalidation events are hints only, coalesce matching reads for 250 milliseconds, and reconnect by loading authoritative snapshots; neither elapsed time, an event, nor a read submits, completes, or replays work.
-
-Qualification treats Linux Chromium as blocking, Firefox and Playwright WebKit as blocking when available, and real Safari plus VoiceOver/Safari as separately revision-bound external evidence; an unavailable external cell is reported as additive rather than passed. Shared semantics cover keyboard-only navigation, focus routing/restoration, dialogs and live regions, associated forms, labeled table overflow, non-color status, reduced motion, 320 CSS-pixel layout, and the pinned 200% reflow reference.
-
-The embedded `/` application has an exact generated HTML/JS/CSS allowlist and restrictive self-only content security policy. Its closed 2,048-byte ASCII fragment grammar canonicalizes only the documented destinations, resource IDs, tabs, and non-sensitive filters; malformed or secret-bearing fragments are replaced by a fixed signed-out safe location without rendering the rejected text. Browser-controlled persistence is limited to the `mcp_gateway_theme` localStorage key with `system`, `light`, or `dark`. Sign-in exchanges a masked, autocomplete-disabled bearer that is cleared immediately after handoff; bootstrap restores only in-memory CSRF state, and logout, revocation, reload failure, or other session loss fences prior requests, timers, streams, and one-time values by authentication epoch. Shared mutation state prevents duplicate submission, submits exact loaded ETags, keeps route-specific idempotency recovery tuples only in the live epoch, permits only explicit same-intent replay, and closes all mutation controls when storage is latched; malformed or post-handoff responses remain uncertain rather than being retried. The signed-out and authenticated shells provide keyboard-routed headings, a responsive navigation disclosure, text-and-symbol status, native confirmation with focus restoration, reduced-motion behavior, and shared inert JSON, comparison-table, form, loading, empty, error, and stale-state primitives. The Overview, retained invocation inspection, detailed System status/stopped-recovery guidance, and server inventory/detail, sanitized create/update, explicit operation monitoring/start, write-only credential replacement, foreground OAuth flow operation, consequence-confirmed credential disconnect, typed permanent deletion, plus active/durable catalog inspection workflows are implemented. Principal/credential, grant, request/adjudication, administrator-credential, and backup workflows use the same epoch, refresh, mutation, confirmation, and sink owners. `/oauth/callback` consumes one recognized state through a fixed eight-slot nonblocking registry and returns only fixed nonreflecting no-store HTML with a deny-all CSP; invalid, replayed, expired, stale, or saturated callbacks expose no query or dependency text. Authenticated `/api/v1/backups` supports bounded create/list/read/delete operations; creation requires a 1–128 byte visible-ASCII `Idempotency-Key`, and retries by the same admin authority return the original safe metadata.
-
-Authenticated `GET /api/v1/events` is a best-effort SSE freshness channel for bearer or session clients. Browsers may instead use session-only `POST /api/v1/events` with exact JSON `{}`, Origin, and CSRF; it has identical stream semantics and rejects bearer authority. It emits only closed safe invalidations, including `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, ID-free `authorization`, and ID-free `grant_requests` for implemented resources, never secrets or event IDs. The browser treats these as refresh hints only: it coalesces matching visible reads for 250 milliseconds, fences them by authentication epoch, canonical location, and monotonic view generation, pauses configured polling while hidden, and reloads visible snapshots after a manual stream reconnect. There is no replay cursor or event-derived record authority. Sixteen streams with sixteen buffered invalidations each are admitted globally; slow consumers are disconnected rather than allowed to queue unbounded work. Streams close with their session or bearer and on shutdown.
-
-## Principals, credentials, and grants
-
-Authenticated administrators manage permanent principals through `GET/POST /api/v1/principals` and `GET/PATCH /api/v1/principals/{id}`. Creation requires `display_name` and one visibility mode—`all`, `requestable`, or `allowed-only`—and atomically returns the active principal plus its ordinary synthetic default grant. Principals cannot be deleted. Disabling a principal clears its current credential; re-enabling it does not restore authority.
-
-`POST/DELETE /api/v1/principals/{id}/credential` accepts exact `{}` with the current strong principal ETag. POST issues or replaces the one current non-expiring `mgw_agent_` credential and reveals its bearer once; DELETE revokes it. Principal and credential revisions advance together for issue, replacement, revoke, and disable, so an old bearer never overlaps current authority.
-
-`GET/POST /api/v1/grants` and `GET/DELETE /api/v1/grants/{id}` expose immutable ALLOW/DENY rows. Creation requires all six members; `upstream_name`, `constraint`, and `expires_at` must be present but may be `null`. Exact names do not require a current descriptor. Constraints are bounded exact scalar equality expressions of the form `{"equals":{"/object/path":value}}`; they use object-only RFC 6901 traversal, preserve numeric spelling, allow at most 16 atoms, and apply only to exact-name grants. Expired grants stop applying but remain readable and count toward the 4,096-row limit until deleted. Call admission evaluates constraints against the exact token-preserving argument object. Discovery uses only their structural presence and deliberately over-approximates constrained policy. Principal creation's ordinary permanent server-wide `mcp_gateway` ALLOW is the default grant for all six self-service tools. It counts toward ordinary grant capacity, remains deletable and DENY-overridable, and only an administrator can restore it.
-
-## Self-service grant requests
-
-The fixed tools are `mcp_gateway.get_identity`, `mcp_gateway.list_grants`, `mcp_gateway.create_grant_request`, `mcp_gateway.get_grant_request`, `mcp_gateway.list_grant_requests`, and `mcp_gateway.cancel_grant_request`. They are self-only: the admitted subject supplies the principal, foreign request IDs are indistinguishable from missing IDs, and no tool can select another principal, mutate grants directly, adjudicate, read audit data, acquire a downstream capability, or perform filesystem, process, network, keyring, credential, or administrative work.
-
-A request policy targets one exact external tool or one server namespace. Exact-tool requests may include a bounded scalar-equality constraint; server requests require `future_tools_acknowledged:true` and cannot include a constraint. Duration is permanent when null or a canonical decimal 60 through 2,592,000 seconds. Exact requests retain a bounded immutable descriptor snapshot for administrator item views only. Semantically identical pending submissions return `existing` before current target, DENY, or capacity checks; canonical equality preserves lexical number identity. Requests move once from `pending` to `approved`, `rejected`, or `cancelled`, never expire, reopen, or revoke a later grant. Cancellation is idempotent, and ownership survives credential rotation, restart, and stopped restore.
-
-Administrator collections contain summaries without descriptor evidence. Item and adjudication responses include submitted evidence, optional approved evidence, and a read-time current-target comparison. Approval may only narrow scope, exact constraint tokens, and duration; it rechecks current DENY and atomically commits one ordinary ALLOW plus the approved transition. Rejection uses one closed reason: `not_approved`, `existing_access`, `scope_too_broad`, or `policy_conflict`. Creation, cancellation, rejection, and approval publish freshness invalidations only after acknowledged commit; approval emits request then authorization invalidation. Neither adjudication nor recovery submits, holds, resumes, or replays the motivating call. After approval the agent must make an explicit fresh `tools/call`.
-
-## MCP ingress
-
-Production agent authentication consumes the composition-owned principal credential authority before any `/mcp` body read or protocol classification. It uses already-registered non-expiring authorization leases and isolates the two supported wire eras: `2026-07-28` is stateless and requires matching `Mcp-Protocol-Version` and per-request `_meta.protocolVersion`; `2025-11-25` uses bounded, in-memory sessions bound to the reauthenticated principal ID, credential ID, and credential revision. Every request lease is released on completion or boundary rejection, invalidation cancels modern request context, and successful legacy initialization alone transfers its lease into a session. Modern requests never accept legacy session state, malformed modern claims never downgrade, and all legacy sessions release their lease on credential replacement/revocation, principal disablement, idle/absolute lifetime, deletion, shutdown, or restart. A shared strict raw codec intercepts `tools/list` and governed `tools/call` before SDK dispatch and rejects every other non-lifecycle feature method with the fixed JSON-RPC method-not-found envelope. The shared injected seams make modern and initialized legacy sessions advertise exactly `tools:{}`, serve principal-specific pager bytes without `listChanged`, and pass calls through the durable invocation owner. Legacy requests reauthenticate the exact session binding and use a request-scoped lease. Production constructs and validates the authority, policy service, process-local cursor key, pager, invocation repository/service/fence, and ingress adapters before listener startup, then publishes their single positive dependency bundle together with `agent_auth=principal_credentials`.
-
-Clients authenticate `/mcp` with the current `mgw_agent_` bearer of an active principal. Discovery merges descriptors from current active downstream catalogs with the always-ready six fixed synthetic descriptors; stale, unavailable, retired, and durable-only downstream descriptors are excluded. Synthetic tools use the same visibility, ALLOW, and DENY semantics and consume no downstream durable or active-tool capacity. Results use deterministic external-name/tool-ID order. `all` sees every current tool; `requestable` hides only tools covered by an applicable unconstrained DENY; and `allowed-only` requires an applicable ALLOW and no applicable unconstrained DENY. A constrained ALLOW deliberately over-approximates visibility, while a constrained DENY does not hide a tool.
-
-Pages contain at most 100 of the bounded 2,054 discoverable tools—2,048 downstream plus six synthetic—and at most 4 MiB of complete encoded JSON-RPC output. Opaque integrity-protected discovery cursors are process-local and bind the principal, credential, policy, catalog generation, method, and position; after restart or a relevant state change, a stale-cursor response requires a fresh first page. Both eras advertise exactly `tools:{}` without `listChanged`. Other non-lifecycle feature methods return fixed `-32601 Method not found`.
-
-### Governed calls and internal audit history
-
-The retained projection distinguishes `invalid_params`, `unknown_tool`, `invalid_arguments`, `authorization_unavailable`, `deny`, `block`, `prestart_failure`, `succeeded`, `downstream_failure`, and `outcome_unknown`. Its basis is admission, policy, terminal evidence, or missing terminal evidence; a local target is not a downstream-handoff claim, and missing terminal evidence never proves nonexecution.
-
-Every classifiable request-form `tools/call` attempts one immutable admission row before any downstream effect; notifications, batches, and bodies rejected before call classification create none. A valid call resolves one current external name to a closed downstream-or-local target and evaluates current grants in that transaction. Downstream targets pin their validator and active capability. Local targets receive only the admitted subject after the same acknowledged audit/ALLOW admission and execute one fixed handler without acquiring downstream capacity. Invalid params, unknown tools, invalid arguments, unavailable audit/policy, DENY, and BLOCK reject immediately without dispatch. An admitted ALLOW releases authority and SQLite mutation ownership before one immediate, nonqueued execution attempt; it never resolves again, reroutes, or retries. Stop, replacement, credential change, route withdrawal, cancellation, or capacity loss before handoff returns a safe known failure. Once handoff may have occurred, an incomplete exchange returns `outcome_unknown` because the tool may have taken effect.
-
-Successful call content and validated `structuredContent` are returned only to that caller. Downstream tool errors, JSON-RPC errors, malformed complete results, and transport diagnostics collapse to fixed least-disclosing errors. Successful results, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Audit argument capture applies fixed recursive key redaction and an 8 KiB compact bound; overflow stores a fixed placeholder, while redaction or encoding failure stores no capture rather than raw input. Redaction recognizes a fixed set of sensitive key names and is defense in depth, not guaranteed secret detection.
-
-The internal schema-9 audit retains at most 4,096 rows by database-generated insertion sequence and evicts the oldest rows in the same transaction as a new admission. It records safe binding, route, policy, decision, and optional terminal facts. Terminal annotation is advisory: failure or prior FIFO eviction does not alter the live response and cannot trigger replay. Bearer-or-session `GET /api/v1/invocations` provides newest-first filter-bound pages without argument captures, and `GET /api/v1/invocations/{id}` provides one retained row with its fixed-redacted inert capture. Both are bodyless, no-store, and event-free; eviction yields `not_found`, malformed cursors yield `invalid_cursor`, and retention-floor crossings yield `stale_cursor`. Backups contain only the same bounded safe facts. Self-service tools are not audit readers, and audit rows gain no descriptor evidence, successful result, raw error, or request-policy detail.
-
-Gateway provides at-most-one automatic attempt, not exactly-once effects. It never replays after restart, cancellation, uncertainty, or terminal-write failure. A caller may explicitly retry, but retrying downstream `outcome_unknown` can duplicate an effect and must be a caller-owned decision. Self-service storage uncertainty instead returns `tool_unavailable`, may leave one complete mutation, emits no success invalidation, and is recovered through get/list or duplicate-first create—not automatic replay.
-
-MCP work, MCP streams, and legacy sessions have independent compiled nonblocking limits of 32, 32, and 128. Saturation rejects immediately instead of queuing.
-
-## Downstream protocol compatibility
-
-The activation-ready downstream seam selects each runtime independently. `modern` sends only `server/discover` with `2026-07-28`, fixed `mcp-gateway/s2` client information, and explicit empty capabilities. `legacy` sends exact `2025-11-25` `initialize` followed by `notifications/initialized`. `auto` probes modern once and falls back only for a strict matching `-32601` with absent/null data or one of the two exact HTTP 400 text responses; valid modern results, `-32022`, HTTP 404, malformed evidence, authentication/network/TLS failures, redirects, 429, and 5xx never downgrade. A `-32022` may cause one same-transport mutually supported modern retry.
-
-Fallback closes the probe first and requires verified stdio process cleanup before opening a fresh legacy transport. Streamable HTTP closure cancels every active exchange and does not report a verified stop until each exchange has returned; expiry of the caller's stop context is unconfirmed. Modern HTTP rejects all session state. A bounded legacy HTTP session is immutable and scoped to one runtime; loss or replacement closes that runtime rather than retrying or rerouting a call. Each prepared `tools/call` is one-shot and copies only its pinned upstream name and validated argument object. Its monotonic marker flips immediately before the first OS pipe write or HTTP RoundTripper handoff: earlier failures are `pre_start`, while every later failure is `start_uncertain`, independent of network return details.
-
-Caller and lifecycle cancellation always close the local request and never replay. Modern stdio emits at most one cancellation notification with exact modern metadata; modern HTTP emits none. Legacy stdio/HTTP emits at most one notification on the bound runtime/session without modern metadata. Cancellation after completion emits nothing. No initialization cache, list-change subscription, multi-round-trip client feature, automatic cancellation/reconnect, or pre-Streamable HTTP+SSE path exists.
-
-The process-local current-runtime capability is deliberately opaque and rejects serialization. It binds one server/tool/upstream/runtime identity plus desired, credential, and catalog revisions. Acquisition is immediate and ordered: one of 32 global permits, then one of four per-server permits, followed by current route/runtime/authority/catalog/drain revalidation. Server saturation returns the global permit; every stale, withdrawn, draining, unavailable, canceled, or saturated result is typed `pre_start`. A lease executes or cancels once, releases server before global admission, and preserves the call marker's classification. There is no queue, reroute, replay, outcome ledger, or enumeration API. Production composition publishes capabilities into its one process-local active registry, and only its invocation service may consume them after durable ALLOW admission; ingress and root cannot resolve or acquire capabilities directly.
-
-The internal OAuth trust resolver starts from the exact registered HTTPS MCP resource. It honors one valid challenge `resource_metadata` URL without silent fallback, otherwise tries endpoint-specific then root RFC 9728 metadata, selects only an exact permitted issuer, and tries RFC 8414 before OpenID metadata. Consumed metadata is strict, duplicate-free, typed, depth/size bounded, audience matched, and required to support authorization code plus PKCE S256. Every machine fetch uses the hardened remote factory; same-resource and explicitly configured canonical DNS origins may use restricted addresses, while cross-origin metadata, issuers, and delegated endpoints remain public-address-only unless explicitly trusted.
-
-Static registration binds the exact selected issuer, client ID, callback, resource, and metadata-supported token authentication method without network work. Dynamic mode uses an advertised registration endpoint only when no exact unexpired authority is reusable, sends one unauthenticated native-client request, chooses Basic then Post then None, and never retries. Only a strict bounded `201` response with the exact callback, code/refresh grants, selected method, and method-consistent secret/expiry can publish. Public registration commits one revision directly; confidential registration atomically commits its revision and opaque `oauth_client` generation through the keyring coordinator. Registration-management tokens/URIs and extensions are discarded. Authenticated flow creation now admits at most 16 active flows globally and one per server, persists only safe five-minute lifecycle metadata, and returns one exact authorization URL containing independent 32-byte state and S256 verifier material. State, verifier, endpoint binding, and requested scopes remain process-local; URLs are never retained, reads and backups expose no transient, new flows supersede preparation, exchanging conflicts, cancellation is terminally idempotent, and startup interrupts nonterminal records. The callback consumes state before code/error/issuer handling, validates the captured issuer rule, makes one exact Basic/Post/None authorization-code request, and accepts only a bounded opaque Bearer response with nonexpanding effective scope. A versioned complete token set is published under desired/registration/client/token/flow/drain fences; flow success and keyring activation commit atomically, while every post-authorization persistence failure leaves neither old nor candidate authority usable. The write-only credential-replacement route accepts one exact complete stdio/bearer slot set or one static confidential OAuth client secret after current desired and credential preconditions pass. It publishes one ordinary old-or-new keyring generation together with exactly one credential revision and a safe `credential_replace` operation, leaves the Server desired revision and ETag unchanged, and fences an affected runtime before cutover. There is no idempotency replay; a lost response is recovered through Server and operation reads. OAuth refresh is process-local and single-flight per server while holding the global keyring operation admission across authority reads, one exact hardened request, and installation. Known expiry becomes eligible at `min(60s,max(5s,lifetime/10))` before expiry; unknown expiry refreshes only after recognized `invalid_token`. Confidential omission retains the old refresh token, public clients require distinct rotation, and no request asks for broader scopes. Pre-handoff failure preserves current authority; uncertain post-handoff, `invalid_grant|invalid_client`, invalid public rotation, or any post-success cutover fault withdraws routes, invalidates old/new authority, and requires foreground reauthorization. Hardened downstream HTTP retains only bounded recognized Bearer challenge fields. Modern discovery, legacy initialization, and the first raw catalog page terminate with a typed credential-replacement disposition and no same-client refresh or replay. Reconciliation may consume one recognized `invalid_token` disposition for the exact generation: an exact-fenced refresh runs without its generic trigger, then withdrawal and verified stop precede current-authority reacquisition and one fresh-runtime replay of only the challenged stage. `insufficient_scope` is projected for foreground step-up; later-page or second challenges are terminal. A dormant raw catalog traverser consumes this policy through the runtime request seam: it sends `tools/list` from an empty cursor, admits four traversals globally without queueing, bounds each page to 4 MiB/15 seconds and each traversal to 32 pages/60 seconds, rejects cursor/name/collision/count failures, and isolates malformed descriptors as safe issues before normalization. Each isolated raw tool then projects to a closed SDK-independent descriptor: object-root JSON Schema 2020-12 compiles with a rejecting external loader and local-fragment references only; unknown fields are removed; annotation defaults are materialized; combined schemas/canonical descriptors remain within 96/128 KiB; and RFC 8785 canonical bytes receive a lowercase SHA-256 fingerprint. Modern HTTP may retain unique typed nested `x-mcp-header` bindings only; argument mirroring accepts present nonnull validated string/boolean/safe-integer values and applies the pinned `=?base64?...?=` wrapper when required. Stable candidates bind `(server_id,upstream_name)`. A successful normalized candidate now commits one fenced durable catalog revision in SQLite before any future active publication. Immutable `(server_id,upstream_name)` identities retain IDs across retirement/reappearance; success alone retires absent tools, empty success is valid, and per-server/global projected identity limits reject without mutation. Authenticated descriptor list/member resources expose current and retired durable evidence through revision/filter/watermark cursors. Backups retain these safe facts, while restart/restore still has no active catalog, route, traversal, or header-binding state. A process-local active registry now reserves global/per-server capacity, holds the reservation through durable commit and immutable publication, advances a process-specific generation for every publish/withdraw/state change, and serves authenticated `/api/v1/catalog` generation-bound pages. Production starts that registry empty. The catalog coordinator now computes the exact installation/server epoch-grid offset, admits at most four traversals globally and one per server, and coalesces poll and explicit refresh work. An explicit refresh operation attaches to exact poll work; a challenge completion enters one manager-owned cutover only after singleflight removal, while an unattached poll creates no operation or queue. Fresh completion schedules one next strict-grid poll. Safe nonchallenge refresh failure retains a stale healthy snapshot, and withdrawal or drain cancels timers/work. It retains no SDK cache or subscription state. When an activation supplies its exact process-local runtime, the active commit now atomically replaces opaque per-tool capabilities bound to tool/upstream/runtime/desired/credential/catalog revisions. Acquire and execute both revalidate currentness; only normalized modern-HTTP bindings can mirror present validated scalar arguments into outbound parameter headers. Withdrawal fences new use, cancels leases, and removes routes. Production `/mcp` discovery remains descriptor-only, while governed calls reach capabilities only through the composed invocation owner. Explicit credential disconnect and first delete withdraw and verify runtime stop before invalidating current local authority. Static/bearer disconnect deletes only its local generation; OAuth disconnect preserves registration/client authority, performs at most one refresh-token then distinct access-token RFC 7009 request through the validated hardened endpoint, and never retries remote failure. Missing revocation support and remote failure are safe observations and never restore authority. Local deletion failure enters `cleanup_pending`; explicit retry deletes only nonauthoritative keyring candidates and performs no remote request or authority restoration. Delete remains tombstoned while invalidating every present credential and registration domain. Successful disconnect finalizes the retained durable catalog as unavailable and the active catalog as unavailable; disable finalizes durable stale and active absent; delete finalizes durable retired and active absent. These lifecycle transitions retain descriptor evidence while removing every active route and tool. Shutdown fences runtime publication and credential status first, cancels OAuth producers, drains the keyring coordinator before SQLite closure on normal and error exits, and does not wait for a context-free native keyring call; an operation returning late cannot publish authority, status, or routes.
-
-## Fixed limits and shutdown
-
-All limits are compiled and reject excess work without queuing. S1 live bounds are 128 ordinary HTTP requests, 32 control-auth attempts, 16 authenticated admin operations, 8 health requests, 128 admin sessions, 32 MCP operations, 32 MCP streams, 128 legacy sessions, 16 event streams, one backup operation, and one context-free keyring operation. Retained S1 bounds include 128 admin credentials, 64 backups, 1,024 backup idempotency records for 24 hours, 64 keyring candidates per owner/kind, and a 1 GiB SQLite database. S3 status additionally reports the actual occupancy of its 128 permanent principals and 4,096 immutable grants. S4 retains at most 4,096 invocation audit rows and at most 8 KiB of fixed-redacted argument evidence per row; invocation pipeline occupancy is process-local and intentionally absent from public status. S5 system status reports actual-owner occupancy for 4,096 retained request rows and 268,435,456 aggregate evidence bytes. The 128 pending requests per principal and 135,168-byte evidence snapshot limits remain compiled-only.
-
-The S2 contract additionally fixes 1,024 server identities, 64 nondeleted and 32 enabled servers, 32 runtimes, four global/one per-server reconciliations, four catalog traversals, 16 global/one per-server OAuth flows, eight callback exchanges, 32 global/four per-server dispatches, 256 active tools per server and 2,048 globally, and 512 durable tool identities per server and 4,096 globally. The durable repository enforces the identity, nondeleted/enabled-server, 64-terminal-operation, and 1,024-record S2 idempotency bounds. System status reports live server identity, nondeleted server, runtime-owner, reconciliation, catalog-traversal, OAuth-flow, callback/exchange-work, active-tool, dispatch, and S2 idempotency occupancies from their actual owners.
-
-The first `SIGINT` or `SIGTERM` makes readiness false, fences new invocation pipelines before authority and route withdrawal, waits for admitted pipelines through terminal annotation, drains keyring consumers, and closes sessions, MCP state, and event streams before a shutdown bounded to ten seconds. A second signal exits immediately. Graceful shutdown removes the durable run marker; an unclean or forced restart retains it and performs full SQLite identity, pragma, migration, size, and integrity verification before becoming ready. No session, stream, or in-flight work resumes after any restart.
-
-## Keyring capability and generations
-
-Gateway wraps `go-keyring` with the closed capability states `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, and `unsupported`. Its secret-free startup probe performs no Get/Set/Delete or prompt presentation, but `ready` is only a snapshot: later operations may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. Returned errors fail dependent work closed, and Gateway never falls back to configuration or plaintext files.
-
-One process-global, nonblocking `keyring_work` slot permits a single operation. Saturation rejects immediately, and cancellation does not release the slot until the backend call actually returns. This MVP is unsuitable for unattended credential access; guaranteed-nonprompting/context-bounded operations are deferred until before unattended deployment or the first observed unexpected dialog, cancellation-surviving call, or keyring-induced service blockage.
-
-The closed raw-secret destinations preserve the S1 one-time `controlling_terminal` and `owner_only_file` sinks, declare the S2 write-only ingress points `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`, add the S3 one-time `agent_credential_creation` response, and add the S6 `browser_one_time_display` and explicit `user_initiated_clipboard` sinks. Browser one-time displays must be prepared before submission, clear on dismissal, navigation, or session loss, and warn that a copied value remains in the operating-system clipboard until the operator overwrites it. Dynamic client, initial authorization-code, write-only static/OAuth-client replacement, validated refresh responses, authoritative refresh-token copying, and agent credential issuance are implemented.
-
-Secrets are split into bounded encoded chunks and become readable only after a digest-bound manifest is written. SQLite stores an opaque handle, installation/resource-owner ULIDs, one closed kind (`static_credential`, `oauth_client`, or `oauth_tokens`), revision, and bounded candidate cleanup metadata—never secret bytes. For server-scoped generations, the coordinator invokes a repository callback on its existing marker-armed transaction, so the verified candidate and exactly one independent credential-kind revision become current together under captured desired, credential, optional registration/flow, and drain fences. Invalidation commits the kind revision and null authority before best-effort generation deletion. Ordinary replacement preserves old-or-new authority; the explicit post-authorization-server-success failure path invalidates both old and candidate authority before cleanup. Interrupted or stale candidates remain non-authoritative and are bounded to 64 per owner/kind.
-
-`make test-keyring-native` always runs deterministic external-package static/OAuth material acquisition, fencing, cleanup, exact-read, and canary-exclusion evidence, then classifies native backend evidence as `passed`, `skipped`, or `failed` in one schema-validated JSON object. `failed` exits nonzero; `skipped` remains an explicit additive gap. The native pass uses an isolated D-Bus session and temporary home with Secret Service on Linux. On macOS it changes the login keychain search state only when `MCP_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN=1` explicitly confirms a disposable user context, then restores that state; otherwise it does not touch the user's keychain or Gateway namespace.
-
-## Verified backup and offline recovery
-
-Backup creation uses SQLite's online backup API, closes and integrity-checks the staged database, records installation/schema/source-revision metadata and SHA-256, and atomically publishes one owner-only generation. At most one backup is created at a time and 64 published generations are retained; excess work rejects without queuing. Backups contain safe SQLite state, including principals, grants, and verifier/fingerprint metadata, but no raw admin bearer, agent bearer, keyring value, session, stream, or in-flight runtime state.
-
-Restore one published generation only after stopping Gateway, and publish replacement admin authority to a new owner-only sink:
-
-```bash
-mcp-gateway restore 01ARZ3NDEKTSV4RRFFQ69G5FAV \
-  --data-dir /path/to/mcp-gateway-data \
-  --secret-output /safe/new/restored-admin-bearer
-```
-
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, SHA-256, and full SQLite integrity; stages one complete schema-3-through-10 database; forward-migrates it to schema 10; invalidates every restored agent credential while preserving principals and policy; revokes every restored admin verifier; and publishes one new non-expiring admin bearer. It then checkpoints and closes the stage, reruns closed SQLite plus complete authorization and grant-request semantic verification, removes old WAL/SHM sidecars, and atomically selects the replacement. Any failure before selection leaves the original generation authoritative. Current backups include safe S2 desired/tombstone, authority-revision, operation, auth-flow lifecycle, idempotency rows, and S5 request terms, state, revisions, bounded evidence, and historical grant linkage, but never runtime facts, OAuth state/verifier/URLs/endpoints, raw secrets, sessions, MCP state, keyring values, or in-flight work. A successful result has `mode:"backup"` and includes `backup_id`; normal `serve` startup must still verify the replacement before readiness.
-
-To verify and clear the current stopped generation without replacement, run `restore --verify-current` only after stopping every Gateway process that owns the installation. This mode forbids `--secret-output`:
-
-```bash
-mcp-gateway restore --verify-current --data-dir /path/to/mcp-gateway-data --json
-```
-
-With JSON output selected, success emits:
-
-```json
-{
-  "ok": true,
-  "operation": "restore",
-  "mode": "verify_current",
-  "installation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-  "revision": "0"
-}
-```
-
-The command requires an owner-only installation, acquires its exclusive process lock, verifies the Gateway identity, current schema and migration history, configured SQLite durability and size bounds, and full database integrity. A recognized marker recovery action is applied before removal: an uncertain agent credential candidate is cleared only when its principal, credential, and captured revisions are still exactly current, and the principal and credential revisions advance once. Missing, replaced, or stale candidates are harmless no-ops; no prior credential is restored. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched. Only then does the command durably clear an ordinary armed marker or a safely non-recovery malformed marker. A normal `serve` startup is still required after verification.
-
-An ordinary clean restart preserves current requests and the current agent credential but invalidates legacy sessions and discovery cursors. Backup restore preserves principals, grants, requests, and request evidence but clears every restored agent credential, so administrators must issue fresh agent authority. Restore publishes its administrator replacement only to the required fresh `--secret-output` file and never rewrites the default bearer; after restart, online recovery must explicitly select the replacement with `--admin-bearer-file`.
-
-Failures emit one bounded problem on stderr in the selected human or JSON mode and use stable typed exit classes; failed commands leave stdout empty. `gateway_running` means another process owns the installation; `secret_output_unavailable` means the one-time sink could not be completed; and storage failures intentionally hide filesystem and SQLite details.
+Use the [frontend development guide](docs/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/release-verification.md) for release evidence and failure discipline.
 
 ## Coexistence with MCP Broker
 
-MCP Gateway is installed and operated independently beside MCP Broker. It does not read or migrate Broker configuration, SQLite state, role tokens, sessions, or audit records. Use distinct listen authorities; choosing Gateway's default `127.0.0.1:8210` does not alter Broker. Gateway remains the clean-start successor foundation, while Broker continues to provide its existing routing and approval product behavior.
-
-## Security boundary
-
-The current Gateway binds one exact numeric IPv4 loopback authority, defaulting to `127.0.0.1:8210`, and rejects all unrecognized paths, methods, credential domains, forwarding headers, and protocol claims. Raw authority must never be stored in configuration, URLs, logs, browser storage, SQLite, backups, or read APIs.
-
-Loopback limits network reachability; it does not isolate processes running as the same operating-system user. Treat untrusted same-user processes as able to attempt connections to the Gateway.
-
-The executable remains deny-by-default: production accepts only the current credential of an active principal and exposes principal-filtered descriptor discovery, while replaced, revoked, disabled, absent, or malformed authority is rejected. Governed calls reach a pinned active route only after durable current-policy ALLOW admission. The audit is readable only through the authenticated read-only invocation list/item resources; no audit mutation, event, replay, or result surface exists. S5 self-service is admitted-subject-only and cannot grant, adjudicate, administer, or exercise external effects. Held calls, automatic request creation, automatic replay, renewal, and exactly-once effect guarantees remain absent. See [DESIGN.md](DESIGN.md) for the system contract and [CLAUDE.md](CLAUDE.md) for development conventions.
+MCP Gateway and MCP Broker are independent tools. Use distinct listen authorities and data directories. Installing or starting Gateway does not alter Broker configuration, role tokens, sessions, audit records, or behavior.
