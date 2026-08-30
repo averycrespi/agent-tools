@@ -9635,7 +9635,7 @@ try {
           ),
         )) ||
       (input.scenario === "request-reads" &&
-        consoleFailures.length === 2 &&
+        consoleFailures.length === 1 &&
         consoleFailures.every((value) =>
           value.includes("server responded with a status of 409"),
         )) ||
