@@ -1,6 +1,8 @@
 STRESS_COUNT ?= 20
 
-.PHONY: build install test test-unit test-integration test-integration-s5 test-security-s5 test-stress-s5 test-e2e test-keyring-native test-task-s6 test-milestone-s6 test-frontend-development test-frontend-s6 test-unit-s6 test-integration-s6 test-browser-s6-workflows test-browser-s6-visual test-browser-s6-a11y test-browser-s6-cross test-cli-e2e-s6 test-cli-usability-e2e test-security-s6 qualify-external-s6 accept-s2-1 accept-s3 accept-s4 accept-s5 accept-s6 lint fmt tidy verify audit
+.NOTPARALLEL: test test-browser test-frontend-development
+
+.PHONY: build install test test-unit test-integration test-e2e test-security test-stress test-keyring-native test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit test-integration-s5 test-security-s5 test-stress-s5 test-task-s6 test-milestone-s6 test-frontend-s6 test-unit-s6 test-integration-s6 test-browser-s6-workflows test-browser-s6-visual test-browser-s6-a11y test-browser-s6-cross test-cli-e2e-s6 test-cli-usability-e2e test-security-s6 qualify-external-s6 accept-s2-1 accept-s3 accept-s4 accept-s5 accept-s6 lint fmt tidy verify audit
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
@@ -8,17 +10,16 @@ build:
 install:
 	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/mcp-gateway
 
-test:
-	go test -race ./...
+test: test-unit test-integration
 
 test-unit:
 	go test -race -count=1 -timeout=90s ./...
 
 test-integration:
-	go test -race -tags=integration ./...
+	go test -race -count=1 -tags=integration -timeout=60s -run '^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servers ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
 
 test-integration-s5:
-	go test -race -count=1 -tags=integration -timeout=30s -run '^(Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
+	go test -race -count=1 -tags=integration -timeout=30s -run '^(Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
 
 test-security-s5:
 	go test -race -count=1 -tags=security -timeout=30s ./test/security/...
@@ -31,8 +32,57 @@ test-stress-s5:
 test-e2e:
 	go test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...
 
+test-security:
+	go test -race -count=1 -tags=security -timeout=30s ./test/security/...
+
+test-stress:
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m -run '^(TestConcurrentSemanticDeduplicationStress|TestApprovalCancellationPolicyLinearizationStress)$$' ./internal/grantrequests
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^(TestSyntheticSnapshotPaginationStress|TestLostLocalMutationResponseDeduplicatesExplicitRetryStress)$$' ./internal/selfservice
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^TestLocalInvocationDrainCleanupStress$$' ./internal/composition
+
 test-keyring-native:
 	./test/keyring-native.sh
+
+test-browser: test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross
+
+test-browser-workflows:
+	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$$' ./test/e2e
+
+test-browser-privacy:
+	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestBrowserSecretStoragePrivacy$$' ./test/e2e
+
+test-browser-visual:
+	go test -race -count=1 -tags=e2e,browser -timeout=60s -run '^TestBrowserVisualResponsiveMatrix$$' ./test/e2e
+
+test-browser-accessibility:
+	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserAccessibility$$' ./test/e2e
+
+test-browser-cross:
+	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserCrossCompatibility$$' ./test/e2e
+
+test-frontend-development: test-frontend-development-node test-frontend-development-browser
+
+test-frontend-development-node:
+	npm --prefix .. run ui:test-dev
+
+test-frontend-development-browser:
+	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestFrontendDevelopment(LiveReload|ControlPlane)$$' ./test/e2e
+
+frontend-typecheck:
+	npm --prefix .. run ui:typecheck
+
+frontend-build:
+	npm --prefix .. run ui:build
+
+frontend-verify-generated:
+	npm --prefix .. run ui:verify-generated
+
+frontend-verify-supply-chain:
+	npm --prefix .. run ui:verify-supply-chain
+	go test -race -count=1 -tags=frontend -timeout=30s -run '^TestStaticSupplyChain$$' ./internal/api
+
+frontend-audit:
+	npm --prefix .. run ui:audit
 
 test-task-s6:
 	@test -n "$(TASK)" || (echo "TASK is required" >&2; exit 2)
@@ -42,21 +92,17 @@ test-milestone-s6:
 	@test -n "$(MILESTONE)" || (echo "MILESTONE is required" >&2; exit 2)
 	@go run ./test/acceptance/cmd --milestone "$(MILESTONE)"
 
-test-frontend-development:
-	npm --prefix .. run ui:test-dev
-	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestFrontendDevelopment(LiveReload|ControlPlane)$$' ./test/e2e
-
 test-frontend-s6:
 	npm --prefix .. run ui:typecheck
 	npm --prefix .. run ui:verify-generated
 	npm --prefix .. run ui:verify-supply-chain
-	go test -race -count=1 -timeout=30s -run '^TestStaticSupplyChain$$' ./internal/api
+	go test -race -count=1 -tags=frontend -timeout=30s -run '^TestStaticSupplyChain$$' ./internal/api
 
 test-unit-s6:
 	go test -race -count=1 -timeout=110s ./...
 
 test-integration-s6:
-	go test -race -count=1 -tags=integration -timeout=60s -run '^(TestInvocationRepositoryReadsIntegration|Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss)$$' ./internal/storage ./internal/backup ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
+	go test -race -count=1 -tags=integration -timeout=60s -run '^(TestInvocationRepositoryReadsIntegration|Test(ApprovalVsPolicyAndCapacity|AtomicApprovalAndPostCommitRecovery|CatalogEvidenceReplacement|CreateVsTargetAndPolicy|CredentialAdmissionOrdering|RequestLifecycle|RequestRetentionAndEvidenceLimits)Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest4096ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
 
 test-browser-s6-workflows:
 	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$$' ./test/e2e

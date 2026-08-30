@@ -13,7 +13,15 @@ make test                  # race-enabled ordinary package suite
 make test-unit             # count-one ordinary correctness
 make test-integration      # race-enabled real SQLite/filesystem tests
 make test-e2e              # count-one real-binary suite
+make test-security         # security/privacy source and sink evidence
+make test-stress           # repeat only five named stress scenarios
 make test-keyring-native   # typed native keyring evidence
+make test-browser          # developer aggregate for five browser leaves
+make frontend-typecheck
+make frontend-build
+make frontend-verify-generated
+make frontend-verify-supply-chain
+make frontend-audit
 make verify                # nonmutating module, format, and lint checks
 make lint                  # golangci-lint
 make fmt                   # goimports

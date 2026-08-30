@@ -15,6 +15,7 @@ var S5IntegrationTestManifest = []string{
 	"TestRequestRetentionAndEvidenceLimitsIntegration",
 	"TestRequestSchemaMigrationUsesRealSQLite",
 	"TestRestoreAcceptedSchemaLineages",
+	"TestServicePublishesOneCompleteStaticGenerationAndSafeOperation",
 }
 
 var S5StressTestManifest = []string{
