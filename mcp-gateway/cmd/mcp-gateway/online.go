@@ -332,7 +332,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"grant", "delete"}, "delete ID", "grant delete ID", "yes"),
 		onlineSpec([]string{"grant-request", "list"}, "list", "grant-request list", "limit", "cursor", "principal-id", "state"),
 		onlineSpec([]string{"grant-request", "get"}, "get REQUEST_ID", "grant-request get REQUEST_ID"),
-		onlineSpec([]string{"grant-request", "approve"}, "approve REQUEST_ID", "grant-request approve REQUEST_ID --etag ETAG --file PATH", "etag", "file", "scope", "target", "duration-seconds", "acknowledge-future-tools", "yes"),
+		onlineSpec([]string{"grant-request", "approve"}, "approve REQUEST_ID", "grant-request approve REQUEST_ID --etag ETAG --scope SCOPE --target TARGET [--duration-seconds SECONDS] [--acknowledge-future-tools] [--file PATH]", "etag", "scope", "target", "duration-seconds", "acknowledge-future-tools", "file", "yes"),
 		onlineSpec([]string{"grant-request", "reject"}, "reject REQUEST_ID", "grant-request reject REQUEST_ID --etag ETAG --reason REASON", "etag", "reason", "yes"),
 		onlineSpec([]string{"invocation", "list"}, "list", "invocation list", "limit", "cursor", "principal-id", "server-id", "requested-name", "admission-class", "decision", "outcome"),
 		onlineSpec([]string{"invocation", "get"}, "get INVOCATION_ID", "invocation get INVOCATION_ID"),
@@ -402,8 +402,8 @@ var onlineLeafDescriptions = map[string]string{
 	"grant delete ID":              "Delete an authorization grant",
 	"grant-request list":           "List agent grant requests",
 	"grant-request get REQUEST_ID": "Show an agent grant request",
-	"grant-request approve REQUEST_ID --etag ETAG --file PATH":    "Approve an agent grant request",
-	"grant-request reject REQUEST_ID --etag ETAG --reason REASON": "Reject an agent grant request",
+	"grant-request approve REQUEST_ID --etag ETAG --scope SCOPE --target TARGET [--duration-seconds SECONDS] [--acknowledge-future-tools] [--file PATH]": "Approve an agent grant request",
+	"grant-request reject REQUEST_ID --etag ETAG --reason REASON":                                                                                        "Reject an agent grant request",
 	"invocation list":              "List governed tool invocations",
 	"invocation get INVOCATION_ID": "Show a governed tool invocation",
 }
@@ -418,6 +418,6 @@ var onlineRequiredFlags = map[string][]string{
 	"principal update ID --etag ETAG [--display-name NAME] [--visibility VISIBILITY] [--state STATE]": {"etag"},
 	"principal credential issue ID --etag ETAG [--secret-output NEW_PATH]":                            {"etag"},
 	"principal credential revoke ID --etag ETAG":                                                      {"etag"},
-	"grant-request approve REQUEST_ID --etag ETAG --file PATH":                                        {"etag", "file"},
-	"grant-request reject REQUEST_ID --etag ETAG --reason REASON":                                     {"etag"},
+	"grant-request approve REQUEST_ID --etag ETAG --scope SCOPE --target TARGET [--duration-seconds SECONDS] [--acknowledge-future-tools] [--file PATH]": {"etag"},
+	"grant-request reject REQUEST_ID --etag ETAG --reason REASON":                                                                                        {"etag"},
 }

@@ -329,6 +329,7 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		direct: []onlineDirectFlag{
 			{name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true},
 		},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, toggles map[string]bool, changed map[string]bool) ([]byte, error) {
 			policy := map[string]any{"scope": values["scope"], "target": values["target"], "constraint": nil, "duration_seconds": nil, "future_tools_acknowledged": false}
 			if changed["duration-seconds"] {
