@@ -49,7 +49,7 @@ func TestCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
 	require.True(t, ok)
 	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
 	guides := map[string]string{}
-	for _, path := range []string{"docs/cli-local-administration.md", "docs/recovery.md"} {
+	for _, path := range []string{"docs/cli-local-administration.md", "docs/server-configuration.md", "docs/access-policy.md", "docs/invocation-evidence.md", "docs/recovery.md"} {
 		contents, err := os.ReadFile(filepath.Join(moduleRoot, filepath.FromSlash(path)))
 		require.NoError(t, err)
 		guides[path] = string(contents)

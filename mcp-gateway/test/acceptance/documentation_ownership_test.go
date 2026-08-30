@@ -125,6 +125,90 @@ func TestCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	}
 }
 
+func TestOperationalGuidesCoverBehaviorManifest(t *testing.T) {
+	root := frontendDevelopmentModuleRoot(t)
+	read := func(path string) string {
+		t.Helper()
+		contents, err := os.ReadFile(filepath.Join(root, path))
+		require.NoError(t, err)
+		return string(contents)
+	}
+	guides := map[string]string{
+		"product.server_catalog.": read("docs/server-configuration.md"),
+		"product.access_policy.":  read("docs/access-policy.md"),
+		"product.grant_request.":  read("docs/access-policy.md"),
+		"product.invocation.":     read("docs/invocation-evidence.md"),
+	}
+	markers := map[string]string{
+		"product.server_catalog.state_separation":           "desired configuration, durable catalog evidence, and active runtime state",
+		"product.server_catalog.safe_server_registration":   "mcp-gateway server create --file PATH",
+		"product.server_catalog.etag_updates":               "--etag ETAG",
+		"product.server_catalog.eligible_operations":        "reload`, `retry`, `refresh_catalog`, or `disconnect_credentials",
+		"product.server_catalog.operation_polling":          "does not poll automatically",
+		"product.server_catalog.write_only_credentials":     "write-only",
+		"product.server_catalog.one_time_oauth_url":         "one-time authorization URL",
+		"product.server_catalog.active_vs_durable_catalog":  "evidence, not a callability claim",
+		"product.server_catalog.deletion_and_disconnect":    "Deletion is permanent",
+		"product.access_policy.principal_inventory":         "mcp-gateway principal list",
+		"product.access_policy.principal_creation_defaults": "synthetic default grant",
+		"product.access_policy.agent_credential_rotation":   "old bearer never overlaps",
+		"product.access_policy.immutable_grants":            "Grants are immutable",
+		"product.access_policy.closed_constraints":          "object-only RFC 6901",
+		"product.access_policy.grant_correction_order":      "Create before delete produces temporary overlap; delete before create produces temporary loss",
+		"product.access_policy.expired_and_default_grants":  "Expired grants remain readable",
+		"product.grant_request.pending_collection":          "state pending",
+		"product.grant_request.evidence_item":               "item-only evidence",
+		"product.grant_request.approval_narrowing":          "Approval may only narrow",
+		"product.grant_request.rejection_contract":          "scope_too_broad",
+		"product.grant_request.conflict_and_uncertainty":    "never executes, resumes, or replays",
+		"product.grant_request.historical_approval":         "historical evidence only",
+		"product.invocation.read_only_routes":               "read-only",
+		"product.invocation.closed_filters":                 "principal, server, requested-name, admission, decision, and outcome filters",
+		"product.invocation.newest_first_cursor":            "newest-first",
+		"product.invocation.page_coherence":                 "stale_cursor",
+		"product.invocation.summary_projection":             "Collections omit argument captures",
+		"product.invocation.item_redacted_arguments":        "fixed-redacted",
+		"product.invocation.synthetic_target_derivation":    "Gateway-local targets",
+		"product.invocation.outcome_derivation":             "invalid_params",
+		"product.invocation.missing_terminal_unknown":       "Missing terminal evidence",
+		"product.invocation.local_target_unknown":           "local storage uncertainty",
+		"product.invocation.bounded_retention":              "4,096",
+		"product.invocation.polling_without_authority":      "Polling never submits",
+	}
+	seen := 0
+	for _, behavior := range contract.ProductBehaviorManifest() {
+		if behavior.Kind != "clause" {
+			continue
+		}
+		for prefix, guide := range guides {
+			if !strings.HasPrefix(behavior.ID, prefix) {
+				continue
+			}
+			marker, ok := markers[behavior.ID]
+			require.True(t, ok, behavior.ID)
+			assert.Contains(t, guide, marker, behavior.ID)
+			seen++
+		}
+	}
+	assert.Equal(t, len(markers), seen)
+	accessGuide := guides["product.access_policy."]
+	assert.Contains(t, accessGuide, "`all` discovers every current tool")
+	assert.Contains(t, accessGuide, "canonical decimal from 60 through 2,592,000 seconds")
+	for _, tool := range []string{"get_identity", "list_grants", "create_grant_request", "get_grant_request", "list_grant_requests", "cancel_grant_request"} {
+		assert.Contains(t, accessGuide, "mcp_gateway."+tool)
+	}
+
+	for path, guide := range map[string]string{
+		"server":     guides["product.server_catalog."],
+		"access":     guides["product.access_policy."],
+		"invocation": guides["product.invocation."],
+	} {
+		assert.Contains(t, guide, "[DESIGN](../DESIGN.md)", path)
+		assert.NotContains(t, guide, "/api/v1/", path+" should link to normative routes rather than copy them")
+		assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|executable|milestone|implementation phase)`), guide, path)
+	}
+}
+
 func assertMarkdownLinksResolve(t *testing.T, path, contents string) {
 	t.Helper()
 	links := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`).FindAllStringSubmatch(contents, -1)

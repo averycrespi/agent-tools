@@ -4,12 +4,132 @@ Audience: Gateway administrators managing agent access
 
 Purpose: Manage principals, credentials, grants, and grant requests.
 
-This guide owns operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Generated `mcp-gateway principal --help`, `mcp-gateway grant --help`, and `mcp-gateway grant-request --help` own command syntax.
+This guide owns operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Generated help owns exact syntax:
 
-## Guide boundary
+- `mcp-gateway principal --help`
+- `mcp-gateway grant --help`
+- `mcp-gateway grant-request --help`
 
-- See [DESIGN](../DESIGN.md) for normative authorization, policy evaluation, and request-state semantics.
-- See [CLI and local administration](cli-local-administration.md) for shared authentication, output, and consequence confirmation.
-- See [Invocation evidence](invocation-evidence.md) for interpreting authorization and outcome evidence.
+See [DESIGN](../DESIGN.md) for normative authorization, policy evaluation, and request-state semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules.
 
-This guide explains operator procedures without restating the normative authorization and request contracts.
+## Create and inspect principals
+
+List or inspect permanent principals before changing policy:
+
+```bash
+mcp-gateway principal list
+mcp-gateway principal get PRINCIPAL_ID
+mcp-gateway principal create --file PATH
+```
+
+Creation requires a display name and one visibility mode:
+
+- `all` discovers every current tool;
+- `requestable` hides tools covered by an applicable unconstrained `DENY`;
+- `allowed-only` requires an applicable `ALLOW` and no applicable unconstrained `DENY`.
+
+Visibility controls discovery, not call authorization. A constrained `ALLOW` may make a tool discoverable even when a particular argument object will not match, while a constrained `DENY` does not hide it.
+
+Principal creation also creates an ordinary permanent synthetic default grant for the six fixed `mcp_gateway` self-service tools. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Principals are permanent and cannot be deleted.
+
+## Update principal state or visibility
+
+Read the principal's current strong ETag and submit a nonempty patch:
+
+```bash
+mcp-gateway principal update PRINCIPAL_ID --etag ETAG --file PATH
+```
+
+Changing state requires consequence confirmation. Disabling a principal clears its current credential and sessions. Re-enabling does not restore authority, a prior credential, or deleted grants. Display-name and visibility-only updates do not prompt, but they still require the exact ETag. The CLI never refetches a precondition or replays a patch automatically.
+
+## Issue, replace, or revoke an agent credential
+
+A principal has at most one current non-expiring `mgw_agent_` bearer. Issue the first credential or replace the current one with the same command:
+
+```bash
+mcp-gateway principal credential issue PRINCIPAL_ID \
+  --etag ETAG \
+  --secret-output /safe/new/agent-bearer \
+  --yes
+```
+
+The bearer is published once to a prepared controlling terminal or a fresh owner-only file. Metadata cannot recover it. Issue and replacement advance principal and credential revisions together, so the old bearer never overlaps current authority.
+
+Revoke with the current principal ETag:
+
+```bash
+mcp-gateway principal credential revoke PRINCIPAL_ID --etag ETAG --yes
+```
+
+Issue, replacement, revoke, and disable never replay automatically. On an uncertain result, read the principal and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that replacement failed.
+
+## Create and inspect immutable grants
+
+```bash
+mcp-gateway grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID
+mcp-gateway grant get GRANT_ID
+mcp-gateway grant create --file PATH
+```
+
+Grants are immutable `ALLOW` or `DENY` rows. Creation requires the complete closed policy shape, including explicit nullable `upstream_name`, `constraint`, and `expires_at` members. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
+
+Constraints use the bounded equality form `{"equals":{"/object/path":value}}`. They support object-only RFC 6901 traversal, scalar values, exact lexical number tokens, and at most 16 atoms. Constraints apply only to exact-tool grants. Gateway does not coerce values, traverse arrays, interpret schemas, or treat overlapping paths as equivalent.
+
+Expired grants remain readable and count toward capacity until deleted. The synthetic default grant is also an ordinary capacity-owning row. Discovery is deliberately broader than execution for constrained policy; only exact call admission evaluates the unchanged argument object.
+
+## Correct or remove a grant
+
+Because grants are immutable, choose the correction order deliberately. Create before delete produces temporary overlap; delete before create produces temporary loss. Each step is an independent confirmed mutation, and no later step runs automatically. If the first result is uncertain, stop and read current grants before submitting the second step. Re-read effective policy before changing the old row: `DENY` takes precedence over `ALLOW`, and an unconstrained denial can hide a tool from discovery.
+
+Delete by stable grant ID:
+
+```bash
+mcp-gateway grant delete GRANT_ID --yes
+```
+
+Deletion has no ETag or idempotency surface. An uncertain create or delete requires narrow principal/grant reads rather than replay. Visibility by itself never authorizes calls, and deleting an expired or default grant can still change capacity or self-service behavior.
+
+## Review grant requests
+
+Agents create and cancel requests only through the six fixed self-service tools. Administrators inspect the queue through the CLI:
+
+```bash
+mcp-gateway grant-request list --principal-id PRINCIPAL_ID --state pending
+mcp-gateway grant-request get REQUEST_ID
+```
+
+Collections contain summaries. The item view adds item-only evidence, optional approved evidence, and a read-time comparison with the current target. Descriptor evidence explains what was requested; it is not current callability or authority.
+
+Requests move once from `pending` to `approved`, `rejected`, or `cancelled`. They never expire, reopen, or revoke a later grant. Ownership survives credential rotation, restart, and stopped restore. Semantically identical pending submissions may return the existing request.
+
+## Approve or reject a request
+
+Read the current request ETag before adjudication. Approval may only narrow scope, exact constraint tokens, and duration:
+
+```bash
+mcp-gateway grant-request approve REQUEST_ID \
+  --etag ETAG \
+  --file PATH \
+  --yes
+```
+
+Approval rechecks current denial and target facts, then atomically commits one ordinary `ALLOW` and the approved transition. The approved grant ID is historical evidence only after commit; later grant deletion does not rewrite request history.
+
+Reject with one closed reason—`not_approved`, `existing_access`, `scope_too_broad`, or `policy_conflict`:
+
+```bash
+mcp-gateway grant-request reject REQUEST_ID \
+  --etag ETAG \
+  --file PATH \
+  --yes
+```
+
+Adjudication never executes, resumes, or replays the motivating call. It does not hold a call while approval is pending. After approval, the agent must make an explicit fresh `tools/call`. If an adjudication result is uncertain, use request and grant reads as bounded evidence; do not replay automatically.
+
+## Self-service boundary
+
+The fixed tools are `mcp_gateway.get_identity`, `mcp_gateway.list_grants`, `mcp_gateway.create_grant_request`, `mcp_gateway.get_grant_request`, `mcp_gateway.list_grant_requests`, and `mcp_gateway.cancel_grant_request`. They let an admitted principal inspect its own identity and grants, create/get/list/cancel its own requests, and nothing more. They cannot select another principal, mutate grants directly, adjudicate, read invocation evidence, acquire a downstream capability, or perform filesystem, process, network, keyring, credential, or administrator work.
+
+A request may target one exact external tool or one server namespace. Exact-tool requests may include the same bounded equality constraint. Server-wide requests require explicit future-tools acknowledgement and cannot include a constraint. Duration is permanent when null or a canonical decimal from 60 through 2,592,000 seconds. Approval can narrow but never broaden those terms.
+
+See [Invocation evidence and unknown outcomes](invocation-evidence.md) for interpreting policy decisions and call outcomes. Return to the [Gateway README](../README.md) for common workflows.
