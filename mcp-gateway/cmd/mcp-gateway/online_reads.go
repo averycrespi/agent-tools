@@ -70,7 +70,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/servers/"+args[0], serverItemTable)
+		return runOnlineItemRead(command, options, onlineItemServer, args[0], serverItemTable)
 	case "server auth-flow list":
 		path, err := authFlowListPath(options, args)
 		if err != nil {
@@ -128,7 +128,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/principals/"+args[0], principalItemTable)
+		return runOnlineItemRead(command, options, onlineItemPrincipal, args[0], principalItemTable)
 	case "principal create":
 		return runPrincipalCreate(command, options)
 	case "principal update":
@@ -162,7 +162,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant-request ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/grant-requests/"+args[0], grantRequestItemTable)
+		return runOnlineItemRead(command, options, onlineItemGrantRequest, args[0], grantRequestItemTable)
 	case "grant-request approve":
 		return runGrantRequestApprove(command, options, args)
 	case "grant-request reject":
