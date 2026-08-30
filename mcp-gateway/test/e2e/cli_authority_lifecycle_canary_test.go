@@ -22,15 +22,13 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	dir := t.TempDir()
-	principalPath := filepath.Join(dir, "principal.json")
 	credentialPath := filepath.Join(dir, "agent-bearer")
-	require.NoError(t, os.WriteFile(principalPath, []byte(`{"display_name":"M10 principal","visibility":"all"}`), 0o600))
 	results := make([]testutil.ProcessResult, 0, 12)
 
 	status := runOnlineCLI(t, harness, bearerPath, true, "status", "--output", "json")
-	admins := runOnlineCLI(t, harness, bearerPath, true, "admin-credential", "list", "--limit", "10", "--output", "json")
+	admins := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "list", "--limit", "10", "--output", "json")
 	backupResult := runOnlineCLI(t, harness, bearerPath, true, "backup", "create", "--idempotency-key", "m10-backup", "--output", "json")
-	principalResult := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--file", principalPath, "--output", "json")
+	principalResult := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--display-name", "M10 principal", "--visibility", "all", "--output", "json")
 	results = append(results, status, admins, backupResult, principalResult)
 	var backup contract.Backup
 	var principalCreation contract.PrincipalCreation

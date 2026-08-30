@@ -19,17 +19,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCLIPrincipalCredentials(t *testing.T) {
+func TestCLIAgentCredentialIntent(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	dir := t.TempDir()
-	principalPath := filepath.Join(dir, "principal.json")
-	require.NoError(t, os.WriteFile(principalPath, []byte(`{"display_name":"Credential principal","visibility":"all"}`), 0o600))
 	results := make([]testutil.ProcessResult, 0, 10)
 
-	created := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--file", principalPath, "--output", "json")
+	created := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--display-name", "Credential principal", "--visibility", "all", "--output", "json")
 	results = append(results, created)
 	var creation contract.PrincipalCreation
 	require.NoError(t, json.Unmarshal(created.Stdout, &creation))
@@ -58,11 +56,11 @@ func TestCLIPrincipalCredentials(t *testing.T) {
 	stalePath := filepath.Join(dir, "stale")
 	stale := runOnlineCLI(t, harness, bearerPath, false, "principal", "credential", "issue", principalID, "--etag", originalETag, "--secret-output", stalePath, "--yes", "--output", "json")
 	results = append(results, stale)
-	assert.Equal(t, 5, stale.ExitCode)
+	assert.Equal(t, 2, stale.ExitCode)
 	assert.NoFileExists(t, stalePath)
 
 	secondPath := filepath.Join(dir, "second")
-	replaced := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "issue", principalID, "--etag", etag, "--secret-output", secondPath, "--yes", "--output", "json")
+	replaced := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "rotate", principalID, "--etag", etag, "--secret-output", secondPath, "--yes", "--output", "json")
 	results = append(results, replaced)
 	require.NoError(t, json.Unmarshal(replaced.Stdout, &principal))
 	secondRaw, err := os.ReadFile(secondPath)
@@ -85,6 +83,12 @@ func TestCLIPrincipalCredentials(t *testing.T) {
 	var attempts atomic.Int64
 	fake := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		attempts.Add(1)
+		if request.Method == http.MethodGet {
+			writer.Header().Set("Content-Type", contract.MediaTypeJSON)
+			writer.Header().Set("ETag", contract.PrincipalETag(principalID, principal.Revision))
+			_ = json.NewEncoder(writer).Encode(principal)
+			return
+		}
 		writer.Header().Set("Content-Type", contract.MediaTypeProblemJSON)
 		writer.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = writer.Write([]byte(`{"status":503,"code":"storage_unavailable","title":"Storage is unavailable."}`))
@@ -94,7 +98,7 @@ func TestCLIPrincipalCredentials(t *testing.T) {
 	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "principal", "credential", "issue", principalID, "--etag", contract.PrincipalETag(principalID, principal.Revision), "--secret-output", uncertainPath, "--yes", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
-	assert.Equal(t, int64(1), attempts.Load())
+	assert.Equal(t, int64(2), attempts.Load())
 	assert.NoFileExists(t, uncertainPath)
 	assert.Contains(t, string(uncertain.Stderr), "cannot recover its bearer")
 

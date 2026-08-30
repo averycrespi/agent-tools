@@ -87,7 +87,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 	initialAdmin := harness.bearer
 	processResults = append(processResults, harness.Stop(syscall.SIGTERM))
 	resetSecret := filepath.Join(t.TempDir(), "reset-admin")
-	resetArgs := []string{"admin-reset", "--data-dir", harness.root, "--secret-output", resetSecret}
+	resetArgs := []string{"admin", "reset", "--data-dir", harness.root, "--secret-output", resetSecret}
 	appendArgumentEvidence(t, &evidence, resetArgs)
 	resetResult, err := harness.runner.Run(harness.ctx, harness.binary, resetArgs...)
 	require.NoError(t, err, string(resetResult.Stderr))

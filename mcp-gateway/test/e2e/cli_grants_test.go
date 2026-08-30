@@ -18,15 +18,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCLIGrants(t *testing.T) {
+func runCLIGrantInputMatrix(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	dir := t.TempDir()
-	principalPath := filepath.Join(dir, "principal.json")
-	require.NoError(t, os.WriteFile(principalPath, []byte(`{"display_name":"Grant principal","visibility":"allowed-only"}`), 0o600))
-	principalResult := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--file", principalPath, "--output", "json")
+	principalResult := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--display-name", "Grant principal", "--visibility", "allowed-only", "--output", "json")
 	var principalCreation contract.PrincipalCreation
 	require.NoError(t, json.Unmarshal(principalResult.Stdout, &principalCreation))
 	principalID := principalCreation.Principal.ID
@@ -42,6 +40,11 @@ func TestCLIGrants(t *testing.T) {
 	invalid := runOnlineCLI(t, harness, bearerPath, false, "grant", "create", "--file", invalidPath, "--output", "json")
 	results = append(results, invalid)
 	assert.Equal(t, 2, invalid.ExitCode)
+	direct := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--principal-id", principalID, "--effect", "allow", "--server-id", contract.SyntheticServerID, "--upstream-name", "get_identity", "--output", "json")
+	results = append(results, direct)
+	var directGrant contract.Grant
+	require.NoError(t, json.Unmarshal(direct.Stdout, &directGrant))
+	assert.Nil(t, directGrant.Constraint)
 	created := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--file", grantPath, "--output", "json")
 	results = append(results, created)
 	var grant contract.Grant

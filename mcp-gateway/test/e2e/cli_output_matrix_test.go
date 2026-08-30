@@ -157,8 +157,6 @@ func TestCLIOutputMatrix(t *testing.T) {
 	}
 	assert.Equal(t, int64(2), uncertainRequests.Load())
 
-	inputPath := filepath.Join(t.TempDir(), "admin-create.json")
-	require.NoError(t, os.WriteFile(inputPath, []byte(`{"expires_at":null}`), 0o600))
 	for _, mode := range []string{"human", "json"} {
 		secretPath := filepath.Join(t.TempDir(), "lost-secret")
 		var secretRequests atomic.Int64
@@ -175,7 +173,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 				Bearer:          "mgw_admin_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
 			})
 		}))
-		args := []string{"admin-credential", "create", "--file", inputPath, "--secret-output", secretPath}
+		args := []string{"admin", "credential", "create", "--secret-output", secretPath}
 		if mode == "json" {
 			args = append(args, "--json")
 		}

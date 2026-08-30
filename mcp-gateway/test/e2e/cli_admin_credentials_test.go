@@ -19,37 +19,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCLIAdminCredentials(t *testing.T) {
+func TestCLIAdminCommandTree(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	dir := t.TempDir()
-	inputPath := filepath.Join(dir, "create.json")
-	invalidPath := filepath.Join(dir, "invalid.json")
 	secretPath := filepath.Join(dir, "new-bearer")
-	require.NoError(t, os.WriteFile(inputPath, []byte(`{"expires_at":null}`), 0o600))
-	require.NoError(t, os.WriteFile(invalidPath, []byte(`{"expires_at":null,"unknown":true}`), 0o600))
 	results := make([]testutil.ProcessResult, 0, 9)
 
-	listed := runOnlineCLI(t, harness, bearerPath, true, "admin-credential", "list", "--limit", "10", "--output", "json")
+	listed := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "list", "--limit", "10", "--output", "json")
 	results = append(results, listed)
 	var page contract.Collection[contract.AdminCredential]
 	require.NoError(t, json.Unmarshal(listed.Stdout, &page))
 	require.Len(t, page.Items, 1)
 	originalID := page.Items[0].ID
-	got := runOnlineCLI(t, harness, bearerPath, true, "admin-credential", "get", originalID)
+	got := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "get", originalID)
 	results = append(results, got)
 	assert.Contains(t, string(got.Stdout), originalID)
 
-	invalid := runOnlineCLI(t, harness, bearerPath, false, "admin-credential", "create", "--file", invalidPath, "--secret-output", filepath.Join(dir, "unused"), "--output", "json")
+	invalid := runOnlineCLI(t, harness, bearerPath, false, "admin-credential", "create", "--secret-output", filepath.Join(dir, "unused"), "--output", "json")
 	results = append(results, invalid)
-	assert.Equal(t, 2, invalid.ExitCode)
-	terminalRefused := runOnlineCLI(t, harness, bearerPath, false, "admin-credential", "create", "--file", inputPath, "--output", "json")
+	assert.Equal(t, 1, invalid.ExitCode)
+	terminalRefused := runOnlineCLI(t, harness, bearerPath, false, "admin", "credential", "create", "--output", "json")
 	results = append(results, terminalRefused)
 	assert.Equal(t, 2, terminalRefused.ExitCode)
 
-	created := runOnlineCLI(t, harness, bearerPath, true, "admin-credential", "create", "--file", inputPath, "--secret-output", secretPath, "--output", "json")
+	created := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "create", "--secret-output", secretPath, "--output", "json")
 	results = append(results, created)
 	var credential contract.AdminCredential
 	require.NoError(t, json.Unmarshal(created.Stdout, &credential))
@@ -64,19 +60,19 @@ func TestCLIAdminCredentials(t *testing.T) {
 	newBearerPath := filepath.Join(dir, "new-bearer-input")
 	require.NoError(t, os.WriteFile(newBearerPath, newBearer, 0o600))
 
-	refused := runOnlineCLI(t, harness, bearerPath, false, "admin-credential", "revoke", credential.ID, "--output", "json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "admin", "credential", "revoke", credential.ID, "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
-	revoked := runOnlineCLI(t, harness, bearerPath, true, "admin-credential", "revoke", credential.ID, "--yes", "--output", "json")
+	revoked := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "revoke", credential.ID, "--yes", "--output", "json")
 	results = append(results, revoked)
 	assert.JSONEq(t, `{}`, string(revoked.Stdout))
-	revokedGet := runOnlineCLI(t, harness, bearerPath, true, "admin-credential", "get", credential.ID, "--output", "json")
+	revokedGet := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "get", credential.ID, "--output", "json")
 	results = append(results, revokedGet)
 	assert.Contains(t, string(revokedGet.Stdout), `"status":"revoked"`)
-	revokedAuthority := runOnlineCLI(t, harness, newBearerPath, false, "admin-credential", "list", "--output", "json")
+	revokedAuthority := runOnlineCLI(t, harness, newBearerPath, false, "admin", "credential", "list", "--output", "json")
 	results = append(results, revokedAuthority)
 	assert.Equal(t, 3, revokedAuthority.ExitCode)
-	last := runOnlineCLI(t, harness, bearerPath, false, "admin-credential", "revoke", originalID, "--yes", "--output", "json")
+	last := runOnlineCLI(t, harness, bearerPath, false, "admin", "credential", "revoke", originalID, "--yes", "--output", "json")
 	results = append(results, last)
 	assert.Equal(t, 5, last.ExitCode)
 
@@ -89,7 +85,7 @@ func TestCLIAdminCredentials(t *testing.T) {
 	}))
 	defer fake.Close()
 	uncertainPath := filepath.Join(dir, "uncertain-bearer")
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "admin-credential", "create", "--file", inputPath, "--secret-output", uncertainPath, "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "admin", "credential", "create", "--secret-output", uncertainPath, "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Equal(t, int64(1), attempts.Load())

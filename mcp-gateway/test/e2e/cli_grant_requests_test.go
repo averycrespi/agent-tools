@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCLIGrantRequests(t *testing.T) {
+func runCLIGrantRequestInputMatrix(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
@@ -41,16 +41,15 @@ func TestCLIGrantRequests(t *testing.T) {
 	first := createRequest(json.RawMessage(`1`), serverPolicy)
 	second := createRequest(json.RawMessage(`2`), contract.Policy{Scope: contract.PolicyTool, Target: "request-target.one"})
 	third := createRequest(json.RawMessage(`3`), contract.Policy{Scope: contract.PolicyTool, Target: "request-target.two"})
+	fourth := createRequest(json.RawMessage(`4`), contract.Policy{Scope: contract.PolicyTool, Target: "request-target.echo"})
 	firstHandle := harness.GetGrantRequest(first.ID)
 	secondHandle := harness.GetGrantRequest(second.ID)
 	thirdHandle := harness.GetGrantRequest(third.ID)
 	dir := t.TempDir()
 	approvePath := filepath.Join(dir, "approve.json")
-	rejectPath := filepath.Join(dir, "reject.json")
 	invalidPath := filepath.Join(dir, "invalid.json")
 	approveBody := `{"approved_policy":{"scope":"tool","target":"request-target.echo","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`
 	require.NoError(t, os.WriteFile(approvePath, []byte(approveBody), 0o600))
-	require.NoError(t, os.WriteFile(rejectPath, []byte(`{"reason":"scope_too_broad"}`), 0o600))
 	require.NoError(t, os.WriteFile(invalidPath, []byte(`{"approved_policy":{"scope":"server","target":"mcp_gateway","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true,"unknown":true}}`), 0o600))
 	results := make([]testutil.ProcessResult, 0, 10)
 
@@ -61,8 +60,10 @@ func TestCLIGrantRequests(t *testing.T) {
 	assert.Contains(t, string(got.Stdout), "CURRENT_TARGET")
 
 	invalid := runOnlineCLI(t, harness, bearerPath, false, "grant-request", "approve", first.ID, "--etag", firstHandle.ETag, "--file", invalidPath, "--yes", "--output", "json")
-	results = append(results, invalid)
+	oldReject := runOnlineCLI(t, harness, bearerPath, false, "grant-request", "reject", second.ID, "--file", invalidPath, "--yes", "--output", "json")
+	results = append(results, invalid, oldReject)
 	assert.Equal(t, 2, invalid.ExitCode)
+	assert.Equal(t, 2, oldReject.ExitCode)
 	refused := runOnlineCLI(t, harness, bearerPath, false, "grant-request", "approve", first.ID, "--etag", firstHandle.ETag, "--file", approvePath, "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
@@ -72,14 +73,19 @@ func TestCLIGrantRequests(t *testing.T) {
 	require.NoError(t, json.Unmarshal(approved.Stdout, &approvedRequest))
 	assert.Equal(t, contract.RequestApproved, approvedRequest.State)
 	require.NotNil(t, approvedRequest.ApprovedGrantID)
+	directApproved := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "approve", fourth.ID, "--scope", "tool", "--target", "request-target.echo", "--yes", "--output", "json")
+	results = append(results, directApproved)
+	var directApprovedRequest contract.GrantRequest
+	require.NoError(t, json.Unmarshal(directApproved.Stdout, &directApprovedRequest))
+	assert.Equal(t, contract.RequestApproved, directApprovedRequest.State)
 
-	stale := runOnlineCLI(t, harness, bearerPath, false, "grant-request", "reject", first.ID, "--etag", firstHandle.ETag, "--file", rejectPath, "--yes", "--output", "json")
+	stale := runOnlineCLI(t, harness, bearerPath, false, "grant-request", "reject", first.ID, "--etag", firstHandle.ETag, "--reason", "scope_too_broad", "--yes", "--output", "json")
 	terminal := runOnlineCLI(t, harness, bearerPath, false, "grant-request", "approve", first.ID, "--etag", contract.GrantRequestETag(first.ID, approvedRequest.Revision), "--file", approvePath, "--yes", "--output", "json")
 	results = append(results, stale, terminal)
 	assert.Equal(t, 5, stale.ExitCode)
 	assert.Equal(t, 5, terminal.ExitCode)
 
-	rejected := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "reject", second.ID, "--etag", secondHandle.ETag, "--file", rejectPath, "--yes", "--output", "json")
+	rejected := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "reject", second.ID, "--etag", secondHandle.ETag, "--reason", "scope_too_broad", "--yes", "--output", "json")
 	results = append(results, rejected)
 	var rejectedRequest contract.GrantRequest
 	require.NoError(t, json.Unmarshal(rejected.Stdout, &rejectedRequest))
@@ -94,7 +100,7 @@ func TestCLIGrantRequests(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"status":503,"code":"authorization_unavailable","title":"Authorization is unavailable."}`))
 	}))
 	defer fake.Close()
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "grant-request", "reject", third.ID, "--etag", thirdHandle.ETag, "--file", rejectPath, "--yes", "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "grant-request", "reject", third.ID, "--etag", thirdHandle.ETag, "--reason", "scope_too_broad", "--yes", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Equal(t, int64(1), attempts.Load())

@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCLIServerCreateUpdate(t *testing.T) {
+func runCLIServerInputMatrix(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
@@ -57,8 +57,7 @@ func TestCLIServerCreateUpdate(t *testing.T) {
 
 	get := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+creation.Server.ID, nil)
 	etag := get.Header.Get("ETag")
-	displayPath := writeInput("display.json", `{"display_name":"CLI renamed"}`)
-	display := runOnlineCLI(t, harness, bearerPath, true, "server", "update", creation.Server.ID, "--etag", etag, "--file", displayPath, "--output", "json")
+	display := runOnlineCLI(t, harness, bearerPath, true, "server", "update", creation.Server.ID, "--display-name", "CLI renamed", "--output", "json")
 	results = append(results, display)
 	var displayMutation struct {
 		Server struct {

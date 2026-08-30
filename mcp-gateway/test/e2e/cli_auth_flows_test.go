@@ -140,6 +140,16 @@ func TestCLIAuthFlows(t *testing.T) {
 
 func runAuthFlowStartPTY(t *testing.T, harness *gatewayHarness, bearerPath, address, expectedURL, serverID string, expectedChildExit int, expectTerminal, openURL, jsonOutput bool) testutil.ProcessResult {
 	t.Helper()
+	return runAuthFlowStartPTYCommand(t, harness, bearerPath, address, expectedURL, serverID, `"server-`+serverID+`-1"`, expectedChildExit, expectTerminal, openURL, jsonOutput)
+}
+
+func runAuthFlowStartPTYWithETag(t *testing.T, harness *gatewayHarness, bearerPath, address, expectedURL, serverID, etag string) testutil.ProcessResult {
+	t.Helper()
+	return runAuthFlowStartPTYCommand(t, harness, bearerPath, address, expectedURL, serverID, etag, 0, true, true, false)
+}
+
+func runAuthFlowStartPTYCommand(t *testing.T, harness *gatewayHarness, bearerPath, address, expectedURL, serverID, etag string, expectedChildExit int, expectTerminal, openURL, jsonOutput bool) testutil.ProcessResult {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("PTY acceptance requires a Unix controlling terminal")
 	}
@@ -177,7 +187,10 @@ print("auth_flow_terminal_open_ok")
 	if expectTerminal {
 		expectTerminalValue = "yes"
 	}
-	args := []string{wrapper, dir, expectedURL, fmt.Sprintf("%d", expectedChildExit), expectTerminalValue, stdoutPath, stderrPath, harness.binary, "server", "auth-flow", "start", serverID, "--etag", `"server-` + serverID + `-1"`}
+	args := []string{wrapper, dir, expectedURL, fmt.Sprintf("%d", expectedChildExit), expectTerminalValue, stdoutPath, stderrPath, harness.binary, "server", "auth-flow", "start", serverID}
+	if etag != "" {
+		args = append(args, "--etag", etag)
+	}
 	if openURL {
 		args = append(args, "--open")
 	}
