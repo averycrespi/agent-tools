@@ -71,7 +71,7 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	assert.Contains(t, stderr.String(), "Standard input cannot provide both")
 
 	declarations := map[string][]string{
-		"admin-credential create": {"expires-at"},
+		"admin credential create": {"expires-at"},
 		"server update":           {"display-name", "enable", "disable"},
 		"server operation start":  {"kind"},
 		"principal create":        {"display-name", "visibility"},

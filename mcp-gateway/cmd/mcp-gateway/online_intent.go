@@ -17,10 +17,11 @@ type onlineDirectFlag struct {
 }
 
 type onlineIntentSpec struct {
-	fileMembers []string
-	direct      []onlineDirectFlag
-	conflicts   [][]string
-	buildBody   func(map[string]string, map[string]bool, map[string]bool) ([]byte, error)
+	fileMembers   []string
+	direct        []onlineDirectFlag
+	conflicts     [][]string
+	defaultDirect bool
+	buildBody     func(map[string]string, map[string]bool, map[string]bool) ([]byte, error)
 }
 
 type onlineIntent struct {
@@ -98,7 +99,7 @@ func prepareOnlineIntent(command *cobra.Command, spec onlineCommandSpec, options
 		intent.body = validated
 		return intent, nil
 	}
-	if directChanged {
+	if directChanged || intentSpec.defaultDirect {
 		for _, flag := range intentSpec.direct {
 			if flag.required && !intent.changed[flag.name] {
 				return onlineIntent{}, controlclient.NewInputError("The --" + flag.name + " flag is required for direct input.")
@@ -160,7 +161,7 @@ func validatePreparedFileIntent(command *cobra.Command, spec onlineCommandSpec, 
 	prepared := *options
 	prepared.intent = intent
 	switch strings.Join(spec.Path, " ") {
-	case "admin-credential create":
+	case "admin credential create":
 		return readAdminCredentialCreateInput(command, &prepared)
 	case "server create":
 		body, _, err := readServerMutationInput(command, &prepared, true)
@@ -247,9 +248,9 @@ func marshalIntent(value any) ([]byte, error) {
 }
 
 var onlineIntentSpecs = map[string]onlineIntentSpec{
-	"admin-credential create": {
-		fileMembers: []string{"expires_at"},
-		direct:      []onlineDirectFlag{{name: "expires-at"}},
+	"admin credential create": {
+		direct:        []onlineDirectFlag{{name: "expires-at"}},
+		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, changed map[string]bool) ([]byte, error) {
 			if !changed["expires-at"] {
 				return []byte(`{"expires_at":null}`), nil

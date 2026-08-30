@@ -57,11 +57,15 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	command.PersistentFlags().String("data-dir", "", "owner-only Gateway data directory")
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),
-		newAdminAuthorityCmd("admin-reset", dependencies),
 		newRestoreCmd(dependencies),
 		newServeCmd(dependencies),
 	)
-	command.AddCommand(newOnlineCommands()...)
+	for _, online := range newOnlineCommands() {
+		if online.Name() == "admin" {
+			online.AddCommand(newAdminAuthorityCmd("reset", dependencies))
+		}
+		command.AddCommand(online)
+	}
 	return command
 }
 
@@ -485,10 +489,10 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 	short := "Create a new local Gateway installation"
 	example := "  mcp-gateway initialize"
 	usage := "mcp-gateway initialize"
-	if operation == "admin-reset" {
-		short = "Replace administrator authority for a stopped Gateway"
-		example = "  mcp-gateway admin-reset --secret-output NEW_PATH"
-		usage = "mcp-gateway admin-reset --secret-output NEW_PATH"
+	if operation == "reset" {
+		short = "Replace all administrator authority for a stopped Gateway"
+		example = "  mcp-gateway admin reset --secret-output NEW_PATH"
+		usage = "mcp-gateway admin reset --secret-output NEW_PATH"
 	}
 	command := &cobra.Command{
 		Use:     operation,

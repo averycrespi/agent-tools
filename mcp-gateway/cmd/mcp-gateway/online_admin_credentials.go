@@ -134,11 +134,11 @@ func writeAdminCredentialSuccess(command *cobra.Command, options *onlineOptions,
 }
 
 func adminCredentialCreateUncertainTitle() string {
-	return "The admin credential create outcome is uncertain. Nothing was replayed. Inspect admin-credential list and get; metadata cannot recover the bearer or prove it was published."
+	return "The admin credential create outcome is uncertain. Nothing was replayed. Inspect admin credential list and get; metadata cannot recover the bearer or prove it was published."
 }
 
 func adminCredentialRevokeUncertainTitle(id string) string {
-	return "The admin credential revoke outcome is uncertain. Nothing was replayed. Inspect admin-credential get " + id + "; only current metadata can guide an explicit next action."
+	return "The admin credential revoke outcome is uncertain. Nothing was replayed. Inspect admin credential get " + id + "; only current metadata can guide an explicit next action."
 }
 
 func validAdminCredential(credential contract.AdminCredential) bool {
