@@ -32,7 +32,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"Gateway must be stopped", "mcp-gateway restore --verify-current", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
 		},
 		"../../DESIGN.md": {
-			"Closed S1–S6 contract", "complete public-HTTP online CLI command tree", "`internal/controlclient` is the sole online CLI transport owner",
+			"Public HTTP and data contract", "complete public-HTTP online CLI command tree", "`internal/controlclient` is the sole online CLI transport owner",
 			"Automated accessibility qualification", "grant_requests", "sole online schema-10 DML owner", "no-check adopter",
 		},
 		"../../CLAUDE.md": {
@@ -148,6 +148,75 @@ func TestReadmeRelativeLinksResolve(t *testing.T) {
 		target, _, _ = strings.Cut(target, "#")
 		_, err := os.Stat(filepath.Join("../..", target))
 		require.NoError(t, err, "README link %q", match[1])
+	}
+}
+
+func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
+	t.Parallel()
+
+	document, err := os.ReadFile("../../DESIGN.md")
+	require.NoError(t, err)
+	text := string(document)
+
+	for _, heading := range []string{
+		"## System boundaries and composition",
+		"## Public HTTP and data contract",
+		"### Request mechanics",
+		"### Principal and grant mechanics",
+		"### Server and catalog vocabulary",
+		"### Strict JSON and policy constraints",
+		"### Self-service grant requests",
+		"## Storage durability and recovery",
+		"### Principal credentials, grants, and policy",
+		"### Security mutation and stopped recovery",
+		"### Backup and generation replacement",
+		"## Server and catalog authority",
+		"## Direct stdio supervision",
+		"## Downstream protocol and remote transport",
+		"### Governed invocation and audit evidence",
+		"### OAuth authority and catalog publication",
+		"## MCP ingress and governed invocation",
+	} {
+		require.Contains(t, text, heading)
+	}
+
+	ownedRanges := [][2]string{
+		{"## Purpose", "## Admin authority lifecycle"},
+		{"## Keyring capability and generation cutover", "## Deterministic test foundation"},
+		{"## MCP ingress and governed invocation", "## Current executable state"},
+	}
+	phaseResidue := regexp.MustCompile(`(?i)\bS[1-6](?:\.\d+)?\b|\bimplemented\b|\bfoundation\b|\btask owner\b|\bmilestone owner\b`)
+	for _, bounds := range ownedRanges {
+		start := strings.Index(text, bounds[0])
+		end := strings.Index(text, bounds[1])
+		require.NotEqual(t, -1, start, bounds[0])
+		require.Greater(t, end, start, bounds[1])
+		owned := strings.ReplaceAll(text[start:end], "`mcp-gateway/s2`", "")
+		require.Empty(t, phaseResidue.FindString(owned), "%s", bounds[0])
+	}
+
+	behaviorClaims := map[string]string{
+		"product.server_catalog.state_separation":          "durable desired authority remains distinct from process-local runtime and active catalog state",
+		"product.server_catalog.active_vs_durable_catalog": "Only exactly current active generations are discoverable and callable",
+		"product.access_policy.immutable_grants":           "Ordinary grants are immutable rows",
+		"product.access_policy.closed_constraints":         "Constraints compile only the closed",
+		"product.invocation.missing_terminal_unknown":      "Missing terminal evidence means the outcome is unknown",
+		"product.invocation.local_target_unknown":          "Local post-commit uncertainty returns `tool_unavailable`",
+		"product.invocation.bounded_retention":             "post-insert maximum of 4,096",
+		"security.invocation.audit_capture":                "Argument capture uses one fixed recursive key redactor",
+		"security.storage.sqlite_backups":                  "SQLite uses application ID `MGW1`",
+		"security.process.output":                          "no raw process output",
+	}
+	manifestIDs := make(map[string]struct{})
+	for _, behavior := range ProductBehaviorManifest() {
+		manifestIDs[behavior.ID] = struct{}{}
+	}
+	for _, behavior := range SecurityBehaviorManifest() {
+		manifestIDs[behavior.ID] = struct{}{}
+	}
+	for id, claim := range behaviorClaims {
+		require.Contains(t, manifestIDs, id)
+		require.Contains(t, text, claim, id)
 	}
 }
 
