@@ -105,7 +105,7 @@ func TestCLIAuthFlows(t *testing.T) {
 		http.Redirect(writer, request, authorization.URL+"/authorize?state=redirect-canary", http.StatusFound)
 	}))
 	defer redirected.Close()
-	redirectResult := runAuthFlowStartPTY(t, harness, bearerPath, redirected.URL, authorization.URL+"/authorize?state=redirect-canary", serverID, 10, false, false, false)
+	redirectResult := runAuthFlowStartPTY(t, harness, bearerPath, redirected.URL, authorization.URL+"/authorize?state=redirect-canary", serverID, 8, false, false, false)
 	assert.Equal(t, 0, redirectResult.ExitCode, string(redirectResult.Stderr))
 	assert.NotContains(t, string(redirectResult.Stdout), "redirect-canary")
 	assert.NotContains(t, string(redirectResult.Stderr), "redirect-canary")
@@ -199,9 +199,13 @@ print("auth_flow_terminal_open_ok")
 	}
 	args = append(args, "--address", address, "--admin-bearer-file", bearerPath)
 	result, _ := harness.runner.Run(context.Background(), "python3", args...)
+	childStdout, _ := os.ReadFile(stdoutPath)
+	childStderr, _ := os.ReadFile(stderrPath)
 	if result.ExitCode == 0 {
-		result.Stdout, _ = os.ReadFile(stdoutPath)
-		result.Stderr, _ = os.ReadFile(stderrPath)
+		result.Stdout = childStdout
+		result.Stderr = childStderr
+	} else {
+		result.Stderr = append(result.Stderr, childStderr...)
 	}
 	return result
 }

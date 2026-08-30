@@ -104,8 +104,8 @@ func TestCLIStatusInvocations(t *testing.T) {
 	failure := runOnlineCLI(t, harness, bearerPath, false, "invocation", "get", item.ID, "--output", "json")
 	assert.Equal(t, 9, failure.ExitCode)
 	assert.Empty(t, failure.Stdout)
-	assert.Contains(t, string(failure.Stderr), `"code":"client_transport_failure"`)
-	assert.Contains(t, string(failure.Stderr), "safe to repeat")
+	assert.Contains(t, string(failure.Stderr), `"code":"gateway_not_running"`)
+	assert.Contains(t, string(failure.Stderr), "Start it with: mcp-gateway serve")
 	for _, result := range []testutil.ProcessResult{statusJSON, statusTable, listJSON, listTable, getJSON, getTable, localTable, failure} {
 		assert.False(t, result.StdoutTruncated)
 		assert.False(t, result.StderrTruncated)

@@ -42,8 +42,8 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	stopped := runOnlineCLI(t, harness, bearerPath, false, "status", "--output", "json")
 	assert.Equal(t, 9, stopped.ExitCode)
 	assert.Empty(t, stopped.Stdout)
-	assert.Contains(t, string(stopped.Stderr), `"code":"client_transport_failure"`)
-	assert.Contains(t, string(stopped.Stderr), "safe to repeat")
+	assert.Contains(t, string(stopped.Stderr), `"code":"gateway_not_running"`)
+	assert.Contains(t, string(stopped.Stderr), "Start it with: mcp-gateway serve")
 
 	for _, result := range []testutil.ProcessResult{status, invocations, restore, stopped} {
 		assert.False(t, result.StdoutTruncated)

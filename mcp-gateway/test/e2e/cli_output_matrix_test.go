@@ -105,9 +105,9 @@ func TestCLIOutputMatrix(t *testing.T) {
 		assert.Equal(t, 9, result.ExitCode)
 		assert.Empty(t, result.Stdout)
 		if mode == "json" {
-			assert.Contains(t, string(result.Stderr), `"code":"client_transport_failure"`)
+			assert.Contains(t, string(result.Stderr), `"code":"gateway_not_running"`)
 		} else {
-			assert.Contains(t, string(result.Stderr), "safe to repeat")
+			assert.Contains(t, string(result.Stderr), "Start it with: mcp-gateway serve")
 		}
 	}
 
