@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mcp-gateway:release-report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "profile_hash",
+    "command_definition_hash",
+    "manifest_hash",
+    "result",
+    "reason",
+    "revision",
+    "dirty",
+    "clean_before",
+    "clean_after",
+    "started_at",
+    "ended_at",
+    "duration_ms",
+    "coverage",
+    "checks",
+    "external_evidence",
+    "cleanup"
+  ],
+  "properties": {
+    "schema_version": { "const": 4 },
+    "profile": { "const": "accept" },
+    "profile_hash": { "$ref": "#/$defs/digest" },
+    "command_definition_hash": { "$ref": "#/$defs/digest" },
+    "manifest_hash": { "$ref": "#/$defs/digest" },
+    "result": { "enum": ["passed", "failed"] },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "dirty": { "type": "boolean" },
+    "clean_before": { "type": "boolean" },
+    "clean_after": { "type": "boolean" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "ended_at": { "type": "string", "format": "date-time" },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "native": { "type": "object" },
+    "external_evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/external" }
+    },
+    "cleanup": { "$ref": "#/$defs/cleanup" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "uniqueStringList": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_behaviors", "cleanup_criteria"],
+      "properties": {
+        "product_behaviors": { "$ref": "#/$defs/uniqueStringList" },
+        "cleanup_criteria": { "$ref": "#/$defs/uniqueStringList" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "argv",
+        "coverage",
+        "artifacts",
+        "started_at",
+        "ended_at",
+        "duration_ms",
+        "timeout_ms",
+        "timed_out",
+        "termination",
+        "cleanup",
+        "cleanup_requirements",
+        "diagnostic_paths"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+        "status": { "enum": ["passed", "failed"] },
+        "argv": { "$ref": "#/$defs/stringList" },
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "artifacts": { "$ref": "#/$defs/uniqueStringList" },
+        "started_at": { "type": "string", "format": "date-time" },
+        "ended_at": { "type": "string", "format": "date-time" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "timeout_ms": { "type": "integer", "minimum": 1 },
+        "timed_out": { "type": "boolean" },
+        "termination": { "enum": ["none", "term", "kill"] },
+        "cleanup": { "enum": ["passed", "failed"] },
+        "cleanup_requirements": { "$ref": "#/$defs/uniqueStringList" },
+        "diagnostic_paths": { "$ref": "#/$defs/uniqueStringList" }
+      }
+    },
+    "external": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "result", "blocking"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+        "result": { "enum": ["passed", "failed", "unavailable"] },
+        "blocking": { "type": "boolean" },
+        "path": { "type": "string" },
+        "sha256": { "type": "string" }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "processes", "listeners", "temporary_roots"],
+      "properties": {
+        "status": { "enum": ["passed", "failed"] },
+        "processes": { "type": "boolean" },
+        "listeners": { "type": "boolean" },
+        "temporary_roots": { "type": "boolean" }
+      }
+    }
+  }
+}
