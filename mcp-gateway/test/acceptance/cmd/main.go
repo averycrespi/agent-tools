@@ -65,6 +65,11 @@ func runAccept(root string, arguments []string) int {
 		fmt.Fprintln(os.Stderr, "accept requires --report <absolute-path>")
 		return 2
 	}
+	initialTemporaryRoots, err := acceptanceTemporaryRoots()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "inventory acceptance temporary roots")
+		return 1
+	}
 	ledgerRoot, err := os.MkdirTemp("", "mcp-gateway-acceptance-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "create acceptance cleanup root")
@@ -90,9 +95,14 @@ func runAccept(root string, arguments []string) int {
 		cleanupErr := ledger.Cleanup()
 		unsetErr := os.Unsetenv(testutil.CleanupLedgerEnvironment)
 		removeErr := os.RemoveAll(ledgerRoot)
+		remainingTemporaryRoots, temporaryRootsErr := acceptanceTemporaryRoots()
+		if temporaryRootsErr == nil && !containsNoNewTemporaryRoots(initialTemporaryRoots, remainingTemporaryRoots) {
+			temporaryRootsErr = fmt.Errorf("acceptance left temporary roots")
+		}
 		return acceptance.ReleaseCleanupResult{
-			Processes: cleanupErr == nil, Listeners: cleanupErr == nil, TemporaryRoots: removeErr == nil,
-			Err: errors.Join(cleanupErr, unsetErr, removeErr),
+			Processes: cleanupErr == nil, Listeners: cleanupErr == nil,
+			TemporaryRoots: removeErr == nil && temporaryRootsErr == nil,
+			Err:            errors.Join(cleanupErr, unsetErr, removeErr, temporaryRootsErr),
 		}
 	}
 	defer func() {
@@ -120,6 +130,29 @@ func runAccept(root string, arguments []string) int {
 		return 1
 	}
 	return 0
+}
+
+func acceptanceTemporaryRoots() (map[string]struct{}, error) {
+	roots := make(map[string]struct{})
+	for _, pattern := range []string{"mcp-gateway-e2e-*", "mcp-gateway-ui-development-*"} {
+		matches, err := filepath.Glob(filepath.Join(os.TempDir(), pattern))
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range matches {
+			roots[match] = struct{}{}
+		}
+	}
+	return roots, nil
+}
+
+func containsNoNewTemporaryRoots(before, after map[string]struct{}) bool {
+	for root := range after {
+		if _, existed := before[root]; !existed {
+			return false
+		}
+	}
+	return true
 }
 
 func runAdopt(root string, arguments []string) int {

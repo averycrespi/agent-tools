@@ -10,7 +10,7 @@
     "format:check": "prettier --check \"**/*.{md,json,yml,yaml,ts,tsx,css,html}\"",
     "ui:typecheck": "tsc -p mcp-gateway/web/tsconfig.json --noEmit",
     "ui:dev": "node mcp-gateway/web/dev-server.ts",
-    "ui:test-dev": "node --test --test-timeout=30000",
+    "ui:test-dev": "node --test --test-concurrency=1 --test-timeout=30000",
     "ui:generate-dev-contract": "go -C mcp-gateway run ./web/scripts/generate-development-contract.go --output web/generated/development-contract.ts",
     "ui:verify-dev-contract": "go -C mcp-gateway run ./web/scripts/generate-development-contract.go --check web/generated/development-contract.ts",
     "ui:build": "vite build --config mcp-gateway/web/vite.config.ts",

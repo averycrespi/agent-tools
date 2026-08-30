@@ -135,6 +135,10 @@ export async function runDevelopmentServer(
       appType: "spa",
       clearScreen: false,
       logLevel: "silent",
+      optimizeDeps: {
+        noDiscovery: true,
+        include: [],
+      },
       build: {
         outDir: resolve(developmentRoot, "output"),
         emptyOutDir: true,
@@ -185,6 +189,7 @@ export async function runDevelopmentServer(
       process.once("SIGTERM", shutdown);
     });
     await close(server);
+    await activeVite.waitForRequestsIdle();
     vite = undefined;
     await activeVite.close();
   } finally {

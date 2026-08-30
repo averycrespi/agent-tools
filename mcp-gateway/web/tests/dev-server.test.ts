@@ -3,6 +3,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -85,6 +86,17 @@ function waitForOutput(
     child.once("exit", exited);
     check();
   });
+}
+
+async function developmentTemporaryRoots(): Promise<string[]> {
+  return (await readdir(tmpdir(), { withFileTypes: true }))
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        entry.name.startsWith("mcp-gateway-ui-development-"),
+    )
+    .map((entry) => entry.name)
+    .sort();
 }
 
 async function staticDigest(): Promise<string> {
@@ -281,6 +293,7 @@ test("startup is strict, emits safe bounded output, and settles on SIGTERM", asy
 test("source server serves authored modules and owns HMR without workspace output", async () => {
   const workspaceBefore = await workspaceDigest();
   const staticBefore = await staticDigest();
+  const temporaryBefore = await developmentTemporaryRoots();
   const reservation = createServer();
   const port = await listen(reservation);
   await close(reservation);
@@ -324,6 +337,7 @@ test("source server serves authored modules and owns HMR without workspace outpu
     });
     assert.equal(await staticDigest(), staticBefore);
     assert.equal(await workspaceDigest(), workspaceBefore);
+    assert.deepEqual(await developmentTemporaryRoots(), temporaryBefore);
   } finally {
     if (process.child.exitCode === null) process.child.kill("SIGKILL");
   }

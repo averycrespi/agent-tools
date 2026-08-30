@@ -135,7 +135,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 
 	addMake("test-frontend-development-node", "npm.ui.test-dev")
 	addCommand("npm.ui.test-dev", []string{"npm", "--prefix", "..", "run", "ui:test-dev"}, []string{makefile, packageManifest}, []string{"node.test-dev"})
-	addCommand("node.test-dev", []string{"node", "--test", "--test-timeout=30000"}, []string{packageManifest, "mcp-gateway/web/tests/dev-server.test.ts", "mcp-gateway/web/tests/proxy-admission.test.ts"}, nil)
+	addCommand("node.test-dev", []string{"node", "--test", "--test-concurrency=1", "--test-timeout=30000"}, []string{packageManifest, "mcp-gateway/web/tests/dev-server.test.ts", "mcp-gateway/web/tests/proxy-admission.test.ts"}, nil)
 
 	addMake("frontend-typecheck", "npm.ui.typecheck")
 	addCommand("npm.ui.typecheck", []string{"npm", "--prefix", "..", "run", "ui:typecheck"}, []string{makefile, packageManifest}, []string{"tsc.frontend"})
