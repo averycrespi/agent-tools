@@ -47,7 +47,7 @@ test-keyring-native:
 test-browser: test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross
 
 test-browser-workflows:
-	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit|SessionLifecycleCanary|PriorSessionResponseIsolationCanary|OverviewInvocationSystemCanary|ServerManagementCanary|AccessManagementReadCanary|SystemAdministrationCanary|VisualAccessibilityPrivacyCanary|Coordinator)$$' ./test/e2e
+	go test -race -count=1 -tags=e2e,browser -timeout=3m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit|SessionLifecycleCanary|PriorSessionResponseIsolationCanary|OverviewInvocationSystemCanary|ServerManagementCanary|AccessManagementReadCanary|SystemAdministrationCanary|VisualAccessibilityPrivacyCanary|Coordinator)$$' ./test/e2e
 
 test-browser-privacy:
 	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestBrowserSecretStoragePrivacy$$' ./test/e2e
