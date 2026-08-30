@@ -74,7 +74,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		}, 2*time.Minute, 5*time.Minute, 20, 0, 0, []string{"five targeted race scenario results"}),
 		"test-keyring-native": leaf("test-keyring-native", []string{"tier.native.keyring"}, 10*time.Second, 30*time.Second, 1, 0, 0, []string{"typed native keyring classification"}, "mcp-gateway/test/keyring-native.sh"),
 
-		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 2*time.Minute, 150*time.Second, 1, 25, 25, []string{"browser workflow output", "browser cleanup records"}, "mcp-gateway/test/e2e/harness_test.go"),
+		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 2*time.Minute, 150*time.Second, 1, 33, 33, []string{"browser workflow output", "browser cleanup records"}, "mcp-gateway/test/e2e/harness_test.go"),
 		"test-browser-privacy":       leaf("test-browser-privacy", []string{"security.browser.storage", "frontend.privacy"}, 30*time.Second, 45*time.Second, 1, 1, 1, []string{"secret canary scan", "browser cleanup records"}, "mcp-gateway/test/e2e/browser_secret_storage_privacy_test.go"),
 		"test-browser-visual":        leaf("test-browser-visual", []string{"tier.browser.visual", "product.interface.developer_first"}, 60*time.Second, 75*time.Second, 1, 1, 1, []string{"deterministic visual matrix output"}, "mcp-gateway/test/e2e/browser_visual_responsive_test.go"),
 		"test-browser-accessibility": leaf("test-browser-accessibility", []string{"tier.browser.accessibility", "product.browser.accessibility_responsive"}, 45*time.Second, 60*time.Second, 1, 1, 1, []string{"automated accessibility output"}, "mcp-gateway/test/e2e/browser_accessibility_test.go"),
@@ -107,7 +107,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addMake("test-e2e", "go.e2e.complete")
 	addCommand("go.e2e.complete", []string{"go", "test", "-race", "-count=1", "-tags=e2e", "-timeout=2m", "./test/e2e/..."}, []string{makefile}, nil)
 	addMake("test-security", "go.security")
-	addCommand("go.security", []string{"go", "test", "-race", "-count=1", "-tags=security", "-timeout=30s", "./test/security/..."}, []string{makefile}, nil)
+	addCommand("go.security", []string{"go", "test", "-race", "-count=1", "-tags=security", "-timeout=30s", "-run", "^(TestReleaseReportSecretSinkBoundaries|TestDurableSecretSinkBoundaries|TestSecurityEvidenceOwnerManifest|TestStaticSecretSinkClosure)$", "./test/security/...", "./test/acceptance"}, []string{makefile, "mcp-gateway/test/security/security_canaries_test.go", "mcp-gateway/test/acceptance/release_report_security_test.go"}, nil)
 	addMake("test-stress", "go.stress.grant-requests", "go.stress.self-service", "go.stress.composition")
 	addCommand("go.stress.grant-requests", []string{"go", "test", "-race", "-tags=stress", "-count=$(STRESS_COUNT)", "-timeout=2m", "-run", "^(TestConcurrentSemanticDeduplicationStress|TestApprovalCancellationPolicyLinearizationStress)$", "./internal/grantrequests"}, []string{makefile}, nil)
 	addCommand("go.stress.self-service", []string{"go", "test", "-race", "-tags=stress", "-count=$(STRESS_COUNT)", "-timeout=90s", "-run", "^(TestSyntheticSnapshotPaginationStress|TestLostLocalMutationResponseDeduplicatesExplicitRetryStress)$", "./internal/selfservice"}, []string{makefile}, nil)
@@ -120,7 +120,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		timeout  string
 	}
 	browserCommands := map[string]browserCommand{
-		"test-browser-workflows":            {selector: "TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)", timeout: "2m"},
+		"test-browser-workflows":            {selector: "TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit|SessionLifecycleCanary|PriorSessionResponseIsolationCanary|OverviewInvocationSystemCanary|ServerManagementCanary|AccessManagementReadCanary|SystemAdministrationCanary|VisualAccessibilityPrivacyCanary|Coordinator)", timeout: "2m"},
 		"test-browser-privacy":              {selector: "TestBrowserSecretStoragePrivacy", timeout: "30s"},
 		"test-browser-visual":               {selector: "TestBrowserVisualResponsiveMatrix", timeout: "60s"},
 		"test-browser-accessibility":        {selector: "TestBrowserAccessibility", timeout: "45s"},

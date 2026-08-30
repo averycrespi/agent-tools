@@ -5,8 +5,6 @@ package security
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -24,22 +22,9 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
-	"github.com/averycrespi/agent-tools/mcp-gateway/test/acceptance"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestAcceptanceReportSecretSinkBoundaries(t *testing.T) {
-	canary := "acceptance-report-output-canary-7f31289c"
-	report := acceptance.Run(context.Background(), repositoryRoot(t), securityExecutor{canary: canary}, true)
-	require.Equal(t, acceptance.ResultFailed, report.Result)
-	encoded, err := json.Marshal(report)
-	require.NoError(t, err)
-	assert.NotContains(t, string(encoded), canary)
-	for _, forbidden := range []string{`"stdout"`, `"stderr"`, `"error"`, `"output"`} {
-		assert.NotContains(t, string(encoded), forbidden)
-	}
-}
 
 func TestDurableSecretSinkBoundaries(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
@@ -87,7 +72,7 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 		{"user-gesture clipboard", "runSecretSinks"}, {"OAuth opener and referrer", "TestBrowserSecretStoragePrivacy"},
 		{"stale authentication epoch", "assertSensitiveSinkFoundation"}, {"post-response sink loss", "assertSensitiveSinkFoundation"},
 		{"CLI argv and environment", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "TestCLISensitiveSinks"},
-		{"logs and acceptance reports", "TestAcceptanceReportSecretSinkBoundaries"}, {"events", "TestE2EInvocationReadPrivacy"},
+		{"logs and acceptance reports", "TestReleaseReportSecretSinkBoundaries"}, {"events", "TestE2EInvocationReadPrivacy"},
 		{"audit capture", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "TestDurableSecretSinkBoundaries"},
 		{"generated frontend assets", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "TestBrowserSecretStoragePrivacy"},
 		{"process output", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "TestSecurityEvidenceOwnerManifest"},
@@ -157,7 +142,11 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 		contract.SecretSinkAuthoritativeGenerationRefreshCopy, contract.SecretSinkAgentCredentialCreation,
 		contract.SecretSinkBrowserOneTimeDisplay, contract.SecretSinkUserInitiatedClipboard,
 	}, contract.ApprovedSecretSinks())
-	assert.Equal(t, []string{"Artifacts", "Cleanup", "Command", "Criteria", "DiagnosticPaths", "DurationMillis", "EndedAt", "Evidence", "Name", "StartedAt", "Status", "Termination", "TimedOut", "TimeoutMillis"}, exportedFields(reflect.TypeOf(acceptance.Check{})))
+	reportSchema, err := os.ReadFile(filepath.Join(repositoryRoot(t), "mcp-gateway", "test", "acceptance", "release_report.schema.json"))
+	require.NoError(t, err)
+	for _, forbidden := range []string{`"stdout"`, `"stderr"`, `"error"`, `"output"`} {
+		assert.NotContains(t, string(reportSchema), forbidden)
+	}
 	assert.Equal(t, []string{"AdmissionClass", "AdmittedAt", "AuthorizationDecision", "AuthorizationRevision", "CompletedAt", "CredentialFingerprint", "CredentialID", "CredentialRevision", "DescriptorFingerprint", "DescriptorRevision", "EvaluatedAt", "GrantID", "InvocationID", "PrincipalID", "RedactedArguments", "RequestedName", "Sequence", "ServerID", "TerminalClass", "ToolID", "UpstreamName"}, exportedFields(reflect.TypeOf(contract.InvocationAuditRecord{})))
 
 	for _, base := range []string{"cmd", "internal"} {
@@ -184,14 +173,6 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 			return nil
 		}))
 	}
-}
-
-type securityExecutor struct {
-	canary string
-}
-
-func (executor securityExecutor) Run(_ context.Context, _ string, _ acceptance.Command) ([]byte, error) {
-	return []byte(executor.canary), errors.New(executor.canary)
 }
 
 type securityClock struct{}

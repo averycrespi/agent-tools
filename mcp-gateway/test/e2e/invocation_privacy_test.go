@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"syscall"
 	"testing"
@@ -23,7 +22,6 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
-	"github.com/averycrespi/agent-tools/mcp-gateway/test/acceptance"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -169,7 +167,6 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	result := harness.Stop(syscall.SIGTERM)
 	assertBackupArtifactModes(t, harness.root, artifact.ID)
 	scanInvocationPrivacySinks(t, harness, issued.Bearer, []string{argumentCanary, fixturePrivateSuccessText, fixtureToolErrorText}, evidence, result)
-	assertInvocationReportSinks(t, []string{argumentCanary, fixturePrivateSuccessText, fixtureToolErrorText})
 }
 
 func listInvocations(t *testing.T, harness *gatewayHarness, query url.Values) (responseSnapshot, contract.InvocationPage) {
@@ -208,29 +205,6 @@ func simulateRetainedInvocationWindow(t *testing.T, harness *gatewayHarness, ret
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, removed, int64(1))
 	require.NoError(t, database.Close())
-}
-
-type invocationReportExecutor struct{ canary string }
-
-func (executor invocationReportExecutor) Run(context.Context, string, acceptance.Command) ([]byte, error) {
-	return []byte(executor.canary), errors.New(executor.canary)
-}
-
-func assertInvocationReportSinks(t *testing.T, canaries []string) {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
-	for _, canary := range canaries {
-		report := acceptance.Run(context.Background(), root, invocationReportExecutor{canary: canary}, true)
-		require.Equal(t, acceptance.ResultFailed, report.Result)
-		encoded, err := json.Marshal(report)
-		require.NoError(t, err)
-		assert.NotContains(t, string(encoded), canary)
-		for _, forbidden := range []string{`"stdout"`, `"stderr"`, `"error"`, `"output"`} {
-			assert.NotContains(t, string(encoded), forbidden)
-		}
-	}
 }
 
 func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutOfArtifacts(t *testing.T) {

@@ -73,8 +73,8 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 66, dag.Leaves["test-e2e"].GatewayStarts)
-	assert.Equal(t, 25, dag.Leaves["test-browser-workflows"].GatewayStarts)
-	assert.Equal(t, 25, dag.Leaves["test-browser-workflows"].BrowserStarts)
+	assert.Equal(t, 33, dag.Leaves["test-browser-workflows"].GatewayStarts)
+	assert.Equal(t, 33, dag.Leaves["test-browser-workflows"].BrowserStarts)
 	assert.Equal(t, 2, dag.Leaves["test-frontend-development-browser"].GatewayStarts)
 	assert.Equal(t, 2, dag.Leaves["test-frontend-development-browser"].BrowserStarts)
 	assert.Equal(t, 1, dag.Leaves["test-browser-cross"].GatewayStarts)

@@ -34,7 +34,7 @@ test-e2e:
 	go test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...
 
 test-security:
-	go test -race -count=1 -tags=security -timeout=30s ./test/security/...
+	go test -race -count=1 -tags=security -timeout=30s -run '^(TestReleaseReportSecretSinkBoundaries|TestDurableSecretSinkBoundaries|TestSecurityEvidenceOwnerManifest|TestStaticSecretSinkClosure)$$' ./test/security/... ./test/acceptance
 
 test-stress:
 	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m -run '^(TestConcurrentSemanticDeduplicationStress|TestApprovalCancellationPolicyLinearizationStress)$$' ./internal/grantrequests
@@ -47,7 +47,7 @@ test-keyring-native:
 test-browser: test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross
 
 test-browser-workflows:
-	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit)$$' ./test/e2e
+	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit|SessionLifecycleCanary|PriorSessionResponseIsolationCanary|OverviewInvocationSystemCanary|ServerManagementCanary|AccessManagementReadCanary|SystemAdministrationCanary|VisualAccessibilityPrivacyCanary|Coordinator)$$' ./test/e2e
 
 test-browser-privacy:
 	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestBrowserSecretStoragePrivacy$$' ./test/e2e

@@ -55,9 +55,9 @@ func finalReleaseChecks() ([]releaseCheckDefinition, error) {
 	}
 	productOwners := releaseProductBehaviorOwners()
 	cleanupOwners := map[string]string{
-		"cleanup.AC-1": "repository-format", "cleanup.AC-2": "repository-verify", "cleanup.AC-3": "repository-verify",
+		"cleanup.AC-1": "test-unit", "cleanup.AC-2": "repository-verify", "cleanup.AC-3": "repository-verify",
 		"cleanup.AC-4": "repository-diff", "cleanup.AC-5": "repository-verify", "cleanup.AC-6": "test-security",
-		"cleanup.AC-7": "test-browser-accessibility", "cleanup.AC-8": "test-stress", "cleanup.AC-9": "test-integration", "cleanup.AC-10": "repository-format",
+		"cleanup.AC-7": "test-browser-accessibility", "cleanup.AC-8": "test-stress", "cleanup.AC-9": "test-integration", "cleanup.AC-10": "test-unit",
 	}
 	checks := make([]releaseCheckDefinition, len(specs))
 	byID := make(map[string]int, len(specs))

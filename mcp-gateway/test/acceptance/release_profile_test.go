@@ -53,7 +53,12 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	}, checksByID["test-stress"].Coverage.ProductBehaviors)
 	assert.Subset(t, checksByID["test-frontend-development-browser"].Coverage.ProductBehaviors, []string{"frontend.style_live_reload", "frontend.module_live_reload", "frontend.control_plane", "frontend.streaming_uncertainty"})
 	assert.Contains(t, checksByID["test-e2e"].Coverage.ProductBehaviors, "tier.e2e.complete")
-	assert.Contains(t, checksByID["repository-format"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
+	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
+	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "product.compatibility.release_evidence")
+	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "cli.documentation")
+	assert.Contains(t, checksByID["test-unit"].Coverage.CleanupCriteria, "cleanup.AC-1")
+	assert.Contains(t, checksByID["test-unit"].Coverage.CleanupCriteria, "cleanup.AC-10")
+	assert.NotContains(t, checksByID["repository-format"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
 	assert.Contains(t, checksByID["repository-verify"].Coverage.ProductBehaviors, "tier.repository.verify")
 	assert.Contains(t, checksByID["go-vulnerability"].Coverage.ProductBehaviors, "tier.supply_chain.go")
 	assert.Contains(t, checksByID["repository-other-tools"].Coverage.ProductBehaviors, "tier.repository.other_tools")
@@ -79,8 +84,8 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}
-	assert.Equal(t, 97, gatewayStarts)
-	assert.Equal(t, 32, browserStarts)
+	assert.Equal(t, 105, gatewayStarts)
+	assert.Equal(t, 40, browserStarts)
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "test-e2e"))
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "verify-supply-chain"))
 	for _, aggregate := range []string{"test", "test-browser", "test-frontend-development", "frontend-build", "frontend-verify-generated"} {
