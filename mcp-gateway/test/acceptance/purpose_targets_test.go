@@ -88,6 +88,28 @@ func TestPurposeNamedBuildTagsKeepLeafTiersDisjoint(t *testing.T) {
 	assert.Contains(t, string(frontend), "func TestStaticSupplyChain")
 }
 
+func TestPurposeNamedRootForwardingAndOwnership(t *testing.T) {
+	moduleRoot := purposeTargetModuleRoot(t)
+	repositoryRoot := filepath.Dir(moduleRoot)
+	contents, err := os.ReadFile(filepath.Join(repositoryRoot, "Makefile"))
+	require.NoError(t, err)
+	makefile := string(contents)
+
+	forwarded := []string{
+		"test-browser", "test-frontend-development", "frontend-typecheck", "frontend-build",
+		"frontend-verify-generated", "frontend-verify-supply-chain", "frontend-audit",
+	}
+	for _, target := range forwarded {
+		assert.Equal(t, "\t$(MAKE) -C mcp-gateway "+target, purposeMakeTargetRecipe(makefile, target), target)
+		command := exec.Command("make", "-n", "-C", repositoryRoot, target)
+		output, dryRunErr := command.CombinedOutput()
+		require.NoError(t, dryRunErr, "%s: %s", target, output)
+		assert.Contains(t, string(output), "make -C mcp-gateway "+target, target)
+	}
+	assert.NotContains(t, purposeMakeTargetRecipe(makefile, "check-other-tools"), "mcp-gateway")
+	assert.Contains(t, makefile, "OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker")
+}
+
 func TestPurposeNamedTargetsRetainUnpublishedLegacyEntryPoints(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
@@ -131,4 +153,20 @@ func purposeTargetModuleRoot(t *testing.T) string {
 	_, source, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	return filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+}
+
+func purposeMakeTargetRecipe(makefile, target string) string {
+	start := strings.Index(makefile, "\n"+target+":")
+	if start < 0 {
+		return ""
+	}
+	rest := makefile[start+1:]
+	if end := strings.Index(rest, "\n\n"); end >= 0 {
+		rest = rest[:end]
+	}
+	lines := strings.Split(rest, "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	return strings.Join(lines[1:], "\n")
 }

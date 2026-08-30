@@ -2997,10 +2997,21 @@ async function runAccessibilityKeyboardResponsive(
 
   await page.setViewportSize({ width: 390, height: 844 });
   const toggle = page.locator('[data-testid="navigation-toggle"]');
+  await toggle.waitFor({ state: "visible" });
   await toggle.focus();
   await page.keyboard.press("Space");
-  if ((await toggle.getAttribute("aria-expanded")) !== "true")
+  try {
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="navigation-toggle"]')
+          ?.getAttribute("aria-expanded") === "true",
+      undefined,
+      { timeout: 3000 },
+    );
+  } catch {
     fail("mobile navigation did not expose its state");
+  }
   const systemLink = page.locator('#primary-navigation a[href="#/system"]');
   if ((await systemLink.getAttribute("aria-current")) !== "page")
     fail("current navigation state relied on color alone");

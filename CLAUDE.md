@@ -25,13 +25,14 @@ make build     # build all Go tools
 make test      # test all Go tools
 make check-other-tools # lint + test non-Gateway modules only
 make audit     # tidy + fmt + lint + test + govulncheck for all Go tools
-npm run ui:typecheck
-npm run ui:dev
-make -C mcp-gateway test-frontend-development
-npm run ui:build
-npm run ui:verify-generated
-npm run ui:verify-supply-chain
-npm run ui:audit
+make test-browser # Gateway browser developer aggregate
+make frontend-typecheck
+npm run ui:dev # foreground live-reload server
+make test-frontend-development
+make frontend-build
+make frontend-verify-generated
+make frontend-verify-supply-chain
+make frontend-audit
 ```
 
 For the two-process live-reload workflow, follow the [MCP Gateway frontend development guide](mcp-gateway/docs/frontend-development.md). For Gateway evidence tiers, exact-revision acceptance, external qualification, and report adoption, follow the [release verification guide](mcp-gateway/docs/release-verification.md).
