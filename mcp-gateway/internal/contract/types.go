@@ -23,6 +23,19 @@ type CreatedAdminCredential struct {
 	Bearer string `json:"bearer"`
 }
 
+type AdminAuthority struct {
+	Revision string `json:"revision"`
+}
+
+type AdminCredentialRotationCompletion struct {
+	ReplacementID string `json:"replacement_id"`
+}
+
+type AdminCredentialRotationResult struct {
+	OldCredential AdminCredential `json:"old_credential"`
+	NewCredential AdminCredential `json:"new_credential"`
+}
+
 type Backup struct {
 	ID             string `json:"id"`
 	CreatedAt      string `json:"created_at"`

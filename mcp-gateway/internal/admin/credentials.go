@@ -13,11 +13,13 @@ import (
 )
 
 var (
-	ErrInvalidExpiry   = errors.New("credential expiry is outside the allowed range")
-	ErrResourceLimit   = errors.New("admin credential limit is reached")
-	ErrNotFound        = errors.New("admin credential was not found")
-	ErrLastNonExpiring = errors.New("the last active non-expiring authority cannot be revoked")
-	ErrMutationBusy    = storage.ErrMutationBusy
+	ErrInvalidExpiry    = errors.New("credential expiry is outside the allowed range")
+	ErrResourceLimit    = errors.New("admin credential limit is reached")
+	ErrNotFound         = errors.New("admin credential was not found")
+	ErrLastNonExpiring  = errors.New("the last active non-expiring authority cannot be revoked")
+	ErrStaleAuthority   = errors.New("administrator authority revision is stale")
+	ErrRotationConflict = errors.New("administrator credential rotation conflicts with current state")
+	ErrMutationBusy     = storage.ErrMutationBusy
 )
 
 type credentialRecord struct {
@@ -27,6 +29,14 @@ type credentialRecord struct {
 }
 
 func (service *Service) Create(ctx context.Context, expiresAt *time.Time) (contract.CreatedAdminCredential, error) {
+	return service.create(ctx, expiresAt, nil)
+}
+
+func (service *Service) CreateConditional(ctx context.Context, expiresAt *time.Time, expectedAuthorityRevision string) (contract.CreatedAdminCredential, error) {
+	return service.create(ctx, expiresAt, &expectedAuthorityRevision)
+}
+
+func (service *Service) create(ctx context.Context, expiresAt *time.Time, expectedAuthorityRevision *string) (contract.CreatedAdminCredential, error) {
 	service.secretOps.Lock()
 	defer service.secretOps.Unlock()
 
@@ -42,6 +52,15 @@ func (service *Service) Create(ctx context.Context, expiresAt *time.Time) (contr
 		return contract.CreatedAdminCredential{}, err
 	}
 	if err := service.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		if expectedAuthorityRevision != nil {
+			current, err := queryAuthorityRevision(ctx, transaction)
+			if err != nil {
+				return err
+			}
+			if current != *expectedAuthorityRevision {
+				return ErrStaleAuthority
+			}
+		}
 		if err := pruneForInsert(ctx, transaction, now); err != nil {
 			return err
 		}
@@ -55,6 +74,19 @@ func (service *Service) Create(ctx context.Context, expiresAt *time.Time) (contr
 		return contract.CreatedAdminCredential{}, err
 	}
 	return contract.CreatedAdminCredential{AdminCredential: candidate.metadata, Bearer: candidate.bearer}, nil
+}
+
+func (service *Service) Authority(ctx context.Context) (contract.AdminAuthority, error) {
+	var authority contract.AdminAuthority
+	err := service.store.View(ctx, func(transaction *sql.Tx) error {
+		revision, err := queryAuthorityRevision(ctx, transaction)
+		if err != nil {
+			return err
+		}
+		authority.Revision = revision
+		return nil
+	})
+	return authority, err
 }
 
 func (service *Service) Get(ctx context.Context, id string) (contract.AdminCredential, error) {
@@ -103,6 +135,60 @@ func (service *Service) Status(ctx context.Context) contract.LimitStatus {
 	return contract.LimitStatus{InUse: inUse, Limit: limit.Maximum, Saturated: inUse >= limit.Maximum}
 }
 
+func (service *Service) CompleteRotation(ctx context.Context, oldID, replacementID, expectedAuthorityRevision string) (contract.AdminCredentialRotationResult, error) {
+	var result contract.AdminCredentialRotationResult
+	revoked := false
+	err := service.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		current, err := queryAuthorityRevision(ctx, transaction)
+		if err != nil {
+			return err
+		}
+		if current != expectedAuthorityRevision {
+			return ErrStaleAuthority
+		}
+		if oldID == replacementID {
+			return ErrRotationConflict
+		}
+		oldRecord, err := queryCredential(ctx, transaction, oldID, service.clock.Now())
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return ErrRotationConflict
+			}
+			return err
+		}
+		replacement, err := queryCredential(ctx, transaction, replacementID, service.clock.Now())
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return ErrRotationConflict
+			}
+			return err
+		}
+		if oldRecord.metadata.Status != contract.CredentialActive || replacement.metadata.Status != contract.CredentialActive || !replacement.metadata.NonExpiring {
+			return ErrRotationConflict
+		}
+		revision, err := incrementRevision(ctx, transaction)
+		if err != nil {
+			return err
+		}
+		if _, err := transaction.ExecContext(ctx, `
+			UPDATE admin_credentials SET status = 'revoked', revision = ? WHERE id = ?`, revision, oldID); err != nil {
+			return fmt.Errorf("complete admin credential rotation: %w", err)
+		}
+		oldRecord.metadata.Status = contract.CredentialRevoked
+		oldRecord.metadata.Revision = revision
+		result = contract.AdminCredentialRotationResult{OldCredential: oldRecord.metadata, NewCredential: replacement.metadata}
+		revoked = true
+		return nil
+	})
+	if err != nil {
+		return contract.AdminCredentialRotationResult{}, err
+	}
+	if revoked {
+		service.notifyCredentialInvalidation(&oldID)
+	}
+	return result, nil
+}
+
 func (service *Service) Revoke(ctx context.Context, id string) error {
 	revoked := false
 	err := service.store.Mutate(ctx, func(transaction *sql.Tx) error {
@@ -142,6 +228,14 @@ func (service *Service) Revoke(ctx context.Context, id string) error {
 		service.notifyCredentialInvalidation(&id)
 	}
 	return nil
+}
+
+func queryAuthorityRevision(ctx context.Context, transaction *sql.Tx) (string, error) {
+	var revision uint64
+	if err := transaction.QueryRowContext(ctx, `SELECT COALESCE(MAX(revision), 0) FROM admin_credentials`).Scan(&revision); err != nil {
+		return "", fmt.Errorf("read administrator authority revision: %w", err)
+	}
+	return fmt.Sprintf("%d", revision), nil
 }
 
 func queryCredential(ctx context.Context, transaction *sql.Tx, id string, now time.Time) (credentialRecord, error) {

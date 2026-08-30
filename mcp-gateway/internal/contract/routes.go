@@ -61,6 +61,8 @@ var routes = []Route{
 	{Pattern: "/api/v1/grant-requests/{id}/reject", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/invocations", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/invocations/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/admin-authority", Methods: []string{"GET"}, Authority: AuthorityAdminBearer},
+	{Pattern: "/api/v1/admin-credentials/{id}/rotation-completion", Methods: []string{"POST"}, Authority: AuthorityAdminBearer},
 }
 
 func Routes() []Route {

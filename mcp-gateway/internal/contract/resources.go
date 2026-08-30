@@ -17,23 +17,24 @@ const (
 )
 
 type ResourceMechanic struct {
-	Pattern         string
-	Method          string
-	RequestSchema   string
-	SuccessSchema   string
-	SuccessStatuses []int
-	Cursor          bool
-	Idempotency     bool
-	Precondition    bool
-	ETag            bool
-	EventReplay     bool
+	Pattern              string
+	Method               string
+	RequestSchema        string
+	SuccessSchema        string
+	SuccessStatuses      []int
+	Cursor               bool
+	Idempotency          bool
+	Precondition         bool
+	OptionalPrecondition bool
+	ETag                 bool
+	EventReplay          bool
 }
 
 var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/admin-sessions", Method: "POST"},
 	{Pattern: "/api/v1/admin-sessions/current", Method: "DELETE"},
 	{Pattern: "/api/v1/admin-credentials", Method: "GET", Cursor: true},
-	{Pattern: "/api/v1/admin-credentials", Method: "POST"},
+	{Pattern: "/api/v1/admin-credentials", Method: "POST", RequestSchema: "AdminCredentialCreate", SuccessSchema: "CreatedAdminCredential", SuccessStatuses: []int{201}, OptionalPrecondition: true, ETag: true},
 	{Pattern: "/api/v1/admin-credentials/{id}", Method: "DELETE"},
 	{Pattern: "/api/v1/admin-credentials/{id}", Method: "GET"},
 	{Pattern: "/api/v1/system-status", Method: "GET"},
@@ -77,6 +78,8 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/events", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "EventStream", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v1/invocations", Method: "GET", RequestSchema: "InvocationListQuery", SuccessSchema: "InvocationPage", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v1/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}},
+	{Pattern: "/api/v1/admin-authority", Method: "GET", RequestSchema: "None", SuccessSchema: "AdminAuthority", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v1/admin-credentials/{id}/rotation-completion", Method: "POST", RequestSchema: "AdminCredentialRotationCompletion", SuccessSchema: "AdminCredentialRotationResult", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 }
 
 func ResourceMechanics() []ResourceMechanic {

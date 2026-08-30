@@ -31,7 +31,10 @@ import (
 
 type CredentialService interface {
 	Authenticate(context.Context, string) (contract.AdminCredential, error)
+	Authority(context.Context) (contract.AdminAuthority, error)
 	Create(context.Context, *time.Time) (contract.CreatedAdminCredential, error)
+	CreateConditional(context.Context, *time.Time, string) (contract.CreatedAdminCredential, error)
+	CompleteRotation(context.Context, string, string, string) (contract.AdminCredentialRotationResult, error)
 	Get(context.Context, string) (contract.AdminCredential, error)
 	List(context.Context) ([]contract.AdminCredential, error)
 	Revoke(context.Context, string) error
@@ -311,6 +314,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.listCredentials(writer, request)
 	case path == "/api/v1/admin-credentials" && request.Method == http.MethodPost:
 		handler.createCredential(writer, request)
+	case path == "/api/v1/admin-authority" && request.Method == http.MethodGet:
+		handler.getAdminAuthority(writer, request)
+	case strings.HasPrefix(path, "/api/v1/admin-credentials/") && strings.HasSuffix(path, "/rotation-completion") && request.Method == http.MethodPost:
+		handler.completeCredentialRotation(writer, request)
 	case strings.HasPrefix(path, "/api/v1/admin-credentials/") && request.Method == http.MethodGet:
 		handler.getCredential(writer, request)
 	case strings.HasPrefix(path, "/api/v1/admin-credentials/") && request.Method == http.MethodDelete:
@@ -547,6 +554,20 @@ func (handler *Handler) listCredentials(writer http.ResponseWriter, request *htt
 	writeJSON(writer, http.StatusOK, contract.Collection[contract.AdminCredential]{Items: items[start:end], NextCursor: next})
 }
 
+func (handler *Handler) getAdminAuthority(writer http.ResponseWriter, request *http.Request) {
+	if !bodyless(request) || len(request.URL.Query()) != 0 {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	authority, err := handler.credentials.Authority(request.Context())
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	writer.Header().Set("ETag", contract.AdminAuthorityETag(authority.Revision))
+	writeJSON(writer, http.StatusOK, authority)
+}
+
 func (handler *Handler) createCredential(writer http.ResponseWriter, request *http.Request) {
 	var raw map[string]json.RawMessage
 	if !decodeStrictBody(writer, request, &raw) {
@@ -571,13 +592,58 @@ func (handler *Handler) createCredential(writer http.ResponseWriter, request *ht
 		}
 		expires = &parsed
 	}
-	created, err := handler.credentials.Create(request.Context(), expires)
+	expected, conditional, ok := adminAuthorityPrecondition(writer, request, false)
+	if !ok {
+		return
+	}
+	var created contract.CreatedAdminCredential
+	var err error
+	if conditional {
+		authenticated, present := request.Context().Value(authContextKey{}).(authentication)
+		if !present || authenticated.viaSession {
+			writeProblem(writer, contract.ProblemAuthenticationRequired)
+			return
+		}
+		created, err = handler.credentials.CreateConditional(request.Context(), expires, expected)
+	} else {
+		created, err = handler.credentials.Create(request.Context(), expires)
+	}
 	if err != nil {
 		writeServiceError(writer, err)
 		return
 	}
 	handler.emit(contract.Invalidation{Kind: contract.InvalidationAdminCredentials, ResourceID: &created.ID})
+	if conditional {
+		writer.Header().Set("ETag", contract.AdminAuthorityETag(created.Revision))
+	}
 	writeJSON(writer, http.StatusCreated, created)
+}
+
+func (handler *Handler) completeCredentialRotation(writer http.ResponseWriter, request *http.Request) {
+	segments := strings.Split(strings.TrimPrefix(request.URL.Path, "/api/v1/admin-credentials/"), "/")
+	if len(segments) != 2 || segments[0] == "" || segments[1] != "rotation-completion" || len(request.URL.Query()) != 0 {
+		writeProblem(writer, contract.ProblemNotFound)
+		return
+	}
+	var input contract.AdminCredentialRotationCompletion
+	if !decodeStrictBody(writer, request, &input) {
+		return
+	}
+	if input.ReplacementID == "" {
+		writeProblem(writer, contract.ProblemInvalidJSON)
+		return
+	}
+	expected, _, ok := adminAuthorityPrecondition(writer, request, true)
+	if !ok {
+		return
+	}
+	result, err := handler.credentials.CompleteRotation(request.Context(), segments[0], input.ReplacementID, expected)
+	if err != nil {
+		writeServiceError(writer, err)
+		return
+	}
+	writer.Header().Set("ETag", contract.AdminAuthorityETag(result.OldCredential.Revision))
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (handler *Handler) getCredential(writer http.ResponseWriter, request *http.Request) {
@@ -918,6 +984,37 @@ func boundaryError(err error) error {
 	}
 }
 
+func adminAuthorityPrecondition(writer http.ResponseWriter, request *http.Request, required bool) (string, bool, bool) {
+	values := request.Header.Values("If-Match")
+	if len(values) == 0 {
+		if required {
+			writeProblem(writer, contract.ProblemAdminAuthorityPreconditionRequired)
+			return "", false, false
+		}
+		return "", false, true
+	}
+	if len(values) != 1 {
+		writeProblem(writer, contract.ProblemStaleAdminAuthority)
+		return "", true, false
+	}
+	const prefix = `"admin-authority-`
+	value := values[0]
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, `"`) {
+		writeProblem(writer, contract.ProblemStaleAdminAuthority)
+		return "", true, false
+	}
+	revision := strings.TrimSuffix(strings.TrimPrefix(value, prefix), `"`)
+	if revision == "" || (len(revision) > 1 && revision[0] == '0') {
+		writeProblem(writer, contract.ProblemStaleAdminAuthority)
+		return "", true, false
+	}
+	if _, err := strconv.ParseUint(revision, 10, 64); err != nil {
+		writeProblem(writer, contract.ProblemStaleAdminAuthority)
+		return "", true, false
+	}
+	return revision, true, true
+}
+
 func writeServiceError(writer http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, admin.ErrNotFound), errors.Is(err, backup.ErrNotFound):
@@ -930,6 +1027,10 @@ func writeServiceError(writer http.ResponseWriter, err error) {
 		writeProblem(writer, contract.ProblemResourceLimit)
 	case errors.Is(err, admin.ErrLastNonExpiring):
 		writeProblem(writer, contract.ProblemConflict)
+	case errors.Is(err, admin.ErrStaleAuthority):
+		writeProblem(writer, contract.ProblemStaleAdminAuthority)
+	case errors.Is(err, admin.ErrRotationConflict):
+		writeProblem(writer, contract.ProblemAdminRotationConflict)
 	case errors.Is(err, events.ErrShuttingDown), errors.Is(err, admin.ErrShuttingDown):
 		writeProblem(writer, contract.ProblemShuttingDown)
 	default:

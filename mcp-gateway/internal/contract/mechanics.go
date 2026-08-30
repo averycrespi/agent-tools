@@ -25,3 +25,11 @@ func GrantRequestETag(requestID, revision string) string {
 func MatchesGrantRequestETag(value, requestID, revision string) bool {
 	return value == GrantRequestETag(requestID, revision)
 }
+
+func AdminAuthorityETag(revision string) string {
+	return fmt.Sprintf(`"admin-authority-%s"`, revision)
+}
+
+func MatchesAdminAuthorityETag(value, revision string) bool {
+	return value == AdminAuthorityETag(revision)
+}

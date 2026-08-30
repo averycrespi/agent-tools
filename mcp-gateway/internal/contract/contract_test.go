@@ -201,7 +201,12 @@ func TestResourceMechanicsAreTargeted(t *testing.T) {
 			require.Equal(t, "POST", mechanic.Method)
 			require.Equal(t, "/api/v1/backups", mechanic.Pattern)
 		}
-		require.False(t, mechanic.ETag)
+		if mechanic.Pattern == "/api/v1/admin-credentials" && mechanic.Method == "POST" {
+			require.True(t, mechanic.OptionalPrecondition)
+			require.True(t, mechanic.ETag)
+		} else {
+			require.False(t, mechanic.ETag)
+		}
 		require.False(t, mechanic.EventReplay)
 	}
 	require.Equal(t, 2, cursored)

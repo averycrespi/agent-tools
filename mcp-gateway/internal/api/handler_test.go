@@ -38,6 +38,9 @@ func (credentials *fakeCredentials) Authenticate(_ context.Context, bearer strin
 	}
 	return credentials.items[0], nil
 }
+func (credentials *fakeCredentials) Authority(context.Context) (contract.AdminAuthority, error) {
+	return contract.AdminAuthority{Revision: credentials.items[len(credentials.items)-1].Revision}, nil
+}
 func (credentials *fakeCredentials) Create(_ context.Context, expires *time.Time) (contract.CreatedAdminCredential, error) {
 	created := credentials.items[0]
 	created.ID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
@@ -47,6 +50,16 @@ func (credentials *fakeCredentials) Create(_ context.Context, expires *time.Time
 	}
 	credentials.items = append(credentials.items, created)
 	return contract.CreatedAdminCredential{AdminCredential: created, Bearer: "mgw_admin_ONETIME"}, nil
+}
+func (credentials *fakeCredentials) CreateConditional(ctx context.Context, expires *time.Time, expected string) (contract.CreatedAdminCredential, error) {
+	authority, _ := credentials.Authority(ctx)
+	if authority.Revision != expected {
+		return contract.CreatedAdminCredential{}, admin.ErrStaleAuthority
+	}
+	return credentials.Create(ctx, expires)
+}
+func (credentials *fakeCredentials) CompleteRotation(context.Context, string, string, string) (contract.AdminCredentialRotationResult, error) {
+	return contract.AdminCredentialRotationResult{}, admin.ErrRotationConflict
 }
 func (credentials *fakeCredentials) Get(_ context.Context, id string) (contract.AdminCredential, error) {
 	for _, item := range credentials.items {
