@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,8 +23,8 @@ func TestRotationFilePublicationBarrier(t *testing.T) {
 		sink, err := PrepareSensitiveSink(SinkOptions{Path: path})
 		require.NoError(t, err)
 		sink.MarkSubmitted()
-		metadata := contract.AdminCredential{Fingerprint: rotationTestFingerprint(rotationTestBearer)}
-		reopened, err := sink.PublishAdminRotation(rotationTestBearer, metadata)
+		fingerprint := rotationTestFingerprint(rotationTestBearer)
+		reopened, err := sink.PublishAdminRotation(rotationTestBearer, fingerprint)
 		require.NoError(t, err)
 		assert.Equal(t, rotationTestBearer, reopened)
 		assert.Equal(t, "owner_only_file", sink.Destination())
@@ -47,7 +46,7 @@ func TestRotationFilePublicationBarrier(t *testing.T) {
 		sink, err := PrepareSensitiveSink(SinkOptions{OpenTerminal: func() (io.WriteCloser, error) { return terminal, nil }})
 		require.NoError(t, err)
 		sink.MarkSubmitted()
-		_, err = sink.PublishAdminRotation(rotationTestBearer, contract.AdminCredential{Fingerprint: rotationTestFingerprint(rotationTestBearer)})
+		_, err = sink.PublishAdminRotation(rotationTestBearer, rotationTestFingerprint(rotationTestBearer))
 		assert.ErrorIs(t, err, ErrSecretLost)
 		assert.Empty(t, terminal.String())
 
@@ -62,7 +61,7 @@ func TestRotationFilePublicationBarrier(t *testing.T) {
 		sink, err = PrepareSensitiveSink(SinkOptions{Path: invalidPath})
 		require.NoError(t, err)
 		sink.MarkSubmitted()
-		_, err = sink.PublishAdminRotation("not-an-admin-bearer", contract.AdminCredential{Fingerprint: strings.Repeat("0", 16)})
+		_, err = sink.PublishAdminRotation("not-an-admin-bearer", strings.Repeat("0", 16))
 		assert.ErrorIs(t, err, ErrSecretLost)
 		assert.NoFileExists(t, invalidPath)
 
@@ -70,7 +69,7 @@ func TestRotationFilePublicationBarrier(t *testing.T) {
 		sink, err = PrepareSensitiveSink(SinkOptions{Path: path})
 		require.NoError(t, err)
 		sink.MarkSubmitted()
-		_, err = sink.PublishAdminRotation(rotationTestBearer, contract.AdminCredential{Fingerprint: strings.Repeat("0", 16)})
+		_, err = sink.PublishAdminRotation(rotationTestBearer, strings.Repeat("0", 16))
 		assert.ErrorIs(t, err, ErrSecretLost)
 		assert.NoFileExists(t, path)
 	})
@@ -78,7 +77,7 @@ func TestRotationFilePublicationBarrier(t *testing.T) {
 	t.Run("publication order and every I/O boundary fail closed", func(t *testing.T) {
 		expectedOrder := []string{"lstat", "write", "file_sync", "lstat", "file_close", "lstat", "dir_open", "dir_sync", "dir_close", "lstat", "reopen", "lstat"}
 		sink, file, directory, operations := newScriptedRotationSink(t)
-		reopened, err := sink.PublishAdminRotation(rotationTestBearer, contract.AdminCredential{Fingerprint: rotationTestFingerprint(rotationTestBearer)})
+		reopened, err := sink.PublishAdminRotation(rotationTestBearer, rotationTestFingerprint(rotationTestBearer))
 		require.NoError(t, err)
 		assert.Equal(t, rotationTestBearer, reopened)
 		assert.Equal(t, expectedOrder, *operations)
@@ -111,7 +110,7 @@ func TestRotationFilePublicationBarrier(t *testing.T) {
 						return "mgw_admin_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", nil
 					}
 				}
-				_, err := sink.PublishAdminRotation(rotationTestBearer, contract.AdminCredential{Fingerprint: rotationTestFingerprint(rotationTestBearer)})
+				_, err := sink.PublishAdminRotation(rotationTestBearer, rotationTestFingerprint(rotationTestBearer))
 				assert.ErrorIs(t, err, ErrSecretLost)
 				assert.NotContains(t, err.Error(), "private fault detail")
 				assert.NotContains(t, err.Error(), rotationTestBearer)
@@ -138,7 +137,7 @@ func TestRotationFilePublicationBarrier(t *testing.T) {
 					return sink.fileInfo, nil
 				}
 				sink.ops.remove = func(string) error { removals++; return nil }
-				_, err = sink.PublishAdminRotation(rotationTestBearer, contract.AdminCredential{Fingerprint: rotationTestFingerprint(rotationTestBearer)})
+				_, err = sink.PublishAdminRotation(rotationTestBearer, rotationTestFingerprint(rotationTestBearer))
 				assert.ErrorIs(t, err, ErrSecretLost)
 				assert.Zero(t, removals, "a raced replacement must never be removed")
 			})

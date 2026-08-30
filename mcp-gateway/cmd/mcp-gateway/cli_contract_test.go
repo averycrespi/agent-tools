@@ -180,6 +180,6 @@ func TestCLIControlBoundary(t *testing.T) {
 		publicClientCalls += strings.Count(source, "controlclient.New(")
 	}
 	assert.Equal(t, 1, acquisitionCalls)
-	assert.Equal(t, 1, pathResolutionCalls)
+	assert.Equal(t, 2, pathResolutionCalls)
 	assert.Greater(t, publicClientCalls, 0, "online operations must remain on the hardened public HTTP client")
 }

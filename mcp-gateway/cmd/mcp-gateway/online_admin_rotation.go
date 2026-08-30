@@ -61,7 +61,7 @@ func runAdminCredentialRotate(command *cobra.Command, options *onlineOptions, ar
 	if failure != nil {
 		return writeOnlineFailure(command, options.output, failure)
 	}
-	reopenedBearer, err := sink.PublishAdminRotation(created.Bearer, created.AdminCredential)
+	reopenedBearer, err := sink.PublishAdminRotation(created.Bearer, created.Fingerprint)
 	if err != nil {
 		title := rotationRecoveryTitle("The replacement credential "+created.ID+" was created, but its bearer could not be durably published and verified. The old credential was not revoked.", created.ID, options, command)
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "admin_rotation_publish_failed", Title: title, Exit: 2})

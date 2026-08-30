@@ -69,6 +69,9 @@ func runReleaseProfile(ctx context.Context, root string, executor Executor, defi
 		}
 		checkEnded := time.Now().UTC()
 		termination, cleanup, diagnostics := executionMetadata(commandErr)
+		if diagnostics == nil {
+			diagnostics = []string{}
+		}
 		check := releaseCheck{
 			ID: expected.ID, Status: ResultPassed, Argv: append([]string(nil), expected.Argv...), Coverage: cloneReleaseCoverage(expected.Coverage), Artifacts: append([]string(nil), expected.Artifacts...),
 			StartedAt: checkStarted.Format(time.RFC3339Nano), EndedAt: checkEnded.Format(time.RFC3339Nano), DurationMillis: checkEnded.Sub(checkStarted).Milliseconds(), TimeoutMillis: expected.TimeoutMillis,

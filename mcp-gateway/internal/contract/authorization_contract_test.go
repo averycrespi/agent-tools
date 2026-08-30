@@ -2,6 +2,7 @@ package contract
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,8 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 		{Status: 503, Code: ProblemAuthorizationUnavailable, Title: "Authorization is unavailable."},
 	}
 	problems := Problems()
-	s3ProblemStart := len(problems) - len(expectedProblems) - 4
+	s3ProblemStart := slices.IndexFunc(problems, func(problem Problem) bool { return problem.Code == ProblemInvalidPrincipal })
+	require.GreaterOrEqual(t, s3ProblemStart, 0)
 	require.Equal(t, expectedProblems, problems[s3ProblemStart:s3ProblemStart+len(expectedProblems)])
 
 	expectedLimits := []FixedLimit{

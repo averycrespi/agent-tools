@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 )
 
@@ -209,7 +208,7 @@ func (sink *PreparedSink) Publish(value string) error {
 	return nil
 }
 
-func (sink *PreparedSink) PublishAdminRotation(value string, metadata contract.AdminCredential) (string, error) {
+func (sink *PreparedSink) PublishAdminRotation(value, fingerprint string) (string, error) {
 	if sink == nil {
 		return "", ErrSecretLost
 	}
@@ -257,7 +256,7 @@ func (sink *PreparedSink) PublishAdminRotation(value string, metadata contract.A
 		return "", ErrSecretLost
 	}
 	reopened, err := sink.ops.readBearerFile(sink.path, sink.ops.effectiveUID())
-	if err != nil || reopened != value || !sink.pathStillOwned() || adminFingerprintForBearer(reopened) != metadata.Fingerprint {
+	if err != nil || reopened != value || !sink.pathStillOwned() || adminFingerprintForBearer(reopened) != fingerprint {
 		sink.finished = true
 		sink.removeOwnedPath()
 		return "", ErrSecretLost

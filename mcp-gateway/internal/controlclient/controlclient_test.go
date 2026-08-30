@@ -201,7 +201,7 @@ func TestControlTransport(t *testing.T) {
 	})
 }
 
-func TestControlTransportPhaseClassification(t *testing.T) {
+func TestControlTransportStageClassification(t *testing.T) {
 	refusedClient := newTestClient(t, DefaultAddress, TransportOptions{
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}

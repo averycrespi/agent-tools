@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/gowebpki/jcs"
@@ -100,7 +101,9 @@ func TestGrantRequestRoutesProblemsAndLimitsAreExact(t *testing.T) {
 		{Status: 428, Code: ProblemGrantRequestPreconditionRequired, Title: "The current grant request revision is required."},
 	}
 	problems := Problems()
-	require.Equal(t, expectedProblems, problems[len(problems)-4:])
+	problemStart := slices.IndexFunc(problems, func(problem Problem) bool { return problem.Code == ProblemInvalidGrantRequest })
+	require.GreaterOrEqual(t, problemStart, 0)
+	require.Equal(t, expectedProblems, problems[problemStart:problemStart+len(expectedProblems)])
 	for name, maximum := range map[string]int64{
 		"discoverable_tools": 2054, "grant_requests": 4096, "pending_grant_requests_per_principal": 128,
 		"grant_request_evidence_bytes": 268435456, "grant_request_evidence_snapshot_bytes": 135168,
