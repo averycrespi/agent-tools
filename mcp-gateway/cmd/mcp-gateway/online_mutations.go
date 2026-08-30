@@ -45,18 +45,18 @@ func runServerDelete(command *cobra.Command, options *onlineOptions, args []stri
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 	}
-	matches := serverETagPattern.FindStringSubmatch(options.etag)
-	if len(matches) != 3 || matches[1] != args[0] {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ETag is invalid or belongs to another server."))
-	}
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{
 		Yes:         options.yes,
 		Consequence: "Permanently delete this server identity, withdraw its routes, invalidate local authority, and schedule cleanup? Remote revocation is best effort and cannot be guaranteed.",
 	}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
+	etag, failure := resolveMutationETag(command, options, onlineItemServer, args[0])
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
 	return runServerMutation(command, options, serverMutationRequest{
-		method: http.MethodDelete, path: "/api/v1/servers/" + args[0], body: []byte("{}"), etag: options.etag,
+		method: http.MethodDelete, path: "/api/v1/servers/" + args[0], body: []byte("{}"), etag: etag,
 		successStatuses: map[int]struct{}{http.StatusOK: {}, http.StatusAccepted: {}}, serverID: args[0], delete: true,
 	})
 }
@@ -64,10 +64,6 @@ func runServerDelete(command *cobra.Command, options *onlineOptions, args []stri
 func runServerUpdate(command *cobra.Command, options *onlineOptions, args []string) error {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
-	}
-	matches := serverETagPattern.FindStringSubmatch(options.etag)
-	if len(matches) != 3 || matches[1] != args[0] {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ETag is invalid or belongs to another server."))
 	}
 	body, members, err := readServerMutationInput(command, options, false)
 	if err != nil {
@@ -81,8 +77,12 @@ func runServerUpdate(command *cobra.Command, options *onlineOptions, args []stri
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 	}
+	etag, failure := resolveMutationETag(command, options, onlineItemServer, args[0])
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
 	return runServerMutation(command, options, serverMutationRequest{
-		method: http.MethodPatch, path: "/api/v1/servers/" + args[0], body: body, etag: options.etag,
+		method: http.MethodPatch, path: "/api/v1/servers/" + args[0], body: body, etag: etag,
 		successStatuses: map[int]struct{}{http.StatusOK: {}}, serverID: args[0],
 	})
 }

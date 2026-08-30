@@ -23,10 +23,6 @@ func runServerOperationStart(command *cobra.Command, options *onlineOptions, arg
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 	}
-	matches := serverETagPattern.FindStringSubmatch(options.etag)
-	if len(matches) != 3 || matches[1] != args[0] {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ETag is invalid or belongs to another server."))
-	}
 	body, err := readOnlineJSONInput(command, options, []string{"kind"})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
@@ -57,7 +53,11 @@ func runServerOperationStart(command *cobra.Command, options *onlineOptions, arg
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("An idempotency key could not be generated."))
 		}
 	}
-	return runOperationMutation(command, options, operationMutationRequest{serverID: args[0], etag: options.etag, key: key, body: body, kind: kind})
+	etag, failure := resolveMutationETag(command, options, onlineItemServer, args[0])
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
+	return runOperationMutation(command, options, operationMutationRequest{serverID: args[0], etag: etag, key: key, body: body, kind: kind})
 }
 
 func operationConsequence(kind contract.ServerOperationKind) string {

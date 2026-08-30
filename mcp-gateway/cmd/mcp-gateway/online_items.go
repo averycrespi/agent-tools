@@ -21,6 +21,38 @@ type validatedOnlineItem struct {
 	ETag string
 }
 
+func resolveMutationETag(command *cobra.Command, options *onlineOptions, kind onlineItemKind, id string) (string, *controlclient.OnlineError) {
+	if options == nil {
+		return "", controlclient.NewInputError("The mutation precondition is invalid.")
+	}
+	if options.etag != "" {
+		if !validItemETag(kind, id, options.etag) {
+			return "", controlclient.NewInputError("The ETag is invalid or belongs to another resource.")
+		}
+		return options.etag, nil
+	}
+	item, failure := loadValidatedItem(command, options, kind, id, controlclient.RequestPhasePreflight)
+	if failure != nil {
+		return "", failure
+	}
+	return item.ETag, nil
+}
+
+func validItemETag(kind onlineItemKind, id, etag string) bool {
+	var parts []string
+	switch kind {
+	case onlineItemServer:
+		parts = serverETagPattern.FindStringSubmatch(etag)
+	case onlineItemPrincipal:
+		parts = principalETagPattern.FindStringSubmatch(etag)
+	case onlineItemGrantRequest:
+		parts = grantRequestETagPattern.FindStringSubmatch(etag)
+	default:
+		return false
+	}
+	return len(parts) == 3 && parts[1] == id
+}
+
 func loadValidatedItem(command *cobra.Command, options *onlineOptions, kind onlineItemKind, id string, phase controlclient.RequestPhase) (validatedOnlineItem, *controlclient.OnlineError) {
 	path, ok := onlineItemPath(kind, id)
 	if command == nil || options == nil || !ok || !gatewayIDPattern.MatchString(id) {
@@ -42,7 +74,7 @@ func loadValidatedItem(command *cobra.Command, options *onlineOptions, kind onli
 		return validatedOnlineItem{}, failure
 	}
 	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != controlclient.MediaTypeJSON || !validateOnlineItem(kind, id, response.Header.Get("ETag"), response.Body) {
-		return validatedOnlineItem{}, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid)
+		return validatedOnlineItem{}, controlclient.ClassifyRequestError(controlclient.ErrResponseInvalid, phase)
 	}
 	return validatedOnlineItem{Body: append([]byte(nil), response.Body...), ETag: response.Header.Get("ETag")}, nil
 }
