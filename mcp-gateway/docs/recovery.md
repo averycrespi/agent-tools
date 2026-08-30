@@ -8,9 +8,9 @@ This guide owns backup lifecycle, restore verification, administrator reset, sto
 
 - `mcp-gateway backup --help`
 - `mcp-gateway restore --help`
-- `mcp-gateway admin-reset --help`
+- `mcp-gateway admin reset --help`
 
-Gateway must be stopped for `restore`, `restore --verify-current`, and `admin-reset`. Online backup commands require a running Gateway.
+Gateway must be stopped for `restore`, `restore --verify-current`, and `admin reset`. Online backup commands require a running Gateway. The legacy hyphenated spelling has no alias and performs no work.
 
 ## Create and manage backups
 
@@ -39,7 +39,11 @@ mcp-gateway restore --verify-current \
 
 `--verify-current` forbids `--secret-output`. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
 
-A recognized uncertain agent-credential candidate is cleared only when its principal, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. Start Gateway normally after verification.
+A recognized uncertain agent-credential candidate is cleared only when its principal, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. The command does not start Gateway; return ownership to the service before any online read:
+
+```bash
+mcp-gateway serve --data-dir /path/to/gateway-data
+```
 
 ## Restore a backup
 
@@ -51,13 +55,15 @@ mcp-gateway restore BACKUP_ID \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It stages and forward-migrates accepted schema lineages, revalidates authorization and grant-request semantics, removes stale WAL/SHM sidecars, and atomically selects the replacement. Failure before selection leaves the original database generation authoritative.
+Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It stages and immediately forward-migrates accepted schema lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `restore --verify-current` validates the current generation rather than providing an obsolete-form migration path.
 
 A successful restore preserves safe principals, grants, requests, request evidence, server configuration, and compatible history. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
 
-Restore does not rewrite the default `admin-bearer`. After Gateway restarts, online recovery must explicitly select the replacement:
+Restore does not rewrite the default `admin-bearer`. Start the verified replacement generation, then explicitly select its replacement authority for online recovery:
 
 ```bash
+mcp-gateway serve --data-dir /path/to/gateway-data
+# In another terminal:
 mcp-gateway --data-dir /path/to/gateway-data \
   status --admin-bearer-file /safe/new/restored-admin-bearer
 ```
@@ -69,14 +75,20 @@ Issue fresh agent credentials after reviewing restored principal and policy stat
 With Gateway stopped, publish replacement administrator authority to a fresh path:
 
 ```bash
-mcp-gateway admin-reset \
+mcp-gateway admin reset \
   --data-dir /path/to/gateway-data \
   --secret-output /safe/new/replacement-admin-bearer
 ```
 
-A successful reset revokes every prior administrator bearer and activates the published replacement in one storage transaction. It does not rewrite the default `admin-bearer` or promote the replacement into that path. A failed secret publication activates nothing and leaves existing known authority valid. Select the replacement with `--admin-bearer-file` after restart.
+A successful reset revokes every prior administrator bearer and activates the published replacement in one storage transaction. It does not rewrite the default `admin-bearer` or promote the replacement into that path. A failed secret publication activates nothing and leaves existing known authority valid. Start Gateway and select the replacement explicitly:
 
-Use reset when administrator authority must change without replacing durable product state. Use restore only for a verified backup generation, and use `--verify-current` only to validate and recover the current stopped generation.
+```bash
+mcp-gateway serve --data-dir /path/to/gateway-data
+# In another terminal:
+mcp-gateway status --admin-bearer-file /safe/new/replacement-admin-bearer
+```
+
+Use reset for stopped-process all-authority recovery without replacing durable product state. Use online `admin credential rotate` for routine replacement-first rollover of one named administrator credential. Use restore only for a verified backup generation, and use `--verify-current` only to validate and recover the current stopped generation.
 
 ## Failure handling
 

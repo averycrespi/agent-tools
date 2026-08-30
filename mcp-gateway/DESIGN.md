@@ -39,43 +39,45 @@ The `internal/contract` package is the single source consumed by the API, ingres
 
 Methods are lexicographically ordered and become the exact `Allow` value. `HEAD` is never inherited from `GET`.
 
-| Pattern                                          | Exact `Allow`        | Authority                                         |
-| ------------------------------------------------ | -------------------- | ------------------------------------------------- |
-| `/`                                              | `GET`                | public                                            |
-| `/assets/*`                                      | `GET`                | public                                            |
-| `/livez`                                         | `GET`                | public                                            |
-| `/readyz`                                        | `GET`                | public                                            |
-| `/mcp`                                           | `DELETE, GET, POST`  | agent                                             |
-| `/oauth/callback`                                | `GET`                | one-time OAuth state                              |
-| `/api/v1/admin-sessions`                         | `POST`               | admin bearer                                      |
-| `/api/v1/admin-sessions/current`                 | `DELETE, POST`       | admin session                                     |
-| `/api/v1/admin-credentials`                      | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/admin-credentials/{id}`                 | `DELETE, GET`        | admin bearer or session                           |
-| `/api/v1/system-status`                          | `GET`                | admin bearer or session                           |
-| `/api/v1/backups`                                | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/backups/{id}`                           | `DELETE, GET`        | admin bearer or session                           |
-| `/api/v1/events`                                 | `GET, POST`          | GET: admin bearer or session; POST: admin session |
-| `/api/v1/servers`                                | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/servers/{id}`                           | `DELETE, GET, PATCH` | admin bearer or session                           |
-| `/api/v1/servers/{id}/operations`                | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/servers/{id}/operations/{operation_id}` | `GET`                | admin bearer or session                           |
-| `/api/v1/servers/{id}/credential-replacements`   | `POST`               | admin bearer or session                           |
-| `/api/v1/servers/{id}/auth-flows`                | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/servers/{id}/auth-flows/{flow_id}`      | `DELETE, GET`        | admin bearer or session                           |
-| `/api/v1/catalog`                                | `GET`                | admin bearer or session                           |
-| `/api/v1/servers/{id}/descriptors`               | `GET`                | admin bearer or session                           |
-| `/api/v1/servers/{id}/descriptors/{tool_id}`     | `GET`                | admin bearer or session                           |
-| `/api/v1/principals`                             | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/principals/{id}`                        | `GET, PATCH`         | admin bearer or session                           |
-| `/api/v1/principals/{id}/credential`             | `DELETE, POST`       | admin bearer or session                           |
-| `/api/v1/grants`                                 | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/grants/{id}`                            | `DELETE, GET`        | admin bearer or session                           |
-| `/api/v1/grant-requests`                         | `GET`                | admin bearer or session                           |
-| `/api/v1/grant-requests/{id}`                    | `GET`                | admin bearer or session                           |
-| `/api/v1/grant-requests/{id}/approve`            | `POST`               | admin bearer or session                           |
-| `/api/v1/grant-requests/{id}/reject`             | `POST`               | admin bearer or session                           |
-| `/api/v1/invocations`                            | `GET`                | admin bearer or session                           |
-| `/api/v1/invocations/{id}`                       | `GET`                | admin bearer or session                           |
+| Pattern                                              | Exact `Allow`        | Authority                                         |
+| ---------------------------------------------------- | -------------------- | ------------------------------------------------- |
+| `/`                                                  | `GET`                | public                                            |
+| `/assets/*`                                          | `GET`                | public                                            |
+| `/livez`                                             | `GET`                | public                                            |
+| `/readyz`                                            | `GET`                | public                                            |
+| `/mcp`                                               | `DELETE, GET, POST`  | agent                                             |
+| `/oauth/callback`                                    | `GET`                | one-time OAuth state                              |
+| `/api/v1/admin-sessions`                             | `POST`               | admin bearer                                      |
+| `/api/v1/admin-sessions/current`                     | `DELETE, POST`       | admin session                                     |
+| `/api/v1/admin-credentials`                          | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/admin-credentials/{id}`                     | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/admin-authority`                            | `GET`                | admin bearer                                      |
+| `/api/v1/admin-credentials/{id}/rotation-completion` | `POST`               | admin bearer                                      |
+| `/api/v1/system-status`                              | `GET`                | admin bearer or session                           |
+| `/api/v1/backups`                                    | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/backups/{id}`                               | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/events`                                     | `GET, POST`          | GET: admin bearer or session; POST: admin session |
+| `/api/v1/servers`                                    | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/servers/{id}`                               | `DELETE, GET, PATCH` | admin bearer or session                           |
+| `/api/v1/servers/{id}/operations`                    | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/servers/{id}/operations/{operation_id}`     | `GET`                | admin bearer or session                           |
+| `/api/v1/servers/{id}/credential-replacements`       | `POST`               | admin bearer or session                           |
+| `/api/v1/servers/{id}/auth-flows`                    | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/servers/{id}/auth-flows/{flow_id}`          | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/catalog`                                    | `GET`                | admin bearer or session                           |
+| `/api/v1/servers/{id}/descriptors`                   | `GET`                | admin bearer or session                           |
+| `/api/v1/servers/{id}/descriptors/{tool_id}`         | `GET`                | admin bearer or session                           |
+| `/api/v1/principals`                                 | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/principals/{id}`                            | `GET, PATCH`         | admin bearer or session                           |
+| `/api/v1/principals/{id}/credential`                 | `DELETE, POST`       | admin bearer or session                           |
+| `/api/v1/grants`                                     | `GET, POST`          | admin bearer or session                           |
+| `/api/v1/grants/{id}`                                | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/grant-requests`                             | `GET`                | admin bearer or session                           |
+| `/api/v1/grant-requests/{id}`                        | `GET`                | admin bearer or session                           |
+| `/api/v1/grant-requests/{id}/approve`                | `POST`               | admin bearer or session                           |
+| `/api/v1/grant-requests/{id}/reject`                 | `POST`               | admin bearer or session                           |
+| `/api/v1/invocations`                                | `GET`                | admin bearer or session                           |
+| `/api/v1/invocations/{id}`                           | `GET`                | admin bearer or session                           |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
@@ -85,43 +87,46 @@ The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for
 
 Problems have exactly `status`, `code`, and `title`. The fixed table is exhaustive; dependency messages, paths, payloads, and other details are never added.
 
-| Status | Code                              | Fixed title                                    |
-| -----: | --------------------------------- | ---------------------------------------------- |
-|    400 | `malformed_request`               | The request is invalid.                        |
-|    400 | `invalid_json`                    | The JSON body is invalid.                      |
-|    400 | `invalid_cursor`                  | The cursor is invalid.                         |
-|    400 | `invalid_idempotency_key`         | The idempotency key is invalid.                |
-|    400 | `ambiguous_credentials`           | Multiple credential types were supplied.       |
-|    400 | `invalid_oauth_state`             | The OAuth state is invalid or expired.         |
-|    401 | `authentication_required`         | Authentication is required.                    |
-|    403 | `credential_domain_mismatch`      | The credential is for a different authority.   |
-|    403 | `forbidden_origin`                | The Origin is not accepted.                    |
-|    403 | `csrf_failed`                     | CSRF validation failed.                        |
-|    404 | `not_found`                       | The resource was not found.                    |
-|    405 | `method_not_allowed`              | The method is not allowed.                     |
-|    409 | `conflict`                        | The request conflicts with current state.      |
-|    409 | `idempotency_conflict`            | The idempotency key conflicts with prior work. |
-|    413 | `body_too_large`                  | The request body is too large.                 |
-|    415 | `unsupported_media_type`          | The media type is not supported.               |
-|    421 | `misdirected_request`             | The Host is not accepted.                      |
-|    429 | `resource_limit`                  | The resource limit is reached.                 |
-|    503 | `storage_unavailable`             | Storage is unavailable.                        |
-|    503 | `keyring_unavailable`             | The credential provider is unavailable.        |
-|    503 | `shutting_down`                   | The service is shutting down.                  |
-|    400 | `invalid_server_configuration`    | The server configuration is invalid.           |
-|    400 | `invalid_operation`               | The server operation is invalid.               |
-|    409 | `namespace_unavailable`           | The server namespace is unavailable.           |
-|    409 | `operation_conflict`              | The server has conflicting work.               |
-|    409 | `oauth_flow_active`               | The OAuth flow is already exchanging.          |
-|    409 | `stale_cursor`                    | The cursor snapshot is no longer available.    |
-|    412 | `stale_revision`                  | The server revision is stale.                  |
-|    428 | `precondition_required`           | The current server revision is required.       |
-|    503 | `downstream_unavailable`          | The downstream server is unavailable.          |
-|    400 | `invalid_principal`               | The principal is invalid.                      |
-|    400 | `invalid_grant`                   | The grant is invalid.                          |
-|    412 | `stale_principal_revision`        | The principal revision is stale.               |
-|    428 | `principal_precondition_required` | The current principal revision is required.    |
-|    503 | `authorization_unavailable`       | Authorization is unavailable.                  |
+| Status | Code                                    | Fixed title                                                         |
+| -----: | --------------------------------------- | ------------------------------------------------------------------- |
+|    400 | `malformed_request`                     | The request is invalid.                                             |
+|    400 | `invalid_json`                          | The JSON body is invalid.                                           |
+|    400 | `invalid_cursor`                        | The cursor is invalid.                                              |
+|    400 | `invalid_idempotency_key`               | The idempotency key is invalid.                                     |
+|    400 | `ambiguous_credentials`                 | Multiple credential types were supplied.                            |
+|    400 | `invalid_oauth_state`                   | The OAuth state is invalid or expired.                              |
+|    401 | `authentication_required`               | Authentication is required.                                         |
+|    403 | `credential_domain_mismatch`            | The credential is for a different authority.                        |
+|    403 | `forbidden_origin`                      | The Origin is not accepted.                                         |
+|    403 | `csrf_failed`                           | CSRF validation failed.                                             |
+|    404 | `not_found`                             | The resource was not found.                                         |
+|    405 | `method_not_allowed`                    | The method is not allowed.                                          |
+|    409 | `conflict`                              | The request conflicts with current state.                           |
+|    409 | `idempotency_conflict`                  | The idempotency key conflicts with prior work.                      |
+|    409 | `admin_rotation_conflict`               | The administrator credential rotation conflicts with current state. |
+|    412 | `stale_admin_authority`                 | The administrator authority revision is stale.                      |
+|    428 | `admin_authority_precondition_required` | The administrator authority revision is required.                   |
+|    413 | `body_too_large`                        | The request body is too large.                                      |
+|    415 | `unsupported_media_type`                | The media type is not supported.                                    |
+|    421 | `misdirected_request`                   | The Host is not accepted.                                           |
+|    429 | `resource_limit`                        | The resource limit is reached.                                      |
+|    503 | `storage_unavailable`                   | Storage is unavailable.                                             |
+|    503 | `keyring_unavailable`                   | The credential provider is unavailable.                             |
+|    503 | `shutting_down`                         | The service is shutting down.                                       |
+|    400 | `invalid_server_configuration`          | The server configuration is invalid.                                |
+|    400 | `invalid_operation`                     | The server operation is invalid.                                    |
+|    409 | `namespace_unavailable`                 | The server namespace is unavailable.                                |
+|    409 | `operation_conflict`                    | The server has conflicting work.                                    |
+|    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                               |
+|    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                         |
+|    412 | `stale_revision`                        | The server revision is stale.                                       |
+|    428 | `precondition_required`                 | The current server revision is required.                            |
+|    503 | `downstream_unavailable`                | The downstream server is unavailable.                               |
+|    400 | `invalid_principal`                     | The principal is invalid.                                           |
+|    400 | `invalid_grant`                         | The grant is invalid.                                               |
+|    412 | `stale_principal_revision`              | The principal revision is stale.                                    |
+|    428 | `principal_precondition_required`       | The current principal revision is required.                         |
+|    503 | `authorization_unavailable`             | Authorization is unavailable.                                       |
 
 ### Fixed numeric limits
 
@@ -236,11 +241,13 @@ Fixed service deadlines are: header read five seconds, API handler 30 seconds, S
 
 `SystemStatus` is exactly `{process,sqlite,keyring,limits,backup,protocols}`. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`. The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `s2_idempotency_records`, `active_tools`, `durable_tool_identities`, `downstream_dispatch`, `principals`, and `grants`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth is closed to `deny_all` and `principal_credentials`; production reports `principal_credentials` from the same composed dependency bundle that supplies its authenticator and discovery service.
 
-Administrative credential and backup cursor mechanics remain limited to `GET /api/v1/admin-credentials` and `GET /api/v1/backups`; backup durable idempotency remains limited to `POST /api/v1/backups`; and those resources use no ETag. Server and policy resources add targeted snapshot or watermark cursors, idempotency, exact preconditions, and strong ETags only where listed below. The event stream still has no replay mechanism. Browser streaming uses session-only `POST /api/v1/events` with exact `EmptyObject` `{}`, Origin, and CSRF, returning the same `EventStream`; inherited bearer-or-session GET and POST share one hub, frame, keepalive, limit, overflow, deadline, and closure owner. Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, and `grant_requests`.
+Administrative credential and backup cursor mechanics remain limited to `GET /api/v1/admin-credentials` and `GET /api/v1/backups`; backup durable idempotency remains limited to `POST /api/v1/backups`. Ordinary administrator credential records use no item ETag. Rotation adds bearer-only `GET /api/v1/admin-authority` with strong `"admin-authority-<revision>"` ETag, optional authority `If-Match` on credential creation, and required exact authority `If-Match` on targeted rotation completion. Server and policy resources add targeted snapshot or watermark cursors, idempotency, exact preconditions, and strong ETags only where listed below. The event stream still has no replay mechanism. Browser streaming uses session-only `POST /api/v1/events` with exact `EmptyObject` `{}`, Origin, and CSRF, returning the same `EventStream`; inherited bearer-or-session GET and POST share one hub, frame, keepalive, limit, overflow, deadline, and closure owner. Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, and `grant_requests`.
 
 Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `mcp_gateway_session`. Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. Standard output and standard error are not secret sinks.
 
 ### Request mechanics
+
+Administrator rotation uses `AdminAuthority` exactly `{revision}`; its revision is the maximum administrator credential revision and advances on every create, revoke, reset, or completed rotation. `AdminCredentialRotationCompletion` is exactly `{replacement_id}` and returns `AdminCredentialRotationResult` exactly `{old_credential,new_credential}` plus the resulting authority ETag. Conditional create compares the supplied authority revision before mutation. Completion rechecks that the named old credential is active, the replacement is active and non-expiring, and the authority revision is unchanged, then revokes only the named old credential in one transaction.
 
 | Method and pattern                                   | Closed request schema      | Success schema/status                         | Cursor | Idempotency | Exact `If-Match` | Response ETag |
 | ---------------------------------------------------- | -------------------------- | --------------------------------------------- | ------ | ----------- | ---------------- | ------------- |
@@ -371,9 +378,11 @@ The schema has no runtime ID, PID, session, route capability, request ID, OAuth 
 
 Admin bearer creation uses 32 bytes of entropy and the fixed `mgw_admin_` domain prefix. SQLite stores only a domain-separated SHA-256 verifier, a separately domain-separated 16-character fingerprint, metadata, status, and revision. Authentication distinguishes the reserved agent prefix before performing constant-time verifier comparisons; unknown and malformed admin values remain non-enumerating.
 
-`initialize` and `admin-reset` require stopped-process ownership. They complete an approved one-time sink before entering the latched security mutation. Initialization activates only an empty authority set. Reset revokes every prior active verifier and inserts one replacement in the same revisioned transaction. Sink failure leaves all persisted authority unchanged, while an activation failure cannot make an unpublished bearer usable. Command JSON, standard error, argv, logs, and SQLite never contain the raw bearer.
+`initialize` and `admin reset` require stopped-process ownership. They complete an approved one-time sink before entering the latched security mutation. Initialization activates only an empty authority set. Reset revokes every prior active verifier and inserts one replacement in the same revisioned transaction. Sink failure leaves all persisted authority unchanged, while an activation failure cannot make an unpublished bearer usable. Command JSON, standard error, argv, logs, and SQLite never contain the raw bearer.
 
 Credential creation validates optional expiry against the compiled five-minute and one-year bounds before consuming entropy. Metadata reads derive expiry from the injected clock; authentication compares all active verifier candidates in constant time and rejects expired, revoked, unknown, malformed, and wrong-domain values safely. Revocation transactionally preserves at least one active non-expiring authority. At the 128-record cap, creation/reset prunes the oldest revoked or expired records by creation time and ID; it rejects without queuing when every record remains active.
+
+Online `admin credential rotate OLD_CREDENTIAL_ID` captures the authority generation, conditionally creates one non-expiring replacement, publishes it through a fresh owner-only file with file and parent-directory durability, securely reopens it, matches metadata/fingerprint, and authenticates it before submitting one conditional targeted completion with the replacement bearer. It then verifies old, replacement, and authority records. It never overwrites the default bearer, compensates, or replays. Pre-verification workflow failures preserve old authority; once publication and replacement authentication succeed, a conflict or uncertain completion may safely leave both credentials active. One bounded old-record read may recognize a completed uncertain revoke; otherwise recovery uses the retained replacement file and metadata guidance.
 
 Bearer exchange reserves one of 128 in-memory session slots before generating independent 32-byte session and CSRF values. Sessions use a host-only `mcp_gateway_session` cookie with `Path=/`, `HttpOnly`, and `SameSite=Strict`; no `Domain` is present, and `Secure` is omitted only for the fixed plain-loopback transport. Activity refreshes the 30-minute idle bound without extending the eight-hour absolute bound. Exact-Origin `POST /api/v1/admin-sessions/current` accepts exact `EmptyObject` `{}` and returns `AdminSessionBootstrap`, recovering the in-memory CSRF and refreshed expiries from one current cookie without reissuing it; malformed, duplicate, unknown, expired, revoked, reset-invalidated, and restart-invalidated cookie authority is cleared with the exact expiry cookie. Logout, idle/absolute or parent expiry, parent revocation, reset, and shutdown remove the slot and synchronously close its subscription channel. Ambiguous bearer-plus-cookie authority and incorrect session-bound CSRF fail without changing activity. No session state survives manager or process restart.
 
@@ -441,7 +450,7 @@ Reports from superseded definitions are incompatible: parsers reject mismatched 
 
 `serve` verifies stopped-process ownership and storage, takes one secret-free keyring capability snapshot, and only then opens the exact configured numeric IPv4 loopback listener. The boundary validates request target, header, forwarding, Host, Origin, route, and method constraints before authentication or body work. Health, ordinary, control-auth, and authenticated-admin permits are independent and nonblocking; authenticated control work transfers permits without allowing ordinary traffic to consume recovery capacity.
 
-The control API implements bearer-to-session exchange, current-session bootstrap, session logout, bounded admin-credential and backup resources, invalidation events, system status, desired-server create/list/read/PATCH/DELETE, operation and auth-flow resources, server credential replacement, catalog and descriptor reads, permanent principal create/list/read/PATCH with singular credential issue/revoke, immutable grant create/list/read/delete, and grant-request summary/item/approve/reject resources with exact request ETags and preconditions. Collections exclude descriptor evidence; item and adjudication responses include bounded evidence and read-time target comparison, while approval atomically creates one ordinary grant and rejection remains request-owned. Bearer and cookie authority cannot be combined. Cookie requests require the exact configured Origin; safe GET reads may use the browser-compatible fallback of an absent Origin plus the exact in-memory session CSRF token, while unsafe cookie requests always require exact Origin, the session CSRF value, and JSON media type. JSON parsing bounds body size and nesting and rejects invalid UTF-8, duplicate members, unknown members, and trailing input. Server creation and explicit operations use parent-authority-scoped durable idempotency; server and operation lists use snapshot cursors; server reads and mutations carry exact strong Server ETags, with required exact `If-Match` on PATCH, DELETE, and operation creation. API responses are `no-store`, problems retain the fixed safe envelope, and no response enables CORS.
+The control API implements bearer-to-session exchange, current-session bootstrap, session logout, bounded administrator credential/authority/rotation-completion and backup resources, invalidation events, system status, desired-server create/list/read/PATCH/DELETE, operation and auth-flow resources, server credential replacement, catalog and descriptor reads, permanent principal create/list/read/PATCH with singular credential issue/revoke, immutable grant create/list/read/delete, and grant-request summary/item/approve/reject resources with exact request ETags and preconditions. Collections exclude descriptor evidence; item and adjudication responses include bounded evidence and read-time target comparison, while approval atomically creates one ordinary grant and rejection remains request-owned. Bearer and cookie authority cannot be combined. Cookie requests require the exact configured Origin; safe GET reads may use the browser-compatible fallback of an absent Origin plus the exact in-memory session CSRF token, while unsafe cookie requests always require exact Origin, the session CSRF value, and JSON media type. JSON parsing bounds body size and nesting and rejects invalid UTF-8, duplicate members, unknown members, and trailing input. Server creation and explicit operations use parent-authority-scoped durable idempotency; server and operation lists use snapshot cursors; server reads and mutations carry exact strong Server ETags, with required exact `If-Match` on PATCH, DELETE, and operation creation. API responses are `no-store`, problems retain the fixed safe envelope, and no response enables CORS.
 
 ### Browser production and development boundaries
 
@@ -455,9 +464,9 @@ The remaining browser projections apply those same owners to principal/credentia
 
 ### CLI authority, output, and recovery
 
-The executable resolves one installation root without mutation: explicit `--data-dir`, otherwise absolute `$XDG_DATA_HOME/mcp-gateway`, otherwise the operating-system account home at `~/.local/share/mcp-gateway`; relative XDG input fails and `$HOME` is not trusted as an account-home source. Zero-argument `initialize` securely prepares that root and publishes a fresh `0600` bearer at `<root>/admin-bearer` before activating authority; zero-argument `serve` uses the same root and `127.0.0.1:8210`. Initialization never overwrites. `admin-reset` and backup restore require a fresh explicit `--secret-output`, do not replace the default bearer file, and direct subsequent online recovery to select that new file; `restore --verify-current` forbids replacement output.
+The executable resolves one installation root without mutation: explicit `--data-dir`, otherwise absolute `$XDG_DATA_HOME/mcp-gateway`, otherwise the operating-system account home at `~/.local/share/mcp-gateway`; relative XDG input fails and `$HOME` is not trusted as an account-home source. Zero-argument `initialize` securely prepares that root and publishes a fresh `0600` bearer at `<root>/admin-bearer` before activating authority; zero-argument `serve` uses the same root and `127.0.0.1:8210`. Initialization never overwrites. Stopped `admin reset` and backup restore require a fresh explicit `--secret-output`, do not replace the default bearer file, and direct subsequent online recovery to select that new file; `restore --verify-current` forbids replacement output. Administrator grammar is only `admin credential ...` and `admin reset`; the former hyphenated spellings have no aliases or compatibility path.
 
-`internal/controlclient` is the sole online CLI transport owner. Every online leaf selects administrator authority from an explicit owner-only nonsymlink `--admin-bearer-file`, exclusive `--admin-bearer-stdin`, or the resolved default `<root>/admin-bearer`; simultaneous explicit file/stdin sources fail, and there is no prompt, argv, or environment fallback. After reading only that credential source, commands use the public canonical numeric-loopback HTTP API and never private storage, keyring, lock, or domain owners. The transport disables proxy, redirect, cookies, compression, keepalive reuse, and automatic retry. Commands validate bounded closed input before handoff, use command-scoped ETags/idempotency tuples and consequence confirmation, publish one-time bearers or authorization URLs only through a prepared controlling terminal or fresh `0600` owner-only file, and classify pre-handoff versus uncertain post-handoff failures into stable stderr-only problems and typed exit codes. Human output is the default; `--output json` and `--json` select exact JSON public-API projections. Finite successes use stdout, finite failures leave stdout empty and use stderr, startup emits one acknowledgement, clean shutdown emits no trailer, and post-start failure emits one bounded terminal problem. No command polls, refetches a precondition, recovers a one-time value, invokes a private owner, or replays automatically. Command selection, output, authentication-source, and recovery procedures are canonical in [CLI and local administration](docs/cli-local-administration.md).
+`internal/controlclient` is the sole online CLI transport owner. Every online leaf selects administrator authority from an explicit owner-only nonsymlink `--admin-bearer-file`, exclusive `--admin-bearer-stdin`, or the resolved default `<root>/admin-bearer`; simultaneous explicit file/stdin sources fail, and there is no prompt, argv, or environment fallback. After reading only that credential source, commands use the public canonical numeric-loopback HTTP API and never private storage, keyring, lock, or domain owners. The transport disables proxy, redirect, cookies, compression, keepalive reuse, and automatic retry. Commands validate bounded closed input before handoff, use command-scoped ETags/idempotency tuples and consequence confirmation, publish one-time bearers or authorization URLs only through a prepared controlling terminal or fresh `0600` owner-only file, and classify pre-handoff versus uncertain post-handoff failures into stable stderr-only problems and typed exit codes. Server create and server credential replacement remain strict-file-only; administrator create, principal create/update, operation start, and request rejection are direct-only; server update, grant create, and request approval accept either direct flags or one mutually exclusive strict file. Omitted ordinary mutation ETags perform one validated item preflight; explicit ETags skip that convenience read and are never refreshed. Agent issue/rotate always read slot state and respectively require empty/occupied authority. Human output is the default; `--output json` and `--json` select exact JSON public-API projections. Finite successes use stdout, finite failures leave stdout empty and use stderr, startup emits one acknowledgement, clean shutdown emits no trailer, and post-start failure emits one bounded terminal problem. No command polls, refreshes a precondition after conflict, recovers a one-time value, invokes a private owner, or replays automatically. A proven refused selected loopback renders the exact `mcp-gateway serve` command, including explicit address and data-directory choices. Command selection, output, authentication-source, and recovery procedures are canonical in [CLI and local administration](docs/cli-local-administration.md).
 
 ## Events, limits, and shutdown
 
@@ -485,7 +494,7 @@ Legacy `2025-11-25` initialization reserves one of 128 slots before entropy or s
 
 ## Operational composition and compatibility
 
-The executable exposes stopped-process `initialize`, `admin-reset`, `restore --verify-current`, and verified backup replacement; `serve` provides the verified HTTP/control composition, embedded browser application, and complete public-HTTP online CLI command tree. Before opening the listener, composition validates one authorization owner, invocation repository/service/fence, request repository and self-service resolver, current-catalog discovery service, process-local cursor key, pager, and ingress adapters. Root consumes only the resulting complete authority, occupancy, discovery, status, and trigger bundles. Readiness begins before runtime reconstruction so a server-specific downstream failure remains isolated.
+The executable exposes stopped-process `initialize`, `admin reset`, `restore --verify-current`, and verified backup replacement; `serve` provides the verified HTTP/control composition, embedded browser application, and complete public-HTTP online CLI command tree. Before opening the listener, composition validates one authorization owner, invocation repository/service/fence, request repository and self-service resolver, current-catalog discovery service, process-local cursor key, pager, and ingress adapters. Root consumes only the resulting complete authority, occupancy, discovery, status, and trigger bundles. Readiness begins before runtime reconstruction so a server-specific downstream failure remains isolated.
 
 Desired mutations notify the reconciliation manager, which validates exact authority, activates concrete stdio or hardened HTTP runtimes, negotiates modern, legacy, or strict-auto protocol, traverses catalogs, and publishes one authoritative process-local registry. Production `/mcp` authenticates current principal credentials, discovers downstream and synthetic descriptors, and routes governed calls only through the composed invocation service's closed downstream/local target union. Local handlers receive only an admitted subject after acknowledged ALLOW and durable audit admission, acquire no downstream capacity, and execute at most once. Grant-request approval creates policy but never invokes the target; only an explicit fresh call may use the grant.
 

@@ -25,7 +25,8 @@ Exact syntax and defaults:
 - `mcp-gateway initialize --help`
 - `mcp-gateway serve --help`
 - `mcp-gateway status --help`
-- `mcp-gateway admin-credential --help`
+- `mcp-gateway admin credential --help`
+- `mcp-gateway admin reset --help`
 
 ## Start and inspect Gateway
 
@@ -38,7 +39,7 @@ mcp-gateway serve
 mcp-gateway status
 ```
 
-`serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts only a canonical numeric `127/8` HTTP URL. Hostnames, wildcard and non-loopback addresses, forwarding headers, alternate Host forms, redirects, proxies, cookies, compression, and automatic transport retries are not accepted.
+`serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts only a canonical numeric `127/8` HTTP URL. Hostnames, wildcard and non-loopback addresses, forwarding headers, alternate Host forms, redirects, proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `mcp-gateway serve` command for the selected address and explicit data directory. Start that service before retrying the online command.
 
 `GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. Detailed `status` requires administrator authentication.
 
@@ -67,13 +68,21 @@ Human output is the default. Use `--output json` or the `--json` shorthand for t
 
 Finite successes write to stdout. Finite and pre-start failures leave stdout empty and write one bounded problem to stderr. Problems retain stable codes and typed exit classes so automation can distinguish invalid input, authentication, conflict, unavailable storage, and uncertain outcomes without parsing prose.
 
-Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. Supply the returned cursor explicitly for the next page. JSON input comes from one strict document selected with `--file PATH` or `--file -`; closed requests reject duplicate, unknown, missing, or trailing values.
+Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. Supply the returned cursor explicitly for the next page. Closed JSON requests reject duplicate, unknown, missing, or trailing values. Command input is intentionally split:
+
+| Input mode                                  | Commands                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Direct flags only                           | `admin credential create`, `principal create`, `principal update`, `server operation start`, `grant-request reject` |
+| Strict `--file` only                        | `server create`, `server credential replace`                                                                        |
+| Direct flags or strict `--file`, never both | `server update`, `grant create`, `grant-request approve`                                                            |
+
+Use `--file PATH` or `--file -` for the strict file form. `--file -` conflicts with `--admin-bearer-stdin`. Constrained grant and approval shapes require the file form; their direct forms cover the ordinary unconstrained case. Credential issue, rotate, and revoke commands have no request-document input.
 
 ## Confirmations and one-time values
 
 Commands with irreversible or authority-changing consequences require a controlling terminal confirmation unless `--yes` is explicitly supported and selected. Confirmation never implies automatic replay.
 
-Administrator and agent credential creation can publish a one-time bearer to a prepared controlling terminal or a newly created owner-only `--secret-output` file. Normal output contains metadata only. Server credential input is write-only. OAuth authorization URLs are shown once through a prepared terminal and may be opened only by explicit request. Metadata reads cannot recover a lost bearer, submitted secret, or authorization URL.
+Administrator credential creation and agent credential issue or rotation can publish a one-time bearer to a prepared controlling terminal or a newly created owner-only `--secret-output` file. Administrator rotation requires a fresh owner-only `--secret-output` file so it can durably reopen and authenticate the replacement before revocation. `principal credential issue` accepts only an empty credential slot; `principal credential rotate` accepts only an occupied slot and atomically invalidates the prior agent authority without overlap. Normal output contains metadata only. Server credential input is write-only. OAuth authorization URLs are shown once through a prepared terminal and may be opened only by explicit request. Metadata reads cannot recover a lost bearer, submitted secret, or authorization URL.
 
 Do not put secrets in shell arguments, environment variables, ordinary output capture, or reusable files. A copied browser value remains in the operating-system clipboard until overwritten.
 
@@ -81,7 +90,22 @@ Do not put secrets in shell arguments, environment variables, ordinary output ca
 
 The CLI never retries automatically. Reads that fail before request handoff are safe to repeat after checking Gateway availability. Mutations report whether failure occurred before handoff or may be uncertain; use the resource-specific read and idempotency guidance before an explicit retry.
 
-An exact idempotency key and canonical input digest may permit deliberate same-intent replay for commands that advertise that contract. ETag-protected updates require the exact loaded value and never silently refetch it. Lost one-time output is not a reason to replay a credential or OAuth operation.
+An exact idempotency key and canonical input digest may permit deliberate same-intent replay for commands that advertise that contract. For an ordinary ETag-capable mutation, omitting `--etag` performs one authenticated item read, validates the returned identity/revision/header ETag, and uses that value once. Supplying `--etag` pins the explicit validated value and skips that convenience read. Agent credential issue and rotate always read the principal once to enforce empty-versus-occupied slot intent; an explicit ETag must match that observed item. Neither mode refreshes a stale precondition or replays after conflict or uncertainty. Lost one-time output is not a reason to replay a credential or OAuth operation.
+
+## Administrator rotation and migration
+
+Use the online routine rotation command while Gateway is running:
+
+```bash
+mcp-gateway admin credential rotate OLD_CREDENTIAL_ID \
+  --secret-output /safe/new/admin-bearer \
+  --yes
+mcp-gateway status --admin-bearer-file /safe/new/admin-bearer
+```
+
+Rotation conditionally creates one non-expiring replacement, durably publishes and securely reopens the file, verifies its metadata and authentication, and only then conditionally revokes the named old credential. It never promotes the replacement into the default bearer path. If completion is uncertain, do not replay: retain the replacement file and use the rendered metadata command to inspect the old and new records. Before replacement verification, workflow-owned failures preserve old authority; after verified publication, an incomplete workflow may intentionally leave both credentials active.
+
+Use stopped-process `mcp-gateway admin reset` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `admin reset` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
 
 For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](recovery.md).
 
@@ -98,7 +122,8 @@ mcp-gateway grant --help
 mcp-gateway grant-request --help
 mcp-gateway invocation --help
 mcp-gateway backup --help
-mcp-gateway admin-credential --help
+mcp-gateway admin credential --help
+mcp-gateway admin reset --help
 ```
 
 Focused workflow ownership:

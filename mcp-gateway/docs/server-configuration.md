@@ -9,7 +9,7 @@ This guide owns server configuration, durable catalog inspection, write-only sta
 - `mcp-gateway server --help`
 - `mcp-gateway catalog --help`
 
-See [DESIGN](../DESIGN.md) for normative transport, credential-authority, OAuth, catalog, and runtime semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, input, output, confirmation, and retry rules.
+See [DESIGN](../DESIGN.md) for normative transport, credential-authority, OAuth, catalog, and runtime semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, input, output, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
 
 ## Keep the three server states distinct
 
@@ -37,13 +37,15 @@ Creation generates an idempotency key unless one is supplied. If the response is
 
 ## Update desired configuration
 
-Read the server to obtain its current strong ETag, prepare a nonempty patch, and submit that exact precondition:
+Use direct flags for display name or enabled state, or use one mutually exclusive strict file for a complete patch including transport:
 
 ```bash
-mcp-gateway server update SERVER_ID --etag ETAG --file PATH
+mcp-gateway server update SERVER_ID --display-name NAME
+mcp-gateway server update SERVER_ID --enable --yes
+mcp-gateway server update SERVER_ID --file PATH --yes
 ```
 
-A patch that changes `enabled` or `transport` requires consequence confirmation because it can withdraw a runtime or replace behavior. A display-name-only patch does not prompt. The CLI never refetches an ETag or replays an update automatically. On conflict, read the current server, review the new state, and prepare a fresh patch rather than reusing stale intent.
+Omitting `--etag` performs one validated server read and uses that exact strong value once. Supplying `--etag ETAG` pins the explicit value and skips the convenience read. A patch that changes `enabled` or `transport` requires consequence confirmation because it can withdraw a runtime or replace behavior. A display-name-only patch does not prompt. The CLI never refreshes a stale ETag or replays an update automatically. On conflict, read the current server, review the new state, and prepare fresh intent.
 
 ## Start and monitor operations
 
@@ -52,22 +54,24 @@ Inspect operation history before starting more work:
 ```bash
 mcp-gateway server operation list SERVER_ID
 mcp-gateway server operation get SERVER_ID OPERATION_ID
-mcp-gateway server operation start SERVER_ID --etag ETAG --file PATH
+mcp-gateway server operation start SERVER_ID --kind refresh_catalog
+mcp-gateway server operation start SERVER_ID --etag ETAG --kind reload --yes
 ```
 
-The closed explicit operations are `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`. Reload and credential disconnect require confirmation. Starts generate or accept an idempotency key, but the CLI does not poll automatically; use operation reads to observe progress. An uncertain start retains the key, ETag, and canonical input digest for read-before-replay recovery.
+Operation start uses the direct `--kind` flag; it has no request-file form. The closed explicit operations are `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`. Reload and credential disconnect require confirmation. Omitted `--etag` performs one validated server read; explicit `--etag` skips that convenience read. Starts generate or accept an idempotency key, but the CLI does not poll automatically; use operation reads to observe progress. An uncertain start retains the key, ETag, and canonical input digest for read-before-replay recovery.
 
 Gateway serializes lifecycle work per server and may reject rather than queue when bounded admission is full. A successful operation records the resulting safe state; it does not guarantee that a remote side effect can be undone.
 
 ## Replace static or OAuth client credentials
 
-Credential replacement is a separate write-only, ETag-protected mutation:
+Credential replacement is a separate write-only, strict-file mutation; no secret argv flags exist:
 
 ```bash
-mcp-gateway server credential replace SERVER_ID \
-  --etag ETAG \
-  --file PATH
+mcp-gateway server credential replace SERVER_ID --file PATH --yes
+mcp-gateway server credential replace SERVER_ID --etag ETAG --file PATH --yes
 ```
+
+Omitted `--etag` performs one validated server read; an explicit exact value skips it.
 
 The input must be one complete supported static-slot set or OAuth-client-secret form. Replacement always requires confirmation. Gateway never emits, logs, digests for display, or automatically replays the submitted secret. A native keyring operation may prompt, fail, or outlive cancellation.
 
@@ -75,11 +79,12 @@ If the result is uncertain, inspect the server and its operation history. Those 
 
 ## Complete OAuth authorization
 
-Inspect existing flow state, then start a foreground flow with the current server ETag:
+Inspect existing flow state, then start a foreground flow with an automatic or explicit current server ETag:
 
 ```bash
 mcp-gateway server auth-flow list SERVER_ID
 mcp-gateway server auth-flow get SERVER_ID FLOW_ID
+mcp-gateway server auth-flow start SERVER_ID --open
 mcp-gateway server auth-flow start SERVER_ID --etag ETAG --open
 ```
 
@@ -116,9 +121,10 @@ Only current active publication can supply a governed downstream capability. A s
 
 Use the explicit `disconnect_credentials` operation when local credential authority must be invalidated without deleting the server. It withdraws active routes before local authority changes. Remote OAuth revocation is bounded best effort and failure never restores local authority.
 
-Deletion is permanent and requires the exact server ETag plus confirmation:
+Deletion is permanent and requires an automatically loaded or explicit exact server ETag plus confirmation:
 
 ```bash
+mcp-gateway server delete SERVER_ID --yes
 mcp-gateway server delete SERVER_ID --etag ETAG --yes
 ```
 

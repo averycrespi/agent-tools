@@ -10,7 +10,7 @@ This guide owns operator workflows for principal lifecycle, one-time agent crede
 - `mcp-gateway grant --help`
 - `mcp-gateway grant-request --help`
 
-See [DESIGN](../DESIGN.md) for normative authorization, policy evaluation, and request-state semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules.
+See [DESIGN](../DESIGN.md) for normative authorization, policy evaluation, and request-state semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
 
 ## Create and inspect principals
 
@@ -19,7 +19,7 @@ List or inspect permanent principals before changing policy:
 ```bash
 mcp-gateway principal list
 mcp-gateway principal get PRINCIPAL_ID
-mcp-gateway principal create --file PATH
+mcp-gateway principal create --display-name NAME --visibility VISIBILITY
 ```
 
 Creation requires a display name and one visibility mode:
@@ -34,44 +34,49 @@ Principal creation also creates an ordinary permanent synthetic default grant fo
 
 ## Update principal state or visibility
 
-Read the principal's current strong ETag and submit a nonempty patch:
+Submit a nonempty direct patch; omit `--etag` for one validated current-item preflight, or supply it to pin an already observed exact value and skip that convenience read:
 
 ```bash
-mcp-gateway principal update PRINCIPAL_ID --etag ETAG --file PATH
+mcp-gateway principal update PRINCIPAL_ID --display-name NAME
+mcp-gateway principal update PRINCIPAL_ID --etag ETAG --state disabled --yes
 ```
 
-Changing state requires consequence confirmation. Disabling a principal clears its current credential and sessions. Re-enabling does not restore authority, a prior credential, or deleted grants. Display-name and visibility-only updates do not prompt, but they still require the exact ETag. The CLI never refetches a precondition or replays a patch automatically.
+Changing state requires consequence confirmation. Disabling a principal clears its current credential and sessions. Re-enabling does not restore authority, a prior credential, or deleted grants. Display-name and visibility-only updates do not prompt. The CLI never refreshes a stale precondition or replays a patch automatically.
 
-## Issue, replace, or revoke an agent credential
+## Issue, rotate, or revoke an agent credential
 
-A principal has at most one current non-expiring `mgw_agent_` bearer. Issue the first credential or replace the current one with the same command:
+A principal has at most one current non-expiring `mgw_agent_` bearer. `issue` requires an empty slot; `rotate` requires an occupied slot and atomically replaces its authority:
 
 ```bash
 mcp-gateway principal credential issue PRINCIPAL_ID \
-  --etag ETAG \
   --secret-output /safe/new/agent-bearer \
+  --yes
+mcp-gateway principal credential rotate PRINCIPAL_ID \
+  --secret-output /safe/new/rotated-agent-bearer \
   --yes
 ```
 
-The bearer is published once to a prepared controlling terminal or a fresh owner-only file. Metadata cannot recover it. Issue and replacement advance principal and credential revisions together, so the old bearer never overlaps current authority.
+Both commands always read the principal once to enforce slot intent. An optional explicit `--etag ETAG` must match that observation; omitting it uses the observed current value. The bearer is published once to a prepared controlling terminal or a fresh owner-only file. Metadata cannot recover it. Rotation advances principal and credential revisions atomically, so the old bearer never overlaps current authority.
 
-Revoke with the current principal ETag:
+Revoke with an automatic or explicit current principal ETag:
 
 ```bash
+mcp-gateway principal credential revoke PRINCIPAL_ID --yes
 mcp-gateway principal credential revoke PRINCIPAL_ID --etag ETAG --yes
 ```
 
-Issue, replacement, revoke, and disable never replay automatically. On an uncertain result, read the principal and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that replacement failed.
+Issue, rotate, revoke, and disable never replay automatically. On an uncertain result, read the principal and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that rotation failed.
 
 ## Create and inspect immutable grants
 
 ```bash
 mcp-gateway grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID
 mcp-gateway grant get GRANT_ID
+mcp-gateway grant create --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID
 mcp-gateway grant create --file PATH
 ```
 
-Grants are immutable `ALLOW` or `DENY` rows. Creation requires the complete closed policy shape, including explicit nullable `upstream_name`, `constraint`, and `expires_at` members. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
+The direct form creates an ordinary unconstrained grant and may add `--upstream-name` or `--expires-at`. Use the mutually exclusive strict file form for a constraint; it supplies the complete closed shape, including explicit nullable `upstream_name`, `constraint`, and `expires_at` members. Grants are immutable `ALLOW` or `DENY` rows. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
 
 Constraints use the bounded equality form `{"equals":{"/object/path":value}}`. They support object-only RFC 6901 traversal, scalar values, exact lexical number tokens, and at most 16 atoms. Constraints apply only to exact-tool grants. Gateway does not coerce values, traverse arrays, interpret schemas, or treat overlapping paths as equivalent.
 
@@ -104,13 +109,14 @@ Requests move once from `pending` to `approved`, `rejected`, or `cancelled`. The
 
 ## Approve or reject a request
 
-Read the current request ETag before adjudication. Approval may only narrow scope, exact constraint tokens, and duration:
+Approval may only narrow scope, exact constraint tokens, and duration. Omit `--etag` for one validated item preflight, or provide an explicit exact value. Use direct flags for an unconstrained approval or the mutually exclusive strict file form for a constraint:
 
 ```bash
 mcp-gateway grant-request approve REQUEST_ID \
-  --etag ETAG \
-  --file PATH \
+  --scope tool \
+  --target SERVER.TOOL \
   --yes
+mcp-gateway grant-request approve REQUEST_ID --etag ETAG --file PATH --yes
 ```
 
 Approval rechecks current denial and target facts, then atomically commits one ordinary `ALLOW` and the approved transition. The approved grant ID is historical evidence only after commit; later grant deletion does not rewrite request history.
@@ -119,8 +125,7 @@ Reject with one closed reason—`not_approved`, `existing_access`, `scope_too_br
 
 ```bash
 mcp-gateway grant-request reject REQUEST_ID \
-  --etag ETAG \
-  --file PATH \
+  --reason scope_too_broad \
   --yes
 ```
 

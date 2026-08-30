@@ -56,7 +56,18 @@ Generated `mcp-gateway --help` and subcommand help are the exact command referen
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/invocation-evidence.md).
 - Create backups or perform stopped-process verification, restore, and administrator reset with [Backup, restore, and recovery](docs/recovery.md).
 
-Gateway never automatically replays a mutation or governed tool call. Follow the command-specific read guidance before deciding whether an explicit retry is safe.
+Routine administrator-key rollover is online and replacement-first:
+
+```bash
+mcp-gateway admin credential rotate OLD_CREDENTIAL_ID \
+  --secret-output /safe/new/admin-bearer \
+  --yes
+mcp-gateway status --admin-bearer-file /safe/new/admin-bearer
+```
+
+The rotation publishes, reopens, authenticates, and verifies the replacement before it conditionally revokes the named old credential. It does not overwrite the default bearer file. `mcp-gateway admin reset` is the separate stopped-process operation that revokes all administrator authority. Legacy hyphenated administrator spellings have no aliases.
+
+If an online command proves that the selected loopback Gateway is stopped, its error renders the matching `mcp-gateway serve` command, including nondefault address and data-directory selections. Gateway never automatically replays a mutation or governed tool call. Follow the command-specific read guidance before deciding whether an explicit retry is safe.
 
 ## Security
 
