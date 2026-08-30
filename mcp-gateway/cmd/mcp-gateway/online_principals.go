@@ -25,10 +25,6 @@ func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []s
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
 	}
-	parts := principalETagPattern.FindStringSubmatch(options.etag)
-	if len(parts) != 3 || parts[1] != args[0] {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ETag is invalid or belongs to another principal."))
-	}
 	body, members, err := readPrincipalInput(command, options, false)
 	if err != nil || len(members) == 0 {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal update input is invalid."))
@@ -38,7 +34,11 @@ func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []s
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 	}
-	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPatch, path: "/api/v1/principals/" + args[0], body: body, etag: options.etag, principalID: args[0]})
+	etag, failure := resolveMutationETag(command, options, onlineItemPrincipal, args[0])
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
+	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPatch, path: "/api/v1/principals/" + args[0], body: body, etag: etag, principalID: args[0]})
 }
 
 func readPrincipalInput(command *cobra.Command, options *onlineOptions, create bool) ([]byte, map[string]bool, error) {

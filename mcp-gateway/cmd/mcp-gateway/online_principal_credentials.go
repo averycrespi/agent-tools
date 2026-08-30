@@ -88,18 +88,22 @@ func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptio
 }
 
 func runPrincipalCredentialRevoke(command *cobra.Command, options *onlineOptions, args []string) error {
-	principalID, ok := validPrincipalCredentialArgs(options, args)
-	if !ok {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID or ETag is invalid."))
+	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
 	}
+	principalID := args[0]
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Revoke this principal's singular bearer and close its sessions, streams, and admitted leases? No bearer will remain."}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+	}
+	etag, failure := resolveMutationETag(command, options, onlineItemPrincipal, principalID)
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
 	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: options.etag})
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: etag})
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/principals/" + principalID + "/credential", Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
@@ -120,14 +124,6 @@ func runPrincipalCredentialRevoke(command *cobra.Command, options *onlineOptions
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: principalCredentialRevokeUncertainTitle(principalID), Exit: 8, Uncertain: true})
 	}
 	return writePrincipalMetadataSuccess(command, options, principal)
-}
-
-func validPrincipalCredentialArgs(options *onlineOptions, args []string) (string, bool) {
-	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
-		return "", false
-	}
-	parts := principalETagPattern.FindStringSubmatch(options.etag)
-	return args[0], len(parts) == 3 && parts[1] == args[0]
 }
 
 func writePrincipalMetadataSuccess(command *cobra.Command, options *onlineOptions, principal contract.Principal) error {

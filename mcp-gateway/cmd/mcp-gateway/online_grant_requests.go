@@ -33,7 +33,7 @@ func grantRequestListPath(options *onlineOptions) (string, error) {
 }
 
 func runGrantRequestApprove(command *cobra.Command, options *onlineOptions, args []string) error {
-	requestID, ok := validGrantRequestArgs(options, args)
+	requestID, ok := validGrantRequestArgs(args)
 	if !ok {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant-request ID or ETag is invalid."))
 	}
@@ -45,11 +45,15 @@ func runGrantRequestApprove(command *cobra.Command, options *onlineOptions, args
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: consequence}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	return runGrantRequestAdjudication(command, options, grantRequestAdjudication{requestID: requestID, action: "approve", body: body, approvedPolicy: &policy})
+	etag, failure := resolveMutationETag(command, options, onlineItemGrantRequest, requestID)
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
+	return runGrantRequestAdjudication(command, options, grantRequestAdjudication{requestID: requestID, action: "approve", body: body, etag: etag, approvedPolicy: &policy})
 }
 
 func runGrantRequestReject(command *cobra.Command, options *onlineOptions, args []string) error {
-	requestID, ok := validGrantRequestArgs(options, args)
+	requestID, ok := validGrantRequestArgs(args)
 	if !ok {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant-request ID or ETag is invalid."))
 	}
@@ -61,15 +65,18 @@ func runGrantRequestReject(command *cobra.Command, options *onlineOptions, args 
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: consequence}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	return runGrantRequestAdjudication(command, options, grantRequestAdjudication{requestID: requestID, action: "reject", body: body, rejectionReason: &reason})
+	etag, failure := resolveMutationETag(command, options, onlineItemGrantRequest, requestID)
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
+	return runGrantRequestAdjudication(command, options, grantRequestAdjudication{requestID: requestID, action: "reject", body: body, etag: etag, rejectionReason: &reason})
 }
 
-func validGrantRequestArgs(options *onlineOptions, args []string) (string, bool) {
+func validGrantRequestArgs(args []string) (string, bool) {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return "", false
 	}
-	parts := grantRequestETagPattern.FindStringSubmatch(options.etag)
-	return args[0], len(parts) == 3 && parts[1] == args[0]
+	return args[0], true
 }
 
 func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([]byte, contract.Policy, error) {
@@ -143,6 +150,7 @@ type grantRequestAdjudication struct {
 	requestID       string
 	action          string
 	body            []byte
+	etag            string
 	approvedPolicy  *contract.Policy
 	rejectionReason *contract.GrantRequestRejectionReason
 }
@@ -156,7 +164,7 @@ func runGrantRequestAdjudication(command *cobra.Command, options *onlineOptions,
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: options.etag})
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: adjudication.etag})
 	path := "/api/v1/grant-requests/" + adjudication.requestID + "/" + adjudication.action
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: path, Header: header, Body: adjudication.body})
 	if err != nil {
