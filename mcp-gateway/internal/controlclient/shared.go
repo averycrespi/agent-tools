@@ -312,14 +312,38 @@ func EvaluateResponse(response Response) *OnlineError {
 	return &OnlineError{Status: &status, Code: problem.Code, Title: problem.Title, Exit: exit}
 }
 
+type RequestPhase uint8
+
+const (
+	RequestPhaseMutation RequestPhase = iota
+	RequestPhaseRead
+	RequestPhasePreflight
+)
+
 func ClassifyClientError(err error) *OnlineError {
+	return ClassifyRequestError(err, RequestPhaseMutation)
+}
+
+func ClassifyRequestError(err error, phase RequestPhase) *OnlineError {
 	switch {
 	case errors.Is(err, ErrTransport):
+		if FailureRefused(err) {
+			return &OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9}
+		}
+		if phase == RequestPhaseRead {
+			return &OnlineError{Code: "client_transport_failure", Title: "The read did not complete. This read is safe to repeat after checking Gateway availability.", Exit: 9}
+		}
+		if phase == RequestPhasePreflight {
+			return &OnlineError{Code: "client_transport_failure", Title: "The ETag preflight did not complete. The intended mutation was not submitted.", Exit: 9}
+		}
 		if FailureHandoff(err) == HandoffPossible {
 			return &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}
 		}
 		return &OnlineError{Code: "client_transport_failure", Title: "The Gateway could not be reached before request handoff.", Exit: 9}
 	case errors.Is(err, ErrRedirect), errors.Is(err, ErrResponseInvalid):
+		if phase == RequestPhaseMutation && FailureHandoff(err) == HandoffPossible {
+			return &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}
+		}
 		return responseInvalid()
 	case errors.Is(err, ErrSecretSinkUnavailable), errors.Is(err, ErrSecretLost):
 		return NewSecretSinkError("The one-time value could not be published.")

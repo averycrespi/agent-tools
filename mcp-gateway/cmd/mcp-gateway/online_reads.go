@@ -214,11 +214,7 @@ func runOnlineRead(command *cobra.Command, options *onlineOptions, path string, 
 }
 
 func classifyReadFailure(err error) *controlclient.OnlineError {
-	failure := controlclient.ClassifyClientError(err)
-	if failure.Code == "client_transport_failure" || failure.Code == "client_outcome_uncertain" {
-		failure.Title = "The read did not complete. This read is safe to repeat after checking Gateway availability."
-	}
-	return failure
+	return controlclient.ClassifyRequestError(err, controlclient.RequestPhaseRead)
 }
 
 func invocationListPath(options *onlineOptions) (string, error) {

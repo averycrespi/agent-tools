@@ -7,7 +7,10 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 )
 
-const maxRenderedStartCommandBytes = 16 * 1024
+const (
+	maxRenderedStartCommandBytes = 16 * 1024
+	maxOnlineStartCommandBytes   = 400
+)
 
 type executionOptionInput struct {
 	DataDir   string
@@ -44,6 +47,27 @@ func renderServeCommand(dataDir string, useDefault bool) (string, error) {
 		return "mcp-gateway serve", nil
 	}
 	return renderPathFlagCommand("mcp-gateway serve", "--data-dir", "data_dir", dataDir)
+}
+
+func renderOnlineServeCommand(address, dataDir string, includeDataDir bool) (string, error) {
+	authority, err := controlclient.ListenAuthority(address)
+	if err != nil {
+		return "", err
+	}
+	command := "mcp-gateway serve"
+	if address != controlclient.DefaultAddress {
+		command += " --listen " + authority
+	}
+	if includeDataDir {
+		command, err = renderPathFlagCommand(command, "--data-dir", "data_dir", dataDir)
+		if err != nil {
+			return "", err
+		}
+	}
+	if len(command) > maxOnlineStartCommandBytes {
+		return "", controlclient.ErrInvalidInput
+	}
+	return command, nil
 }
 
 func renderBearerCommand(command, path string) (string, error) {

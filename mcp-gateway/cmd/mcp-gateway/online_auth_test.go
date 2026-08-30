@@ -18,6 +18,58 @@ import (
 
 const testAdministratorBearer = "mgw_admin_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
+func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
+	tests := []struct {
+		name     string
+		address  string
+		dataDir  string
+		expected string
+	}{
+		{name: "defaults", address: controlclient.DefaultAddress, expected: "MCP Gateway is not running. Start it with: mcp-gateway serve.\n"},
+		{name: "alternate port", address: "http://127.0.0.1:9000", expected: "MCP Gateway is not running. Start it with: mcp-gateway serve --listen 127.0.0.1:9000.\n"},
+		{name: "alternate loopback", address: "http://127.2.3.4:8210", expected: "MCP Gateway is not running. Start it with: mcp-gateway serve --listen 127.2.3.4:8210.\n"},
+		{name: "data directory", address: controlclient.DefaultAddress, dataDir: "/tmp/custom gateway", expected: "MCP Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; mcp-gateway serve --data-dir \"$data_dir\".\n"},
+		{name: "combined", address: "http://127.2.3.4:9000", dataDir: "/tmp/custom gateway", expected: "MCP Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; mcp-gateway serve --listen 127.2.3.4:9000 --data-dir \"$data_dir\".\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := newRootCmd()
+			command, _, err := root.Find([]string{"status"})
+			require.NoError(t, err)
+			require.NoError(t, command.Flags().Set("address", test.address))
+			if test.dataDir != "" {
+				require.NoError(t, root.PersistentFlags().Set("data-dir", test.dataDir))
+			}
+			var stderr bytes.Buffer
+			command.SetErr(&stderr)
+			err = writeOnlineFailure(command, string(controlclient.OutputHuman), &controlclient.OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9})
+			require.Error(t, err)
+			assert.Equal(t, test.expected, stderr.String())
+		})
+	}
+
+	root := newRootCmd()
+	command, _, err := root.Find([]string{"status"})
+	require.NoError(t, err)
+	var stderr bytes.Buffer
+	command.SetErr(&stderr)
+	err = writeOnlineFailure(command, string(controlclient.OutputJSON), &controlclient.OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9})
+	require.Error(t, err)
+	assert.Equal(t, "{\"status\":null,\"code\":\"gateway_not_running\",\"title\":\"MCP Gateway is not running. Start it with: mcp-gateway serve.\",\"exit_code\":9,\"uncertain\":false}\n", stderr.String())
+
+	unsafeDataDir := "/tmp/quote'line\nbreak"
+	root = newRootCmd()
+	command, _, err = root.Find([]string{"status"})
+	require.NoError(t, err)
+	require.NoError(t, root.PersistentFlags().Set("data-dir", unsafeDataDir))
+	stderr.Reset()
+	command.SetErr(&stderr)
+	err = writeOnlineFailure(command, string(controlclient.OutputHuman), &controlclient.OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9})
+	require.Error(t, err)
+	assert.NotContains(t, stderr.String(), "line\nbreak")
+	assert.Contains(t, stderr.String(), `quote'"'"'line\012break`)
+}
+
 func TestCLIOutputMatrix(t *testing.T) {
 	root := newRootCmd()
 	for _, spec := range onlineCommandSpecs() {

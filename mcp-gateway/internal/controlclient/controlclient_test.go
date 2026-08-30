@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -198,6 +199,38 @@ func TestControlTransport(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestControlTransportPhaseClassification(t *testing.T) {
+	refusedClient := newTestClient(t, DefaultAddress, TransportOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+		},
+	})
+	_, err := refusedClient.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v1/status"})
+	require.Error(t, err)
+	assert.True(t, FailureRefused(err))
+	assert.Equal(t, &OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9}, ClassifyRequestError(err, RequestPhaseRead))
+
+	preHandoff := &Failure{kind: ErrTransport, handoff: HandoffNone}
+	assert.Equal(t, &OnlineError{Code: "client_transport_failure", Title: "The Gateway could not be reached before request handoff.", Exit: 9}, ClassifyRequestError(preHandoff, RequestPhaseMutation))
+
+	postHandoff := &Failure{kind: ErrTransport, handoff: HandoffPossible}
+	assert.Equal(t, &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}, ClassifyRequestError(postHandoff, RequestPhaseMutation))
+	assert.Equal(t, &OnlineError{Code: "client_transport_failure", Title: "The read did not complete. This read is safe to repeat after checking Gateway availability.", Exit: 9}, ClassifyRequestError(postHandoff, RequestPhaseRead))
+	assert.Equal(t, &OnlineError{Code: "client_transport_failure", Title: "The ETag preflight did not complete. The intended mutation was not submitted.", Exit: 9}, ClassifyRequestError(postHandoff, RequestPhasePreflight))
+
+	truncated := &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible}
+	assert.Equal(t, &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}, ClassifyRequestError(truncated, RequestPhaseMutation))
+	assert.Equal(t, "client_response_invalid", ClassifyRequestError(truncated, RequestPhaseRead).Code)
+	assert.False(t, ClassifyRequestError(truncated, RequestPhaseRead).Uncertain)
+
+	serviceUnavailable := EvaluateResponse(Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{"Content-Type": {MediaTypeProblemJSON}}, Body: []byte(`{"status":503,"code":"storage_unavailable","title":"Storage is unavailable."}`)})
+	require.NotNil(t, serviceUnavailable)
+	assert.Equal(t, "storage_unavailable", serviceUnavailable.Code)
+	assert.Equal(t, 7, serviceUnavailable.Exit)
+	assert.False(t, serviceUnavailable.Uncertain)
+	assert.Equal(t, "client_response_invalid", ClassifyRequestError(ErrResponseInvalid, RequestPhaseMutation).Code)
 }
 
 type errorReader struct{}

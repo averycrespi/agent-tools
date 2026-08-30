@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
@@ -51,6 +52,7 @@ const (
 type Failure struct {
 	kind    error
 	handoff Handoff
+	refused bool
 }
 
 func (failure *Failure) Error() string {
@@ -77,6 +79,11 @@ func FailureHandoff(err error) Handoff {
 		return failure.handoff
 	}
 	return HandoffNone
+}
+
+func FailureRefused(err error) bool {
+	var failure *Failure
+	return errors.As(err, &failure) && failure.refused
 }
 
 type TransportOptions struct {
@@ -160,7 +167,8 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 		if errors.Is(err, ErrRedirect) {
 			kind = ErrRedirect
 		}
-		return Response{}, &Failure{kind: kind, handoff: handoffValue(handedOff.Load())}
+		handoff := handoffValue(handedOff.Load())
+		return Response{}, &Failure{kind: kind, handoff: handoff, refused: errors.Is(kind, ErrTransport) && handoff == HandoffNone && errors.Is(err, syscall.ECONNREFUSED)}
 	}
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, MaxResponseBytes+1))
@@ -173,6 +181,13 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 		}
 	}
 	return Response{StatusCode: response.StatusCode, Header: cloneHeader(response.Header), Body: body}, nil
+}
+
+func ListenAuthority(address string) (string, error) {
+	if err := validateAddress(address); err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(address, "http://"), nil
 }
 
 func validateAddress(address string) error {

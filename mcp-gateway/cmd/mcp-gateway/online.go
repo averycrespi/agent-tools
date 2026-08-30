@@ -207,6 +207,7 @@ func prepareOnlineSensitiveAction(options *onlineOptions, consequence string, pr
 }
 
 func writeOnlineFailure(command *cobra.Command, rawMode string, failure *controlclient.OnlineError) error {
+	failure = projectOnlineFailure(command, failure)
 	mode, err := controlclient.ParseOutputMode(rawMode)
 	if err != nil {
 		mode = controlclient.OutputTable
@@ -215,6 +216,26 @@ func writeOnlineFailure(command *cobra.Command, rawMode string, failure *control
 		return controlclient.NewInputError("The command error could not be written.")
 	}
 	return failure
+}
+
+func projectOnlineFailure(command *cobra.Command, failure *controlclient.OnlineError) *controlclient.OnlineError {
+	if command == nil || failure == nil || failure.Code != "gateway_not_running" {
+		return failure
+	}
+	address, err := command.Flags().GetString("address")
+	if err != nil {
+		return failure
+	}
+	dataDir := selectedDataDir(command, "")
+	includeDataDir := dataDir != "" && command.Root().PersistentFlags().Changed("data-dir")
+	startCommand, err := renderOnlineServeCommand(address, dataDir, includeDataDir)
+	projected := *failure
+	if err != nil {
+		projected.Title = "MCP Gateway is not running. Run mcp-gateway serve with the selected address and data directory."
+		return &projected
+	}
+	projected.Title = "MCP Gateway is not running. Start it with: " + startCommand + "."
+	return &projected
 }
 
 func commandExitCode(err error) int {
