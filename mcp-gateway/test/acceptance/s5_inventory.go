@@ -18,15 +18,15 @@ var S5IntegrationTestManifest = []string{
 }
 
 var S5StressTestManifest = []string{
-	"TestS5StressApprovalCancellationPolicyLinearization",
-	"TestS5StressConcurrentSemanticDeduplication",
-	"TestS5StressLocalInvocationDrainCleanup",
-	"TestS5StressLostLocalMutationResponseDeduplicatesExplicitRetry",
-	"TestS5StressSyntheticSnapshotPagination",
+	"TestApprovalCancellationPolicyLinearizationStress",
+	"TestConcurrentSemanticDeduplicationStress",
+	"TestLocalInvocationDrainCleanupStress",
+	"TestLostLocalMutationResponseDeduplicatesExplicitRetryStress",
+	"TestSyntheticSnapshotPaginationStress",
 }
 
 var S5SecurityTestManifest = []string{
-	"TestS5SecurityAcceptanceReportSinks",
-	"TestS5SecurityDurableSinkCanaries",
-	"TestS5SecurityStaticSinkClosure",
+	"TestAcceptanceReportSecretSinkBoundaries",
+	"TestDurableSecretSinkBoundaries",
+	"TestStaticSecretSinkClosure",
 }

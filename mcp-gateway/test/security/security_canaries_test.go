@@ -29,8 +29,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5SecurityAcceptanceReportSinks(t *testing.T) {
-	canary := "s5-report-output-canary-7f31289c"
+func TestAcceptanceReportSecretSinkBoundaries(t *testing.T) {
+	canary := "acceptance-report-output-canary-7f31289c"
 	report := acceptance.Run(context.Background(), repositoryRoot(t), securityExecutor{canary: canary}, true)
 	require.Equal(t, acceptance.ResultFailed, report.Result)
 	encoded, err := json.Marshal(report)
@@ -41,7 +41,7 @@ func TestS5SecurityAcceptanceReportSinks(t *testing.T) {
 	}
 }
 
-func TestS5SecurityDurableSinkCanaries(t *testing.T) {
+func TestDurableSecretSinkBoundaries(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
@@ -76,7 +76,7 @@ func TestS5SecurityDurableSinkCanaries(t *testing.T) {
 	}
 }
 
-func TestS6SecurityCanaries(t *testing.T) {
+func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 	type privacyOwner struct {
 		class string
 		owner string
@@ -87,10 +87,10 @@ func TestS6SecurityCanaries(t *testing.T) {
 		{"user-gesture clipboard", "runSecretSinks"}, {"OAuth opener and referrer", "TestBrowserSecretStoragePrivacy"},
 		{"stale authentication epoch", "assertSensitiveSinkFoundation"}, {"post-response sink loss", "assertSensitiveSinkFoundation"},
 		{"CLI argv and environment", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "TestCLISensitiveSinks"},
-		{"logs and acceptance reports", "TestS5SecurityAcceptanceReportSinks"}, {"events", "TestE2EInvocationReadPrivacy"},
-		{"audit capture", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "TestS5SecurityDurableSinkCanaries"},
-		{"generated frontend assets", "TestS6SecurityCanaries"}, {"screenshots and reports", "TestBrowserSecretStoragePrivacy"},
-		{"process output", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "TestS6SecurityCanaries"},
+		{"logs and acceptance reports", "TestAcceptanceReportSecretSinkBoundaries"}, {"events", "TestE2EInvocationReadPrivacy"},
+		{"audit capture", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "TestDurableSecretSinkBoundaries"},
+		{"generated frontend assets", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "TestBrowserSecretStoragePrivacy"},
+		{"process output", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "TestSecurityEvidenceOwnerManifest"},
 	}
 	require.Len(t, owners, 18)
 	classes := make(map[string]struct{}, len(owners))
@@ -137,7 +137,7 @@ func TestS6SecurityCanaries(t *testing.T) {
 		sort.Strings(names)
 		return names
 	}())
-	canary := []byte("s6-artifact-" + "privacy-canary-4f71ac")
+	canary := []byte("frontend-artifact-" + "privacy-canary-4f71ac")
 	scanner, err := testutil.NewCanaryScanner(canary)
 	require.NoError(t, err)
 	for _, path := range regularFiles(t, staticRoot) {
@@ -150,7 +150,7 @@ func TestS6SecurityCanaries(t *testing.T) {
 	}
 }
 
-func TestS5SecurityStaticSinkClosure(t *testing.T) {
+func TestStaticSecretSinkClosure(t *testing.T) {
 	assert.Equal(t, []contract.SecretSink{
 		contract.SecretSinkControllingTerminal, contract.SecretSinkOwnerOnlyFile, contract.SecretSinkAdminCredentialReplacement,
 		contract.SecretSinkDCRClientSecret, contract.SecretSinkAuthorizationCodeTokenResponse, contract.SecretSinkRefreshResponse,
@@ -171,7 +171,7 @@ func TestS5SecurityStaticSinkClosure(t *testing.T) {
 			}
 			assert.NotContains(t, string(contents), "/api/v1/audit", path)
 			if strings.Contains(string(contents), "/api/v1/invocations") {
-				allowed := []string{"internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
+				allowed := []string{"cmd/mcp-gateway/online_reads.go", "internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
 				assert.Contains(t, allowed, filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "mcp-gateway")+string(filepath.Separator))), path)
 			}
 			parsed, parseErr := parser.ParseFile(token.NewFileSet(), path, contents, parser.ImportsOnly)

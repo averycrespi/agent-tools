@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestS5StressSyntheticSnapshotPagination(t *testing.T) {
+func TestSyntheticSnapshotPaginationStress(t *testing.T) {
 	const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAA"
 	descriptors := make([]contract.ToolDescriptor, 2048)
 	for index := range descriptors {
@@ -91,7 +91,7 @@ func TestS5StressSyntheticSnapshotPagination(t *testing.T) {
 	}
 }
 
-func TestS5StressLostLocalMutationResponseDeduplicatesExplicitRetry(t *testing.T) {
+func TestLostLocalMutationResponseDeduplicatesExplicitRetryStress(t *testing.T) {
 	TestDrainSelfServiceReportsPostCommitUncertaintyWithoutTerminalReplay(t)
 }
 

@@ -4,6 +4,6 @@ package composition
 
 import "testing"
 
-func TestS5StressLocalInvocationDrainCleanup(t *testing.T) {
+func TestLocalInvocationDrainCleanupStress(t *testing.T) {
 	TestDrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t)
 }

@@ -24,9 +24,9 @@ test-security-s5:
 	go test -race -count=1 -tags=security -timeout=30s ./test/security/...
 
 test-stress-s5:
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m -run '^(TestS5StressConcurrentSemanticDeduplication|TestS5StressApprovalCancellationPolicyLinearization)$$' ./internal/grantrequests
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^(TestS5StressSyntheticSnapshotPagination|TestS5StressLostLocalMutationResponseDeduplicatesExplicitRetry)$$' ./internal/selfservice
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^TestS5StressLocalInvocationDrainCleanup$$' ./internal/composition
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m -run '^(TestConcurrentSemanticDeduplicationStress|TestApprovalCancellationPolicyLinearizationStress)$$' ./internal/grantrequests
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^(TestSyntheticSnapshotPaginationStress|TestLostLocalMutationResponseDeduplicatesExplicitRetryStress)$$' ./internal/selfservice
+	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^TestLocalInvocationDrainCleanupStress$$' ./internal/composition
 
 test-e2e:
 	go test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...
@@ -77,7 +77,7 @@ test-cli-usability-e2e:
 	go test -race -count=1 -tags=e2e -timeout=2m -run '^(TestCLI(FirstRun|XDGAndOverrides|ServeOutputLifecycle|AutomaticBearerSelection|CredentialFailureProblems|OutputMatrix|CommandErrors|HelpTree)|TestCLI(StatusInvocations|ServerCatalogReads|ServerCreateUpdate|ServerDelete|ServerOperations|ServerCredentials|AuthFlows|AdminCredentials|Backups|Principals|PrincipalCredentials|Grants|GrantRequests))$$' ./test/e2e
 
 test-security-s6:
-	go test -race -count=1 -tags=security -timeout=30s -run '^TestS6SecurityCanaries$$' ./test/security
+	go test -race -count=1 -tags=security -timeout=30s -run '^TestSecurityEvidenceOwnerManifest$$' ./test/security
 	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestBrowserSecretStoragePrivacy$$' ./test/e2e
 
 qualify-external-s6:

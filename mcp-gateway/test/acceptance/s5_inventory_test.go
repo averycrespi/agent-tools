@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,16 +59,16 @@ func TestS5TargetInventory(t *testing.T) {
 
 func TestS5SelectorManifest(t *testing.T) {
 	assert.Equal(t, []string{
-		"TestS5StressApprovalCancellationPolicyLinearization",
-		"TestS5StressConcurrentSemanticDeduplication",
-		"TestS5StressLocalInvocationDrainCleanup",
-		"TestS5StressLostLocalMutationResponseDeduplicatesExplicitRetry",
-		"TestS5StressSyntheticSnapshotPagination",
+		"TestApprovalCancellationPolicyLinearizationStress",
+		"TestConcurrentSemanticDeduplicationStress",
+		"TestLocalInvocationDrainCleanupStress",
+		"TestLostLocalMutationResponseDeduplicatesExplicitRetryStress",
+		"TestSyntheticSnapshotPaginationStress",
 	}, S5StressTestManifest)
 	assert.Equal(t, []string{
-		"TestS5SecurityAcceptanceReportSinks",
-		"TestS5SecurityDurableSinkCanaries",
-		"TestS5SecurityStaticSinkClosure",
+		"TestAcceptanceReportSecretSinkBoundaries",
+		"TestDurableSecretSinkBoundaries",
+		"TestStaticSecretSinkClosure",
 	}, S5SecurityTestManifest)
 
 	selector := regexp.MustCompile(s5IntegrationSelector)
@@ -82,7 +83,7 @@ func TestS5SelectorManifest(t *testing.T) {
 
 	var stress []string
 	for _, test := range discoverTests(t, repositoryRoot(t), s5StressPackages) {
-		if strings.HasPrefix(test, "TestS5Stress") {
+		if strings.HasSuffix(test, "Stress") {
 			stress = append(stress, test)
 		}
 	}
@@ -91,7 +92,7 @@ func TestS5SelectorManifest(t *testing.T) {
 
 	var security []string
 	for _, test := range discoverTests(t, repositoryRoot(t), []string{"./test/security"}) {
-		if strings.HasPrefix(test, "TestS5Security") {
+		if slices.Contains(S5SecurityTestManifest, test) {
 			security = append(security, test)
 		}
 	}
