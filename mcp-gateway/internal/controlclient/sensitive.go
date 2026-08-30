@@ -1,12 +1,16 @@
 package controlclient
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 )
 
@@ -80,15 +84,46 @@ type SinkOptions struct {
 	OpenTerminal func() (io.WriteCloser, error)
 }
 
+type sensitiveSyncWriteCloser interface {
+	io.WriteCloser
+	Sync() error
+}
+
+type sensitiveDirectory interface {
+	Sync() error
+	Close() error
+}
+
+type sensitiveSinkOps struct {
+	lstat          func(string) (os.FileInfo, error)
+	remove         func(string) error
+	openDirectory  func(string) (sensitiveDirectory, error)
+	readBearerFile func(string, int) (string, error)
+	effectiveUID   func() int
+}
+
+func defaultSensitiveSinkOps() sensitiveSinkOps {
+	return sensitiveSinkOps{
+		lstat:  os.Lstat,
+		remove: os.Remove,
+		openDirectory: func(path string) (sensitiveDirectory, error) {
+			return os.Open(path)
+		},
+		readBearerFile: readBearerFile,
+		effectiveUID:   os.Geteuid,
+	}
+}
+
 type PreparedSink struct {
 	mu          sync.Mutex
 	output      io.WriteCloser
-	file        *os.File
+	file        sensitiveSyncWriteCloser
 	fileInfo    os.FileInfo
 	path        string
 	destination string
 	submitted   bool
 	finished    bool
+	ops         sensitiveSinkOps
 }
 
 func PrepareSensitiveSink(options SinkOptions) (*PreparedSink, error) {
@@ -105,7 +140,7 @@ func PrepareSensitiveSink(options SinkOptions) (*PreparedSink, error) {
 			_ = file.Close()
 			return nil, ErrSecretSinkUnavailable
 		}
-		return &PreparedSink{output: file, file: file, fileInfo: info, path: options.Path, destination: "owner_only_file"}, nil
+		return &PreparedSink{output: file, file: file, fileInfo: info, path: options.Path, destination: "owner_only_file", ops: defaultSensitiveSinkOps()}, nil
 	}
 	opener := options.OpenTerminal
 	if opener == nil {
@@ -117,7 +152,7 @@ func PrepareSensitiveSink(options SinkOptions) (*PreparedSink, error) {
 	if err != nil || terminal == nil {
 		return nil, ErrSecretSinkUnavailable
 	}
-	return &PreparedSink{output: terminal, destination: "controlling_terminal"}, nil
+	return &PreparedSink{output: terminal, destination: "controlling_terminal", ops: defaultSensitiveSinkOps()}, nil
 }
 
 func (sink *PreparedSink) Destination() string {
@@ -174,6 +209,63 @@ func (sink *PreparedSink) Publish(value string) error {
 	return nil
 }
 
+func (sink *PreparedSink) PublishAdminRotation(value string, metadata contract.AdminCredential) (string, error) {
+	if sink == nil {
+		return "", ErrSecretLost
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if sink.finished || !sink.submitted || sink.path == "" || sink.output == nil || sink.file == nil || !validSensitiveValue(value) || !adminBearerPattern.MatchString(value) {
+		sink.closeUnpublished()
+		return "", ErrSecretLost
+	}
+	if !sink.pathStillOwned() {
+		sink.closeUnpublished()
+		return "", ErrSecretLost
+	}
+	contents := value + "\n"
+	count, writeErr := io.WriteString(sink.output, contents)
+	if writeErr == nil && count != len(contents) {
+		writeErr = io.ErrShortWrite
+	}
+	if writeErr != nil {
+		sink.closeUnpublished()
+		return "", ErrSecretLost
+	}
+	if err := sink.file.Sync(); err != nil || !sink.pathStillOwned() {
+		sink.closeUnpublished()
+		return "", ErrSecretLost
+	}
+	closeErr := sink.output.Close()
+	sink.output = nil
+	if closeErr != nil || !sink.pathStillOwned() {
+		sink.finished = true
+		sink.removeOwnedPath()
+		return "", ErrSecretLost
+	}
+	directory, err := sink.ops.openDirectory(filepath.Dir(sink.path))
+	if err != nil {
+		sink.finished = true
+		sink.removeOwnedPath()
+		return "", ErrSecretLost
+	}
+	syncErr := directory.Sync()
+	directoryCloseErr := directory.Close()
+	if syncErr != nil || directoryCloseErr != nil || !sink.pathStillOwned() {
+		sink.finished = true
+		sink.removeOwnedPath()
+		return "", ErrSecretLost
+	}
+	reopened, err := sink.ops.readBearerFile(sink.path, sink.ops.effectiveUID())
+	if err != nil || reopened != value || !sink.pathStillOwned() || adminFingerprintForBearer(reopened) != metadata.Fingerprint {
+		sink.finished = true
+		sink.removeOwnedPath()
+		return "", ErrSecretLost
+	}
+	sink.finished = true
+	return reopened, nil
+}
+
 func (sink *PreparedSink) Cleanup() error {
 	if sink == nil {
 		return nil
@@ -212,13 +304,13 @@ func (sink *PreparedSink) pathStillOwned() bool {
 	if sink.path == "" || sink.fileInfo == nil {
 		return sink.path == ""
 	}
-	info, err := os.Lstat(sink.path)
+	info, err := sink.ops.lstat(sink.path)
 	return err == nil && info.Mode().IsRegular() && os.SameFile(sink.fileInfo, info)
 }
 
 func (sink *PreparedSink) removeOwnedPath() {
 	if sink.pathStillOwned() {
-		_ = os.Remove(sink.path)
+		_ = sink.ops.remove(sink.path)
 	}
 }
 
@@ -232,6 +324,12 @@ func validSensitiveValue(value string) bool {
 		}
 	}
 	return true
+}
+
+func adminFingerprintForBearer(bearer string) string {
+	verifier := sha256.Sum256(append([]byte("mcp-gateway/admin-verifier/v1\x00"), bearer...))
+	digest := sha256.Sum256(append([]byte("mcp-gateway/admin-fingerprint/v1\x00"), verifier[:]...))
+	return hex.EncodeToString(digest[:8])
 }
 
 func NewSecretSinkError(title string) *OnlineError {
