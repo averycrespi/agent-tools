@@ -38,17 +38,22 @@ type releaseCoverage struct {
 }
 
 type releaseCheckDefinition struct {
-	ID                  string          `json:"id"`
-	Argv                []string        `json:"argv"`
-	Coverage            releaseCoverage `json:"coverage"`
-	TimeoutMillis       int64           `json:"timeout_ms"`
-	Artifacts           []string        `json:"artifacts"`
-	CleanupRequirements []string        `json:"cleanup_requirements"`
-	Native              bool            `json:"native,omitempty"`
+	ID                    string          `json:"id"`
+	Argv                  []string        `json:"argv"`
+	Coverage              releaseCoverage `json:"coverage"`
+	TimeoutMillis         int64           `json:"timeout_ms"`
+	BudgetMillis          int64           `json:"budget_ms"`
+	Repeats               int             `json:"repeats"`
+	ExpectedGatewayStarts int             `json:"expected_gateway_starts"`
+	ExpectedBrowserStarts int             `json:"expected_browser_starts"`
+	Artifacts             []string        `json:"artifacts"`
+	CleanupRequirements   []string        `json:"cleanup_requirements"`
+	Native                bool            `json:"native,omitempty"`
 }
 
 type releaseProfileDefinition struct {
 	Profile          string                              `json:"profile"`
+	BudgetMillis     int64                               `json:"budget_ms"`
 	Coverage         releaseCoverage                     `json:"coverage"`
 	Checks           []releaseCheckDefinition            `json:"checks"`
 	ExternalEvidence []releaseExternalEvidenceDefinition `json:"external_evidence"`
@@ -287,17 +292,25 @@ func validateReleaseReport(report releaseReport, definition releaseProfileDefini
 }
 
 func validateReleaseProfileDefinition(definition releaseProfileDefinition) error {
-	if definition.Profile != releaseProfile || len(definition.Checks) == 0 || len(definition.DefinitionFiles) == 0 {
+	if definition.Profile != releaseProfile || definition.BudgetMillis <= 0 || len(definition.Checks) == 0 || len(definition.DefinitionFiles) == 0 {
 		return errors.New("release profile definition is incomplete")
 	}
 	if err := validateReleaseCoverage(definition.Coverage); err != nil {
 		return err
 	}
 	seenChecks := make(map[string]struct{}, len(definition.Checks))
+	profileProducts := make(map[string]struct{}, len(definition.Coverage.ProductBehaviors))
+	profileCleanup := make(map[string]struct{}, len(definition.Coverage.CleanupCriteria))
+	for _, id := range definition.Coverage.ProductBehaviors {
+		profileProducts[id] = struct{}{}
+	}
+	for _, id := range definition.Coverage.CleanupCriteria {
+		profileCleanup[id] = struct{}{}
+	}
 	productOwners := make(map[string]int)
 	cleanupOwners := make(map[string]int)
 	for _, check := range definition.Checks {
-		if check.ID == "" || len(check.Argv) == 0 || check.TimeoutMillis <= 0 || len(check.Artifacts) == 0 || len(check.CleanupRequirements) == 0 {
+		if check.ID == "" || len(check.Argv) == 0 || check.TimeoutMillis <= 0 || check.BudgetMillis < check.TimeoutMillis || check.BudgetMillis > definition.BudgetMillis || check.Repeats <= 0 || check.ExpectedGatewayStarts < 0 || check.ExpectedBrowserStarts < 0 || len(check.Artifacts) == 0 || len(check.CleanupRequirements) == 0 {
 			return fmt.Errorf("release check definition %s is incomplete", check.ID)
 		}
 		if _, duplicate := seenChecks[check.ID]; duplicate {
@@ -308,9 +321,15 @@ func validateReleaseProfileDefinition(definition releaseProfileDefinition) error
 			return err
 		}
 		for _, id := range check.Coverage.ProductBehaviors {
+			if _, declared := profileProducts[id]; !declared {
+				return fmt.Errorf("release product behavior %s is owned outside profile coverage", id)
+			}
 			productOwners[id]++
 		}
 		for _, id := range check.Coverage.CleanupCriteria {
+			if _, declared := profileCleanup[id]; !declared {
+				return fmt.Errorf("release cleanup criterion %s is owned outside profile coverage", id)
+			}
 			cleanupOwners[id]++
 		}
 		for _, path := range check.Artifacts {
@@ -320,13 +339,13 @@ func validateReleaseProfileDefinition(definition releaseProfileDefinition) error
 		}
 	}
 	for _, id := range definition.Coverage.ProductBehaviors {
-		if productOwners[id] == 0 {
-			return fmt.Errorf("release product behavior %s has no check owner", id)
+		if productOwners[id] != 1 {
+			return fmt.Errorf("release product behavior %s requires exactly one check owner", id)
 		}
 	}
 	for _, id := range definition.Coverage.CleanupCriteria {
-		if cleanupOwners[id] == 0 {
-			return fmt.Errorf("release cleanup criterion %s has no check owner", id)
+		if cleanupOwners[id] != 1 {
+			return fmt.Errorf("release cleanup criterion %s requires exactly one check owner", id)
 		}
 	}
 	seenExternal := make(map[string]struct{}, len(definition.ExternalEvidence))

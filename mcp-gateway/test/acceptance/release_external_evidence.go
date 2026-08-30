@@ -143,10 +143,7 @@ func releaseExternalEvidenceDefinitions(root string) ([]releaseExternalEvidenceD
 	if manifest.SchemaVersion != 1 {
 		return nil, errors.New("external environment manifest version is unsupported")
 	}
-	definitions := []releaseExternalEvidenceDefinition{
-		{BehaviorID: "tier.browser.cross", CellID: "macos-safari", Checklist: []string{"sign-in-session", "navigation", "complete-workflows", "responsive-reflow", "network-boundary"}},
-		{BehaviorID: "product.accessibility.combined_evidence", CellID: "macos-voiceover-safari", Checklist: []string{"landmarks-headings", "keyboard-focus", "dialog-announcement", "live-regions", "tables-forms-errors", "zoom-reduced-motion"}},
-	}
+	definitions := canonicalReleaseExternalEvidenceDefinitions()
 	cells := make(map[string]struct {
 		OS, Browser, AssistiveTechnology, AcceptanceClass, UnavailableClass, ExecutableLocator string
 	}, len(manifest.Cells))
@@ -168,6 +165,13 @@ func releaseExternalEvidenceDefinitions(root string) ([]releaseExternalEvidenceD
 		definitions[index].ExecutableLocator = cell.ExecutableLocator
 	}
 	return definitions, nil
+}
+
+func canonicalReleaseExternalEvidenceDefinitions() []releaseExternalEvidenceDefinition {
+	return []releaseExternalEvidenceDefinition{
+		{BehaviorID: "tier.browser.cross", CellID: "macos-safari", TargetOS: "macos", Browser: "safari", AcceptanceClass: "blocking_when_available", UnavailableClass: "additive", ExecutableLocator: "/Applications/Safari.app", Checklist: []string{"sign-in-session", "navigation", "complete-workflows", "responsive-reflow", "network-boundary"}},
+		{BehaviorID: "product.accessibility.combined_evidence", CellID: "macos-voiceover-safari", TargetOS: "macos", Browser: "safari", AssistiveTechnology: "voiceover", AcceptanceClass: "blocking_when_available", UnavailableClass: "additive", ExecutableLocator: "/Applications/Safari.app", Checklist: []string{"landmarks-headings", "keyboard-focus", "dialog-announcement", "live-regions", "tables-forms-errors", "zoom-reduced-motion"}},
+	}
 }
 
 func generateReleaseExternalEvidenceTemplates(binding releaseExternalEvidenceBinding, definitions []releaseExternalEvidenceDefinition, probe releaseEnvironmentProber) ([]releaseExternalEvidenceTemplate, error) {

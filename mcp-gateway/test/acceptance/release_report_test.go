@@ -209,11 +209,12 @@ func releaseReportTestRepository(t *testing.T) (string, releaseProfileDefinition
 	runGit(t, root, "add", "definitions/direct.txt", "definitions/transitive.txt")
 	runGit(t, root, "-c", "user.name=Acceptance Test", "-c", "user.email=acceptance@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "initial")
 	return root, releaseProfileDefinition{
-		Profile:  releaseProfile,
-		Coverage: releaseCoverage{ProductBehaviors: []string{"product.interface.developer_first", "security.browser.storage"}, CleanupCriteria: []string{"cleanup.AC-1", "cleanup.AC-5"}},
+		Profile:      releaseProfile,
+		BudgetMillis: 15 * 60 * 1000,
+		Coverage:     releaseCoverage{ProductBehaviors: []string{"product.interface.developer_first", "security.browser.storage"}, CleanupCriteria: []string{"cleanup.AC-1", "cleanup.AC-5"}},
 		Checks: []releaseCheckDefinition{
-			{ID: "unit", Argv: []string{"make", "-C", "mcp-gateway", "test-unit"}, Coverage: releaseCoverage{ProductBehaviors: []string{"product.interface.developer_first"}, CleanupCriteria: []string{"cleanup.AC-1"}}, TimeoutMillis: 90000, Artifacts: []string{"artifacts/unit.json"}, CleanupRequirements: []string{"processes", "listeners", "temporary roots"}},
-			{ID: "native", Argv: []string{"make", "-C", "mcp-gateway", "test-keyring-native"}, Coverage: releaseCoverage{ProductBehaviors: []string{"security.browser.storage"}, CleanupCriteria: []string{"cleanup.AC-5"}}, TimeoutMillis: 10000, Artifacts: []string{"artifacts/native.json"}, CleanupRequirements: []string{"processes", "temporary roots"}, Native: true},
+			{ID: "unit", Argv: []string{"make", "-C", "mcp-gateway", "test-unit"}, Coverage: releaseCoverage{ProductBehaviors: []string{"product.interface.developer_first"}, CleanupCriteria: []string{"cleanup.AC-1"}}, TimeoutMillis: 90000, BudgetMillis: 120000, Repeats: 1, Artifacts: []string{"artifacts/unit.json"}, CleanupRequirements: []string{"processes", "listeners", "temporary roots"}},
+			{ID: "native", Argv: []string{"make", "-C", "mcp-gateway", "test-keyring-native"}, Coverage: releaseCoverage{ProductBehaviors: []string{"security.browser.storage"}, CleanupCriteria: []string{"cleanup.AC-5"}}, TimeoutMillis: 10000, BudgetMillis: 30000, Repeats: 1, Artifacts: []string{"artifacts/native.json"}, CleanupRequirements: []string{"processes", "temporary roots"}, Native: true},
 		},
 		ExternalEvidence: []releaseExternalEvidenceDefinition{{BehaviorID: "tier.browser.cross", CellID: "macos-safari", TargetOS: "macos", Browser: "safari", AcceptanceClass: "blocking_when_available", UnavailableClass: "additive", ExecutableLocator: "/Applications/Safari.app", Checklist: []string{"sign-in-session"}}},
 		DefinitionFiles:  []string{"definitions/direct.txt", "definitions/transitive.txt"},
