@@ -54,7 +54,7 @@ func runAdminCredentialCreate(command *cobra.Command, options *onlineOptions) er
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: adminCredentialCreateUncertainTitle(), Exit: 8, Uncertain: true})
 	}
 	if err := sink.Publish(created.Bearer); err != nil {
-		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_secret_sink_unavailable", Title: "The admin credential was created, but its one-time bearer could not be published. The bearer cannot be recovered; inspect credential metadata before deciding whether to revoke it.", Exit: 2})
+		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_secret_sink_unavailable", Title: adminCredentialPublicationFailureTitle(created.ID), Exit: 2})
 	}
 	return writeAdminCredentialSuccess(command, options, created.AdminCredential)
 }
@@ -133,6 +133,10 @@ func writeAdminCredentialSuccess(command *cobra.Command, options *onlineOptions,
 	table := adminCredentialTable([]contract.AdminCredential{credential})
 	table.Notes = []string{oneTimeBearerPublicationNote(options.secretOutput)}
 	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, table)
+}
+
+func adminCredentialPublicationFailureTitle(id string) string {
+	return "The admin credential " + id + " was created, but its one-time bearer could not be published and cannot be recovered from metadata. Nothing was replayed. Inspect credential metadata, then explicitly revoke an unusable credential before creating a deliberate replacement."
 }
 
 func adminCredentialCreateUncertainTitle() string {

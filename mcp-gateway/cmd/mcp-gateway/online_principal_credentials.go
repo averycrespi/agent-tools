@@ -82,7 +82,7 @@ func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptio
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: principalCredentialMutationUncertainTitle(action, principalID), Exit: 8, Uncertain: true})
 	}
 	if err := sink.Publish(creation.Bearer); err != nil {
-		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_secret_sink_unavailable", Title: "The principal credential was " + action + "d, but its one-time bearer could not be published. It cannot be recovered; inspect principal metadata before deciding whether to revoke it.", Exit: 2})
+		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_secret_sink_unavailable", Title: principalCredentialPublicationFailureTitle(action, principalID), Exit: 2})
 	}
 	return writePrincipalMetadataSuccess(command, options, creation.Principal, true)
 }
@@ -143,6 +143,14 @@ func writePrincipalMetadataSuccess(command *cobra.Command, options *onlineOption
 		table.Notes = []string{oneTimeBearerPublicationNote(options.secretOutput)}
 	}
 	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, table)
+}
+
+func principalCredentialPublicationFailureTitle(action, id string) string {
+	consequence := "The credential slot may now be occupied. Do not replay issue."
+	if action == "rotate" {
+		consequence = "The replacement may now be current and the prior bearer may already be invalid. Do not replay rotation."
+	}
+	return "The principal credential was " + action + "d, but its one-time bearer could not be published or recovered from metadata. " + consequence + " Inspect principal get " + id + ", then explicitly rotate or revoke the observed current credential."
 }
 
 func principalCredentialMutationUncertainTitle(action, id string) string {

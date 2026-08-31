@@ -906,6 +906,7 @@ function AdminCredentials({
   );
   const [expiry, setExpiry] = useState("");
   const [prepared, setPrepared] = useState<PreparedOneTimeSink>();
+  const [intent, setIntent] = useState<"create" | "revoke">("create");
   const [revoke, setRevoke] = useState<AdminCredential>();
   const [detail, setDetail] = useState<AdminCredential>();
   const [notice, setNotice] = useState<string>();
@@ -963,6 +964,7 @@ function AdminCredentials({
       );
       return;
     }
+    setIntent("create");
     setPrepared(sink);
     const spec: MutationSpec<CreatedAdminCredential | undefined> = {
       route: "/api/v1/admin-credentials",
@@ -1019,6 +1021,7 @@ function AdminCredentials({
   };
   const beginRevoke = (credential: AdminCredential) => {
     setNotice(undefined);
+    setIntent("revoke");
     setRevoke(credential);
     const spec: MutationSpec<CreatedAdminCredential | undefined> = {
       route: `/api/v1/admin-credentials/${credential.id}`,
@@ -1106,9 +1109,9 @@ function AdminCredentials({
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Credential outcome is unknown">
           <p>
-            Do not replay. The credential may be active while its bearer is
-            permanently lost. Refresh metadata, then explicitly revoke an
-            unusable credential before creating a deliberate replacement.
+            {intent === "create"
+              ? "Do not replay. The credential may be active while its bearer is permanently lost. Refresh metadata, then explicitly revoke an unusable credential before creating a deliberate replacement."
+              : "Do not replay revoke. The credential may already be revoked and child sessions may already be closed. Refresh metadata before another explicit action."}
           </p>
         </StateNotice>
       )}

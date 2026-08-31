@@ -643,7 +643,9 @@ function PrincipalCredentialActions({
           <p>
             {action === "replace"
               ? "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the principal, then explicitly rotate or revoke the observed current credential."
-              : "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the principal, then explicitly rotate or revoke the observed credential."}
+              : action === "issue"
+                ? "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the principal, then explicitly rotate or revoke the observed credential."
+                : "Do not replay revoke. Authority may already be revoked. Refresh the principal before another explicit action."}
           </p>
         </StateNotice>
       )}

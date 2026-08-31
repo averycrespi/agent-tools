@@ -3164,6 +3164,14 @@ async function runAdminCredentials(
       revokes += 1;
       if (request.postData() !== "{}")
         fail("admin credential revoke changed shape");
+      if (revokes === 3) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{",
+        });
+        return;
+      }
       if (id === ids[0]) {
         await route.fulfill({
           status: 409,
@@ -3239,6 +3247,25 @@ async function runAdminCredentials(
   ])
     if (!body.includes(phrase))
       fail(`admin credential consequence omitted ${phrase}`);
+
+  await page.locator('[data-testid="admin-credential-revoke"]').last().click();
+  await page
+    .locator('[data-testid="admin-credential-revoke-confirm-submit"]')
+    .click();
+  await page
+    .getByText(
+      "Do not replay revoke. The credential may already be revoked and child sessions may already be closed. Refresh metadata before another explicit action.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.evaluate(() => {
+    window.location.hash = "#/overview";
+  });
+  await page.locator('[data-testid="overview-grid"]').waitFor();
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page.locator('[data-testid="admin-credentials-view"]').waitFor();
 
   await page.locator('[data-testid="admin-credential-create"]').click();
   await lostStarted;
@@ -3687,6 +3714,14 @@ async function runPrincipalCredentials(
       if (request.method() !== "DELETE")
         fail("principal credential method changed shape");
       revokes += 1;
+      if (revokes === 1) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{",
+        });
+        return;
+      }
       current = principal("5", false);
       await route.fulfill({
         status: 200,
@@ -3779,6 +3814,24 @@ async function runPrincipalCredentials(
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/principals/${id}`;
+  }, principalID);
+  await page.locator('[data-testid="principal-credential-revoke"]').waitFor();
+  await page.locator('[data-testid="principal-credential-revoke"]').click();
+  await page
+    .locator('[data-testid="principal-credential-confirm-submit"]')
+    .click();
+  await page
+    .getByText(
+      "Do not replay revoke. Authority may already be revoked. Refresh the principal before another explicit action.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.evaluate(() => {
+    window.location.hash = "#/overview";
+  });
+  await page.locator('[data-testid="overview-grid"]').waitFor();
   await page.evaluate((id) => {
     window.location.hash = `#/access/principals/${id}`;
   }, principalID);

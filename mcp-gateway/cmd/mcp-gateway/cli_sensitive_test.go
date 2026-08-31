@@ -87,6 +87,20 @@ func TestCredentialSuccessHumanOutputConfirmsOneTimePublication(t *testing.T) {
 	}
 }
 
+func TestCredentialPublicationFailureGuidancePreservesIntent(t *testing.T) {
+	admin := adminCredentialPublicationFailureTitle("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	assert.Contains(t, admin, "Nothing was replayed")
+	assert.Contains(t, admin, "revoke")
+	assert.Contains(t, admin, "deliberate replacement")
+
+	issued := principalCredentialPublicationFailureTitle("issue", "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	assert.Contains(t, issued, "slot may now be occupied")
+	assert.Contains(t, issued, "Do not replay issue")
+	rotated := principalCredentialPublicationFailureTitle("rotate", "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	assert.Contains(t, rotated, "prior bearer may already be invalid")
+	assert.Contains(t, rotated, "Do not replay rotation")
+}
+
 func contains(values []string, expected string) bool {
 	for _, value := range values {
 		if value == expected {

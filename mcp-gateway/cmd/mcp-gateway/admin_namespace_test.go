@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,4 +119,38 @@ func TestCLIAdminNamespaceAndCredentialCreate(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
 	assert.Len(t, requests, 0)
+
+	publicationPath := filepath.Join(dir, "publication-failure")
+	publicationRequests := make(chan struct{}, 1)
+	publicationServer := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		publicationRequests <- struct{}{}
+		if removeErr := os.Remove(publicationPath); removeErr != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if writeErr := os.WriteFile(publicationPath, []byte("untrusted replacement"), 0o600); writeErr != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		response.Header().Set("Content-Type", contract.MediaTypeJSON)
+		response.WriteHeader(http.StatusCreated)
+		_, _ = response.Write([]byte(`{"id":"01BX5ZZKBKACTAV9WEVGEMMVRZ","fingerprint":"sha256:created","created_at":"2026-08-30T00:00:00Z","expires_at":null,"non_expiring":true,"status":"active","revision":"1","bearer":"mgw_admin_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"}`))
+	}))
+	defer publicationServer.Close()
+	publication := newRootCmd()
+	var publicationStdout, publicationStderr bytes.Buffer
+	publication.SetOut(&publicationStdout)
+	publication.SetErr(&publicationStderr)
+	publication.SetArgs([]string{"admin", "credential", "create", "--secret-output", publicationPath, "--admin-bearer-file", bearerPath, "--address", publicationServer.URL, "--output", "json"})
+	err = publication.ExecuteContext(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, 2, commandExitCode(err))
+	assert.Empty(t, publicationStdout.String())
+	assert.Contains(t, publicationStderr.String(), "Nothing was replayed")
+	assert.Contains(t, publicationStderr.String(), "deliberate replacement")
+	assert.NotContains(t, publicationStderr.String(), "mgw_admin_")
+	assert.Len(t, publicationRequests, 1)
+	preserved, err = os.ReadFile(publicationPath)
+	require.NoError(t, err)
+	assert.Equal(t, "untrusted replacement", string(preserved))
 }

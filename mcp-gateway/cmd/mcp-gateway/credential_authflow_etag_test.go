@@ -97,6 +97,29 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 		assert.Equal(t, contract.PrincipalETag(resourceID, "7"), rotateRequest.etag)
 		assert.FileExists(t, rotatePath)
 
+		for _, publication := range []struct {
+			action   string
+			occupied bool
+			expected string
+		}{
+			{action: "issue", expected: "Do not replay issue"},
+			{action: "rotate", occupied: true, expected: "prior bearer may already be invalid"},
+		} {
+			t.Run(publication.action+" publication failure", func(t *testing.T) {
+				secretPath := filepath.Join(t.TempDir(), "publication-failure")
+				server, requests := newPrincipalCredentialPublicationFailureServer(t, resourceID, publication.occupied, secretPath)
+				output, commandErr := executeCredentialETagCommand(t, server.URL, "principal", "credential", publication.action, resourceID, "--secret-output", secretPath, "--yes")
+				require.Error(t, commandErr)
+				assert.Equal(t, 2, commandExitCode(commandErr), "%s", output)
+				assert.Contains(t, string(output), publication.expected)
+				assert.NotContains(t, string(output), "mgw_agent_")
+				assert.Len(t, requests, 2)
+				preserved, readErr := os.ReadFile(secretPath)
+				require.NoError(t, readErr)
+				assert.Equal(t, "untrusted replacement", string(preserved))
+			})
+		}
+
 		for _, mismatch := range []struct {
 			name     string
 			occupied bool
@@ -170,6 +193,39 @@ func newPrincipalCredentialIntentServer(t *testing.T, id string, occupied bool) 
 		if request.Method == http.MethodGet {
 			response.Header().Set("ETag", contract.PrincipalETag(id, "7"))
 			_, _ = response.Write([]byte(principal))
+			return
+		}
+		response.Header().Set("ETag", contract.PrincipalETag(id, "8"))
+		response.WriteHeader(http.StatusCreated)
+		_, _ = response.Write([]byte(`{"principal":{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"8","credential_revision":"2","credential":{"id":"` + id + `","fingerprint":"sha256:new","revision":"2","created_at":"2026-08-30T00:01:00Z"},"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"},"bearer":"mgw_agent_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
+	}))
+	t.Cleanup(server.Close)
+	return server, requests
+}
+
+func newPrincipalCredentialPublicationFailureServer(t *testing.T, id string, occupied bool, secretPath string) (*httptest.Server, chan credentialETagRequest) {
+	t.Helper()
+	requests := make(chan credentialETagRequest, 2)
+	credential := "null"
+	if occupied {
+		credential = `{"id":"` + id + `","fingerprint":"sha256:old","revision":"1","created_at":"2026-08-30T00:00:00Z"}`
+	}
+	principal := `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"7","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:00:00Z"}`
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		requests <- credentialETagRequest{method: request.Method, path: request.URL.Path, etag: request.Header.Get("If-Match")}
+		response.Header().Set("Content-Type", contract.MediaTypeJSON)
+		if request.Method == http.MethodGet {
+			response.Header().Set("ETag", contract.PrincipalETag(id, "7"))
+			_, _ = response.Write([]byte(principal))
+			return
+		}
+		if removeErr := os.Remove(secretPath); removeErr != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if writeErr := os.WriteFile(secretPath, []byte("untrusted replacement"), 0o600); writeErr != nil {
+			response.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		response.Header().Set("ETag", contract.PrincipalETag(id, "8"))
