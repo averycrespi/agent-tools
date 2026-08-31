@@ -1,5 +1,7 @@
 # Agent Tools
 
+[![CI](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml)
+
 My tools for working with AI coding agents. Pairs well with my [agent-config](https://github.com/averycrespi/agent-config).
 
 This repo is opinionated. It provides sandboxed execution and broker-backed external access that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
@@ -35,8 +37,13 @@ brew bundle       # macOS system dependencies
 make install-dev  # npm install for formatter deps and Git hooks
 make install      # install all Go tool binaries
 
-# Verify formatting, linting, and tests
+# Verify formatting, linting, and unit tests
 make check
+
+# Run the broader CI suites locally
+make test-integration
+make test-e2e
+make vulncheck
 
 # Or, to install individual tools
 cd sandbox-manager && make install

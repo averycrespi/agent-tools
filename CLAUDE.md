@@ -18,14 +18,19 @@ Each Go tool has its own `CLAUDE.md` with tool-specific instructions.
 ## Development
 
 ```bash
-npm install    # install Husky/Prettier deps and Git hooks
-make install   # install all Go tool binaries
-make build     # build all Go tools
-make test      # test all Go tools
-make audit     # tidy + fmt + lint + test + govulncheck for all Go tools
+npm install           # install Husky/Prettier deps and Git hooks
+make install          # install all Go tool binaries
+make build            # build all Go tools
+make check            # check formatting, lint, and run unit tests
+make test-integration # run integration suites for tools that provide them
+make test-e2e         # run end-to-end suites for tools that provide them
+make vulncheck        # run blocking govulncheck scans for all Go tools
+make audit            # tidy + fmt + lint + test + govulncheck for all Go tools
 ```
 
 Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
+
+GitHub Actions runs formatting and lint checks, Linux unit, integration, and end-to-end tests, a macOS `sandbox-manager` unit-test job, and a blocking vulnerability scan. Keep `.github/workflows/ci.yml` aligned with the root Makefile targets so the same checks can be reproduced locally.
 
 ## Service Layout
 

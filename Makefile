@@ -1,10 +1,12 @@
 TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
+INTEGRATION_TOOLS := mcp-broker local-git-mcp local-gomod-proxy
+E2E_TOOLS := mcp-broker local-gomod-proxy http-broker
 UNAME_S := $(shell uname -s)
 
-.PHONY: install install-dev setup build test lint fmt tidy check audit $(TOOLS)
+.PHONY: install install-dev setup build test test-integration test-e2e lint fmt fmt-check tidy check vulncheck audit $(TOOLS)
 
 install:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
 
 install-dev:
 	npm install
@@ -19,24 +21,35 @@ endif
 	$(MAKE) install
 
 build:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir build; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir build; done
 
 test:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir test; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir test; done
+
+test-integration:
+	@set -e; for dir in $(INTEGRATION_TOOLS); do $(MAKE) -C $$dir test-integration; done
+
+test-e2e:
+	@set -e; for dir in $(E2E_TOOLS); do $(MAKE) -C $$dir test-e2e; done
 
 lint:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir lint; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir lint; done
 
 fmt:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir fmt; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir fmt; done
+
+fmt-check:
+	npm run format:check
+	@set -e; files="$$(for dir in $(TOOLS); do go -C $$dir tool goimports -l .; done)"; \
+		test -z "$$files" || { printf '%s\n' "Go files require formatting:" "$$files"; exit 1; }
 
 tidy:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir tidy; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir tidy; done
 
-check:
-	npm run format:check
-	$(MAKE) lint
-	$(MAKE) test
+check: fmt-check lint test
+
+vulncheck:
+	@set -e; for dir in $(TOOLS); do go -C $$dir tool govulncheck ./...; done
 
 audit:
-	@for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done
+	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done
