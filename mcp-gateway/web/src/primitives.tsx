@@ -225,11 +225,22 @@ export function CollectionTable<T>({
             <tr key={rowKey(item)} data-testid={rowTestID}>
               {columns.map((column, index) =>
                 index === 0 ? (
-                  <th key={column.key} scope="row">
+                  <th
+                    key={column.key}
+                    scope="row"
+                    class={column.class}
+                    data-label={column.label}
+                  >
                     {column.render(item)}
                   </th>
                 ) : (
-                  <td key={column.key}>{column.render(item)}</td>
+                  <td
+                    key={column.key}
+                    class={column.class}
+                    data-label={column.label}
+                  >
+                    {column.render(item)}
+                  </td>
                 ),
               )}
             </tr>

@@ -1107,7 +1107,7 @@ function ServerTabs({
 }
 interface ServerPresentation {
   label: string;
-  state: "current" | "loading" | "warning" | "unavailable";
+  state: "current" | "loading" | "warning" | "unavailable" | "empty";
   action: string;
   href: string;
 }
@@ -1124,7 +1124,7 @@ function serverPresentation(server: ServerView): ServerPresentation {
   if (server.desiredState === "disabled")
     return {
       label: "Disabled",
-      state: "unavailable",
+      state: "empty",
       action: "Configure",
       href: `${root}?tab=settings`,
     };

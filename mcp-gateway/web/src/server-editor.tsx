@@ -514,7 +514,7 @@ function EditorForm({
       </FormField>
       <FormField
         id="server-enabled"
-        label="Initial state"
+        label={namespaceLocked ? "State" : "Initial state"}
         hint="Enabled servers schedule connection work after creation."
         required
       >
@@ -1209,7 +1209,7 @@ export function ServerEditor({
           disabled={disabled}
           data-testid="server-editor-submit"
         >
-          {create ? "Review and create" : "Save desired state"}
+          {create ? "Review and create" : "Save settings"}
         </button>
         {mutation.canReplay && (
           <button

@@ -419,6 +419,7 @@ export function ServerCredentials({
 }) {
   const shape = replacementShape(server);
   const presentation = authenticationPresentation(server);
+  if (presentation.heading === "OAuth" && shape === undefined) return null;
   return (
     <section
       class="panel domain-panel"

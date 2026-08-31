@@ -204,17 +204,15 @@ function StartFlow({
       <div class="panel-heading">
         <div>
           <span class="panel-code">ONE-TIME AUTHORIZATION</span>
-          <h2 id="auth-flow-start-title">Authorize with OAuth</h2>
+          <h2 id="auth-flow-start-title">OAuth</h2>
         </div>
       </div>
       <p>
-        The authorization URL appears once in an inert dialog. Open it only with
-        the explicit button; dismissal, navigation, or session loss clears it.
+        Continue authorization in a new browser page. The one-time URL is
+        cleared when it is dismissed, opened, or you leave this page.
       </p>
       <p class="bounded-note">
-        Callback and external authorization authority remain server-owned. A
-        lost URL cannot be recovered or replayed; start a new flow from current
-        state.
+        If the authorization page is lost, start again to receive a new URL.
       </p>
       {eligible(server) && !exchangeActive ? (
         <button
@@ -224,14 +222,14 @@ function StartFlow({
           disabled={disabled}
           onClick={start}
         >
-          Start OAuth flow
+          Authorize server
         </button>
       ) : (
-        <StateNotice state="empty" title="Foreground OAuth is not eligible">
+        <StateNotice state="empty" title="OAuth is unavailable">
           <p>
             {exchangeActive
-              ? "An OAuth exchange is already active. Refresh its authoritative state before starting another flow."
-              : "This server is not a current Streamable HTTP OAuth configuration."}
+              ? "An OAuth authorization is already in progress."
+              : "This server is not configured for OAuth."}
           </p>
         </StateNotice>
       )}

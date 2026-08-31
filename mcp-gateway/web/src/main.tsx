@@ -362,7 +362,12 @@ function App() {
     setTheme(value);
   };
   const destination = resolved.location.destination;
-  const destinationLabel = destinationLabels[destination];
+  const destinationLabel =
+    destination === "servers" && resolved.canonicalFragment !== "#/servers"
+      ? resolved.canonicalFragment === "#/servers/new"
+        ? "Create server"
+        : "Server"
+      : destinationLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
 
   return (
