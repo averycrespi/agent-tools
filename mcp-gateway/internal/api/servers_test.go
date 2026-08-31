@@ -233,6 +233,27 @@ func TestServerOperationCreateReplayReadAndList(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, wrongParent.Code)
 }
 
+func TestServerCreateRequiresCompleteConfiguration(t *testing.T) {
+	tests := map[string]string{
+		"enabled":                  `{"namespace":"alpha","display_name":"Alpha","transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`,
+		"stdio arguments":          `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","working_directory":"/tmp","environment":{},"secret_environment":{}}}`,
+		"stdio environment":        `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","secret_environment":{}}}`,
+		"stdio secret environment": `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{}}}`,
+		"OAuth trusted origins":    `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic"},"request_offline_access":false}}}`,
+		"OAuth offline access":     `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic"},"trusted_origins":[]}}}`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			service := new(fakeServerService)
+			handler := newServerTestHandler(t, service)
+			response := perform(handler, http.MethodPost, "/api/v1/servers", body, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "complete"})
+			assert.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Contains(t, response.Body.String(), "invalid_server_configuration")
+			assert.False(t, service.created)
+		})
+	}
+}
+
 func TestServerRequestValidationAndPreconditions(t *testing.T) {
 	service := new(fakeServerService)
 	handler := newServerTestHandler(t, service)

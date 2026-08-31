@@ -32,7 +32,7 @@ type OperationStateProvider func(context.Context, string) serverdomain.Operation
 type rawServerCreate struct {
 	Namespace   string          `json:"namespace"`
 	DisplayName string          `json:"display_name"`
-	Enabled     bool            `json:"enabled"`
+	Enabled     *bool           `json:"enabled"`
 	Transport   json.RawMessage `json:"transport"`
 }
 
@@ -71,6 +71,10 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 	if !decodeStrictBody(writer, request, &raw) {
 		return
 	}
+	if raw.Enabled == nil {
+		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+		return
+	}
 	transport, err := serverdomain.DecodeTransport(raw.Transport)
 	if err != nil {
 		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
@@ -85,8 +89,8 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 		writeProblem(writer, contract.ProblemAuthenticationRequired)
 		return
 	}
-	definition := serverdomain.Definition{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: raw.Enabled, Transport: transport}
-	canonical, _ := json.Marshal(contract.ServerCreate{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: raw.Enabled, Transport: transport})
+	definition := serverdomain.Definition{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: *raw.Enabled, Transport: transport}
+	canonical, _ := json.Marshal(contract.ServerCreate{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: *raw.Enabled, Transport: transport})
 	result, err := handler.servers.Create(request.Context(), serverdomain.CreateRequest{Definition: definition, Idempotency: &serverdomain.IdempotencyRequest{
 		AuthorityID: authenticated.credential.ID, Method: request.Method, Route: "/api/v1/servers", Key: key, RequestHash: sha256.Sum256(canonical),
 	}})

@@ -125,6 +125,15 @@ type transportDiscriminator struct {
 	Kind contract.TransportKind `json:"kind"`
 }
 
+type stdioTransportEnvelope struct {
+	Kind              contract.TransportKind `json:"kind"`
+	Executable        string                 `json:"executable"`
+	Arguments         *[]string              `json:"arguments"`
+	WorkingDirectory  string                 `json:"working_directory"`
+	Environment       *map[string]string     `json:"environment"`
+	SecretEnvironment *map[string]string     `json:"secret_environment"`
+}
+
 type httpTransportEnvelope struct {
 	Kind           contract.TransportKind `json:"kind"`
 	URL            string                 `json:"url"`
@@ -139,8 +148,8 @@ type authenticationDiscriminator struct {
 type oauthAuthenticationEnvelope struct {
 	Mode                 contract.AuthenticationMode `json:"mode"`
 	Registration         json.RawMessage             `json:"registration"`
-	TrustedOrigins       []string                    `json:"trusted_origins"`
-	RequestOfflineAccess bool                        `json:"request_offline_access"`
+	TrustedOrigins       *[]string                   `json:"trusted_origins"`
+	RequestOfflineAccess *bool                       `json:"request_offline_access"`
 }
 
 type registrationDiscriminator struct {
@@ -161,11 +170,21 @@ func DecodeTransport(contents []byte) (contract.Transport, error) {
 	var transport contract.Transport
 	switch discriminator.Kind {
 	case contract.TransportStdio:
-		var value contract.StdioTransport
-		if err := strictjson.Decode(contents, &value, closed); err != nil {
+		var raw stdioTransportEnvelope
+		if err := strictjson.Decode(contents, &raw, closed); err != nil {
 			return invalid(err)
 		}
-		transport = value
+		if raw.Arguments == nil || raw.Environment == nil || raw.SecretEnvironment == nil {
+			return invalid(errors.New("stdio collections are required"))
+		}
+		transport = contract.StdioTransport{
+			Kind:              raw.Kind,
+			Executable:        raw.Executable,
+			Arguments:         *raw.Arguments,
+			WorkingDirectory:  raw.WorkingDirectory,
+			Environment:       *raw.Environment,
+			SecretEnvironment: *raw.SecretEnvironment,
+		}
 	case contract.TransportStreamableHTTP:
 		var raw httpTransportEnvelope
 		if err := strictjson.Decode(contents, &raw, closed); err != nil {
@@ -212,7 +231,10 @@ func decodeHTTPAuthentication(contents []byte, options, closed strictjson.Option
 		if err != nil {
 			return nil, err
 		}
-		return contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: raw.TrustedOrigins, RequestOfflineAccess: raw.RequestOfflineAccess}, nil
+		if raw.TrustedOrigins == nil || raw.RequestOfflineAccess == nil {
+			return nil, errors.New("OAuth policy members are required")
+		}
+		return contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: *raw.TrustedOrigins, RequestOfflineAccess: *raw.RequestOfflineAccess}, nil
 	default:
 		return nil, errors.New("unknown authentication mode")
 	}
