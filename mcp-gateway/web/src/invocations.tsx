@@ -541,7 +541,7 @@ export function Invocations({
           type="button"
           onClick={() => controller.refresh()}
         >
-          Refresh visible data
+          Refresh
         </button>
       </div>
       <RetentionNotice />

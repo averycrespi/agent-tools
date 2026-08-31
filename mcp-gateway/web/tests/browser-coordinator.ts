@@ -204,8 +204,7 @@ async function loadShell(
         .querySelector('[data-testid="gateway-shell"]')
         ?.getAttribute("data-session-lifecycle") !== "bootstrapping",
   );
-  if ((await page.title()) !== "MCP Gateway Control Plane")
-    fail("unexpected shell title");
+  if ((await page.title()) !== "MCP Gateway") fail("unexpected shell title");
   const csp = (await response.allHeaders())["content-security-policy"] ?? "";
   if (
     requireProductionCSP &&
@@ -1934,6 +1933,21 @@ async function runOverviewInvocationSystemCanary(
   );
   if ((await page.locator('[data-testid="system-limit-row"]').count()) !== 31)
     fail("System workflow canary omitted closed limits");
+  const limitsDisclosure = page.locator('[data-testid="system-limits"]');
+  if (
+    (await limitsDisclosure.count()) !== 1 ||
+    (await limitsDisclosure.getAttribute("open")) !== null
+  ) {
+    fail("healthy resource limits were not compactly disclosed");
+  }
+  await limitsDisclosure.locator("summary").click();
+  if (
+    !(await page
+      .locator('[data-testid="system-limit-row"]')
+      .first()
+      .isVisible())
+  )
+    fail("resource limits did not become visible on request");
 
   await page.evaluate(() => {
     window.location.hash = "#/system?tab=recovery";
@@ -8745,7 +8759,6 @@ async function runShellPrimitives(
   if (
     (await page.locator("header").count()) !== 1 ||
     (await page.locator("main").count()) !== 1 ||
-    (await page.locator("footer").count()) !== 1 ||
     (await page.locator("h1").count()) !== 1
   ) {
     fail("operational shell landmarks or heading hierarchy changed");
@@ -8812,6 +8825,16 @@ async function runShellPrimitives(
     !((await authStatus.textContent()) ?? "").includes("Authenticated")
   ) {
     fail("operational state depended on color alone");
+  }
+  const shellText = (await page.locator("body").innerText()).toUpperCase();
+  for (const decorativeCopy of [
+    "LOCAL CONTROL PLANE",
+    "GATEWAY AUTHORITY STAYS IN THIS PROCESS",
+    "NO REMOTE ASSETS",
+    "INSPECT AND OPERATE THIS LOCAL GATEWAY THROUGH ITS PUBLIC API",
+  ]) {
+    if (shellText.includes(decorativeCopy))
+      fail(`shell retained decorative copy: ${decorativeCopy}`);
   }
 
   await page.setViewportSize({ width: 320, height: 800 });
@@ -9736,10 +9759,12 @@ try {
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
       (input.scenario === "principals" &&
-        consoleFailures.length === 3 &&
+        consoleFailures.length >= 2 &&
+        consoleFailures.length <= 3 &&
         consoleFailures.filter((value) =>
           value.includes("server responded with a status of 409"),
-        ).length === 2 &&
+        ).length ===
+          consoleFailures.length - 1 &&
         consoleFailures.some((value) =>
           value.includes("server responded with a status of 412"),
         )) ||

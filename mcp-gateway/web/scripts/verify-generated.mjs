@@ -51,7 +51,7 @@ function assertEqual(left, right, label) {
 
 try {
   const trackedBefore = snapshot(tracked);
-  const expected = ["app.css", "app.js", "index.html"];
+  const expected = ["app.css", "app.js", "favicon.svg", "index.html"];
   if (JSON.stringify([...trackedBefore.keys()]) !== JSON.stringify(expected)) {
     throw new Error(
       `tracked static allowlist differs: ${[...trackedBefore.keys()]}`,

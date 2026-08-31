@@ -27,13 +27,14 @@ func TestStaticSupplyChain(t *testing.T) {
 		assert.True(t, info.Mode().IsRegular(), entry.Name())
 		assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), entry.Name())
 	}
-	assert.Equal(t, []string{"app.css", "app.js", "index.html"}, names)
+	assert.Equal(t, []string{"app.css", "app.js", "favicon.svg", "index.html"}, names)
 
 	index, err := os.ReadFile(filepath.Join(staticRoot, "index.html"))
 	require.NoError(t, err)
 	html := string(index)
 	assert.Equal(t, 1, strings.Count(html, "<script"))
-	assert.Equal(t, 1, strings.Count(html, "<link"))
+	assert.Equal(t, 2, strings.Count(html, "<link"))
+	assert.Equal(t, 1, strings.Count(html, `<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />`))
 	for _, forbidden := range []string{"https:", "http:", "data:", "blob:", "<style", "integrity=", "sourceMappingURL="} {
 		assert.NotContains(t, html, forbidden)
 	}

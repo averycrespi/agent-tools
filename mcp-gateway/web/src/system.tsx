@@ -482,30 +482,37 @@ function StatusPanel({
               </p>
             </article>
           </div>
-          <ComparisonTable caption="Gateway resource occupancy and hard limits">
-            <thead>
-              <tr>
-                <th scope="col">Resource</th>
-                <th scope="col">In use</th>
-                <th scope="col">Limit</th>
-                <th scope="col">State</th>
-              </tr>
-            </thead>
-            <tbody>
-              {status.limits.map((limit) => (
-                <tr key={limit.name} data-testid="system-limit-row">
-                  <th scope="row">{limit.name}</th>
-                  <td>{limit.inUse}</td>
-                  <td>{limit.limit}</td>
-                  <td>
-                    <StatusLabel state={stateForLimit(limit)}>
-                      {limit.saturated ? "saturated" : "available"}
-                    </StatusLabel>
-                  </td>
+          <details
+            class="limits-disclosure"
+            data-testid="system-limits"
+            open={status.limits.some((limit) => limit.saturated)}
+          >
+            <summary>Resource limits ({status.limits.length})</summary>
+            <ComparisonTable caption="Gateway resource occupancy and hard limits">
+              <thead>
+                <tr>
+                  <th scope="col">Resource</th>
+                  <th scope="col">In use</th>
+                  <th scope="col">Limit</th>
+                  <th scope="col">State</th>
                 </tr>
-              ))}
-            </tbody>
-          </ComparisonTable>
+              </thead>
+              <tbody>
+                {status.limits.map((limit) => (
+                  <tr key={limit.name} data-testid="system-limit-row">
+                    <th scope="row">{limit.name}</th>
+                    <td>{limit.inUse}</td>
+                    <td>{limit.limit}</td>
+                    <td>
+                      <StatusLabel state={stateForLimit(limit)}>
+                        {limit.saturated ? "saturated" : "available"}
+                      </StatusLabel>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </ComparisonTable>
+          </details>
         </div>
       ) : (
         <StateNotice state="loading" title="Loading system status" />
@@ -1303,7 +1310,7 @@ export function System({
             type="button"
             onClick={onRefresh}
           >
-            Refresh visible data
+            Refresh
           </button>
         </div>
       )}

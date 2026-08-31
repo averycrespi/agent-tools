@@ -929,8 +929,8 @@ export function Grants({
         <section class="panel domain-panel" aria-labelledby="grant-title">
           <div class="panel-heading">
             <div>
-              <span class="panel-code">
-                IMMUTABLE {detail.effect.toUpperCase()}
+              <span class="panel-value">
+                Immutable {detail.effect.toUpperCase()}
               </span>
               <h2 id="grant-title">Grant {detail.id}</h2>
             </div>

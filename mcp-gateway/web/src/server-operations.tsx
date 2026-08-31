@@ -95,7 +95,7 @@ function OperationRows({
         >
           <div class="audit-record-heading">
             <div>
-              <span class="panel-code">{operation.kind}</span>
+              <span class="panel-value">{operation.kind}</span>
               <h3>
                 <a href={`#/servers/${serverID}/operations/${operation.id}`}>
                   Operation {operation.id}
@@ -310,7 +310,7 @@ export function ServerOperations({
         >
           <div class="panel-heading">
             <div>
-              <span class="panel-code">{operation.kind}</span>
+              <span class="panel-value">{operation.kind}</span>
               <h2 id="operation-detail-title">Operation {operation.id}</h2>
             </div>
             <StatusLabel

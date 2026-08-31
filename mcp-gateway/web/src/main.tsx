@@ -161,16 +161,11 @@ function SignInPanel({
   return (
     <section class="panel sign-in-panel" aria-labelledby="sign-in-title">
       <div class="panel-heading">
-        <div>
-          <span class="panel-code">AUTH-01</span>
-          <h2 id="sign-in-title">Administrator session</h2>
-        </div>
-        <span class="classification">LOCAL ONLY</span>
+        <h2 id="sign-in-title">Administrator access</h2>
       </div>
       <p>
-        Exchange a current administrator bearer for a local browser session. The
-        bearer is cleared as soon as the request is handed off and is never
-        saved by this application.
+        Use a current administrator bearer. It is cleared after handoff and is
+        never saved by this application.
       </p>
       <form autocomplete="off" onSubmit={submit}>
         <FormField
@@ -352,7 +347,7 @@ function App() {
       <header class="masthead">
         <a class="wordmark" href="#/overview" aria-label="MCP Gateway overview">
           <span aria-hidden="true" class="mark">
-            MG
+            G
           </span>
           <span>MCP Gateway</span>
         </a>
@@ -371,9 +366,8 @@ function App() {
               Menu
             </button>
           )}
-          <span class="environment">LOCAL CONTROL PLANE</span>
           <label class="theme-control">
-            <span>Theme</span>
+            <span class="visually-hidden">Theme</span>
             <select
               data-testid="theme-preference"
               aria-label="Theme preference"
@@ -407,7 +401,7 @@ function App() {
           aria-label="Primary navigation"
         >
           <nav>
-            {navigation.map((item, index) => {
+            {navigation.map((item) => {
               const active = destination === item.destination;
               return (
                 <a
@@ -417,9 +411,6 @@ function App() {
                   aria-current={active ? "page" : undefined}
                   onClick={() => setNavigationOpen(false)}
                 >
-                  <span class="nav-index">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
                   {item.label}
                 </a>
               );
@@ -437,22 +428,18 @@ function App() {
             The requested location was invalid. A safe location was restored.
           </p>
         )}
-        <div class="eyebrow">SYSTEM / {destinationLabel.toUpperCase()}</div>
         <section class="intro" aria-labelledby="page-title">
-          <div>
-            <h1 ref={pageTitle} id="page-title" tabindex={-1}>
-              {authenticated ? destinationLabel : "Administrator session"}
-            </h1>
-            <p>
-              Inspect and operate this local Gateway through its public API.
-            </p>
+          <h1 ref={pageTitle} id="page-title" tabindex={-1}>
+            {authenticated ? destinationLabel : "Sign in"}
+          </h1>
+          <div class="visually-hidden">
+            <StatusLabel
+              state={authenticated ? "current" : "unavailable"}
+              testID="authentication-status"
+            >
+              {authenticated ? "Authenticated" : "Authentication required"}
+            </StatusLabel>
           </div>
-          <StatusLabel
-            state={authenticated ? "current" : "unavailable"}
-            testID="authentication-status"
-          >
-            {authenticated ? "Authenticated" : "Authentication required"}
-          </StatusLabel>
         </section>
         {session.lifecycle === "bootstrapping" ||
         session.lifecycle === "reauthenticating" ? (
@@ -535,7 +522,7 @@ function App() {
                   type="button"
                   onClick={() => viewCoordinator.manualRefresh()}
                 >
-                  Refresh visible data
+                  Refresh
                 </button>
               </div>
             </section>
@@ -567,10 +554,6 @@ function App() {
           void sessionClient.logout();
         }}
       />
-      <footer>
-        <span>Gateway authority stays in this process</span>
-        <span>NO REMOTE ASSETS</span>
-      </footer>
     </div>
   );
 }

@@ -68,6 +68,10 @@ execFileSync(
 const webRoot = join(repositoryRoot, "mcp-gateway/web");
 const productionSources = new Map([
   ["index.html", readFileSync(join(webRoot, "index.html"), "utf8")],
+  [
+    "public/favicon.svg",
+    readFileSync(join(webRoot, "public/favicon.svg"), "utf8"),
+  ],
   ["vite.config.ts", readFileSync(join(webRoot, "vite.config.ts"), "utf8")],
 ]);
 const sourceRoot = join(webRoot, "src");
@@ -104,17 +108,26 @@ const staticRoot = join(repositoryRoot, "mcp-gateway/internal/api/static");
 const html = readFileSync(join(staticRoot, "index.html"), "utf8");
 const script = readFileSync(join(staticRoot, "app.js"), "utf8");
 const style = readFileSync(join(staticRoot, "app.css"), "utf8");
+const favicon = readFileSync(join(staticRoot, "favicon.svg"), "utf8");
 if (
   (html.match(/<script\b/g) ?? []).length !== 1 ||
   !html.includes(
     '<script type="module" crossorigin src="/assets/app.js"></script>',
   ) ||
-  (html.match(/<link\b/g) ?? []).length !== 1 ||
+  (html.match(/<link\b/g) ?? []).length !== 2 ||
+  !html.includes(
+    '<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />',
+  ) ||
   !html.includes('rel="stylesheet" crossorigin href="/assets/app.css"') ||
   /<(?:script|style)[^>]*>\s*[^<]/i.test(html) ||
   /(?:https?:|data:|blob:|\/\/)/i.test(html)
 )
   throw new Error("static shell active-content allowlist changed");
+if (
+  !favicon.includes('<svg xmlns="http://www.w3.org/2000/svg"') ||
+  /<(?:script|foreignObject)\b|\bon\w+=|\bhref=|url\(/i.test(favicon)
+)
+  throw new Error("favicon active-content boundary changed");
 for (const [name, contents] of [
   ["app.js", script],
   ["app.css", style],

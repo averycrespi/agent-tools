@@ -302,6 +302,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.serveStatic(writer, "static/app.css", "text/css; charset=utf-8", false)
 	case path == "/assets/app.js" && request.Method == http.MethodGet:
 		handler.serveStatic(writer, "static/app.js", "application/javascript; charset=utf-8", false)
+	case path == "/assets/favicon.svg" && request.Method == http.MethodGet:
+		handler.serveStatic(writer, "static/favicon.svg", "image/svg+xml", false)
 	case path == "/oauth/callback" && request.Method == http.MethodGet:
 		handler.oauthCallback(writer, request)
 	case path == "/api/v1/admin-sessions" && request.Method == http.MethodPost:

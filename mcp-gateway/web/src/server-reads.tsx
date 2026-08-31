@@ -1049,7 +1049,7 @@ function DataHeader({
     <div class="refresh-controls">
       <StatusLabel state={view.freshness}>Data {view.freshness}</StatusLabel>
       <button data-testid="manual-refresh" type="button" onClick={onRefresh}>
-        Refresh visible data
+        Refresh
       </button>
     </div>
   );
@@ -1102,7 +1102,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
         <article class="audit-record" data-testid="server-row" key={server.id}>
           <div class="audit-record-heading">
             <div>
-              <span class="panel-code">{server.namespace}</span>
+              <span class="panel-value">{server.namespace}</span>
               <h3>
                 <a href={`#/servers/${server.id}`}>{server.displayName}</a>
               </h3>
@@ -1147,7 +1147,7 @@ function CatalogRows({
         >
           <div class="audit-record-heading">
             <div>
-              <span class="panel-code">{descriptor.externalName}</span>
+              <span class="panel-value">{descriptor.externalName}</span>
               <h3>
                 <a
                   href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
@@ -1187,7 +1187,7 @@ function DescriptorRows({ items }: { items: readonly DescriptorView[] }) {
         >
           <div class="audit-record-heading">
             <div>
-              <span class="panel-code">{descriptor.externalName}</span>
+              <span class="panel-value">{descriptor.externalName}</span>
               <h3>
                 <a
                   href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}

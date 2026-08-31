@@ -690,7 +690,7 @@ export function Overview({
       <div class="refresh-controls overview-refresh">
         <StatusLabel state={view.freshness}>Data {view.freshness}</StatusLabel>
         <button data-testid="manual-refresh" type="button" onClick={onRefresh}>
-          Refresh visible data
+          Refresh
         </button>
       </div>
       <div class="overview-grid">
@@ -751,49 +751,52 @@ export function Overview({
           title="Server attention"
           panel={panel("overview-servers")}
         >
-          {snapshot.servers !== undefined && (
-            <>
+          {snapshot.servers !== undefined &&
+            (snapshot.servers.items.length === 0 ? (
               <p>
-                <strong>
-                  {snapshot.servers.complete
-                    ? `${snapshot.servers.items.length} configured`
-                    : `At least ${snapshot.servers.items.length} configured; count incomplete`}
-                </strong>
-                . Desired, runtime, credential, and catalog facts are shown
-                separately.
+                No servers configured. <a href="#/servers/new">Create server</a>
               </p>
-              <ComparisonTable caption="Server operational posture">
-                <thead>
-                  <tr>
-                    <th>Server</th>
-                    <th>Runtime</th>
-                    <th>Credential</th>
-                    <th>Catalog</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.servers.items.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <a href={`#/servers/${item.id}`}>{item.name}</a>
-                        {item.attention && (
-                          <>
-                            <br />
-                            <StatusLabel state="warning">
-                              Needs operator attention
-                            </StatusLabel>
-                          </>
-                        )}
-                      </td>
-                      <td>{item.runtime}</td>
-                      <td>{item.credential}</td>
-                      <td>{item.catalog}</td>
+            ) : (
+              <>
+                <p>
+                  <strong>
+                    {snapshot.servers.complete
+                      ? `${snapshot.servers.items.length} configured`
+                      : `At least ${snapshot.servers.items.length} configured; count incomplete`}
+                  </strong>
+                </p>
+                <ComparisonTable caption="Server operational posture">
+                  <thead>
+                    <tr>
+                      <th>Server</th>
+                      <th>Runtime</th>
+                      <th>Credential</th>
+                      <th>Catalog</th>
                     </tr>
-                  ))}
-                </tbody>
-              </ComparisonTable>
-            </>
-          )}
+                  </thead>
+                  <tbody>
+                    {snapshot.servers.items.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <a href={`#/servers/${item.id}`}>{item.name}</a>
+                          {item.attention && (
+                            <>
+                              <br />
+                              <StatusLabel state="warning">
+                                Needs operator attention
+                              </StatusLabel>
+                            </>
+                          )}
+                        </td>
+                        <td>{item.runtime}</td>
+                        <td>{item.credential}</td>
+                        <td>{item.catalog}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </ComparisonTable>
+              </>
+            ))}
         </Panel>
         <Panel
           id="overview-requests"

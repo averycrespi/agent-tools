@@ -314,9 +314,10 @@ func TestStaticDelivery(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	resources := map[string]string{
-		"/":               "text/html; charset=utf-8",
-		"/assets/app.css": "text/css; charset=utf-8",
-		"/assets/app.js":  "application/javascript; charset=utf-8",
+		"/":                   "text/html; charset=utf-8",
+		"/assets/app.css":     "text/css; charset=utf-8",
+		"/assets/app.js":      "application/javascript; charset=utf-8",
+		"/assets/favicon.svg": "image/svg+xml",
 	}
 	for path, contentType := range resources {
 		response := perform(handler, http.MethodGet, path, "", nil)
