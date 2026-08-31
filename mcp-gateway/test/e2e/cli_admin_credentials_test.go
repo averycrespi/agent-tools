@@ -40,7 +40,8 @@ func TestCLIAdminCommandTree(t *testing.T) {
 
 	invalid := runOnlineCLI(t, harness, bearerPath, false, "admin-credential", "create", "--secret-output", filepath.Join(dir, "unused"), "--output", "json")
 	results = append(results, invalid)
-	assert.Equal(t, 1, invalid.ExitCode)
+	assert.Equal(t, 2, invalid.ExitCode)
+	assert.Contains(t, string(invalid.Stderr), "mcp-gateway --help")
 	terminalRefused := runOnlineCLI(t, harness, bearerPath, false, "admin", "credential", "create", "--output", "json")
 	results = append(results, terminalRefused)
 	assert.Equal(t, 2, terminalRefused.ExitCode)
