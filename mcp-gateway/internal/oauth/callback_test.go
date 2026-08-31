@@ -41,6 +41,9 @@ func TestCallbackConsumesStateBeforeCodeErrorAndIssuerValidation(t *testing.T) {
 	errorResult := service.HandleCallback(context.Background(), "state=valid-error&error=access_denied&iss=https%3A%2F%2Fissuer.example&error_description=ignored")
 	assert.Equal(t, CallbackInvalid, errorResult.Outcome)
 	assert.Equal(t, contract.AuthFlowFailed, store.transitioned.State)
+	require.NotNil(t, store.transitioned.Diagnostic)
+	assert.Equal(t, contract.OAuthDiagnosticCallbackValidation, store.transitioned.Diagnostic.Stage)
+	assert.Equal(t, contract.ReasonAuthenticationRejected, store.transitioned.Diagnostic.Reason)
 	assert.Zero(t, store.beginCalls)
 }
 

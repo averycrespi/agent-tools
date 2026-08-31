@@ -100,13 +100,13 @@ func newRegistrar(requester machineRequester, store registrationStore, secrets s
 func (requester hardenedRequester) Request(ctx context.Context, rawURL string, trusted bool, method string, header http.Header, body []byte, maximum int64) (int, http.Header, []byte, error) {
 	endpoint, err := remote.Parse(rawURL, remote.Policy{AllowRestricted: trusted, AllowQuery: true})
 	if err != nil {
-		return 0, nil, nil, ErrRegistrationRejected
+		return 0, nil, nil, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonConfigurationInvalid, 0)
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, contract.OAuthRequestDeadline)
 	defer cancel()
 	response, err := requester.factory.Exchange(requestCtx, remote.Request{Endpoint: endpoint, Method: method, Header: header, Body: body, MaxBody: maximum})
 	if err != nil {
-		return 0, nil, nil, ErrRegistrationRejected
+		return 0, nil, nil, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonConnectivity, 0)
 	}
 	return response.StatusCode, response.Header, response.Body, nil
 }
@@ -167,11 +167,20 @@ func (registrar *Registrar) registerDynamic(ctx context.Context, request Registr
 	}
 	header := http.Header{"Accept": []string{contract.MediaTypeJSON}, "Content-Type": []string{contract.MediaTypeJSON}, "User-Agent": []string{""}}
 	status, responseHeader, body, err := registrar.requester.Request(ctx, request.Graph.RegistrationEndpoint, request.Graph.AllowsRestrictedEndpoint(request.Graph.RegistrationEndpoint), http.MethodPost, header, payload, limit("oauth_response_body_bytes"))
-	if err != nil || status != http.StatusCreated || !jsonContentType(responseHeader) {
-		return servers.OAuthRegistrationAuthority{}, ErrRegistrationRejected
+	if err != nil {
+		return servers.OAuthRegistrationAuthority{}, err
+	}
+	if status != http.StatusCreated {
+		return servers.OAuthRegistrationAuthority{}, newDiagnosticFailure(ErrRegistrationRejected, reasonForHTTPStatus(status), status)
+	}
+	if !jsonContentType(responseHeader) {
+		return servers.OAuthRegistrationAuthority{}, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonProtocolInvalid, status)
 	}
 	response, err := parseDynamicResponse(body, request.CallbackURL, method, created)
-	if err != nil || !registrar.current() {
+	if err != nil {
+		return servers.OAuthRegistrationAuthority{}, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonProtocolInvalid, status)
+	}
+	if !registrar.current() {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationStale
 	}
 	var expires *time.Time

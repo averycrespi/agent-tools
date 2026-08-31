@@ -20,7 +20,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 10
+	CurrentSchema           = 11
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -36,7 +36,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql"}
 
 type Identity struct {
 	InstallationID string

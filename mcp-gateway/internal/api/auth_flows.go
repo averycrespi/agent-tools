@@ -50,7 +50,13 @@ func (handler *Handler) createAuthFlow(writer http.ResponseWriter, request *http
 	}
 	creation, err := handler.authFlows.CreateInitial(request.Context(), serverID, revision)
 	if err != nil {
-		handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows})
+		correlationID := oauth.FailureCorrelationID(err)
+		if correlationID != "" {
+			writer.Header().Set(contract.OAuthCorrelationHeader, correlationID)
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows, ResourceID: &correlationID})
+		} else {
+			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows})
+		}
 		writeAuthFlowError(writer, err)
 		return
 	}

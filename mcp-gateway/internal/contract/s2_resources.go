@@ -138,16 +138,24 @@ type ServerOperation struct {
 	FinishedAt                *string              `json:"finished_at"`
 }
 
+type OAuthDiagnostic struct {
+	CorrelationID string               `json:"correlation_id"`
+	Stage         OAuthDiagnosticStage `json:"stage"`
+	Reason        PublicReason         `json:"reason"`
+	HTTPStatus    *int                 `json:"http_status"`
+}
+
 type ServerAuthFlow struct {
-	ID                    string        `json:"id"`
-	ServerID              string        `json:"server_id"`
-	FlowState             AuthFlowState `json:"flow_state"`
-	TargetDesiredRevision string        `json:"target_desired_revision"`
-	RegistrationRevision  string        `json:"registration_revision"`
-	CreatedAt             string        `json:"created_at"`
-	ExpiresAt             string        `json:"expires_at"`
-	FinishedAt            *string       `json:"finished_at"`
-	Reason                *PublicReason `json:"reason"`
+	ID                    string           `json:"id"`
+	ServerID              string           `json:"server_id"`
+	FlowState             AuthFlowState    `json:"flow_state"`
+	TargetDesiredRevision string           `json:"target_desired_revision"`
+	RegistrationRevision  string           `json:"registration_revision"`
+	CreatedAt             string           `json:"created_at"`
+	ExpiresAt             string           `json:"expires_at"`
+	FinishedAt            *string          `json:"finished_at"`
+	Reason                *PublicReason    `json:"reason"`
+	Diagnostic            *OAuthDiagnostic `json:"diagnostic"`
 }
 
 type NormalizedToolAnnotations struct {

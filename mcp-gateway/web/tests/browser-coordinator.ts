@@ -7219,6 +7219,7 @@ async function runAuthFlows(
         ? null
         : "2026-08-28T15:01:00Z",
     reason,
+    diagnostic: null,
   });
 
   await context.route("https://issuer.example/**", async (route) =>

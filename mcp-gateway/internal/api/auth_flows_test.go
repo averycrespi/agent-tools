@@ -7,6 +7,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/oauth"
 	serverdomain "github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,6 +96,13 @@ func TestAuthFlowAPIStrictBodiesQueriesPreconditionsAndSafeErrors(t *testing.T) 
 	response := perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v1/servers/"+testID+"/auth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
 	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
 	assert.Contains(t, response.Body.String(), `"code":"oauth_flow_active"`)
+
+	correlationID := "01ARZ3NDEKTSV4RRFFQ69G5FAA"
+	flows = &fakeAuthFlows{err: oauth.NewFlowFailure(correlationID, oauth.ErrFlowRejected)}
+	response = perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v1/servers/"+testID+"/auth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
+	require.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
+	assert.Equal(t, correlationID, response.Header().Get(contract.OAuthCorrelationHeader))
+	assert.NotContains(t, response.Body.String(), correlationID)
 }
 
 func newAuthFlowHandler(t *testing.T, flows AuthFlowService) http.Handler {

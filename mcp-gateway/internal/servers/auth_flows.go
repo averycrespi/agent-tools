@@ -27,6 +27,7 @@ type AuthFlow struct {
 	ExpiresAt             string
 	FinishedAt            *string
 	Reason                *contract.PublicReason
+	Diagnostic            *contract.OAuthDiagnostic
 }
 
 type AuthFlowCreateRequest struct {
@@ -407,6 +408,43 @@ func (repository *Repository) MarkAuthFlowAwaiting(ctx context.Context, flowID, 
 	return result, mapMutationError(err)
 }
 
+func (repository *Repository) FailAuthFlow(ctx context.Context, flowID string, diagnostic contract.OAuthDiagnostic) (AuthFlow, error) {
+	if !validID(flowID) || diagnostic.CorrelationID != flowID {
+		return AuthFlow{}, ErrInvalidInput
+	}
+	if _, err := contract.ParseOAuthDiagnosticStage(string(diagnostic.Stage)); err != nil {
+		return AuthFlow{}, ErrInvalidInput
+	}
+	if _, err := contract.ParsePublicReason(string(diagnostic.Reason)); err != nil {
+		return AuthFlow{}, ErrInvalidInput
+	}
+	if diagnostic.HTTPStatus != nil && (*diagnostic.HTTPStatus < 100 || *diagnostic.HTTPStatus > 599) {
+		return AuthFlow{}, ErrInvalidInput
+	}
+	var result AuthFlow
+	err := repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
+		flow, err := authFlowByIDTx(ctx, transaction, flowID)
+		if err != nil {
+			return err
+		}
+		if !authFlowTransitionAllowed(flow.State, contract.AuthFlowFailed) {
+			return ErrInvalidTransition
+		}
+		if _, err := transaction.ExecContext(ctx, `
+			UPDATE server_auth_flows
+			SET flow_state = 'failed', reason = ?, finished_at = ?, diagnostic_stage = ?, diagnostic_http_status = ?
+			WHERE id = ?`, diagnostic.Reason, formatTime(repository.clock.Now()), diagnostic.Stage, nullableInt(diagnostic.HTTPStatus), flowID); err != nil {
+			return fmt.Errorf("fail auth flow: %w", err)
+		}
+		result, err = authFlowByIDTx(ctx, transaction, flowID)
+		if err != nil {
+			return err
+		}
+		return pruneTerminalAuthFlowsTx(ctx, transaction, flow.ServerID)
+	})
+	return result, mapMutationError(err)
+}
+
 func (repository *Repository) TransitionAuthFlow(ctx context.Context, flowID string, state contract.AuthFlowState, reason *contract.PublicReason) (AuthFlow, error) {
 	if !validID(flowID) {
 		return AuthFlow{}, ErrNotFound
@@ -697,8 +735,16 @@ func pruneTerminalAuthFlowsTx(ctx context.Context, transaction *sql.Tx, serverID
 
 const authFlowSelect = `
 	SELECT insertion_sequence, id, server_id, flow_state, target_desired_revision,
-	       registration_revision, created_at, expires_at, finished_at, reason
+	       registration_revision, created_at, expires_at, finished_at, reason,
+	       diagnostic_stage, diagnostic_http_status
 	FROM server_auth_flows`
+
+func nullableInt(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
 
 func authFlowByIDTx(ctx context.Context, transaction *sql.Tx, flowID string) (AuthFlow, error) {
 	return scanAuthFlow(transaction.QueryRowContext(ctx, authFlowSelect+` WHERE id = ?`, flowID))
@@ -710,8 +756,9 @@ func scanAuthFlow(scanner authFlowScanner) (AuthFlow, error) {
 	var flow AuthFlow
 	var desiredRevision, registrationRevision int64
 	var state string
-	var finishedAt, reason sql.NullString
-	if err := scanner.Scan(&flow.InsertionSequence, &flow.ID, &flow.ServerID, &state, &desiredRevision, &registrationRevision, &flow.CreatedAt, &flow.ExpiresAt, &finishedAt, &reason); err != nil {
+	var finishedAt, reason, diagnosticStage sql.NullString
+	var diagnosticHTTPStatus sql.NullInt64
+	if err := scanner.Scan(&flow.InsertionSequence, &flow.ID, &flow.ServerID, &state, &desiredRevision, &registrationRevision, &flow.CreatedAt, &flow.ExpiresAt, &finishedAt, &reason, &diagnosticStage, &diagnosticHTTPStatus); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return AuthFlow{}, ErrNotFound
 		}
@@ -733,6 +780,18 @@ func scanAuthFlow(scanner authFlowScanner) (AuthFlow, error) {
 			return AuthFlow{}, err
 		}
 		flow.Reason = &parsed
+	}
+	if diagnosticStage.Valid {
+		stage, err := contract.ParseOAuthDiagnosticStage(diagnosticStage.String)
+		if err != nil || flow.Reason == nil {
+			return AuthFlow{}, ErrInvalidInput
+		}
+		var status *int
+		if diagnosticHTTPStatus.Valid {
+			value := int(diagnosticHTTPStatus.Int64)
+			status = &value
+		}
+		flow.Diagnostic = &contract.OAuthDiagnostic{CorrelationID: flow.ID, Stage: stage, Reason: *flow.Reason, HTTPStatus: status}
 	}
 	return flow, nil
 }

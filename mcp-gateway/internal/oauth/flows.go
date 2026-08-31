@@ -21,6 +21,29 @@ import (
 
 var ErrFlowRejected = errors.New("OAuth flow preparation was rejected")
 
+type FlowFailure struct {
+	CorrelationID string
+	cause         error
+}
+
+func (failure *FlowFailure) Error() string { return failure.cause.Error() }
+func (failure *FlowFailure) Unwrap() error { return failure.cause }
+
+func NewFlowFailure(correlationID string, cause error) error {
+	if cause == nil {
+		cause = ErrFlowRejected
+	}
+	return &FlowFailure{CorrelationID: correlationID, cause: cause}
+}
+
+func FailureCorrelationID(err error) string {
+	var failure *FlowFailure
+	if errors.As(err, &failure) {
+		return failure.CorrelationID
+	}
+	return ""
+}
+
 type FlowRequest struct {
 	ServerID                string
 	ExpectedDesiredRevision string
@@ -36,6 +59,7 @@ type flowStore interface {
 	ValidateAuthFlowExchange(context.Context, servers.OAuthTokenFence) error
 	OAuthTokenAuthorityCallback(servers.OAuthTokenFence) (keyring.AuthorityCallback, error)
 	MarkAuthFlowAwaiting(context.Context, string, string, string) (servers.AuthFlow, error)
+	FailAuthFlow(context.Context, string, contract.OAuthDiagnostic) (servers.AuthFlow, error)
 	TransitionAuthFlow(context.Context, string, contract.AuthFlowState, *contract.PublicReason) (servers.AuthFlow, error)
 	CancelAuthFlow(context.Context, string, string) (servers.AuthFlow, error)
 	GetAuthFlow(context.Context, string, string) (servers.AuthFlow, error)
@@ -216,11 +240,11 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (co
 	case contract.DynamicOAuthRegistration:
 		desiredIssuer = registration.Issuer
 	default:
-		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected)
+		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	graph, err := service.resolver.Discover(ctx, Input{Resource: configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: desiredIssuer, TrustedOrigins: configuration.Authentication.TrustedOrigins})
 	if err != nil {
-		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected)
+		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticMetadataDiscovery)
 	}
 	registration, err := service.registrar.Register(ctx, RegistrationRequest{
 		ServerID: prepared.Flow.ServerID, ExpectedDesiredRevision: prepared.Flow.TargetDesiredRevision,
@@ -228,11 +252,11 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (co
 		ExpectedAuthFlowID: prepared.Flow.ID, Graph: graph, Registration: registrationConfig, CallbackURL: service.callbackURL,
 	})
 	if err != nil {
-		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected)
+		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticClientRegistration)
 	}
 	boundAuthority, err := service.store.Authority(ctx, prepared.Flow.ServerID)
 	if err != nil || boundAuthority.RegistrationRevision != registration.Revision {
-		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected)
+		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticClientRegistration)
 	}
 	stateBytes := make([]byte, 32)
 	verifierBytes := make([]byte, 32)
@@ -241,17 +265,17 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (co
 	_, verifierErr := io.ReadFull(service.entropy, verifierBytes)
 	service.entropyMu.Unlock()
 	if stateErr != nil || verifierErr != nil {
-		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected)
+		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	state := base64.RawURLEncoding.EncodeToString(stateBytes)
 	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
 	scopes, err := requestedScopes(request, configuration.Authentication.RequestOfflineAccess, graph)
 	if err != nil {
-		return service.fail(ctx, prepared.Flow.ID, err)
+		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	authorizationURL, err := buildAuthorizationURL(graph.AuthorizationEndpoint, registration.ClientID, service.callbackURL, graph.Resource, state, verifier, scopes)
 	if err != nil {
-		return service.fail(ctx, prepared.Flow.ID, err)
+		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	bundle := flowBundle{
 		serverID: prepared.Flow.ServerID, flowID: prepared.Flow.ID, desiredRevision: prepared.Flow.TargetDesiredRevision,
@@ -265,7 +289,7 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (co
 	}
 	service.mu.Unlock()
 	if stateExists {
-		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected)
+		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	awaiting, err := service.store.MarkAuthFlowAwaiting(ctx, prepared.Flow.ID, prepared.Flow.TargetDesiredRevision, registration.Revision)
 	if err != nil {
@@ -344,11 +368,11 @@ func (service *FlowService) expire(ctx context.Context) error {
 	return nil
 }
 
-func (service *FlowService) fail(ctx context.Context, flowID string, cause error) (contract.AuthFlowCreation, error) {
-	reason := contract.ReasonOAuthRejected
-	_, _ = service.store.TransitionAuthFlow(ctx, flowID, contract.AuthFlowFailed, &reason)
+func (service *FlowService) fail(ctx context.Context, flowID string, cause error, stage contract.OAuthDiagnosticStage) (contract.AuthFlowCreation, error) {
+	diagnostic := oauthDiagnostic(flowID, stage, cause)
+	_, _ = service.store.FailAuthFlow(ctx, flowID, diagnostic)
 	service.removeFlowIDs([]string{flowID})
-	return contract.AuthFlowCreation{}, cause
+	return contract.AuthFlowCreation{}, NewFlowFailure(flowID, ErrFlowRejected)
 }
 
 func (service *FlowService) removeFlowIDs(flowIDs []string) {
@@ -439,7 +463,7 @@ func buildAuthorizationURL(endpoint, clientID, callback, resource, state, verifi
 }
 
 func authFlowResource(flow servers.AuthFlow) contract.ServerAuthFlow {
-	return contract.ServerAuthFlow{ID: flow.ID, ServerID: flow.ServerID, FlowState: flow.State, TargetDesiredRevision: flow.TargetDesiredRevision, RegistrationRevision: flow.RegistrationRevision, CreatedAt: flow.CreatedAt, ExpiresAt: flow.ExpiresAt, FinishedAt: flow.FinishedAt, Reason: flow.Reason}
+	return contract.ServerAuthFlow{ID: flow.ID, ServerID: flow.ServerID, FlowState: flow.State, TargetDesiredRevision: flow.TargetDesiredRevision, RegistrationRevision: flow.RegistrationRevision, CreatedAt: flow.CreatedAt, ExpiresAt: flow.ExpiresAt, FinishedAt: flow.FinishedAt, Reason: flow.Reason, Diagnostic: flow.Diagnostic}
 }
 
 func authFlowIsTerminal(state contract.AuthFlowState) bool {

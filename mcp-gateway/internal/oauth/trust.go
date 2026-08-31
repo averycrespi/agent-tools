@@ -94,7 +94,7 @@ func newResolver(fetch fetcher) *Resolver {
 func (fetch remoteFetcher) Fetch(ctx context.Context, rawURL string, trusted bool) (int, http.Header, []byte, error) {
 	endpoint, err := remote.Parse(rawURL, remote.Policy{AllowRestricted: trusted, AllowQuery: true})
 	if err != nil {
-		return 0, nil, nil, ErrTrustRejected
+		return 0, nil, nil, newDiagnosticFailure(ErrTrustRejected, contract.ReasonConfigurationInvalid, 0)
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, contract.OAuthRequestDeadline)
 	defer cancel()
@@ -105,7 +105,7 @@ func (fetch remoteFetcher) Fetch(ctx context.Context, rawURL string, trusted boo
 		MaxBody:  limit("oauth_metadata_body_bytes"),
 	})
 	if err != nil {
-		return 0, nil, nil, ErrTrustRejected
+		return 0, nil, nil, newDiagnosticFailure(ErrTrustRejected, contract.ReasonConnectivity, 0)
 	}
 	return response.StatusCode, response.Header, response.Body, nil
 }
@@ -195,17 +195,20 @@ var errNotFound = errors.New("OAuth metadata not found")
 func (resolver *Resolver) fetchProtected(ctx context.Context, rawURL, expectedResource string, trusted, allowNotFound bool) (protectedMetadata, error) {
 	status, header, body, err := resolver.fetch.Fetch(ctx, rawURL, trusted)
 	if err != nil {
-		return protectedMetadata{}, ErrTrustRejected
+		return protectedMetadata{}, err
 	}
 	if status == http.StatusNotFound && allowNotFound {
 		return protectedMetadata{}, errNotFound
 	}
-	if status != http.StatusOK || !jsonContentType(header) {
-		return protectedMetadata{}, ErrTrustRejected
+	if status != http.StatusOK {
+		return protectedMetadata{}, newDiagnosticFailure(ErrTrustRejected, reasonForHTTPStatus(status), status)
+	}
+	if !jsonContentType(header) {
+		return protectedMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
 	}
 	metadata, err := parseProtected(body)
 	if err != nil || metadata.resource != expectedResource {
-		return protectedMetadata{}, ErrTrustRejected
+		return protectedMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
 	}
 	return metadata, nil
 }
@@ -215,17 +218,20 @@ func (resolver *Resolver) discoverAuthorization(ctx context.Context, issuer *url
 	for index, rawURL := range urls {
 		status, header, body, err := resolver.fetch.Fetch(ctx, rawURL, isTrusted(issuer, trusted))
 		if err != nil {
-			return authorizationMetadata{}, ErrTrustRejected
+			return authorizationMetadata{}, err
 		}
 		if status == http.StatusNotFound && index+1 < len(urls) {
 			continue
 		}
-		if status != http.StatusOK || !jsonContentType(header) {
-			return authorizationMetadata{}, ErrTrustRejected
+		if status != http.StatusOK {
+			return authorizationMetadata{}, newDiagnosticFailure(ErrTrustRejected, reasonForHTTPStatus(status), status)
+		}
+		if !jsonContentType(header) {
+			return authorizationMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
 		}
 		metadata, parseErr := parseAuthorization(body)
 		if parseErr != nil {
-			return authorizationMetadata{}, ErrTrustRejected
+			return authorizationMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
 		}
 		return metadata, nil
 	}

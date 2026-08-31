@@ -59,6 +59,26 @@ func TestAuthFlowCreateSupersedeAwaitCancelAndExactExpiry(t *testing.T) {
 	assert.Equal(t, contract.ReasonOAuthExpired, *expired.Reason)
 }
 
+func TestAuthFlowFailurePersistsSafeDiagnostic(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	server := mustCreateOAuthServer(t, repository, "flow-diagnostic", contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})
+	created, err := repository.CreateAuthFlow(context.Background(), AuthFlowCreateRequest{ServerID: server.ID, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	status := 400
+	diagnostic := contract.OAuthDiagnostic{CorrelationID: created.Flow.ID, Stage: contract.OAuthDiagnosticClientRegistration, Reason: contract.ReasonProtocolInvalid, HTTPStatus: &status}
+
+	failed, err := repository.FailAuthFlow(context.Background(), created.Flow.ID, diagnostic)
+	require.NoError(t, err)
+	assert.Equal(t, contract.AuthFlowFailed, failed.State)
+	assert.Equal(t, contract.ReasonProtocolInvalid, *failed.Reason)
+	require.NotNil(t, failed.Diagnostic)
+	assert.Equal(t, diagnostic, *failed.Diagnostic)
+
+	stored, err := repository.GetAuthFlow(context.Background(), server.ID, created.Flow.ID)
+	require.NoError(t, err)
+	assert.Equal(t, diagnostic, *stored.Diagnostic)
+}
+
 func TestAuthFlowStaticEligibilityRequiresConfidentialClientAuthority(t *testing.T) {
 	repository, _, _ := newRepository(t, new(sequenceReader))
 	issuer := "https://issuer.example"

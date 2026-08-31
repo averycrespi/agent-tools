@@ -107,6 +107,9 @@ func TestForegroundFlowFailureAndCancellationDiscardMemory(t *testing.T) {
 	_, err := service.Create(context.Background(), FlowRequest{ServerID: created.Flow.ServerID, ExpectedDesiredRevision: "1"})
 	assert.ErrorIs(t, err, ErrFlowRejected)
 	assert.Equal(t, contract.AuthFlowFailed, store.transitioned.State)
+	require.NotNil(t, store.transitioned.Diagnostic)
+	assert.Equal(t, contract.OAuthDiagnosticMetadataDiscovery, store.transitioned.Diagnostic.Stage)
+	assert.Equal(t, created.Flow.ID, store.transitioned.Diagnostic.CorrelationID)
 	assert.Empty(t, service.byState)
 
 	store.created = created
@@ -158,6 +161,12 @@ func (store *flowStoreFake) MarkAuthFlowAwaiting(_ context.Context, flowID, _, r
 	flow := store.created.Flow
 	flow.ID, flow.State, flow.RegistrationRevision = flowID, contract.AuthFlowAwaitingCallback, registrationRevision
 	return flow, nil
+}
+func (store *flowStoreFake) FailAuthFlow(_ context.Context, flowID string, diagnostic contract.OAuthDiagnostic) (servers.AuthFlow, error) {
+	store.transitioned = store.created.Flow
+	store.transitioned.ID, store.transitioned.State, store.transitioned.Reason = flowID, contract.AuthFlowFailed, &diagnostic.Reason
+	store.transitioned.Diagnostic = &diagnostic
+	return store.transitioned, nil
 }
 func (store *flowStoreFake) TransitionAuthFlow(_ context.Context, flowID string, state contract.AuthFlowState, reason *contract.PublicReason) (servers.AuthFlow, error) {
 	store.transitioned = store.created.Flow

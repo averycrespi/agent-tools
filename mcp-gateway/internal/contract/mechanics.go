@@ -2,6 +2,8 @@ package contract
 
 import "fmt"
 
+const OAuthCorrelationHeader = "MCP-Gateway-Correlation-ID"
+
 func ServerETag(serverID, desiredRevision string) string {
 	return fmt.Sprintf(`"server-%s-%s"`, serverID, desiredRevision)
 }

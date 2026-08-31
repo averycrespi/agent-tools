@@ -98,6 +98,8 @@ mcp-gateway server auth-flow cancel SERVER_ID FLOW_ID
 
 Cancellation requires confirmation and remains subject to state races. It does not restore old authority or replay remote revocation.
 
+Failed flows retain a bounded, secret-free diagnostic with the flow ID as its correlation ID, the failed stage, a stable reason, and—when Gateway received one—a safe HTTP status. Read it with `server auth-flow get` or the administrator UI. Diagnostics never contain authorization URLs, codes, tokens, client secrets, provider response bodies, headers, or native error text, and remain available only while the bounded flow record is retained.
+
 ## Inspect durable and active catalogs
 
 Durable descriptor history belongs to one server:

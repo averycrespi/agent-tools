@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
+	"strconv"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
@@ -145,8 +146,25 @@ func validAuthFlow(flow contract.ServerAuthFlow, serverID string) bool {
 	if !gatewayIDPattern.MatchString(flow.ID) || flow.ServerID != serverID || !validCanonicalRevision(flow.TargetDesiredRevision) || !validCanonicalRevision(flow.RegistrationRevision) {
 		return false
 	}
-	_, err := contract.ParseAuthFlowState(string(flow.FlowState))
-	return err == nil
+	if _, err := contract.ParseAuthFlowState(string(flow.FlowState)); err != nil {
+		return false
+	}
+	if flow.Reason != nil {
+		if _, err := contract.ParsePublicReason(string(*flow.Reason)); err != nil {
+			return false
+		}
+	}
+	if flow.Diagnostic == nil {
+		return true
+	}
+	diagnostic := flow.Diagnostic
+	if diagnostic.CorrelationID != flow.ID || flow.FlowState != contract.AuthFlowFailed || flow.Reason == nil || diagnostic.Reason != *flow.Reason {
+		return false
+	}
+	if _, err := contract.ParseOAuthDiagnosticStage(string(diagnostic.Stage)); err != nil {
+		return false
+	}
+	return diagnostic.HTTPStatus == nil || *diagnostic.HTTPStatus >= 100 && *diagnostic.HTTPStatus <= 599
 }
 
 func validAuthorizationURL(raw string) bool {
@@ -212,7 +230,14 @@ func authFlowTable(flows []contract.ServerAuthFlow) controlclient.Table {
 		if flow.Reason != nil {
 			reason = string(*flow.Reason)
 		}
-		rows = append(rows, []string{flow.ID, flow.ServerID, string(flow.FlowState), flow.TargetDesiredRevision, flow.RegistrationRevision, reason, flow.CreatedAt, flow.ExpiresAt, pointerText(flow.FinishedAt)})
+		stage, status := "-", "-"
+		if flow.Diagnostic != nil {
+			stage = string(flow.Diagnostic.Stage)
+			if flow.Diagnostic.HTTPStatus != nil {
+				status = strconv.Itoa(*flow.Diagnostic.HTTPStatus)
+			}
+		}
+		rows = append(rows, []string{flow.ID, flow.ServerID, string(flow.FlowState), stage, reason, status, flow.CreatedAt, flow.ExpiresAt, pointerText(flow.FinishedAt)})
 	}
-	return controlclient.Table{Headers: []string{"ID", "SERVER", "STATE", "DESIRED_REVISION", "REGISTRATION_REVISION", "REASON", "CREATED", "EXPIRES", "FINISHED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"ID", "SERVER", "STATE", "STAGE", "REASON", "HTTP_STATUS", "CREATED", "EXPIRES", "FINISHED"}, Rows: rows}
 }

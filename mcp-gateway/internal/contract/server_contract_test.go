@@ -114,6 +114,7 @@ func TestServerClosedVocabulariesRejectUnknownValues(t *testing.T) {
 		{"active catalog state", []string{"absent", "refreshing", "current", "stale", "unavailable"}, func(value string) error { _, err := ParseActiveCatalogState(value); return err }},
 		{"aggregate catalog state", []string{"empty", "current", "degraded"}, func(value string) error { _, err := ParseAggregateCatalogState(value); return err }},
 		{"flow state", []string{"preparing", "awaiting_callback", "exchanging", "succeeded", "failed", "expired", "cancelled", "superseded", "interrupted"}, func(value string) error { _, err := ParseAuthFlowState(value); return err }},
+		{"OAuth diagnostic stage", []string{"metadata_discovery", "client_registration", "authorization_request", "callback_validation", "token_exchange", "credential_installation"}, func(value string) error { _, err := ParseOAuthDiagnosticStage(value); return err }},
 		{"credential kind", []string{"static_credential", "oauth_client", "oauth_tokens"}, func(value string) error { _, err := ParseServerCredentialKind(value); return err }},
 		{"descriptor retired filter", []string{"include", "exclude", "only"}, func(value string) error { _, err := ParseRetiredFilter(value); return err }},
 		{"reason", []string{"configuration_invalid", "resource_limit", "connectivity", "tls_failed", "protocol_unsupported", "protocol_invalid", "authentication_rejected", "credential_absent", "keyring_absent", "keyring_locked", "keyring_interaction_required", "keyring_unavailable", "keyring_unsupported", "oauth_rejected", "oauth_expired", "registration_expired", "process_exited", "output_limit", "stop_unconfirmed", "catalog_invalid", "catalog_limit", "catalog_stale", "superseded", "cancelled", "interrupted", "revocation_failed", "revocation_unsupported", "cleanup_pending"}, func(value string) error { _, err := ParsePublicReason(value); return err }},
@@ -250,7 +251,8 @@ func TestServerResourceShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, StaticOAuthRegistration{}, "mode", "issuer", "client_id", "token_endpoint_auth_method")
 	requireJSONKeys(t, DynamicOAuthRegistration{}, "mode", "issuer")
 	requireJSONKeys(t, ServerOperation{}, "id", "server_id", "kind", "target_desired_revision", "target_credential_revisions", "state", "reason", "created_at", "started_at", "finished_at")
-	requireJSONKeys(t, ServerAuthFlow{}, "id", "server_id", "flow_state", "target_desired_revision", "registration_revision", "created_at", "expires_at", "finished_at", "reason")
+	requireJSONKeys(t, ServerAuthFlow{}, "id", "server_id", "flow_state", "target_desired_revision", "registration_revision", "created_at", "expires_at", "finished_at", "reason", "diagnostic")
+	requireJSONKeys(t, OAuthDiagnostic{}, "correlation_id", "stage", "reason", "http_status")
 	requireJSONKeys(t, ToolDescriptor{}, "id", "server_id", "upstream_name", "external_name", "descriptor", "fingerprint", "catalog_revision", "first_seen_at", "last_seen_at", "retired_at")
 	requireJSONKeys(t, CatalogPage{}, "catalog", "items", "next_cursor")
 	requireJSONKeys(t, ServerMutation{}, "server", "operation")

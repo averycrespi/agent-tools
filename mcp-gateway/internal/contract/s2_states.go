@@ -220,6 +220,24 @@ func ParseAuthFlowState(value string) (AuthFlowState, error) {
 	return parseClosed(value, []AuthFlowState{AuthFlowPreparing, AuthFlowAwaitingCallback, AuthFlowExchanging, AuthFlowSucceeded, AuthFlowFailed, AuthFlowExpired, AuthFlowCancelled, AuthFlowSuperseded, AuthFlowInterrupted})
 }
 
+type OAuthDiagnosticStage string
+
+const (
+	OAuthDiagnosticMetadataDiscovery      OAuthDiagnosticStage = "metadata_discovery"
+	OAuthDiagnosticClientRegistration     OAuthDiagnosticStage = "client_registration"
+	OAuthDiagnosticAuthorizationRequest   OAuthDiagnosticStage = "authorization_request"
+	OAuthDiagnosticCallbackValidation     OAuthDiagnosticStage = "callback_validation"
+	OAuthDiagnosticTokenExchange          OAuthDiagnosticStage = "token_exchange"
+	OAuthDiagnosticCredentialInstallation OAuthDiagnosticStage = "credential_installation" //nolint:gosec // Public diagnostic stage, not a credential.
+)
+
+func ParseOAuthDiagnosticStage(value string) (OAuthDiagnosticStage, error) {
+	return parseClosed(value, []OAuthDiagnosticStage{
+		OAuthDiagnosticMetadataDiscovery, OAuthDiagnosticClientRegistration, OAuthDiagnosticAuthorizationRequest,
+		OAuthDiagnosticCallbackValidation, OAuthDiagnosticTokenExchange, OAuthDiagnosticCredentialInstallation,
+	})
+}
+
 type ServerCredentialKind string
 
 const (

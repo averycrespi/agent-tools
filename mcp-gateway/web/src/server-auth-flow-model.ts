@@ -12,6 +12,21 @@ export type AuthFlowState =
   | "superseded"
   | "interrupted";
 
+export type OAuthDiagnosticStage =
+  | "metadata_discovery"
+  | "client_registration"
+  | "authorization_request"
+  | "callback_validation"
+  | "token_exchange"
+  | "credential_installation";
+
+export interface OAuthDiagnosticView {
+  correlationID: string;
+  stage: OAuthDiagnosticStage;
+  reason: string;
+  httpStatus: number | null;
+}
+
 export interface ServerAuthFlowView {
   id: string;
   serverID: string;
@@ -22,6 +37,7 @@ export interface ServerAuthFlowView {
   expiresAt: string;
   finishedAt: string | null;
   reason: string | null;
+  diagnostic: OAuthDiagnosticView | null;
 }
 
 export interface AuthFlowPage {
@@ -44,6 +60,14 @@ const states: readonly AuthFlowState[] = [
   "cancelled",
   "superseded",
   "interrupted",
+];
+const diagnosticStages: readonly OAuthDiagnosticStage[] = [
+  "metadata_discovery",
+  "client_registration",
+  "authorization_request",
+  "callback_validation",
+  "token_exchange",
+  "credential_installation",
 ];
 const reasons = new Set([
   "configuration_invalid",
@@ -105,6 +129,35 @@ function nullableReason(value: unknown): string | null {
   if (!reasons.has(result)) throw new Error("invalid auth flow response");
   return result;
 }
+function nullableDiagnostic(value: unknown): OAuthDiagnosticView | null {
+  if (value === null) return null;
+  const item = record(value, [
+    "correlation_id",
+    "stage",
+    "reason",
+    "http_status",
+  ]);
+  const stage = text(item.stage);
+  const reason = nullableReason(item.reason);
+  const httpStatus = item.http_status;
+  if (
+    !diagnosticStages.includes(stage as OAuthDiagnosticStage) ||
+    reason === null ||
+    (httpStatus !== null &&
+      (!Number.isInteger(httpStatus) ||
+        typeof httpStatus !== "number" ||
+        httpStatus < 100 ||
+        httpStatus > 599))
+  )
+    throw new Error("invalid auth flow response");
+  return {
+    correlationID: identifier(item.correlation_id),
+    stage: stage as OAuthDiagnosticStage,
+    reason,
+    httpStatus,
+  };
+}
+
 function nullableText(value: unknown): string | null {
   if (value !== null && typeof value !== "string")
     throw new Error("invalid auth flow response");
@@ -134,6 +187,7 @@ export function decodeAuthFlow(value: unknown): ServerAuthFlowView {
     "expires_at",
     "finished_at",
     "reason",
+    "diagnostic",
   ]);
   return {
     id: identifier(item.id),
@@ -145,6 +199,7 @@ export function decodeAuthFlow(value: unknown): ServerAuthFlowView {
     expiresAt: text(item.expires_at),
     finishedAt: nullableText(item.finished_at),
     reason: nullableReason(item.reason),
+    diagnostic: nullableDiagnostic(item.diagnostic),
   };
 }
 

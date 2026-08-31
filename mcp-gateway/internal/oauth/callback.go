@@ -49,16 +49,16 @@ func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string)
 	result := CallbackResult{Outcome: CallbackInvalid, ServerID: bundle.serverID, FlowID: bundle.flowID}
 	values, valid := callbackValues(rawQuery, "code", "error", "iss")
 	if !valid || !validIssuer(values["iss"], bundle) {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, newDiagnosticFailure(ErrFlowRejected, contract.ReasonProtocolInvalid, 0))
 		return result
 	}
 	codes, errorsFound := values["code"], values["error"]
 	if len(codes) != 1 || codes[0] == "" || len(errorsFound) != 0 {
 		if len(errorsFound) == 1 && errorsFound[0] != "" && len(codes) == 0 {
-			service.failConsumed(workCtx, bundle)
+			service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, newDiagnosticFailure(ErrFlowRejected, contract.ReasonAuthenticationRejected, 0))
 			return result
 		}
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, newDiagnosticFailure(ErrFlowRejected, contract.ReasonProtocolInvalid, 0))
 		return result
 	}
 	fence := servers.OAuthTokenFence{
@@ -68,41 +68,42 @@ func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string)
 		ExpectedOAuthTokensRevision:  bundle.authority.CredentialRevisions.OAuthTokens,
 	}
 	if _, err := service.store.BeginAuthFlowExchange(workCtx, fence); err != nil {
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, err)
 		return result
 	}
 	callback, err := service.store.OAuthTokenAuthorityCallback(fence)
 	if err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 		return result
 	}
 	tokenNamespace, err := keyring.NewNamespace(service.installationID, bundle.serverID, keyring.RecordOAuthTokens)
 	if err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 		return result
 	}
 	var clientSecret []byte
 	if bundle.registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthNone {
 		namespace, err := keyring.NewNamespace(service.installationID, bundle.serverID, keyring.RecordOAuthClient)
 		if err != nil {
-			service.failConsumed(workCtx, bundle)
+			service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 			return result
 		}
 		loaded, active, err := service.secrets.ReadActive(workCtx, namespace)
 		if err != nil || active.Revision != bundle.authority.CredentialRevisions.OAuthClient {
 			clear(loaded)
-			service.failConsumed(workCtx, bundle)
+			service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 			return result
 		}
 		clientSecret = loaded
 		defer clear(clientSecret)
 	}
 	if err := service.store.ValidateAuthFlowExchange(workCtx, fence); err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, err)
 		return result
 	}
 	header, body, err := tokenRequest(codes[0], bundle, clientSecret)
 	if err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, err)
 		return result
 	}
 	status, responseHeader, responseBody, err := service.requester.Request(
@@ -111,24 +112,24 @@ func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string)
 	)
 	clear(body)
 	if err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, err)
 		return result
 	}
 	issuedAt := service.now().UTC()
 	token, err := parseTokenResponse(status, responseHeader, responseBody, bundle.requestedScopes, issuedAt)
 	clear(responseBody)
 	if err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, newDiagnosticFailure(err, reasonForHTTPStatus(status), status))
 		return result
 	}
 	generation, err := encodeTokenGeneration(bundle, token, issuedAt)
 	if err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 		return result
 	}
 	defer clear(generation)
 	if _, err := service.secrets.ReplaceFencedAfterAuthorizationSuccess(workCtx, tokenNamespace, generation, callback); err != nil {
-		service.failConsumed(workCtx, bundle)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 		return result
 	}
 	result.Outcome = CallbackSucceeded
@@ -167,9 +168,8 @@ func (service *FlowService) acquireCallback(ctx context.Context) (context.Contex
 	}
 }
 
-func (service *FlowService) failConsumed(ctx context.Context, bundle flowBundle) {
-	reason := contract.ReasonOAuthRejected
-	_, _ = service.store.TransitionAuthFlow(ctx, bundle.flowID, contract.AuthFlowFailed, &reason)
+func (service *FlowService) failConsumed(ctx context.Context, bundle flowBundle, stage contract.OAuthDiagnosticStage, cause error) {
+	_, _ = service.store.FailAuthFlow(ctx, bundle.flowID, oauthDiagnostic(bundle.flowID, stage, cause))
 }
 
 func validIssuer(values []string, bundle flowBundle) bool {
