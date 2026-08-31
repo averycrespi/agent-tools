@@ -62,7 +62,7 @@ func TestBrowserAdminCredentials(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 2, event.Creates)
+	assert.Equal(t, 3, event.Creates)
 	assert.Equal(t, 2, event.Revokes)
 	assert.Equal(t, 1, event.DetailReads)
 	harness.Stop(os.Interrupt)

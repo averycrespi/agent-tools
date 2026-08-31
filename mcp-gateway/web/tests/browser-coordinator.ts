@@ -3140,6 +3140,14 @@ async function runAdminCredentials(
           releaseLost = resolve;
         });
       }
+      if (creates === 3) {
+        await route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: "{",
+        });
+        return;
+      }
       const created = credential(3);
       items = [...items, created];
       await route.fulfill({
@@ -3235,10 +3243,30 @@ async function runAdminCredentials(
   await page.locator('[data-testid="admin-credential-create"]').click();
   await lostStarted;
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  releaseLost?.();
+  await page
+    .getByText(
+      "The created credential may be active, but its bearer was lost and cannot be recovered. Review credential metadata and explicitly revoke it if unusable before creating a deliberate replacement. Nothing was replayed.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await page
+    .getByText(
+      "No bearer can be displayed. Inspect current state before another explicit action.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await page
+    .getByText(
+      "Do not replay. The credential may be active while its bearer is permanently lost. Refresh metadata, then explicitly revoke an unusable credential before creating a deliberate replacement.",
+      { exact: true },
+    )
+    .waitFor();
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
   await waitForLifecycle(page, "signed_out");
-  releaseLost?.();
   await assertSecretAbsent(
     page,
     context,
@@ -3633,6 +3661,13 @@ async function runPrincipalCredentials(
             releaseLost = resolve;
           });
           current = principal("4", true);
+        } else if (issues === 4 || issues === 5) {
+          await route.fulfill({
+            status: 201,
+            contentType: "application/json",
+            body: "{",
+          });
+          return;
         } else {
           current = principal("3", true);
         }
@@ -3706,10 +3741,33 @@ async function runPrincipalCredentials(
     .click();
   await lostStarted;
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  releaseLost?.();
+  await page
+    .getByText(
+      "The replacement may now be current and the prior bearer may already be invalid. Review principal metadata, then explicitly rotate or revoke the lost current credential. Do not replay the operation.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.locator('[data-testid="principal-credential-issue"]').click();
+  await page
+    .locator('[data-testid="principal-credential-confirm-submit"]')
+    .click();
+  await page
+    .getByText(
+      "No bearer can be displayed. Inspect current state before another explicit action.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await page
+    .getByText(
+      "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the principal, then explicitly rotate or revoke the observed current credential.",
+      { exact: true },
+    )
+    .waitFor();
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
   await waitForLifecycle(page, "signed_out");
-  releaseLost?.();
   await assertSecretAbsent(
     page,
     context,
@@ -3735,6 +3793,23 @@ async function runPrincipalCredentials(
   body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Prior authority no longer authenticates"))
     fail("principal credential revoke omitted authority result");
+  await page.locator('[data-testid="principal-credential-issue"]').click();
+  await page
+    .locator('[data-testid="principal-credential-confirm-submit"]')
+    .click();
+  await page
+    .getByText(
+      "No bearer can be displayed. Inspect current state before another explicit action.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await page
+    .getByText(
+      "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the principal, then explicitly rotate or revoke the observed credential.",
+      { exact: true },
+    )
+    .waitFor();
   await assertSecretAbsent(
     page,
     context,

@@ -982,7 +982,7 @@ function AdminCredentials({
       setNotice(
         publication === "published"
           ? "The one-time administrator bearer is ready. It cannot be revealed again."
-          : "The bearer was returned but could not be displayed and cannot be recovered. Create a new credential after reviewing current state.",
+          : "The created credential may be active, but its bearer was lost and cannot be recovered. Review credential metadata and explicitly revoke it if unusable before creating a deliberate replacement. Nothing was replayed.",
       );
       setPrepared(undefined);
       setExpiry("");
@@ -1106,8 +1106,9 @@ function AdminCredentials({
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Credential outcome is unknown">
           <p>
-            Do not replay. Refresh the list to investigate; any returned bearer
-            was lost and cannot be recovered.
+            Do not replay. The credential may be active while its bearer is
+            permanently lost. Refresh metadata, then explicitly revoke an
+            unusable credential before creating a deliberate replacement.
           </p>
         </StateNotice>
       )}

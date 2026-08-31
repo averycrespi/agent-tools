@@ -61,7 +61,7 @@ func TestBrowserPrincipalCredentials(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 3, event.Issues)
+	assert.Equal(t, 5, event.Issues)
 	assert.Equal(t, 1, event.Revokes)
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "principal credential scenario must own one Gateway lifecycle")

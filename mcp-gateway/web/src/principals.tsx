@@ -506,7 +506,7 @@ function PrincipalCredentialActions({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
-  const [action, setAction] = useState<"issue" | "revoke">("issue");
+  const [action, setAction] = useState<"issue" | "replace" | "revoke">("issue");
   const [prepared, setPrepared] = useState<PreparedOneTimeSink>();
   const [blockedETag, setBlockedETag] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -537,7 +537,7 @@ function PrincipalCredentialActions({
       successStatuses: [201],
       decode: decodeCredentialCreation,
     };
-    setAction("issue");
+    setAction(principal.hasCredential ? "replace" : "issue");
     setPrepared(sink);
     controller.begin(spec);
     controller.confirm();
@@ -568,13 +568,15 @@ function PrincipalCredentialActions({
     const outcome = await controller.submit();
     if (outcome.kind === "acknowledged") {
       setBlockedETag(undefined);
-      if (action === "issue") {
+      if (action !== "revoke") {
         if (!("bearer" in outcome.value)) throw new Error("invalid response");
         const publication = prepared?.publish(outcome.value.bearer) ?? "lost";
         setNotice(
           publication === "published"
             ? "The one-time agent bearer is ready. It cannot be revealed again."
-            : "The bearer was returned but could not be displayed and cannot be recovered. Issue a new credential after reviewing current state.",
+            : action === "replace"
+              ? "The replacement may now be current and the prior bearer may already be invalid. Review principal metadata, then explicitly rotate or revoke the lost current credential. Do not replay the operation."
+              : "A current credential may now occupy the slot, but its bearer was lost and cannot be recovered. Review principal metadata, then explicitly rotate or revoke it. Do not replay issue.",
         );
       } else {
         setNotice(
@@ -590,7 +592,7 @@ function PrincipalCredentialActions({
       setBlockedETag(detail.etag);
       onRefresh();
     }
-    if (action === "issue") {
+    if (action !== "revoke") {
       if (outcome.kind === "uncertain") prepared?.lose();
       else prepared?.cancel();
     }
@@ -639,8 +641,9 @@ function PrincipalCredentialActions({
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Credential outcome is unknown">
           <p>
-            Do not replay. Refresh the principal; any returned bearer was lost
-            and cannot be recovered.
+            {action === "replace"
+              ? "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the principal, then explicitly rotate or revoke the observed current credential."
+              : "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the principal, then explicitly rotate or revoke the observed credential."}
           </p>
         </StateNotice>
       )}
@@ -672,15 +675,22 @@ function PrincipalCredentialActions({
         id="principal-credential-confirm"
         open={mutation.state === "confirming"}
         title={
-          action === "issue"
-            ? `${principal.hasCredential ? "Replace" : "Issue"} agent credential?`
-            : "Revoke agent credential?"
+          action === "replace"
+            ? "Replace agent credential?"
+            : action === "issue"
+              ? "Issue agent credential?"
+              : "Revoke agent credential?"
         }
         consequence={
-          action === "issue" ? (
+          action === "replace" ? (
             <p>
               Current agent authority is interrupted immediately. There is no
               overlap and the new bearer is displayed once.
+            </p>
+          ) : action === "issue" ? (
+            <p>
+              The new bearer is displayed once and becomes this principal's
+              current authority.
             </p>
           ) : (
             <p>
@@ -690,12 +700,14 @@ function PrincipalCredentialActions({
           )
         }
         confirmLabel={
-          action === "issue"
-            ? `${principal.hasCredential ? "Replace" : "Issue"} credential`
-            : "Revoke credential"
+          action === "replace"
+            ? "Replace credential"
+            : action === "issue"
+              ? "Issue credential"
+              : "Revoke credential"
         }
         destructive={action === "revoke"}
-        returnFocus={action === "issue" ? issueButton : revokeButton}
+        returnFocus={action !== "revoke" ? issueButton : revokeButton}
         onCancel={cancel}
         onConfirm={() => void confirm()}
       />
