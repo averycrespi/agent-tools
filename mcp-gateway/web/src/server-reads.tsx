@@ -909,7 +909,10 @@ export class ServerReadsController {
             `/api/v1/servers/${context.viewKey.slice("#/servers/".length, "#/servers/".length + 26)}`,
           )
         : undefined;
-    let response = await get(context, listPath(kind, context.viewKey, next));
+    let [response, historyServerResponse] = await Promise.all([
+      get(context, listPath(kind, context.viewKey, next)),
+      serverResponsePromise ?? Promise.resolve(undefined),
+    ]);
     let restarted = false;
     if (next !== null && (await staleCursor(response))) {
       restarted = true;
@@ -932,9 +935,10 @@ export class ServerReadsController {
         restarted,
       };
     if (kind === "operations" || kind === "authFlows") {
-      const serverResponse = await serverResponsePromise!;
-      const server = decodeServer(await json(serverResponse));
-      const etag = serverResponse.headers.get("ETag");
+      if (historyServerResponse === undefined)
+        throw new Error("missing server history response");
+      const server = decodeServer(await json(historyServerResponse));
+      const etag = historyServerResponse.headers.get("ETag");
       if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
         throw new Error("invalid server ETag");
       if (kind === "operations")

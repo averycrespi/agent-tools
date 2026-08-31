@@ -7524,7 +7524,9 @@ async function runAuthFlows(
     window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE9"}`;
   }, serverID);
   await page.locator('[data-testid="auth-flow-detail"]').waitFor();
-  await page.getByText("An OAuth exchange is already active.").waitFor();
+  await page
+    .getByText("An OAuth authorization is already in progress.")
+    .waitFor();
   if (
     (await page.locator('[data-testid="cancel-auth-flow"]').count()) !== 0 ||
     (await page.locator('[data-testid="start-auth-flow"]').count()) !== 0
