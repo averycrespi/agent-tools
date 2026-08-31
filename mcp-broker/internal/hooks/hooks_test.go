@@ -53,11 +53,12 @@ func (r *captureRunner) snapshot() []capturedRun {
 }
 
 type concurrencyRunner struct {
-	mu        sync.Mutex
-	active    int
-	maxActive int
-	started   chan struct{}
-	release   chan struct{}
+	mu          sync.Mutex
+	active      int
+	maxActive   int
+	started     chan struct{}
+	startedOnce sync.Once
+	release     chan struct{}
 }
 
 func (r *concurrencyRunner) Run(context.Context, Handler, []byte) RunStatus {
@@ -67,7 +68,7 @@ func (r *concurrencyRunner) Run(context.Context, Handler, []byte) RunStatus {
 		r.maxActive = r.active
 	}
 	if r.active == 2 {
-		close(r.started)
+		r.startedOnce.Do(func() { close(r.started) })
 	}
 	r.mu.Unlock()
 	<-r.release

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
 
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/audit"
@@ -151,6 +152,86 @@ func TestLimitRequestBodyDisabledWhenZero(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestRewriteLimaHost(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "lima host with port", host: "host.lima.internal:8200", want: "localhost:8200"},
+		{name: "lima host without port", host: "host.lima.internal", want: "localhost"},
+		{name: "lima host mixed case", host: "Host.Lima.Internal:8200", want: "localhost:8200"},
+		{name: "localhost untouched", host: "localhost:8200", want: "localhost:8200"},
+		{name: "loopback ip untouched", host: "127.0.0.1:8200", want: "127.0.0.1:8200"},
+		{name: "other host untouched", host: "evil.example.com:8200", want: "evil.example.com:8200"},
+		{name: "lima suffix not matched", host: "not-host.lima.internal:8200", want: "not-host.lima.internal:8200"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got string
+			handler := rewriteLimaHost(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Host
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+			req.Host = tt.host
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusNoContent, rec.Code)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestRewriteLimaHostSatisfiesDNSRebindingGuard drives mcp-go's real guard over
+// a loopback listener, which is the only way to prove the rewrite is what the
+// guard accepts. The unwrapped case asserts the guard is still active, so this
+// test fails loudly if a future mcp-go bump changes its shape.
+func TestRewriteLimaHostSatisfiesDNSRebindingGuard(t *testing.T) {
+	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":` +
+		`{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}`
+
+	tests := []struct {
+		name     string
+		rewrite  bool
+		wantCode int
+	}{
+		{name: "without middleware the guard rejects", rewrite: false, wantCode: http.StatusForbidden},
+		{name: "with middleware the request is served", rewrite: true, wantCode: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var handler http.Handler = mcpserver.NewStreamableHTTPServer(mcpserver.NewMCPServer("test", "0.0.1"))
+			if tt.rewrite {
+				handler = rewriteLimaHost(handler)
+			}
+			srv := httptest.NewServer(handler)
+			t.Cleanup(srv.Close)
+
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL, strings.NewReader(initialize))
+			require.NoError(t, err)
+			req.Host = limaInternalHost + ":8200"
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json, text/event-stream")
+
+			resp, err := srv.Client().Do(req)
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantCode, resp.StatusCode, "body: %s", body)
+			if !tt.rewrite {
+				require.Contains(t, string(body), "invalid Host header")
+			}
+		})
+	}
 }
 
 func TestReloadRulesFromFileUpdatesSharedBrokerAndDashboard(t *testing.T) {

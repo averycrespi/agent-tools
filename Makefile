@@ -1,8 +1,10 @@
 TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
 OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
+INTEGRATION_TOOLS := mcp-broker mcp-gateway local-git-mcp local-gomod-proxy
+E2E_TOOLS := mcp-broker mcp-gateway local-gomod-proxy http-broker
 UNAME_S := $(shell uname -s)
 
-.PHONY: help install install-dev setup build test lint fmt tidy check check-other-tools test-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
+.PHONY: help install install-dev setup build test test-integration test-e2e lint fmt fmt-check tidy check vulncheck check-other-tools test-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
 
 help:
 	@$(MAKE) -s -C mcp-gateway help
@@ -28,19 +30,30 @@ build:
 test:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir test; done
 
+test-integration:
+	@set -e; for dir in $(INTEGRATION_TOOLS); do $(MAKE) -C $$dir test-integration; done
+
+test-e2e:
+	@set -e; for dir in $(E2E_TOOLS); do $(MAKE) -C $$dir test-e2e; done
+
 lint:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir lint; done
 
 fmt:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir fmt; done
 
+fmt-check:
+	npm run format:check
+	@set -e; files="$$(for dir in $(TOOLS); do go -C $$dir tool goimports -l .; done)"; \
+		test -z "$$files" || { printf '%s\n' "Go files require formatting:" "$$files"; exit 1; }
+
 tidy:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir tidy; done
 
-check:
-	npm run format:check
-	$(MAKE) lint
-	$(MAKE) test
+check: fmt-check lint test
+
+vulncheck:
+	@set -e; for dir in $(TOOLS); do go -C $$dir tool govulncheck ./...; done
 
 check-other-tools:
 	@set -e; for dir in $(OTHER_TOOLS); do $(MAKE) -C $$dir lint; $(MAKE) -C $$dir test; done
