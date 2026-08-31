@@ -27,6 +27,12 @@ func TestCLIHelpTree(t *testing.T) {
 	reset, _, err := root.Find([]string{"admin", "reset"})
 	require.NoError(t, err)
 	assert.NotEqual(t, initialize.Short, reset.Short)
+	credentialGet, _, err := root.Find([]string{"admin", "credential", "get"})
+	require.NoError(t, err)
+	assert.Contains(t, credentialGet.Short, "by ID")
+	invocationGet, _, err := root.Find([]string{"invocation", "get"})
+	require.NoError(t, err)
+	assert.Contains(t, invocationGet.Short, "JSON")
 
 	var snapshot strings.Builder
 	var walk func(*cobra.Command)
@@ -46,7 +52,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:92a30f7710e9f1e82443a87c10f4d5e21cffff8500301977435a48fed04cb4ce", digest)
+	assert.Equal(t, "sha256:ad6482d1c601886ccf2294498239ece8a78e94ca893ef855a0ba8b807eef2abe", digest)
 }
 
 func testDocumentationCommandHelpProjection(t *testing.T) {

@@ -169,8 +169,9 @@ const (
 )
 
 type Table struct {
-	Headers []string
-	Rows    [][]string
+	Headers    []string
+	Rows       [][]string
+	NextCursor *string
 }
 
 func ParseOutputMode(raw string) (OutputMode, error) {
@@ -233,6 +234,14 @@ func writeTable(writer io.Writer, table Table) error {
 	}
 	for _, row := range table.Rows {
 		if err := writeRow(row); err != nil {
+			return err
+		}
+	}
+	if table.NextCursor != nil {
+		if _, err := io.WriteString(output, "\n"); err != nil {
+			return err
+		}
+		if err := writeRow([]string{"NEXT_CURSOR", *table.NextCursor}); err != nil {
 			return err
 		}
 	}

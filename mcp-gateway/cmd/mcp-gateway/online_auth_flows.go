@@ -194,7 +194,7 @@ func authFlowListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return authFlowTable(page.Items), nil
+	return withNextCursor(authFlowTable(page.Items), page.NextCursor), nil
 }
 
 func authFlowItemTable(body []byte) (controlclient.Table, error) {

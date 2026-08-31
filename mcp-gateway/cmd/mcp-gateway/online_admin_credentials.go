@@ -158,7 +158,7 @@ func adminCredentialListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return adminCredentialTable(page.Items), nil
+	return withNextCursor(adminCredentialTable(page.Items), page.NextCursor), nil
 }
 
 func adminCredentialItemTable(body []byte) (controlclient.Table, error) {

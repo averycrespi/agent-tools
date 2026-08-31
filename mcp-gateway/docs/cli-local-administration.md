@@ -69,7 +69,7 @@ Human output is the default. Use `--output json` or the `--json` shorthand for t
 
 Finite successes write to stdout. Finite and pre-start failures leave stdout empty and write one bounded problem to stderr. Problems retain stable codes and typed exit classes so automation can distinguish invalid input, authentication, conflict, unavailable storage, and uncertain outcomes without parsing prose.
 
-Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. Supply the returned cursor explicitly for the next page. Closed JSON requests reject duplicate, unknown, missing, or trailing values. Command input is intentionally split:
+Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. When another page exists, human output ends with `NEXT_CURSOR`; JSON retains the exact `next_cursor` member. Supply that cursor explicitly for the next page. Closed JSON requests reject duplicate, unknown, missing, or trailing values. Command input is intentionally split:
 
 | Input mode                                  | Commands                                                                                                            |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |

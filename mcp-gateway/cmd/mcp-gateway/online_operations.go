@@ -139,7 +139,7 @@ func operationListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return operationTable(page.Items), nil
+	return withNextCursor(operationTable(page.Items), page.NextCursor), nil
 }
 
 func operationItemTable(body []byte) (controlclient.Table, error) {

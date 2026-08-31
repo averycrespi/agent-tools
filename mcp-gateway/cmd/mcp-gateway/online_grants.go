@@ -227,7 +227,7 @@ func grantListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return grantTable(page.Items), nil
+	return withNextCursor(grantTable(page.Items), page.NextCursor), nil
 }
 
 func grantItemTable(body []byte) (controlclient.Table, error) {

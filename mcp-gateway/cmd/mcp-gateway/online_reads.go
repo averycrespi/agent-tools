@@ -221,6 +221,11 @@ func classifyReadFailure(err error) *controlclient.OnlineError {
 	return controlclient.ClassifyRequestError(err, controlclient.RequestPhaseRead)
 }
 
+func withNextCursor(table controlclient.Table, nextCursor *string) controlclient.Table {
+	table.NextCursor = nextCursor
+	return table
+}
+
 func invocationListPath(options *onlineOptions) (string, error) {
 	filters := make(map[string]string)
 	for cliName, apiName := range map[string]string{
@@ -278,7 +283,7 @@ func serverListTable(body []byte) (controlclient.Table, error) {
 	for _, server := range page.Items {
 		rows = append(rows, serverRow(server))
 	}
-	return controlclient.Table{Headers: serverHeaders(), Rows: rows}, nil
+	return controlclient.Table{Headers: serverHeaders(), Rows: rows, NextCursor: page.NextCursor}, nil
 }
 
 func serverItemTable(body []byte) (controlclient.Table, error) {
@@ -306,7 +311,7 @@ func descriptorListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return descriptorTable(page.Items), nil
+	return withNextCursor(descriptorTable(page.Items), page.NextCursor), nil
 }
 
 func descriptorItemTable(body []byte) (controlclient.Table, error) {
@@ -339,7 +344,7 @@ func catalogTable(body []byte) (controlclient.Table, error) {
 	for _, item := range page.Items {
 		rows = append(rows, []string{item.ID, item.ExternalName, item.UpstreamName, item.ServerID, "published evidence", item.CatalogRevision, item.Fingerprint, item.LastSeenAt})
 	}
-	return controlclient.Table{Headers: []string{"ID", "EXTERNAL", "UPSTREAM", "SERVER", "CATALOG", "REVISION", "FINGERPRINT", "CHANGED/LAST_SEEN"}, Rows: rows}, nil
+	return controlclient.Table{Headers: []string{"ID", "EXTERNAL", "UPSTREAM", "SERVER", "CATALOG", "REVISION", "FINGERPRINT", "CHANGED/LAST_SEEN"}, Rows: rows, NextCursor: page.NextCursor}, nil
 }
 
 func pointerText(value *string) string {
@@ -407,7 +412,7 @@ func invocationListTable(body []byte) (controlclient.Table, error) {
 	if unknown {
 		rows = append(rows, invocationGuidanceRow())
 	}
-	return controlclient.Table{Headers: invocationHeaders(), Rows: rows}, nil
+	return controlclient.Table{Headers: invocationHeaders(), Rows: rows, NextCursor: page.NextCursor}, nil
 }
 
 func invocationItemTable(body []byte) (controlclient.Table, error) {

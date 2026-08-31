@@ -111,7 +111,7 @@ func backupListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return backupTable(page.Items), nil
+	return withNextCursor(backupTable(page.Items), page.NextCursor), nil
 }
 
 func backupItemTable(body []byte) (controlclient.Table, error) {

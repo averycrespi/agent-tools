@@ -29,7 +29,7 @@ mcp-gateway invocation list \
 
 Use `--admission-class`, `--decision`, and `--outcome` only with values shown by generated help. Filters bind the opaque cursor. A malformed cursor returns `invalid_cursor`; a cursor whose retention floor or bound state is no longer coherent returns `stale_cursor`. Start again without the cursor rather than trying to edit or reuse it under different filters.
 
-Collections omit argument captures and return summary evidence only. The item command adds the one fixed-redacted argument capture when it was safely retained. A missing item can mean the ID never existed or that bounded retention evicted it.
+Collections omit argument captures and return summary evidence only. `mcp-gateway invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output remains summary-only. A missing item can mean the ID never existed or that bounded retention evicted it.
 
 ## Read the evidence shape
 

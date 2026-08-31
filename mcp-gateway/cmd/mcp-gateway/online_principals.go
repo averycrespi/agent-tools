@@ -177,7 +177,7 @@ func principalListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return principalTable(page.Items), nil
+	return withNextCursor(principalTable(page.Items), page.NextCursor), nil
 }
 
 func principalItemTable(body []byte) (controlclient.Table, error) {
