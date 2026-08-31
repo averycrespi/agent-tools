@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import { useUnsavedChanges } from "./navigation";
 import {
   type MutationController,
   type MutationCoordinator,
@@ -202,10 +203,23 @@ function GrantCreate({
   mutations: MutationCoordinator;
   query: Readonly<Record<string, string>>;
 }) {
-  const [principalID, setPrincipalID] = useState(query.principal_id ?? "");
-  const [effect, setEffect] = useState<Effect>("allow");
-  const [serverID, setServerID] = useState(query.server_id ?? "");
-  const [scope, setScope] = useState<"server" | "tool">("server");
+  const initialDraft = useRef({
+    principalID: query.principal_id ?? "",
+    effect: "allow" as Effect,
+    serverID: query.server_id ?? "",
+    scope: "server" as "server" | "tool",
+    upstreamName: "",
+    expiresAt: "",
+    atoms: [] as Atom[],
+  });
+  const [principalID, setPrincipalID] = useState(
+    initialDraft.current.principalID,
+  );
+  const [effect, setEffect] = useState<Effect>(initialDraft.current.effect);
+  const [serverID, setServerID] = useState(initialDraft.current.serverID);
+  const [scope, setScope] = useState<"server" | "tool">(
+    initialDraft.current.scope,
+  );
   const [upstreamName, setUpstreamName] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [atoms, setAtoms] = useState<Atom[]>([]);
@@ -215,6 +229,17 @@ function GrantCreate({
   );
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
+  );
+  const navigate = useUnsavedChanges(
+    JSON.stringify({
+      principalID,
+      effect,
+      serverID,
+      scope,
+      upstreamName,
+      expiresAt,
+      atoms,
+    }) !== JSON.stringify(initialDraft.current),
   );
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
@@ -263,7 +288,7 @@ function GrantCreate({
       controller.begin(spec);
       const outcome = await controller.submit();
       if (outcome.kind === "acknowledged")
-        window.location.hash = `#/access/grants/${outcome.value.id}`;
+        navigate(`#/access/grants/${outcome.value.id}`, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Invalid grant.");
     }
@@ -291,7 +316,7 @@ function GrantCreate({
             void submit();
           }}
         >
-          <FormField id="grant-principal" label="Principal ID">
+          <FormField id="grant-principal" label="Principal ID" required>
             {(attributes) => (
               <input
                 {...attributes}
@@ -317,7 +342,7 @@ function GrantCreate({
               </select>
             )}
           </FormField>
-          <FormField id="grant-server" label="Server ID">
+          <FormField id="grant-server" label="Server ID" required>
             {(attributes) => (
               <input
                 {...attributes}
@@ -346,7 +371,7 @@ function GrantCreate({
             )}
           </FormField>
           {scope === "tool" && (
-            <FormField id="grant-upstream" label="Exact upstream name">
+            <FormField id="grant-upstream" label="Exact upstream name" required>
               {(attributes) => (
                 <input
                   {...attributes}
@@ -362,8 +387,9 @@ function GrantCreate({
           )}
           <FormField
             id="grant-expiry"
-            label="Expiry (optional)"
+            label="Expiry"
             hint="Leave blank for permanent; otherwise use a future canonical UTC RFC3339 timestamp."
+            optional
           >
             {(attributes) => (
               <input

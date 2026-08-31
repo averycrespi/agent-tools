@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import { useUnsavedChanges } from "./navigation";
 import {
   type MutationController,
   type MutationCoordinator,
@@ -449,6 +450,18 @@ function RequestActions({
   );
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
+  const initialDraft = useRef({
+    scope: submitted.scope,
+    target: submitted.target,
+    constraint:
+      submitted.constraint === null ? "" : JSON.stringify(submitted.constraint),
+    duration: submitted.durationSeconds ?? "",
+    reason: "not_approved",
+  });
+  useUnsavedChanges(
+    JSON.stringify({ scope, target, constraint, duration, reason }) !==
+      JSON.stringify(initialDraft.current),
+  );
   const [error, setError] = useState<string>();
   const [blockedETag, setBlockedETag] = useState<string>();
   const [confirming, setConfirming] = useState(false);
@@ -556,6 +569,7 @@ function RequestActions({
     const outcome = await controller.submit();
     if (outcome.kind === "acknowledged") {
       setBlockedETag(undefined);
+      initialDraft.current = { scope, target, constraint, duration, reason };
       onAcknowledged(outcome.value);
       controller.abandon();
       onRefresh();
@@ -633,8 +647,9 @@ function RequestActions({
       {scope === "tool" && (
         <FormField
           id="approval-constraint"
-          label="Approved equality constraint JSON (optional)"
+          label="Approved equality constraint JSON"
           hint="Submitted atoms must remain exact; additional atoms narrow the policy."
+          optional
         >
           {(attributes) => (
             <textarea

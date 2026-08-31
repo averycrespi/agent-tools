@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { useUnsavedChanges } from "./navigation";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
 import type {
   MutationController,
@@ -918,6 +919,7 @@ function AdminCredentials({
   const [detail, setDetail] = useState<AdminCredential>();
   const [notice, setNotice] = useState<string>();
   const [expiryError, setExpiryError] = useState<string>();
+  useUnsavedChanges(expiry !== "");
   const createButton = useRef<HTMLButtonElement>(null);
   const revokeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
@@ -1081,8 +1083,9 @@ function AdminCredentials({
       </p>
       <FormField
         id="admin-credential-expiry"
-        label="Optional expiry (RFC 3339)"
+        label="Expiry (RFC 3339)"
         hint="Blank creates non-expiring authority. Expiry must be 5 minutes through 365 days ahead."
+        optional
         {...(expiryError === undefined ? {} : { error: expiryError })}
       >
         {(attributes) => (

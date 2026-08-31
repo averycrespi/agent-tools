@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import { useUnsavedChanges } from "./navigation";
 import {
   type MutationController,
   type MutationCoordinator,
@@ -235,12 +236,19 @@ function PrincipalEditor({
 }) {
   const create = detail === undefined;
   const principal = detail?.principal;
-  const [displayName, setDisplayName] = useState(principal?.displayName ?? "");
+  const initialDraft = useRef({
+    displayName: principal?.displayName ?? "",
+    state: principal?.state ?? ("active" as PrincipalState),
+    visibility: principal?.visibility ?? ("requestable" as PrincipalVisibility),
+  });
+  const [displayName, setDisplayName] = useState(
+    initialDraft.current.displayName,
+  );
   const [state, setState] = useState<PrincipalState>(
-    principal?.state ?? "active",
+    initialDraft.current.state,
   );
   const [visibility, setVisibility] = useState<PrincipalVisibility>(
-    principal?.visibility ?? "requestable",
+    initialDraft.current.visibility,
   );
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -251,6 +259,10 @@ function PrincipalEditor({
     controller.snapshot(),
   );
   const submitButton = useRef<HTMLButtonElement>(null);
+  const navigate = useUnsavedChanges(
+    JSON.stringify({ displayName, state, visibility }) !==
+      JSON.stringify(initialDraft.current),
+  );
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
@@ -268,8 +280,16 @@ function PrincipalEditor({
       controller.abandon();
       const saved =
         "principal" in outcome.value ? outcome.value.principal : outcome.value;
+      initialDraft.current = {
+        displayName: saved.displayName,
+        state: saved.state,
+        visibility: saved.visibility,
+      };
+      setDisplayName(saved.displayName);
+      setState(saved.state);
+      setVisibility(saved.visibility);
       if (create) {
-        window.location.hash = `#/access/principals/${saved.id}`;
+        navigate(`#/access/principals/${saved.id}`, true);
       } else {
         setNotice("Principal record saved.");
         onRefresh();
@@ -370,7 +390,7 @@ function PrincipalEditor({
           start();
         }}
       >
-        <FormField id="principal-display-name" label="Display name">
+        <FormField id="principal-display-name" label="Display name" required>
           {(attributes) => (
             <input
               {...attributes}

@@ -1,5 +1,6 @@
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { useUnsavedChanges } from "./navigation";
 import type {
   MutationController,
   MutationCoordinator,
@@ -135,7 +136,9 @@ function ReplacementForm({
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [blockedReadVersion, setBlockedReadVersion] = useState<number>();
+  const [credentialDirty, setCredentialDirty] = useState(false);
   const submitButton = useRef<HTMLButtonElement>(null);
+  const navigate = useUnsavedChanges(credentialDirty);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(
     () => () => {
@@ -144,8 +147,21 @@ function ReplacementForm({
     },
     [controller, values],
   );
+  const updateCredentialDirty = () => {
+    setCredentialDirty(
+      values.some(({ slot }) => {
+        const input = document.getElementById(`credential-slot-${slot}`);
+        return (
+          (input instanceof HTMLInputElement ||
+            input instanceof HTMLTextAreaElement) &&
+          input.value !== ""
+        );
+      }),
+    );
+  };
   const clear = () => {
     for (const entry of values) entry.value.clear();
+    setCredentialDirty(false);
   };
   const settle = async (
     submission: Promise<MutationOutcome<ReplacementResult>>,
@@ -157,7 +173,10 @@ function ReplacementForm({
         `Credential revision ${outcome.value.credentialRevision} was published; operation ${outcome.value.operation.id} was scheduled.`,
       );
       controller.abandon();
-      window.location.hash = `#/servers/${server.id}/operations/${outcome.value.operation.id}`;
+      navigate(
+        `#/servers/${server.id}/operations/${outcome.value.operation.id}`,
+        true,
+      );
     } else if (
       (outcome.kind === "rejected" && outcome.requiresRefresh) ||
       outcome.kind === "uncertain"
@@ -251,6 +270,7 @@ function ReplacementForm({
                 : `Secret slot ${slot}`
             }
             hint="Write-only. This value is cleared immediately after submission and is never returned by the Gateway."
+            onInput={updateCredentialDirty}
           />
         ))}
         {error !== undefined && (

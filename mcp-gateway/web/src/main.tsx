@@ -170,15 +170,12 @@ function SignInPanel({
       <div class="panel-heading">
         <h2 id="sign-in-title">Administrator access</h2>
       </div>
-      <p>
-        Use a current administrator bearer. It is cleared after handoff and is
-        never saved by this application.
-      </p>
       <form autocomplete="off" onSubmit={submit}>
         <FormField
           id="admin-bearer"
           label="Administrator bearer"
-          hint="The value is cleared immediately after request handoff."
+          hint="Cleared after handoff and never saved."
+          required
         >
           {(attributes) => (
             <input

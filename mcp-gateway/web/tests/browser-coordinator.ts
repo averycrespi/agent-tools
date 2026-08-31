@@ -3024,7 +3024,9 @@ async function runAccessibilityKeyboardResponsive(
       { timeout: 3000 },
     );
   } catch {
-    fail("mobile navigation did not expose its state");
+    fail(
+      `mobile navigation did not expose its state: ${await page.evaluate(() => JSON.stringify({ expanded: document.querySelector('[data-testid="navigation-toggle"]')?.getAttribute("aria-expanded"), active: document.activeElement?.outerHTML, dialogs: [...document.querySelectorAll("dialog[open]")].map((dialog) => dialog.outerHTML) }))}`,
+    );
   }
   const systemLink = page.locator('#primary-navigation a[href="#/system"]');
   if ((await systemLink.getAttribute("aria-current")) !== "page")
@@ -3569,6 +3571,20 @@ async function runPrincipals(
   await page
     .locator('[data-testid="principal-display-name"]')
     .fill("New automation");
+  await page.getByRole("link", { name: "Servers", exact: true }).click();
+  await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
+  await page.locator('[data-testid="unsaved-changes-cancel"]').click();
+  await page
+    .locator('dialog[aria-labelledby="unsaved-changes-title"]')
+    .waitFor({ state: "hidden" });
+  if (
+    (await page.evaluate(() => window.location.hash)) !==
+      "#/access/principals/new" ||
+    (await page
+      .locator('[data-testid="principal-display-name"]')
+      .inputValue()) !== "New automation"
+  )
+    fail("principal editor did not register its dirty draft");
   await page
     .locator('[data-testid="principal-visibility"]')
     .selectOption("allowed-only");
@@ -4037,7 +4053,7 @@ async function runGrantReadsCreate(
       !raw.includes('"/flag":true') ||
       !raw.includes('"/name":"literal"')
     )
-      fail("exact-tool lexical constraint changed shape");
+      fail(`exact-tool lexical constraint changed shape: ${raw}`);
     const item = grant(
       createdIDs[creates - 1]!,
       body.effect as "allow" | "deny",
@@ -4100,9 +4116,25 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="grant-effect"]').selectOption("deny");
   await page.locator('[data-testid="grant-scope"]').selectOption("tool");
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page.getByRole("link", { name: "Servers", exact: true }).click();
+  await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
+  await page.locator('[data-testid="unsaved-changes-cancel"]').click();
+  await page
+    .locator('dialog[aria-labelledby="unsaved-changes-title"]')
+    .waitFor({ state: "hidden" });
+  if (
+    (await page.locator('[data-testid="grant-upstream"]').inputValue()) !==
+    "literal.tool"
+  )
+    fail("grant creation did not preserve a cancelled dirty draft");
   await page
     .locator('[data-testid="grant-expiry"]')
     .fill("2030-01-01T00:00:00Z");
+  if (
+    (await page.locator('[data-testid="grant-expiry"]').inputValue()) !==
+    "2030-01-01T00:00:00Z"
+  )
+    fail("grant expiry input did not retain its draft value");
   await page.locator('[data-testid="add-constraint-atom"]').click();
   await page.locator('[data-testid="constraint-pointer"]').fill("bad");
   await page.locator('[data-testid="constraint-type"]').selectOption("number");
@@ -4138,6 +4170,11 @@ async function runGrantReadsCreate(
     .nth(3)
     .selectOption("string");
   await page.locator('[data-testid="constraint-value"]').nth(2).fill("literal");
+  if (
+    (await page.locator('[data-testid="grant-expiry"]').inputValue()) !==
+    "2030-01-01T00:00:00Z"
+  )
+    fail("grant constraint edits discarded the expiry draft");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page.locator('[data-testid="grant-detail"]').waitFor();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
@@ -7660,6 +7697,17 @@ async function runServerCredentials(
     await button.click();
   };
   await field.fill(firstCanary);
+  await page
+    .locator("#primary-navigation")
+    .getByRole("link", { name: "Overview", exact: true })
+    .click();
+  await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
+  await page.locator('[data-testid="unsaved-changes-cancel"]').click();
+  await page
+    .locator('dialog[aria-labelledby="unsaved-changes-title"]')
+    .waitFor({ state: "hidden" });
+  if ((await field.inputValue()) !== firstCanary)
+    fail("credential navigation cancellation cleared the write-only draft");
   await page.locator('[data-testid="credential-replacement-submit"]').click();
   const consequence =
     (await page
@@ -8872,6 +8920,12 @@ async function runShellPrimitives(
     fail("skip link did not focus the page heading");
   }
   const bearerInput = page.locator('[data-testid="admin-bearer-input"]');
+  const signInText = (await page.locator("main").innerText()).toLowerCase();
+  if (
+    (signInText.match(/cleared/g) ?? []).length !== 1 ||
+    signInText.includes("use a current administrator bearer")
+  )
+    fail("sign-in repeated its bearer-clearing guidance");
   if (
     (await bearerInput.getAttribute("aria-describedby")) !== "admin-bearer-hint"
   )

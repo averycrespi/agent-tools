@@ -20,12 +20,14 @@ export function WriteOnlyField({
   label,
   hint,
   multiline = false,
+  onInput,
 }: {
   value: WriteOnlyValue;
   id: string;
   label: string;
   hint: string;
   multiline?: boolean;
+  onInput?: (value: string) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -36,7 +38,7 @@ export function WriteOnlyField({
     return () => value.detach(node);
   }, [multiline, value]);
   return (
-    <FormField id={id} label={label} hint={hint}>
+    <FormField id={id} label={label} hint={hint} required>
       {(attributes) =>
         multiline ? (
           <textarea
@@ -46,6 +48,7 @@ export function WriteOnlyField({
             autocomplete="off"
             autocapitalize="none"
             spellcheck={false}
+            onInput={(event) => onInput?.(event.currentTarget.value)}
           />
         ) : (
           <input
@@ -55,6 +58,7 @@ export function WriteOnlyField({
             autocomplete="off"
             autocapitalize="none"
             spellcheck={false}
+            onInput={(event) => onInput?.(event.currentTarget.value)}
           />
         )
       }
