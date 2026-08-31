@@ -168,12 +168,15 @@ function transportFromDraft(draft: Draft): unknown {
   if (draft.authMode === "")
     throw new Error("Choose how Gateway authenticates to this server.");
   const normalizedURL = draft.url.trim();
+  if (normalizedURL === "") throw new Error("Enter an HTTP endpoint.");
   let parsedURL: URL;
   try {
     parsedURL = new URL(normalizedURL);
   } catch {
     throw new Error("HTTP URL must be absolute.");
   }
+  if (parsedURL.protocol !== "http:" && parsedURL.protocol !== "https:")
+    throw new Error("HTTP endpoint must use http or https.");
   if (
     parsedURL.username !== "" ||
     parsedURL.password !== "" ||
@@ -465,11 +468,15 @@ function EditorForm({
   setDraft,
   disabled,
   namespaceLocked,
+  urlError,
+  clearURLError,
 }: {
   draft: Draft;
   setDraft: (draft: Draft) => void;
   disabled: boolean;
   namespaceLocked: boolean;
+  urlError: string | undefined;
+  clearURLError: () => void;
 }) {
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft({ ...draft, [key]: value });
@@ -642,6 +649,7 @@ function EditorForm({
             id="server-url"
             label="HTTP endpoint"
             hint="Credentials, query strings, and fragments are rejected."
+            {...(urlError === undefined ? {} : { error: urlError })}
             required
           >
             {(attributes) => (
@@ -649,7 +657,10 @@ function EditorForm({
                 {...attributes}
                 value={draft.url}
                 disabled={disabled}
-                onInput={(event) => update("url", event.currentTarget.value)}
+                onInput={(event) => {
+                  clearURLError();
+                  update("url", event.currentTarget.value);
+                }}
               />
             )}
           </FormField>
@@ -997,6 +1008,7 @@ export function ServerEditor({
   );
   const [draft, setDraft] = useState<Draft>(initialDraft.current);
   const [error, setError] = useState<string>();
+  const [urlError, setURLError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [blockedETag, setBlockedETag] = useState<string>();
   const [controller] = useState<MutationController<MutationResult>>(() =>
@@ -1036,7 +1048,10 @@ export function ServerEditor({
       initialDraft.current = draft;
       setDraft({ ...draft });
       if (create) navigate(`#/servers/${outcome.value.server.id}`, true);
-      else onRefresh();
+      else {
+        onRefresh();
+        navigate(`#/servers/${outcome.value.server.id}`, true);
+      }
     } else if (
       outcome.kind === "rejected" &&
       outcome.requiresRefresh &&
@@ -1049,6 +1064,7 @@ export function ServerEditor({
     | { spec: MutationSpec<MutationResult>; behavioral: boolean }
     | undefined => {
     setError(undefined);
+    setURLError(undefined);
     setNotice(undefined);
     try {
       if (
@@ -1106,11 +1122,13 @@ export function ServerEditor({
         },
       };
     } catch (caught) {
-      setError(
+      const message =
         caught instanceof Error
           ? caught.message
-          : "Invalid server configuration.",
-      );
+          : "Invalid server configuration.";
+      if (message.includes("HTTP endpoint") || message.includes("HTTP URL"))
+        setURLError(message);
+      else setError(message);
       return undefined;
     }
   };
@@ -1141,6 +1159,8 @@ export function ServerEditor({
           setDraft={setDraft}
           disabled={disabled}
           namespaceLocked={!create}
+          urlError={urlError}
+          clearURLError={() => setURLError(undefined)}
         />
         {error !== undefined && (
           <StateNotice state="error" title="Check server configuration">
@@ -1232,13 +1252,11 @@ export function ServerEditor({
       </section>
     );
   return (
-    <details class="panel domain-panel">
-      <summary>Edit desired server state</summary>
-      <p>
-        Display-only changes save directly. State or transport changes require
-        consequence confirmation and a fresh server ETag.
-      </p>
+    <section class="panel domain-panel" aria-labelledby="server-editor-title">
+      <div class="panel-heading">
+        <h2 id="server-editor-title">Configuration</h2>
+      </div>
       {form}
-    </details>
+    </section>
   );
 }

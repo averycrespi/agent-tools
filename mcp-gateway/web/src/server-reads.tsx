@@ -1,6 +1,12 @@
 import { useEffect, useState } from "preact/hooks";
 import type { MutationCoordinator } from "./mutation";
-import { InertJSON, StateNotice, StatusLabel } from "./primitives";
+import {
+  CollectionTable,
+  ComparisonTable,
+  InertJSON,
+  StateNotice,
+  StatusLabel,
+} from "./primitives";
 import {
   authFlowIsTerminal,
   decodeAuthFlow,
@@ -637,28 +643,27 @@ function listPath(
   if (kind === "servers") return `/api/v1/servers?${query.toString()}`;
   if (kind === "catalog") return `/api/v1/catalog?${query.toString()}`;
   if (kind === "operations" || kind === "authFlows") {
-    const suffix = kind === "operations" ? "operations" : "oauth";
-    const match = new RegExp(
-      `^#/servers/([0-7][0-9A-HJKMNP-TV-Z]{25})\\?tab=${suffix}$`,
-    ).exec(viewKey);
+    const match =
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:activity|diagnostics)$/.exec(
+        viewKey,
+      );
     if (match === null) throw new Error("invalid server history location");
     const resource = kind === "operations" ? "operations" : "auth-flows";
     return `/api/v1/servers/${match[1]!}/${resource}?${query.toString()}`;
   }
-  const match =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=descriptors$/.exec(
-      viewKey,
-    );
+  const match = /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=tools$/.exec(
+    viewKey,
+  );
   if (match === null) throw new Error("invalid descriptor location");
   return `/api/v1/servers/${match[1]!}/descriptors?${query.toString()}`;
 }
 
 function serverPanelID(viewKey: string): string {
   if (viewKey === "#/catalog") return "catalog-reads";
-  if (/\?tab=operations$|\/operations\//.test(viewKey))
+  if (/\?tab=activity$|\/operations\//.test(viewKey))
     return "server-operation-reads";
-  if (/\?tab=oauth$|\/auth-flows\//.test(viewKey)) return "server-oauth-reads";
-  if (/\?tab=descriptors$|\/descriptors\//.test(viewKey))
+  if (/\/auth-flows\//.test(viewKey)) return "server-oauth-reads";
+  if (/\?tab=tools$|\/descriptors\//.test(viewKey))
     return "server-descriptor-reads";
   return "server-overview-reads";
 }
@@ -695,14 +700,24 @@ export class ServerReadsController {
                 this.value.authFlows.some((flow) => !authFlowIsTerminal(flow)),
             }
           : {}),
-        read: (context) => this.read(context),
+        read: (context) =>
+          this.read(
+            context,
+            id === "server-operation-reads"
+              ? "operations"
+              : id === "server-oauth-reads"
+                ? "authFlows"
+                : id === "server-descriptor-reads"
+                  ? "descriptors"
+                  : undefined,
+          ),
         publish: (result) => this.publish(result),
       });
     register(
       "server-overview-reads",
       (key) =>
         key === "#/servers" ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=credentials)?$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=(?:authentication|settings|diagnostics))?$/.test(
           key,
         ),
       ["servers", "catalog"],
@@ -710,7 +725,7 @@ export class ServerReadsController {
     register(
       "server-operation-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=operations$/.test(key) ||
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=activity$/.test(key) ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
@@ -720,7 +735,9 @@ export class ServerReadsController {
     register(
       "server-oauth-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=oauth$/.test(key) ||
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:activity|diagnostics)$/.test(
+          key,
+        ) ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
@@ -730,9 +747,7 @@ export class ServerReadsController {
     register(
       "server-descriptor-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=descriptors$/.test(
-          key,
-        ) ||
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=tools$/.test(key) ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
@@ -771,14 +786,23 @@ export class ServerReadsController {
     this.value = { ...this.value, loadingMore: true };
     this.emit();
     try {
-      await this.views.refreshPanel(serverPanelID(this.value.viewKey));
+      await this.views.refreshPanel(
+        kind === "authFlows"
+          ? "server-oauth-reads"
+          : kind === "operations"
+            ? "server-operation-reads"
+            : serverPanelID(this.value.viewKey),
+      );
     } finally {
       this.continuationPending = false;
       this.value = { ...this.value, loadingMore: false };
       this.emit();
     }
   }
-  private async read(context: ViewReadContext): Promise<ReadResult> {
+  private async read(
+    context: ViewReadContext,
+    forcedKind?: "operations" | "authFlows" | "descriptors",
+  ): Promise<ReadResult> {
     if (context.viewKey !== this.value.viewKey) {
       this.continuation = undefined;
       this.value = emptySnapshot(context.viewKey);
@@ -857,10 +881,10 @@ export class ServerReadsController {
       };
     }
     const serverItem =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:\?tab=credentials)?$/.exec(
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:\?tab=(?:authentication|settings|diagnostics))?$/.exec(
         context.viewKey,
       );
-    if (serverItem !== null) {
+    if (serverItem !== null && forcedKind === undefined) {
       const response = await get(context, `/api/v1/servers/${serverItem[1]!}`);
       const server = decodeServer(await json(response));
       const etag = response.headers.get("ETag");
@@ -869,15 +893,12 @@ export class ServerReadsController {
       return { kind: "server", viewKey: context.viewKey, server, etag };
     }
     const kind: ListKind =
-      context.viewKey === "#/servers"
+      forcedKind ??
+      (context.viewKey === "#/servers"
         ? "servers"
         : context.viewKey === "#/catalog"
           ? "catalog"
-          : context.viewKey.endsWith("?tab=operations")
-            ? "operations"
-            : context.viewKey.endsWith("?tab=oauth")
-              ? "authFlows"
-              : "descriptors";
+          : "descriptors");
     const continuation = this.continuation;
     this.continuation = undefined;
     const next = continuation?.kind === kind ? continuation.cursor : null;
@@ -1060,10 +1081,15 @@ function ServerTabs({
 }) {
   const tabs = [
     ["overview", "Overview", `#/servers/${serverID}`],
-    ["operations", "Operations", `#/servers/${serverID}?tab=operations`],
-    ["oauth", "OAuth", `#/servers/${serverID}?tab=oauth`],
-    ["credentials", "Credentials", `#/servers/${serverID}?tab=credentials`],
-    ["descriptors", "Descriptors", `#/servers/${serverID}?tab=descriptors`],
+    ["tools", "Tools", `#/servers/${serverID}?tab=tools`],
+    ["activity", "Activity", `#/servers/${serverID}?tab=activity`],
+    [
+      "authentication",
+      "Authentication",
+      `#/servers/${serverID}?tab=authentication`,
+    ],
+    ["settings", "Settings", `#/servers/${serverID}?tab=settings`],
+    ["diagnostics", "Diagnostics", `#/servers/${serverID}?tab=diagnostics`],
   ] as const;
   return (
     <nav class="subnav" aria-label="Server sections">
@@ -1079,41 +1105,161 @@ function ServerTabs({
     </nav>
   );
 }
+interface ServerPresentation {
+  label: string;
+  state: "current" | "loading" | "warning" | "unavailable";
+  action: string;
+  href: string;
+}
+
+function serverPresentation(server: ServerView): ServerPresentation {
+  const root = `#/servers/${server.id}`;
+  if (server.desiredState === "deleted")
+    return {
+      label: "Deleted",
+      state: "unavailable",
+      action: "View diagnostics",
+      href: `${root}?tab=diagnostics`,
+    };
+  if (server.desiredState === "disabled")
+    return {
+      label: "Disabled",
+      state: "unavailable",
+      action: "Configure",
+      href: `${root}?tab=settings`,
+    };
+  if (
+    server.runtimeState === "authentication_required" ||
+    server.credentialState === "absent" ||
+    server.credentialState === "reauthentication_required"
+  )
+    return {
+      label: "Authorization required",
+      state: "warning",
+      action: "Authorize",
+      href: `${root}?tab=authentication`,
+    };
+  if (
+    server.runtimeState === "activating" ||
+    server.runtimeState === "retry_wait" ||
+    server.credentialState === "refreshing"
+  )
+    return {
+      label: "Connecting",
+      state: "loading",
+      action: "View",
+      href: root,
+    };
+  if (
+    server.runtimeState === "active" &&
+    server.activeState === "current" &&
+    server.credentialState !== "locked" &&
+    server.credentialState !== "unavailable"
+  )
+    return {
+      label: "Ready",
+      state: "current",
+      action: server.activeToolCount > 0 ? "View tools" : "View",
+      href: server.activeToolCount > 0 ? `${root}?tab=tools` : root,
+    };
+  return {
+    label: "Needs attention",
+    state: "warning",
+    action: "Diagnose",
+    href: `${root}?tab=diagnostics`,
+  };
+}
+
 function ServerRows({ items }: { items: readonly ServerView[] }) {
   return (
-    <div class="audit-records">
-      {items.map((server) => (
-        <article class="audit-record" data-testid="server-row" key={server.id}>
-          <div class="audit-record-heading">
-            <div>
-              <span class="panel-value">{server.namespace}</span>
-              <h3>
-                <a href={`#/servers/${server.id}`}>{server.displayName}</a>
-              </h3>
-            </div>
-            <StatusLabel
-              state={
-                server.desiredState === "deleted" ? "unavailable" : "current"
-              }
-            >
-              desired {server.desiredState}
-            </StatusLabel>
-          </div>
-          <p>
-            <strong>Runtime</strong> {server.runtimeState} ·{" "}
-            <strong>Credential</strong> {server.credentialState}
-          </p>
-          <p>
-            <strong>durable {server.durableState}</strong> revision{" "}
-            {server.durableRevision ?? "none"} ·{" "}
-            <strong>active {server.activeState}</strong> revision{" "}
-            {server.activeRevision ?? "none"}
-          </p>
-        </article>
-      ))}
-    </div>
+    <CollectionTable
+      caption="Servers"
+      items={items}
+      rowKey={(server) => server.id}
+      rowTestID="server-row"
+      filterLabel="Filter servers"
+      filterValue={(server) =>
+        `${server.displayName} ${server.namespace} ${serverPresentation(server).label}`
+      }
+      emptyTitle="No servers match this filter"
+      columns={[
+        {
+          key: "server",
+          label: "Server",
+          sortValue: (server) => server.displayName,
+          render: (server) => (
+            <>
+              <a href={`#/servers/${server.id}`}>{server.displayName}</a>
+              <span class="table-secondary">{server.namespace}</span>
+            </>
+          ),
+        },
+        {
+          key: "status",
+          label: "Status",
+          sortValue: (server) => serverPresentation(server).label,
+          render: (server) => {
+            const presentation = serverPresentation(server);
+            return (
+              <StatusLabel state={presentation.state}>
+                {presentation.label}
+              </StatusLabel>
+            );
+          },
+        },
+        {
+          key: "tools",
+          label: "Tools",
+          sortValue: (server) => server.activeToolCount,
+          render: (server) => server.activeToolCount || "—",
+        },
+        {
+          key: "action",
+          label: "Action",
+          class: "action-column",
+          render: (server) => {
+            const presentation = serverPresentation(server);
+            return <a href={presentation.href}>{presentation.action}</a>;
+          },
+        },
+      ]}
+    />
   );
 }
+function OAuthDiagnostics({ flows }: { flows: readonly ServerAuthFlowView[] }) {
+  const diagnostics = flows.filter((flow) => flow.diagnostic !== null);
+  if (diagnostics.length === 0)
+    return <StateNotice state="empty" title="No retained OAuth failures" />;
+  return (
+    <ComparisonTable caption="OAuth failures">
+      <thead>
+        <tr>
+          <th scope="col">Time</th>
+          <th scope="col">Stage</th>
+          <th scope="col">Reason</th>
+          <th scope="col">HTTP</th>
+          <th scope="col">Correlation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {diagnostics.map((flow) => (
+          <tr key={flow.id}>
+            <td>{flow.finishedAt ?? flow.createdAt}</td>
+            <td>{flow.diagnostic!.stage.replaceAll("_", " ")}</td>
+            <td>{flow.diagnostic!.reason.replaceAll("_", " ")}</td>
+            <td>{flow.diagnostic!.httpStatus ?? "—"}</td>
+            <td>
+              <a href={`#/servers/${flow.serverID}/auth-flows/${flow.id}`}>
+                {flow.diagnostic!.correlationID}
+              </a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </ComparisonTable>
+  );
+}
+
 function CatalogRows({
   items,
   degraded,
@@ -1122,88 +1268,78 @@ function CatalogRows({
   degraded: boolean;
 }) {
   return (
-    <div class="audit-records">
-      {items.map((descriptor) => (
-        <article
-          class="audit-record"
-          data-testid="catalog-row"
-          key={descriptor.id}
-        >
-          <div class="audit-record-heading">
-            <div>
-              <span class="panel-value">{descriptor.externalName}</span>
-              <h3>
-                <a
-                  href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
-                  data-tool-name={descriptor.upstreamName}
-                >
-                  {descriptor.upstreamName}
-                </a>
-              </h3>
-            </div>
-            <StatusLabel state={degraded ? "warning" : "current"}>
-              Administrative evidence
-            </StatusLabel>
-          </div>
-          <p>
-            Recorded server{" "}
-            <a href={`#/servers/${descriptor.serverID}`}>
-              {descriptor.serverID}
-            </a>{" "}
-            · durable source revision {descriptor.catalogRevision}
-          </p>
-          <p>
-            Process publication is not an authorization or callability claim.
-          </p>
-        </article>
-      ))}
-    </div>
+    <ComparisonTable caption="Available tools">
+      <thead>
+        <tr>
+          <th scope="col">Tool</th>
+          <th scope="col">Server</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((descriptor) => (
+          <tr data-testid="catalog-row" key={descriptor.id}>
+            <th scope="row">
+              <a
+                href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+                data-tool-name={descriptor.upstreamName}
+              >
+                {descriptor.upstreamName}
+              </a>
+              <span class="table-secondary">{descriptor.externalName}</span>
+            </th>
+            <td>
+              <a href={`#/servers/${descriptor.serverID}`}>
+                {descriptor.serverID}
+              </a>
+            </td>
+            <td>
+              <StatusLabel state={degraded ? "warning" : "current"}>
+                {degraded ? "Catalog issue" : "Available"}
+              </StatusLabel>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </ComparisonTable>
   );
 }
 function DescriptorRows({ items }: { items: readonly DescriptorView[] }) {
   return (
-    <div class="audit-records">
-      {items.map((descriptor) => (
-        <article
-          class="audit-record"
-          data-testid="descriptor-row"
-          key={descriptor.id}
-        >
-          <div class="audit-record-heading">
-            <div>
-              <span class="panel-value">{descriptor.externalName}</span>
-              <h3>
-                <a
-                  href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
-                  data-tool-name={descriptor.upstreamName}
-                >
-                  {descriptor.upstreamName}
-                </a>
-              </h3>
-            </div>
-            <StatusLabel
-              state={descriptor.retiredAt === null ? "current" : "unavailable"}
-            >
-              {descriptor.retiredAt === null
-                ? "current evidence"
-                : "retired evidence"}
-            </StatusLabel>
-          </div>
-          <p>
-            Recorded server{" "}
-            <a href={`#/servers/${descriptor.serverID}`}>
-              {descriptor.serverID}
-            </a>{" "}
-            · durable catalog revision {descriptor.catalogRevision} ·
-            fingerprint {descriptor.fingerprint}
-          </p>
-          <p>
-            Durable descriptor evidence is not proof of process publication or
-            callability.
-          </p>
-        </article>
-      ))}
-    </div>
+    <ComparisonTable caption="Server tools">
+      <thead>
+        <tr>
+          <th scope="col">Tool</th>
+          <th scope="col">Status</th>
+          <th scope="col">Last seen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((descriptor) => (
+          <tr data-testid="descriptor-row" key={descriptor.id}>
+            <th scope="row">
+              <a
+                href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+                data-tool-name={descriptor.upstreamName}
+              >
+                {descriptor.upstreamName}
+              </a>
+              <span class="table-secondary">{descriptor.externalName}</span>
+            </th>
+            <td>
+              <StatusLabel
+                state={
+                  descriptor.retiredAt === null ? "current" : "unavailable"
+                }
+              >
+                {descriptor.retiredAt === null ? "Available" : "Retired"}
+              </StatusLabel>
+            </td>
+            <td>{descriptor.lastSeenAt}</td>
+          </tr>
+        ))}
+      </tbody>
+    </ComparisonTable>
   );
 }
 
@@ -1227,22 +1363,31 @@ export function ServerReads({
   const [snapshot, setSnapshot] = useState(controller.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
   const panel = view.panels[serverPanelID(view.viewKey)];
-  const credentialsTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=credentials$/.exec(
+  const overviewPanel = view.panels["server-overview-reads"];
+  const operationPanel = view.panels["server-operation-reads"];
+  const authFlowPanel = view.panels["server-oauth-reads"];
+  const authenticationTab =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=authentication$/.exec(
       view.viewKey,
     );
   const authFlowItem =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
     );
-  const authFlowList =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=oauth$/.exec(view.viewKey);
+  const activityTab =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=activity$/.exec(
+      view.viewKey,
+    );
   const operationItem =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
     );
-  const operationList =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=operations$/.exec(
+  const settingsTab =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=settings$/.exec(
+      view.viewKey,
+    );
+  const diagnosticsTab =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=diagnostics$/.exec(
       view.viewKey,
     );
   const descriptorItem =
@@ -1253,9 +1398,7 @@ export function ServerReads({
     view.viewKey,
   );
   const descriptorList =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=descriptors$/.exec(
-      view.viewKey,
-    );
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=tools$/.exec(view.viewKey);
   const otherTab =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=([^&]+)$/.exec(
       view.viewKey,
@@ -1327,71 +1470,81 @@ export function ServerReads({
   if (view.viewKey === "#/servers")
     return (
       <div class="domain-view" data-testid="servers-view">
-        <section class="panel domain-panel" aria-labelledby="servers-title">
-          <div class="panel-heading">
-            <div>
-              <span class="panel-code">SERVER INVENTORY</span>
-              <h2 id="servers-title">
-                Desired, runtime, credential, and catalog state
-              </h2>
-            </div>
-            <div>
-              <span class="classification">DURABLE + PROCESS</span>
-              <a href="#/servers/new" data-testid="server-create-link">
-                Create server
-              </a>
-            </div>
-          </div>
-          <ReadPanel panel={panel}>
-            {snapshot.servers.length === 0 ? (
-              <StateNotice state="empty" title="No server identities" />
-            ) : (
-              <ServerRows items={snapshot.servers} />
-            )}
-            {snapshot.restarted && (
-              <p class="bounded-note">
-                A stale cursor restarted this traversal from the first page;
-                stale pages were discarded.
-              </p>
-            )}
-            {snapshot.serverNext !== null && (
-              <button
-                data-testid="load-more-servers"
-                type="button"
-                disabled={snapshot.loadingMore}
-                onClick={() => void controller.loadMore("servers")}
-              >
-                Load more servers
-              </button>
-            )}
-          </ReadPanel>
-        </section>
+        <div class="collection-toolbar">
+          <a
+            class="button-link primary-action"
+            href="#/servers/new"
+            data-testid="server-create-link"
+          >
+            Create server
+          </a>
+        </div>
+        <ReadPanel panel={panel}>
+          {snapshot.servers.length === 0 ? (
+            <StateNotice state="empty" title="No servers" />
+          ) : (
+            <ServerRows items={snapshot.servers} />
+          )}
+          {snapshot.restarted && (
+            <p class="bounded-note">
+              The server list changed while loading. Current results replaced
+              the stale pages.
+            </p>
+          )}
+          {snapshot.serverNext !== null && (
+            <button
+              data-testid="load-more-servers"
+              type="button"
+              disabled={snapshot.loadingMore}
+              onClick={() => void controller.loadMore("servers")}
+            >
+              {snapshot.loadingMore ? "Loading…" : "Load more"}
+            </button>
+          )}
+        </ReadPanel>
       </div>
     );
-  if (credentialsTab !== null)
+  if (authenticationTab !== null)
     return (
-      <div class="domain-view" data-testid="server-credentials-view">
-        <ServerTabs serverID={credentialsTab[1]!} current="credentials" />
-        <ReadPanel panel={panel}>
+      <div class="domain-view" data-testid="server-authentication-view">
+        <ServerTabs serverID={authenticationTab[1]!} current="authentication" />
+        <ReadPanel panel={overviewPanel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
-              <ServerCredentials
-                mutations={mutations}
-                sinks={sinks}
-                server={snapshot.server}
-                etag={snapshot.serverETag}
-                readVersion={snapshot.readVersion}
-                onRefresh={onRefresh}
-              />
+              <>
+                <ServerAuthFlows
+                  mutations={mutations}
+                  sinks={sinks}
+                  server={snapshot.server}
+                  etag={snapshot.serverETag}
+                  readVersion={snapshot.readVersion}
+                  flows={snapshot.authFlows}
+                  flow={undefined}
+                  nextCursor={snapshot.authFlowNext}
+                  loadingMore={snapshot.loadingMore}
+                  restarted={snapshot.restarted}
+                  onLoadMore={() => void controller.loadMore("authFlows")}
+                  onRefresh={onRefresh}
+                  mode="action"
+                />
+                <ServerCredentials
+                  mutations={mutations}
+                  sinks={sinks}
+                  server={snapshot.server}
+                  etag={snapshot.serverETag}
+                  readVersion={snapshot.readVersion}
+                  onRefresh={onRefresh}
+                />
+              </>
             )}
         </ReadPanel>
       </div>
     );
-  if (authFlowItem !== null || authFlowList !== null) {
-    const serverID = (authFlowItem ?? authFlowList)![1]!;
+  if (authFlowItem !== null) {
+    const serverID = authFlowItem[1]!;
     return (
       <div class="domain-view" data-testid="server-auth-flows-view">
-        <ServerTabs serverID={serverID} current="oauth" />
+        <ServerTabs serverID={serverID} current="activity" />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1402,7 +1555,7 @@ export function ServerReads({
                 etag={snapshot.serverETag}
                 readVersion={snapshot.readVersion}
                 flows={snapshot.authFlows}
-                flow={authFlowItem === null ? undefined : snapshot.authFlow}
+                flow={snapshot.authFlow}
                 nextCursor={snapshot.authFlowNext}
                 loadingMore={snapshot.loadingMore}
                 restarted={snapshot.restarted}
@@ -1414,11 +1567,54 @@ export function ServerReads({
       </div>
     );
   }
-  if (operationItem !== null || operationList !== null) {
-    const serverID = (operationItem ?? operationList)![1]!;
+  if (activityTab !== null)
+    return (
+      <div class="domain-view" data-testid="server-activity-view">
+        <ServerTabs serverID={activityTab[1]!} current="activity" />
+        <ReadPanel panel={operationPanel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerOperations
+                mutations={mutations}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                operations={snapshot.operations}
+                operation={undefined}
+                nextCursor={snapshot.operationNext}
+                loadingMore={snapshot.loadingMore}
+                restarted={snapshot.restarted}
+                onLoadMore={() => void controller.loadMore("operations")}
+              />
+            )}
+        </ReadPanel>
+        <ReadPanel panel={authFlowPanel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerAuthFlows
+                mutations={mutations}
+                sinks={sinks}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                flows={snapshot.authFlows}
+                flow={undefined}
+                nextCursor={snapshot.authFlowNext}
+                loadingMore={snapshot.loadingMore}
+                restarted={snapshot.restarted}
+                onLoadMore={() => void controller.loadMore("authFlows")}
+                onRefresh={onRefresh}
+                mode="history"
+              />
+            )}
+        </ReadPanel>
+      </div>
+    );
+  if (operationItem !== null) {
+    const serverID = operationItem[1]!;
     return (
       <div class="domain-view" data-testid="server-operations-view">
-        <ServerTabs serverID={serverID} current="operations" />
+        <ServerTabs serverID={serverID} current="activity" />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1428,9 +1624,7 @@ export function ServerReads({
                 etag={snapshot.serverETag}
                 readVersion={snapshot.readVersion}
                 operations={snapshot.operations}
-                operation={
-                  operationItem === null ? undefined : snapshot.operation
-                }
+                operation={snapshot.operation}
                 nextCursor={snapshot.operationNext}
                 loadingMore={snapshot.loadingMore}
                 restarted={snapshot.restarted}
@@ -1444,7 +1638,7 @@ export function ServerReads({
   if (descriptorItem !== null)
     return (
       <div class="domain-view" data-testid="descriptor-detail">
-        <ServerTabs serverID={descriptorItem[1]!} current="descriptors" />
+        <ServerTabs serverID={descriptorItem[1]!} current="tools" />
         <section
           class="panel domain-panel"
           aria-labelledby="descriptor-detail-title"
@@ -1497,24 +1691,15 @@ export function ServerReads({
   if (descriptorList !== null)
     return (
       <div class="domain-view" data-testid="descriptor-list">
-        <ServerTabs serverID={descriptorList[1]!} current="descriptors" />
+        <ServerTabs serverID={descriptorList[1]!} current="tools" />
         <section
           class="panel domain-panel"
           aria-labelledby="descriptor-list-title"
         >
           <div class="panel-heading">
-            <div>
-              <span class="panel-code">DURABLE HISTORY</span>
-              <h2 id="descriptor-list-title">
-                Current and retired descriptors
-              </h2>
-            </div>
-            <a href="#/catalog">Active catalog</a>
+            <h2 id="descriptor-list-title">Tools</h2>
+            <a href="#/catalog">All available tools</a>
           </div>
-          <p>
-            Durable descriptor evidence survives process withdrawal and restart.
-            It is not proof of process publication or callability.
-          </p>
           <ReadPanel panel={panel}>
             <DescriptorRows items={snapshot.descriptors} />
             {snapshot.restarted && (
@@ -1530,9 +1715,119 @@ export function ServerReads({
                 disabled={snapshot.loadingMore}
                 onClick={() => void controller.loadMore("descriptors")}
               >
-                Load more descriptors
+                {snapshot.loadingMore ? "Loading…" : "Load more tools"}
               </button>
             )}
+          </ReadPanel>
+        </section>
+      </div>
+    );
+  if (settingsTab !== null)
+    return (
+      <div class="domain-view" data-testid="server-settings-view">
+        <ServerTabs serverID={settingsTab[1]!} current="settings" />
+        <ReadPanel panel={panel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined &&
+            snapshot.server.desiredState !== "deleted" && (
+              <>
+                <ServerEditor
+                  mutations={mutations}
+                  server={snapshot.server}
+                  etag={snapshot.serverETag}
+                  onRefresh={onRefresh}
+                  notify={notify}
+                  decodeServerValue={decodeServer}
+                />
+                <ServerDestructiveActions
+                  mutations={mutations}
+                  server={snapshot.server}
+                  etag={snapshot.serverETag}
+                  readVersion={snapshot.readVersion}
+                  decodeServerValue={decodeServer}
+                />
+              </>
+            )}
+          {snapshot.server?.desiredState === "deleted" && (
+            <StateNotice state="unavailable" title="Server deleted" />
+          )}
+        </ReadPanel>
+      </div>
+    );
+  if (diagnosticsTab !== null)
+    return (
+      <div class="domain-view" data-testid="server-diagnostics-view">
+        <ServerTabs serverID={diagnosticsTab[1]!} current="diagnostics" />
+        <section
+          class="panel domain-panel"
+          aria-labelledby="server-diagnostics-title"
+        >
+          <div class="panel-heading">
+            <h2 id="server-diagnostics-title">Server diagnostics</h2>
+          </div>
+          <ReadPanel panel={panel}>
+            {snapshot.server !== undefined && (
+              <ComparisonTable caption="Internal server state">
+                <tbody>
+                  <tr>
+                    <th scope="row">Desired state</th>
+                    <td>{snapshot.server.desiredState}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Desired revision</th>
+                    <td>{snapshot.server.desiredRevision}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Runtime</th>
+                    <td>{snapshot.server.runtimeState}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Runtime reason</th>
+                    <td>{snapshot.server.runtimeReason ?? "—"}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Runtime identity</th>
+                    <td>{snapshot.server.runtimeID ?? "—"}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Credential revisions</th>
+                    <td>
+                      Static {snapshot.server.staticRevision}; OAuth client{" "}
+                      {snapshot.server.oauthClientRevision}; tokens{" "}
+                      {snapshot.server.oauthTokensRevision}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Catalog</th>
+                    <td>
+                      Durable {snapshot.server.durableState} revision{" "}
+                      {snapshot.server.durableRevision ?? "—"}; active{" "}
+                      {snapshot.server.activeState} revision{" "}
+                      {snapshot.server.activeRevision ?? "—"}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Last catalog success</th>
+                    <td>{snapshot.server.lastSuccessAt ?? "—"}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Deleted at</th>
+                    <td>{snapshot.server.deletedAt ?? "—"}</td>
+                  </tr>
+                </tbody>
+              </ComparisonTable>
+            )}
+          </ReadPanel>
+        </section>
+        <section
+          class="panel domain-panel"
+          aria-labelledby="oauth-diagnostics-title"
+        >
+          <div class="panel-heading">
+            <h2 id="oauth-diagnostics-title">OAuth failures</h2>
+          </div>
+          <ReadPanel panel={authFlowPanel}>
+            <OAuthDiagnostics flows={snapshot.authFlows} />
           </ReadPanel>
         </section>
       </div>
@@ -1542,84 +1837,48 @@ export function ServerReads({
       <div class="domain-view" data-testid="server-detail">
         <ServerTabs serverID={serverItem[1]!} current="overview" />
         <section
-          class="panel domain-panel"
+          class="panel domain-panel server-summary"
           aria-labelledby="server-detail-title"
         >
-          <div class="panel-heading">
-            <div>
-              <span class="panel-code">SERVER RECORD</span>
-              <h2 id="server-detail-title">
-                {snapshot.server?.displayName ?? "Server detail"}
-              </h2>
-            </div>
-            <a href="#/catalog">Active catalog</a>
-          </div>
           <ReadPanel panel={panel}>
-            {snapshot.server !== undefined && (
-              <div class="fact-grid">
-                <article class="fact-card">
-                  <span class="panel-code">DESIRED</span>
-                  <h3>{snapshot.server.desiredState}</h3>
-                  <p>Desired revision {snapshot.server.desiredRevision}</p>
-                  <p>Namespace {snapshot.server.namespace}</p>
-                  <p>Deleted {snapshot.server.deletedAt ?? "no"}</p>
-                </article>
-                <article class="fact-card">
-                  <span class="panel-code">RUNTIME</span>
-                  <h3>{snapshot.server.runtimeState}</h3>
-                  <p>Reason {snapshot.server.runtimeReason ?? "none"}</p>
-                  <p>Runtime identity {snapshot.server.runtimeID ?? "none"}</p>
-                </article>
-                <article class="fact-card">
-                  <span class="panel-code">CREDENTIAL</span>
-                  <h3>{snapshot.server.credentialState}</h3>
-                  <p>
-                    Static {snapshot.server.staticRevision} · OAuth client{" "}
-                    {snapshot.server.oauthClientRevision} · tokens{" "}
-                    {snapshot.server.oauthTokensRevision}
-                  </p>
-                </article>
-                <article class="fact-card">
-                  <span class="panel-code">CATALOG</span>
-                  <h3>Active catalog {snapshot.server.activeState}</h3>
-                  <p>
-                    Durable catalog revision{" "}
-                    {snapshot.server.durableRevision ?? "none"}
-                  </p>
-                  <p>
-                    Active process revision{" "}
-                    {snapshot.server.activeRevision ?? "none"}
-                  </p>
-                  <p>
-                    Durable evidence is not proof of process publication or
-                    callability.
-                  </p>
-                </article>
-              </div>
-            )}
+            {snapshot.server !== undefined &&
+              (() => {
+                const presentation = serverPresentation(snapshot.server);
+                return (
+                  <>
+                    <div class="panel-heading">
+                      <div>
+                        <h2 id="server-detail-title">
+                          {snapshot.server.displayName}
+                        </h2>
+                        <span class="table-secondary">
+                          {snapshot.server.namespace}
+                        </span>
+                      </div>
+                      <StatusLabel state={presentation.state}>
+                        {presentation.label}
+                      </StatusLabel>
+                    </div>
+                    <p>
+                      {presentation.label === "Authorization required"
+                        ? "Connect this server to continue."
+                        : presentation.label === "Ready"
+                          ? `${snapshot.server.activeToolCount} available ${snapshot.server.activeToolCount === 1 ? "tool" : "tools"}.`
+                          : presentation.label === "Disabled"
+                            ? "This server will not connect until it is enabled."
+                            : "Review diagnostics for the latest internal state."}
+                    </p>
+                    <a
+                      class="button-link primary-action"
+                      href={presentation.href}
+                    >
+                      {presentation.action}
+                    </a>
+                  </>
+                );
+              })()}
           </ReadPanel>
         </section>
-        {snapshot.server !== undefined &&
-          snapshot.server.desiredState !== "deleted" &&
-          snapshot.serverETag !== undefined && (
-            <>
-              <ServerEditor
-                mutations={mutations}
-                server={snapshot.server}
-                etag={snapshot.serverETag}
-                onRefresh={onRefresh}
-                notify={notify}
-                decodeServerValue={decodeServer}
-              />
-              <ServerDestructiveActions
-                mutations={mutations}
-                server={snapshot.server}
-                etag={snapshot.serverETag}
-                readVersion={snapshot.readVersion}
-                decodeServerValue={decodeServer}
-              />
-            </>
-          )}
       </div>
     );
   if (otherTab !== null)

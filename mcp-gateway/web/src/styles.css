@@ -135,6 +135,7 @@ button:disabled {
 }
 
 button.primary-action,
+.button-link.primary-action,
 form button[type="submit"] {
   border-color: var(--accent);
   background: var(--accent);
@@ -142,6 +143,7 @@ form button[type="submit"] {
 }
 
 button.primary-action:not(:disabled):hover,
+.button-link.primary-action:hover,
 form button[type="submit"]:not(:disabled):hover {
   border-color: var(--accent);
   background: var(--accent);
@@ -939,6 +941,92 @@ p {
 .inert-json,
 .recovery-step pre {
   font-family: var(--mono);
+}
+
+.collection-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.table-filter {
+  display: grid;
+  max-width: 320px;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.table-filter input {
+  min-height: 38px;
+}
+
+.collection-table .table-filter {
+  margin-bottom: 10px;
+}
+
+.collection-table > button {
+  margin-top: 10px;
+}
+
+button.sort-button {
+  min-height: auto;
+  justify-content: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+button.sort-button:not(:disabled):hover {
+  border: 0;
+  background: transparent;
+  text-decoration: underline;
+}
+
+.table-secondary {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 450;
+}
+
+.action-column {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.server-summary {
+  max-width: 760px;
+}
+
+.detail-list {
+  display: grid;
+  gap: 0;
+  margin: 14px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.detail-list > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-list dt {
+  color: var(--muted);
+}
+
+.detail-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .table-region {

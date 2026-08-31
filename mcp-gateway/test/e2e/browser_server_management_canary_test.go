@@ -63,7 +63,7 @@ func TestBrowserServerManagementCanary(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 6, event.Destinations)
+	assert.Equal(t, 7, event.Destinations)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "browser server management canary must own one Gateway lifecycle")

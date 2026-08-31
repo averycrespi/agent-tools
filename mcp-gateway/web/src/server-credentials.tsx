@@ -350,6 +350,58 @@ function ReplacementFormHost(
   return <ReplacementForm {...props} />;
 }
 
+function authenticationPresentation(server: ServerView): {
+  heading: string;
+  description: string;
+  status: string;
+  warning: boolean;
+} {
+  if (server.transport === null)
+    return {
+      heading: "Authentication",
+      description: "No active transport is configured.",
+      status: "Unavailable",
+      warning: true,
+    };
+  const transport = server.transport as JSONRecord;
+  const authentication = (transport.authentication ?? {}) as JSONRecord;
+  let heading = "No authentication";
+  let description = "This server does not require credentials.";
+  if (transport.kind === "stdio") {
+    const environment = (transport.secret_environment ?? {}) as JSONRecord;
+    if (Object.keys(environment).length > 0) {
+      heading = "Local secrets";
+      description = "Replace the write-only values used by this local server.";
+    }
+  } else if (authentication.mode === "bearer") {
+    heading = "Bearer token";
+    description = "Replace the write-only bearer token used for this server.";
+  } else if (authentication.mode === "oauth") {
+    heading = "OAuth";
+    description =
+      "Authorize this server or replace its configured client secret.";
+  }
+  const warning = [
+    "absent",
+    "reauthentication_required",
+    "locked",
+    "interaction_required",
+    "unavailable",
+    "unsupported",
+  ].includes(server.credentialState);
+  return {
+    heading,
+    description,
+    status:
+      heading === "No authentication"
+        ? "Not required"
+        : warning
+          ? "Action required"
+          : "Configured",
+    warning,
+  };
+}
+
 export function ServerCredentials({
   mutations,
   sinks,
@@ -366,12 +418,7 @@ export function ServerCredentials({
   onRefresh: () => void;
 }) {
   const shape = replacementShape(server);
-  const warningState = [
-    "locked",
-    "interaction_required",
-    "unavailable",
-    "unsupported",
-  ].includes(server.credentialState);
+  const presentation = authenticationPresentation(server);
   return (
     <section
       class="panel domain-panel"
@@ -380,33 +427,17 @@ export function ServerCredentials({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">WRITE-ONLY AUTHORITY</span>
-          <h2 id="server-credentials-title">Replace server credential</h2>
+          <h2 id="server-credentials-title">{presentation.heading}</h2>
         </div>
-        <StatusLabel state={warningState ? "warning" : "current"}>
-          Credential {server.credentialState}
+        <StatusLabel state={presentation.warning ? "warning" : "current"}>
+          {presentation.status}
         </StatusLabel>
       </div>
+      <p>{presentation.description}</p>
       <p>
-        Keyring readiness is only a snapshot. A later native keyring write may
-        require operating-system interaction, fail, or outlive cancellation.
-        This browser cannot promise unattended or noninteractive operation.
+        <a href={`#/servers/${server.id}?tab=activity`}>Inspect activity</a>
       </p>
-      <p>
-        Current static revision {server.staticRevision} · OAuth client revision{" "}
-        {server.oauthClientRevision}
-      </p>
-      <p>
-        <a href={`#/servers/${server.id}?tab=operations`}>
-          Inspect operation history
-        </a>
-      </p>
-      {shape === undefined ? (
-        <StateNotice
-          state="unavailable"
-          title="Credential replacement is not eligible for this configured transport"
-        />
-      ) : (
+      {shape !== undefined && (
         <ReplacementFormHost
           mutations={mutations}
           sinks={sinks}

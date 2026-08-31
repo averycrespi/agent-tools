@@ -779,12 +779,17 @@ async function runFragmentStorage(
     ["#/servers", "#/servers"],
     ["#/servers/new", "#/servers/new"],
     [`#/servers/${idA}`, `#/servers/${idA}`],
-    ...["overview", "operations", "oauth", "credentials", "descriptors"].map(
-      (tab): [string, string] => [
-        `#/servers/${idA}?tab=${tab}`,
-        tab === "overview" ? `#/servers/${idA}` : `#/servers/${idA}?tab=${tab}`,
-      ],
-    ),
+    ...[
+      "overview",
+      "tools",
+      "activity",
+      "authentication",
+      "settings",
+      "diagnostics",
+    ].map((tab): [string, string] => [
+      `#/servers/${idA}?tab=${tab}`,
+      tab === "overview" ? `#/servers/${idA}` : `#/servers/${idA}?tab=${tab}`,
+    ]),
     [
       `#/servers/${idA}/operations/${idB}`,
       `#/servers/${idA}/operations/${idB}`,
@@ -2058,10 +2063,11 @@ async function runServerManagementCanary(
 
   const destinations: Array<[string, string]> = [
     [`#/servers/${serverID}`, "server-detail"],
-    [`#/servers/${serverID}?tab=operations`, "operation-list"],
-    [`#/servers/${serverID}?tab=oauth`, "auth-flow-list"],
-    [`#/servers/${serverID}?tab=credentials`, "server-credentials-view"],
-    [`#/servers/${serverID}?tab=descriptors`, "descriptor-list"],
+    [`#/servers/${serverID}?tab=tools`, "descriptor-list"],
+    [`#/servers/${serverID}?tab=activity`, "server-activity-view"],
+    [`#/servers/${serverID}?tab=authentication`, "server-authentication-view"],
+    [`#/servers/${serverID}?tab=settings`, "server-settings-view"],
+    [`#/servers/${serverID}?tab=diagnostics`, "server-diagnostics-view"],
     ["#/catalog", "catalog-view"],
   ];
   for (const [hash, testID] of destinations) {
@@ -2071,16 +2077,14 @@ async function runServerManagementCanary(
     await page.locator(`[data-testid="${testID}"]`).waitFor();
   }
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}`;
+    window.location.hash = `#/servers/${id}?tab=settings`;
   }, serverID);
-  await page.getByText("Edit desired server state", { exact: true }).click();
   await page.locator('[data-testid="server-editor"]').waitFor();
   await page.locator('[data-testid="server-destructive-actions"]').waitFor();
   await page.locator('[data-testid="delete-server"]').click();
   const body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Desired revision 7",
-    "Durable evidence is not proof",
+    "Configuration",
     "best-effort remote revocation",
     "immutable namespace",
   ])
@@ -6368,6 +6372,17 @@ async function runServerCreateUpdate(
     (await page.locator("#server-protocol-mode").inputValue()) !== "auto"
   )
     fail("HTTP selection did not reveal only automatic HTTP configuration");
+  await page.locator("#server-url").fill("file:///tmp/mcp");
+  await page.locator("#server-auth-none").check();
+  await page.locator("#server-namespace").fill("url-validation");
+  await page.locator("#server-display-name").fill("URL validation");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.getByText("HTTP endpoint must use http or https.").waitFor();
+  if (
+    (await page.locator("#server-url").getAttribute("aria-invalid")) !== "true"
+  )
+    fail("invalid HTTP endpoint was not associated with its field");
+  if (creates !== 0) fail("invalid HTTP endpoint submitted a create");
   await page.locator("#server-url").fill("https://resource.example/mcp");
   await page.locator("#server-auth-oauth").check();
   if (
@@ -6505,7 +6520,7 @@ async function runServerCreateUpdate(
   )
     fail("create body contained inline secret material");
 
-  await page.getByText("Edit desired server state").click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.locator("#server-display-name").fill("Display only draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.getByText("Precondition required").waitFor();
@@ -6522,6 +6537,7 @@ async function runServerCreateUpdate(
   await toast.getByText("Server settings saved.", { exact: true }).waitFor();
   if ((await toast.getAttribute("role")) !== "status")
     fail("save toast was not exposed as an accessible status");
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
 
   await page.locator("#server-enabled").selectOption("enabled");
   await page.locator('[data-testid="server-editor-submit"]').click();
@@ -6636,6 +6652,15 @@ async function runServerOperations(
     });
   });
   await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], next_cursor: null }),
+      }),
+  );
+  await page.route(
     `${baseURL}/api/v1/servers/${serverID}/operations?*`,
     async (route) => {
       if (route.request().method() !== "GET") {
@@ -6737,7 +6762,7 @@ async function runServerOperations(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=operations`;
+    window.location.hash = `#/servers/${id}?tab=activity`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -6749,7 +6774,7 @@ async function runServerOperations(
       document.querySelectorAll('[data-testid="operation-row"]').length === 2,
   );
   await page.waitForFunction(() =>
-    document.body.textContent?.includes("Start an eligible operation"),
+    document.body.textContent?.includes("Available actions"),
   );
   await page.waitForTimeout(350);
   if (listReads < 2)
@@ -6814,14 +6839,11 @@ async function runServerOperations(
   const detailText =
     (await page.locator('[data-testid="operation-detail"]').textContent()) ??
     "";
-  if (
-    !detailText.includes("Operation history") ||
-    !detailText.includes("Server record")
-  )
+  if (!detailText.includes("Activity") || !detailText.includes("Overview"))
     fail("operation detail omitted terminal navigation links");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=operations`;
+    window.location.hash = `#/servers/${id}?tab=activity`;
   }, serverID);
   await page.locator('[data-testid="operation-list"]').waitFor();
   await page.locator('[data-testid="start-operation-reload"]').click();
@@ -6840,7 +6862,7 @@ async function runServerOperations(
   await page.locator('[data-testid="operation-detail"]').waitFor();
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=operations`;
+    window.location.hash = `#/servers/${id}?tab=activity`;
   }, serverID);
   await page
     .locator('[data-testid="start-operation-disconnect_credentials"]')
@@ -6863,7 +6885,7 @@ async function runServerOperations(
     },
   };
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=operations`;
+    window.location.hash = `#/servers/${id}?tab=activity`;
   }, serverID);
   await page.locator('[data-testid="operation-list"]').waitFor();
   await page.locator('[data-testid="manual-refresh"]').click();
@@ -6883,9 +6905,9 @@ async function runServerOperations(
     runtime: { ...currentServer.runtime, state: "active", reason: null },
   };
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=operations`;
+    window.location.hash = `#/servers/${id}?tab=activity`;
   }, serverID);
-  await page.getByText("No explicit operation is currently eligible").waitFor();
+  await page.getByText("No actions are currently available").waitFor();
   if ((await page.locator('[data-testid^="start-operation-"]').count()) !== 0)
     fail("operation controls were offered during conflicting work");
 
@@ -6996,6 +7018,15 @@ async function runServerDisconnectDelete(
     });
   });
   await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], next_cursor: null }),
+      }),
+  );
+  await page.route(
     `${baseURL}/api/v1/servers/${serverID}/operations`,
     async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
@@ -7058,7 +7089,7 @@ async function runServerDisconnectDelete(
   }
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}`;
+    window.location.hash = `#/servers/${id}?tab=settings`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -7088,8 +7119,13 @@ async function runServerDisconnectDelete(
     .locator('[data-testid="server-disconnect-confirm-submit"]')
     .click();
   await page.getByText("Stale server revision").waitFor();
-  await page.waitForFunction(() =>
-    document.body.textContent?.includes("Desired revision 8"),
+  await page.waitForFunction(
+    () =>
+      !(
+        document.querySelector(
+          '[data-testid="disconnect-server-credentials"]',
+        ) as HTMLButtonElement | null
+      )?.disabled,
   );
   if (Number(disconnects) !== 1)
     fail("stale disconnect replayed automatically");
@@ -7101,7 +7137,7 @@ async function runServerDisconnectDelete(
   if (Number(disconnects) !== 2) fail("confirmed disconnect count changed");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}`;
+    window.location.hash = `#/servers/${id}?tab=settings`;
   }, serverID);
   await page.locator('[data-testid="server-destructive-actions"]').waitFor();
   const destructiveText =
@@ -7130,8 +7166,13 @@ async function runServerDisconnectDelete(
   await typed.fill(currentServer.namespace);
   await deleteSubmit.click();
   await page.getByText("Stale server revision").waitFor();
-  await page.waitForFunction(() =>
-    document.body.textContent?.includes("Desired revision 9"),
+  await page.waitForFunction(
+    () =>
+      !(
+        document.querySelector(
+          '[data-testid="delete-server"]',
+        ) as HTMLButtonElement | null
+      )?.disabled,
   );
   if (Number(deletes) !== 1) fail("stale deletion replayed automatically");
   await deleteButton.click();
@@ -7146,18 +7187,21 @@ async function runServerDisconnectDelete(
     window.location.hash = `#/servers/${id}`;
   }, serverID);
   await page.locator('[data-testid="server-detail"]').waitFor();
-  await page.waitForFunction(() =>
-    document.body.textContent?.includes("Desired revision 10"),
-  );
-  const tombstone =
+  await page.getByText("Deleted", { exact: true }).waitFor();
+  let tombstone =
     (await page.locator('[data-testid="server-detail"]').textContent()) ?? "";
-  if (
-    !tombstone.includes("deleted") ||
-    !tombstone.includes("2026-08-28T16:05:00Z") ||
-    !tombstone.includes("Active catalog absent") ||
-    !tombstone.includes("Durable evidence is not proof")
-  )
-    fail("server tombstone omitted permanent historical state");
+  if (!tombstone.includes("View diagnostics"))
+    fail("deleted server overview omitted its diagnostic action");
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=diagnostics`;
+  }, serverID);
+  await page.locator('[data-testid="server-diagnostics-view"]').waitFor();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("2026-08-28T16:05:00Z"),
+  );
+  tombstone = (await page.locator("body").textContent()) ?? "";
+  if (!tombstone.includes("Desired revision") || !tombstone.includes("10"))
+    fail("deleted server diagnostics omitted permanent historical state");
   if (
     (await page
       .locator('[data-testid="server-destructive-actions"]')
@@ -7242,7 +7286,15 @@ async function runAuthFlows(
         ? null
         : "2026-08-28T15:01:00Z",
     reason,
-    diagnostic: null,
+    diagnostic:
+      id === terminalID
+        ? {
+            correlation_id: terminalID,
+            stage: "client_registration",
+            reason: "oauth_rejected",
+            http_status: 400,
+          }
+        : null,
   });
 
   await context.route("https://issuer.example/**", async (route) =>
@@ -7271,6 +7323,15 @@ async function runAuthFlows(
       body: JSON.stringify(server),
     });
   });
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations?*`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], next_cursor: null }),
+      }),
+  );
   await page.route(
     `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
     async (route) => {
@@ -7367,7 +7428,7 @@ async function runAuthFlows(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=oauth`;
+    window.location.hash = `#/servers/${id}?tab=activity`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -7380,6 +7441,10 @@ async function runAuthFlows(
   );
   await page.waitForTimeout(350);
   if (listReads < 2) fail("auth-flow event did not trigger snapshot reread");
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=authentication`;
+  }, serverID);
+  await page.locator('[data-testid="start-auth-flow"]').waitFor();
 
   await page.locator('[data-testid="start-auth-flow"]').click();
   const display = page.locator('[data-testid="one-time-oauth-url"]');
@@ -7466,7 +7531,28 @@ async function runAuthFlows(
   await page.locator('[data-testid="auth-flow-detail"]').waitFor();
   if ((await page.locator('[data-testid="cancel-auth-flow"]').count()) !== 0)
     fail("terminal auth flow offered cancellation");
-  const finalDOM = (await page.locator("body").textContent()) ?? "";
+  let finalDOM = (await page.locator("body").textContent()) ?? "";
+  for (const value of [
+    "Diagnostic details",
+    "Client registration",
+    "OAuth rejected",
+    "400",
+    terminalID,
+  ])
+    if (!finalDOM.includes(value)) fail(`OAuth detail omitted ${value}`);
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=diagnostics`;
+  }, serverID);
+  await page.locator('[data-testid="server-diagnostics-view"]').waitFor();
+  await page.waitForFunction(() =>
+    document.body.textContent?.includes("client registration"),
+  );
+  finalDOM = (await page.locator("body").textContent()) ?? "";
+  if (
+    !finalDOM.includes("OAuth failures") ||
+    !finalDOM.includes("client registration")
+  )
+    fail("server diagnostics omitted retained OAuth failure");
   if (finalDOM.includes(bearer)) fail("bearer leaked into auth flow DOM");
   if (finalDOM.includes(authorizationURL))
     fail("authorization URL remained outside its one-time sink");
@@ -7575,6 +7661,15 @@ async function runServerCredentials(
     });
   });
   await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], next_cursor: null }),
+      }),
+  );
+  await page.route(
     `${baseURL}/api/v1/servers/${serverID}/credential-replacements`,
     async (route) => {
       replacements += 1;
@@ -7672,7 +7767,7 @@ async function runServerCredentials(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=credentials`;
+    window.location.hash = `#/servers/${id}?tab=authentication`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -7716,11 +7811,13 @@ async function runServerCredentials(
     } as unknown as typeof currentServer.transport,
   };
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page
-    .getByText(
-      "Credential replacement is not eligible for this configured transport",
-    )
-    .waitFor();
+  await page.getByRole("heading", { name: "No authentication" }).waitFor();
+  if (
+    (await page
+      .locator('[data-testid="credential-replacement-form"]')
+      .count()) !== 0
+  )
+    fail("no-auth server offered credential replacement");
   eligibilityModes += 1;
   currentServer = {
     ...currentServer,
@@ -7728,24 +7825,19 @@ async function runServerCredentials(
       oauthDynamicTransport as unknown as typeof currentServer.transport,
   };
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page
-    .getByText(
-      "Credential replacement is not eligible for this configured transport",
-    )
-    .waitFor();
+  await page.getByRole("heading", { name: "OAuth", exact: true }).waitFor();
+  if (
+    (await page
+      .locator('[data-testid="credential-replacement-form"]')
+      .count()) !== 0
+  )
+    fail("dynamic OAuth offered client-secret replacement");
   eligibilityModes += 1;
 
   currentServer = { ...currentServer, transport: stdioTransport };
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-primary");
-  const warning =
-    (await page.locator('[data-testid="server-credentials"]').textContent()) ??
-    "";
-  if (
-    !warning.includes("may require operating-system interaction") ||
-    !warning.includes("cannot promise unattended or noninteractive")
-  )
-    fail("credential form omitted keyring interaction warning");
+  await page.getByRole("heading", { name: "Local secrets" }).waitFor();
 
   const field = page.locator("#credential-slot-primary");
   const confirmReplacement = async (stage: string) => {
@@ -8138,11 +8230,9 @@ async function runServerCatalogReads(
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Authority required",
-    "authentication_required",
-    "reauthentication_required",
+    "Authorization required",
     "Degraded catalog",
-    "durable stale",
-    "active stale",
+    "Needs attention",
   ])
     if (!body.includes(phrase)) fail(`server inventory omitted ${phrase}`);
   await page.locator('[data-testid="load-more-servers"]').click();
@@ -8150,8 +8240,8 @@ async function runServerCatalogReads(
     () => document.querySelectorAll('[data-testid="server-row"]').length === 3,
   );
   body = (await page.locator("body").textContent()) ?? "";
-  if (!body.includes("Deleted history") || !body.includes("durable retired"))
-    fail("server inventory omitted deleted durable history");
+  if (!body.includes("Deleted history") || !body.includes("Deleted"))
+    fail("server inventory omitted deleted server");
 
   serverStale = true;
   await page.locator('[data-testid="manual-refresh"]').click();
@@ -8171,15 +8261,17 @@ async function runServerCatalogReads(
   await page.locator('[data-testid="server-detail"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Desired revision 7",
-    "Durable catalog revision 7",
-    "Active catalog unavailable",
-    "Durable evidence is not proof of process publication or callability",
+    "Authority required",
+    "server-b0",
+    "Authorization required",
+    "Authorize",
   ])
     if (!body.includes(phrase)) fail(`server detail omitted ${phrase}`);
+  if (body.includes("Desired revision 7") || body.includes("Runtime identity"))
+    fail("server overview exposed diagnostic implementation state");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=descriptors`;
+    window.location.hash = `#/servers/${id}?tab=tools`;
   }, serverReadIDs.active);
   await page.locator('[data-testid="descriptor-list"]').waitFor();
   await page.waitForFunction(
@@ -8187,8 +8279,8 @@ async function runServerCatalogReads(
       document.querySelectorAll('[data-testid="descriptor-row"]').length === 2,
   );
   body = (await page.locator("body").textContent()) ?? "";
-  if (!body.includes("current evidence") || !body.includes("retired evidence"))
-    fail("descriptor list omitted current/retired evidence labels");
+  if (!body.includes("Available") || !body.includes("Retired"))
+    fail("tool list omitted available/retired labels");
   await page
     .locator(
       `a[href="#/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.retiredTool}"]`,
@@ -8207,7 +8299,7 @@ async function runServerCatalogReads(
     fail("descriptor detail omitted evidence or reciprocal routes");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=descriptors`;
+    window.location.hash = `#/servers/${id}?tab=tools`;
   }, serverReadIDs.active);
   await page.locator('[data-testid="load-more-descriptors"]').click();
   await page.waitForFunction(

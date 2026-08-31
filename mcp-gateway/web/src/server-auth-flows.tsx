@@ -6,7 +6,12 @@ import type {
   MutationOutcome,
   MutationSnapshot,
 } from "./mutation";
-import { ConfirmationDialog, StateNotice, StatusLabel } from "./primitives";
+import {
+  CollectionTable,
+  ConfirmationDialog,
+  StateNotice,
+  StatusLabel,
+} from "./primitives";
 import {
   authFlowCanCancel,
   authFlowIsTerminal,
@@ -32,6 +37,12 @@ function eligible(server: ServerView): boolean {
   );
 }
 
+function words(value: string): string {
+  const result = value.replaceAll("_", " ");
+  if (result.startsWith("oauth")) return `OAuth${result.slice(5)}`;
+  return result.charAt(0).toLocaleUpperCase() + result.slice(1);
+}
+
 function FlowRows({
   serverID,
   items,
@@ -40,41 +51,57 @@ function FlowRows({
   items: readonly ServerAuthFlowView[];
 }) {
   return (
-    <div class="audit-records">
-      {items.map((flow) => (
-        <article class="audit-record" data-testid="auth-flow-row" key={flow.id}>
-          <div class="audit-record-heading">
-            <div>
-              <span class="panel-code">FOREGROUND OAUTH</span>
-              <h3>
-                <a href={`#/servers/${serverID}/auth-flows/${flow.id}`}>
-                  Flow {flow.id}
-                </a>
-              </h3>
-            </div>
+    <CollectionTable
+      caption="OAuth activity"
+      items={items}
+      rowKey={(flow) => flow.id}
+      rowTestID="auth-flow-row"
+      filterLabel="Filter OAuth activity"
+      filterValue={(flow) => `${words(flow.state)} ${flow.reason ?? ""}`}
+      columns={[
+        {
+          key: "action",
+          label: "Action",
+          render: (flow) => (
+            <a href={`#/servers/${serverID}/auth-flows/${flow.id}`}>
+              OAuth authorization
+            </a>
+          ),
+        },
+        {
+          key: "status",
+          label: "Status",
+          sortValue: (flow) => flow.state,
+          render: (flow) => (
             <StatusLabel
               state={
                 flow.state === "failed" || flow.state === "interrupted"
                   ? "warning"
                   : authFlowIsTerminal(flow)
                     ? "current"
-                    : "warning"
+                    : "loading"
               }
             >
-              {flow.state}
+              {words(flow.state)}
             </StatusLabel>
-          </div>
-          <p>
-            Desired revision {flow.targetDesiredRevision} · registration
-            revision {flow.registrationRevision}
-          </p>
-          <p>
-            Created {flow.createdAt} · expires {flow.expiresAt}
-          </p>
-          {flow.reason !== null && <p>Reason {flow.reason}</p>}
-        </article>
-      ))}
-    </div>
+          ),
+        },
+        {
+          key: "started",
+          label: "Started",
+          sortValue: (flow) => flow.createdAt,
+          render: (flow) => (
+            <time dateTime={flow.createdAt}>{flow.createdAt}</time>
+          ),
+        },
+        {
+          key: "outcome",
+          label: "Outcome",
+          sortValue: (flow) => flow.reason ?? "",
+          render: (flow) => (flow.reason === null ? "—" : words(flow.reason)),
+        },
+      ]}
+    />
   );
 }
 
@@ -177,7 +204,7 @@ function StartFlow({
       <div class="panel-heading">
         <div>
           <span class="panel-code">ONE-TIME AUTHORIZATION</span>
-          <h2 id="auth-flow-start-title">Start a foreground OAuth flow</h2>
+          <h2 id="auth-flow-start-title">Authorize with OAuth</h2>
         </div>
       </div>
       <p>
@@ -340,6 +367,7 @@ export function ServerAuthFlows({
   restarted,
   onLoadMore,
   onRefresh,
+  mode = "full",
 }: {
   mutations: MutationCoordinator;
   sinks: SensitiveSinkCoordinator;
@@ -353,6 +381,7 @@ export function ServerAuthFlows({
   restarted: boolean;
   onLoadMore: () => void;
   onRefresh: () => void;
+  mode?: "full" | "history" | "action";
 }) {
   if (flow !== undefined)
     return (
@@ -364,34 +393,66 @@ export function ServerAuthFlows({
         >
           <div class="panel-heading">
             <div>
-              <span class="panel-code">FOREGROUND OAUTH</span>
-              <h2 id="auth-flow-detail-title">Flow {flow.id}</h2>
+              <h2 id="auth-flow-detail-title">OAuth authorization</h2>
+              <span class="table-secondary">Correlation {flow.id}</span>
             </div>
             <StatusLabel
-              state={authFlowIsTerminal(flow) ? "current" : "warning"}
+              state={
+                authFlowIsTerminal(flow)
+                  ? flow.state === "failed" || flow.state === "interrupted"
+                    ? "warning"
+                    : "current"
+                  : "loading"
+              }
             >
-              {flow.state}
+              {words(flow.state)}
             </StatusLabel>
           </div>
           <p>
-            <a href={`#/servers/${server.id}?tab=oauth`}>OAuth flow history</a>{" "}
-            · <a href={`#/servers/${server.id}`}>Server record</a>
+            <a href={`#/servers/${server.id}?tab=activity`}>OAuth activity</a> ·{" "}
+            <a href={`#/servers/${server.id}`}>Overview</a>
           </p>
-          <div class="fact-grid">
-            <article class="fact-card">
-              <span class="panel-code">TARGET</span>
-              <h3>Desired revision {flow.targetDesiredRevision}</h3>
-              <p>Registration revision {flow.registrationRevision}</p>
-            </article>
-            <article class="fact-card">
-              <span class="panel-code">TIMING</span>
-              <h3>{flow.state}</h3>
-              <p>Created {flow.createdAt}</p>
-              <p>Expires {flow.expiresAt}</p>
-              <p>Finished {flow.finishedAt ?? "not recorded"}</p>
-              <p>Reason {flow.reason ?? "none"}</p>
-            </article>
-          </div>
+          <dl class="detail-list">
+            <div>
+              <dt>Created</dt>
+              <dd>{flow.createdAt}</dd>
+            </div>
+            <div>
+              <dt>Expires</dt>
+              <dd>{flow.expiresAt}</dd>
+            </div>
+            <div>
+              <dt>Finished</dt>
+              <dd>{flow.finishedAt ?? "In progress"}</dd>
+            </div>
+            <div>
+              <dt>Outcome</dt>
+              <dd>{flow.reason === null ? "—" : words(flow.reason)}</dd>
+            </div>
+          </dl>
+          {flow.diagnostic !== null && (
+            <details>
+              <summary>Diagnostic details</summary>
+              <dl class="detail-list">
+                <div>
+                  <dt>Stage</dt>
+                  <dd>{words(flow.diagnostic.stage)}</dd>
+                </div>
+                <div>
+                  <dt>Reason</dt>
+                  <dd>{words(flow.diagnostic.reason)}</dd>
+                </div>
+                <div>
+                  <dt>HTTP status</dt>
+                  <dd>{flow.diagnostic.httpStatus ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt>Correlation</dt>
+                  <dd>{flow.diagnostic.correlationID}</dd>
+                </div>
+              </dl>
+            </details>
+          )}
           {!authFlowIsTerminal(flow) && (
             <p class="bounded-note">
               This nonterminal flow polls every two seconds while visible.
@@ -411,6 +472,17 @@ export function ServerAuthFlows({
         />
       </>
     );
+  if (mode === "action")
+    return eligible(server) ? (
+      <StartFlow
+        mutations={mutations}
+        sinks={sinks}
+        server={server}
+        etag={etag}
+        readVersion={readVersion}
+        exchangeActive={flows.some((item) => item.state === "exchanging")}
+      />
+    ) : null;
   return (
     <>
       <section
@@ -420,8 +492,7 @@ export function ServerAuthFlows({
       >
         <div class="panel-heading">
           <div>
-            <span class="panel-code">OAUTH FLOW HISTORY</span>
-            <h2 id="auth-flow-list-title">Foreground authorization flows</h2>
+            <h2 id="auth-flow-list-title">OAuth activity</h2>
           </div>
         </div>
         {restarted && (
@@ -443,14 +514,16 @@ export function ServerAuthFlows({
           </button>
         )}
       </section>
-      <StartFlow
-        mutations={mutations}
-        sinks={sinks}
-        server={server}
-        etag={etag}
-        readVersion={readVersion}
-        exchangeActive={flows.some((item) => item.state === "exchanging")}
-      />
+      {mode === "full" && (
+        <StartFlow
+          mutations={mutations}
+          sinks={sinks}
+          server={server}
+          etag={etag}
+          readVersion={readVersion}
+          exchangeActive={flows.some((item) => item.state === "exchanging")}
+        />
+      )}
     </>
   );
 }

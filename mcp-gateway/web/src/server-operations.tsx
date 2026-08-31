@@ -7,11 +7,17 @@ import type {
   MutationSnapshot,
   MutationSpec,
 } from "./mutation";
-import { ConfirmationDialog, StateNotice, StatusLabel } from "./primitives";
+import {
+  CollectionTable,
+  ConfirmationDialog,
+  StateNotice,
+  StatusLabel,
+} from "./primitives";
 import {
   decodeOperationMutation,
   operationIsTerminal,
   type ExplicitOperationKind,
+  type OperationKind,
   type ServerOperationView,
 } from "./server-operation-model";
 import type { ServerView } from "./server-reads";
@@ -58,17 +64,37 @@ function eligibleKinds(
     result.push("disconnect_credentials");
   return result;
 }
-function label(kind: ExplicitOperationKind): string {
+function label(kind: OperationKind): string {
   switch (kind) {
+    case "activate":
+      return "Connect server";
     case "reload":
       return "Reload server";
     case "retry":
-      return "Retry eligible work";
+      return "Retry connection";
     case "refresh_catalog":
-      return "Refresh catalog";
+      return "Refresh tools";
+    case "credential_replace":
+      return "Replace credential";
+    case "disable":
+      return "Disable server";
+    case "delete":
+      return "Delete server";
     case "disconnect_credentials":
       return "Disconnect credentials";
   }
+}
+function words(value: string): string {
+  const result = value.replaceAll("_", " ");
+  return result.charAt(0).toLocaleUpperCase() + result.slice(1);
+}
+function operationState(
+  operation: ServerOperationView,
+): "current" | "loading" | "warning" {
+  if (!operationIsTerminal(operation)) return "loading";
+  return operation.state === "failed" || operation.state === "interrupted"
+    ? "warning"
+    : "current";
 }
 function requiresConfirmation(kind: ExplicitOperationKind): boolean {
   return kind === "reload" || kind === "disconnect_credentials";
@@ -86,43 +112,55 @@ function OperationRows({
   items: readonly ServerOperationView[];
 }) {
   return (
-    <div class="audit-records">
-      {items.map((operation) => (
-        <article
-          class="audit-record"
-          data-testid="operation-row"
-          key={operation.id}
-        >
-          <div class="audit-record-heading">
-            <div>
-              <span class="panel-value">{operation.kind}</span>
-              <h3>
-                <a href={`#/servers/${serverID}/operations/${operation.id}`}>
-                  Operation {operation.id}
-                </a>
-              </h3>
-            </div>
-            <StatusLabel
-              state={
-                operation.state === "failed" ||
-                operation.state === "interrupted"
-                  ? "warning"
-                  : operationIsTerminal(operation)
-                    ? "current"
-                    : "warning"
-              }
-            >
-              {operation.state}
+    <CollectionTable
+      caption="Server activity"
+      items={items}
+      rowKey={(operation) => operation.id}
+      rowTestID="operation-row"
+      filterLabel="Filter operations"
+      filterValue={(operation) =>
+        `${label(operation.kind)} ${words(operation.state)} ${operation.reason ?? ""}`
+      }
+      columns={[
+        {
+          key: "action",
+          label: "Action",
+          sortValue: (operation) => label(operation.kind),
+          render: (operation) => (
+            <a href={`#/servers/${serverID}/operations/${operation.id}`}>
+              {label(operation.kind)}
+            </a>
+          ),
+        },
+        {
+          key: "status",
+          label: "Status",
+          sortValue: (operation) => operation.state,
+          render: (operation) => (
+            <StatusLabel state={operationState(operation)}>
+              {words(operation.state)}
             </StatusLabel>
-          </div>
-          <p>
-            Target desired revision {operation.targetDesiredRevision} · created{" "}
-            {operation.createdAt}
-          </p>
-          {operation.reason !== null && <p>Reason {operation.reason}</p>}
-        </article>
-      ))}
-    </div>
+          ),
+        },
+        {
+          key: "started",
+          label: "Started",
+          sortValue: (operation) => operation.startedAt ?? operation.createdAt,
+          render: (operation) => (
+            <time dateTime={operation.startedAt ?? operation.createdAt}>
+              {operation.startedAt ?? operation.createdAt}
+            </time>
+          ),
+        },
+        {
+          key: "outcome",
+          label: "Outcome",
+          sortValue: (operation) => operation.reason ?? "",
+          render: (operation) =>
+            operation.reason === null ? "—" : words(operation.reason),
+        },
+      ]}
+    />
   );
 }
 
@@ -196,19 +234,11 @@ function OperationStarter({
     <section class="panel domain-panel" aria-labelledby="operation-start-title">
       <div class="panel-heading">
         <div>
-          <span class="panel-code">EXPLICIT WORK</span>
-          <h2 id="operation-start-title">Start an eligible operation</h2>
+          <h2 id="operation-start-title">Available actions</h2>
         </div>
       </div>
-      <p>
-        Eligibility is a current presentation hint. The API rechecks current
-        server, operation, credential, and catalog state before admission.
-      </p>
       {eligible.length === 0 ? (
-        <StateNotice
-          state="empty"
-          title="No explicit operation is currently eligible"
-        />
+        <StateNotice state="empty" title="No actions are currently available" />
       ) : (
         <div class="dialog-actions">
           {eligible.map((kind) => (
@@ -310,40 +340,37 @@ export function ServerOperations({
         >
           <div class="panel-heading">
             <div>
-              <span class="panel-value">{operation.kind}</span>
-              <h2 id="operation-detail-title">Operation {operation.id}</h2>
+              <h2 id="operation-detail-title">{label(operation.kind)}</h2>
+              <span class="table-secondary">Correlation {operation.id}</span>
             </div>
-            <StatusLabel
-              state={operationIsTerminal(operation) ? "current" : "warning"}
-            >
-              {operation.state}
+            <StatusLabel state={operationState(operation)}>
+              {words(operation.state)}
             </StatusLabel>
           </div>
           <p>
-            <a href={`#/servers/${server.id}?tab=operations`}>
-              Operation history
-            </a>{" "}
-            · <a href={`#/servers/${server.id}`}>Server record</a>
+            <a href={`#/servers/${server.id}?tab=activity`}>Activity</a> ·{" "}
+            <a href={`#/servers/${server.id}`}>Overview</a>
           </p>
-          <div class="fact-grid">
-            <article class="fact-card">
-              <span class="panel-code">TARGET</span>
-              <h3>Desired revision {operation.targetDesiredRevision}</h3>
-              <p>
-                Static {operation.targetStaticRevision} · OAuth client{" "}
-                {operation.targetOAuthClientRevision} · tokens{" "}
-                {operation.targetOAuthTokensRevision}
-              </p>
-            </article>
-            <article class="fact-card">
-              <span class="panel-code">TIMING</span>
-              <h3>{operation.state}</h3>
-              <p>Created {operation.createdAt}</p>
-              <p>Started {operation.startedAt ?? "not recorded"}</p>
-              <p>Finished {operation.finishedAt ?? "not recorded"}</p>
-              <p>Reason {operation.reason ?? "none"}</p>
-            </article>
-          </div>
+          <dl class="detail-list">
+            <div>
+              <dt>Created</dt>
+              <dd>{operation.createdAt}</dd>
+            </div>
+            <div>
+              <dt>Started</dt>
+              <dd>{operation.startedAt ?? "Not started"}</dd>
+            </div>
+            <div>
+              <dt>Finished</dt>
+              <dd>{operation.finishedAt ?? "In progress"}</dd>
+            </div>
+            <div>
+              <dt>Outcome</dt>
+              <dd>
+                {operation.reason === null ? "—" : words(operation.reason)}
+              </dd>
+            </div>
+          </dl>
           {!operationIsTerminal(operation) && (
             <p class="bounded-note">
               This nonterminal record polls every two seconds while visible.
@@ -373,9 +400,7 @@ export function ServerOperations({
         <div class="panel-heading">
           <div>
             <span class="panel-code">OPERATION HISTORY</span>
-            <h2 id="operation-list-title">
-              Scheduled, running, and terminal work
-            </h2>
+            <h2 id="operation-list-title">Operations</h2>
           </div>
         </div>
         {operations.length === 0 ? (
