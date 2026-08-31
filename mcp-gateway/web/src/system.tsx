@@ -1303,20 +1303,6 @@ export function System({
   return (
     <div class="system-view" data-testid="system-view">
       <SystemTabs current={current} />
-      {(current === "status" || current === "recovery") && (
-        <div class="refresh-controls system-refresh">
-          <StatusLabel state={view.freshness}>
-            Data {view.freshness}
-          </StatusLabel>
-          <button
-            data-testid="manual-refresh"
-            type="button"
-            onClick={onRefresh}
-          >
-            Refresh
-          </button>
-        </div>
-      )}
       {current === "status" ? (
         <StatusPanel status={status} view={view} />
       ) : current === "admin-credentials" ? (

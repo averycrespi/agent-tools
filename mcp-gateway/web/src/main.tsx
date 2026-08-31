@@ -29,6 +29,7 @@ import { ServerReads, ServerReadsController } from "./server-reads";
 import { SensitiveSinkHost } from "./sinks-ui";
 import { SensitiveSinkCoordinator } from "./sinks";
 import { System, SystemController } from "./system";
+import { ToastCoordinator, ToastHost } from "./toast";
 import {
   SessionClient,
   type SessionLifecycle,
@@ -81,6 +82,7 @@ const initialLocation = synchronizeFragment(false);
 const initialTheme = readThemePreference();
 const sessionClient = new SessionClient();
 const sensitiveSinkCoordinator = new SensitiveSinkCoordinator(sessionClient);
+const toastCoordinator = new ToastCoordinator();
 const viewCoordinator = new ViewCoordinator(sessionClient);
 const mutationCoordinator = new MutationCoordinator(sessionClient, {
   refreshCurrent: () => viewCoordinator.manualRefresh(),
@@ -351,6 +353,7 @@ function App() {
     if (session.lifecycle !== "authenticated") {
       setNavigationOpen(false);
       setLogoutConfirmationOpen(false);
+      toastCoordinator.clear();
     }
   }, [resolved.canonicalFragment, session.lifecycle]);
 
@@ -445,6 +448,25 @@ function App() {
               Menu
             </button>
           )}
+          {authenticated && (
+            <div class="freshness-control">
+              {view.freshness !== "current" && (
+                <StatusLabel state={view.freshness}>
+                  {view.freshness === "stale" ? "Stale" : "Reconnecting"}
+                </StatusLabel>
+              )}
+              <button
+                class="quiet-action"
+                data-testid="manual-refresh"
+                type="button"
+                aria-label="Refresh current view"
+                onClick={() => viewCoordinator.manualRefresh()}
+              >
+                <span aria-hidden="true">↻</span>
+                <span class="refresh-label">Refresh</span>
+              </button>
+            </div>
+          )}
           <label class="theme-control">
             <span class="visually-hidden">Theme</span>
             <select
@@ -525,11 +547,7 @@ function App() {
           <SessionTransition lifecycle={session.lifecycle} />
         ) : authenticated ? (
           destination === "overview" ? (
-            <Overview
-              controller={overviewController}
-              view={view}
-              onRefresh={() => viewCoordinator.manualRefresh()}
-            />
+            <Overview controller={overviewController} view={view} />
           ) : destination === "invocations" ? (
             <Invocations controller={invocationsController} view={view} />
           ) : destination === "system" ? (
@@ -577,6 +595,7 @@ function App() {
               mutations={mutationCoordinator}
               sinks={sensitiveSinkCoordinator}
               onRefresh={() => viewCoordinator.manualRefresh()}
+              notify={(message) => toastCoordinator.show(message)}
             />
           ) : (
             <section class="panel" aria-labelledby="foundation-title">
@@ -592,18 +611,6 @@ function App() {
                 Prior requests and scheduled work cannot update the current
                 session.
               </p>
-              <div class="refresh-controls">
-                <StatusLabel state={view.freshness}>
-                  Data {view.freshness}
-                </StatusLabel>
-                <button
-                  data-testid="manual-refresh"
-                  type="button"
-                  onClick={() => viewCoordinator.manualRefresh()}
-                >
-                  Refresh
-                </button>
-              </div>
             </section>
           )
         ) : (
@@ -614,6 +621,7 @@ function App() {
         )}
       </main>
       <SensitiveSinkHost coordinator={sensitiveSinkCoordinator} />
+      <ToastHost coordinator={toastCoordinator} />
       <ConfirmationDialog
         id="unsaved-changes"
         open={pendingNavigation !== undefined}

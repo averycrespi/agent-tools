@@ -167,9 +167,10 @@ function transportFromDraft(draft: Draft): unknown {
   }
   if (draft.authMode === "")
     throw new Error("Choose how Gateway authenticates to this server.");
+  const normalizedURL = draft.url.trim();
   let parsedURL: URL;
   try {
-    parsedURL = new URL(draft.url);
+    parsedURL = new URL(normalizedURL);
   } catch {
     throw new Error("HTTP URL must be absolute.");
   }
@@ -184,12 +185,16 @@ function transportFromDraft(draft: Draft): unknown {
   if (draft.authMode === "none" || draft.authMode === "bearer") {
     authentication = { mode: draft.authMode };
   } else {
-    const trustedOrigins = draft.trustedOrigins.map((item) => item.value);
+    const trustedOrigins = draft.trustedOrigins.map((item) =>
+      item.value.trim(),
+    );
     if (trustedOrigins.some((origin) => origin === ""))
       throw new Error("OAuth network origins cannot be empty.");
     if (new Set(trustedOrigins).size !== trustedOrigins.length)
       throw new Error("OAuth network origins must be unique.");
-    if (draft.registrationMode === "static" && draft.clientID.length === 0)
+    const issuer = draft.issuer.trim();
+    const clientID = draft.clientID.trim();
+    if (draft.registrationMode === "static" && clientID.length === 0)
       throw new Error("Static OAuth registration requires a client ID.");
     authentication = {
       mode: "oauth",
@@ -197,13 +202,13 @@ function transportFromDraft(draft: Draft): unknown {
         draft.registrationMode === "static"
           ? {
               mode: "static",
-              issuer: draft.issuer === "" ? null : draft.issuer,
-              client_id: draft.clientID,
+              issuer: issuer === "" ? null : issuer,
+              client_id: clientID,
               token_endpoint_auth_method: draft.tokenEndpointAuthMethod,
             }
           : {
               mode: "dynamic",
-              issuer: draft.issuer === "" ? null : draft.issuer,
+              issuer: issuer === "" ? null : issuer,
             },
       trusted_origins: trustedOrigins,
       request_offline_access: draft.requestOfflineAccess,
@@ -211,7 +216,7 @@ function transportFromDraft(draft: Draft): unknown {
   }
   return {
     kind: "streamable_http",
-    url: draft.url,
+    url: normalizedURL,
     protocol_mode: draft.protocolMode,
     authentication,
   };
@@ -689,7 +694,7 @@ function EditorForm({
               [
                 ["none", "No authentication"],
                 ["bearer", "Bearer token"],
-                ["oauth", "OAuth authorization code (PKCE)"],
+                ["oauth", "OAuth"],
               ] as const
             ).map(([mode, label]) => (
               <label key={mode}>
@@ -858,7 +863,7 @@ function CreationReview({ draft }: { draft: Draft }) {
   const connection =
     draft.transportKind === "stdio"
       ? `Local process — ${draft.executable}`
-      : `HTTP — ${draft.url}`;
+      : `HTTP — ${draft.url.trim()}`;
   const authentication =
     draft.transportKind === "stdio"
       ? "Not applicable"
@@ -866,7 +871,7 @@ function CreationReview({ draft }: { draft: Draft }) {
         ? "No authentication"
         : draft.authMode === "bearer"
           ? "Bearer token"
-          : "OAuth authorization code (PKCE)";
+          : "OAuth";
   const values = (items: readonly StringItem[]) =>
     items.length === 0 ? "None" : items.map((item) => item.value).join(", ");
   const pairs = (items: readonly PairItem[], separator: string) =>
@@ -928,20 +933,27 @@ function CreationReview({ draft }: { draft: Draft }) {
                   <dd>
                     {draft.registrationMode === "dynamic"
                       ? "Register Gateway automatically"
-                      : `Existing client ${draft.clientID} (${draft.tokenEndpointAuthMethod})`}
+                      : `Existing client ${draft.clientID.trim()} (${draft.tokenEndpointAuthMethod})`}
                   </dd>
                 </div>
                 <div>
                   <dt>OAuth issuer</dt>
                   <dd>
-                    {draft.issuer === ""
+                    {draft.issuer.trim() === ""
                       ? "Discover from same-origin metadata"
-                      : draft.issuer}
+                      : draft.issuer.trim()}
                   </dd>
                 </div>
                 <div>
                   <dt>OAuth network origins</dt>
-                  <dd>{values(draft.trustedOrigins)}</dd>
+                  <dd>
+                    {values(
+                      draft.trustedOrigins.map((item) => ({
+                        ...item,
+                        value: item.value.trim(),
+                      })),
+                    )}
+                  </dd>
                 </div>
                 <div>
                   <dt>Offline access</dt>
@@ -969,12 +981,14 @@ export function ServerEditor({
   server,
   etag,
   onRefresh,
+  notify,
   decodeServerValue,
 }: {
   mutations: MutationCoordinator;
   server?: ServerView;
   etag?: string;
   onRefresh: () => void;
+  notify: (message: string) => void;
   decodeServerValue: (value: unknown) => ServerView;
 }) {
   const create = server === undefined;
@@ -1010,10 +1024,13 @@ export function ServerEditor({
     const outcome = await submission;
     if (outcome.kind === "acknowledged") {
       setBlockedETag(undefined);
-      setNotice(
-        outcome.value.operationID === null
-          ? "Desired server record saved."
-          : `Desired state saved; operation ${outcome.value.operationID} was scheduled.`,
+      setNotice(undefined);
+      notify(
+        create
+          ? "Server created."
+          : outcome.value.operationID === null
+            ? "Server settings saved."
+            : "Server settings saved; applying changes.",
       );
       controller.abandon();
       initialDraft.current = draft;

@@ -242,6 +242,20 @@ button.danger-action:hover,
   gap: 8px;
 }
 
+.freshness-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.freshness-control button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+}
+
 .theme-control select {
   min-height: 36px;
   max-width: 110px;
@@ -304,6 +318,34 @@ button.danger-action:hover,
   width: min(100%, 520px);
   margin-inline: auto;
   padding-top: clamp(48px, 10vh, 112px);
+}
+
+.toast {
+  position: fixed;
+  z-index: 90;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  max-width: min(420px, calc(100vw - 32px));
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 10px 10px 10px 14px;
+  background: var(--text);
+  color: var(--surface);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 18%);
+  font-weight: 600;
+}
+
+.toast button {
+  min-width: 36px;
+  min-height: 36px;
+  margin: 0;
+  border-color: currentColor;
+  padding: 4px 10px;
+  background: transparent;
+  color: inherit;
 }
 
 .location-notice {
@@ -1246,7 +1288,15 @@ p {
     padding-inline: 14px;
   }
 
-  .wordmark > span:last-child {
+  .toast {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-width: none;
+  }
+
+  .wordmark > span:last-child,
+  .refresh-label {
     display: none;
   }
 

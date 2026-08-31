@@ -6384,6 +6384,23 @@ async function runServerCreateUpdate(
     .locator('[data-testid="server-oauth-origin"]')
     .fill("https://login.internal.example");
   await page.locator("#server-offline-access").check();
+  await page.locator("#server-namespace").fill("trim-probe");
+  await page.locator("#server-display-name").fill("Trim probe");
+  await page.locator("#server-url").fill("  https://resource.example/mcp  ");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  const normalizedReview = page.locator(
+    '[data-testid="server-creation-review"]',
+  );
+  await normalizedReview.waitFor();
+  const reviewedConnection = await normalizedReview
+    .getByText("Connection", { exact: true })
+    .locator("xpath=following-sibling::dd")
+    .textContent();
+  if (reviewedConnection !== "HTTP — https://resource.example/mcp")
+    fail(
+      `server review did not show the normalized HTTP endpoint: ${reviewedConnection}`,
+    );
+  await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   await page.locator("#server-registration-mode").selectOption("static");
   if (
     (await editor
@@ -6501,7 +6518,10 @@ async function runServerCreateUpdate(
   )
     fail("428 refresh discarded safe draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
-  await page.getByText("Desired server record saved.").waitFor();
+  const toast = page.locator('[data-testid="toast"]');
+  await toast.getByText("Server settings saved.", { exact: true }).waitFor();
+  if ((await toast.getAttribute("role")) !== "status")
+    fail("save toast was not exposed as an accessible status");
 
   await page.locator("#server-enabled").selectOption("enabled");
   await page.locator('[data-testid="server-editor-submit"]').click();
@@ -6511,7 +6531,10 @@ async function runServerCreateUpdate(
     fail("412 refresh discarded behavioral draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
-  await page.getByText(/operation .* was scheduled/).waitFor();
+  await page
+    .locator('[data-testid="toast"]')
+    .getByText("Server settings saved; applying changes.", { exact: true })
+    .waitFor();
   if (
     etags.join(",") !==
     `"server-${serverID}-1","server-${serverID}-2","server-${serverID}-3","server-${serverID}-4"`
@@ -8982,6 +9005,16 @@ async function runShellPrimitives(
   ) {
     fail("operational shell landmarks or heading hierarchy changed");
   }
+  if ((await page.locator('[data-testid="manual-refresh"]').count()) !== 1)
+    fail("refresh was not centralized in the application header");
+  if (
+    await page
+      .locator("main")
+      .getByText("Data current", { exact: true })
+      .isVisible()
+      .catch(() => false)
+  )
+    fail("healthy freshness was repeated in page content");
 
   const logout = page.locator('[data-testid="logout"]');
   await logout.focus();

@@ -528,22 +528,6 @@ export function Invocations({
   );
   return (
     <div class="invocations-view" data-testid="invocations-view">
-      <div class="refresh-controls">
-        <StatusLabel
-          state={
-            panel?.status === "error" ? "error" : (panel?.status ?? "loading")
-          }
-        >
-          Data {panel?.status ?? "loading"}
-        </StatusLabel>
-        <button
-          data-testid="manual-refresh"
-          type="button"
-          onClick={() => controller.refresh()}
-        >
-          Refresh
-        </button>
-      </div>
       <RetentionNotice />
       {detail ? (
         <InvocationDetail snapshot={snapshot} panel={panel} />

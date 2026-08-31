@@ -672,11 +672,9 @@ function Panel({
 export function Overview({
   controller,
   view,
-  onRefresh,
 }: {
   controller: OverviewController;
   view: ViewSnapshot;
-  onRefresh: () => void;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
@@ -687,12 +685,6 @@ export function Overview({
     ) ?? [];
   return (
     <div class="overview" data-testid="overview-grid">
-      <div class="refresh-controls overview-refresh">
-        <StatusLabel state={view.freshness}>Data {view.freshness}</StatusLabel>
-        <button data-testid="manual-refresh" type="button" onClick={onRefresh}>
-          Refresh
-        </button>
-      </div>
       <div class="overview-grid">
         <Panel
           id="overview-status"

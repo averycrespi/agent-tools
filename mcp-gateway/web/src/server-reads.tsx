@@ -1038,22 +1038,6 @@ export class ServerReadsController {
   }
 }
 
-function DataHeader({
-  view,
-  onRefresh,
-}: {
-  view: ViewSnapshot;
-  onRefresh: () => void;
-}) {
-  return (
-    <div class="refresh-controls">
-      <StatusLabel state={view.freshness}>Data {view.freshness}</StatusLabel>
-      <button data-testid="manual-refresh" type="button" onClick={onRefresh}>
-        Refresh
-      </button>
-    </div>
-  );
-}
 function ReadPanel({
   panel,
   children,
@@ -1230,6 +1214,7 @@ export function ServerReads({
   mutations,
   sinks,
   onRefresh,
+  notify,
 }: {
   controller: ServerReadsController;
   view: ViewSnapshot;
@@ -1237,6 +1222,7 @@ export function ServerReads({
   mutations: MutationCoordinator;
   sinks: SensitiveSinkCoordinator;
   onRefresh: () => void;
+  notify: (message: string) => void;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
@@ -1281,6 +1267,7 @@ export function ServerReads({
         <ServerEditor
           mutations={mutations}
           onRefresh={onRefresh}
+          notify={notify}
           decodeServerValue={decodeServer}
         />
       </div>
@@ -1288,7 +1275,6 @@ export function ServerReads({
   if (destination === "catalog")
     return (
       <div class="domain-view" data-testid="catalog-view">
-        <DataHeader view={view} onRefresh={onRefresh} />
         <section class="panel domain-panel" aria-labelledby="catalog-title">
           <div class="panel-heading">
             <div>
@@ -1341,7 +1327,6 @@ export function ServerReads({
   if (view.viewKey === "#/servers")
     return (
       <div class="domain-view" data-testid="servers-view">
-        <DataHeader view={view} onRefresh={onRefresh} />
         <section class="panel domain-panel" aria-labelledby="servers-title">
           <div class="panel-heading">
             <div>
@@ -1387,7 +1372,6 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="server-credentials-view">
         <ServerTabs serverID={credentialsTab[1]!} current="credentials" />
-        <DataHeader view={view} onRefresh={onRefresh} />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1408,7 +1392,6 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="server-auth-flows-view">
         <ServerTabs serverID={serverID} current="oauth" />
-        <DataHeader view={view} onRefresh={onRefresh} />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1436,7 +1419,6 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="server-operations-view">
         <ServerTabs serverID={serverID} current="operations" />
-        <DataHeader view={view} onRefresh={onRefresh} />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1463,7 +1445,6 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="descriptor-detail">
         <ServerTabs serverID={descriptorItem[1]!} current="descriptors" />
-        <DataHeader view={view} onRefresh={onRefresh} />
         <section
           class="panel domain-panel"
           aria-labelledby="descriptor-detail-title"
@@ -1517,7 +1498,6 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="descriptor-list">
         <ServerTabs serverID={descriptorList[1]!} current="descriptors" />
-        <DataHeader view={view} onRefresh={onRefresh} />
         <section
           class="panel domain-panel"
           aria-labelledby="descriptor-list-title"
@@ -1561,7 +1541,6 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="server-detail">
         <ServerTabs serverID={serverItem[1]!} current="overview" />
-        <DataHeader view={view} onRefresh={onRefresh} />
         <section
           class="panel domain-panel"
           aria-labelledby="server-detail-title"
@@ -1629,6 +1608,7 @@ export function ServerReads({
                 server={snapshot.server}
                 etag={snapshot.serverETag}
                 onRefresh={onRefresh}
+                notify={notify}
                 decodeServerValue={decodeServer}
               />
               <ServerDestructiveActions
