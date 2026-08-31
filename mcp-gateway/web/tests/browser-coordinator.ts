@@ -6274,6 +6274,15 @@ async function runServerCreateUpdate(
       body: JSON.stringify(mutationBody(operation())),
     });
   });
+  await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations/${operation().id}`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(operation()),
+      }),
+  );
 
   await page.evaluate(() => {
     window.location.hash = "#/servers/new";
@@ -6399,11 +6408,39 @@ async function runServerCreateUpdate(
     )
   )
     fail("OAuth controls did not explain registration or offline access");
+  await page.locator("#server-registration-mode").selectOption("static");
+  await page.locator("#server-client-id").fill("   ");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.getByText("Enter the OAuth client ID.").waitFor();
+  if (
+    (await page.locator("#server-client-id").getAttribute("aria-invalid")) !==
+    "true"
+  )
+    fail("normalized OAuth client ID error was not associated with its field");
+  await page.locator("#server-client-id").fill("safe-client");
+  await page.locator("#server-issuer").fill("http://issuer.example");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page
+    .getByText(
+      "OAuth issuer must be an HTTPS URL without credentials, query, or fragment.",
+    )
+    .waitFor();
+  if (
+    (await page.locator("#server-issuer").getAttribute("aria-invalid")) !==
+    "true"
+  )
+    fail("OAuth issuer error was not associated with its field");
+  await page.locator("#server-registration-mode").selectOption("dynamic");
+  await page.locator("#server-issuer").fill("  https://issuer.example  ");
   await page.getByText("Advanced OAuth settings").click();
   await page.locator('[data-testid="server-oauth-origin-add"]').click();
-  await page
-    .locator('[data-testid="server-oauth-origin"]')
-    .fill("https://login.internal.example");
+  const origin = page.locator('[data-testid="server-oauth-origin"]');
+  await origin.fill("   ");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page.getByText("Enter an OAuth network origin.").waitFor();
+  if ((await origin.getAttribute("aria-invalid")) !== "true")
+    fail("normalized OAuth origin error was not associated with its row");
+  await origin.fill("  https://login.internal.example  ");
   await page.locator("#server-offline-access").check();
   await page.locator("#server-namespace").fill("trim-probe");
   await page.locator("#server-display-name").fill("Trim probe");
@@ -6557,6 +6594,7 @@ async function runServerCreateUpdate(
     .locator('[data-testid="toast"]')
     .getByText("Server settings saved; applying changes.", { exact: true })
     .waitFor();
+  await page.locator('[data-testid="operation-detail"]').waitFor();
   if (
     etags.join(",") !==
     `"server-${serverID}-1","server-${serverID}-2","server-${serverID}-3","server-${serverID}-4"`
@@ -7269,6 +7307,7 @@ async function runAuthFlows(
     },
   };
   let detailState = "preparing";
+  let showExchangeInList = false;
   let detailReads = 0;
   let listReads = 0;
   let starts = 0;
@@ -7350,7 +7389,9 @@ async function runAuthFlows(
         contentType: "application/json",
         body: JSON.stringify({
           items: [
-            flow(activeID, "preparing"),
+            showExchangeInList
+              ? flow(exchangingID, "exchanging")
+              : flow(activeID, "preparing"),
             flow(terminalID, "failed", "oauth_rejected"),
           ],
           next_cursor: null,
@@ -7532,6 +7573,15 @@ async function runAuthFlows(
     (await page.locator('[data-testid="start-auth-flow"]').count()) !== 0
   )
     fail("exchanging auth flow offered a mutation");
+  showExchangeInList = true;
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=authentication`;
+  }, serverID);
+  await page
+    .getByText("An OAuth authorization is already in progress.")
+    .waitFor();
+  if ((await page.locator('[data-testid="start-auth-flow"]').count()) !== 0)
+    fail("authentication offered a second active OAuth flow");
 
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE7"}`;

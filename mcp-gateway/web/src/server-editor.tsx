@@ -53,6 +53,16 @@ interface MutationResult {
   operationID: string | null;
   etag: string;
 }
+type DraftValidationField = "url" | "issuer" | "clientID" | "origin";
+class DraftValidationError extends Error {
+  constructor(
+    readonly field: DraftValidationField,
+    message: string,
+    readonly itemID?: string,
+  ) {
+    super(message);
+  }
+}
 
 const namespacePattern = /^[a-z][a-z0-9_-]{0,31}$/;
 const secretSlotPattern = /^[a-z][a-z0-9_]{0,63}$/;
@@ -168,37 +178,100 @@ function transportFromDraft(draft: Draft): unknown {
   if (draft.authMode === "")
     throw new Error("Choose how Gateway authenticates to this server.");
   const normalizedURL = draft.url.trim();
-  if (normalizedURL === "") throw new Error("Enter an HTTP endpoint.");
+  if (normalizedURL === "")
+    throw new DraftValidationError("url", "Enter an HTTP endpoint.");
   let parsedURL: URL;
   try {
     parsedURL = new URL(normalizedURL);
   } catch {
-    throw new Error("HTTP URL must be absolute.");
+    throw new DraftValidationError("url", "HTTP URL must be absolute.");
   }
   if (parsedURL.protocol !== "http:" && parsedURL.protocol !== "https:")
-    throw new Error("HTTP endpoint must use http or https.");
+    throw new DraftValidationError(
+      "url",
+      "HTTP endpoint must use http or https.",
+    );
   if (
     parsedURL.username !== "" ||
     parsedURL.password !== "" ||
     parsedURL.search !== "" ||
     parsedURL.hash !== ""
   )
-    throw new Error("HTTP URL cannot contain credentials, query, or fragment.");
+    throw new DraftValidationError(
+      "url",
+      "HTTP URL cannot contain credentials, query, or fragment.",
+    );
   let authentication: unknown;
   if (draft.authMode === "none" || draft.authMode === "bearer") {
     authentication = { mode: draft.authMode };
   } else {
-    const trustedOrigins = draft.trustedOrigins.map((item) =>
-      item.value.trim(),
-    );
-    if (trustedOrigins.some((origin) => origin === ""))
-      throw new Error("OAuth network origins cannot be empty.");
-    if (new Set(trustedOrigins).size !== trustedOrigins.length)
-      throw new Error("OAuth network origins must be unique.");
+    const trustedOrigins: string[] = [];
+    const seenOrigins = new Set<string>();
+    for (const item of draft.trustedOrigins) {
+      const origin = item.value.trim();
+      if (origin === "")
+        throw new DraftValidationError(
+          "origin",
+          "Enter an OAuth network origin.",
+          item.id,
+        );
+      let parsedOrigin: URL;
+      try {
+        parsedOrigin = new URL(origin);
+      } catch {
+        throw new DraftValidationError(
+          "origin",
+          "OAuth network origin must be an absolute HTTP or HTTPS origin.",
+          item.id,
+        );
+      }
+      if (
+        (parsedOrigin.protocol !== "https:" &&
+          parsedOrigin.protocol !== "http:") ||
+        parsedOrigin.username !== "" ||
+        parsedOrigin.password !== "" ||
+        parsedOrigin.origin !== origin
+      )
+        throw new DraftValidationError(
+          "origin",
+          "OAuth network origin must contain only an HTTP or HTTPS scheme, host, and optional port.",
+          item.id,
+        );
+      if (seenOrigins.has(origin))
+        throw new DraftValidationError(
+          "origin",
+          "OAuth network origins must be unique.",
+          item.id,
+        );
+      seenOrigins.add(origin);
+      trustedOrigins.push(origin);
+    }
     const issuer = draft.issuer.trim();
+    if (issuer !== "") {
+      let parsedIssuer: URL;
+      try {
+        parsedIssuer = new URL(issuer);
+      } catch {
+        throw new DraftValidationError(
+          "issuer",
+          "OAuth issuer must be an absolute HTTPS URL.",
+        );
+      }
+      if (
+        parsedIssuer.protocol !== "https:" ||
+        parsedIssuer.username !== "" ||
+        parsedIssuer.password !== "" ||
+        parsedIssuer.search !== "" ||
+        parsedIssuer.hash !== ""
+      )
+        throw new DraftValidationError(
+          "issuer",
+          "OAuth issuer must be an HTTPS URL without credentials, query, or fragment.",
+        );
+    }
     const clientID = draft.clientID.trim();
     if (draft.registrationMode === "static" && clientID.length === 0)
-      throw new Error("Static OAuth registration requires a client ID.");
+      throw new DraftValidationError("clientID", "Enter the OAuth client ID.");
     authentication = {
       mode: "oauth",
       registration:
@@ -299,6 +372,7 @@ function StringListEditor({
   addLabel,
   items,
   disabled,
+  errors = {},
   onChange,
 }: {
   id: string;
@@ -308,6 +382,7 @@ function StringListEditor({
   addLabel: string;
   items: StringItem[];
   disabled: boolean;
+  errors?: Readonly<Record<string, string>>;
   onChange: (items: StringItem[]) => void;
 }) {
   return (
@@ -329,6 +404,12 @@ function StringListEditor({
             data-testid={id}
             value={item.value}
             disabled={disabled}
+            aria-invalid={errors[item.id] === undefined ? undefined : true}
+            aria-describedby={
+              errors[item.id] === undefined
+                ? `${id}-hint`
+                : `${id}-hint ${id}-${item.id}-error`
+            }
             onInput={(event) =>
               onChange(
                 items.map((current) =>
@@ -349,6 +430,15 @@ function StringListEditor({
           >
             Remove
           </button>
+          {errors[item.id] !== undefined && (
+            <span
+              class="field-error collection-error"
+              id={`${id}-${item.id}-error`}
+              role="alert"
+            >
+              {errors[item.id]}
+            </span>
+          )}
         </div>
       ))}
       <button
@@ -469,14 +559,20 @@ function EditorForm({
   disabled,
   namespaceLocked,
   urlError,
-  clearURLError,
+  issuerError,
+  clientIDError,
+  originErrors,
+  clearFieldError,
 }: {
   draft: Draft;
   setDraft: (draft: Draft) => void;
   disabled: boolean;
   namespaceLocked: boolean;
   urlError: string | undefined;
-  clearURLError: () => void;
+  issuerError: string | undefined;
+  clientIDError: string | undefined;
+  originErrors: Readonly<Record<string, string>>;
+  clearFieldError: (field: DraftValidationField) => void;
 }) {
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft({ ...draft, [key]: value });
@@ -658,7 +754,7 @@ function EditorForm({
                 value={draft.url}
                 disabled={disabled}
                 onInput={(event) => {
-                  clearURLError();
+                  clearFieldError("url");
                   update("url", event.currentTarget.value);
                 }}
               />
@@ -768,6 +864,7 @@ function EditorForm({
                 id="server-issuer"
                 label="Authorization server issuer"
                 hint="Leave blank only when metadata identifies one issuer on the same origin as the HTTP endpoint; otherwise enter the exact HTTPS issuer."
+                {...(issuerError === undefined ? {} : { error: issuerError })}
                 optional
               >
                 {(attributes) => (
@@ -775,23 +872,32 @@ function EditorForm({
                     {...attributes}
                     value={draft.issuer}
                     disabled={disabled}
-                    onInput={(event) =>
-                      update("issuer", event.currentTarget.value)
-                    }
+                    onInput={(event) => {
+                      clearFieldError("issuer");
+                      update("issuer", event.currentTarget.value);
+                    }}
                   />
                 )}
               </FormField>
               {draft.registrationMode === "static" && (
                 <>
-                  <FormField id="server-client-id" label="Client ID" required>
+                  <FormField
+                    id="server-client-id"
+                    label="Client ID"
+                    {...(clientIDError === undefined
+                      ? {}
+                      : { error: clientIDError })}
+                    required
+                  >
                     {(attributes) => (
                       <input
                         {...attributes}
                         value={draft.clientID}
                         disabled={disabled}
-                        onInput={(event) =>
-                          update("clientID", event.currentTarget.value)
-                        }
+                        onInput={(event) => {
+                          clearFieldError("clientID");
+                          update("clientID", event.currentTarget.value);
+                        }}
                       />
                     )}
                   </FormField>
@@ -838,7 +944,11 @@ function EditorForm({
                   addLabel="Add OAuth origin"
                   items={draft.trustedOrigins}
                   disabled={disabled}
-                  onChange={(items) => update("trustedOrigins", items)}
+                  errors={originErrors}
+                  onChange={(items) => {
+                    clearFieldError("origin");
+                    update("trustedOrigins", items);
+                  }}
                 />
                 <label class="checkbox-field" for="server-offline-access">
                   <input
@@ -1009,6 +1119,9 @@ export function ServerEditor({
   const [draft, setDraft] = useState<Draft>(initialDraft.current);
   const [error, setError] = useState<string>();
   const [urlError, setURLError] = useState<string>();
+  const [issuerError, setIssuerError] = useState<string>();
+  const [clientIDError, setClientIDError] = useState<string>();
+  const [originErrors, setOriginErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string>();
   const [blockedETag, setBlockedETag] = useState<string>();
   const [controller] = useState<MutationController<MutationResult>>(() =>
@@ -1050,7 +1163,12 @@ export function ServerEditor({
       if (create) navigate(`#/servers/${outcome.value.server.id}`, true);
       else {
         onRefresh();
-        navigate(`#/servers/${outcome.value.server.id}`, true);
+        navigate(
+          outcome.value.operationID === null
+            ? `#/servers/${outcome.value.server.id}`
+            : `#/servers/${outcome.value.server.id}/operations/${outcome.value.operationID}`,
+          true,
+        );
       }
     } else if (
       outcome.kind === "rejected" &&
@@ -1060,11 +1178,20 @@ export function ServerEditor({
       setBlockedETag(etag);
     }
   };
+  const clearFieldError = (field: DraftValidationField) => {
+    if (field === "url") setURLError(undefined);
+    else if (field === "issuer") setIssuerError(undefined);
+    else if (field === "clientID") setClientIDError(undefined);
+    else setOriginErrors({});
+  };
   const prepare = ():
     | { spec: MutationSpec<MutationResult>; behavioral: boolean }
     | undefined => {
     setError(undefined);
     setURLError(undefined);
+    setIssuerError(undefined);
+    setClientIDError(undefined);
+    setOriginErrors({});
     setNotice(undefined);
     try {
       if (
@@ -1126,9 +1253,13 @@ export function ServerEditor({
         caught instanceof Error
           ? caught.message
           : "Invalid server configuration.";
-      if (message.includes("HTTP endpoint") || message.includes("HTTP URL"))
-        setURLError(message);
-      else setError(message);
+      if (caught instanceof DraftValidationError) {
+        if (caught.field === "url") setURLError(message);
+        else if (caught.field === "issuer") setIssuerError(message);
+        else if (caught.field === "clientID") setClientIDError(message);
+        else if (caught.itemID !== undefined)
+          setOriginErrors({ [caught.itemID]: message });
+      } else setError(message);
       return undefined;
     }
   };
@@ -1160,7 +1291,10 @@ export function ServerEditor({
           disabled={disabled}
           namespaceLocked={!create}
           urlError={urlError}
-          clearURLError={() => setURLError(undefined)}
+          issuerError={issuerError}
+          clientIDError={clientIDError}
+          originErrors={originErrors}
+          clearFieldError={clearFieldError}
         />
         {error !== undefined && (
           <StateNotice state="error" title="Check server configuration">

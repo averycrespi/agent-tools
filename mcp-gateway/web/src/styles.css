@@ -674,6 +674,10 @@ p {
   color: var(--text);
 }
 
+.collection-error {
+  grid-column: 1 / -1;
+}
+
 .collection-row button,
 .collection-field > button {
   margin-top: 0;

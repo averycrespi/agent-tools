@@ -304,11 +304,15 @@ func (repository *Repository) OAuthTokenAuthorityCallback(fence OAuthTokenFence)
 		}
 		if exactInvalidation {
 			reason := contract.ReasonOAuthRejected
-			_, err := transaction.ExecContext(ctx, `
-				UPDATE server_auth_flows SET flow_state = 'failed', reason = ?, finished_at = ?
-				WHERE id = ? AND server_id = ? AND flow_state = 'exchanging'`, reason, formatTime(repository.clock.Now()), fence.FlowID, fence.ServerID)
+			result, err := transaction.ExecContext(ctx, `
+				UPDATE server_auth_flows SET flow_state = 'failed', reason = ?, finished_at = ?, diagnostic_stage = ?, diagnostic_http_status = NULL
+				WHERE id = ? AND server_id = ? AND flow_state = 'exchanging'`, reason, formatTime(repository.clock.Now()), contract.OAuthDiagnosticCredentialInstallation, fence.FlowID, fence.ServerID)
 			if err != nil {
 				return "", err
+			}
+			changed, err := result.RowsAffected()
+			if err != nil || changed != 1 {
+				return "", ErrStaleRevision
 			}
 		}
 		return revision, nil

@@ -644,7 +644,7 @@ function listPath(
   if (kind === "catalog") return `/api/v1/catalog?${query.toString()}`;
   if (kind === "operations" || kind === "authFlows") {
     const match =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:activity|diagnostics)$/.exec(
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:activity|authentication|diagnostics)$/.exec(
         viewKey,
       );
     if (match === null) throw new Error("invalid server history location");
@@ -735,7 +735,7 @@ export class ServerReadsController {
     register(
       "server-oauth-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:activity|diagnostics)$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:activity|authentication|diagnostics)$/.test(
           key,
         ) ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
@@ -1512,34 +1512,37 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="server-authentication-view">
         <ServerTabs serverID={authenticationTab[1]!} current="authentication" />
+        <ReadPanel panel={authFlowPanel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerAuthFlows
+                mutations={mutations}
+                sinks={sinks}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                flows={snapshot.authFlows}
+                flow={undefined}
+                nextCursor={snapshot.authFlowNext}
+                loadingMore={snapshot.loadingMore}
+                restarted={snapshot.restarted}
+                onLoadMore={() => void controller.loadMore("authFlows")}
+                onRefresh={onRefresh}
+                mode="action"
+              />
+            )}
+        </ReadPanel>
         <ReadPanel panel={overviewPanel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
-              <>
-                <ServerAuthFlows
-                  mutations={mutations}
-                  sinks={sinks}
-                  server={snapshot.server}
-                  etag={snapshot.serverETag}
-                  readVersion={snapshot.readVersion}
-                  flows={snapshot.authFlows}
-                  flow={undefined}
-                  nextCursor={snapshot.authFlowNext}
-                  loadingMore={snapshot.loadingMore}
-                  restarted={snapshot.restarted}
-                  onLoadMore={() => void controller.loadMore("authFlows")}
-                  onRefresh={onRefresh}
-                  mode="action"
-                />
-                <ServerCredentials
-                  mutations={mutations}
-                  sinks={sinks}
-                  server={snapshot.server}
-                  etag={snapshot.serverETag}
-                  readVersion={snapshot.readVersion}
-                  onRefresh={onRefresh}
-                />
-              </>
+              <ServerCredentials
+                mutations={mutations}
+                sinks={sinks}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                onRefresh={onRefresh}
+              />
             )}
         </ReadPanel>
       </div>
