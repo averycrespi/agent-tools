@@ -522,6 +522,146 @@ p {
   max-width: none;
 }
 
+.form-convention {
+  margin-top: 4px !important;
+  color: var(--muted) !important;
+  font-size: 12px;
+}
+
+.optional-label {
+  color: var(--muted);
+  font-weight: 450;
+}
+
+.choice-field,
+.collection-field {
+  display: grid;
+  max-width: 680px;
+  gap: 8px;
+  margin: 16px 0 0;
+  border: 0;
+  padding: 0;
+}
+
+.choice-field legend,
+.collection-field legend {
+  margin-bottom: 2px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.choice-field > label,
+.checkbox-field {
+  display: flex;
+  min-height: 40px;
+  align-items: flex-start;
+  gap: 9px;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 2px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.choice-field input,
+.checkbox-field input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.choice-field label span,
+.checkbox-field span {
+  display: grid;
+  gap: 2px;
+}
+
+.choice-field small,
+.checkbox-field small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.form-disclosure {
+  max-width: 680px;
+  margin-top: 16px;
+  border-block: 1px solid var(--line);
+  padding: 0;
+}
+
+.form-disclosure > summary {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.form-disclosure[open] {
+  padding-bottom: 14px;
+}
+
+.collection-field .field-hint,
+.form-disclosure > .field-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.collection-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.collection-row.collection-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
+.collection-row input {
+  min-height: 38px;
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--canvas);
+  color: var(--text);
+}
+
+.collection-row button,
+.collection-field > button {
+  margin-top: 0;
+}
+
+.checkbox-field {
+  max-width: 680px;
+  margin-top: 12px;
+}
+
+.review-list {
+  display: grid;
+  margin: 0;
+}
+
+.review-list div {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 7px 0;
+}
+
+.review-list dt {
+  color: var(--muted);
+}
+
+.review-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .session-message {
   margin-top: 14px !important;
   color: var(--danger) !important;
@@ -1066,10 +1206,21 @@ p {
   }
 
   .form-grid,
+  .collection-row.collection-pair,
   .overview-grid,
   .fact-grid,
   .recovery-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .collection-row.collection-pair button {
+    justify-self: start;
+  }
+
+  .choice-field > label,
+  .checkbox-field,
+  .form-disclosure > summary {
+    min-height: 44px;
   }
 
   .fact-card-wide {

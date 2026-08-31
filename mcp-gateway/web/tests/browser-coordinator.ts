@@ -6277,6 +6277,19 @@ async function runServerCreateUpdate(
   await page.locator("#server-display-name").fill("");
   if (await dispatchBeforeUnload())
     fail("reverted server form retained its unload warning");
+  if (
+    (await page.locator("#server-executable, #server-url").count()) !== 0 ||
+    (await editor.locator('input[name="server-transport-kind"]').count()) !== 2
+  )
+    fail(
+      "server form did not defer transport details until an explicit choice",
+    );
+  if (
+    !(await editor.textContent())?.includes(
+      "All fields are required unless marked optional.",
+    )
+  )
+    fail("server form omitted its required-field convention");
   const initialInputs = await editor.locator("input").evaluateAll((nodes) =>
     nodes.map((node) => ({
       name: node.getAttribute("name"),
@@ -6285,37 +6298,75 @@ async function runServerCreateUpdate(
   );
   if (
     initialInputs.some(
-      (input) => input.name !== null || input.type === "password",
+      (input) =>
+        (input.name !== null && input.type !== "radio") ||
+        input.type === "password",
     )
   )
-    fail("server form exposed a reusable or secret input");
+    fail("server form exposed a reusable text or secret input");
   await page.locator('[data-testid="server-editor-submit"]').click();
-  await page.getByText("Check server configuration").waitFor();
   if (creates !== 0) fail("invalid form submitted a create");
 
-  await page.locator("#server-transport-kind").selectOption("streamable_http");
-  await page.locator("#server-auth-mode").selectOption("oauth");
+  await page.locator("#server-transport-http").check();
+  if (
+    (await page.locator("#server-executable").count()) !== 0 ||
+    (await page.locator("#server-url").count()) !== 1 ||
+    (await page.locator("#server-protocol-mode").inputValue()) !== "auto"
+  )
+    fail("HTTP selection did not reveal only automatic HTTP configuration");
+  await page.locator("#server-url").fill("https://resource.example/mcp");
+  await page.locator("#server-auth-oauth").check();
+  if (
+    !(await editor.textContent())?.includes("Register Gateway automatically") ||
+    !(await editor.textContent())?.includes(
+      "Request offline access when supported",
+    )
+  )
+    fail("OAuth controls did not explain registration or offline access");
+  await page.getByText("Advanced OAuth settings").click();
+  await page.locator('[data-testid="server-oauth-origin-add"]').click();
+  await page
+    .locator('[data-testid="server-oauth-origin"]')
+    .fill("https://login.internal.example");
+  await page.locator("#server-offline-access").check();
   await page.locator("#server-registration-mode").selectOption("static");
   if (
     (await editor
-      .locator(
-        'input[id*="secret"], textarea[id*="client-secret"], input[id*="bearer-token"]',
-      )
+      .locator('input[id*="secret"], textarea, input[id*="bearer-token"]')
       .count()) !== 0
   )
-    fail("server form offered inline secret input");
-  await page.locator("#server-transport-kind").selectOption("stdio");
+    fail("server form offered raw JSON or inline secret input");
+  await page.locator("#server-transport-stdio").check();
   await page.locator("#server-namespace").fill("first-name");
   await page.locator("#server-display-name").fill("Created server");
   await page.locator("#server-executable").fill("/usr/bin/example");
-  await page.locator("#server-arguments").fill('["--safe"]');
   await page.locator("#server-working-directory").fill("/srv/example");
-  await page.locator("#server-environment").fill('{"MODE":"read"}');
-  await page.locator("#server-secret-environment").fill('{"TOKEN":"primary"}');
-  if (!(await editor.textContent())?.includes("not an OS sandbox"))
+  await page.getByText("Optional process settings").click();
+  await page.locator('[data-testid="server-argument-add"]').click();
+  await page.locator('[data-testid="server-argument"]').fill("--safe");
+  await page.locator('[data-testid="server-environment-add"]').click();
+  await page.locator('[data-testid="server-environment-name"]').fill("MODE");
+  await page.locator('[data-testid="server-environment-value"]').fill("read");
+  await page.locator('[data-testid="server-secret-environment-add"]').click();
+  await page
+    .locator('[data-testid="server-secret-environment-name"]')
+    .fill("TOKEN");
+  await page
+    .locator('[data-testid="server-secret-environment-value"]')
+    .fill("primary");
+  if (!(await editor.textContent())?.includes("It is not sandboxed"))
     fail("stdio OS-user warning omitted containment boundary");
 
   await page.locator('[data-testid="server-editor-submit"]').click();
+  const creationReview = page.locator('[data-testid="server-creation-review"]');
+  const reviewText = (await creationReview.innerText()).replaceAll("\n", " ");
+  if (
+    !reviewText.includes("first-name") ||
+    !reviewText.includes("Created server") ||
+    !reviewText.includes("Disabled") ||
+    !reviewText.includes("Local process — /usr/bin/example")
+  )
+    fail("server creation confirmation did not review consequential choices");
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   if (
     (await page.locator("#server-display-name").inputValue()) !==
@@ -6325,6 +6376,17 @@ async function runServerCreateUpdate(
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
   await page.getByText("Namespace unavailable").waitFor();
+  const firstCreate = JSON.parse(createBodies[0] ?? "null") as {
+    transport?: Record<string, unknown>;
+  };
+  const firstTransport = firstCreate.transport;
+  if (
+    firstTransport?.kind !== "stdio" ||
+    JSON.stringify(firstTransport.arguments) !== '["--safe"]' ||
+    JSON.stringify(firstTransport.environment) !== '{"MODE":"read"}' ||
+    JSON.stringify(firstTransport.secret_environment) !== '{"TOKEN":"primary"}'
+  )
+    fail("structured stdio controls did not serialize the expected transport");
   await page.locator("#server-namespace").fill("created-server");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.locator('[data-testid="server-change-confirm-submit"]').click();

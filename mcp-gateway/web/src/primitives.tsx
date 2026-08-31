@@ -107,6 +107,7 @@ export function ComparisonTable({
 
 interface FieldControlAttributes {
   id: string;
+  required?: true;
   "aria-describedby"?: string;
   "aria-invalid"?: true;
 }
@@ -116,12 +117,16 @@ export function FormField({
   label,
   hint,
   error,
+  optional = false,
+  required = false,
   children,
 }: {
   id: string;
   label: string;
   hint?: string;
   error?: string;
+  optional?: boolean;
+  required?: boolean;
   children: (attributes: FieldControlAttributes) => ComponentChildren;
 }) {
   const descriptions = [
@@ -131,11 +136,15 @@ export function FormField({
     .filter((value): value is string => value !== undefined)
     .join(" ");
   const attributes: FieldControlAttributes = { id };
+  if (required) attributes.required = true;
   if (descriptions !== "") attributes["aria-describedby"] = descriptions;
   if (error !== undefined) attributes["aria-invalid"] = true;
   return (
     <div class="form-field">
-      <label for={id}>{label}</label>
+      <label for={id}>
+        {label}
+        {optional && <span class="optional-label"> (optional)</span>}
+      </label>
       {hint !== undefined && (
         <span class="field-hint" id={`${id}-hint`}>
           {hint}

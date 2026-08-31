@@ -12,20 +12,29 @@ import { decodeOperation } from "./server-operation-model";
 import type { ServerView } from "./server-reads";
 
 type JSONRecord = Record<string, unknown>;
-type TransportKind = "stdio" | "streamable_http";
-type AuthMode = "none" | "bearer" | "oauth";
+type TransportKind = "" | "stdio" | "streamable_http";
+type AuthMode = "" | "none" | "bearer" | "oauth";
 type RegistrationMode = "static" | "dynamic";
 
+interface StringItem {
+  id: string;
+  value: string;
+}
+interface PairItem {
+  id: string;
+  name: string;
+  value: string;
+}
 interface Draft {
   namespace: string;
   displayName: string;
   enabled: boolean;
   transportKind: TransportKind;
   executable: string;
-  argumentsJSON: string;
+  arguments: StringItem[];
   workingDirectory: string;
-  environmentJSON: string;
-  secretEnvironmentJSON: string;
+  environment: PairItem[];
+  secretEnvironment: PairItem[];
   url: string;
   protocolMode: "modern" | "legacy" | "auto";
   authMode: AuthMode;
@@ -36,7 +45,7 @@ interface Draft {
     | "none"
     | "client_secret_basic"
     | "client_secret_post";
-  trustedOriginsJSON: string;
+  trustedOrigins: StringItem[];
   requestOfflineAccess: boolean;
 }
 interface MutationResult {
@@ -48,26 +57,54 @@ interface MutationResult {
 const namespacePattern = /^[a-z][a-z0-9_-]{0,31}$/;
 const secretSlotPattern = /^[a-z][a-z0-9_]{0,63}$/;
 const absolutePathPattern = /^\/(?:[^\0]*)$/;
+let nextItemID = 0;
 
+function itemID(prefix: string): string {
+  nextItemID += 1;
+  return `${prefix}-${nextItemID}`;
+}
+function stringItems(prefix: string, values: readonly string[]): StringItem[] {
+  return values.map((value) => ({ id: itemID(prefix), value }));
+}
+function pairItems(
+  prefix: string,
+  values: Readonly<Record<string, string>>,
+): PairItem[] {
+  return Object.entries(values).map(([name, value]) => ({
+    id: itemID(prefix),
+    name,
+    value,
+  }));
+}
+function pairRecord(items: readonly PairItem[], label: string) {
+  const result: Record<string, string> = {};
+  for (const item of items) {
+    if (item.name === "") throw new Error(`${label} names cannot be empty.`);
+    if (Object.hasOwn(result, item.name))
+      throw new Error(`${label} names must be unique.`);
+    result[item.name] = item.value;
+  }
+  return result;
+}
 function blankDraft(): Draft {
   return {
     namespace: "",
     displayName: "",
     enabled: false,
-    transportKind: "stdio",
+    transportKind: "",
     executable: "",
-    argumentsJSON: "[]",
+    arguments: [],
     workingDirectory: "",
-    environmentJSON: "{}",
-    secretEnvironmentJSON: "{}",
+    environment: [],
+    secretEnvironment: [],
     url: "",
-    protocolMode: "modern",
-    authMode: "none",
+    protocolMode: "auto",
+    authMode: "",
     registrationMode: "dynamic",
     issuer: "",
     clientID: "",
     tokenEndpointAuthMethod: "none",
-    trustedOriginsJSON: "[]",
+    trustedOrigins: [],
     requestOfflineAccess: false,
   };
 }
@@ -75,32 +112,6 @@ function jsonRecord(value: unknown): JSONRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new Error("Expected a JSON object.");
   return value as JSONRecord;
-}
-function stringMap(source: string, label: string): Record<string, string> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(source) as unknown;
-  } catch {
-    throw new Error(`${label} must be one JSON object.`);
-  }
-  const object = jsonRecord(parsed);
-  if (Object.values(object).some((value) => typeof value !== "string"))
-    throw new Error(`${label} values must all be strings.`);
-  return object as Record<string, string>;
-}
-function stringArray(source: string, label: string): string[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(source) as unknown;
-  } catch {
-    throw new Error(`${label} must be one JSON array.`);
-  }
-  if (
-    !Array.isArray(parsed) ||
-    parsed.some((value) => typeof value !== "string")
-  )
-    throw new Error(`${label} must contain only strings.`);
-  return parsed;
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -114,12 +125,14 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 function transportFromDraft(draft: Draft): unknown {
+  if (draft.transportKind === "")
+    throw new Error("Choose how Gateway connects to this server.");
   if (draft.transportKind === "stdio") {
-    const args = stringArray(draft.argumentsJSON, "Arguments");
-    const environment = stringMap(draft.environmentJSON, "Environment");
-    const secretEnvironment = stringMap(
-      draft.secretEnvironmentJSON,
-      "Secret environment",
+    const args = draft.arguments.map((item) => item.value);
+    const environment = pairRecord(draft.environment, "Environment variable");
+    const secretEnvironment = pairRecord(
+      draft.secretEnvironment,
+      "Secret environment binding",
     );
     if (
       draft.executable.length === 0 ||
@@ -152,6 +165,8 @@ function transportFromDraft(draft: Draft): unknown {
       secret_environment: secretEnvironment,
     };
   }
+  if (draft.authMode === "")
+    throw new Error("Choose how Gateway authenticates to this server.");
   let parsedURL: URL;
   try {
     parsedURL = new URL(draft.url);
@@ -169,10 +184,11 @@ function transportFromDraft(draft: Draft): unknown {
   if (draft.authMode === "none" || draft.authMode === "bearer") {
     authentication = { mode: draft.authMode };
   } else {
-    const trustedOrigins = stringArray(
-      draft.trustedOriginsJSON,
-      "Trusted origins",
-    );
+    const trustedOrigins = draft.trustedOrigins.map((item) => item.value);
+    if (trustedOrigins.some((origin) => origin === ""))
+      throw new Error("OAuth network origins cannot be empty.");
+    if (new Set(trustedOrigins).size !== trustedOrigins.length)
+      throw new Error("OAuth network origins must be unique.");
     if (draft.registrationMode === "static" && draft.clientID.length === 0)
       throw new Error("Static OAuth registration requires a client ID.");
     authentication = {
@@ -209,10 +225,19 @@ function draftFromServer(server: ServerView): Draft {
   if (transport.kind === "stdio") {
     draft.transportKind = "stdio";
     draft.executable = transport.executable as string;
-    draft.argumentsJSON = JSON.stringify(transport.arguments);
+    draft.arguments = stringItems(
+      "argument",
+      transport.arguments as readonly string[],
+    );
     draft.workingDirectory = transport.working_directory as string;
-    draft.environmentJSON = JSON.stringify(transport.environment);
-    draft.secretEnvironmentJSON = JSON.stringify(transport.secret_environment);
+    draft.environment = pairItems(
+      "environment",
+      transport.environment as Record<string, string>,
+    );
+    draft.secretEnvironment = pairItems(
+      "secret-environment",
+      transport.secret_environment as Record<string, string>,
+    );
     return draft;
   }
   draft.transportKind = "streamable_http";
@@ -229,7 +254,10 @@ function draftFromServer(server: ServerView): Draft {
     (registration.token_endpoint_auth_method as
       | Draft["tokenEndpointAuthMethod"]
       | undefined) ?? "none";
-  draft.trustedOriginsJSON = JSON.stringify(authentication.trusted_origins);
+  draft.trustedOrigins = stringItems(
+    "oauth-origin",
+    authentication.trusted_origins as readonly string[],
+  );
   draft.requestOfflineAccess = authentication.request_offline_access as boolean;
   return draft;
 }
@@ -255,6 +283,174 @@ async function decodeMutation(
   return { server, operationID: operationID(root.operation), etag };
 }
 
+function StringListEditor({
+  id,
+  label,
+  hint,
+  itemLabel,
+  addLabel,
+  items,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  itemLabel: string;
+  addLabel: string;
+  items: StringItem[];
+  disabled: boolean;
+  onChange: (items: StringItem[]) => void;
+}) {
+  return (
+    <fieldset class="collection-field" aria-describedby={`${id}-hint`}>
+      <legend>
+        {label}
+        <span class="optional-label"> (optional)</span>
+      </legend>
+      <p class="field-hint" id={`${id}-hint`}>
+        {hint}
+      </p>
+      {items.map((item, index) => (
+        <div class="collection-row" key={item.id}>
+          <label class="visually-hidden" for={`${id}-${item.id}`}>
+            {itemLabel} {index + 1}
+          </label>
+          <input
+            id={`${id}-${item.id}`}
+            data-testid={id}
+            value={item.value}
+            disabled={disabled}
+            onInput={(event) =>
+              onChange(
+                items.map((current) =>
+                  current.id === item.id
+                    ? { ...current, value: event.currentTarget.value }
+                    : current,
+                ),
+              )
+            }
+          />
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={`Remove ${itemLabel.toLowerCase()} ${index + 1}`}
+            onClick={() =>
+              onChange(items.filter((current) => current.id !== item.id))
+            }
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        class="quiet-action"
+        data-testid={`${id}-add`}
+        disabled={disabled}
+        onClick={() => onChange([...items, { id: itemID(id), value: "" }])}
+      >
+        {addLabel}
+      </button>
+    </fieldset>
+  );
+}
+
+function PairListEditor({
+  id,
+  label,
+  hint,
+  nameLabel,
+  valueLabel,
+  items,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  nameLabel: string;
+  valueLabel: string;
+  items: PairItem[];
+  disabled: boolean;
+  onChange: (items: PairItem[]) => void;
+}) {
+  return (
+    <fieldset class="collection-field" aria-describedby={`${id}-hint`}>
+      <legend>
+        {label}
+        <span class="optional-label"> (optional)</span>
+      </legend>
+      <p class="field-hint" id={`${id}-hint`}>
+        {hint}
+      </p>
+      {items.map((item, index) => (
+        <div class="collection-row collection-pair" key={item.id}>
+          <label class="visually-hidden" for={`${id}-${item.id}-name`}>
+            {nameLabel} {index + 1}
+          </label>
+          <input
+            id={`${id}-${item.id}-name`}
+            data-testid={`${id}-name`}
+            value={item.name}
+            placeholder={nameLabel}
+            disabled={disabled}
+            onInput={(event) =>
+              onChange(
+                items.map((current) =>
+                  current.id === item.id
+                    ? { ...current, name: event.currentTarget.value }
+                    : current,
+                ),
+              )
+            }
+          />
+          <label class="visually-hidden" for={`${id}-${item.id}-value`}>
+            {valueLabel} {index + 1}
+          </label>
+          <input
+            id={`${id}-${item.id}-value`}
+            data-testid={`${id}-value`}
+            value={item.value}
+            placeholder={valueLabel}
+            disabled={disabled}
+            onInput={(event) =>
+              onChange(
+                items.map((current) =>
+                  current.id === item.id
+                    ? { ...current, value: event.currentTarget.value }
+                    : current,
+                ),
+              )
+            }
+          />
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={`Remove ${label.toLowerCase()} row ${index + 1}`}
+            onClick={() =>
+              onChange(items.filter((current) => current.id !== item.id))
+            }
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        class="quiet-action"
+        data-testid={`${id}-add`}
+        disabled={disabled}
+        onClick={() =>
+          onChange([...items, { id: itemID(id), name: "", value: "" }])
+        }
+      >
+        Add row
+      </button>
+    </fieldset>
+  );
+}
+
 function EditorForm({
   draft,
   setDraft,
@@ -270,10 +466,14 @@ function EditorForm({
     setDraft({ ...draft, [key]: value });
   return (
     <>
+      <p class="form-convention">
+        All fields are required unless marked optional.
+      </p>
       <FormField
         id="server-namespace"
         label="Namespace"
-        hint="Immutable lowercase routing identity."
+        hint="Permanent lowercase routing identity."
+        required
       >
         {(attributes) => (
           <input
@@ -284,7 +484,7 @@ function EditorForm({
           />
         )}
       </FormField>
-      <FormField id="server-display-name" label="Display name">
+      <FormField id="server-display-name" label="Display name" required>
         {(attributes) => (
           <input
             {...attributes}
@@ -298,8 +498,9 @@ function EditorForm({
       </FormField>
       <FormField
         id="server-enabled"
-        label="Desired state"
-        hint="Changing this state schedules server work."
+        label="Initial state"
+        hint="Enabled servers schedule connection work after creation."
+        required
       >
         {(attributes) => (
           <select
@@ -315,35 +516,52 @@ function EditorForm({
           </select>
         )}
       </FormField>
-      <FormField id="server-transport-kind" label="Transport">
-        {(attributes) => (
-          <select
-            {...attributes}
-            value={draft.transportKind}
+      <fieldset class="choice-field">
+        <legend>Connection method</legend>
+        <label>
+          <input
+            id="server-transport-stdio"
+            name="server-transport-kind"
+            type="radio"
+            value="stdio"
+            checked={draft.transportKind === "stdio"}
             disabled={disabled}
-            onChange={(event) =>
-              update(
-                "transportKind",
-                event.currentTarget.value as TransportKind,
-              )
-            }
-          >
-            <option value="stdio">Local stdio</option>
-            <option value="streamable_http">Streamable HTTP</option>
-          </select>
-        )}
-      </FormField>
-      {draft.transportKind === "stdio" ? (
+            required
+            onChange={() => update("transportKind", "stdio")}
+          />
+          <span>
+            <strong>Local process (stdio)</strong>
+            <small>Gateway launches a local executable.</small>
+          </span>
+        </label>
+        <label>
+          <input
+            id="server-transport-http"
+            name="server-transport-kind"
+            type="radio"
+            value="streamable_http"
+            checked={draft.transportKind === "streamable_http"}
+            disabled={disabled}
+            required
+            onChange={() => update("transportKind", "streamable_http")}
+          />
+          <span>
+            <strong>HTTP endpoint</strong>
+            <small>Gateway connects to a Streamable HTTP server.</small>
+          </span>
+        </label>
+      </fieldset>
+      {draft.transportKind === "stdio" && (
         <>
           <p class="bounded-note">
-            The Gateway launches this process as its own operating-system user.
-            This is process execution, not an OS sandbox or containment
-            boundary.
+            Gateway runs this executable directly as its operating-system user.
+            It is not sandboxed.
           </p>
           <FormField
             id="server-executable"
             label="Executable"
             hint="Absolute path; no shell interpolation."
+            required
           >
             {(attributes) => (
               <input
@@ -357,25 +575,10 @@ function EditorForm({
             )}
           </FormField>
           <FormField
-            id="server-arguments"
-            label="Arguments"
-            hint='JSON string array, for example ["--stdio"].'
-          >
-            {(attributes) => (
-              <textarea
-                {...attributes}
-                value={draft.argumentsJSON}
-                disabled={disabled}
-                onInput={(event) =>
-                  update("argumentsJSON", event.currentTarget.value)
-                }
-              />
-            )}
-          </FormField>
-          <FormField
             id="server-working-directory"
             label="Working directory"
             hint="Absolute path."
+            required
           >
             {(attributes) => (
               <input
@@ -388,45 +591,48 @@ function EditorForm({
               />
             )}
           </FormField>
-          <FormField
-            id="server-environment"
-            label="Ordinary environment"
-            hint="JSON string map. Do not enter credentials or secret values here."
-          >
-            {(attributes) => (
-              <textarea
-                {...attributes}
-                value={draft.environmentJSON}
-                disabled={disabled}
-                onInput={(event) =>
-                  update("environmentJSON", event.currentTarget.value)
-                }
-              />
-            )}
-          </FormField>
-          <FormField
-            id="server-secret-environment"
-            label="Secret environment slots"
-            hint="JSON map from environment names to keyring slot names only. Secret values are never accepted by this form."
-          >
-            {(attributes) => (
-              <textarea
-                {...attributes}
-                value={draft.secretEnvironmentJSON}
-                disabled={disabled}
-                onInput={(event) =>
-                  update("secretEnvironmentJSON", event.currentTarget.value)
-                }
-              />
-            )}
-          </FormField>
+          <details class="form-disclosure">
+            <summary>Optional process settings</summary>
+            <StringListEditor
+              id="server-argument"
+              label="Arguments"
+              hint="Passed literally and in this order; no shell interpolation."
+              itemLabel="Argument"
+              addLabel="Add argument"
+              items={draft.arguments}
+              disabled={disabled}
+              onChange={(items) => update("arguments", items)}
+            />
+            <PairListEditor
+              id="server-environment"
+              label="Environment variables"
+              hint="Ordinary nonsecret values only."
+              nameLabel="Variable name"
+              valueLabel="Value"
+              items={draft.environment}
+              disabled={disabled}
+              onChange={(items) => update("environment", items)}
+            />
+            <PairListEditor
+              id="server-secret-environment"
+              label="Secret environment bindings"
+              hint="Map environment variables to keyring slot names. Secret values are added later under Credentials."
+              nameLabel="Environment variable"
+              valueLabel="Credential slot"
+              items={draft.secretEnvironment}
+              disabled={disabled}
+              onChange={(items) => update("secretEnvironment", items)}
+            />
+          </details>
         </>
-      ) : (
+      )}
+      {draft.transportKind === "streamable_http" && (
         <>
           <FormField
             id="server-url"
             label="HTTP endpoint"
             hint="Credentials, query strings, and fragments are rejected."
+            required
           >
             {(attributes) => (
               <input
@@ -437,50 +643,82 @@ function EditorForm({
               />
             )}
           </FormField>
-          <FormField id="server-protocol-mode" label="Protocol mode">
-            {(attributes) => (
-              <select
-                {...attributes}
-                value={draft.protocolMode}
-                disabled={disabled}
-                onChange={(event) =>
-                  update(
-                    "protocolMode",
-                    event.currentTarget.value as Draft["protocolMode"],
-                  )
-                }
-              >
-                <option value="modern">Modern</option>
-                <option value="legacy">Legacy</option>
-                <option value="auto">Automatic negotiation</option>
-              </select>
-            )}
-          </FormField>
-          <FormField
-            id="server-auth-mode"
-            label="Authentication"
-            hint="Bearer and OAuth secret material is installed only through separate write-only workflows."
-          >
-            {(attributes) => (
-              <select
-                {...attributes}
-                value={draft.authMode}
-                disabled={disabled}
-                onChange={(event) =>
-                  update("authMode", event.currentTarget.value as AuthMode)
-                }
-              >
-                <option value="none">None</option>
-                <option value="bearer">Managed bearer slot</option>
-                <option value="oauth">OAuth</option>
-              </select>
-            )}
-          </FormField>
+          <details class="form-disclosure">
+            <summary>Compatibility settings</summary>
+            <FormField
+              id="server-protocol-mode"
+              label="Protocol preference"
+              required
+            >
+              {(attributes) => (
+                <select
+                  {...attributes}
+                  value={draft.protocolMode}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    update(
+                      "protocolMode",
+                      event.currentTarget.value as Draft["protocolMode"],
+                    )
+                  }
+                >
+                  <option value="auto">Automatic (recommended)</option>
+                  <option value="modern">Current only — 2026-07-28</option>
+                  <option value="legacy">Legacy only — 2025-11-25</option>
+                </select>
+              )}
+            </FormField>
+            <p class="field-hint">
+              Automatic uses legacy only when the server explicitly reports that
+              the current protocol is unsupported.
+            </p>
+          </details>
+          <fieldset class="choice-field">
+            <legend>Authentication</legend>
+            <p class="field-hint">
+              Credentials are added separately and stored in the
+              operating-system keyring; this configuration contains no secret
+              values.
+            </p>
+            {(
+              [
+                ["none", "No authentication"],
+                ["bearer", "Bearer token"],
+                ["oauth", "OAuth authorization code (PKCE)"],
+              ] as const
+            ).map(([mode, label]) => (
+              <label key={mode}>
+                <input
+                  id={`server-auth-${mode}`}
+                  name="server-auth-mode"
+                  type="radio"
+                  value={mode}
+                  checked={draft.authMode === mode}
+                  disabled={disabled}
+                  required
+                  onChange={() => update("authMode", mode)}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </fieldset>
+          {draft.authMode === "bearer" && (
+            <p class="bounded-note">
+              After creating the server, add its bearer token under Credentials.
+              Gateway stores it in the keyring and sends it in the Authorization
+              header.
+            </p>
+          )}
           {draft.authMode === "oauth" && (
             <>
+              <p class="bounded-note">
+                After creating the server, complete an OAuth authorization flow.
+                Gateway stores resulting token authority in the keyring.
+              </p>
               <FormField
                 id="server-registration-mode"
-                label="OAuth registration"
+                label="OAuth client registration"
+                required
               >
                 {(attributes) => (
                   <select
@@ -494,15 +732,22 @@ function EditorForm({
                       )
                     }
                   >
-                    <option value="dynamic">Dynamic</option>
-                    <option value="static">Static</option>
+                    <option value="dynamic">
+                      Register Gateway automatically
+                    </option>
+                    <option value="static">Use an existing OAuth client</option>
                   </select>
                 )}
               </FormField>
+              <p class="field-hint">
+                Automatic registration uses the provider's advertised dynamic
+                registration endpoint when authorization begins.
+              </p>
               <FormField
                 id="server-issuer"
-                label="Issuer"
-                hint="Optional canonical HTTPS issuer."
+                label="Authorization server issuer"
+                hint="Leave blank when server metadata identifies one issuer; otherwise enter the exact HTTPS issuer."
+                optional
               >
                 {(attributes) => (
                   <input
@@ -517,7 +762,7 @@ function EditorForm({
               </FormField>
               {draft.registrationMode === "static" && (
                 <>
-                  <FormField id="server-client-id" label="Client ID">
+                  <FormField id="server-client-id" label="Client ID" required>
                     {(attributes) => (
                       <input
                         {...attributes}
@@ -532,6 +777,8 @@ function EditorForm({
                   <FormField
                     id="server-token-auth"
                     label="Token endpoint authentication"
+                    hint="Basic and request-body methods require a separately installed client secret."
+                    required
                   >
                     {(attributes) => (
                       <select
@@ -546,56 +793,103 @@ function EditorForm({
                           )
                         }
                       >
-                        <option value="none">None</option>
+                        <option value="none">
+                          Public client — no client secret
+                        </option>
                         <option value="client_secret_basic">
-                          Client secret basic
+                          Client secret in HTTP Basic
                         </option>
                         <option value="client_secret_post">
-                          Client secret post
+                          Client secret in request body
                         </option>
                       </select>
                     )}
                   </FormField>
                 </>
               )}
-              <FormField
-                id="server-trusted-origins"
-                label="Trusted origins"
-                hint="JSON array of canonical HTTPS origins."
-              >
-                {(attributes) => (
-                  <textarea
-                    {...attributes}
-                    value={draft.trustedOriginsJSON}
-                    disabled={disabled}
-                    onInput={(event) =>
-                      update("trustedOriginsJSON", event.currentTarget.value)
-                    }
-                  />
-                )}
-              </FormField>
-              <FormField id="server-offline-access" label="Offline access">
-                {(attributes) => (
-                  <select
-                    {...attributes}
-                    value={draft.requestOfflineAccess ? "yes" : "no"}
+              <details class="form-disclosure">
+                <summary>Advanced OAuth settings</summary>
+                <StringListEditor
+                  id="server-oauth-origin"
+                  label="Additional OAuth origins allowed on restricted networks"
+                  hint="HTTPS network exceptions for private or loopback OAuth endpoints. The MCP server origin is already included; TLS and browser-origin policy are unchanged."
+                  itemLabel="OAuth origin"
+                  addLabel="Add OAuth origin"
+                  items={draft.trustedOrigins}
+                  disabled={disabled}
+                  onChange={(items) => update("trustedOrigins", items)}
+                />
+                <label class="checkbox-field" for="server-offline-access">
+                  <input
+                    id="server-offline-access"
+                    type="checkbox"
+                    checked={draft.requestOfflineAccess}
                     disabled={disabled}
                     onChange={(event) =>
                       update(
                         "requestOfflineAccess",
-                        event.currentTarget.value === "yes",
+                        event.currentTarget.checked,
                       )
                     }
-                  >
-                    <option value="no">Do not request</option>
-                    <option value="yes">Request offline access</option>
-                  </select>
-                )}
-              </FormField>
+                  />
+                  <span>
+                    <strong>Request offline access when supported</strong>
+                    <small>
+                      Requests the offline_access scope only when advertised.
+                      The provider may still omit a refresh token.
+                    </small>
+                  </span>
+                </label>
+              </details>
             </>
           )}
         </>
       )}
+    </>
+  );
+}
+
+function CreationReview({ draft }: { draft: Draft }) {
+  const connection =
+    draft.transportKind === "stdio"
+      ? `Local process — ${draft.executable}`
+      : `HTTP — ${draft.url}`;
+  const authentication =
+    draft.transportKind === "stdio"
+      ? "Not applicable"
+      : draft.authMode === "none"
+        ? "No authentication"
+        : draft.authMode === "bearer"
+          ? "Bearer token"
+          : "OAuth authorization code (PKCE)";
+  return (
+    <>
+      <dl class="review-list" data-testid="server-creation-review">
+        <div>
+          <dt>Namespace</dt>
+          <dd>{draft.namespace}</dd>
+        </div>
+        <div>
+          <dt>Display name</dt>
+          <dd>{draft.displayName}</dd>
+        </div>
+        <div>
+          <dt>Initial state</dt>
+          <dd>{draft.enabled ? "Enabled" : "Disabled"}</dd>
+        </div>
+        <div>
+          <dt>Connection</dt>
+          <dd>{connection}</dd>
+        </div>
+        <div>
+          <dt>Authentication</dt>
+          <dd>{authentication}</dd>
+        </div>
+      </dl>
+      <p>
+        The namespace is permanent. Creating an enabled server also schedules
+        connection work.
+      </p>
     </>
   );
 }
@@ -805,7 +1099,7 @@ export function ServerEditor({
           disabled={disabled}
           data-testid="server-editor-submit"
         >
-          {create ? "Review server creation" : "Save desired state"}
+          {create ? "Review and create" : "Save desired state"}
         </button>
         {mutation.canReplay && (
           <button
@@ -820,13 +1114,13 @@ export function ServerEditor({
       <ConfirmationDialog
         id="server-change-confirm"
         open={mutation.state === "confirming"}
-        title={
-          create ? "Create server identity?" : "Apply behavioral server change?"
-        }
+        title={create ? "Review server" : "Apply behavioral server change?"}
         consequence={
-          create
-            ? "This creates a durable routing identity and may schedule process work when enabled."
-            : "Changing desired state or transport interrupts current server routing and schedules reconciliation."
+          create ? (
+            <CreationReview draft={draft} />
+          ) : (
+            "Changing desired state or transport interrupts current server routing and schedules reconciliation."
+          )
         }
         confirmLabel={create ? "Create server" : "Apply behavioral change"}
         returnFocus={submitButton as unknown as RefObject<HTMLElement>}
@@ -841,9 +1135,7 @@ export function ServerEditor({
         <div class="panel-heading">
           <div>
             <span class="panel-code">NEW SERVER</span>
-            <h2 id="server-editor-title">
-              Create sanitized server configuration
-            </h2>
+            <h2 id="server-editor-title">Create server</h2>
           </div>
         </div>
         {form}
