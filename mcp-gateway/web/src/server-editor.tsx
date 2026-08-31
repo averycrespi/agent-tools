@@ -1,5 +1,6 @@
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { useUnsavedChanges } from "./navigation";
 import type {
   MutationController,
   MutationCoordinator,
@@ -613,9 +614,10 @@ export function ServerEditor({
   decodeServerValue: (value: unknown) => ServerView;
 }) {
   const create = server === undefined;
-  const [draft, setDraft] = useState<Draft>(() =>
+  const initialDraft = useRef<Draft>(
     create ? blankDraft() : draftFromServer(server),
   );
+  const [draft, setDraft] = useState<Draft>(initialDraft.current);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [blockedETag, setBlockedETag] = useState<string>();
@@ -626,6 +628,9 @@ export function ServerEditor({
     controller.snapshot(),
   );
   const submitButton = useRef<HTMLButtonElement>(null);
+  const navigate = useUnsavedChanges(
+    canonical(draft) !== canonical(initialDraft.current),
+  );
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
@@ -644,7 +649,9 @@ export function ServerEditor({
           : `Desired state saved; operation ${outcome.value.operationID} was scheduled.`,
       );
       controller.abandon();
-      if (create) window.location.hash = `#/servers/${outcome.value.server.id}`;
+      initialDraft.current = draft;
+      setDraft({ ...draft });
+      if (create) navigate(`#/servers/${outcome.value.server.id}`, true);
       else onRefresh();
     } else if (
       outcome.kind === "rejected" &&

@@ -1,5 +1,11 @@
 import { render } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 import {
   replaceForLifecycle,
   synchronizeFragment,
@@ -9,6 +15,7 @@ import {
 import { Grants } from "./grants";
 import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
+import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { Principals } from "./principals";
 import { Requests } from "./requests";
@@ -231,11 +238,39 @@ function App() {
   const [theme, setTheme] = useState<ThemePreference>(initialTheme);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<string>();
   const priorLifecycle = useRef<SessionLifecycle>(session.lifecycle);
+  const acceptedFragment = useRef(initialLocation.canonicalFragment);
+  const bypassHashGuard = useRef(false);
+  const dirtyOwners = useRef(new Set<symbol>());
   const pageTitle = useRef<HTMLHeadingElement>(null);
   const navigationToggle = useRef<HTMLButtonElement>(null);
   const logoutButton = useRef<HTMLButtonElement>(null);
+  const navigationReturnFocus = useRef<HTMLElement>(null);
   const focusAfterLogout = useRef(false);
+
+  const setDirty = useCallback((owner: symbol, dirty: boolean) => {
+    const changed = dirty
+      ? !dirtyOwners.current.has(owner)
+      : dirtyOwners.current.has(owner);
+    if (!changed) return;
+    if (dirty) dirtyOwners.current.add(owner);
+    else dirtyOwners.current.delete(owner);
+  }, []);
+  const navigate = useCallback((fragment: string, discard = false) => {
+    if (fragment === window.location.hash) return;
+    if (!discard && dirtyOwners.current.size !== 0) {
+      setPendingNavigation(fragment);
+      return;
+    }
+    bypassHashGuard.current = discard;
+    window.location.hash = fragment;
+  }, []);
+  const navigationGuard = useMemo<NavigationGuard>(
+    () => ({ setDirty, navigate }),
+    [navigate, setDirty],
+  );
+  configureNavigationGuard(navigationGuard);
 
   useEffect(() => {
     const unsubscribe = sessionClient.subscribe(setSession);
@@ -264,16 +299,28 @@ function App() {
     }
     priorLifecycle.current = session.lifecycle;
     const nextLocation = synchronizeFragment(authenticated);
+    acceptedFragment.current = nextLocation.canonicalFragment;
     setResolved(nextLocation);
     if (authenticated) viewCoordinator.activate(nextLocation.canonicalFragment);
   }, [session.lifecycle, session.epoch]);
 
   useEffect(() => {
     const synchronize = () => {
+      if (bypassHashGuard.current) {
+        bypassHashGuard.current = false;
+      } else if (
+        dirtyOwners.current.size !== 0 &&
+        window.location.hash !== acceptedFragment.current &&
+        !window.confirm("Leave this page? Unsaved changes will be discarded.")
+      ) {
+        window.history.pushState(null, "", acceptedFragment.current);
+        return;
+      }
       sensitiveSinkCoordinator.clearForNavigation();
       const nextLocation = synchronizeFragment(
         session.lifecycle === "authenticated",
       );
+      acceptedFragment.current = nextLocation.canonicalFragment;
       setResolved(nextLocation);
       if (session.lifecycle === "authenticated")
         viewCoordinator.navigate(nextLocation.canonicalFragment);
@@ -281,6 +328,16 @@ function App() {
     window.addEventListener("hashchange", synchronize);
     return () => window.removeEventListener("hashchange", synchronize);
   }, [session.lifecycle]);
+
+  useEffect(() => {
+    const preventUnload = (event: BeforeUnloadEvent) => {
+      if (dirtyOwners.current.size === 0) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", preventUnload);
+    return () => window.removeEventListener("beforeunload", preventUnload);
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);
@@ -316,6 +373,31 @@ function App() {
       data-view-generation={view.generation}
       data-freshness={view.freshness}
       data-mutation-availability={mutationAvailability}
+      onClickCapture={(event) => {
+        if (
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        )
+          return;
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const link = target.closest("a");
+        const fragment = link?.getAttribute("href");
+        if (
+          link === null ||
+          fragment === null ||
+          fragment === undefined ||
+          !fragment.startsWith("#/") ||
+          link.target !== ""
+        )
+          return;
+        event.preventDefault();
+        navigationReturnFocus.current = link;
+        navigate(fragment);
+      }}
       onKeyDown={(event) => {
         if (!navigationOpen || event.key !== "Escape") return;
         event.preventDefault();
@@ -535,6 +617,21 @@ function App() {
         )}
       </main>
       <SensitiveSinkHost coordinator={sensitiveSinkCoordinator} />
+      <ConfirmationDialog
+        id="unsaved-changes"
+        open={pendingNavigation !== undefined}
+        title="Discard unsaved changes?"
+        consequence="Your changes on this page have not been saved."
+        confirmLabel="Discard and leave"
+        destructive
+        returnFocus={navigationReturnFocus}
+        onCancel={() => setPendingNavigation(undefined)}
+        onConfirm={() => {
+          const destination = pendingNavigation;
+          setPendingNavigation(undefined);
+          if (destination !== undefined) navigate(destination, true);
+        }}
+      />
       <ConfirmationDialog
         id="logout-confirmation"
         open={logoutConfirmationOpen}

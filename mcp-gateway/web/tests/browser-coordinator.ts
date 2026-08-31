@@ -6216,6 +6216,67 @@ async function runServerCreateUpdate(
   });
   const editor = page.locator('[data-testid="server-editor"]');
   await editor.waitFor();
+  await page.locator("#server-display-name").fill("Unsaved draft");
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page
+    .locator('[data-testid="unsaved-changes-cancel"]')
+    .waitFor({ timeout: 1_000 })
+    .catch(async () =>
+      fail(
+        `dirty navigation was not blocked at ${await page.evaluate(() => window.location.hash)}`,
+      ),
+    );
+  await page.locator('[data-testid="unsaved-changes-cancel"]').click();
+  if (
+    (await page.evaluate(() => window.location.hash)) !== "#/servers/new" ||
+    (await page.locator("#server-display-name").inputValue()) !==
+      "Unsaved draft"
+  )
+    fail("cancelled navigation did not preserve the dirty server draft");
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page.locator('[data-testid="unsaved-changes-submit"]').click();
+  await page
+    .getByRole("heading", { name: "Overview", exact: true, level: 1 })
+    .waitFor();
+  await page.evaluate(() => {
+    window.location.hash = "#/servers/new";
+  });
+  await editor.waitFor();
+  const dispatchBeforeUnload = () =>
+    page.evaluate(() => {
+      const event = new Event("beforeunload", {
+        bubbles: false,
+        cancelable: true,
+      });
+      return !window.dispatchEvent(event);
+    });
+  if (await dispatchBeforeUnload())
+    fail("untouched server form installed an unload warning");
+  await page.locator("#server-display-name").fill("Back-button draft");
+  if (!(await dispatchBeforeUnload()))
+    fail("dirty server form omitted its unload warning");
+  let backPrompt = "";
+  page.once("dialog", async (dialog) => {
+    backPrompt = dialog.message();
+    await dialog.dismiss();
+  });
+  await page.goBack();
+  const hashAfterBack = await page.evaluate(() => window.location.hash);
+  const draftAfterBack = await page
+    .locator("#server-display-name")
+    .inputValue()
+    .catch(() => "missing");
+  if (
+    backPrompt !== "Leave this page? Unsaved changes will be discarded." ||
+    hashAfterBack !== "#/servers/new" ||
+    draftAfterBack !== "Back-button draft"
+  )
+    fail(
+      `browser history navigation did not preserve a cancelled dirty draft (prompt=${backPrompt}, hash=${hashAfterBack}, draft=${draftAfterBack})`,
+    );
+  await page.locator("#server-display-name").fill("");
+  if (await dispatchBeforeUnload())
+    fail("reverted server form retained its unload warning");
   const initialInputs = await editor.locator("input").evaluateAll((nodes) =>
     nodes.map((node) => ({
       name: node.getAttribute("name"),
@@ -8767,7 +8828,9 @@ async function runShellPrimitives(
   const logout = page.locator('[data-testid="logout"]');
   await logout.focus();
   await logout.click();
-  const dialog = page.locator("dialog.confirmation-dialog");
+  const dialog = page.locator(
+    'dialog.confirmation-dialog[aria-labelledby="logout-confirmation-title"]',
+  );
   await dialog.waitFor({ state: "visible" });
   if (
     (await dialog.getAttribute("aria-labelledby")) !==
