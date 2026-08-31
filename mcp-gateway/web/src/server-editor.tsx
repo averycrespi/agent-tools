@@ -998,7 +998,10 @@ export function ServerEditor({
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
-    if (server !== undefined) setDraft(draftFromServer(server));
+    if (server === undefined) return;
+    const next = draftFromServer(server);
+    initialDraft.current = next;
+    setDraft(next);
   }, [server?.id]);
 
   const settle = async (
