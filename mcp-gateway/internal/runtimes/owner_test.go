@@ -49,7 +49,7 @@ func TestCandidateKeyBindsOnlyRelevantAuthority(t *testing.T) {
 
 	handle := "client-handle"
 	oauth := ownerCandidate(2, contract.TransportStreamableHTTP)
-	oauth.Server.Transport = []byte(`{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"oauth","registration":{"mode":"static","client_id":"client","token_endpoint_auth_method":"client_secret_basic"},"trusted_origins":[],"request_offline_access":false}}`)
+	oauth.Server.Transport = []byte(`{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"oauth","registration":{"mode":"static","issuer":null,"client_id":"client","token_endpoint_auth_method":"client_secret_basic"},"trusted_origins":[],"request_offline_access":false}}`)
 	oauth.Authority.OAuthClientHandle = &handle
 	oauthKey := oauth.Key()
 	registrationMismatch := oauth

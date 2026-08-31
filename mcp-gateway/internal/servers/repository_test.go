@@ -36,8 +36,8 @@ func TestDecodeTransportRejectsMalformedClosedUnionsAndSemantics(t *testing.T) {
 		{name: "stdio", raw: `{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}`, want: contract.StdioTransport{}},
 		{name: "HTTP none", raw: `{"kind":"streamable_http","url":"http://127.0.0.1:9000/mcp","protocol_mode":"modern","authentication":{"mode":"none"}}`, want: contract.StreamableHTTPTransport{}},
 		{name: "HTTP bearer", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"legacy","authentication":{"mode":"bearer"}}`, want: contract.StreamableHTTPTransport{}},
-		{name: "HTTP static OAuth", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"static","client_id":"client","token_endpoint_auth_method":"none"},"trusted_origins":[],"request_offline_access":false}}`, want: contract.StreamableHTTPTransport{}},
-		{name: "HTTP dynamic OAuth", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"oauth","registration":{"mode":"dynamic"},"trusted_origins":[],"request_offline_access":false}}`, want: contract.StreamableHTTPTransport{}},
+		{name: "HTTP static OAuth", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"static","issuer":null,"client_id":"client","token_endpoint_auth_method":"none"},"trusted_origins":[],"request_offline_access":false}}`, want: contract.StreamableHTTPTransport{}},
+		{name: "HTTP dynamic OAuth", raw: `{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"modern","authentication":{"mode":"oauth","registration":{"mode":"dynamic","issuer":null},"trusted_origins":[],"request_offline_access":false}}`, want: contract.StreamableHTTPTransport{}},
 	}
 	for _, test := range valid {
 		t.Run(test.name, func(t *testing.T) {

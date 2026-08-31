@@ -267,6 +267,11 @@ function PrincipalEditor({
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
     if (principal === undefined) return;
+    initialDraft.current = {
+      displayName: principal.displayName,
+      state: principal.state,
+      visibility: principal.visibility,
+    };
     setDisplayName(principal.displayName);
     setState(principal.state);
     setVisibility(principal.visibility);

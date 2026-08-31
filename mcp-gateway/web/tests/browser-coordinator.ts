@@ -3464,7 +3464,9 @@ async function runPrincipals(
               "allowed-only",
               "1",
             )
-          : current;
+          : id === secondID
+            ? principal(secondID, "Disabled agent", "disabled", "all", "4")
+            : current;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -3604,6 +3606,21 @@ async function runPrincipals(
     "Re-enabling restores neither",
   ])
     if (!body.includes(phrase)) fail(`principal detail omitted ${phrase}`);
+
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/principals/${id}`;
+  }, secondID);
+  await page.getByText("Disabled agent", { exact: true }).waitFor();
+  const untouchedPrincipalWarned = await page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    return !window.dispatchEvent(event);
+  });
+  if (untouchedPrincipalWarned)
+    fail("principal route change retained the prior principal dirty baseline");
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/principals/${id}`;
+  }, firstID);
+  await page.getByText("Build agent", { exact: true }).waitFor();
 
   await page
     .locator('[data-testid="principal-display-name"]')
@@ -6354,6 +6371,7 @@ async function runServerCreateUpdate(
   await page.locator("#server-url").fill("https://resource.example/mcp");
   await page.locator("#server-auth-oauth").check();
   if (
+    !(await editor.textContent())?.includes("same origin") ||
     !(await editor.textContent())?.includes("Register Gateway automatically") ||
     !(await editor.textContent())?.includes(
       "Request offline access when supported",
@@ -6382,7 +6400,9 @@ async function runServerCreateUpdate(
   await page.locator('[data-testid="server-argument-add"]').click();
   await page.locator('[data-testid="server-argument"]').fill("--safe");
   await page.locator('[data-testid="server-environment-add"]').click();
-  await page.locator('[data-testid="server-environment-name"]').fill("MODE");
+  await page
+    .locator('[data-testid="server-environment-name"]')
+    .fill("__proto__");
   await page.locator('[data-testid="server-environment-value"]').fill("read");
   await page.locator('[data-testid="server-secret-environment-add"]').click();
   await page
@@ -6393,6 +6413,24 @@ async function runServerCreateUpdate(
     .fill("primary");
   if (!(await editor.textContent())?.includes("It is not sandboxed"))
     fail("stdio OS-user warning omitted containment boundary");
+  for (const testID of [
+    "server-environment-name",
+    "server-secret-environment-name",
+    "server-secret-environment-value",
+  ]) {
+    if (
+      (await page
+        .locator(`[data-testid="${testID}"]`)
+        .getAttribute("required")) === null
+    )
+      fail(`structured server row omitted required semantics: ${testID}`);
+  }
+  if (
+    (await page
+      .locator('[data-testid="server-environment-value"]')
+      .getAttribute("required")) !== null
+  )
+    fail("ordinary environment row rejected an allowed empty value");
 
   await page.locator('[data-testid="server-editor-submit"]').click();
   const creationReview = page.locator('[data-testid="server-creation-review"]');
@@ -6401,7 +6439,10 @@ async function runServerCreateUpdate(
     !reviewText.includes("first-name") ||
     !reviewText.includes("Created server") ||
     !reviewText.includes("Disabled") ||
-    !reviewText.includes("Local process — /usr/bin/example")
+    !reviewText.includes("Local process — /usr/bin/example") ||
+    !reviewText.includes("--safe") ||
+    !reviewText.includes("__proto__=read") ||
+    !reviewText.includes("TOKEN → primary")
   )
     fail("server creation confirmation did not review consequential choices");
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
@@ -6420,7 +6461,7 @@ async function runServerCreateUpdate(
   if (
     firstTransport?.kind !== "stdio" ||
     JSON.stringify(firstTransport.arguments) !== '["--safe"]' ||
-    JSON.stringify(firstTransport.environment) !== '{"MODE":"read"}' ||
+    JSON.stringify(firstTransport.environment) !== '{"__proto__":"read"}' ||
     JSON.stringify(firstTransport.secret_environment) !== '{"TOKEN":"primary"}'
   )
     fail("structured stdio controls did not serialize the expected transport");

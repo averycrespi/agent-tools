@@ -156,6 +156,18 @@ type registrationDiscriminator struct {
 	Mode contract.RegistrationMode `json:"mode"`
 }
 
+type staticRegistrationEnvelope struct {
+	Mode                    contract.RegistrationMode        `json:"mode"`
+	Issuer                  json.RawMessage                  `json:"issuer"`
+	ClientID                string                           `json:"client_id"`
+	TokenEndpointAuthMethod contract.TokenEndpointAuthMethod `json:"token_endpoint_auth_method"`
+}
+
+type dynamicRegistrationEnvelope struct {
+	Mode   contract.RegistrationMode `json:"mode"`
+	Issuer json.RawMessage           `json:"issuer"`
+}
+
 func DecodeTransport(contents []byte) (contract.Transport, error) {
 	options := strictjson.Options{MaxBytes: mustLimit("api_json_body_bytes"), MaxDepth: int(mustLimit("json_depth"))}
 	closed := options
@@ -247,20 +259,39 @@ func decodeOAuthRegistration(contents []byte, options, closed strictjson.Options
 	}
 	switch discriminator.Mode {
 	case contract.RegistrationStatic:
-		var value contract.StaticOAuthRegistration
-		if err := strictjson.Decode(contents, &value, closed); err != nil {
+		var raw staticRegistrationEnvelope
+		if err := strictjson.Decode(contents, &raw, closed); err != nil {
 			return nil, err
 		}
-		return value, nil
+		issuer, err := decodeRegistrationIssuer(raw.Issuer, options)
+		if err != nil {
+			return nil, err
+		}
+		return contract.StaticOAuthRegistration{Mode: raw.Mode, Issuer: issuer, ClientID: raw.ClientID, TokenEndpointAuthMethod: raw.TokenEndpointAuthMethod}, nil
 	case contract.RegistrationDynamic:
-		var value contract.DynamicOAuthRegistration
-		if err := strictjson.Decode(contents, &value, closed); err != nil {
+		var raw dynamicRegistrationEnvelope
+		if err := strictjson.Decode(contents, &raw, closed); err != nil {
 			return nil, err
 		}
-		return value, nil
+		issuer, err := decodeRegistrationIssuer(raw.Issuer, options)
+		if err != nil {
+			return nil, err
+		}
+		return contract.DynamicOAuthRegistration{Mode: raw.Mode, Issuer: issuer}, nil
 	default:
 		return nil, errors.New("unknown registration mode")
 	}
+}
+
+func decodeRegistrationIssuer(contents json.RawMessage, options strictjson.Options) (*string, error) {
+	if contents == nil {
+		return nil, errors.New("OAuth issuer member is required")
+	}
+	var issuer *string
+	if err := strictjson.Decode(contents, &issuer, options); err != nil {
+		return nil, err
+	}
+	return issuer, nil
 }
 
 func validateDefinition(definition Definition) ([]byte, error) {

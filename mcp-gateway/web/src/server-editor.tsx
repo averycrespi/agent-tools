@@ -77,7 +77,7 @@ function pairItems(
   }));
 }
 function pairRecord(items: readonly PairItem[], label: string) {
-  const result: Record<string, string> = {};
+  const result = Object.create(null) as Record<string, string>;
   for (const item of items) {
     if (item.name === "") throw new Error(`${label} names cannot be empty.`);
     if (Object.hasOwn(result, item.name))
@@ -362,6 +362,7 @@ function PairListEditor({
   hint,
   nameLabel,
   valueLabel,
+  valueRequired = true,
   items,
   disabled,
   onChange,
@@ -371,6 +372,7 @@ function PairListEditor({
   hint: string;
   nameLabel: string;
   valueLabel: string;
+  valueRequired?: boolean;
   items: PairItem[];
   disabled: boolean;
   onChange: (items: PairItem[]) => void;
@@ -393,6 +395,7 @@ function PairListEditor({
             id={`${id}-${item.id}-name`}
             data-testid={`${id}-name`}
             value={item.name}
+            required
             placeholder={nameLabel}
             disabled={disabled}
             onInput={(event) =>
@@ -412,6 +415,7 @@ function PairListEditor({
             id={`${id}-${item.id}-value`}
             data-testid={`${id}-value`}
             value={item.value}
+            required={valueRequired}
             placeholder={valueLabel}
             disabled={disabled}
             onInput={(event) =>
@@ -609,6 +613,7 @@ function EditorForm({
               hint="Ordinary nonsecret values only."
               nameLabel="Variable name"
               valueLabel="Value"
+              valueRequired={false}
               items={draft.environment}
               disabled={disabled}
               onChange={(items) => update("environment", items)}
@@ -746,7 +751,7 @@ function EditorForm({
               <FormField
                 id="server-issuer"
                 label="Authorization server issuer"
-                hint="Leave blank when server metadata identifies one issuer; otherwise enter the exact HTTPS issuer."
+                hint="Leave blank only when metadata identifies one issuer on the same origin as the HTTP endpoint; otherwise enter the exact HTTPS issuer."
                 optional
               >
                 {(attributes) => (
@@ -862,6 +867,12 @@ function CreationReview({ draft }: { draft: Draft }) {
         : draft.authMode === "bearer"
           ? "Bearer token"
           : "OAuth authorization code (PKCE)";
+  const values = (items: readonly StringItem[]) =>
+    items.length === 0 ? "None" : items.map((item) => item.value).join(", ");
+  const pairs = (items: readonly PairItem[], separator: string) =>
+    items.length === 0
+      ? "None"
+      : items.map((item) => `${item.name}${separator}${item.value}`).join(", ");
   return (
     <>
       <dl class="review-list" data-testid="server-creation-review">
@@ -881,10 +892,69 @@ function CreationReview({ draft }: { draft: Draft }) {
           <dt>Connection</dt>
           <dd>{connection}</dd>
         </div>
-        <div>
-          <dt>Authentication</dt>
-          <dd>{authentication}</dd>
-        </div>
+        {draft.transportKind === "stdio" ? (
+          <>
+            <div>
+              <dt>Working directory</dt>
+              <dd>{draft.workingDirectory}</dd>
+            </div>
+            <div>
+              <dt>Arguments</dt>
+              <dd>{values(draft.arguments)}</dd>
+            </div>
+            <div>
+              <dt>Environment</dt>
+              <dd>{pairs(draft.environment, "=")}</dd>
+            </div>
+            <div>
+              <dt>Secret bindings</dt>
+              <dd>{pairs(draft.secretEnvironment, " → ")}</dd>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <dt>Protocol</dt>
+              <dd>{draft.protocolMode}</dd>
+            </div>
+            <div>
+              <dt>Authentication</dt>
+              <dd>{authentication}</dd>
+            </div>
+            {draft.authMode === "oauth" && (
+              <>
+                <div>
+                  <dt>OAuth registration</dt>
+                  <dd>
+                    {draft.registrationMode === "dynamic"
+                      ? "Register Gateway automatically"
+                      : `Existing client ${draft.clientID} (${draft.tokenEndpointAuthMethod})`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>OAuth issuer</dt>
+                  <dd>
+                    {draft.issuer === ""
+                      ? "Discover from same-origin metadata"
+                      : draft.issuer}
+                  </dd>
+                </div>
+                <div>
+                  <dt>OAuth network origins</dt>
+                  <dd>{values(draft.trustedOrigins)}</dd>
+                </div>
+                <div>
+                  <dt>Offline access</dt>
+                  <dd>
+                    {draft.requestOfflineAccess
+                      ? "Request when advertised"
+                      : "Do not request"}
+                  </dd>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </dl>
       <p>
         The namespace is permanent. Creating an enabled server also schedules
