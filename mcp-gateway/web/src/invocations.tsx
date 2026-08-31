@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import {
+  CollectionTable,
   ComparisonTable,
   InertJSON,
   StateNotice,
@@ -597,33 +598,52 @@ function InvocationList({
       ) : snapshot.items.length === 0 ? (
         <StateNotice state="empty" title="No retained invocations match" />
       ) : (
-        <div class="invocation-records">
-          {snapshot.items.map((item) => (
-            <article
-              class="audit-record"
-              data-testid="invocation-row"
-              key={item.id}
-            >
-              <div class="audit-record-heading">
+        <CollectionTable
+          caption="Invocation history"
+          items={snapshot.items}
+          rowKey={(item) => item.id}
+          rowTestID="invocation-row"
+          columns={[
+            {
+              key: "request",
+              label: "Request",
+              render: (item) => (
                 <a href={`#/invocations/${item.id}`}>
-                  {item.requestedName ?? item.id}
+                  {item.requestedName ?? "Unresolved request"}
                 </a>
+              ),
+            },
+            {
+              key: "outcome",
+              label: "Outcome",
+              render: (item) => (
                 <StatusLabel
                   state={
-                    item.outcome === "outcome_unknown" ? "warning" : "current"
+                    item.outcome === "succeeded"
+                      ? "current"
+                      : item.outcome === "outcome_unknown"
+                        ? "warning"
+                        : "empty"
                   }
                 >
-                  {item.outcome}
+                  {item.outcome
+                    .replaceAll("_", " ")
+                    .replace(/^./, (value) => value.toLocaleUpperCase())}
                 </StatusLabel>
-              </div>
-              <p>
-                {item.admittedAt} · basis {item.basis} ·{" "}
-                {targetLabel(item.target)}
-              </p>
-              <Identities item={item} />
-            </article>
-          ))}
-        </div>
+              ),
+            },
+            {
+              key: "admitted",
+              label: "Admitted",
+              render: (item) => item.admittedAt,
+            },
+            {
+              key: "target",
+              label: "Target",
+              render: (item) => targetLabel(item.target),
+            },
+          ]}
+        />
       )}
       {snapshot.nextCursor !== null && (
         <button

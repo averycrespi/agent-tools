@@ -5692,12 +5692,18 @@ async function runInvocations(
     "bounded recent window of at most 4,096 rows",
     "FIFO eviction has no age guarantee",
     "Filtered pages are independently coherent",
-    "Recorded principal",
-    "Recorded credential",
+    "Request",
+    "Outcome",
+    "Target",
   ])
     if (!body.includes(phrase)) fail(`invocation list omitted ${phrase}`);
-  if (body.includes(captureCanary) || body.includes("redacted_arguments"))
-    fail("invocation collection exposed item capture");
+  if (
+    body.includes(captureCanary) ||
+    body.includes("redacted_arguments") ||
+    body.includes("Recorded principal") ||
+    body.includes("Recorded credential")
+  )
+    fail("invocation collection exposed item capture or internal identities");
 
   const beforePoll = listReads;
   await page.waitForTimeout(5100);
@@ -5739,8 +5745,8 @@ async function runInvocations(
   if (continuationReads !== beforeContinuation + 1)
     fail("invocation continuation was duplicated");
   body = (await page.locator("body").textContent()) ?? "";
-  for (const basis of ["admission", "policy", "terminal", "missing_terminal"])
-    if (!body.includes(basis)) fail(`invocation list omitted ${basis} basis`);
+  if (body.includes("missing_terminal") || body.includes("basis"))
+    fail("invocation collection exposed internal outcome semantics");
 
   const fragment = `#/invocations?outcome=outcome_unknown&decision=allow&server_id=${invocationIDs.server}&principal_id=${invocationIDs.principal}&admission_class=evaluated`;
   await page.evaluate((value) => {
