@@ -50,7 +50,7 @@ func runAdminCredentialRotate(command *cobra.Command, options *onlineOptions, ar
 	}
 	sink, err := controlclient.PrepareSensitiveSink(controlclient.SinkOptions{Path: options.secretOutput})
 	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		return writeOnlineFailure(command, options.output, credentialSinkPreparationFailure(err, false))
 	}
 	defer func() { _ = sink.Cleanup() }()
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Create and durably verify a replacement administrator credential before conditionally revoking the named old credential?"}); err != nil {
@@ -63,7 +63,7 @@ func runAdminCredentialRotate(command *cobra.Command, options *onlineOptions, ar
 	}
 	reopenedBearer, err := sink.PublishAdminRotation(created.Bearer, created.Fingerprint)
 	if err != nil {
-		title := rotationRecoveryTitle("The replacement credential "+created.ID+" was created, but its bearer could not be durably published and verified. The old credential was not revoked.", created.ID, options, command)
+		title := "The replacement credential " + created.ID + " may be active, but its bearer cannot be recovered from Gateway metadata. The output path may contain unverified secret material; do not use it, and secure or remove it. This workflow did not revoke the old credential. Nothing was replayed. If the old credential is still active, use it to inspect metadata; otherwise use another active administrator credential. Explicitly revoke an unusable replacement before a fresh rotation."
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "admin_rotation_publish_failed", Title: title, Exit: 2})
 	}
 	verifiedReplacement, failure := loadRotationCredential(command, client, reopenedBearer, options.secretOutput, created.ID)
@@ -278,7 +278,7 @@ func writeAdminRotationSuccess(command *cobra.Command, options *onlineOptions, o
 		return controlclient.WriteSuccess(command.OutOrStdout(), mode, body, controlclient.Table{})
 	}
 	recovery, _ := renderRotationRecoveryCommand(newCredential.ID, options.secretOutput)
-	note := "Use the new owner-only bearer file for later online commands."
+	note := "Bearer published once to the new owner-only file; it cannot be shown again. Use that file for later online commands."
 	if rotationUsesDefaultBearer(command, options) {
 		note += " The default bearer file still names the old credential."
 	}

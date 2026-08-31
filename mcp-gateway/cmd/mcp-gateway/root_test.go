@@ -236,6 +236,7 @@ func TestInitializeRendersShellSafeCustomStartCommand(t *testing.T) {
 	assert.Contains(t, stdout.String(), "printf '%b_'")
 	assert.Contains(t, stdout.String(), `\012`)
 	assert.Contains(t, stdout.String(), `'"'"'`)
+	assert.Contains(t, stdout.String(), "cannot be shown again")
 	assert.Contains(t, stdout.String(), "mcp-gateway serve --data-dir")
 }
 
@@ -290,6 +291,7 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	command.SetArgs([]string{"admin", "reset", "--data-dir", root, "--secret-output", guidanceSecret})
 	require.NoError(t, command.ExecuteContext(ctx))
 	assert.Contains(t, stdout.String(), "--admin-bearer-file")
+	assert.Contains(t, stdout.String(), "cannot be shown again")
 	assert.Contains(t, stdout.String(), "printf '%b_'")
 	guidanceBearer, err := os.ReadFile(guidanceSecret)
 	require.NoError(t, err)
@@ -369,6 +371,18 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	published, err := os.ReadFile(secret)
 	require.NoError(t, err)
 	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(published)))
+
+	humanSecret := filepath.Join(t.TempDir(), "human-replacement")
+	stdout.Reset()
+	command = newRootCmd()
+	command.SetOut(stdout)
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--secret-output", humanSecret})
+	require.NoError(t, command.ExecuteContext(ctx))
+	assert.Contains(t, stdout.String(), "cannot be shown again")
+	humanBearer, err := os.ReadFile(humanSecret)
+	require.NoError(t, err)
+	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(humanBearer)))
 }
 
 func TestRestoreRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {

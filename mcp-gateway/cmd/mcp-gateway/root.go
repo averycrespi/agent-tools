@@ -498,6 +498,7 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 	command := &cobra.Command{
 		Use:     operation,
 		Short:   short,
+		Long:    short + ". The one-time administrator bearer is written to a new non-symlink 0600 owner-only file and cannot be recovered after publication.",
 		Example: example,
 		Args: func(command *cobra.Command, args []string) error {
 			if len(args) != 0 {
@@ -545,13 +546,13 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 			if err != nil {
 				return commandFailure{}
 			}
-			human := "Gateway initialized successfully.\nData directory: " + controlclient.TerminalSafePath(layout.Root) + "\nAdministrator bearer file: " + controlclient.TerminalSafePath(secretPath) + "\nStart the Gateway: " + startCommand + "\nOpen: http://127.0.0.1:8210/"
+			human := "Gateway initialized successfully.\nData directory: " + controlclient.TerminalSafePath(layout.Root) + "\nAdministrator bearer file: " + controlclient.TerminalSafePath(secretPath) + "\nBearer published once to the owner-only file; it cannot be shown again.\nStart the Gateway: " + startCommand + "\nOpen: http://127.0.0.1:8210/"
 			if operation != "initialize" {
 				bearerCommand, renderErr := renderBearerCommand("mcp-gateway status", secretPath)
 				if renderErr != nil {
 					return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The secret output path is too long to render safely."))
 				}
-				human = "Administrator authority replaced successfully.\nNew bearer file: " + controlclient.TerminalSafePath(secretPath) + "\nUse the replacement explicitly: " + bearerCommand
+				human = "Administrator authority replaced successfully.\nNew bearer file: " + controlclient.TerminalSafePath(secretPath) + "\nBearer published once to the owner-only file; it cannot be shown again.\nUse the replacement explicitly: " + bearerCommand
 			}
 			renderer, err := controlclient.NewRenderer(options.Output, command.OutOrStdout(), command.ErrOrStderr())
 			if err != nil || renderer.WriteFiniteSuccess(encoded, human) != nil {
@@ -561,7 +562,7 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 		},
 	}
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
-	command.Flags().StringVar(&secretOutput, "secret-output", "", "new owner-only file for the one-time admin bearer")
+	command.Flags().StringVar(&secretOutput, "secret-output", "", "new non-symlink 0600 owner-only file for the one-time admin bearer")
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
@@ -689,9 +690,11 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 	var dataDir, secretOutput, output string
 	var verify, jsonOutput bool
 	command := &cobra.Command{
-		Use:     "restore [backup-id]",
-		Short:   "Verify or restore a stopped Gateway database",
-		Example: "  mcp-gateway restore --verify-current\n  mcp-gateway restore BACKUP_ID --secret-output NEW_PATH",
+		Use:   "restore [backup-id]",
+		Short: "Verify or restore a stopped Gateway database",
+		Long:  "Verify or restore a stopped Gateway database. Restore writes its one-time replacement administrator bearer to a new non-symlink 0600 owner-only file; the bearer cannot be recovered after publication.",
+		Example: "  mcp-gateway restore --verify-current\n" +
+			"  mcp-gateway restore BACKUP_ID --secret-output NEW_PATH",
 		Args: func(command *cobra.Command, args []string) error {
 			validVerify := verify && len(args) == 0
 			validBackup := !verify && len(args) == 1 && backup.ValidID(args[0])
@@ -744,7 +747,7 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 				if renderErr != nil {
 					return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The secret output path is too long to render safely."))
 				}
-				human = "Gateway backup " + backupID + " restored successfully.\nReplacement bearer file: " + controlclient.TerminalSafePath(secretOutput) + "\nUse the replacement explicitly: " + bearerCommand
+				human = "Gateway backup " + backupID + " restored successfully.\nReplacement bearer file: " + controlclient.TerminalSafePath(secretOutput) + "\nBearer published once to the owner-only file; it cannot be shown again.\nUse the replacement explicitly: " + bearerCommand
 			}
 			renderer, err := controlclient.NewRenderer(options.Output, command.OutOrStdout(), command.ErrOrStderr())
 			if err != nil || renderer.WriteFiniteSuccess(encoded, human) != nil {
@@ -755,7 +758,7 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 	}
 	command.Flags().BoolVar(&verify, "verify-current", false, "verify and clear a stopped installation's storage latch")
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
-	command.Flags().StringVar(&secretOutput, "secret-output", "", "new owner-only file for the replacement admin bearer")
+	command.Flags().StringVar(&secretOutput, "secret-output", "", "new non-symlink 0600 owner-only file for the replacement admin bearer")
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {

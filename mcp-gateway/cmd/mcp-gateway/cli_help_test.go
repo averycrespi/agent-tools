@@ -52,7 +52,33 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:ad6482d1c601886ccf2294498239ece8a78e94ca893ef855a0ba8b807eef2abe", digest)
+	assert.Equal(t, "sha256:d3fa60e0e4e438bb017912cfca10570f3f1771c10c3f4714363b469b481cac5c", digest)
+}
+
+func TestCLICredentialHelpExplainsOneTimeOutput(t *testing.T) {
+	for _, test := range []struct {
+		path     []string
+		expected []string
+	}{
+		{path: []string{"admin", "credential", "create"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
+		{path: []string{"admin", "credential", "rotate"}, expected: []string{"required", "0600", "cannot be recovered", "default bearer"}},
+		{path: []string{"principal", "credential", "issue"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
+		{path: []string{"principal", "credential", "rotate"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
+		{path: []string{"initialize"}, expected: []string{"0600", "cannot be recovered"}},
+		{path: []string{"admin", "reset"}, expected: []string{"0600", "cannot be recovered"}},
+		{path: []string{"restore"}, expected: []string{"0600", "cannot be recovered"}},
+	} {
+		root := newRootCmd()
+		command, remaining, err := root.Find(test.path)
+		require.NoError(t, err)
+		assert.Empty(t, remaining)
+		output := new(bytes.Buffer)
+		command.SetOut(output)
+		require.NoError(t, command.Help())
+		for _, expected := range test.expected {
+			assert.Contains(t, output.String(), expected, strings.Join(test.path, " "))
+		}
+	}
 }
 
 func testDocumentationCommandHelpProjection(t *testing.T) {

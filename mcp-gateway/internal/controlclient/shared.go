@@ -172,6 +172,7 @@ type Table struct {
 	Headers    []string
 	Rows       [][]string
 	NextCursor *string
+	Notes      []string
 }
 
 func ParseOutputMode(raw string) (OutputMode, error) {
@@ -242,6 +243,11 @@ func writeTable(writer io.Writer, table Table) error {
 			return err
 		}
 		if err := writeRow([]string{"NEXT_CURSOR", *table.NextCursor}); err != nil {
+			return err
+		}
+	}
+	for _, note := range table.Notes {
+		if err := writeRow([]string{"NOTE", note}); err != nil {
 			return err
 		}
 	}

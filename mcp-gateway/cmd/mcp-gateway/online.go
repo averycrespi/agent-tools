@@ -110,6 +110,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 	command := &cobra.Command{
 		Use:     spec.Use,
 		Short:   spec.Short,
+		Long:    onlineLongDescription(spec),
 		Example: "mcp-gateway " + spec.ManifestUse,
 		Args: func(command *cobra.Command, args []string) error {
 			positionals := requiredPositionals(spec.Use)
@@ -177,7 +178,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 		case "idempotency-key":
 			flags.StringVar(&options.idempotencyKey, flag, "", "explicit idempotency key")
 		case "secret-output":
-			flags.StringVar(&options.secretOutput, flag, "", "new owner-only secret output path")
+			flags.StringVar(&options.secretOutput, flag, "", secretOutputFlagUsage(spec))
 		case "cursor":
 			flags.StringVar(&options.cursor, flag, "", "opaque page cursor")
 		case "limit":
@@ -197,6 +198,24 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 		return writeOnlineFailure(command, string(mode), onlineUsageProblem(spec, "A command flag is invalid or incomplete."))
 	})
 	return command
+}
+
+func onlineLongDescription(spec onlineCommandSpec) string {
+	switch strings.Join(spec.Path, " ") {
+	case "admin credential create", "principal credential issue", "principal credential rotate":
+		return spec.Short + ". The bearer is published once to a new non-symlink 0600 owner-only file, or to a controlling terminal when --secret-output is omitted. It is never written to stdout or JSON and cannot be recovered after publication."
+	case "admin credential rotate":
+		return spec.Short + ". --secret-output is required and must name a new non-symlink 0600 owner-only replacement-bearer file. The replacement does not overwrite the default bearer file. The bearer is never written to stdout or JSON and cannot be recovered after publication."
+	default:
+		return ""
+	}
+}
+
+func secretOutputFlagUsage(spec onlineCommandSpec) string {
+	if strings.Join(spec.Path, " ") == "admin credential rotate" {
+		return "required new non-symlink 0600 owner-only replacement-bearer file"
+	}
+	return "new non-symlink 0600 owner-only bearer file; omit for one-time controlling-terminal display"
 }
 
 func acquireOnlineAdminBearer(command *cobra.Command, options *onlineOptions) (onlineAdminBearer, *controlclient.OnlineError) {
@@ -241,9 +260,29 @@ func prepareOnlineSensitiveAction(options *onlineOptions, consequence string, pr
 	}
 	sink, err := controlclient.PrepareSensitiveSink(controlclient.SinkOptions{Path: options.secretOutput, OpenTerminal: openTerminal})
 	if err != nil {
-		return nil, controlclient.ClassifyClientError(err)
+		return nil, credentialSinkPreparationFailure(err, true)
 	}
 	return sink, nil
+}
+
+func credentialSinkPreparationFailure(err error, allowTerminal bool) *controlclient.OnlineError {
+	failure := controlclient.ClassifyClientError(err)
+	if failure.Code != "client_secret_sink_unavailable" {
+		return failure
+	}
+	failure.Title = "The one-time bearer output could not be prepared. No credential request was submitted. Use a new non-symlink owner-only output path."
+	if allowTerminal {
+		failure.Title += " Alternatively, omit --secret-output to use a controlling terminal."
+	}
+	return failure
+}
+
+func oneTimeBearerPublicationNote(secretOutput string) string {
+	destination := "the controlling terminal"
+	if secretOutput != "" {
+		destination = "the owner-only file"
+	}
+	return "Bearer published once to " + destination + "; it is not included in command output and cannot be shown again."
 }
 
 func writeOnlineFailure(command *cobra.Command, rawMode string, failure *controlclient.OnlineError) error {

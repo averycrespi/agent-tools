@@ -20,7 +20,7 @@ func runAdminCredentialCreate(command *cobra.Command, options *onlineOptions) er
 	}
 	sink, err := controlclient.PrepareSensitiveSink(controlclient.SinkOptions{Path: options.secretOutput})
 	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+		return writeOnlineFailure(command, options.output, credentialSinkPreparationFailure(err, true))
 	}
 	defer func() { _ = sink.Cleanup() }()
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
@@ -130,7 +130,9 @@ func writeAdminCredentialSuccess(command *cobra.Command, options *onlineOptions,
 		}
 		return controlclient.WriteSuccess(command.OutOrStdout(), mode, body, controlclient.Table{})
 	}
-	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, adminCredentialTable([]contract.AdminCredential{credential}))
+	table := adminCredentialTable([]contract.AdminCredential{credential})
+	table.Notes = []string{oneTimeBearerPublicationNote(options.secretOutput)}
+	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, table)
 }
 
 func adminCredentialCreateUncertainTitle() string {

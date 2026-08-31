@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:6cb19fa0ddb0069d3c95529a4576865fbb958b87fc09dcd2b5904d41173320bf", digest)
+	assert.Equal(t, "sha256:ec1c5ba6334b2a3635ba05e1c13ea029a9e000c612b14df0939d5d83080881ac", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {

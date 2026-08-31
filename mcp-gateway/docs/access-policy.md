@@ -65,7 +65,7 @@ mcp-gateway principal credential revoke PRINCIPAL_ID --yes
 mcp-gateway principal credential revoke PRINCIPAL_ID --etag ETAG --yes
 ```
 
-Issue, rotate, revoke, and disable never replay automatically. On an uncertain result, read the principal and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that rotation failed.
+Issue, rotate, revoke, and disable never replay automatically. On an uncertain result, read the principal and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that rotation failed. After Gateway acknowledges issue, lost output may leave the singular slot occupied even though no bearer can be recovered from metadata. After acknowledged rotation, the replacement may be current and the prior bearer may already be invalid. In either case, explicitly rotate or revoke the observed current credential instead of replaying the original operation.
 
 ## Create and inspect immutable grants
 

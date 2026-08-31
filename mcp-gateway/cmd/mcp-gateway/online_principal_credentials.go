@@ -84,7 +84,7 @@ func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptio
 	if err := sink.Publish(creation.Bearer); err != nil {
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_secret_sink_unavailable", Title: "The principal credential was " + action + "d, but its one-time bearer could not be published. It cannot be recovered; inspect principal metadata before deciding whether to revoke it.", Exit: 2})
 	}
-	return writePrincipalMetadataSuccess(command, options, creation.Principal)
+	return writePrincipalMetadataSuccess(command, options, creation.Principal, true)
 }
 
 func runPrincipalCredentialRevoke(command *cobra.Command, options *onlineOptions, args []string) error {
@@ -123,10 +123,10 @@ func runPrincipalCredentialRevoke(command *cobra.Command, options *onlineOptions
 	if response.Header.Get("Content-Type") != contract.MediaTypeJSON || controlclient.DecodeResponse(response.Body, &principal) != nil || !validPrincipal(principal) || principal.ID != principalID || principal.Credential != nil || response.Header.Get("ETag") != contract.PrincipalETag(principalID, principal.Revision) {
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: principalCredentialRevokeUncertainTitle(principalID), Exit: 8, Uncertain: true})
 	}
-	return writePrincipalMetadataSuccess(command, options, principal)
+	return writePrincipalMetadataSuccess(command, options, principal, false)
 }
 
-func writePrincipalMetadataSuccess(command *cobra.Command, options *onlineOptions, principal contract.Principal) error {
+func writePrincipalMetadataSuccess(command *cobra.Command, options *onlineOptions, principal contract.Principal, bearerPublished bool) error {
 	mode, err := controlclient.ParseOutputMode(options.output)
 	if err != nil {
 		return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
@@ -138,7 +138,11 @@ func writePrincipalMetadataSuccess(command *cobra.Command, options *onlineOption
 		}
 		return controlclient.WriteSuccess(command.OutOrStdout(), mode, body, controlclient.Table{})
 	}
-	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, principalTable([]contract.Principal{principal}))
+	table := principalTable([]contract.Principal{principal})
+	if bearerPublished {
+		table.Notes = []string{oneTimeBearerPublicationNote(options.secretOutput)}
+	}
+	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, table)
 }
 
 func principalCredentialMutationUncertainTitle(action, id string) string {

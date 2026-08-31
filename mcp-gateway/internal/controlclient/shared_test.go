@@ -68,11 +68,12 @@ func TestControlClientSharedContract(t *testing.T) {
 		assert.Equal(t, "{\"exact\":1}\n", output.String())
 		output.Reset()
 		nextCursor := "page/cursor"
-		require.NoError(t, WriteSuccess(&output, OutputTable, nil, Table{Headers: []string{"NAME", "STATE"}, Rows: [][]string{{"unsafe\x1b[31m", "ready\nnow"}}, NextCursor: &nextCursor}))
+		require.NoError(t, WriteSuccess(&output, OutputTable, nil, Table{Headers: []string{"NAME", "STATE"}, Rows: [][]string{{"unsafe\x1b[31m", "ready\nnow"}}, NextCursor: &nextCursor, Notes: []string{"Bearer published once."}}))
 		assert.NotContains(t, output.String(), "\x1b")
 		assert.Contains(t, output.String(), `unsafe\u001b[31m`)
 		assert.Contains(t, output.String(), `ready\nnow`)
 		assert.Contains(t, output.String(), "NEXT_CURSOR  page/cursor")
+		assert.Contains(t, output.String(), "NOTE         Bearer published once.")
 	})
 
 	t.Run("problems and exits are closed", func(t *testing.T) {

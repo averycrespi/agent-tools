@@ -121,11 +121,34 @@ func TestCLIAdminCredentialRotationWorkflow(t *testing.T) {
 			} else {
 				assert.NoFileExists(t, secretPath)
 			}
+			if test.code == "admin_rotation_publish_failed" {
+				assert.NotContains(t, problem.Title, secretPath)
+				assert.Contains(t, problem.Title, "cannot be recovered")
+				assert.Contains(t, problem.Title, "workflow did not revoke the old credential")
+				assert.Contains(t, problem.Title, "If the old credential is still active")
+				assert.Contains(t, problem.Title, "revoke")
+				assert.Contains(t, problem.Title, "Nothing was replayed")
+			}
 			if test.defaultBearer {
 				assert.Contains(t, problem.Title, "default bearer file still names the old credential")
 			}
 		})
 	}
+
+	t.Run("existing output prevents credential submission", func(t *testing.T) {
+		server, requests := newRotationWorkflowServer(t, rotationWorkflowScenario{})
+		secretPath := shortRotationPath(t)
+		require.NoError(t, os.WriteFile(secretPath, []byte("preserved"), 0o600))
+		stdout, stderr, err := executeAdminRotation(t, server.URL, secretPath, false)
+		require.Error(t, err)
+		assert.Equal(t, 2, commandExitCode(err))
+		assert.Empty(t, stdout)
+		assert.Contains(t, string(stderr), "No credential request was submitted")
+		assert.Len(t, *requests, 2)
+		preserved, readErr := os.ReadFile(secretPath)
+		require.NoError(t, readErr)
+		assert.Equal(t, "preserved", string(preserved))
+	})
 
 	t.Run("human success names safe state command and stale default", func(t *testing.T) {
 		server, _ := newRotationWorkflowServer(t, rotationWorkflowScenario{})
@@ -136,6 +159,7 @@ func TestCLIAdminCredentialRotationWorkflow(t *testing.T) {
 		assert.Contains(t, string(stdout), rotationNewID)
 		assert.Contains(t, string(stdout), "--admin-bearer-file")
 		assert.Contains(t, string(stdout), "default bearer file still names the old credential")
+		assert.Contains(t, string(stdout), "cannot be shown again")
 		assert.NotContains(t, string(stdout), rotationOldBearer)
 		assert.NotContains(t, string(stdout), rotationNewBearer)
 		assert.Empty(t, stderr)

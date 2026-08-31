@@ -87,6 +87,16 @@ func TestCLIAdminNamespaceAndCredentialCreate(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"expires_at":"`+expiresAt+`"}`, string(<-requests))
 
+	existingOutput := filepath.Join(dir, "existing-output")
+	require.NoError(t, os.WriteFile(existingOutput, []byte("preserved"), 0o600))
+	output, err = executeCreate(t, existingOutput)
+	require.Error(t, err)
+	assert.Contains(t, string(output), "No credential request was submitted")
+	assert.Empty(t, requests)
+	preserved, readErr := os.ReadFile(existingOutput)
+	require.NoError(t, readErr)
+	assert.Equal(t, "preserved", string(preserved))
+
 	missingBearer := filepath.Join(dir, "missing")
 	invalid := newRootCmd()
 	var stderr bytes.Buffer

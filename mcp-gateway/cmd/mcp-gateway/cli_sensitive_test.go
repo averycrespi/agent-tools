@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,6 +59,32 @@ func TestCLISensitiveSinks(t *testing.T) {
 	)
 	require.NotNil(t, failure)
 	assert.Equal(t, "client_secret_sink_unavailable", failure.Code)
+	assert.Contains(t, failure.Title, "No credential request was submitted")
+	assert.Contains(t, failure.Title, "controlling terminal")
+}
+
+func TestCredentialSuccessHumanOutputConfirmsOneTimePublication(t *testing.T) {
+	credential := contract.AdminCredential{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Fingerprint: "fingerprint", Status: contract.CredentialActive, Revision: "1", CreatedAt: "2026-08-30T00:00:00Z"}
+	for _, test := range []struct {
+		path     string
+		expected string
+	}{
+		{path: filepath.Join(t.TempDir(), "bearer"), expected: "owner-only file"},
+		{expected: "controlling terminal"},
+	} {
+		command := newRootCmd()
+		stdout := new(bytes.Buffer)
+		command.SetOut(stdout)
+		require.NoError(t, writeAdminCredentialSuccess(command, &onlineOptions{output: "human", secretOutput: test.path}, credential))
+		assert.Contains(t, stdout.String(), test.expected)
+		assert.Contains(t, stdout.String(), "cannot be shown again")
+		assert.Contains(t, stdout.String(), "not included in command output")
+
+		stdout.Reset()
+		require.NoError(t, writePrincipalMetadataSuccess(command, &onlineOptions{output: "human", secretOutput: test.path}, contract.Principal{}, true))
+		assert.Contains(t, stdout.String(), test.expected)
+		assert.Contains(t, stdout.String(), "cannot be shown again")
+	}
 }
 
 func contains(values []string, expected string) bool {
