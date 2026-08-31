@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:33beba2e5fb4fa36de3fea95d149c87b57002736fd5f3ec3cf0e5e0e47f21d9d", digest)
+	assert.Equal(t, "sha256:92a30f7710e9f1e82443a87c10f4d5e21cffff8500301977435a48fed04cb4ce", digest)
 }
 
 func testDocumentationCommandHelpProjection(t *testing.T) {
@@ -78,6 +79,33 @@ func testDocumentationCommandHelpProjection(t *testing.T) {
 			}
 		}
 		assert.True(t, covered, command.Name())
+	}
+}
+
+func TestCLIUnknownCommandsAreInputErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"definitely-unknown"},
+		{"--definitely-invalid"},
+		{"admin", "definitely-unknown"},
+		{"admin", "--definitely-invalid"},
+		{"admin", "credential", "definitely-unknown"},
+	} {
+		command := newRootCmd()
+		stdout := new(bytes.Buffer)
+		stderr := new(bytes.Buffer)
+		command.SetOut(stdout)
+		command.SetErr(stderr)
+		command.SetArgs(args)
+
+		err := command.ExecuteContext(context.Background())
+
+		require.Error(t, err, strings.Join(args, " "))
+		assert.Equal(t, 2, commandExitCode(err), strings.Join(args, " "))
+		var problem *controlclient.OnlineError
+		require.ErrorAs(t, err, &problem, strings.Join(args, " "))
+		assert.Equal(t, "client_invalid_input", problem.Code, strings.Join(args, " "))
+		assert.Empty(t, stdout.String(), strings.Join(args, " "))
+		assert.Contains(t, stderr.String(), "--help", strings.Join(args, " "))
 	}
 }
 

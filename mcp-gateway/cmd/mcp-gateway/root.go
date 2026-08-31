@@ -54,6 +54,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	configureNamespaceCommand(command)
 	command.PersistentFlags().String("data-dir", "", "owner-only Gateway data directory")
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),

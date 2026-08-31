@@ -57,6 +57,7 @@ func newOnlineCommands() []*cobra.Command {
 			group := groups[key]
 			if group == nil {
 				group = &cobra.Command{Use: name, Short: onlineGroupDescriptions[key]}
+				configureNamespaceCommand(group)
 				groups[key] = group
 				if parent == nil {
 					roots[name] = group
@@ -83,6 +84,25 @@ func newOnlineCommands() []*cobra.Command {
 		commands = append(commands, roots[name])
 	}
 	return commands
+}
+
+func configureNamespaceCommand(command *cobra.Command) {
+	command.Args = func(command *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return nil
+		}
+		return writeOnlineFailure(command, string(controlclient.OutputHuman), namespaceUsageProblem(command, "The command is not recognized."))
+	}
+	command.RunE = func(command *cobra.Command, _ []string) error {
+		return command.Help()
+	}
+	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
+		return writeOnlineFailure(command, string(controlclient.OutputHuman), namespaceUsageProblem(command, "A command flag is invalid or incomplete."))
+	})
+}
+
+func namespaceUsageProblem(command *cobra.Command, title string) *controlclient.OnlineError {
+	return controlclient.NewInputError(title + " Usage: " + command.CommandPath() + " --help")
 }
 
 func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {

@@ -35,10 +35,6 @@ func TestCLIAdminNamespaceAndCredentialCreate(t *testing.T) {
 	assert.Nil(t, resetCommand.Flags().Lookup("admin-bearer-file"))
 	assert.Empty(t, adminCommand.Aliases)
 	assert.Empty(t, credentialCommand.Aliases)
-	_, _, err = root.Find([]string{"admin-reset"})
-	require.Error(t, err)
-	_, _, err = root.Find([]string{"admin-credential"})
-	require.Error(t, err)
 
 	requests := make(chan []byte, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
