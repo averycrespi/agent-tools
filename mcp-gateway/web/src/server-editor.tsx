@@ -589,7 +589,7 @@ function EditorForm({
       <FormField
         id="server-namespace"
         label="Namespace"
-        hint="Permanent lowercase routing identity."
+        hint="Namespace cannot be changed after creation. Use a permanent lowercase routing identity."
         required
       >
         {(attributes) => (

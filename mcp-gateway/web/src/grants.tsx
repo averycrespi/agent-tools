@@ -254,6 +254,7 @@ function GrantCreate({
   const [expiresAt, setExpiresAt] = useState("");
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [error, setError] = useState<string>();
+  const submitButton = useRef<HTMLButtonElement>(null);
   const [controller] = useState<MutationController<Grant>>(() =>
     mutations.create<Grant>(),
   );
@@ -280,7 +281,7 @@ function GrantCreate({
         position === index ? { ...atom, ...patch } : atom,
       ),
     );
-  const submit = async () => {
+  const review = () => {
     setError(undefined);
     try {
       if (
@@ -327,9 +328,7 @@ function GrantCreate({
         decode: decodeMutation,
       };
       controller.begin(spec);
-      const outcome = await controller.submit();
-      if (outcome.kind === "acknowledged")
-        navigate(`#/grants/${outcome.value.id}`, true);
+      controller.confirm();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Invalid grant.");
     }
@@ -346,10 +345,14 @@ function GrantCreate({
             <h2 id="grant-create-title">Create grant</h2>
           </div>
         </div>
+        <p class="bounded-note">
+          The name, effect, target, scope, constraints, and expiry cannot be
+          edited after creation. Changing policy requires a separate grant.
+        </p>
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void submit();
+            review();
           }}
         >
           <FormField id="grant-name" label="Name" required>
@@ -590,14 +593,77 @@ function GrantCreate({
             </StateNotice>
           )}
           <button
+            ref={submitButton}
             class="create-action"
             data-testid="grant-create-submit"
             type="submit"
             disabled={disabled}
           >
-            {mutation.state === "submitting" ? "Creating…" : "Create grant"}
+            {mutation.state === "submitting"
+              ? "Creating…"
+              : "Review and create"}
           </button>
         </form>
+        <ConfirmationDialog
+          id="grant-create-confirm"
+          open={mutation.state === "confirming"}
+          title="Review grant"
+          consequence={
+            <div class="review-stack">
+              <p>
+                This creates one immutable authorization policy. Review every
+                value before continuing.
+              </p>
+              <dl class="fact-grid">
+                <div>
+                  <dt>Name</dt>
+                  <dd>{name}</dd>
+                </div>
+                <div>
+                  <dt>Principal</dt>
+                  <dd>
+                    {principals.find(
+                      (principal) => principal.id === principalID,
+                    )?.displayName ?? principalID}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Effect</dt>
+                  <dd>{effect === "allow" ? "Allow" : "Deny"}</dd>
+                </div>
+                <div>
+                  <dt>Target</dt>
+                  <dd>
+                    {servers.find((server) => server.id === serverID)
+                      ?.displayName ?? serverID}
+                    {scope === "tool" ? ` · ${upstreamName}` : " · All tools"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Expiry</dt>
+                  <dd>{expiresAt === "" ? "Permanent" : expiresAt}</dd>
+                </div>
+                <div>
+                  <dt>Constraint</dt>
+                  <dd>
+                    {atoms.length === 0
+                      ? "None"
+                      : `${atoms.length} equality atoms`}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          }
+          confirmLabel="Create grant"
+          returnFocus={submitButton}
+          onCancel={() => controller.abandon()}
+          onConfirm={() =>
+            void controller.submit().then((outcome) => {
+              if (outcome.kind === "acknowledged")
+                navigate(`#/grants/${outcome.value.id}`, true);
+            })
+          }
+        />
       </section>
     </div>
   );

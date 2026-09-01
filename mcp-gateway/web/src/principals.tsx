@@ -361,7 +361,7 @@ function PrincipalEditor({
     const prepared = prepare();
     if (prepared === undefined) return;
     controller.begin(prepared.spec);
-    if (prepared.authority) controller.confirm();
+    if (create || prepared.authority) controller.confirm();
     else void settle(controller.submit());
   };
   const disabled =
@@ -384,10 +384,16 @@ function PrincipalEditor({
         </div>
       </div>
       {create && (
-        <p>
-          Creating a principal also adds Default Gateway access for Gateway
-          self-service tools.
-        </p>
+        <>
+          <p>
+            Creating a principal also adds Default Gateway access for Gateway
+            self-service tools.
+          </p>
+          <p class="bounded-note">
+            Gateway generates the principal ID as a permanent identity. The
+            display name and discovery visibility can be changed later.
+          </p>
+        </>
       )}
       <form
         data-testid="principal-editor"
@@ -482,7 +488,7 @@ function PrincipalEditor({
           {mutation.state === "submitting"
             ? "Submitting…"
             : create
-              ? "Create principal"
+              ? "Review and create"
               : "Save principal"}
         </button>
       </form>
@@ -490,10 +496,35 @@ function PrincipalEditor({
         id="principal-change-confirm"
         open={mutation.state === "confirming"}
         title={
-          state === "disabled" ? "Disable principal?" : "Re-enable principal?"
+          create
+            ? "Review principal"
+            : state === "disabled"
+              ? "Disable principal?"
+              : "Re-enable principal?"
         }
         consequence={
-          state === "disabled" ? (
+          create ? (
+            <div class="review-stack">
+              <p>
+                Review this permanent identity and its initial access before
+                creating it.
+              </p>
+              <dl class="fact-grid">
+                <div>
+                  <dt>Display name</dt>
+                  <dd>{displayName}</dd>
+                </div>
+                <div>
+                  <dt>Discovery visibility</dt>
+                  <dd>{visibilityText(visibility)}</dd>
+                </div>
+                <div>
+                  <dt>Initial access</dt>
+                  <dd>Default Gateway access</dd>
+                </div>
+              </dl>
+            </div>
+          ) : state === "disabled" ? (
             <p>
               Disabling revokes current agent authority and interrupts
               credential-bound sessions and streams.
@@ -506,9 +537,13 @@ function PrincipalEditor({
           )
         }
         confirmLabel={
-          state === "disabled" ? "Disable principal" : "Re-enable principal"
+          create
+            ? "Create principal"
+            : state === "disabled"
+              ? "Disable principal"
+              : "Re-enable principal"
         }
-        destructive={state === "disabled"}
+        destructive={!create && state === "disabled"}
         returnFocus={submitButton}
         onCancel={() => controller.abandon()}
         onConfirm={() => void settle(controller.submit())}

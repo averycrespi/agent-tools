@@ -3669,8 +3669,12 @@ async function runPrincipals(
   await page.locator('[data-testid="principal-create-view"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
   if (
+    (await page
+      .getByRole("heading", { level: 1, name: "Create principal", exact: true })
+      .count()) !== 1 ||
     body.includes("permanent synthetic default ALLOW grant") ||
-    !body.includes("Gateway self-service tools")
+    !body.includes("Gateway self-service tools") ||
+    !body.includes("permanent identity")
   )
     fail("principal creation retained internal default-grant language");
   await page
@@ -3692,7 +3696,30 @@ async function runPrincipals(
   await page
     .locator('[data-testid="principal-visibility"]')
     .selectOption("allowed-only");
+  if (
+    (
+      await page
+        .locator('[data-testid="principal-editor-submit"]')
+        .textContent()
+    )?.trim() !== "Review and create"
+  )
+    fail("principal creation omitted its review action");
   await page.locator('[data-testid="principal-editor-submit"]').click();
+  await page
+    .getByRole("heading", { name: "Review principal", exact: true })
+    .waitFor();
+  if (creates !== 0) fail("principal creation submitted before final review");
+  const principalReview =
+    (await page
+      .locator("#principal-change-confirm-consequence")
+      .textContent()) ?? "";
+  if (
+    !principalReview.includes("New automation") ||
+    !principalReview.includes("Allowed tools only") ||
+    !principalReview.includes("Default Gateway access")
+  )
+    fail("principal creation review omitted submitted values");
+  await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page.locator('[data-testid="principal-detail"]').waitFor();
 
   await page.evaluate((id) => {
@@ -4373,6 +4400,19 @@ async function runGrantReadsCreate(
     { principal: principalID, server: serverID },
   );
   await page.locator('[data-testid="grant-create-view"]').waitFor();
+  const grantCreateBody =
+    (await page.locator('[data-testid="grant-create-view"]').textContent()) ??
+    "";
+  if (
+    (await page
+      .getByRole("heading", { level: 1, name: "Create grant", exact: true })
+      .count()) !== 1 ||
+    !grantCreateBody.includes("cannot be edited after creation") ||
+    (
+      await page.locator('[data-testid="grant-create-submit"]').textContent()
+    )?.trim() !== "Review and create"
+  )
+    fail("grant creation omitted page or immutability guidance");
   if (
     (await page
       .locator('[data-testid="grant-principal"]')
@@ -4397,9 +4437,25 @@ async function runGrantReadsCreate(
     fail("control-character grant name reached the API");
   await page.locator('[data-testid="grant-name"]').fill("New access");
   await page.locator('[data-testid="grant-create-submit"]').click();
+  await page
+    .getByRole("heading", { name: "Review grant", exact: true })
+    .waitFor();
+  if (Number(attempts) !== 0)
+    fail("grant creation submitted before final review");
+  const grantReview =
+    (await page.locator("#grant-create-confirm-consequence").textContent()) ??
+    "";
+  if (
+    !grantReview.includes("New access") ||
+    !grantReview.includes("Reporting server") ||
+    !grantReview.includes("immutable")
+  )
+    fail("grant creation review omitted submitted values");
+  await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.getByText("The grant is invalid.", { exact: true }).waitFor();
   if (attempts !== 1) fail("rejected grant creation was replayed");
   await page.locator('[data-testid="grant-create-submit"]').click();
+  await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.locator('[data-testid="grant-detail"]').waitFor();
 
   await page.evaluate(
@@ -4473,6 +4529,7 @@ async function runGrantReadsCreate(
   )
     fail("grant constraint edits discarded the expiry draft");
   await page.locator('[data-testid="grant-create-submit"]').click();
+  await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.locator('[data-testid="grant-detail"]').waitFor();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -6758,6 +6815,12 @@ async function runServerCreateUpdate(
     )
   )
     fail("server form omitted its required-field convention");
+  if (
+    !((await editor.textContent()) ?? "").includes(
+      "Namespace cannot be changed after creation.",
+    )
+  )
+    fail("server creation omitted immutable namespace guidance");
   const initialInputs = await editor.locator("input").evaluateAll((nodes) =>
     nodes.map((node) => ({
       name: node.getAttribute("name"),

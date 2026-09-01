@@ -423,7 +423,13 @@ function App() {
       ? resolved.canonicalFragment === "#/servers/new"
         ? "Create server"
         : "Server details"
-      : destinationLabels[destination];
+      : destination === "principals" &&
+          resolved.canonicalFragment === "#/principals/new"
+        ? "Create principal"
+        : destination === "grants" &&
+            resolved.canonicalFragment.startsWith("#/grants/new")
+          ? "Create grant"
+          : destinationLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
 
   return (
