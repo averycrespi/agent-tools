@@ -140,13 +140,13 @@ func TestRefreshServicePostHandoffFailureInvalidatesAndRequiresReauthorization(t
 	assert.Equal(t, 1, requester.calls)
 }
 
-func TestRefreshRequestBasicUsesOnlyPercentEncodedAuthorization(t *testing.T) {
+func TestRefreshRequestBasicIncludesClientIDForInteroperableAuthentication(t *testing.T) {
 	header, body, err := refreshTokenRequest("refresh", servers.OAuthRegistrationAuthority{ClientID: "client:id", TokenEndpointAuthMethod: contract.TokenEndpointAuthClientSecretBasic}, "https://resource.example/mcp", []byte("s/ecret"))
 	require.NoError(t, err)
 	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte(url.QueryEscape("client:id")+":"+url.QueryEscape("s/ecret"))), header.Get("Authorization"))
 	values, err := url.ParseQuery(string(body))
 	require.NoError(t, err)
-	assert.False(t, values.Has("client_id"))
+	assert.Equal(t, "client:id", values.Get("client_id"))
 	assert.False(t, values.Has("client_secret"))
 	assert.False(t, values.Has("scope"))
 }

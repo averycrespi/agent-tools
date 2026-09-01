@@ -234,6 +234,7 @@ func refreshTokenRequest(refreshToken string, registration servers.OAuthRegistra
 		}
 		credentials := url.QueryEscape(registration.ClientID) + ":" + url.QueryEscape(string(clientSecret))
 		header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(credentials)))
+		values.Set("client_id", registration.ClientID)
 	case contract.TokenEndpointAuthClientSecretPost:
 		if len(clientSecret) == 0 {
 			return nil, nil, ErrTokenRejected
@@ -264,6 +265,7 @@ func tokenRequest(code string, bundle flowBundle, clientSecret []byte) (http.Hea
 		}
 		credentials := url.QueryEscape(bundle.registration.ClientID) + ":" + url.QueryEscape(string(clientSecret))
 		header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(credentials)))
+		values.Set("client_id", bundle.registration.ClientID)
 	case contract.TokenEndpointAuthClientSecretPost:
 		if len(clientSecret) == 0 {
 			return nil, nil, ErrTokenRejected

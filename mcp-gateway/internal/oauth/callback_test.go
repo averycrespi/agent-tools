@@ -98,7 +98,7 @@ func TestTokenRequestClientAuthenticationForms(t *testing.T) {
 		wantClient bool
 		wantSecret bool
 	}{
-		{contract.TokenEndpointAuthClientSecretBasic, true, false, false},
+		{contract.TokenEndpointAuthClientSecretBasic, true, true, false},
 		{contract.TokenEndpointAuthClientSecretPost, false, true, true},
 		{contract.TokenEndpointAuthNone, false, true, false},
 	}
