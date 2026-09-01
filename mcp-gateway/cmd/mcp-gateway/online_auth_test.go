@@ -70,6 +70,12 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 	assert.Contains(t, stderr.String(), `quote'"'"'line\012break`)
 }
 
+func TestGrantNameRejectsUnicodeControls(t *testing.T) {
+	assert.True(t, validGrantName("Safe access"))
+	assert.False(t, validGrantName("Unsafe\x1faccess"))
+	assert.False(t, validGrantName("Unsafe\u0085access"))
+}
+
 func TestCLIOutputMatrix(t *testing.T) {
 	root := newRootCmd()
 	for _, spec := range onlineCommandSpecs() {

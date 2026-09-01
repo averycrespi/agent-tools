@@ -18,7 +18,7 @@ func TestSelfProjectionReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants(t *te
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)
 
 	seedProjectedGrant(t, store, projectedGrantRow{
-		id: id(11), principalID: principal.ID, effect: contract.GrantAllow, serverID: id(51),
+		id: id(11), name: "Sample access", principalID: principal.ID, effect: contract.GrantAllow, serverID: id(51),
 	})
 	seedProjectedGrant(t, store, projectedGrantRow{
 		id: id(12), principalID: principal.ID, effect: contract.GrantDeny, serverID: id(51), upstreamName: "echo",
@@ -62,6 +62,7 @@ func TestSelfProjectionReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants(t *te
 	assert.Equal(t, contract.SyntheticServerNamespace, first.Items[0].Policy.Target)
 	assert.Equal(t, contract.PolicyServer, first.Items[0].Policy.Scope)
 	assert.Equal(t, id(11), first.Items[1].ID)
+	assert.Equal(t, "Sample access", first.Items[1].Name)
 	assert.Equal(t, "sample", first.Items[1].Policy.Target)
 	assert.Equal(t, contract.PolicyServer, first.Items[1].Policy.Scope)
 
@@ -200,11 +201,11 @@ func admitSelfProjectionSubject(t *testing.T, repository *Repository, bearer str
 }
 
 type projectedGrantRow struct {
-	id, principalID, serverID string
-	effect                    contract.GrantEffect
-	upstreamName              string
-	constraint                string
-	expiresAt                 *time.Time
+	id, name, principalID, serverID string
+	effect                          contract.GrantEffect
+	upstreamName                    string
+	constraint                      string
+	expiresAt                       *time.Time
 }
 
 func seedProjectedGrant(t *testing.T, store interface {
@@ -222,9 +223,13 @@ func seedProjectedGrant(t *testing.T, store interface {
 		if row.expiresAt != nil {
 			expires = timestamp(*row.expiresAt)
 		}
+		name := row.name
+		if name == "" {
+			name = "Grant"
+		}
 		_, err := transaction.Exec(`INSERT INTO grants
-			(id, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, row.id, row.principalID, row.effect, row.serverID,
+			(id, name, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, name, row.principalID, row.effect, row.serverID,
 			upstream, constraint, expires, timestamp(testNow.Add(-time.Hour)))
 		return err
 	}))

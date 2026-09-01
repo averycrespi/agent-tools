@@ -57,7 +57,7 @@ func TestSelfServiceHandlersReturnFixedSummariesAndExactStructuredResults(t *tes
 	service, projections, requests, subject := newHandlerService(t)
 	identity := contract.SelfIdentity{ID: subject.PrincipalID(), DisplayName: "Agent", State: contract.PrincipalActive, Visibility: contract.VisibilityRequestable, PrincipalRevision: subject.PrincipalRevision(), CredentialRevision: subject.CredentialRevision()}
 	projections.identity = identity
-	grant := contract.AgentGrant{ID: selfserviceID(610), Effect: contract.GrantAllow, Policy: contract.GrantPolicy{Scope: contract.PolicyServer, Target: "sample"}, State: contract.GrantActive, CreatedAt: "2026-08-27T00:00:00.000000000Z"}
+	grant := contract.AgentGrant{ID: selfserviceID(610), Name: "Sample access", Effect: contract.GrantAllow, Policy: contract.GrantPolicy{Scope: contract.PolicyServer, Target: "sample"}, State: contract.GrantActive, CreatedAt: "2026-08-27T00:00:00.000000000Z"}
 	projections.grants = authorization.SelfGrantPage{Items: []contract.AgentGrant{grant}}
 	request := contract.AgentGrantRequest{ID: selfserviceID(611), State: contract.RequestPending, Revision: "1", RequestedPolicy: contract.Policy{Scope: contract.PolicyTool, Target: "sample.echo"}, CreatedAt: "2026-08-27T00:00:00.000000000Z", UpdatedAt: "2026-08-27T00:00:00.000000000Z"}
 	requests.create = contract.CreateGrantRequestResult{Outcome: contract.RequestCreated, Request: &request}

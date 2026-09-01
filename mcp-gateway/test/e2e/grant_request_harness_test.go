@@ -103,7 +103,7 @@ func (harness *gatewayHarness) GetGrantRequest(requestID string) grantRequestHan
 
 func (harness *gatewayHarness) ApproveGrantRequest(current grantRequestHandle, policy contract.Policy) grantRequestHandle {
 	harness.t.Helper()
-	body := marshalHarnessJSON(harness.t, contract.GrantRequestApproval{ApprovedPolicy: policy})
+	body := marshalHarnessJSON(harness.t, contract.GrantRequestApproval{Name: "Approved request access", ApprovedPolicy: policy})
 	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/grant-requests/"+url.PathEscape(current.Resource.ID)+"/approve", body, map[string]string{"If-Match": current.ETag})
 	var request contract.GrantRequest
 	decodeSnapshot(harness.t, response, http.StatusOK, &request)

@@ -10,6 +10,7 @@ import {
 import {
   CollectionTable,
   ConfirmationDialog,
+  containsControlCharacters,
   FormField,
   InertJSON,
   StateNotice,
@@ -290,6 +291,8 @@ function GrantCreate({
         throw new Error(
           "Name must be between 1 and 256 bytes without surrounding whitespace.",
         );
+      if (containsControlCharacters(name))
+        throw new Error("Name cannot contain control characters.");
       if (!gatewayID.test(principalID) || !gatewayID.test(serverID))
         throw new Error(
           "Principal and server IDs must be complete Gateway IDs.",
@@ -834,7 +837,12 @@ function GrantActions({
           <button
             data-testid="grant-correct"
             type="button"
-            disabled={disabled || grant.constraint !== null || defaultGrant}
+            disabled={
+              disabled ||
+              grant.constraint !== null ||
+              grant.expiresAt !== null ||
+              defaultGrant
+            }
             onClick={() => setCorrection(true)}
           >
             Replace grant

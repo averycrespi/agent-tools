@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -86,7 +87,7 @@ func readPrincipalInput(command *cobra.Command, options *onlineOptions, create b
 
 func containsControl(value string) bool {
 	for _, character := range value {
-		if character < 0x20 || character == 0x7f {
+		if unicode.IsControl(character) {
 			return true
 		}
 	}

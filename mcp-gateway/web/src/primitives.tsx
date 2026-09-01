@@ -1,6 +1,10 @@
 import type { ComponentChildren, RefObject } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
+export function containsControlCharacters(value: string): boolean {
+  return /\p{Cc}/u.test(value);
+}
+
 export function sentenceCase(value: string): string {
   const words = value.replaceAll("_", " ").replaceAll("-", " ");
   return words.replace(/^./, (letter) => letter.toLocaleUpperCase());

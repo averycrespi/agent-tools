@@ -4354,6 +4354,13 @@ async function runGrantReadsCreate(
     )
   )
     fail("grant creation did not use named principal and server selectors");
+  await page.locator('[data-testid="grant-name"]').fill("Unsafe\u0085access");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  await page
+    .getByText("Name cannot contain control characters.", { exact: true })
+    .waitFor();
+  if (Number(attempts) !== 0)
+    fail("control-character grant name reached the API");
   await page.locator('[data-testid="grant-name"]').fill("New access");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page.getByText("The grant is invalid.", { exact: true }).waitFor();
@@ -4782,6 +4789,8 @@ async function runGrantCorrection(
   await page
     .getByText("Expired grant still consumes capacity", { exact: true })
     .waitFor();
+  if (!(await page.locator('[data-testid="grant-correct"]').isDisabled()))
+    fail("expiring grant exposed a permanent replacement workflow");
   await page.locator('[data-testid="grant-delete"]').click();
   await confirmAction();
   await page.locator('[data-testid="grants-view"]').waitFor();
@@ -5272,6 +5281,18 @@ async function runRequestAdjudication(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await navigate(ids[0]!);
+  await page
+    .locator('[data-testid="approval-name"]')
+    .fill("Unsafe\u0085access");
+  await reviewApproval();
+  await page
+    .getByText("Grant name cannot contain control characters.", { exact: true })
+    .waitFor();
+  if ((attempts.get(ids[0]!) ?? 0) !== 0)
+    fail("control-character approval name reached the API");
+  await page
+    .locator('[data-testid="approval-name"]')
+    .fill("Access to demo.safe");
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
   await page.locator('[data-testid="approval-target"]').fill("demo.safe");
   await page

@@ -10,6 +10,7 @@ import {
 import {
   ComparisonTable,
   ConfirmationDialog,
+  containsControlCharacters,
   FormField,
   InertJSON,
   sentenceCase,
@@ -547,6 +548,10 @@ function RequestActions({
               )
                 throw new Error(
                   "Grant name must be between 1 and 256 bytes without surrounding whitespace.",
+                );
+              if (containsControlCharacters(name))
+                throw new Error(
+                  "Grant name cannot contain control characters.",
                 );
               const policy = approvedPolicy();
               return JSON.stringify({

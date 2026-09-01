@@ -36,6 +36,7 @@ type SelfIdentity struct {
 
 type AgentGrant struct {
 	ID        string      `json:"id"`
+	Name      string      `json:"name"`
 	Effect    GrantEffect `json:"effect"`
 	Policy    GrantPolicy `json:"policy"`
 	ExpiresAt *string     `json:"expires_at"`
