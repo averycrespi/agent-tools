@@ -137,7 +137,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	assert.Equal(t, localSummary.ID, newestPage.Items[0].ID)
 	assert.Equal(t, rowsBeforeReads, harness.LiveAuditObservations(), "list and item reads must not mutate invocation evidence")
 
-	// T7 owns the sole 4,096-row fixture; advance the retained floor directly to test the real API boundary without repeating it.
+	// T7 owns the sole 65,536-row fixture; advance the retained floor directly to test the real API boundary without repeating it.
 	simulateRetainedInvocationWindow(t, harness, localSummary.ID)
 	staleResponse := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations?limit=1&cursor="+url.QueryEscape(*newestPage.NextCursor), nil)
 	assertProblem(t, staleResponse, http.StatusConflict, "stale_cursor", "The cursor snapshot is no longer available.", false)
@@ -215,7 +215,7 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	issued := harness.IssueCredential(principal)
 	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: catalog.ServerID, UpstreamName: pointerTo("alpha")})
 	harness.Stop(syscall.SIGTERM)
-	seedInvocationHistory(t, harness.root, 4096)
+	seedInvocationHistory(t, harness.root, 65536)
 
 	harness.Start()
 	waitForStdioServer(t, harness, catalog.ServerID, activeCatalog)
@@ -241,12 +241,12 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	result := harness.Stop(syscall.SIGTERM)
 
 	observations := harness.AuditObservations()
-	require.Len(t, observations, 4096)
+	require.Len(t, observations, 65536)
 	assert.Equal(t, int64(2), observations[0].Sequence)
 	assert.Equal(t, seededInvocationID(1), observations[0].InvocationID)
 	assert.NotEqual(t, seededInvocationID(0), observations[0].InvocationID)
 	last := observations[len(observations)-1]
-	assert.Equal(t, int64(4097), last.Sequence)
+	assert.Equal(t, int64(65537), last.Sequence)
 	assert.Equal(t, contract.AdmissionEvaluated, last.AdmissionClass)
 	assert.Equal(t, contract.DecisionAllow, last.Decision)
 	assert.Equal(t, contract.TerminalSucceeded, last.TerminalClass)
@@ -286,7 +286,7 @@ func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
 
 func seedInvocationHistory(t *testing.T, root string, count int) {
 	t.Helper()
-	require.Equal(t, 4096, count)
+	require.Equal(t, 65536, count)
 	ctx := context.Background()
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)

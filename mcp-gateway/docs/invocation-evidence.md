@@ -75,7 +75,7 @@ Gateway-local tools use a narrower result boundary. Known and post-commit-uncert
 
 ## Understand redaction and retention
 
-Gateway retains at most 4,096 invocation rows and evicts the oldest row in the same transaction as a new admission. Evidence is ordered by durable insertion sequence rather than client timestamps.
+Gateway retains at most 65,536 invocation rows and evicts the oldest row in the same transaction as a new admission. Evidence is ordered by durable insertion sequence rather than client timestamps.
 
 Argument capture uses fixed recursive sensitive-key redaction and an 8 KiB compact bound. Overflow stores a fixed placeholder. Redaction or encoding failure stores no capture rather than raw arguments. This is defense in depth, not guaranteed secret detection; callers must not submit secrets where the tool contract does not require them.
 

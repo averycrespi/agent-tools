@@ -431,7 +431,7 @@ type auditQueryer interface {
 }
 
 func readAuditObservations(ctx context.Context, queryer auditQueryer) ([]auditObservation, error) {
-	rows, err := queryer.QueryContext(ctx, `SELECT insertion_sequence, id, admission_class, decision, terminal_class FROM invocations ORDER BY insertion_sequence LIMIT 4097`)
+	rows, err := queryer.QueryContext(ctx, `SELECT insertion_sequence, id, admission_class, decision, terminal_class FROM invocations ORDER BY insertion_sequence LIMIT 65537`)
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +456,7 @@ func readAuditObservations(ctx context.Context, queryer auditQueryer) ([]auditOb
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(observations) > 4096 {
+	if len(observations) > 65536 {
 		return nil, fmt.Errorf("audit observations exceed schema bound")
 	}
 	return observations, nil

@@ -56,9 +56,9 @@ func TestInvocationClosedVocabularyAndLimitsAreExact(t *testing.T) {
 
 	rows, ok := FixedLimitByName("invocation_audit_rows")
 	require.True(t, ok)
-	require.Equal(t, int64(4096), rows.Maximum)
-	require.True(t, rows.Allows(4096))
-	require.False(t, rows.Allows(4097))
+	require.Equal(t, int64(65536), rows.Maximum)
+	require.True(t, rows.Allows(65536))
+	require.False(t, rows.Allows(65537))
 	capture, ok := FixedLimitByName("invocation_argument_capture_bytes")
 	require.True(t, ok)
 	require.Equal(t, int64(8192), capture.Maximum)

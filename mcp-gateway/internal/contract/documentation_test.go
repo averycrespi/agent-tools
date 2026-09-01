@@ -200,7 +200,7 @@ func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 		"product.access_policy.closed_constraints":         "Constraints compile only the closed",
 		"product.invocation.missing_terminal_unknown":      "Missing terminal evidence means the outcome is unknown",
 		"product.invocation.local_target_unknown":          "Local post-commit uncertainty returns `tool_unavailable`",
-		"product.invocation.bounded_retention":             "post-insert maximum of 4,096",
+		"product.invocation.bounded_retention":             "post-insert maximum of 65,536",
 		"security.invocation.audit_capture":                "Argument capture uses one fixed recursive key redactor",
 		"security.storage.sqlite_backups":                  "SQLite uses application ID `MGW1`",
 		"security.process.output":                          "no raw process output",

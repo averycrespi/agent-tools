@@ -144,7 +144,7 @@ var fixedLimits = []FixedLimit{
 	{Name: "constraint_atoms", Maximum: 16},
 	{Name: "constraint_bytes", Maximum: 8192},
 	{Name: "constraint_pointer_bytes", Maximum: 256},
-	{Name: "invocation_audit_rows", Maximum: 4096},
+	{Name: "invocation_audit_rows", Maximum: 65536},
 	{Name: "invocation_argument_capture_bytes", Maximum: 8192},
 	{Name: "discoverable_tools", Maximum: 2054},
 	{Name: "grant_requests", Maximum: 4096},

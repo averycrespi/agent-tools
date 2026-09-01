@@ -208,7 +208,7 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `constraint_atoms`                      |         16 |
 | `constraint_bytes`                      |       8192 |
 | `constraint_pointer_bytes`              |        256 |
-| `invocation_audit_rows`                 |       4096 |
+| `invocation_audit_rows`                 |      65536 |
 | `invocation_argument_capture_bytes`     |       8192 |
 | `discoverable_tools`                    |       2054 |
 | `grant_requests`                        |       4096 |

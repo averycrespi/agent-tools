@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRepositoryRetainsNewest4096ByMonotonicSequence(t *testing.T) {
+func TestRepositoryRetainsNewest65536ByMonotonicSequence(t *testing.T) {
 	repository, store, _ := newInvocationRepository(t, nil, uniqueInvocationEntropy(int(invocationLimit())+1))
 	prepared := make([]PreparedAdmission, int(invocationLimit())+1)
 	for index := range prepared {
