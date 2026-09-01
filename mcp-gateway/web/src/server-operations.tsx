@@ -120,10 +120,23 @@ function OperationRows({
       rowTestID="operation-row"
       filters={[
         {
-          key: "name",
-          label: "Name",
-          type: "text",
-          value: (operation) => label(operation.kind),
+          key: "action",
+          label: "Action",
+          type: "select",
+          value: (operation) => operation.kind,
+          options: [
+            { value: "activate", label: "Connect server" },
+            { value: "reload", label: "Reload server" },
+            { value: "retry", label: "Retry connection" },
+            { value: "refresh_catalog", label: "Refresh tools" },
+            { value: "credential_replace", label: "Replace credential" },
+            { value: "disable", label: "Disable server" },
+            { value: "delete", label: "Delete server" },
+            {
+              value: "disconnect_credentials",
+              label: "Disconnect credentials",
+            },
+          ],
         },
         {
           key: "status",
@@ -136,6 +149,8 @@ function OperationRows({
             { value: "succeeded", label: "Succeeded" },
             { value: "failed", label: "Failed" },
             { value: "interrupted", label: "Interrupted" },
+            { value: "cancelled", label: "Cancelled" },
+            { value: "superseded", label: "Superseded" },
           ],
         },
       ]}

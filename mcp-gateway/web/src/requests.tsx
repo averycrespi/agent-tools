@@ -16,6 +16,7 @@ import {
   StatusLabel,
 } from "./primitives";
 import type { ProtectedContext, SessionClient } from "./session";
+import { UserTime } from "./time";
 import type { ViewSnapshot } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
@@ -389,7 +390,9 @@ function Evidence({
         </div>
         <div>
           <dt>Captured</dt>
-          <dd>{evidence.capturedAt}</dd>
+          <dd>
+            <UserTime value={evidence.capturedAt} />
+          </dd>
         </div>
       </dl>
       <a href={`#/servers/${evidence.serverID}/descriptors/${evidence.toolID}`}>

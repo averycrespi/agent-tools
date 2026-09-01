@@ -8,7 +8,7 @@ import {
   type MutationSpec,
 } from "./mutation";
 import {
-  ComparisonTable,
+  CollectionTable,
   ConfirmationDialog,
   FormField,
   InertJSON,
@@ -16,6 +16,7 @@ import {
   StatusLabel,
 } from "./primitives";
 import type { ProtectedContext, SessionClient } from "./session";
+import { UserTime } from "./time";
 import type { ViewSnapshot } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
@@ -995,11 +996,15 @@ export function Grants({
             </div>
             <div>
               <dt>Expiry</dt>
-              <dd>{detail.expiresAt ?? "Permanent"}</dd>
+              <dd>
+                <UserTime value={detail.expiresAt} fallback="Permanent" />
+              </dd>
             </div>
             <div>
               <dt>Created</dt>
-              <dd>{detail.createdAt}</dd>
+              <dd>
+                <UserTime value={detail.createdAt} />
+              </dd>
             </div>
           </dl>
           {detail.constraint !== null && (
@@ -1040,52 +1045,101 @@ export function Grants({
         {items.length === 0 ? (
           <StateNotice state="empty" title="No grants match" />
         ) : (
-          <ComparisonTable caption="Grant policy records">
-            <thead>
-              <tr>
-                <th scope="col">Effect</th>
-                <th scope="col">Principal</th>
-                <th scope="col">Target</th>
-                <th scope="col">State</th>
-                <th scope="col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((grant) => (
-                <tr data-testid="grant-row" key={grant.id}>
-                  <td>
-                    <strong>{grant.effect.toUpperCase()}</strong>
-                  </td>
-                  <td>
-                    <a href={`#/access/principals/${grant.principalID}`}>
-                      {grant.principalID}
+          <CollectionTable
+            caption="Grant policy records"
+            items={items}
+            rowKey={(grant) => grant.id}
+            rowTestID="grant-row"
+            filters={[
+              {
+                key: "principal",
+                label: "Principal",
+                type: "text",
+                value: (grant) => grant.principalID,
+              },
+              {
+                key: "target",
+                label: "Target",
+                type: "text",
+                value: (grant) =>
+                  `${grant.serverID} ${grant.upstreamName ?? "Entire server"}`,
+              },
+              {
+                key: "effect",
+                label: "Effect",
+                type: "select",
+                value: (grant) => grant.effect,
+                options: [
+                  { value: "allow", label: "Allow" },
+                  { value: "deny", label: "Deny" },
+                ],
+              },
+              {
+                key: "state",
+                label: "State",
+                type: "select",
+                value: (grant) => grant.state,
+                options: [
+                  { value: "active", label: "Active" },
+                  { value: "expired", label: "Expired" },
+                ],
+              },
+            ]}
+            columns={[
+              {
+                key: "effect",
+                label: "Effect",
+                sortValue: (grant) => grant.effect,
+                render: (grant) => (
+                  <strong>{grant.effect.toUpperCase()}</strong>
+                ),
+              },
+              {
+                key: "principal",
+                label: "Principal",
+                sortValue: (grant) => grant.principalID,
+                render: (grant) => (
+                  <a href={`#/access/principals/${grant.principalID}`}>
+                    {grant.principalID}
+                  </a>
+                ),
+              },
+              {
+                key: "target",
+                label: "Target",
+                sortValue: (grant) => grant.upstreamName ?? grant.serverID,
+                render: (grant) =>
+                  grant.serverID === "00000000000000000000000000" ? (
+                    "Synthetic default namespace"
+                  ) : (
+                    <a href={`#/servers/${grant.serverID}`}>
+                      {grant.upstreamName === null
+                        ? "Entire server"
+                        : grant.upstreamName}
                     </a>
-                  </td>
-                  <td>
-                    {grant.serverID === "00000000000000000000000000" ? (
-                      "Synthetic default namespace"
-                    ) : (
-                      <a href={`#/servers/${grant.serverID}`}>
-                        {grant.upstreamName === null
-                          ? "Entire server"
-                          : grant.upstreamName}
-                      </a>
-                    )}
-                  </td>
-                  <td>
-                    <StatusLabel
-                      state={grant.state === "active" ? "current" : "warning"}
-                    >
-                      {grant.state}
-                    </StatusLabel>
-                  </td>
-                  <td>
-                    <a href={`#/access/grants/${grant.id}`}>Open grant</a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </ComparisonTable>
+                  ),
+              },
+              {
+                key: "state",
+                label: "State",
+                sortValue: (grant) => grant.state,
+                render: (grant) => (
+                  <StatusLabel
+                    state={grant.state === "active" ? "current" : "warning"}
+                  >
+                    {grant.state}
+                  </StatusLabel>
+                ),
+              },
+              {
+                key: "action",
+                label: "Action",
+                render: (grant) => (
+                  <a href={`#/access/grants/${grant.id}`}>Open grant</a>
+                ),
+              },
+            ]}
+          />
         )}
       </section>
     </div>

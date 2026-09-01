@@ -16,6 +16,7 @@ import {
 } from "./primitives";
 import type { SessionClient } from "./session";
 import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
+import { UserTime } from "./time";
 import type { ViewCoordinator, ViewSnapshot } from "./view";
 
 type Listener = (status: StatusView | undefined) => void;
@@ -451,7 +452,9 @@ function StatusPanel({
               <StatusLabel state={status.ready ? "current" : "warning"}>
                 Ready {status.ready ? "yes" : "no"}
               </StatusLabel>
-              <p>Started {status.startedAt}</p>
+              <p>
+                Started <UserTime value={status.startedAt} />
+              </p>
             </article>
             <article class="fact-card">
               <span class="panel-code">SQLITE</span>
@@ -473,7 +476,10 @@ function StatusPanel({
             <article class="fact-card">
               <span class="panel-code">BACKUP</span>
               <h3>Backup {status.backupState}</h3>
-              <p>Last completed {status.lastBackupAt ?? "never"}</p>
+              <p>
+                Last completed{" "}
+                <UserTime value={status.lastBackupAt} fallback="never" />
+              </p>
             </article>
             <article class="fact-card fact-card-wide">
               <span class="panel-code">PROTOCOLS</span>
@@ -809,40 +815,42 @@ function Backups({
             </tr>
           </thead>
           <tbody>
-            {backups.map((backup) => (
-              <tr key={backup.id} data-testid="backup-row">
-                <th scope="row">
-                  <code>{backup.id}</code>
-                  <br />
-                  {backup.createdAt}
-                </th>
-                <td>
-                  Schema {backup.schemaVersion}
-                  <br />
-                  Revision {backup.sourceRevision}
-                </td>
-                <td>{backup.sizeBytes} bytes</td>
-                <td class="inline-actions">
-                  <button
-                    data-testid="backup-inspect"
-                    type="button"
-                    onClick={() => void inspect(backup.id)}
-                  >
-                    Inspect
-                  </button>
-                  <button
-                    ref={deleteButton}
-                    class="danger-action"
-                    data-testid="backup-delete"
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => beginDelete(backup)}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {[...backups]
+              .sort((left, right) =>
+                right.createdAt.localeCompare(left.createdAt),
+              )
+              .map((backup) => (
+                <tr key={backup.id} data-testid="backup-row">
+                  <th scope="row">
+                    <code>{backup.id}</code> ·{" "}
+                    <UserTime value={backup.createdAt} />
+                  </th>
+                  <td>
+                    Schema {backup.schemaVersion} · revision{" "}
+                    {backup.sourceRevision}
+                  </td>
+                  <td>{backup.sizeBytes} bytes</td>
+                  <td class="inline-actions">
+                    <button
+                      data-testid="backup-inspect"
+                      type="button"
+                      onClick={() => void inspect(backup.id)}
+                    >
+                      Inspect
+                    </button>
+                    <button
+                      ref={deleteButton}
+                      class="danger-action"
+                      data-testid="backup-delete"
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => beginDelete(backup)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
           </tbody>
         </ComparisonTable>
       )}
@@ -1150,70 +1158,80 @@ function AdminCredentials({
             </tr>
           </thead>
           <tbody>
-            {credentials.map((credential) => {
-              const protectedLast =
-                credential.status === "active" &&
-                credential.nonExpiring &&
-                activeNonExpiring <= 1;
-              return (
-                <tr key={credential.id} data-testid="admin-credential-row">
-                  <th scope="row">
-                    <button
-                      class="text-button"
-                      data-testid="admin-credential-inspect"
-                      type="button"
-                      onClick={() => void inspectCredential(credential.id)}
-                    >
-                      {credential.fingerprint}
-                    </button>
-                    <br />
-                    <code>{credential.id}</code>
-                    <br />
-                    Created {credential.createdAt}
-                  </th>
-                  <td>
-                    <StatusLabel
-                      state={
-                        credential.status === "active"
-                          ? "current"
-                          : "unavailable"
-                      }
-                    >
-                      {credential.status}
-                    </StatusLabel>
-                  </td>
-                  <td>
-                    {credential.nonExpiring
-                      ? "Non-expiring"
-                      : `Expires ${credential.expiresAt ?? "unknown"}`}
-                  </td>
-                  <td>{credential.revision}</td>
-                  <td>
-                    {credential.status === "active" ? (
+            {[...credentials]
+              .sort((left, right) =>
+                right.createdAt.localeCompare(left.createdAt),
+              )
+              .map((credential) => {
+                const protectedLast =
+                  credential.status === "active" &&
+                  credential.nonExpiring &&
+                  activeNonExpiring <= 1;
+                return (
+                  <tr key={credential.id} data-testid="admin-credential-row">
+                    <th scope="row">
                       <button
-                        class="danger-action"
-                        data-testid="admin-credential-revoke"
+                        class="text-button"
+                        data-testid="admin-credential-inspect"
                         type="button"
-                        disabled={disabled || protectedLast}
-                        title={
-                          protectedLast
-                            ? "The last active non-expiring administrator authority cannot be revoked."
-                            : undefined
-                        }
-                        onClick={(event) => {
-                          revokeButton.current = event.currentTarget;
-                          beginRevoke(credential);
-                        }}
+                        onClick={() => void inspectCredential(credential.id)}
                       >
-                        Revoke
-                      </button>
-                    ) : (
-                      "Terminal"
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+                        {credential.fingerprint}
+                      </button>{" "}
+                      · <code>{credential.id}</code> · Created{" "}
+                      <UserTime value={credential.createdAt} />
+                    </th>
+                    <td>
+                      <StatusLabel
+                        state={
+                          credential.status === "active"
+                            ? "current"
+                            : "unavailable"
+                        }
+                      >
+                        {credential.status}
+                      </StatusLabel>
+                    </td>
+                    <td>
+                      {credential.nonExpiring ? (
+                        "Non-expiring"
+                      ) : (
+                        <>
+                          Expires{" "}
+                          <UserTime
+                            value={credential.expiresAt}
+                            fallback="unknown"
+                          />
+                        </>
+                      )}
+                    </td>
+                    <td>{credential.revision}</td>
+                    <td>
+                      {credential.status === "active" ? (
+                        <button
+                          class="danger-action"
+                          data-testid="admin-credential-revoke"
+                          type="button"
+                          disabled={disabled || protectedLast}
+                          title={
+                            protectedLast
+                              ? "The last active non-expiring administrator authority cannot be revoked."
+                              : undefined
+                          }
+                          onClick={(event) => {
+                            revokeButton.current = event.currentTarget;
+                            beginRevoke(credential);
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      ) : (
+                        "Terminal"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
         </ComparisonTable>
       )}
@@ -1233,11 +1251,15 @@ function AdminCredentials({
             </div>
             <div>
               <dt>Created</dt>
-              <dd>{detail.createdAt}</dd>
+              <dd>
+                <UserTime value={detail.createdAt} />
+              </dd>
             </div>
             <div>
               <dt>Expiry</dt>
-              <dd>{detail.expiresAt ?? "Non-expiring"}</dd>
+              <dd>
+                <UserTime value={detail.expiresAt} fallback="Non-expiring" />
+              </dd>
             </div>
             <div>
               <dt>Revision</dt>

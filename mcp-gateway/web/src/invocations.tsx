@@ -7,6 +7,7 @@ import {
   StatusLabel,
 } from "./primitives";
 import type { SessionClient } from "./session";
+import { UserTime } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -539,6 +540,10 @@ export function Invocations({
           requestedName={requestedName}
           setRequestedName={setRequestedName}
           apply={() => controller.setRequestedName(requestedName)}
+          reset={() => {
+            setRequestedName("");
+            controller.setRequestedName("");
+          }}
           loadOlder={() => void controller.loadOlder()}
         />
       )}
@@ -551,6 +556,7 @@ function InvocationList({
   requestedName,
   setRequestedName,
   apply,
+  reset,
   loadOlder,
 }: {
   snapshot: InvocationsSnapshot;
@@ -558,6 +564,7 @@ function InvocationList({
   requestedName: string;
   setRequestedName: (value: string) => void;
   apply: () => void;
+  reset: () => void;
   loadOlder: () => void;
 }) {
   return (
@@ -589,9 +596,20 @@ function InvocationList({
           maxlength={128}
           onInput={(event) => setRequestedName(event.currentTarget.value)}
         />
-        <button data-testid="apply-requested-name" type="submit">
-          Apply live filter
-        </button>
+        <div class="filter-actions">
+          <button data-testid="apply-requested-name" type="submit">
+            Apply
+          </button>
+          <button
+            class="text-button"
+            data-testid="reset-requested-name"
+            type="button"
+            disabled={requestedName === "" && snapshot.requestedName === ""}
+            onClick={reset}
+          >
+            Reset
+          </button>
+        </div>
       </form>
       {panel?.status === "error" && panel.hasValue !== true ? (
         <StateNotice state="error" title="Invocation list unavailable" />
@@ -635,7 +653,7 @@ function InvocationList({
             {
               key: "admitted",
               label: "Admitted",
-              render: (item) => item.admittedAt,
+              render: (item) => <UserTime value={item.admittedAt} />,
             },
             {
               key: "target",
@@ -706,7 +724,9 @@ function InvocationDetail({
         <tbody>
           <tr>
             <th>Admitted</th>
-            <td>{item.admittedAt}</td>
+            <td>
+              <UserTime value={item.admittedAt} />
+            </td>
           </tr>
           <tr>
             <th>Admission</th>
@@ -722,7 +742,12 @@ function InvocationDetail({
           </tr>
           <tr>
             <th>Completed</th>
-            <td>{item.completedAt ?? "No terminal timestamp retained"}</td>
+            <td>
+              <UserTime
+                value={item.completedAt}
+                fallback="No terminal timestamp retained"
+              />
+            </td>
           </tr>
         </tbody>
       </ComparisonTable>

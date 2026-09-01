@@ -1398,78 +1398,124 @@ function CatalogRows({
   degraded: boolean;
 }) {
   return (
-    <ComparisonTable caption="Available tools">
-      <thead>
-        <tr>
-          <th scope="col">Tool</th>
-          <th scope="col">Server</th>
-          <th scope="col">Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((descriptor) => (
-          <tr data-testid="catalog-row" key={descriptor.id}>
-            <th scope="row">
-              <a
-                href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
-                data-tool-name={descriptor.upstreamName}
-              >
-                {descriptor.externalName}
-              </a>
-            </th>
-            <td>
-              <a href={`#/servers/${descriptor.serverID}`}>
-                {descriptor.serverID}
-              </a>
-            </td>
-            <td>
-              <StatusLabel state={degraded ? "warning" : "current"}>
-                {degraded ? "Catalog issue" : "Available"}
-              </StatusLabel>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </ComparisonTable>
+    <CollectionTable
+      caption="Available tools"
+      items={items}
+      rowKey={(descriptor) => descriptor.id}
+      rowTestID="catalog-row"
+      filters={[
+        {
+          key: "tool",
+          label: "Tool",
+          type: "text",
+          value: (descriptor) => descriptor.externalName,
+        },
+        {
+          key: "server",
+          label: "Server",
+          type: "text",
+          value: (descriptor) => descriptor.serverID,
+        },
+      ]}
+      columns={[
+        {
+          key: "tool",
+          label: "Tool",
+          sortValue: (descriptor) => descriptor.externalName,
+          render: (descriptor) => (
+            <a
+              href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+              data-tool-name={descriptor.upstreamName}
+            >
+              {descriptor.externalName}
+            </a>
+          ),
+        },
+        {
+          key: "server",
+          label: "Server",
+          sortValue: (descriptor) => descriptor.serverID,
+          render: (descriptor) => (
+            <a href={`#/servers/${descriptor.serverID}`}>
+              {descriptor.serverID}
+            </a>
+          ),
+        },
+        {
+          key: "status",
+          label: "Status",
+          render: () => (
+            <StatusLabel state={degraded ? "warning" : "current"}>
+              {degraded ? "Catalog issue" : "Available"}
+            </StatusLabel>
+          ),
+        },
+      ]}
+    />
   );
 }
 function DescriptorRows({ items }: { items: readonly DescriptorView[] }) {
   return (
-    <ComparisonTable caption="Server tools">
-      <thead>
-        <tr>
-          <th scope="col">Tool</th>
-          <th scope="col">Status</th>
-          <th scope="col">Last seen</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((descriptor) => (
-          <tr data-testid="descriptor-row" key={descriptor.id}>
-            <th scope="row">
-              <a
-                href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
-                data-tool-name={descriptor.upstreamName}
-              >
-                {descriptor.externalName}
-              </a>
-            </th>
-            <td>
-              <StatusLabel
-                state={
-                  descriptor.retiredAt === null ? "current" : "unavailable"
-                }
-              >
-                {descriptor.retiredAt === null ? "Available" : "Retired"}
-              </StatusLabel>
-            </td>
-            <td>
-              <UserTime value={descriptor.lastSeenAt} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </ComparisonTable>
+    <CollectionTable
+      caption="Server tools"
+      items={items}
+      rowKey={(descriptor) => descriptor.id}
+      rowTestID="descriptor-row"
+      filters={[
+        {
+          key: "tool",
+          label: "Tool",
+          type: "text",
+          value: (descriptor) => descriptor.externalName,
+        },
+        {
+          key: "status",
+          label: "Status",
+          type: "select",
+          value: (descriptor) =>
+            descriptor.retiredAt === null ? "available" : "retired",
+          options: [
+            { value: "available", label: "Available" },
+            { value: "retired", label: "Retired" },
+          ],
+        },
+      ]}
+      initialSort={{ key: "last-seen", direction: "descending" }}
+      columns={[
+        {
+          key: "tool",
+          label: "Tool",
+          sortValue: (descriptor) => descriptor.externalName,
+          render: (descriptor) => (
+            <a
+              href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+              data-tool-name={descriptor.upstreamName}
+            >
+              {descriptor.externalName}
+            </a>
+          ),
+        },
+        {
+          key: "status",
+          label: "Status",
+          sortValue: (descriptor) =>
+            descriptor.retiredAt === null ? "available" : "retired",
+          render: (descriptor) => (
+            <StatusLabel
+              state={descriptor.retiredAt === null ? "current" : "unavailable"}
+            >
+              {descriptor.retiredAt === null ? "Available" : "Retired"}
+            </StatusLabel>
+          ),
+        },
+        {
+          key: "last-seen",
+          label: "Last seen",
+          sortValue: (descriptor) => descriptor.lastSeenAt,
+          render: (descriptor) => <UserTime value={descriptor.lastSeenAt} />,
+        },
+      ]}
+    />
   );
 }
 
@@ -1569,8 +1615,12 @@ export function ServerReads({
               <>
                 <p>
                   Process generation {snapshot.catalog.activeGeneration} ·
-                  changed {snapshot.catalog.changedAt ?? "never"} · issues{" "}
-                  {snapshot.catalog.issueCount}
+                  changed{" "}
+                  <UserTime
+                    value={snapshot.catalog.changedAt}
+                    fallback="never"
+                  />{" "}
+                  · issues {snapshot.catalog.issueCount}
                 </p>
                 <p>
                   {snapshot.catalog.activeState === "degraded"

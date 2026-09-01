@@ -59,12 +59,6 @@ function FlowRows({
       rowTestID="auth-flow-row"
       filters={[
         {
-          key: "name",
-          label: "Name",
-          type: "text",
-          value: () => "OAuth authorization",
-        },
-        {
           key: "status",
           label: "Status",
           type: "select",
@@ -77,6 +71,8 @@ function FlowRows({
             { value: "failed", label: "Failed" },
             { value: "cancelled", label: "Cancelled" },
             { value: "interrupted", label: "Interrupted" },
+            { value: "expired", label: "Expired" },
+            { value: "superseded", label: "Superseded" },
           ],
         },
       ]}

@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { decodeInvocationPage, type InvocationPageView } from "./invocations";
 import { ComparisonTable, StateNotice, StatusLabel } from "./primitives";
 import type { SessionClient } from "./session";
+import { UserTime } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -773,7 +774,7 @@ export function Overview({
                           <a href={`#/servers/${item.id}`}>{item.name}</a>
                           {item.attention && (
                             <>
-                              <br />
+                              {" · "}
                               <StatusLabel state="warning">
                                 Needs operator attention
                               </StatusLabel>
@@ -806,14 +807,19 @@ export function Overview({
                 .
               </p>
               <ul class="record-list">
-                {snapshot.requests.items.map((item) => (
-                  <li key={item.id}>
-                    <a href={`#/requests/${item.id}`}>{item.target}</a>
-                    <span>
-                      Principal {item.principalID} · {item.createdAt}
-                    </span>
-                  </li>
-                ))}
+                {[...snapshot.requests.items]
+                  .sort((left, right) =>
+                    right.createdAt.localeCompare(left.createdAt),
+                  )
+                  .map((item) => (
+                    <li key={item.id}>
+                      <a href={`#/requests/${item.id}`}>{item.target}</a>
+                      <span>
+                        Principal {item.principalID} ·{" "}
+                        <UserTime value={item.createdAt} />
+                      </span>
+                    </li>
+                  ))}
               </ul>
             </>
           )}
@@ -840,7 +846,8 @@ export function Overview({
                       {item.requestedName ?? "Not resolved"}
                     </a>
                     <span>
-                      {item.outcome} · {item.basis} · {item.admittedAt}
+                      {item.outcome} · {item.basis} ·{" "}
+                      <UserTime value={item.admittedAt} />
                     </span>
                     {item.basis === "missing_terminal" && (
                       <span class="warning-copy">

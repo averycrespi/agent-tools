@@ -9,7 +9,7 @@ import {
   type MutationSpec,
 } from "./mutation";
 import {
-  ComparisonTable,
+  CollectionTable,
   ConfirmationDialog,
   FormField,
   StateNotice,
@@ -17,6 +17,7 @@ import {
 } from "./primitives";
 import type { ProtectedContext, SessionClient } from "./session";
 import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
+import { UserTime } from "./time";
 import type { ViewSnapshot } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
@@ -861,7 +862,9 @@ export function Principals({
             </div>
             <div>
               <dt>Updated</dt>
-              <dd>{principal.updatedAt}</dd>
+              <dd>
+                <UserTime value={principal.updatedAt} />
+              </dd>
             </div>
           </dl>
           <p>
@@ -912,46 +915,92 @@ export function Principals({
         {items.length === 0 ? (
           <StateNotice state="empty" title="No principals" />
         ) : (
-          <ComparisonTable caption="Principal identities">
-            <thead>
-              <tr>
-                <th scope="col">Principal</th>
-                <th scope="col">State</th>
-                <th scope="col">Visibility</th>
-                <th scope="col">Revisions</th>
-                <th scope="col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((principal) => (
-                <tr data-testid="principal-row" key={principal.id}>
-                  <th scope="row">
+          <CollectionTable
+            caption="Principal identities"
+            items={items}
+            rowKey={(principal) => principal.id}
+            rowTestID="principal-row"
+            filters={[
+              {
+                key: "name",
+                label: "Name",
+                type: "text",
+                value: (principal) =>
+                  `${principal.displayName} ${principal.id}`,
+              },
+              {
+                key: "state",
+                label: "State",
+                type: "select",
+                value: (principal) => principal.state,
+                options: [
+                  { value: "active", label: "Active" },
+                  { value: "disabled", label: "Disabled" },
+                ],
+              },
+              {
+                key: "visibility",
+                label: "Visibility",
+                type: "select",
+                value: (principal) => principal.visibility,
+                options: [
+                  { value: "requestable", label: "Requestable" },
+                  { value: "allowed-only", label: "Allowed only" },
+                  { value: "all", label: "All" },
+                ],
+              },
+            ]}
+            columns={[
+              {
+                key: "principal",
+                label: "Principal",
+                sortValue: (principal) => principal.displayName,
+                render: (principal) => (
+                  <>
                     <strong>{principal.displayName}</strong>
                     <span class="technical-value">{principal.id}</span>
-                  </th>
-                  <td>
-                    <StatusLabel
-                      state={
-                        principal.state === "active" ? "current" : "warning"
-                      }
-                    >
-                      {principal.state}
-                    </StatusLabel>
-                  </td>
-                  <td>{visibilityText(principal.visibility)}</td>
-                  <td>
+                  </>
+                ),
+              },
+              {
+                key: "state",
+                label: "State",
+                sortValue: (principal) => principal.state,
+                render: (principal) => (
+                  <StatusLabel
+                    state={principal.state === "active" ? "current" : "warning"}
+                  >
+                    {principal.state}
+                  </StatusLabel>
+                ),
+              },
+              {
+                key: "visibility",
+                label: "Visibility",
+                sortValue: (principal) => principal.visibility,
+                render: (principal) => visibilityText(principal.visibility),
+              },
+              {
+                key: "revisions",
+                label: "Revisions",
+                render: (principal) => (
+                  <>
                     Principal {principal.revision} · credential{" "}
                     {principal.credentialRevision}
-                  </td>
-                  <td>
-                    <a href={`#/access/principals/${principal.id}`}>
-                      Open principal
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </ComparisonTable>
+                  </>
+                ),
+              },
+              {
+                key: "action",
+                label: "Action",
+                render: (principal) => (
+                  <a href={`#/access/principals/${principal.id}`}>
+                    Open principal
+                  </a>
+                ),
+              },
+            ]}
+          />
         )}
       </section>
     </div>

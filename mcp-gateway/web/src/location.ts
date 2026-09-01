@@ -24,7 +24,6 @@ export interface ResolvedLocation {
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const serverTabs = new Set([
-  "overview",
   "tools",
   "activity",
   "authentication",

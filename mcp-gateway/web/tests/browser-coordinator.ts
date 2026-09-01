@@ -779,17 +779,12 @@ async function runFragmentStorage(
     ["#/servers", "#/servers"],
     ["#/servers/new", "#/servers/new"],
     [`#/servers/${idA}`, `#/servers/${idA}`],
-    ...[
-      "overview",
-      "tools",
-      "activity",
-      "authentication",
-      "settings",
-      "diagnostics",
-    ].map((tab): [string, string] => [
-      `#/servers/${idA}?tab=${tab}`,
-      tab === "overview" ? `#/servers/${idA}` : `#/servers/${idA}?tab=${tab}`,
-    ]),
+    ...["tools", "activity", "authentication", "settings", "diagnostics"].map(
+      (tab): [string, string] => [
+        `#/servers/${idA}?tab=${tab}`,
+        `#/servers/${idA}?tab=${tab}`,
+      ],
+    ),
     [
       `#/servers/${idA}/operations/${idB}`,
       `#/servers/${idA}/operations/${idB}`,
@@ -5697,6 +5692,8 @@ async function runInvocations(
     "Target",
   ])
     if (!body.includes(phrase)) fail(`invocation list omitted ${phrase}`);
+  if ((await page.locator('[data-testid="invocation-row"] time').count()) !== 2)
+    fail("invocation list did not render admitted timestamps in user time");
   if (
     body.includes(captureCanary) ||
     body.includes("redacted_arguments") ||
@@ -5767,6 +5764,21 @@ async function runInvocations(
   );
   if ((await page.evaluate(() => window.location.hash)) !== canonical)
     fail("live requested-name filter entered the fragment");
+  await page.locator('[data-testid="reset-requested-name"]').click();
+  if (
+    (await page
+      .locator('[data-testid="requested-name-filter"]')
+      .inputValue()) !== ""
+  )
+    fail("invocation filter Reset did not clear the field");
+  await page
+    .locator('[data-testid="requested-name-filter"]')
+    .fill("live-only.tool");
+  await page.locator('[data-testid="apply-requested-name"]').click();
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="invocation-row"]').length === 1,
+  );
   const storage = await browserStorage(page);
   if (JSON.stringify(storage).includes("live-only.tool"))
     fail("live requested-name filter entered browser storage");
@@ -5922,7 +5934,7 @@ async function runSystemStatus(
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Process storage_failed",
-    "Started 2026-08-28T00:00:00Z",
+    "Started",
     "Schema 10",
     "Revision 7",
     "Mutation admission closed",
@@ -5933,6 +5945,10 @@ async function runSystemStatus(
     "modern 2026-07-28",
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
+  if (
+    (await page.locator('time[datetime="2026-08-28T00:00:00Z"]').count()) !== 1
+  )
+    fail("System status did not render process start in user time");
   const limitRows = await page
     .locator('[data-testid="system-limit-row"]')
     .count();
@@ -6835,8 +6851,10 @@ async function runServerOperations(
   if ((await operationsView.locator(".status-symbol").count()) !== 0)
     fail("operation statuses retained decorative symbols");
   if (
-    (await operationsView.getByLabel("Name").count()) !== 1 ||
-    (await operationsView.getByLabel("Status").count()) !== 1 ||
+    (await operationsView.locator('select[aria-label="Action"]').count()) !==
+      1 ||
+    (await operationsView.locator('select[aria-label="Status"]').count()) !==
+      1 ||
     (await operationsView.getByRole("button", { name: "Reset" }).count()) !== 1
   )
     fail("operation table omitted field-specific filters");

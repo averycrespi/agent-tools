@@ -878,6 +878,15 @@ p {
   align-self: end;
 }
 
+.filter-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-actions button {
+  margin-top: 0;
+}
+
 .invocation-records {
   margin-top: 16px;
 }
@@ -1268,9 +1277,9 @@ button.sort-button:not(:disabled):hover {
   background: var(--surface-subtle);
 }
 
-.table-region th span,
-.table-region td span {
-  display: block;
+.table-region .technical-value {
+  display: inline;
+  margin: 0 0 0 6px;
 }
 
 .inert-json {
@@ -1630,6 +1639,10 @@ button.sort-button:not(:disabled):hover {
   }
 
   .inline-filter button {
+    width: 100%;
+  }
+
+  .filter-actions {
     width: 100%;
   }
 
