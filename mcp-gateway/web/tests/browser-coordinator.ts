@@ -1626,6 +1626,8 @@ async function assertViewGenerationFoundation(): Promise<void> {
   );
 
   coordinator.manualRefresh();
+  if (coordinator.snapshot().freshness !== "current")
+    fail("background refresh exposed transient global staleness");
   await eventually(
     () => coordinator.snapshot().panels.b?.status === "error",
     "panel failure was not isolated",
@@ -1633,6 +1635,11 @@ async function assertViewGenerationFoundation(): Promise<void> {
   if (coordinator.snapshot().panels.a?.status !== "stale")
     fail("matching prior snapshot was not labeled stale");
   coordinator.navigate("#/servers");
+  if (
+    coordinator.snapshot().panels.a?.status !== "loading" ||
+    coordinator.snapshot().panels.a?.hasValue !== false
+  )
+    fail("navigation reused a value owned by another location");
   await eventually(
     () => publishedA === "a-3" && publishedB === "b-3",
     "new view generation did not publish",
@@ -8365,7 +8372,7 @@ async function runServerCatalogReads(
     .locator('[data-testid="servers-view"] thead th')
     .allTextContents();
   if (
-    serverHeaders.map((value) => value.replace(/ [↑↓↕]$/, "")).join("|") !==
+    serverHeaders.map((value) => value.replace(/\s?[↑↓↕]$/, "")).join("|") !==
     "Name|Status|Tools"
   )
     fail(`server inventory columns drifted: ${serverHeaders.join("|")}`);
@@ -8381,6 +8388,33 @@ async function runServerCatalogReads(
     (await page.getByRole("button", { name: "Reset" }).count()) !== 1
   )
     fail("server inventory omitted field-specific filters");
+  const tableControlLayout = await page.evaluate(() => {
+    const input = document.querySelector<HTMLElement>(
+      '.table-filters input[aria-label="Name"]',
+    )!;
+    const reset = document.querySelector<HTMLElement>(
+      ".table-filters .text-button",
+    )!;
+    const sort = document.querySelector<HTMLElement>(".sort-button")!;
+    const inputBox = input.getBoundingClientRect();
+    const resetBox = reset.getBoundingClientRect();
+    return {
+      centerDifference: Math.abs(
+        inputBox.top +
+          inputBox.height / 2 -
+          (resetBox.top + resetBox.height / 2),
+      ),
+      sortGap: getComputedStyle(sort).columnGap,
+    };
+  });
+  if (
+    tableControlLayout.centerDifference > 1 ||
+    tableControlLayout.sortGap === "normal" ||
+    tableControlLayout.sortGap === "0px"
+  )
+    fail(
+      `table controls were misaligned: ${JSON.stringify(tableControlLayout)}`,
+    );
   await page.getByLabel("Name").fill("Degraded catalog");
   if ((await page.locator('[data-testid="server-row"]').count()) !== 1)
     fail("server Name filter did not narrow loaded rows");

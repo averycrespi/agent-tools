@@ -254,13 +254,13 @@ export function CollectionTable<T>({
                     type="button"
                     onClick={() => changeSort(column.key)}
                   >
-                    {column.label}
-                    <span aria-hidden="true">
+                    <span>{column.label}</span>
+                    <span class="sort-indicator" aria-hidden="true">
                       {sort?.key === column.key
                         ? sort.direction === "ascending"
-                          ? " ↑"
-                          : " ↓"
-                        : " ↕"}
+                          ? "↑"
+                          : "↓"
+                        : "↕"}
                     </span>
                   </button>
                 )}

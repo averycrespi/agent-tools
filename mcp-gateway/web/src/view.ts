@@ -150,7 +150,7 @@ export class ViewCoordinator {
   private readonly unregisterProtectedState: () => void;
   private viewKey = "#/sign-in";
   private generation = 0;
-  private freshness: Freshness = "stale";
+  private freshness: Freshness = "reconnecting";
   private active = false;
   private streamConnected = false;
   private streamController: AbortController | undefined;
@@ -211,7 +211,7 @@ export class ViewCoordinator {
       this.viewKey = viewKey;
       this.abortReads();
       this.clearPolls();
-      this.markVisiblePanelsStale();
+      this.markVisiblePanelsLoading();
       this.connect();
       return;
     }
@@ -224,7 +224,7 @@ export class ViewCoordinator {
     this.viewKey = viewKey;
     this.abortReads();
     this.clearPolls();
-    this.markVisiblePanelsStale();
+    this.markVisiblePanelsLoading();
     if (this.active) void this.refresh();
     else this.emit();
   }
@@ -288,7 +288,7 @@ export class ViewCoordinator {
         hasValue: previous?.hasValue === true,
       });
     }
-    this.freshness = this.streamConnected ? "stale" : "reconnecting";
+    this.freshness = this.streamConnected ? "current" : "reconnecting";
     this.emit();
     if (selected.length === 0) {
       if (this.streamConnected) this.freshness = "current";
@@ -542,6 +542,11 @@ export class ViewCoordinator {
     }
   }
 
+  private markVisiblePanelsLoading(): void {
+    for (const panel of this.visiblePanels())
+      this.panelState.set(panel.id, { status: "loading", hasValue: false });
+  }
+
   private abortRead(panelID: string): void {
     this.readControllers.get(panelID)?.abort();
     this.readControllers.delete(panelID);
@@ -570,8 +575,9 @@ export class ViewCoordinator {
       clearTimeout(this.invalidationTimer);
     this.invalidationTimer = undefined;
     this.pendingInvalidations.clear();
-    this.freshness = "stale";
-    this.markVisiblePanelsStale();
+    this.freshness = "reconnecting";
+    for (const panelID of this.panelState.keys())
+      this.panelState.set(panelID, { status: "loading", hasValue: false });
     this.emit();
   }
 

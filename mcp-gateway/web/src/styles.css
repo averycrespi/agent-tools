@@ -975,6 +975,8 @@ p {
 
 .table-filters .text-button {
   min-height: 38px;
+  align-self: center;
+  margin-top: 0;
 }
 
 .collection-table > button {
@@ -984,6 +986,7 @@ p {
 button.sort-button {
   min-height: auto;
   justify-content: flex-start;
+  gap: 6px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -995,6 +998,12 @@ button.sort-button:not(:disabled):hover {
   border: 0;
   background: transparent;
   text-decoration: underline;
+}
+
+.sort-indicator {
+  width: 1em;
+  flex: 0 0 1em;
+  text-align: center;
 }
 
 .table-secondary {
