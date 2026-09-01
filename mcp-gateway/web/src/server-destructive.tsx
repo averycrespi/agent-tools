@@ -123,7 +123,7 @@ export function ServerDestructiveActions({
       </div>
       <p>
         Permanent deletion tombstones this server identity, withdraws routing,
-        and attempts remote credential revocation on a best-effort basis.
+        and uses best-effort remote revocation for affected credentials.
       </p>
       <button
         ref={trigger}

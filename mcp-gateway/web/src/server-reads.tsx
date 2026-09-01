@@ -1296,7 +1296,10 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           sortValue: (server) => server.displayName,
           render: (server) => (
             <span class="server-table-name">
-              <a class="primary-table-link" href={`#/servers/${server.id}`}>
+              <a
+                class="primary-table-link"
+                href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "diagnostics" : "tools"}`}
+              >
                 {server.displayName}
               </a>{" "}
               <span>({server.namespace})</span>
@@ -1320,7 +1323,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           key: "tools",
           label: "Tools",
           sortValue: (server) => server.activeToolCount,
-          render: (server) => server.activeToolCount || "—",
+          render: (server) => server.activeToolCount,
         },
       ]}
     />
@@ -1335,7 +1338,39 @@ function schemaType(schema: JSONRecord): string {
   return "value";
 }
 
-function ToolSchema({ label, value }: { label: string; value: unknown }) {
+function schemaConstraints(schema: JSONRecord): string[] {
+  const result: string[] = [];
+  if (typeof schema.format === "string")
+    result.push(`Format: ${schema.format}`);
+  if (Array.isArray(schema.enum))
+    result.push(`Allowed: ${schema.enum.map(String).join(", ")}`);
+  if (Object.hasOwn(schema, "const"))
+    result.push(`Constant: ${String(schema.const)}`);
+  if (Object.hasOwn(schema, "default"))
+    result.push(`Default: ${String(schema.default)}`);
+  for (const [key, label] of [
+    ["minimum", "Minimum"],
+    ["maximum", "Maximum"],
+    ["minLength", "Minimum length"],
+    ["maxLength", "Maximum length"],
+    ["pattern", "Pattern"],
+  ] as const)
+    if (typeof schema[key] === "string" || typeof schema[key] === "number")
+      result.push(`${label}: ${String(schema[key])}`);
+  return result;
+}
+
+function SchemaNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return (
+      <span class="schema-constraint">
+        {value === true
+          ? "Any value"
+          : value === false
+            ? "No value"
+            : "Invalid schema"}
+      </span>
+    );
   const schema = value as JSONRecord;
   const properties =
     typeof schema.properties === "object" &&
@@ -1350,17 +1385,21 @@ function ToolSchema({ label, value }: { label: string; value: unknown }) {
         )
       : [],
   );
-  const id = `${label.toLocaleLowerCase().replace(" ", "-")}-title`;
+  const constraints = schemaConstraints(schema);
+  const combinations = ["oneOf", "anyOf", "allOf"]
+    .map((key) => [key, schema[key]] as const)
+    .filter((entry): entry is readonly [string, unknown[]] =>
+      Array.isArray(entry[1]),
+    );
   return (
-    <section class="tool-schema" aria-labelledby={id}>
-      <div class="tool-schema-heading">
-        <h3 id={id}>{label}</h3>
-        <span>{schemaType(schema)}</span>
-      </div>
+    <>
       {typeof schema.description === "string" && <p>{schema.description}</p>}
-      {Object.keys(properties).length === 0 ? (
-        <p class="bounded-note">No fields are defined.</p>
-      ) : (
+      {constraints.map((constraint) => (
+        <span class="schema-constraint" key={constraint}>
+          {constraint}
+        </span>
+      ))}
+      {Object.keys(properties).length > 0 && (
         <dl class="schema-fields">
           {Object.entries(properties).map(([name, candidate]) => {
             const property = candidate as JSONRecord;
@@ -1372,20 +1411,57 @@ function ToolSchema({ label, value }: { label: string; value: unknown }) {
                   {required.has(name) && <strong>Required</strong>}
                 </dt>
                 <dd>
-                  {typeof property.description === "string"
-                    ? property.description
-                    : "No description provided."}
-                  {Array.isArray(property.enum) && (
-                    <span class="schema-constraint">
-                      Allowed: {property.enum.map(String).join(", ")}
-                    </span>
-                  )}
+                  <SchemaNode value={property} depth={depth + 1} />
                 </dd>
               </div>
             );
           })}
         </dl>
       )}
+      {depth < 5 &&
+        typeof schema.items === "object" &&
+        schema.items !== null && (
+          <div class="schema-nested">
+            <strong>Items</strong>
+            <SchemaNode value={schema.items} depth={depth + 1} />
+          </div>
+        )}
+      {depth < 5 &&
+        combinations.map(([kind, alternatives]) => (
+          <div class="schema-nested" key={kind}>
+            <strong>{kind}</strong>
+            {alternatives.map((alternative, index) => (
+              <div key={index}>
+                <span class="schema-constraint">Option {index + 1}</span>
+                <SchemaNode value={alternative} depth={depth + 1} />
+              </div>
+            ))}
+          </div>
+        ))}
+      {typeof schema.$ref === "string" && (
+        <span class="schema-constraint">Reference: {schema.$ref}</span>
+      )}
+      {Object.keys(properties).length === 0 &&
+        constraints.length === 0 &&
+        schema.items === undefined &&
+        combinations.length === 0 &&
+        schema.$ref === undefined && (
+          <p class="bounded-note">No additional constraints.</p>
+        )}
+    </>
+  );
+}
+
+function ToolSchema({ label, value }: { label: string; value: unknown }) {
+  const schema = value as JSONRecord;
+  const id = `${label.toLowerCase().replace(" ", "-")}-title`;
+  return (
+    <section class="tool-schema" aria-labelledby={id}>
+      <div class="tool-schema-heading">
+        <h3 id={id}>{label}</h3>
+        <span>{schemaType(schema)}</span>
+      </div>
+      <SchemaNode value={schema} />
     </section>
   );
 }

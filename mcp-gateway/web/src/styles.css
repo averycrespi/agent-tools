@@ -1185,6 +1185,17 @@ button.sort-button:not(:disabled):hover {
   font-family: var(--mono);
 }
 
+.schema-nested {
+  margin-top: 10px;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+.schema-nested > strong {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .detail-list {
   display: grid;
   gap: 0;
@@ -1373,7 +1384,14 @@ button.sort-button:not(:disabled):hover {
 .system-view,
 .system-stack {
   display: grid;
+  min-width: 0;
   gap: 14px;
+}
+
+.domain-view,
+.system-view > *,
+.system-stack > * {
+  min-width: 0;
 }
 
 .limits-disclosure {
@@ -1672,65 +1690,6 @@ button.sort-button:not(:disabled):hover {
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
-  }
-
-  .collection-table .table-region {
-    overflow: visible;
-    border: 0;
-  }
-
-  .collection-table table,
-  .collection-table tbody,
-  .collection-table tr {
-    display: block;
-    min-width: 0;
-    width: 100%;
-  }
-
-  .collection-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-
-  .collection-table tbody tr {
-    padding: 10px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-  }
-
-  .collection-table tbody tr + tr {
-    margin-top: 8px;
-  }
-
-  .collection-table tbody th,
-  .collection-table tbody td {
-    display: grid;
-    grid-template-columns: minmax(6.5rem, 0.4fr) minmax(0, 1fr);
-    gap: 10px;
-    padding: 6px 0;
-    border: 0;
-    text-align: left;
-    white-space: nowrap;
-  }
-
-  .collection-table tbody th:first-child {
-    display: block;
-    padding-top: 0;
-  }
-
-  .collection-table tbody .action-column {
-    width: 100%;
-  }
-
-  .collection-table tbody td::before {
-    content: attr(data-label);
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 650;
   }
 
   .system-view .table-region table {

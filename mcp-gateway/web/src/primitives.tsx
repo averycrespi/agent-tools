@@ -151,7 +151,7 @@ export function CollectionTable<T>({
         if (selected === "") return true;
         const value = filter.value(item);
         return filter.type === "text"
-          ? value.toLocaleLowerCase().includes(selected.toLocaleLowerCase())
+          ? value.toLowerCase().includes(selected.toLowerCase())
           : value === selected;
       }),
     );

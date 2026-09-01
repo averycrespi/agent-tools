@@ -2828,14 +2828,22 @@ async function runVisualResponsiveMatrix(
   )
     fail("320 CSS pixel reflow caused page overflow");
   await page.setViewportSize({ width: 720, height: 450 });
-  if (
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth >
-        document.documentElement.clientWidth,
-    )
-  )
-    fail("pinned 200 percent reference layout caused page overflow");
+  const zoomLayout = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+    offenders: [...document.querySelectorAll<HTMLElement>("body *")]
+      .filter(
+        (node) =>
+          node.getBoundingClientRect().right >
+          document.documentElement.clientWidth + 1,
+      )
+      .slice(0, 8)
+      .map((node) => `${node.tagName.toLowerCase()}.${node.className}`),
+  }));
+  if (zoomLayout.scroll > zoomLayout.client)
+    fail(
+      `pinned 200 percent reference layout caused page overflow: ${JSON.stringify(zoomLayout)}`,
+    );
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true, "dark");
   process.stdout.write(
@@ -5945,8 +5953,10 @@ async function runSystemStatus(
     "modern 2026-07-28",
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
+  const processStart = page.locator('time[datetime="2026-08-28T00:00:00Z"]');
   if (
-    (await page.locator('time[datetime="2026-08-28T00:00:00Z"]').count()) !== 1
+    (await processStart.count()) !== 1 ||
+    (await processStart.textContent()) === "2026-08-28T00:00:00Z"
   )
     fail("System status did not render process start in user time");
   const limitRows = await page
@@ -6102,7 +6112,16 @@ function descriptorReadFixture(
       description: `Descriptor ${name}`,
       inputSchema: {
         type: "object",
-        properties: { value: { type: "string" } },
+        properties: {
+          value: { type: "string" },
+          tags: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { label: { type: "string" } },
+            },
+          },
+        },
       },
       outputSchema: { type: "object" },
       annotations: {
@@ -6664,21 +6683,24 @@ async function runServerOperations(
     kind: string,
     state: string,
     reason: string | null = null,
-  ) => ({
-    id,
-    server_id: serverID,
-    kind,
-    target_desired_revision: currentServer.desired_revision,
-    target_credential_revisions: currentServer.credential_revisions,
-    state,
-    reason,
-    created_at: "2026-08-28T14:00:00Z",
-    started_at: state === "scheduled" ? null : "2026-08-28T14:00:01Z",
-    finished_at:
-      state === "scheduled" || state === "running"
-        ? null
-        : "2026-08-28T14:00:02Z",
-  });
+  ) => {
+    const minute = id.at(-1) ?? "0";
+    return {
+      id,
+      server_id: serverID,
+      kind,
+      target_desired_revision: currentServer.desired_revision,
+      target_credential_revisions: currentServer.credential_revisions,
+      state,
+      reason,
+      created_at: `2026-08-28T14:0${minute}:00Z`,
+      started_at: state === "scheduled" ? null : `2026-08-28T14:0${minute}:01Z`,
+      finished_at:
+        state === "scheduled" || state === "running"
+          ? null
+          : `2026-08-28T14:0${minute}:02Z`,
+    };
+  };
   let operationReads = 0;
   let listReads = 0;
   let listBlocked = false;
@@ -6837,6 +6859,14 @@ async function runServerOperations(
     document.body.textContent?.includes("Available actions"),
   );
   const operationsView = page.locator('[data-testid="server-activity-view"]');
+  if (
+    (await operationsView
+      .locator('[data-testid="operation-row"]')
+      .first()
+      .locator("a")
+      .textContent()) !== "Reload server"
+  )
+    fail("operation history was not newest first");
   const operationsText = (await operationsView.textContent()) ?? "";
   if (
     !operationsText.includes("Operations") ||
@@ -8351,6 +8381,12 @@ async function runServerCatalogReads(
     (await page.getByRole("button", { name: "Reset" }).count()) !== 1
   )
     fail("server inventory omitted field-specific filters");
+  await page.getByLabel("Name").fill("Degraded catalog");
+  if ((await page.locator('[data-testid="server-row"]').count()) !== 1)
+    fail("server Name filter did not narrow loaded rows");
+  await page.getByRole("button", { name: "Reset" }).click();
+  if ((await page.locator('[data-testid="server-row"]').count()) !== 2)
+    fail("server filter Reset did not restore loaded rows");
   await page.locator('[data-testid="load-more-servers"]').click();
   await page.waitForFunction(
     () => document.querySelectorAll('[data-testid="server-row"]').length === 3,
@@ -8363,7 +8399,8 @@ async function runServerCatalogReads(
   await page.locator('[data-testid="manual-refresh"]').click();
   await page.locator('[data-testid="load-more-servers"]').click();
   await page.waitForFunction(
-    (id) => document.querySelector(`a[href="#/servers/${id}"]`) !== null,
+    (id) =>
+      document.querySelector(`a[href="#/servers/${id}?tab=tools"]`) !== null,
     serverReadIDs.active,
   );
   body = (await page.locator("body").textContent()) ?? "";
@@ -8371,10 +8408,10 @@ async function runServerCatalogReads(
     fail("server stale traversal was merged");
 
   await page
-    .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
+    .locator(`a[href="#/servers/${serverReadIDs.active}?tab=tools"]`)
     .first()
     .click();
-  await page.locator('[data-testid="server-detail"]').waitFor();
+  await page.locator('[data-testid="descriptor-list"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Authority required",
@@ -8413,6 +8450,8 @@ async function runServerCatalogReads(
     !body.includes("Catalog revision") ||
     !body.includes("Historical evidence; not callable") ||
     !body.includes("Input schema") ||
+    !body.includes("Items") ||
+    !body.includes("label") ||
     (await page
       .locator('[data-testid="descriptor-detail"] .inert-json')
       .count()) !== 0 ||
@@ -9294,10 +9333,10 @@ async function runShellPrimitives(
   const authStatus = page.locator('[data-testid="authentication-status"]');
   if (
     (await authStatus.getAttribute("data-state")) !== "current" ||
-    !((await authStatus.textContent()) ?? "").includes("✓") ||
-    !((await authStatus.textContent()) ?? "").includes("Authenticated")
+    (await authStatus.textContent())?.trim() !== "Authenticated" ||
+    (await authStatus.locator(".status-symbol").count()) !== 0
   ) {
-    fail("operational state depended on color alone");
+    fail("operational state lost its textual label or retained decoration");
   }
   const shellText = (await page.locator("body").innerText()).toUpperCase();
   for (const decorativeCopy of [
