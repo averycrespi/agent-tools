@@ -112,6 +112,7 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 		InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups, InvalidationServers,
 		InvalidationServerOperations, InvalidationServerAuthFlows, InvalidationCatalog, InvalidationAuthorization,
 	}, InvalidationKinds()[:8])
+	require.Contains(t, InvalidationKinds(), InvalidationInvocations)
 	require.Equal(t, SecretSinkAgentCredentialCreation, ApprovedSecretSinks()[7], "S3 sink must retain its historical prefix position")
 }
 

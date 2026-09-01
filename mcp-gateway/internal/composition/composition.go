@@ -533,7 +533,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("invocation_repository"); err != nil {
 		return nil, err
 	}
-	built.invocationRepository, err = invocation.NewRepository(options.Store, options.Clock, options.Entropy)
+	built.invocationRepository, err = invocation.NewRepository(options.Store, options.Clock, options.Entropy, options.Invalidate)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_repository: %w", err)
 	}

@@ -1936,11 +1936,12 @@ async function runOverviewInvocationSystemCanary(
   );
   body = (await page.locator("body").textContent()) ?? "";
   if (
-    !body.includes("retains at most 4,096 recent rows") ||
+    !body.includes("Live updates on") ||
+    body.includes("retains at most 4,096 recent rows") ||
     body.includes("Bounded invocation evidence") ||
     body.includes("redacted_arguments")
   )
-    fail("Invocation workflow canary omitted bounds or exposed capture");
+    fail("Invocation workflow canary omitted live state or exposed capture");
 
   await page.evaluate(() => {
     window.location.hash = "#/system";
@@ -6187,14 +6188,24 @@ async function runInvocations(
   );
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "retains at most 4,096 recent rows",
-    "absence does not prove an invocation never existed or executed",
-    "Filtered pages are independently coherent",
-    "Request",
+    "Invocation",
+    "Tool",
+    "Principal",
+    "Decision",
     "Outcome",
-    "Target",
+    "Admitted",
   ])
     if (!body.includes(phrase)) fail(`invocation list omitted ${phrase}`);
+  for (const phrase of [
+    "Invocation evidence",
+    "retains at most 4,096 recent rows",
+    "Filtered pages are independently coherent",
+    "gateway:get_identity",
+  ])
+    if (body.includes(phrase)) fail(`invocation list retained ${phrase}`);
+  const liveSwitch = page.getByRole("switch", { name: "Live mode" });
+  if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
+    fail("invocation live mode was not enabled by default");
   if ((await page.locator('[data-testid="invocation-row"] time').count()) !== 2)
     fail("invocation list did not render admitted timestamps in user time");
   if (
@@ -6205,43 +6216,35 @@ async function runInvocations(
   )
     fail("invocation collection exposed item capture or internal identities");
 
-  const beforePoll = listReads;
+  const beforeWait = listReads;
   await page.waitForTimeout(5100);
-  if (listReads !== beforePoll + 1)
-    fail("invocation list did not poll at five seconds");
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
-  const hiddenReads = listReads;
-  await page.waitForTimeout(5100);
-  if (listReads !== hiddenReads) fail("invocation list polled while hidden");
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "visible",
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
-  await page.waitForTimeout(5100);
-  if (listReads !== hiddenReads + 1)
-    fail("invocation list polling did not resume");
+  if (listReads !== beforeWait)
+    fail("invocation live mode retained polling instead of event updates");
+  await liveSwitch.uncheck();
+  if (
+    !((await page.locator("body").textContent()) ?? "").includes(
+      "Live updates paused",
+    )
+  )
+    fail("invocation live mode did not expose its paused state");
+  await liveSwitch.check();
 
   const beforeContinuation = continuationReads;
-  await page.evaluate(() => {
-    const button = document.querySelector<HTMLButtonElement>(
-      '[data-testid="load-older-invocations"]',
-    );
-    button?.click();
-    button?.click();
+  const loadOlder = page.getByRole("button", {
+    name: "Load older invocations",
   });
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll('[data-testid="invocation-row"]').length === 5,
-  );
+  await loadOlder.evaluate((element) => {
+    const button = element as HTMLButtonElement;
+    button.click();
+    button.click();
+  });
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid="invocation-row"]').length ===
+        5,
+    )
+    .catch(() => fail("invocation continuation did not render five rows"));
   if (continuationReads !== beforeContinuation + 1)
     fail("invocation continuation was duplicated");
   body = (await page.locator("body").textContent()) ?? "";
@@ -6257,43 +6260,33 @@ async function runInvocations(
     (value) => window.location.hash === value,
     canonical,
   );
+  const toolFilter = page.getByLabel("Tool", { exact: true });
+  await toolFilter.fill("mcp_gateway.get_identity");
   await page
-    .locator('[data-testid="requested-name-filter"]')
-    .fill("live-only.tool");
-  await page.locator('[data-testid="apply-requested-name"]').click();
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll('[data-testid="invocation-row"]').length === 1,
-  );
-  if ((await page.evaluate(() => window.location.hash)) !== canonical)
-    fail("live requested-name filter entered the fragment");
-  await page.locator('[data-testid="reset-requested-name"]').click();
+    .waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid="invocation-row"]').length ===
+        1,
+    )
+    .catch(() => fail("invocation tool filter did not narrow rows"));
   if (
-    (await page
-      .locator('[data-testid="requested-name-filter"]')
-      .inputValue()) !== ""
+    !(await page.evaluate(() => window.location.hash)).includes(
+      "filter_tool=mcp_gateway.get_identity",
+    )
   )
+    fail("invocation tool filter was not persisted in the URL");
+  await page.getByRole("button", { name: "Reset" }).click();
+  if ((await toolFilter.inputValue()) !== "")
     fail("invocation filter Reset did not clear the field");
-  await page
-    .locator('[data-testid="requested-name-filter"]')
-    .fill("live-only.tool");
-  await page.locator('[data-testid="apply-requested-name"]').click();
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll('[data-testid="invocation-row"]').length === 1,
-  );
   const storage = await browserStorage(page);
-  if (JSON.stringify(storage).includes("live-only.tool"))
-    fail("live requested-name filter entered browser storage");
+  if (JSON.stringify(storage).includes("mcp_gateway.get_identity"))
+    fail("invocation filter entered browser storage");
 
   staleMode = true;
   staleRestarted = false;
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.waitForFunction(
-    () =>
-      document.querySelector('[data-testid="load-older-invocations"]') !== null,
-  );
-  await page.locator('[data-testid="load-older-invocations"]').click();
+  await page.getByRole("button", { name: "Load older invocations" }).waitFor();
+  await page.getByRole("button", { name: "Load older invocations" }).click();
   await page.waitForFunction(
     (selector) => document.querySelector(selector) !== null,
     `a[href="#/invocations/${invocationIDs.missing}"]`,
@@ -6308,13 +6301,31 @@ async function runInvocations(
   await page.locator('[data-testid="invocation-detail"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
+    `Invocation ${invocationIDs.missing}`,
     "Gateway-owned local target",
     "not proof of downstream handoff",
     "does not automatically replay",
     "explicit caller retry can duplicate an effect",
-    "Recorded target",
+    "Invocation details",
+    "Authorization decision",
   ])
     if (!body.includes(phrase)) fail(`invocation detail omitted ${phrase}`);
+  if (
+    (await page
+      .locator('[data-testid="invocation-detail"] .fact-grid')
+      .count()) !== 1 ||
+    (await page
+      .locator(
+        `[data-testid="invocation-detail"] a[href="#/principals/${invocationIDs.principal}"]`,
+      )
+      .count()) !== 1 ||
+    (await page
+      .locator(
+        `[data-testid="invocation-detail"] a[href="#/grants/${invocationIDs.grant}"]`,
+      )
+      .count()) !== 1
+  )
+    fail("invocation detail did not use linked resource facts");
   if (
     !body.includes(captureCanary) ||
     (await page.locator("script").count()) !== 1 ||

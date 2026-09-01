@@ -132,6 +132,9 @@ func (coordinator *AdmissionCoordinator) Admit(
 		result.DispatchAuthorized = true
 		return nil
 	})
+	if err == nil && result.Committed {
+		coordinator.audits.publish(result.InvocationID)
+	}
 	return result, err
 }
 

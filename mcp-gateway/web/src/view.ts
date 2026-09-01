@@ -11,7 +11,8 @@ export type InvalidationKind =
   | "server_auth_flows"
   | "catalog"
   | "authorization"
-  | "grant_requests";
+  | "grant_requests"
+  | "invocations";
 
 export interface Invalidation {
   kind: InvalidationKind;
@@ -69,6 +70,7 @@ const invalidationKinds = new Set<InvalidationKind>([
   "catalog",
   "authorization",
   "grant_requests",
+  "invocations",
 ]);
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const coalesceMilliseconds = 250;

@@ -1020,6 +1020,16 @@ p {
   margin-bottom: 12px;
 }
 
+.invocation-toolbar {
+  align-items: center;
+  gap: 10px;
+}
+
+.invocation-toolbar > label {
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .table-filters {
   display: flex;
   flex-wrap: wrap;

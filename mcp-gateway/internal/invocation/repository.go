@@ -63,17 +63,22 @@ type PreparedAdmission struct {
 }
 
 type Repository struct {
-	store     *storage.Store
-	clock     Clock
-	entropy   io.Reader
-	entropyMu sync.Mutex
+	store      *storage.Store
+	clock      Clock
+	entropy    io.Reader
+	invalidate func(contract.Invalidation)
+	entropyMu  sync.Mutex
 }
 
-func NewRepository(store *storage.Store, clock Clock, entropy io.Reader) (*Repository, error) {
-	if store == nil || clock == nil || entropy == nil {
+func NewRepository(store *storage.Store, clock Clock, entropy io.Reader, invalidators ...func(contract.Invalidation)) (*Repository, error) {
+	if store == nil || clock == nil || entropy == nil || len(invalidators) > 1 || len(invalidators) == 1 && invalidators[0] == nil {
 		return nil, errors.New("invocation repository dependencies are incomplete")
 	}
-	return &Repository{store: store, clock: clock, entropy: entropy}, nil
+	var invalidate func(contract.Invalidation)
+	if len(invalidators) == 1 {
+		invalidate = invalidators[0]
+	}
+	return &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate}, nil
 }
 
 func (repository *Repository) Prepare(admission Admission) (PreparedAdmission, error) {
@@ -123,9 +128,13 @@ func (prepared PreparedAdmission) WithAdmission(admission Admission) (PreparedAd
 }
 
 func (repository *Repository) Insert(ctx context.Context, prepared PreparedAdmission) error {
-	return repository.mutate(ctx, func(transaction *sql.Tx) error {
+	if err := repository.mutate(ctx, func(transaction *sql.Tx) error {
 		return repository.InsertTx(ctx, transaction, prepared)
-	})
+	}); err != nil {
+		return err
+	}
+	repository.publish(prepared.InvocationID)
+	return nil
 }
 
 func (repository *Repository) InsertTx(ctx context.Context, transaction *sql.Tx, prepared PreparedAdmission) error {
@@ -177,7 +186,8 @@ func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID
 	if !ok {
 		return ErrInvalidInput
 	}
-	return repository.mutate(ctx, func(transaction *sql.Tx) error {
+	changed := false
+	err := repository.mutate(ctx, func(transaction *sql.Tx) error {
 		var admittedAt, evaluatedAt string
 		err := transaction.QueryRowContext(ctx, `SELECT admitted_at, evaluated_at FROM invocations
 			WHERE id = ? AND admission_class = 'evaluated' AND decision = 'allow'
@@ -194,13 +204,34 @@ func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID
 		if !valid || !evaluationValid || !completeValid || completed.Before(admitted) || completed.Before(evaluated) {
 			return ErrInvalidInput
 		}
-		if _, err := transaction.ExecContext(ctx, `UPDATE invocations
+		result, err := transaction.ExecContext(ctx, `UPDATE invocations
 			SET completed_at = ?, terminal_class = ?
-			WHERE id = ? AND completed_at IS NULL AND terminal_class IS NULL`, completedAt, string(terminal), invocationID); err != nil {
+			WHERE id = ? AND completed_at IS NULL AND terminal_class IS NULL`, completedAt, string(terminal), invocationID)
+		if err != nil {
 			return fmt.Errorf("annotate invocation terminal result: %w", err)
 		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("inspect invocation terminal annotation: %w", err)
+		}
+		changed = rows == 1
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if changed {
+		repository.publish(invocationID)
+	}
+	return nil
+}
+
+func (repository *Repository) publish(invocationID string) {
+	if repository.invalidate == nil {
+		return
+	}
+	resourceID := invocationID
+	repository.invalidate(contract.Invalidation{Kind: contract.InvalidationInvocations, ResourceID: &resourceID})
 }
 
 func (repository *Repository) Read(ctx context.Context, invocationID string) (contract.InvocationAuditRecord, bool, error) {

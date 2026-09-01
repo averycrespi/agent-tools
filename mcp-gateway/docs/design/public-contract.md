@@ -242,7 +242,7 @@ No command polls, refetches a precondition, or replays a mutation. Server and po
 
 The event stream still has no replay mechanism. Browser streaming uses session-only `POST /api/v1/events` with exact `EmptyObject` `{}`, Origin, and CSRF, returning the same `EventStream`; inherited bearer-or-session GET and POST share one hub, frame, keepalive, limit, overflow, deadline, and closure owner.
 
-Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, and `grant_requests`.
+Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, and `grant_requests`.
 
 Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `mcp_gateway_session`. Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. Standard output and standard error are not secret sinks.
 

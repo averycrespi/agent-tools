@@ -56,6 +56,24 @@ func TestRepositoryPreparesIdentityBeforeTransactionEvidence(t *testing.T) {
 	require.NoError(t, repository.Insert(context.Background(), prepared))
 }
 
+func TestRepositoryPublishesCommittedInvocationChanges(t *testing.T) {
+	_, store, clock := newInvocationRepository(t, nil, entropyBytes(32))
+	var invalidations []contract.Invalidation
+	repository, err := NewRepository(store, clock, entropyBytes(32), func(event contract.Invalidation) {
+		invalidations = append(invalidations, event)
+	})
+	require.NoError(t, err)
+	prepared, err := repository.Prepare(testEvaluatedAdmission())
+	require.NoError(t, err)
+	require.NoError(t, repository.Insert(context.Background(), prepared))
+	clock.Set(invocationTestTime.Add(time.Second))
+	require.NoError(t, repository.AnnotateTerminal(context.Background(), prepared.InvocationID, contract.TerminalSucceeded))
+	require.Equal(t, []contract.Invalidation{
+		{Kind: contract.InvalidationInvocations, ResourceID: &prepared.InvocationID},
+		{Kind: contract.InvalidationInvocations, ResourceID: &prepared.InvocationID},
+	}, invalidations)
+}
+
 func TestRepositoryInsertsEveryCoherentAdmissionShape(t *testing.T) {
 	repository, _, _ := newInvocationRepository(t, nil, entropyBytes(256))
 	name, capture := "namespace.tool", []byte(`{"value":1e0}`)

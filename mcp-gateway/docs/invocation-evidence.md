@@ -81,9 +81,9 @@ Argument capture uses fixed recursive sensitive-key redaction and an 8 KiB compa
 
 Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Backups contain only the same bounded safe evidence. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
 
-## Poll safely
+## Follow live updates safely
 
-The browser may poll visible invocation views, and operators may repeat CLI reads. Polling never submits, completes, resumes, or replays a call. Reads do not alter audit rows, policy, routes, or request state.
+The browser can refresh the newest visible invocation snapshot from ID-only authenticated invalidation hints while live mode is enabled. Pausing live mode keeps the displayed snapshot stable for inspection. Neither event handling nor repeated operator reads submit, complete, resume, or replay a call, and reads do not alter audit rows, policy, routes, or request state.
 
 When a cursor becomes stale, restart the read from the newest page. When a record is evicted, do not infer an outcome from absence. When current policy or catalog state differs from retained evidence, treat the row as historical evidence for that attempt and use current owner reads for present state.
 

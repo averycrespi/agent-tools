@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import {
+  BinaryToggle,
   CollectionTable,
-  ComparisonTable,
   InertJSON,
   sentenceCase,
   StateNotice,
@@ -256,20 +256,24 @@ async function problemCode(
     return undefined;
   }
 }
-function listPath(
-  viewKey: string,
-  requestedName: string,
-  nextCursor: string | null,
-): string {
+function listPath(viewKey: string, nextCursor: string | null): string {
   const query = new URLSearchParams();
   query.set("limit", "50");
   const separator = viewKey.indexOf("?");
-  if (separator !== -1)
-    for (const member of viewKey.slice(separator + 1).split("&")) {
-      const index = member.indexOf("=");
-      query.set(member.slice(0, index), member.slice(index + 1));
-    }
-  if (requestedName !== "") query.set("requested_name", requestedName);
+  if (separator !== -1) {
+    const allowed = new Set([
+      "principal_id",
+      "server_id",
+      "requested_name",
+      "admission_class",
+      "decision",
+      "outcome",
+    ]);
+    for (const [key, value] of new URLSearchParams(
+      viewKey.slice(separator + 1),
+    ))
+      if (allowed.has(key)) query.set(key, value);
+  }
   if (nextCursor !== null) query.set("cursor", nextCursor);
   return `/api/v1/invocations?${query.toString()}`;
 }
@@ -280,7 +284,8 @@ type ReadResult =
   | { kind: "missing"; viewKey: string };
 export interface InvocationsSnapshot {
   viewKey: string;
-  requestedName: string;
+  live: boolean;
+  updatesAvailable: boolean;
   items: readonly InvocationSummaryView[];
   nextCursor: string | null;
   item: InvocationItemView | undefined;
@@ -294,7 +299,8 @@ export class InvocationsController {
   private readonly listeners = new Set<Listener>();
   private value: InvocationsSnapshot = {
     viewKey: "",
-    requestedName: "",
+    live: true,
+    updatesAvailable: false,
     items: [],
     nextCursor: null,
     item: undefined,
@@ -311,8 +317,7 @@ export class InvocationsController {
         key === "#/invocations" ||
         key.startsWith("#/invocations?") ||
         /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
-      invalidations: [],
-      pollMilliseconds: 5000,
+      invalidations: ["invocations"],
       read: (context) => this.read(context),
       publish: (result) => this.publish(result),
     });
@@ -321,7 +326,8 @@ export class InvocationsController {
       this.continuationPending = false;
       this.value = {
         viewKey: "",
-        requestedName: "",
+        live: true,
+        updatesAvailable: false,
         items: [],
         nextCursor: null,
         item: undefined,
@@ -339,12 +345,13 @@ export class InvocationsController {
     listener(this.value);
     return () => this.listeners.delete(listener);
   }
-  setRequestedName(value: string): void {
-    if (value.length > 128 || /[^\x20-\x7e]/.test(value)) return;
-    this.value = { ...this.value, requestedName: value };
-    this.continuation = null;
+  setLive(live: boolean): void {
+    this.value = { ...this.value, live, updatesAvailable: false };
     this.emit();
-    void this.views.refreshPanel("invocations");
+    if (live) {
+      this.continuation = null;
+      void this.views.refreshPanel("invocations");
+    }
   }
   refresh(): void {
     this.continuation = null;
@@ -374,7 +381,8 @@ export class InvocationsController {
       this.continuation = null;
       this.value = {
         viewKey: context.viewKey,
-        requestedName: "",
+        live: this.value.live,
+        updatesAvailable: false,
         items: [],
         nextCursor: null,
         item: undefined,
@@ -401,18 +409,12 @@ export class InvocationsController {
     }
     const continuation = this.continuation;
     this.continuation = null;
-    let response = await get(
-      context,
-      listPath(context.viewKey, this.value.requestedName, continuation),
-    );
+    let response = await get(context, listPath(context.viewKey, continuation));
     if (
       continuation !== null &&
       (await problemCode(response, 409)) === "stale_cursor"
     ) {
-      response = await get(
-        context,
-        listPath(context.viewKey, this.value.requestedName, null),
-      );
+      response = await get(context, listPath(context.viewKey, null));
       return {
         kind: "list",
         viewKey: context.viewKey,
@@ -442,6 +444,8 @@ export class InvocationsController {
         item: result.item,
         missing: false,
       };
+    else if (!this.value.live && this.value.items.length > 0)
+      this.value = { ...this.value, updatesAvailable: true };
     else
       this.value = {
         ...this.value,
@@ -452,6 +456,7 @@ export class InvocationsController {
         nextCursor: result.page.nextCursor,
         item: undefined,
         missing: false,
+        updatesAvailable: false,
       };
     this.emit();
   }
@@ -460,40 +465,90 @@ export class InvocationsController {
   }
 }
 
-function targetLabel(target: InvocationTargetView | null): string {
+function targetLabel(
+  target: InvocationTargetView | null,
+  requestedName?: string | null,
+): string {
+  if (requestedName !== undefined && requestedName !== null)
+    return requestedName;
   if (target === null) return "Not resolved";
   return target.kind === "gateway"
-    ? `gateway:${target.upstreamName}`
-    : `${target.serverID}:${target.upstreamName}`;
+    ? `mcp_gateway.${target.upstreamName}`
+    : target.upstreamName;
 }
-function Identities({ item }: { item: InvocationSummaryView }) {
+function InvocationFacts({ item }: { item: InvocationSummaryView }) {
   return (
-    <details>
-      <summary>Recorded identities</summary>
-      <dl class="audit-identities">
-        <dt>Recorded principal</dt>
-        <dd>{item.principalID}</dd>
-        <dt>Recorded credential</dt>
+    <dl class="fact-grid">
+      <div>
+        <dt>ID</dt>
+        <dd>{item.id}</dd>
+      </div>
+      <div>
+        <dt>Principal</dt>
+        <dd>
+          <a href={`#/principals/${item.principalID}`}>{item.principalID}</a>
+        </dd>
+      </div>
+      <div>
+        <dt>Tool</dt>
+        <dd>{targetLabel(item.target, item.requestedName)}</dd>
+      </div>
+      <div>
+        <dt>Authorization decision</dt>
+        <dd>
+          {item.authorization === null
+            ? "Not evaluated"
+            : sentenceCase(item.authorization.decision)}
+        </dd>
+      </div>
+      {item.authorization?.grantID !== null &&
+        item.authorization?.grantID !== undefined && (
+          <div>
+            <dt>Grant</dt>
+            <dd>
+              <a href={`#/grants/${item.authorization.grantID}`}>
+                {item.authorization.grantID}
+              </a>
+            </dd>
+          </div>
+        )}
+      {item.target?.kind === "downstream" && (
+        <div>
+          <dt>Server</dt>
+          <dd>
+            <a href={`#/servers/${item.target.serverID}`}>
+              {item.target.serverID}
+            </a>
+          </dd>
+        </div>
+      )}
+      <div>
+        <dt>Admitted</dt>
+        <dd>
+          <UserTime value={item.admittedAt} />
+        </dd>
+      </div>
+      <div>
+        <dt>Completed</dt>
+        <dd>
+          <UserTime
+            value={item.completedAt}
+            fallback="No terminal timestamp retained"
+          />
+        </dd>
+      </div>
+      <div>
+        <dt>Outcome basis</dt>
+        <dd>{sentenceCase(item.basis)}</dd>
+      </div>
+      <div>
+        <dt>Credential</dt>
         <dd>
           {item.credentialID} · revision {item.credentialRevision} · fingerprint{" "}
           {item.credentialFingerprint}
         </dd>
-        <dt>Recorded target</dt>
-        <dd>{targetLabel(item.target)}</dd>
-        {item.authorization !== null && (
-          <>
-            <dt>Recorded authorization</dt>
-            <dd>
-              {sentenceCase(item.authorization.decision)} · revision{" "}
-              {item.authorization.revision}
-              {item.authorization.grantID === null
-                ? ""
-                : ` · grant ${item.authorization.grantID}`}
-            </dd>
-          </>
-        )}
-      </dl>
-    </details>
+      </div>
+    </dl>
   );
 }
 export function Invocations({
@@ -504,15 +559,7 @@ export function Invocations({
   view: ViewSnapshot;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
-  const [requestedName, setRequestedName] = useState(snapshot.requestedName);
-  useEffect(
-    () =>
-      controller.subscribe((next) => {
-        setSnapshot(next);
-        setRequestedName(next.requestedName);
-      }),
-    [controller],
-  );
+  useEffect(() => controller.subscribe(setSnapshot), [controller]);
   const panel: PanelSnapshot | undefined = view.panels.invocations;
   const detail = /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
     view.viewKey,
@@ -525,13 +572,7 @@ export function Invocations({
         <InvocationList
           snapshot={snapshot}
           panel={panel}
-          requestedName={requestedName}
-          setRequestedName={setRequestedName}
-          apply={() => controller.setRequestedName(requestedName)}
-          reset={() => {
-            setRequestedName("");
-            controller.setRequestedName("");
-          }}
+          setLive={(live) => controller.setLive(live)}
           loadOlder={() => void controller.loadOlder()}
         />
       )}
@@ -541,66 +582,29 @@ export function Invocations({
 function InvocationList({
   snapshot,
   panel,
-  requestedName,
-  setRequestedName,
-  apply,
-  reset,
+  setLive,
   loadOlder,
 }: {
   snapshot: InvocationsSnapshot;
   panel: PanelSnapshot | undefined;
-  requestedName: string;
-  setRequestedName: (value: string) => void;
-  apply: () => void;
-  reset: () => void;
+  setLive: (live: boolean) => void;
   loadOlder: () => void;
 }) {
   return (
-    <section class="panel domain-panel" aria-labelledby="invocation-list-title">
-      <div class="panel-heading">
-        <div>
-          <span class="panel-code">AUDIT-02</span>
-          <h2 id="invocation-list-title">Invocation evidence</h2>
-        </div>
-        <span class="classification">NEWEST FIRST</span>
-      </div>
-      <p>
-        Filtered pages are independently coherent. Outcome changes can move
-        records into or out of later pages; refresh starts a new traversal and
-        traversals are never merged. Invocation history retains at most 4,096
-        recent rows; absence does not prove an invocation never existed or
-        executed.
-      </p>
-      <form
-        class="inline-filter"
-        onSubmit={(event) => {
-          event.preventDefault();
-          apply();
-        }}
-      >
-        <label for="requested-name-filter">Requested name (live only)</label>
-        <input
-          id="requested-name-filter"
-          data-testid="requested-name-filter"
-          value={requestedName}
-          maxlength={128}
-          onInput={(event) => setRequestedName(event.currentTarget.value)}
+    <section class="panel domain-panel" aria-label="Invocations">
+      <div class="collection-toolbar invocation-toolbar">
+        <label for="invocation-live-mode">Live mode</label>
+        <BinaryToggle
+          attributes={{ id: "invocation-live-mode" }}
+          checked={snapshot.live}
+          enabledLabel="Live updates on"
+          disabledLabel="Live updates paused"
+          onChange={setLive}
         />
-        <div class="filter-actions">
-          <button data-testid="apply-requested-name" type="submit">
-            Apply
-          </button>
-          <button
-            class="text-button"
-            data-testid="reset-requested-name"
-            type="button"
-            disabled={requestedName === "" && snapshot.requestedName === ""}
-            onClick={reset}
-          >
-            Reset
-          </button>
-        </div>
-      </form>
+        {snapshot.updatesAvailable && (
+          <StatusLabel state="warning">Updates available</StatusLabel>
+        )}
+      </div>
       {panel?.status === "error" && panel.hasValue !== true ? (
         <StateNotice state="error" title="Invocation list unavailable" />
       ) : snapshot.items.length === 0 ? (
@@ -611,15 +615,81 @@ function InvocationList({
           items={snapshot.items}
           rowKey={(item) => item.id}
           rowTestID="invocation-row"
+          filters={[
+            {
+              key: "tool",
+              label: "Tool",
+              type: "text",
+              value: (item) => targetLabel(item.target, item.requestedName),
+            },
+            {
+              key: "principal",
+              label: "Principal ID",
+              type: "text",
+              value: () => "",
+              literalValues: (item) => [item.principalID],
+            },
+            {
+              key: "decision",
+              label: "Decision",
+              type: "select",
+              value: (item) => item.authorization?.decision ?? "not_evaluated",
+              options: [
+                { value: "allow", label: "Allow" },
+                { value: "deny", label: "Deny" },
+                { value: "block", label: "Block" },
+                { value: "not_evaluated", label: "Not evaluated" },
+              ],
+            },
+            {
+              key: "outcome",
+              label: "Outcome",
+              type: "select",
+              value: (item) => item.outcome,
+              options: [
+                { value: "succeeded", label: "Succeeded" },
+                { value: "downstream_failure", label: "Downstream failure" },
+                { value: "outcome_unknown", label: "Outcome unknown" },
+                { value: "deny", label: "Deny" },
+                { value: "block", label: "Block" },
+                { value: "invalid_params", label: "Invalid parameters" },
+                { value: "unknown_tool", label: "Unknown tool" },
+              ],
+            },
+          ]}
+          hasMore={snapshot.nextCursor !== null}
+          loadingMore={snapshot.loadingOlder}
+          onLoadMore={loadOlder}
+          loadMoreLabel="Load older invocations"
           columns={[
             {
-              key: "request",
-              label: "Request",
+              key: "invocation",
+              label: "Invocation",
               render: (item) => (
-                <a href={`#/invocations/${item.id}`}>
-                  {item.requestedName ?? "Unresolved request"}
+                <a href={`#/invocations/${item.id}`}>{item.id}</a>
+              ),
+            },
+            {
+              key: "tool",
+              label: "Tool",
+              render: (item) => targetLabel(item.target, item.requestedName),
+            },
+            {
+              key: "principal",
+              label: "Principal",
+              render: (item) => (
+                <a href={`#/principals/${item.principalID}`}>
+                  {item.principalID}
                 </a>
               ),
+            },
+            {
+              key: "decision",
+              label: "Decision",
+              render: (item) =>
+                item.authorization === null
+                  ? "Not evaluated"
+                  : sentenceCase(item.authorization.decision),
             },
             {
               key: "outcome",
@@ -643,23 +713,8 @@ function InvocationList({
               label: "Admitted",
               render: (item) => <UserTime value={item.admittedAt} />,
             },
-            {
-              key: "target",
-              label: "Target",
-              render: (item) => targetLabel(item.target),
-            },
           ]}
         />
-      )}
-      {snapshot.nextCursor !== null && (
-        <button
-          data-testid="load-older-invocations"
-          type="button"
-          disabled={snapshot.loadingOlder}
-          onClick={loadOlder}
-        >
-          {snapshot.loadingOlder ? "Loading older…" : "Load older invocations"}
-        </button>
       )}
     </section>
   );
@@ -698,8 +753,10 @@ function InvocationDetail({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">AUDIT-03</span>
-          <h2 id="invocation-detail-title">Invocation detail</h2>
+          <span class="panel-value">Invocation details</span>
+          <h1 id="invocation-detail-title" tabindex={-1}>
+            Invocation {item.id}
+          </h1>
         </div>
         <StatusLabel
           state={item.outcome === "outcome_unknown" ? "warning" : "current"}
@@ -707,38 +764,7 @@ function InvocationDetail({
           {sentenceCase(item.outcome)}
         </StatusLabel>
       </div>
-      <Identities item={item} />
-      <ComparisonTable caption="Recorded invocation evidence">
-        <tbody>
-          <tr>
-            <th>Admitted</th>
-            <td>
-              <UserTime value={item.admittedAt} />
-            </td>
-          </tr>
-          <tr>
-            <th>Admission</th>
-            <td>{sentenceCase(item.admissionClass)}</td>
-          </tr>
-          <tr>
-            <th>Requested name</th>
-            <td>{item.requestedName ?? "Not resolved"}</td>
-          </tr>
-          <tr>
-            <th>Outcome basis</th>
-            <td>{sentenceCase(item.basis)}</td>
-          </tr>
-          <tr>
-            <th>Completed</th>
-            <td>
-              <UserTime
-                value={item.completedAt}
-                fallback="No terminal timestamp retained"
-              />
-            </td>
-          </tr>
-        </tbody>
-      </ComparisonTable>
+      <InvocationFacts item={item} />
       {item.basis === "missing_terminal" && (
         <StateNotice state="warning" title="Audit completion is unknown">
           <p>

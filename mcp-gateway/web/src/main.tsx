@@ -360,26 +360,38 @@ function App() {
       resolved.location.segments[1] !== "new"
         ? resolved.location.segments[1]
         : undefined;
+    const invocationID =
+      resolved.location.destination === "invocations"
+        ? resolved.location.segments[1]
+        : undefined;
     const owner =
       serverID !== undefined
         ? `server:${serverID}`
         : principalID !== undefined
           ? `principal:${principalID}`
-          : resolved.location.destination;
+          : invocationID !== undefined
+            ? `invocation:${invocationID}`
+            : resolved.location.destination;
     let observer: MutationObserver | undefined;
     if (
       session.lifecycle === "authenticated" &&
       focusedLocationOwner.current !== owner
     ) {
       focusedLocationOwner.current = owner;
-      if (serverID === undefined && principalID === undefined) {
+      if (
+        serverID === undefined &&
+        principalID === undefined &&
+        invocationID === undefined
+      ) {
         pageTitle.current?.focus();
       } else {
         const focusContextTitle = () => {
           const heading = document.querySelector<HTMLElement>(
             serverID !== undefined
               ? '[data-testid="server-context"] h2'
-              : '[data-testid="principal-context"] h1',
+              : principalID !== undefined
+                ? '[data-testid="principal-context"] h1'
+                : '[data-testid="invocation-detail"] h1',
           );
           heading?.focus();
           return heading !== null;
@@ -418,6 +430,9 @@ function App() {
     destination === "principals" &&
     resolved.canonicalFragment !== "#/principals" &&
     resolved.canonicalFragment !== "#/principals/new";
+  const isInvocationDetail =
+    destination === "invocations" &&
+    resolved.location.segments[1] !== undefined;
   const destinationLabel =
     destination === "servers" && resolved.canonicalFragment !== "#/servers"
       ? resolved.canonicalFragment === "#/servers/new"
@@ -601,7 +616,7 @@ function App() {
           </p>
         )}
         <section class="intro" aria-labelledby="page-title">
-          {authenticated && isPrincipalDetail ? (
+          {authenticated && (isPrincipalDetail || isInvocationDetail) ? (
             <span
               ref={(element) => {
                 pageTitle.current = element;
@@ -610,7 +625,7 @@ function App() {
               class="visually-hidden"
               tabindex={-1}
             >
-              Principal details
+              {isPrincipalDetail ? "Principal details" : "Invocation details"}
             </span>
           ) : (
             <h1
