@@ -27,6 +27,13 @@ type PrincipalState = "active" | "disabled";
 type PrincipalVisibility = "requestable" | "allowed-only" | "all";
 type JSONRecord = Record<string, unknown>;
 
+interface AgentCredential {
+  id: string;
+  fingerprint: string;
+  revision: string;
+  createdAt: string;
+}
+
 export interface Principal {
   id: string;
   displayName: string;
@@ -34,6 +41,7 @@ export interface Principal {
   visibility: PrincipalVisibility;
   revision: string;
   credentialRevision: string;
+  credential: AgentCredential | null;
   hasCredential: boolean;
   createdAt: string;
   updatedAt: string;
@@ -90,11 +98,15 @@ function decodePrincipal(value: unknown): Principal {
     "created_at",
     "updated_at",
   ]);
-  if (
-    item.credential !== null &&
-    (typeof item.credential !== "object" || Array.isArray(item.credential))
-  )
-    throw new Error("invalid response");
+  const credential =
+    item.credential === null
+      ? null
+      : record(item.credential, [
+          "id",
+          "fingerprint",
+          "revision",
+          "created_at",
+        ]);
   return {
     id: identifier(item.id),
     displayName: text(item.display_name),
@@ -102,7 +114,16 @@ function decodePrincipal(value: unknown): Principal {
     visibility: closed(item.visibility, ["requestable", "allowed-only", "all"]),
     revision: revision(item.revision),
     credentialRevision: revision(item.credential_revision),
-    hasCredential: item.credential !== null,
+    credential:
+      credential === null
+        ? null
+        : {
+            id: identifier(credential.id),
+            fingerprint: text(credential.fingerprint),
+            revision: revision(credential.revision),
+            createdAt: text(credential.created_at),
+          },
+    hasCredential: credential !== null,
     createdAt: text(item.created_at),
     updatedAt: text(item.updated_at),
   };
@@ -582,15 +603,6 @@ function PrincipalCredentialActions({
 
   const beginIssue = () => {
     setNotice(undefined);
-    const sink = sinks.prepareOneTime(
-      `${principal.hasCredential ? "Replacement" : "New"} agent bearer for ${principal.displayName}`,
-    );
-    if (sink === undefined) {
-      setNotice(
-        "The protected one-time display could not be prepared. No credential was changed.",
-      );
-      return;
-    }
     const spec: MutationSpec<CredentialCreation | Principal> = {
       route: `/api/v1/principals/${principal.id}/credential`,
       method: "POST",
@@ -602,7 +614,7 @@ function PrincipalCredentialActions({
       decode: decodeCredentialCreation,
     };
     setAction(principal.hasCredential ? "rotate" : "issue");
-    setPrepared(sink);
+    setPrepared(undefined);
     controller.begin(spec);
     controller.confirm();
   };
@@ -629,12 +641,26 @@ function PrincipalCredentialActions({
     controller.abandon();
   };
   const confirm = async () => {
+    let activeSink = prepared;
+    if (action !== "revoke" && activeSink === undefined) {
+      activeSink = sinks.prepareOneTime(
+        `${principal.hasCredential ? "Replacement" : "New"} agent bearer for ${principal.displayName}`,
+      );
+      if (activeSink === undefined) {
+        setNotice(
+          "The protected one-time display could not be prepared. No credential was changed.",
+        );
+        controller.abandon();
+        return;
+      }
+      setPrepared(activeSink);
+    }
     const outcome = await controller.submit();
     if (outcome.kind === "acknowledged") {
       setBlockedETag(undefined);
       if (action !== "revoke") {
         if (!("bearer" in outcome.value)) throw new Error("invalid response");
-        const publication = prepared?.publish(outcome.value.bearer) ?? "lost";
+        const publication = activeSink?.publish(outcome.value.bearer) ?? "lost";
         setNotice(
           publication === "published"
             ? "The one-time agent bearer is ready. It cannot be revealed again."
@@ -657,8 +683,8 @@ function PrincipalCredentialActions({
       onRefresh();
     }
     if (action !== "revoke") {
-      if (outcome.kind === "uncertain") prepared?.lose();
-      else prepared?.cancel();
+      if (outcome.kind === "uncertain") activeSink?.lose();
+      else activeSink?.cancel();
     }
     setPrepared(undefined);
   };
@@ -679,13 +705,37 @@ function PrincipalCredentialActions({
           <h2 id="principal-credential-title">Agent credential</h2>
         </div>
         <StatusLabel state={principal.hasCredential ? "current" : "empty"}>
-          {principal.hasCredential ? "Credential present" : "No credential"}
+          {principal.hasCredential ? "Issued" : "Not issued"}
         </StatusLabel>
       </div>
       <p>
         Only one agent credential may be active at a time. Rotating it replaces
         the current credential.
       </p>
+      {principal.credential === null ? (
+        <p>Not issued</p>
+      ) : (
+        <dl class="fact-grid">
+          <div>
+            <dt>Credential ID</dt>
+            <dd class="technical-value">{principal.credential.id}</dd>
+          </div>
+          <div>
+            <dt>Fingerprint</dt>
+            <dd class="technical-value">{principal.credential.fingerprint}</dd>
+          </div>
+          <div>
+            <dt>Issued</dt>
+            <dd>
+              <UserTime value={principal.credential.createdAt} />
+            </dd>
+          </div>
+          <div>
+            <dt>Credential revision</dt>
+            <dd>{principal.credential.revision}</dd>
+          </div>
+        </dl>
+      )}
       {principal.state !== "active" && (
         <StateNotice state="unavailable" title="Principal is disabled">
           <p>Re-enable the principal before issuing agent authority.</p>
@@ -899,14 +949,6 @@ export function Principals({
             <div>
               <dt>Principal revision</dt>
               <dd>{principal.revision}</dd>
-            </div>
-            <div>
-              <dt>Credential revision</dt>
-              <dd>{principal.credentialRevision}</dd>
-            </div>
-            <div>
-              <dt>Credential authority</dt>
-              <dd>{principal.hasCredential ? "Present" : "Absent"}</dd>
             </div>
             <div>
               <dt>Updated</dt>

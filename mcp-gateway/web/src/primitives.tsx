@@ -602,7 +602,10 @@ export function ConfirmationDialog({
             class={destructive ? "danger-action" : "primary-action"}
             type="button"
             data-testid={`${id}-submit`}
-            onClick={onConfirm}
+            onClick={() => {
+              dialog.current?.close();
+              onConfirm();
+            }}
           >
             {confirmLabel}
           </button>

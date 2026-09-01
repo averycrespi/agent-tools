@@ -3951,6 +3951,8 @@ async function runPrincipalCredentials(
   let body = (await page.locator("body").textContent()) ?? "";
   if (
     !body.includes("Only one agent credential may be active at a time.") ||
+    !body.includes(credentialID) ||
+    body.includes("Credential authority") ||
     body.includes("interrupted immediately") ||
     (await page
       .getByRole("heading", { name: "Agent credential", exact: true })
@@ -3969,6 +3971,26 @@ async function runPrincipalCredentials(
 
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
+    .locator(
+      'dialog[aria-labelledby="principal-credential-confirm-title"][open]',
+    )
+    .waitFor();
+  const openCredentialDialogs = await page
+    .locator("dialog[open]")
+    .evaluateAll((dialogs) =>
+      dialogs.map((dialog) => dialog.id || dialog.className),
+    );
+  if (openCredentialDialogs.length !== 1)
+    fail(
+      `credential review opened overlapping dialogs: ${openCredentialDialogs.join(",")}`,
+    );
+  if (
+    await page
+      .locator('dialog[aria-labelledby="one-time-display-title"]')
+      .evaluate((dialog) => dialog.hasAttribute("open"))
+  )
+    fail("one-time bearer dialog opened before credential confirmation");
+  await page
     .locator('[data-testid="principal-credential-confirm-submit"]')
     .click();
   await page
@@ -3979,6 +4001,8 @@ async function runPrincipalCredentials(
     .locator('[data-testid="principal-credential-confirm-submit"]')
     .click();
   await page.locator('[data-testid="one-time-value"]').waitFor();
+  if ((await page.locator("dialog[open]").count()) !== 1)
+    fail("credential result retained overlapping dialogs");
   if (
     (await page.locator('[data-testid="one-time-value"]').textContent()) !==
     issuedBearer
@@ -4059,7 +4083,7 @@ async function runPrincipalCredentials(
     .locator('[data-testid="principal-credential-confirm-submit"]')
     .click();
   await page.waitForFunction(
-    () => document.body.textContent?.includes("No credential") === true,
+    () => document.body.textContent?.includes("Not issued") === true,
   );
   body = (await page.locator("body").textContent()) ?? "";
   if (
