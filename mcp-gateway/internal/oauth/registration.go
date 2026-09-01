@@ -257,7 +257,7 @@ func parseDynamicResponse(body []byte, callback string, method contract.TokenEnd
 		return dynamicResponse{}, ErrRegistrationRejected
 	}
 	confidential := method != contract.TokenEndpointAuthNone
-	if confidential != secretPresent || secretPresent != expiresPresent || confidential && expires != 0 && expires <= now.Unix() || !confidential && (secretPresent || expiresPresent) {
+	if confidential != secretPresent || !confidential && expiresPresent || expiresPresent && expires != 0 && expires <= now.Unix() {
 		return dynamicResponse{}, ErrRegistrationRejected
 	}
 	return dynamicResponse{ClientID: clientID, RedirectURIs: redirects, ResponseTypes: responseTypes, GrantTypes: grantTypes, TokenEndpointAuthMethod: method, ClientSecret: secret, ClientSecretExpiresAt: expires, SecretPresent: secretPresent}, nil

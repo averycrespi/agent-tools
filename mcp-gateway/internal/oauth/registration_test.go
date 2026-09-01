@@ -159,6 +159,26 @@ func TestDynamicRegistrationSelectsBasicThenPostThenNoneAndSendsExactUnauthentic
 	}
 }
 
+func TestDynamicRegistrationAcceptsNonExpiringConfidentialSecretWithoutExpiryMember(t *testing.T) {
+	graph := registrationGraph([]string{"client_secret_basic"})
+	requester := &registrationRequester{
+		status: http.StatusCreated,
+		header: http.Header{"Content-Type": []string{"application/json"}},
+		body:   `{"client_id":"client","redirect_uris":["http://127.0.0.1:8210/oauth/callback"],"response_types":["code"],"grant_types":["authorization_code","refresh_token"],"token_endpoint_auth_method":"client_secret_basic","client_secret":"secret"}`,
+	}
+	store := &registrationStoreFake{}
+	secrets := &secretPublisherFake{}
+	registrar := newRegistrar(requester, store, secrets, "01ARZ3NDEKTSV4RRFFQ69G5FAV", func() time.Time { return registrationTime }, func() bool { return true })
+
+	published, err := registrar.Register(context.Background(), registrationRequest(graph, contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}))
+
+	require.NoError(t, err)
+	assert.Equal(t, "client", published.ClientID)
+	assert.Nil(t, published.ClientSecretExpiresAt)
+	assert.Equal(t, 1, secrets.calls)
+	assert.Equal(t, "secret", string(secrets.secret))
+}
+
 func TestDynamicRegistrationRejectsEveryInvalidResponseWithoutRetryOrPublication(t *testing.T) {
 	future := registrationTime.Add(time.Hour).Unix()
 	tests := []struct {
@@ -172,9 +192,9 @@ func TestDynamicRegistrationRejectsEveryInvalidResponseWithoutRetryOrPublication
 		{name: "missing grant", status: 201, body: `{"client_id":"client","redirect_uris":["http://127.0.0.1:8210/oauth/callback"],"response_types":["code"],"grant_types":["authorization_code"],"token_endpoint_auth_method":"client_secret_basic","client_secret":"secret","client_secret_expires_at":` + jsonNumber(future) + `}`},
 		{name: "wrong method", status: 201, body: dynamicResponseJSON("client", contract.TokenEndpointAuthClientSecretPost, "secret", future)},
 		{name: "confidential missing secret", status: 201, body: dynamicResponseJSON("client", contract.TokenEndpointAuthClientSecretBasic, "", future)},
-		{name: "secret missing expiry", status: 201, body: `{"client_id":"client","redirect_uris":["http://127.0.0.1:8210/oauth/callback"],"response_types":["code"],"grant_types":["authorization_code","refresh_token"],"token_endpoint_auth_method":"client_secret_basic","client_secret":"secret"}`},
 		{name: "expired secret", status: 201, body: dynamicResponseJSON("client", contract.TokenEndpointAuthClientSecretBasic, "secret", registrationTime.Unix())},
 		{name: "public returned secret", status: 201, body: dynamicResponseJSON("client", contract.TokenEndpointAuthNone, "secret", future)},
+		{name: "public returned expiry", status: 201, body: `{"client_id":"client","redirect_uris":["http://127.0.0.1:8210/oauth/callback"],"response_types":["code"],"grant_types":["authorization_code","refresh_token"],"token_endpoint_auth_method":"none","client_secret_expires_at":` + jsonNumber(future) + `}`},
 		{name: "duplicate member", status: 201, body: `{"client_id":"one","client_id":"two"}`},
 	}
 	for _, test := range tests {
