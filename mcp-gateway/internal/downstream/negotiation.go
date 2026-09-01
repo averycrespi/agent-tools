@@ -7,6 +7,7 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,6 +100,16 @@ type unsupportedVersionData struct {
 	Requested string   `json:"requested"`
 }
 
+type legacyVersionError struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      string `json:"id"`
+	Error   struct {
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data,omitempty"`
+	} `json:"error"`
+}
+
 type initializeResult struct {
 	Meta            map[string]json.RawMessage `json:"_meta,omitempty"`
 	Capabilities    json.RawMessage            `json:"capabilities"`
@@ -183,7 +194,7 @@ func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool,
 	if len(wire.SessionIDs) != 0 {
 		return false, false, ErrSessionLost
 	}
-	if isTextFallback(wire) {
+	if isTextFallback(wire) || isLegacyVersionFallback(wire) {
 		return false, true, nil
 	}
 	response, err := decodeNegotiationResponse(requestID, wire)
@@ -503,6 +514,42 @@ func isTextFallback(wire WireResponse) bool {
 		return false
 	}
 	return bytes.Equal(wire.Body, []byte("JSON RPC not handled: \"server/discover\" unsupported\n")) || bytes.Equal(wire.Body, []byte("Bad Request: Unsupported protocol version\n"))
+}
+
+func isLegacyVersionFallback(wire WireResponse) bool {
+	if wire.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	mediaType, _, err := mime.ParseMediaType(wire.ContentType)
+	if err != nil || mediaType != contract.MediaTypeJSON {
+		return false
+	}
+	var envelope legacyVersionError
+	if err := strictjson.Decode(wire.Body, &envelope, strictjson.Options{MaxBytes: limit("downstream_mcp_body_bytes"), MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil || envelope.JSONRPC != "2.0" || envelope.ID != "server-error" || envelope.Error.Code != -32600 || !nullOrAbsent(envelope.Error.Data) {
+		return false
+	}
+	prefix := "Bad Request: Unsupported protocol version: " + contract.ModernProtocolVersion + ". Supported versions: "
+	if !strings.HasPrefix(envelope.Error.Message, prefix) {
+		return false
+	}
+	allowed := map[string]struct{}{
+		"2024-11-05":                   {},
+		"2025-03-26":                   {},
+		"2025-06-18":                   {},
+		contract.LegacyProtocolVersion: {},
+	}
+	seen := make(map[string]struct{})
+	for _, version := range strings.Split(strings.TrimPrefix(envelope.Error.Message, prefix), ", ") {
+		if _, ok := allowed[version]; !ok {
+			return false
+		}
+		if _, duplicate := seen[version]; duplicate {
+			return false
+		}
+		seen[version] = struct{}{}
+	}
+	_, supported := seen[contract.LegacyProtocolVersion]
+	return supported
 }
 
 func nullOrAbsent(raw json.RawMessage) bool {
