@@ -875,12 +875,14 @@ async function runFragmentStorage(
       `#/invocations?principal_id=${idA}&server_id=${idB}&admission_class=evaluated&decision=allow&outcome=succeeded`,
     ],
     ["#/system", "#/system"],
-    ...["status", "admin-credentials", "backups", "recovery"].map(
+    ...["status", "resource-limits", "admin-credentials", "backups"].map(
       (tab): [string, string] => [
         `#/system?tab=${tab}`,
         tab === "status" ? "#/system" : `#/system?tab=${tab}`,
       ],
     ),
+    ["#/system/admin-credentials/new", "#/system/admin-credentials/new"],
+    ["#/system/backups/new", "#/system/backups/new"],
     ["#/sign-in", "#/sign-in"],
   ];
   const requestsBeforeLocations = requestCount();
@@ -1950,38 +1952,20 @@ async function runOverviewInvocationSystemCanary(
         .querySelector('[data-testid="system-status-panel"]')
         ?.getAttribute("data-panel-status") === "current",
   );
-  if ((await page.locator('[data-testid="system-limit-row"]').count()) !== 31)
-    fail("System workflow canary omitted closed limits");
-  const limitsDisclosure = page.locator('[data-testid="system-limits"]');
   if (
-    (await limitsDisclosure.count()) !== 1 ||
-    (await limitsDisclosure.getAttribute("open")) !== null
-  ) {
-    fail("healthy resource limits were not compactly disclosed");
-  }
-  await limitsDisclosure.locator("summary").click();
-  if (
-    !(await page
-      .locator('[data-testid="system-limit-row"]')
-      .first()
-      .isVisible())
+    (await page.locator('[data-testid="system-limit-row"]').count()) !== 0 ||
+    !((await page.locator("body").textContent()) ?? "").includes(
+      "Resource summary",
+    )
   )
-    fail("resource limits did not become visible on request");
+    fail("System status did not keep detailed limits in their destination");
 
   await page.evaluate(() => {
-    window.location.hash = "#/system?tab=recovery";
+    window.location.hash = "#/system?tab=resource-limits";
   });
-  await page.locator('[data-testid="system-recovery"]').waitFor();
-  body = (await page.locator("body").textContent()) ?? "";
-  if (
-    !body.includes("The browser never invokes these commands") ||
-    !body.includes("mcp-gateway restore --verify-current")
-  )
-    fail("Recovery workflow canary omitted stopped-process boundary");
-  if (
-    (await page.locator('[data-testid="system-recovery"] button').count()) !== 0
-  )
-    fail("Recovery workflow canary exposed online offline-authority controls");
+  await page.locator('[data-testid="system-limits-view"]').waitFor();
+  if ((await page.locator('[data-testid="system-limit-row"]').count()) !== 31)
+    fail("Resource limits workflow omitted closed limits");
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -2398,6 +2382,7 @@ async function runCapabilityAudit(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  await page.locator('[data-testid="admin-credential-create"]').click();
   await page.waitForFunction(
     () =>
       (
@@ -2410,11 +2395,12 @@ async function runCapabilityAudit(
     window.location.hash = "#/system?tab=backups";
   });
   await page.locator('[data-testid="backups-view"]').waitFor();
+  await page.locator('[data-testid="backup-create"]').click();
   await page.waitForFunction(
     () =>
       (
         document.querySelector(
-          '[data-testid="backup-create"]',
+          '[data-testid="backup-review-create"]',
         ) as HTMLButtonElement | null
       )?.disabled === true,
   );
@@ -2426,7 +2412,7 @@ async function runCapabilityAudit(
   if (eventStreams < 2) fail("event stream did not reconnect");
   const body = (await page.locator("body").textContent()) ?? "";
   if (
-    !body.includes("browser cannot restore") ||
+    !body.includes("stopped-process operation") ||
     !body.includes("Storage mutation is closed")
   )
     fail("cross-destination latch guidance is incomplete");

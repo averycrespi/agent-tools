@@ -737,6 +737,9 @@ function Backups({
           A backup is an immutable owner-only recovery artifact. Restore remains
           a stopped-process operation documented in the operator guide.
         </p>
+        {mutation.availability === "storage_latched" && (
+          <StateNotice state="error" title="Storage mutation is closed" />
+        )}
         {mutation.problem !== undefined && (
           <StateNotice state="error" title={mutation.problem.title} />
         )}
