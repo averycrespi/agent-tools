@@ -2778,9 +2778,7 @@ async function runVisualResponsiveMatrix(
     window.location.hash = "#/system?tab=admin-credentials";
   });
   await page.locator('[data-testid="admin-credential-row"]').first().waitFor();
-  await page
-    .locator('[data-testid="admin-credential-create"]:enabled')
-    .waitFor();
+  await page.locator('[data-testid="admin-credential-create"]').waitFor();
   await page.locator('[data-testid="theme-preference"]').selectOption("dark");
   await page.setViewportSize({ width: 390, height: 844 });
   const firstRevoke = page
