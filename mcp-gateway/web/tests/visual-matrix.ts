@@ -15,9 +15,14 @@ export const visualDestinations = [
     selector: '[data-testid="catalog-view"]',
   },
   {
-    id: "access",
-    route: "#/access/principals",
+    id: "principals",
+    route: "#/principals",
     selector: '[data-testid="principals-view"]',
+  },
+  {
+    id: "grants",
+    route: "#/grants",
+    selector: '[data-testid="grants-view"]',
   },
   {
     id: "requests",
@@ -40,8 +45,8 @@ export const visualStates = [
   { id: "populated", owner: "servers", secretBearing: false },
   { id: "stale", owner: "invocations", secretBearing: false },
   { id: "uncertain", owner: "system", secretBearing: false },
-  { id: "confirmation", owner: "access", secretBearing: false },
-  { id: "one-time-secret", owner: "access", secretBearing: true },
+  { id: "confirmation", owner: "principals", secretBearing: false },
+  { id: "one-time-secret", owner: "principals", secretBearing: true },
   { id: "long-content", owner: "catalog", secretBearing: false },
 ] as const;
 
@@ -89,7 +94,7 @@ export const visualArtifactInventory = [
 export const visualRubric = [
   "comparison hierarchy remains explicit",
   "primary and destructive actions remain distinguishable",
-  "status is conveyed by text and symbol, not color alone",
+  "status is conveyed by text and styling, not color alone",
   "tables scroll inside labeled regions rather than the page",
   "long identifiers and evidence wrap without covering controls",
   "focus, dialog, and live-region states remain visible",

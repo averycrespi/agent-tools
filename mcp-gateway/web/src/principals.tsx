@@ -295,7 +295,7 @@ function PrincipalEditor({
       setState(saved.state);
       setVisibility(saved.visibility);
       if (create) {
-        navigate(`#/access/principals/${saved.id}`, true);
+        navigate(`#/principals/${saved.id}`, true);
       } else {
         setNotice("Principal record saved.");
         onRefresh();
@@ -759,9 +759,9 @@ export function Principals({
   onRefresh: () => void;
 }) {
   const segments = resolved.location.segments;
-  const newPrincipal = segments[2] === "new";
+  const newPrincipal = segments[1] === "new";
   const principalID =
-    segments.length === 3 && !newPrincipal ? segments[2] : undefined;
+    segments.length === 2 && !newPrincipal ? segments[1] : undefined;
   const [items, setItems] = useState<Principal[]>();
   const [detail, setDetail] = useState<PrincipalDetail>();
   const [error, setError] = useState<string>();
@@ -872,9 +872,7 @@ export function Principals({
             authority are evaluated separately.
           </p>
           <div class="inline-actions">
-            <a href={`#/access/grants?principal_id=${principal.id}`}>
-              View grants
-            </a>
+            <a href={`#/grants?principal_id=${principal.id}`}>View grants</a>
             <a href={`#/requests?principal_id=${principal.id}`}>
               View requests
             </a>
@@ -898,20 +896,16 @@ export function Principals({
     return <StateNotice state="loading" title="Loading principals" />;
   return (
     <div class="domain-view" data-testid="principals-view">
-      <section class="panel domain-panel" aria-labelledby="principals-title">
-        <div class="panel-heading">
-          <div>
-            <span class="panel-code">ACCESS</span>
-            <h2 id="principals-title">Permanent agent principals</h2>
-          </div>
-          <a class="button-link" href="#/access/principals/new">
-            Create principal
-          </a>
-        </div>
-        <p>
-          Compare permanent identity, discovery visibility, state, and
-          revisions. Visibility does not grant call authority.
-        </p>
+      <div class="collection-toolbar">
+        <a
+          class="button-link primary-action"
+          href="#/principals/new"
+          data-testid="principal-create-link"
+        >
+          Create principal
+        </a>
+      </div>
+      <section class="panel domain-panel" aria-labelledby="page-title">
         {items.length === 0 ? (
           <StateNotice state="empty" title="No principals" />
         ) : (
@@ -925,12 +919,11 @@ export function Principals({
                 key: "name",
                 label: "Name",
                 type: "text",
-                value: (principal) =>
-                  `${principal.displayName} ${principal.id}`,
+                value: (principal) => principal.displayName,
               },
               {
                 key: "state",
-                label: "State",
+                label: "Status",
                 type: "select",
                 value: (principal) => principal.state,
                 options: [
@@ -952,19 +945,21 @@ export function Principals({
             ]}
             columns={[
               {
-                key: "principal",
-                label: "Principal",
+                key: "name",
+                label: "Name",
                 sortValue: (principal) => principal.displayName,
                 render: (principal) => (
-                  <>
-                    <strong>{principal.displayName}</strong>
-                    <span class="technical-value">{principal.id}</span>
-                  </>
+                  <a
+                    class="primary-table-link"
+                    href={`#/principals/${principal.id}`}
+                  >
+                    {principal.displayName}
+                  </a>
                 ),
               },
               {
                 key: "state",
-                label: "State",
+                label: "Status",
                 sortValue: (principal) => principal.state,
                 render: (principal) => (
                   <StatusLabel
@@ -979,25 +974,6 @@ export function Principals({
                 label: "Visibility",
                 sortValue: (principal) => principal.visibility,
                 render: (principal) => visibilityText(principal.visibility),
-              },
-              {
-                key: "revisions",
-                label: "Revisions",
-                render: (principal) => (
-                  <>
-                    Principal {principal.revision} · credential{" "}
-                    {principal.credentialRevision}
-                  </>
-                ),
-              },
-              {
-                key: "action",
-                label: "Action",
-                render: (principal) => (
-                  <a href={`#/access/principals/${principal.id}`}>
-                    Open principal
-                  </a>
-                ),
               },
             ]}
           />

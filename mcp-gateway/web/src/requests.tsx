@@ -849,7 +849,7 @@ export function Requests({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/access/principals/${detail.principalID}`}>
+                <a href={`#/principals/${detail.principalID}`}>
                   {detail.principalID}
                 </a>
               </dd>
@@ -972,7 +972,7 @@ export function Requests({
           <Evidence evidence={detail.approvedEvidence} label="Approved" />
           {detail.approvedGrantID !== null && (
             <p>
-              <a href={`#/access/grants/${detail.approvedGrantID}`}>
+              <a href={`#/grants/${detail.approvedGrantID}`}>
                 Open historically created grant
               </a>
               . This historical link does not prove the grant still exists, is
@@ -1043,7 +1043,7 @@ export function Requests({
                     <span>Revision {item.revision}</span>
                   </th>
                   <td>
-                    <a href={`#/access/principals/${item.principalID}`}>
+                    <a href={`#/principals/${item.principalID}`}>
                       {item.principalID}
                     </a>
                   </td>

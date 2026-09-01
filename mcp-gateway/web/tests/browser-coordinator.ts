@@ -798,25 +798,33 @@ async function runFragmentStorage(
       `#/servers/${idA}/descriptors/${idB}`,
     ],
     ["#/catalog", "#/catalog"],
-    ["#/access/principals", "#/access/principals"],
-    ["#/access/principals/new", "#/access/principals/new"],
-    [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
-    ["#/access/grants", "#/access/grants"],
-    ["#/access/grants/new", "#/access/grants/new"],
+    ["#/principals", "#/principals"],
+    ["#/principals/new", "#/principals/new"],
+    [`#/principals/${idA}`, `#/principals/${idA}`],
+    ["#/access/principals", "#/principals"],
+    ["#/access/principals/new", "#/principals/new"],
+    [`#/access/principals/${idA}`, `#/principals/${idA}`],
+    ["#/grants", "#/grants"],
+    ["#/grants/new", "#/grants/new"],
+    [
+      `#/grants/new?server_id=${idB}&principal_id=${idA}`,
+      `#/grants/new?principal_id=${idA}&server_id=${idB}`,
+    ],
+    [`#/grants/${idA}`, `#/grants/${idA}`],
+    [`#/grants?principal_id=${idA}`, `#/grants?principal_id=${idA}`],
+    [`#/grants?server_id=${idB}`, `#/grants?server_id=${idB}`],
+    [
+      `#/grants?server_id=${idB}&principal_id=${idA}`,
+      `#/grants?principal_id=${idA}&server_id=${idB}`,
+    ],
+    ["#/access/grants", "#/grants"],
+    ["#/access/grants/new", "#/grants/new"],
     [
       `#/access/grants/new?server_id=${idB}&principal_id=${idA}`,
-      `#/access/grants/new?principal_id=${idA}&server_id=${idB}`,
+      `#/grants/new?principal_id=${idA}&server_id=${idB}`,
     ],
-    [`#/access/grants/${idA}`, `#/access/grants/${idA}`],
-    [
-      `#/access/grants?principal_id=${idA}`,
-      `#/access/grants?principal_id=${idA}`,
-    ],
-    [`#/access/grants?server_id=${idB}`, `#/access/grants?server_id=${idB}`],
-    [
-      `#/access/grants?server_id=${idB}&principal_id=${idA}`,
-      `#/access/grants?principal_id=${idA}&server_id=${idB}`,
-    ],
+    [`#/access/grants/${idA}`, `#/grants/${idA}`],
+    [`#/access/grants?principal_id=${idA}`, `#/grants?principal_id=${idA}`],
     ["#/requests", "#/requests"],
     [`#/requests/${idA}`, `#/requests/${idA}`],
     ...["pending", "approved", "rejected", "cancelled"].map(
@@ -2572,7 +2580,7 @@ async function runVisualAccessibilityPrivacyCanary(
     screenshot.readUInt32BE(16) !== 390 ||
     screenshot.readUInt32BE(20) < 844 ||
     screenshot.includes(Buffer.from(bearer)) ||
-    visualArtifactInventory.length !== 42 ||
+    visualArtifactInventory.length !== 48 ||
     visualStates.length !== 10 ||
     visualRubric.length !== 6
   )
@@ -2701,9 +2709,9 @@ async function runVisualResponsiveMatrix(
     visualArtifactInventory.map((artifact) => artifact.id),
   );
   if (
-    visualDestinations.length !== 7 ||
+    visualDestinations.length !== 8 ||
     visualStates.length !== 10 ||
-    visualArtifactInventory.length !== 42 ||
+    visualArtifactInventory.length !== 48 ||
     artifactIDs.size !== visualArtifactInventory.length ||
     visualRubric.length !== 6 ||
     visualArtifactInventory.some((artifact) => artifact.secretBearing)
@@ -3570,12 +3578,45 @@ async function runPrincipals(
       document.querySelectorAll('[data-testid="principal-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
+  if (!body.includes("Disabled agent"))
+    fail("principal list omitted a principal");
   for (const phrase of [
     "Permanent agent principals",
+    "Compare permanent identity",
     "Visibility does not grant call authority",
-    "Disabled agent",
   ])
-    if (!body.includes(phrase)) fail(`principal list omitted ${phrase}`);
+    if (body.includes(phrase)) fail(`principal list retained ${phrase}`);
+  const principalHeaders = await page
+    .locator('[data-testid="principals-view"] thead th')
+    .allTextContents();
+  if (
+    principalHeaders
+      .map((value) => value.replace(/\s?[↑↓↕]$/, ""))
+      .join("|") !== "Name|Status|Visibility"
+  )
+    fail(`principal columns drifted: ${principalHeaders.join("|")}`);
+  if (
+    (await page
+      .getByRole("link", { name: "Principals", exact: true })
+      .count()) !== 1 ||
+    (await page.getByRole("link", { name: "Grants", exact: true }).count()) !==
+      1 ||
+    (await page.getByRole("link", { name: "Access", exact: true }).count()) !==
+      0
+  )
+    fail("Principals and Grants were not independent navigation destinations");
+  const principalCreate = page.locator('[data-testid="principal-create-link"]');
+  if (
+    !(await principalCreate.evaluate((element) =>
+      element.classList.contains("primary-action"),
+    )) ||
+    Math.abs(
+      (await principalCreate.boundingBox())!.x -
+        (await page.locator('[data-testid="principals-view"]').boundingBox())!
+          .x,
+    ) > 1
+  )
+    fail("Create principal was not aligned with Create server");
 
   await page.evaluate(() => {
     window.location.hash = "#/access/principals/new";
@@ -3594,8 +3635,7 @@ async function runPrincipals(
     .locator('dialog[aria-labelledby="unsaved-changes-title"]')
     .waitFor({ state: "hidden" });
   if (
-    (await page.evaluate(() => window.location.hash)) !==
-      "#/access/principals/new" ||
+    (await page.evaluate(() => window.location.hash)) !== "#/principals/new" ||
     (await page
       .locator('[data-testid="principal-display-name"]')
       .inputValue()) !== "New automation"
@@ -4114,8 +4154,21 @@ async function runGrantReadsCreate(
     () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of ["Immutable grants", "Expired records", "ALLOW", "DENY"])
+  for (const phrase of ["ALLOW", "DENY", "Create grant"])
     if (!body.includes(phrase)) fail(`grant list omitted ${phrase}`);
+  if (body.includes("Immutable grants") || body.includes("Expired records"))
+    fail("dedicated Grants page retained subordinate introductory copy");
+  const grantCreate = page.locator('[data-testid="grant-create-link"]');
+  if (
+    !(await grantCreate.evaluate((element) =>
+      element.classList.contains("primary-action"),
+    )) ||
+    Math.abs(
+      (await grantCreate.boundingBox())!.x -
+        (await page.locator('[data-testid="grants-view"]').boundingBox())!.x,
+    ) > 1
+  )
+    fail("Create grant was not aligned with other create actions");
   await page.evaluate((id) => {
     window.location.hash = `#/access/grants/${id}`;
   }, secondGrantID);
@@ -4743,9 +4796,8 @@ async function runRequestReads(
   ])
     if (!body.includes(phrase)) fail(`request detail omitted ${phrase}`);
   if (
-    (await page
-      .locator(`a[href="#/access/principals/${principalID}"]`)
-      .count()) === 0 ||
+    (await page.locator(`a[href="#/principals/${principalID}"]`).count()) ===
+      0 ||
     (await page.locator(`a[href="#/servers/${serverID}"]`).count()) === 0 ||
     (await page
       .locator(`a[href="#/servers/${serverID}/descriptors/${toolID}"]`)

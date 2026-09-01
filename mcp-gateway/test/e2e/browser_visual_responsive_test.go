@@ -68,7 +68,7 @@ func TestBrowserVisualResponsiveMatrix(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 42, event.Inventory)
+	assert.Equal(t, 48, event.Inventory)
 	assert.Equal(t, 10, event.States)
 	assert.Equal(t, 6, event.Rubric)
 	require.Len(t, event.Screenshots, 2)

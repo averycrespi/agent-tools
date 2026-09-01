@@ -65,7 +65,7 @@ func TestBrowserVisualAccessibilityPrivacyCanary(t *testing.T) {
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
 	assert.Zero(t, event.AxeFindings)
-	assert.Equal(t, 42, event.Inventory)
+	assert.Equal(t, 48, event.Inventory)
 	assert.Regexp(t, `^[0-9a-f]{64}$`, event.ScreenshotSHA256)
 
 	harness.Stop(os.Interrupt)

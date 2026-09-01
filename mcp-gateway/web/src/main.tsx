@@ -54,10 +54,11 @@ const navigation: ReadonlyArray<{
   { destination: "servers", label: "Servers", href: "#/servers" },
   { destination: "catalog", label: "Catalog", href: "#/catalog" },
   {
-    destination: "access",
-    label: "Access",
-    href: "#/access/principals",
+    destination: "principals",
+    label: "Principals",
+    href: "#/principals",
   },
+  { destination: "grants", label: "Grants", href: "#/grants" },
   { destination: "requests", label: "Requests", href: "#/requests" },
   {
     destination: "invocations",
@@ -71,7 +72,8 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   overview: "Overview",
   servers: "Servers",
   catalog: "Catalog",
-  access: "Access",
+  principals: "Principals",
+  grants: "Grants",
   requests: "Requests",
   invocations: "Invocations",
   system: "System",
@@ -121,12 +123,12 @@ const registerInvalidationTrigger = (
   });
 registerInvalidationTrigger(
   "principal-invalidation",
-  (key) => /^#\/access\/principals(?:\/|$)/.test(key),
+  (key) => /^#\/principals(?:\/|$)/.test(key),
   ["authorization"],
 );
 registerInvalidationTrigger(
   "grant-invalidation",
-  (key) => /^#\/access\/grants(?:\/|$)/.test(key),
+  (key) => /^#\/grants(?:\/|$)/.test(key),
   ["authorization"],
 );
 registerInvalidationTrigger(
@@ -584,25 +586,23 @@ function App() {
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />
-          ) : destination === "access" ? (
-            resolved.location.segments[1] === "grants" ? (
-              <Grants
-                key={resolved.canonicalFragment}
-                session={sessionClient}
-                mutations={mutationCoordinator}
-                resolved={resolved}
-                view={view}
-              />
-            ) : (
-              <Principals
-                session={sessionClient}
-                mutations={mutationCoordinator}
-                sinks={sensitiveSinkCoordinator}
-                resolved={resolved}
-                view={view}
-                onRefresh={() => viewCoordinator.manualRefresh()}
-              />
-            )
+          ) : destination === "principals" ? (
+            <Principals
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
+              resolved={resolved}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "grants" ? (
+            <Grants
+              key={resolved.canonicalFragment}
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              resolved={resolved}
+              view={view}
+            />
           ) : destination === "servers" || destination === "catalog" ? (
             <ServerReads
               controller={serverReadsController}

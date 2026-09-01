@@ -289,7 +289,7 @@ function GrantCreate({
       controller.begin(spec);
       const outcome = await controller.submit();
       if (outcome.kind === "acknowledged")
-        navigate(`#/access/grants/${outcome.value.id}`, true);
+        navigate(`#/grants/${outcome.value.id}`, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Invalid grant.");
     }
@@ -665,7 +665,7 @@ function GrantActions({
     await refreshPolicy();
     controller.abandon();
     if (!correction) {
-      window.location.hash = `#/access/grants?principal_id=${grant.principalID}`;
+      window.location.hash = `#/grants?principal_id=${grant.principalID}`;
       return;
     }
     if (phase === "configure") {
@@ -687,8 +687,8 @@ function GrantActions({
       outcome.value.kind === "created" ? outcome.value.grant.id : replacementID;
     window.location.hash =
       destination === undefined
-        ? `#/access/grants?principal_id=${grant.principalID}`
-        : `#/access/grants/${destination}`;
+        ? `#/grants?principal_id=${grant.principalID}`
+        : `#/grants/${destination}`;
   };
   const cancelConfirmation = () => {
     setConfirming(false);
@@ -893,8 +893,8 @@ export function Grants({
   view: ViewSnapshot;
 }) {
   const segments = resolved.location.segments;
-  const create = segments[2] === "new";
-  const grantID = segments.length === 3 && !create ? segments[2] : undefined;
+  const create = segments[1] === "new";
+  const grantID = segments.length === 2 && !create ? segments[1] : undefined;
   const [items, setItems] = useState<Grant[]>();
   const [detail, setDetail] = useState<Grant>();
   const [error, setError] = useState<string>();
@@ -971,7 +971,7 @@ export function Grants({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/access/principals/${detail.principalID}`}>
+                <a href={`#/principals/${detail.principalID}`}>
                   {detail.principalID}
                 </a>
               </dd>
@@ -1025,23 +1025,16 @@ export function Grants({
   const query = new URLSearchParams(resolved.location.query).toString();
   return (
     <div class="domain-view" data-testid="grants-view">
-      <section class="panel domain-panel" aria-labelledby="grants-title">
-        <div class="panel-heading">
-          <div>
-            <span class="panel-code">ACCESS POLICY</span>
-            <h2 id="grants-title">Immutable grants</h2>
-          </div>
-          <a
-            class="button-link"
-            href={`#/access/grants/new${query === "" ? "" : `?${query}`}`}
-          >
-            Create grant
-          </a>
-        </div>
-        <p>
-          Expired records remain visible and consume retained capacity.
-          Visibility and discovery are separate from authorization.
-        </p>
+      <div class="collection-toolbar">
+        <a
+          class="button-link primary-action"
+          href={`#/grants/new${query === "" ? "" : `?${query}`}`}
+          data-testid="grant-create-link"
+        >
+          Create grant
+        </a>
+      </div>
+      <section class="panel domain-panel" aria-labelledby="page-title">
         {items.length === 0 ? (
           <StateNotice state="empty" title="No grants match" />
         ) : (
@@ -1099,7 +1092,7 @@ export function Grants({
                 label: "Principal",
                 sortValue: (grant) => grant.principalID,
                 render: (grant) => (
-                  <a href={`#/access/principals/${grant.principalID}`}>
+                  <a href={`#/principals/${grant.principalID}`}>
                     {grant.principalID}
                   </a>
                 ),
@@ -1135,7 +1128,7 @@ export function Grants({
                 key: "action",
                 label: "Action",
                 render: (grant) => (
-                  <a href={`#/access/grants/${grant.id}`}>Open grant</a>
+                  <a href={`#/grants/${grant.id}`}>Open grant</a>
                 ),
               },
             ]}

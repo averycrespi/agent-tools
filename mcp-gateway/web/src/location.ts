@@ -4,7 +4,8 @@ export type Destination =
   | "overview"
   | "servers"
   | "catalog"
-  | "access"
+  | "principals"
+  | "grants"
   | "requests"
   | "invocations"
   | "system"
@@ -121,9 +122,14 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   ) {
     return undefined;
   }
-  const segments = path.split("/");
+  let segments = path.split("/");
   const query = parseQuery(rawQuery);
   if (query === undefined) return undefined;
+  if (
+    segments[0] === "access" &&
+    (segments[1] === "principals" || segments[1] === "grants")
+  )
+    segments = segments.slice(1);
   const noQuery = Object.keys(query).length === 0;
   const [first, second, third, fourth] = segments;
 
@@ -156,43 +162,38 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("servers", segments, query);
     }
   }
-  if (first === "access" && second === "principals") {
-    if (segments.length === 2 && noQuery)
-      return location("access", segments, query);
-    if (segments.length === 3 && third === "new" && noQuery) {
-      return location("access", segments, query);
-    }
-    if (
-      segments.length === 3 &&
-      third !== undefined &&
-      isGatewayID(third) &&
-      noQuery
-    ) {
-      return location("access", segments, query);
-    }
-  }
-  if (first === "access" && second === "grants") {
+  if (first === "principals") {
+    if (segments.length === 1 && noQuery)
+      return location("principals", segments, query);
+    if (segments.length === 2 && second === "new" && noQuery)
+      return location("principals", segments, query);
     if (
       segments.length === 2 &&
-      exactQuery(query, { principal_id: isGatewayID, server_id: isGatewayID })
-    ) {
-      return location("access", segments, query);
-    }
-    if (
-      segments.length === 3 &&
-      third === "new" &&
-      exactQuery(query, { principal_id: isGatewayID, server_id: isGatewayID })
-    ) {
-      return location("access", segments, query);
-    }
-    if (
-      segments.length === 3 &&
-      third !== undefined &&
-      isGatewayID(third) &&
+      second !== undefined &&
+      isGatewayID(second) &&
       noQuery
-    ) {
-      return location("access", segments, query);
-    }
+    )
+      return location("principals", segments, query);
+  }
+  if (first === "grants") {
+    if (
+      segments.length === 1 &&
+      exactQuery(query, { principal_id: isGatewayID, server_id: isGatewayID })
+    )
+      return location("grants", segments, query);
+    if (
+      segments.length === 2 &&
+      second === "new" &&
+      exactQuery(query, { principal_id: isGatewayID, server_id: isGatewayID })
+    )
+      return location("grants", segments, query);
+    if (
+      segments.length === 2 &&
+      second !== undefined &&
+      isGatewayID(second) &&
+      noQuery
+    )
+      return location("grants", segments, query);
   }
   if (first === "requests") {
     if (
@@ -246,8 +247,8 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
 }
 
 const queryOrder: Readonly<Record<string, readonly string[]>> = {
-  "access/grants": ["principal_id", "server_id"],
-  "access/grants/new": ["principal_id", "server_id"],
+  grants: ["principal_id", "server_id"],
+  "grants/new": ["principal_id", "server_id"],
   requests: ["principal_id", "state"],
   invocations: [
     "principal_id",
