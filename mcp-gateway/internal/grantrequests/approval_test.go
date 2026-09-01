@@ -32,7 +32,7 @@ func TestApprovalAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
 	fixture.invalidations = nil
 	duration := "60"
 
-	result, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{
+	result, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Name: "Test grant",
 		ID: created.ID, ExpectedRevision: "1", ApprovedPolicy: contract.Policy{
 			Scope: contract.PolicyTool, Target: "sample.tool", DurationSeconds: &duration,
 		},
@@ -111,7 +111,7 @@ func TestApprovalEnforcesConstraintAndDurationNarrowing(t *testing.T) {
 			created := fixture.createRequest(t, test.requested)
 			fixture.clock.now = requestTestTime.Add(time.Minute)
 			fixture.descriptors.calls = 0
-			result, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{
+			result, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Name: "Test grant",
 				ID: created.ID, ExpectedRevision: "1", ApprovedPolicy: test.approved,
 			})
 			if test.valid {
@@ -154,7 +154,7 @@ func TestApprovalKnownFailuresLeavePendingWithoutGrantOrRevision(t *testing.T) {
 			policy: contract.Policy{Scope: contract.PolicyTool, Target: "sample.tool"}},
 		{name: "deny conflict", revision: "1", policy: serverApprovalPolicy(), expected: ErrConflict,
 			arrange: func(t *testing.T, fixture *approvalFixture, _ contract.AgentGrantRequest) {
-				_, err := fixture.authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+				_, err := fixture.authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 					PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, ServerID: requestID(400),
 				}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 				require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestApprovalKnownFailuresLeavePendingWithoutGrantOrRevision(t *testing.T) {
 			beforeGrants := approvalGrantCount(t, fixture.store)
 			fixture.invalidations = nil
 
-			_, err = fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{
+			_, err = fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Name: "Test grant",
 				ID: created.ID, ExpectedRevision: test.revision, ApprovedPolicy: test.policy,
 			})
 			assert.ErrorIs(t, err, test.expected)
@@ -215,7 +215,7 @@ func TestApprovalConditionalBarriersHaveOneWinner(t *testing.T) {
 			}
 			approval := make(chan error, 1)
 			go func() {
-				_, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{
+				_, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Name: "Test grant",
 					ID: created.ID, ExpectedRevision: "1", ApprovedPolicy: serverApprovalPolicy(),
 				})
 				approval <- err
@@ -231,7 +231,7 @@ func TestApprovalConditionalBarriersHaveOneWinner(t *testing.T) {
 				})
 				assert.ErrorIs(t, err, ErrStorageUnavailable)
 			case "deny":
-				_, err := fixture.authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+				_, err := fixture.authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 					PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, ServerID: requestID(400),
 				}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 				assert.ErrorIs(t, err, authorization.ErrResourceLimit)

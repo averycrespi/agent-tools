@@ -76,8 +76,8 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 		"server operation start":  {"kind"},
 		"principal create":        {"display-name", "visibility"},
 		"principal update":        {"display-name", "visibility", "state"},
-		"grant create":            {"principal-id", "effect", "server-id", "upstream-name", "expires-at"},
-		"grant-request approve":   {"scope", "target", "duration-seconds", "acknowledge-future-tools"},
+		"grant create":            {"name", "principal-id", "effect", "server-id", "upstream-name", "expires-at"},
+		"grant-request approve":   {"name", "scope", "target", "duration-seconds", "acknowledge-future-tools"},
 		"grant-request reject":    {"reason"},
 	}
 	command = newRootCmd()
@@ -94,9 +94,9 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"display_name":"Agent","visibility":"requestable"}`, string(body))
 	grantSpec := onlineIntentSpecs["grant create"]
-	body, err = grantSpec.buildBody(map[string]string{"principal-id": id, "effect": "allow", "server-id": id}, nil, map[string]bool{"principal-id": true, "effect": true, "server-id": true})
+	body, err = grantSpec.buildBody(map[string]string{"name": "Test grant", "principal-id": id, "effect": "allow", "server-id": id}, nil, map[string]bool{"name": true, "principal-id": true, "effect": true, "server-id": true})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"principal_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","effect":"allow","server_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","upstream_name":null,"constraint":null,"expires_at":null}`, string(body))
+	assert.JSONEq(t, `{"name":"Test grant","principal_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","effect":"allow","server_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","upstream_name":null,"constraint":null,"expires_at":null}`, string(body))
 }
 
 type countingReader struct {

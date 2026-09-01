@@ -23,10 +23,11 @@ func TestCreateAndDeleteImmutableGrantsAdvanceAuthorizationOnce(t *testing.T) {
 	expiresAt := testNow.Add(time.Hour)
 
 	grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{
-		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("direct_tool"),
+		Name: "Block direct repository access", PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("direct_tool"),
 		Constraint: &constraint, ExpiresAt: &expiresAt,
 	}, allowCurrentTarget)
 	require.NoError(t, err)
+	assert.Equal(t, "Block direct repository access", grant.Name)
 	assert.Equal(t, principal.ID, grant.PrincipalID)
 	assert.Equal(t, contract.GrantDeny, grant.Effect)
 	assert.Equal(t, id(51), grant.ServerID)
@@ -55,7 +56,7 @@ func TestGrantMutationsRollBackWithAuthorizationRevisionFailure(t *testing.T) {
 		repository, store := newRepository(t, nil)
 		principal := mustCreatePrincipal(t, repository)
 		require.NoError(t, installAuthorizationRevisionFailure(t, store))
-		_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+		_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 		assert.ErrorIs(t, err, ErrStorageUnavailable)
 		_, grants, statusErr := repository.Occupancy(context.Background())
 		require.NoError(t, statusErr)
@@ -66,7 +67,7 @@ func TestGrantMutationsRollBackWithAuthorizationRevisionFailure(t *testing.T) {
 	t.Run("delete", func(t *testing.T) {
 		repository, store := newRepository(t, nil)
 		principal := mustCreatePrincipal(t, repository)
-		grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+		grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 		require.NoError(t, err)
 		require.NoError(t, installAuthorizationRevisionFailure(t, store))
 		err = repository.DeleteGrant(context.Background(), grant.ID)
@@ -82,7 +83,7 @@ func TestCreateGrantSupportsPermanentServerWideAndDirectExactNames(t *testing.T)
 	repository, _ := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
 
-	serverWide, err := repository.CreateGrant(context.Background(), CreateGrantRequest{
+	serverWide, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51),
 	}, allowCurrentTarget)
 	require.NoError(t, err)
@@ -90,7 +91,7 @@ func TestCreateGrantSupportsPermanentServerWideAndDirectExactNames(t *testing.T)
 	assert.Nil(t, serverWide.Constraint)
 	assert.Nil(t, serverWide.ExpiresAt)
 
-	exact, err := repository.CreateGrant(context.Background(), CreateGrantRequest{
+	exact, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("not_in_any_descriptor"),
 	}, allowCurrentTarget)
 	require.NoError(t, err)
@@ -111,18 +112,19 @@ func TestCreateGrantRejectsInvalidScopeConstraintExpiryPrincipalAndTarget(t *tes
 		validator CurrentGrantTargetValidator
 		wanted    error
 	}{
-		{name: "missing principal", request: CreateGrantRequest{PrincipalID: id(99), Effect: contract.GrantAllow, ServerID: id(51)}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "invalid principal ID", request: CreateGrantRequest{PrincipalID: "bad", Effect: contract.GrantAllow, ServerID: id(51)}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "invalid effect", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantEffect("foreign"), ServerID: id(51)}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "invalid server ID", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: "bad"}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "invalid exact name", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("bad/name")}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "server-wide constraint", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), Constraint: &constraint}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "invalid constraint", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &invalidConstraint}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "expiry equal now", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &now}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "expiry before now", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &past}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
-		{name: "missing current target", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, validator: rejectCurrentTarget, wanted: ErrInvalidInput},
-		{name: "missing validator", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, wanted: ErrInvalidInput},
-		{name: "target storage failure", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, validator: failingCurrentTarget, wanted: ErrStorageUnavailable},
+		{name: "missing name", request: CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "missing principal", request: CreateGrantRequest{Name: "Missing principal", PrincipalID: id(99), Effect: contract.GrantAllow, ServerID: id(51)}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "invalid principal ID", request: CreateGrantRequest{Name: "Test grant", PrincipalID: "bad", Effect: contract.GrantAllow, ServerID: id(51)}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "invalid effect", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantEffect("foreign"), ServerID: id(51)}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "invalid server ID", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: "bad"}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "invalid exact name", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("bad/name")}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "server-wide constraint", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), Constraint: &constraint}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "invalid constraint", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &invalidConstraint}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "expiry equal now", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &now}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "expiry before now", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &past}, validator: allowCurrentTarget, wanted: ErrInvalidInput},
+		{name: "missing current target", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, validator: rejectCurrentTarget, wanted: ErrInvalidInput},
+		{name: "missing validator", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, wanted: ErrInvalidInput},
+		{name: "target storage failure", request: CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, validator: failingCurrentTarget, wanted: ErrStorageUnavailable},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -139,7 +141,7 @@ func TestDeleteExpiredGrantIsAllowed(t *testing.T) {
 	repository.clock = clock
 	principal := mustCreatePrincipal(t, repository)
 	expiresAt := testNow.Add(time.Nanosecond)
-	grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{
+	grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &expiresAt,
 	}, allowCurrentTarget)
 	require.NoError(t, err)
@@ -168,7 +170,7 @@ func TestGrantTargetValidationOrdersWithServerDeletion(t *testing.T) {
 	second := mustCreateS2Server(t, serverRepository, wideID(7001), "delete_first")
 	validator := currentServerTargets(serverRepository)
 
-	grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{
+	grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: first.ID,
 	}, validator)
 	require.NoError(t, err)
@@ -180,7 +182,7 @@ func TestGrantTargetValidationOrdersWithServerDeletion(t *testing.T) {
 
 	_, err = serverRepository.Delete(context.Background(), second.ID, second.DesiredRevision)
 	require.NoError(t, err)
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: second.ID,
 	}, validator)
 	assert.ErrorIs(t, err, ErrInvalidInput)
@@ -190,11 +192,11 @@ func TestGrantListingsBindFiltersAndExcludeLaterMutations(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	firstPrincipal := mustCreatePrincipal(t, repository)
 	secondPrincipal := mustCreatePrincipal(t, repository)
-	firstGrant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: firstPrincipal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+	firstGrant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: firstPrincipal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 	require.NoError(t, err)
-	secondGrant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: firstPrincipal.ID, Effect: contract.GrantDeny, ServerID: id(52)}, allowCurrentTarget)
+	secondGrant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: firstPrincipal.ID, Effect: contract.GrantDeny, ServerID: id(52)}, allowCurrentTarget)
 	require.NoError(t, err)
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: secondPrincipal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: secondPrincipal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 	require.NoError(t, err)
 
 	filter := GrantFilter{PrincipalID: firstPrincipal.ID}
@@ -203,7 +205,7 @@ func TestGrantListingsBindFiltersAndExcludeLaterMutations(t *testing.T) {
 	require.Len(t, page.Items, 2)
 	require.NotNil(t, page.Next, "the principal default grant plus two created grants require continuation")
 	assert.Equal(t, []string{firstPrincipal.ID, firstPrincipal.ID}, []string{page.Items[0].PrincipalID, page.Items[1].PrincipalID})
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: firstPrincipal.ID, Effect: contract.GrantAllow, ServerID: id(53)}, allowCurrentTarget)
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: firstPrincipal.ID, Effect: contract.GrantAllow, ServerID: id(53)}, allowCurrentTarget)
 	require.NoError(t, err)
 	continuation, err := repository.ListGrants(context.Background(), filter, page.Next, 10)
 	require.NoError(t, err)
@@ -230,9 +232,9 @@ func TestCreateGrantAcceptsNAndRejectsNPlusOneCapacity(t *testing.T) {
 		}
 		return nil
 	}))
-	_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+	_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 	require.NoError(t, err)
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 	assert.ErrorIs(t, err, ErrResourceLimit)
 }
 

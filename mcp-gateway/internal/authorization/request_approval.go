@@ -20,6 +20,7 @@ type GrantRequestApproval interface {
 
 // ApprovalGrantMaterial is the closed ordinary ALLOW material prepared from one request.
 type ApprovalGrantMaterial struct {
+	Name            string
 	PrincipalID     string
 	ServerID        string
 	UpstreamName    *string
@@ -102,10 +103,10 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 			expiresAt = &expires
 		}
 		if _, insertErr := transaction.ExecContext(ctx, `INSERT INTO grants (
-			id, principal_id, effect, server_id, upstream_name,
+			id, name, principal_id, effect, server_id, upstream_name,
 			constraint_json, expires_at, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			grantID, material.PrincipalID, contract.GrantAllow, material.ServerID,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			grantID, material.Name, material.PrincipalID, contract.GrantAllow, material.ServerID,
 			nullableGrantString(material.UpstreamName), nullableGrantBytes(constraintJSON),
 			nullableGrantTime(expiresAt), formatAuthorizationTime(now)); insertErr != nil {
 			return fmt.Errorf("insert request approval grant: %w", insertErr)
@@ -134,7 +135,7 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 }
 
 func validateApprovalGrantMaterial(material ApprovalGrantMaterial) ([]byte, error) {
-	if !validOpaqueID(material.PrincipalID) || !validOpaqueID(material.ServerID) ||
+	if !validGrantName(material.Name) || !validOpaqueID(material.PrincipalID) || !validOpaqueID(material.ServerID) ||
 		material.UpstreamName != nil && !validUpstreamName(*material.UpstreamName) ||
 		material.UpstreamName == nil && material.Constraint != nil {
 		return nil, ErrInvalidState

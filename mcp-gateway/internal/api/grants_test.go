@@ -39,11 +39,12 @@ func TestGrantCreateListGetDeleteAndInvalidation(t *testing.T) {
 	var invalidations []contract.Invalidation
 	handler := newGrantHandler(t, service, allowGrantTarget, &invalidations)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	created := perform(handler, http.MethodPost, "/api/v1/grants", `{"principal_id":"`+testID+`","effect":"deny","server_id":"`+testServerID+`","upstream_name":"danger","constraint":{"equals":{"/count":1.0}},"expires_at":"2027-08-25T00:00:00Z"}`, headers)
+	created := perform(handler, http.MethodPost, "/api/v1/grants", `{"name":"Test grant","principal_id":"`+testID+`","effect":"deny","server_id":"`+testServerID+`","upstream_name":"danger","constraint":{"equals":{"/count":1.0}},"expires_at":"2027-08-25T00:00:00Z"}`, headers)
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
 	assert.Empty(t, created.Header().Get("ETag"))
 	assert.Empty(t, created.Header().Get("Location"))
 	assert.Empty(t, created.Header().Get("Access-Control-Allow-Origin"))
+	assert.Contains(t, created.Body.String(), `"name":"Test grant"`)
 	assert.Contains(t, created.Body.String(), `"constraint":{"equals":{"/count":1.0}}`)
 	assert.Equal(t, authorization.GrantFilter{}, service.grantFilter)
 
@@ -77,20 +78,22 @@ func TestGrantCreateRequiresAllMembersAndExactNullableShapes(t *testing.T) {
 	service := &fakePrincipalService{}
 	handler := newGrantHandler(t, service, allowGrantTarget, nil)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	valid := `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`
+	valid := `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`
 	response := perform(handler, http.MethodPost, "/api/v1/grants", valid, headers)
 	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
+	assert.Equal(t, "Test grant", service.grantCreate.Name)
 	assert.Nil(t, service.grantCreate.UpstreamName)
 	assert.Nil(t, service.grantCreate.Constraint)
 	assert.Nil(t, service.grantCreate.ExpiresAt)
 
 	for _, test := range []struct{ name, body, code string }{
-		{"missing nullable", `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null}`, "invalid_grant"},
-		{"null required", `{"principal_id":null,"effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_grant"},
-		{"wrong nullable type", `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":1,"constraint":null,"expires_at":null}`, "invalid_grant"},
-		{"noncanonical expiry", `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":"2027-08-25T00:00:00+00:00"}`, "invalid_grant"},
+		{"missing name", `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_grant"},
+		{"missing nullable", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null}`, "invalid_grant"},
+		{"null required", `{"name":"Test grant","principal_id":null,"effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_grant"},
+		{"wrong nullable type", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":1,"constraint":null,"expires_at":null}`, "invalid_grant"},
+		{"noncanonical expiry", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":"2027-08-25T00:00:00+00:00"}`, "invalid_grant"},
 		{"unknown member", valid[:len(valid)-1] + `,"extra":true}`, "invalid_json"},
-		{"duplicate member", `{"principal_id":"` + testID + `","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_json"},
+		{"duplicate member", `{"name":"Test grant","principal_id":"` + testID + `","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_json"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := perform(handler, http.MethodPost, "/api/v1/grants", test.body, headers)
@@ -105,7 +108,7 @@ func TestGrantAuthenticationSessionAndTargetValidation(t *testing.T) {
 	handler := newGrantHandler(t, service, allowGrantTarget, nil)
 	unauthenticated := perform(handler, http.MethodGet, "/api/v1/grants", "", nil)
 	assert.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
-	body := `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":"not-yet-discovered","constraint":null,"expires_at":null}`
+	body := `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":"not-yet-discovered","constraint":null,"expires_at":null}`
 	session := perform(handler, http.MethodPost, "/api/v1/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusCreated, session.Code, session.Body.String())
 	missingOrigin := perform(handler, http.MethodPost, "/api/v1/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
@@ -139,8 +142,8 @@ func TestGrantQueryValidationErrorsAndNoFailureInvalidation(t *testing.T) {
 		method     string
 		path, body string
 	}{
-		{authorization.ErrInvalidInput, 400, "invalid_grant", http.MethodPost, "/api/v1/grants", `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
-		{authorization.ErrResourceLimit, 429, "resource_limit", http.MethodPost, "/api/v1/grants", `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
+		{authorization.ErrInvalidInput, 400, "invalid_grant", http.MethodPost, "/api/v1/grants", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
+		{authorization.ErrResourceLimit, 429, "resource_limit", http.MethodPost, "/api/v1/grants", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
 		{authorization.ErrStaleCursor, 409, "stale_cursor", http.MethodGet, "/api/v1/grants", ""},
 		{authorization.ErrNotFound, 404, "not_found", http.MethodDelete, "/api/v1/grants/01ARZ3NDEKTSV4RRFFQ69G5FAY", ""},
 		{authorization.ErrStorageUnavailable, 503, "authorization_unavailable", http.MethodGet, "/api/v1/grants", ""},

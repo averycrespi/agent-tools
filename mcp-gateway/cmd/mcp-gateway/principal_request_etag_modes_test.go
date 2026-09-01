@@ -32,7 +32,7 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 	}{
 		{name: "principal update", args: []string{"principal", "update", id, "--display-name", "Renamed"}, etag: contract.PrincipalETag(id, "7")},
 		{name: "principal credential revoke", args: []string{"principal", "credential", "revoke", id, "--yes"}, etag: contract.PrincipalETag(id, "7")},
-		{name: "grant request approve", args: []string{"grant-request", "approve", id, "--scope", "tool", "--target", "example_tool", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
+		{name: "grant request approve", args: []string{"grant-request", "approve", id, "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
 		{name: "grant request reject", args: []string{"grant-request", "reject", id, "--reason", "not_approved", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
 	}
 	for _, test := range cases {

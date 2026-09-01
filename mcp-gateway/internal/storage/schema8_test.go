@@ -67,7 +67,7 @@ func TestVerifyBackupRejectsSchemaNewerThanCurrent(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	raw := openRaw(t, ownership.Layout().Database)
-	_, err = raw.Exec(`PRAGMA user_version = 12`)
+	_, err = raw.Exec(`PRAGMA user_version = 13`)
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 
@@ -117,7 +117,7 @@ func assertSchemaEightFoundation(t *testing.T, ctx context.Context, database *sq
 			"insertion_sequence", "id", "display_name", "state", "visibility", "revision", "credential_revision",
 			"credential_id", "credential_verifier", "credential_fingerprint", "credential_created_at", "created_at", "updated_at",
 		},
-		"grants": {"insertion_sequence", "id", "principal_id", "effect", "server_id", "upstream_name", "constraint_json", "expires_at", "created_at"},
+		"grants": {"insertion_sequence", "id", "principal_id", "effect", "server_id", "upstream_name", "constraint_json", "expires_at", "created_at", "name"},
 	}
 	for table, expected := range expectedColumns {
 		rows, err := database.QueryContext(ctx, `SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)

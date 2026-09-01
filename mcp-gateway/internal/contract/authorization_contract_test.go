@@ -151,14 +151,14 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	expires := "2026-08-26T00:00:00Z"
 	credential := AgentCredential{ID: "credential", Fingerprint: "fingerprint", Revision: "1", CreatedAt: "2026-08-25T00:00:00Z"}
 	principal := Principal{ID: "principal", DisplayName: "Agent", State: PrincipalActive, Visibility: VisibilityRequestable, Revision: "1", CredentialRevision: "1", Credential: &credential, CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
-	grant := Grant{ID: "grant", PrincipalID: principal.ID, Effect: GrantAllow, ServerID: SyntheticServerID, UpstreamName: nil, Constraint: &constraint, ExpiresAt: &expires, State: GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
+	grant := Grant{ID: "grant", Name: "Example grant", PrincipalID: principal.ID, Effect: GrantAllow, ServerID: SyntheticServerID, UpstreamName: nil, Constraint: &constraint, ExpiresAt: &expires, State: GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
 	grantID := grant.ID
 
 	requireJSONKeys(t, credential, "id", "fingerprint", "revision", "created_at")
 	requireJSONKeys(t, principal, "id", "display_name", "state", "visibility", "revision", "credential_revision", "credential", "created_at", "updated_at")
 	requireJSONKeys(t, PrincipalCreation{Principal: principal, DefaultGrant: grant}, "principal", "default_grant")
 	requireJSONKeys(t, AgentCredentialCreation{Principal: principal, Bearer: "one-time"}, "principal", "bearer")
-	requireJSONKeys(t, grant, "id", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "state", "created_at")
+	requireJSONKeys(t, grant, "id", "name", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "state", "created_at")
 	requireJSONKeys(t, AuthorizationResult{Decision: DecisionAllow, AuthorizationRevision: "1", EvaluatedAt: "2026-08-25T00:00:00Z", GrantID: &grantID}, "decision", "authorization_revision", "evaluated_at", "grant_id")
 
 	etag := PrincipalETag("01ARZ3NDEKTSV4RRFFQ69G5FAV", "7")

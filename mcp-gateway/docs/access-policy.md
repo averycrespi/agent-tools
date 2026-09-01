@@ -30,7 +30,7 @@ Creation requires a display name and one visibility mode:
 
 Visibility controls discovery, not call authorization. A constrained `ALLOW` may make a tool discoverable even when a particular argument object will not match, while a constrained `DENY` does not hide it.
 
-Principal creation also creates an ordinary permanent synthetic default grant for the six fixed `mcp_gateway` self-service tools. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Principals are permanent and cannot be deleted.
+Principal creation also creates an ordinary permanent grant named **Default Gateway access** for the six fixed `mcp_gateway` self-service tools. This is the design's synthetic default grant; user-facing controls use the clearer name. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Principals are permanent and cannot be deleted.
 
 ## Update principal state or visibility
 
@@ -72,19 +72,19 @@ Issue, rotate, revoke, and disable never replay automatically. On an uncertain r
 ```bash
 mcp-gateway grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID
 mcp-gateway grant get GRANT_ID
-mcp-gateway grant create --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID
+mcp-gateway grant create --name NAME --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID
 mcp-gateway grant create --file PATH
 ```
 
-The direct form creates an ordinary unconstrained grant and may add `--upstream-name` or `--expires-at`. Use the mutually exclusive strict file form for a constraint; it supplies the complete closed shape, including explicit nullable `upstream_name`, `constraint`, and `expires_at` members. Grants are immutable `ALLOW` or `DENY` rows. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
+Every grant has a required human-readable name; names need not be unique because IDs remain authoritative. The direct form creates an ordinary unconstrained grant and may add `--upstream-name` or `--expires-at`. Use the mutually exclusive strict file form for a constraint; it supplies the complete closed shape, including explicit nullable `upstream_name`, `constraint`, and `expires_at` members. Grants are immutable `ALLOW` or `DENY` rows. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
 
 Constraints use the bounded equality form `{"equals":{"/object/path":value}}`. They support object-only RFC 6901 traversal, scalar values, exact lexical number tokens, and at most 16 atoms. Constraints apply only to exact-tool grants. Gateway does not coerce values, traverse arrays, interpret schemas, or treat overlapping paths as equivalent.
 
-Expired grants remain readable and count toward capacity until deleted. The synthetic default grant is also an ordinary capacity-owning row. Discovery is deliberately broader than execution for constrained policy; only exact call admission evaluates the unchanged argument object.
+Expired grants remain readable and count toward capacity until deleted. The **Default Gateway access** grant is also an ordinary capacity-owning row. Discovery is deliberately broader than execution for constrained policy; only exact call admission evaluates the unchanged argument object.
 
-## Correct or remove a grant
+## Replace or remove a grant
 
-Because grants are immutable, choose the correction order deliberately. Create before delete produces temporary overlap; delete before create produces temporary loss. Each step is an independent confirmed mutation, and no later step runs automatically. If the first result is uncertain, stop and read current grants before submitting the second step. Re-read effective policy before changing the old row: `DENY` takes precedence over `ALLOW`, and an unconstrained denial can hide a tool from discovery.
+Because grant policy is immutable, choose the replacement order deliberately. Create before delete produces temporary overlap; delete before create produces temporary loss. Each step is an independent confirmed mutation, and no later step runs automatically. If the first result is uncertain, stop and read current grants before submitting the second step. Re-read effective policy before changing the old row: `DENY` takes precedence over `ALLOW`, and an unconstrained denial can hide a tool from discovery.
 
 Delete by stable grant ID:
 
@@ -113,6 +113,7 @@ Approval may only narrow scope, exact constraint tokens, and duration. Omit `--e
 
 ```bash
 mcp-gateway grant-request approve REQUEST_ID \
+  --name NAME \
   --scope tool \
   --target SERVER.TOOL \
   --yes

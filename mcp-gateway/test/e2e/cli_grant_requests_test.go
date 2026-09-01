@@ -48,9 +48,9 @@ func runCLIGrantRequestInputMatrix(t *testing.T) {
 	dir := t.TempDir()
 	approvePath := filepath.Join(dir, "approve.json")
 	invalidPath := filepath.Join(dir, "invalid.json")
-	approveBody := `{"approved_policy":{"scope":"tool","target":"request-target.echo","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`
+	approveBody := `{"name":"Approved access","approved_policy":{"scope":"tool","target":"request-target.echo","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`
 	require.NoError(t, os.WriteFile(approvePath, []byte(approveBody), 0o600))
-	require.NoError(t, os.WriteFile(invalidPath, []byte(`{"approved_policy":{"scope":"server","target":"mcp_gateway","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true,"unknown":true}}`), 0o600))
+	require.NoError(t, os.WriteFile(invalidPath, []byte(`{"name":"Approved access","approved_policy":{"scope":"server","target":"mcp_gateway","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true,"unknown":true}}`), 0o600))
 	results := make([]testutil.ProcessResult, 0, 10)
 
 	listed := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "list", "--principal-id", principal.Resource.ID, "--state", "pending", "--limit", "10", "--output", "json")
@@ -73,7 +73,7 @@ func runCLIGrantRequestInputMatrix(t *testing.T) {
 	require.NoError(t, json.Unmarshal(approved.Stdout, &approvedRequest))
 	assert.Equal(t, contract.RequestApproved, approvedRequest.State)
 	require.NotNil(t, approvedRequest.ApprovedGrantID)
-	directApproved := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "approve", fourth.ID, "--scope", "tool", "--target", "request-target.echo", "--yes", "--output", "json")
+	directApproved := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "approve", fourth.ID, "--name", "Approved access", "--scope", "tool", "--target", "request-target.echo", "--yes", "--output", "json")
 	results = append(results, directApproved)
 	var directApprovedRequest contract.GrantRequest
 	require.NoError(t, json.Unmarshal(directApproved.Stdout, &directApprovedRequest))

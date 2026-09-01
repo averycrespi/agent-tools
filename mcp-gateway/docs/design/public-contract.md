@@ -204,6 +204,7 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `s2_idempotency_records`                |       1024 |
 | `principals`                            |        128 |
 | `grants`                                |       4096 |
+| `grant_name_bytes`                      |        256 |
 | `constraint_atoms`                      |         16 |
 | `constraint_bytes`                      |       8192 |
 | `constraint_pointer_bytes`              |        256 |

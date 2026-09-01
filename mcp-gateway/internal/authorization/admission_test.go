@@ -33,7 +33,7 @@ func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
 		assert.Equal(t, leaseAdmitted, leasePhase(lease.phase.Load()))
 
 		pending := mustAuthenticateLease(t, repository, credential.Bearer)
-		deny := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{
+		deny := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant",
 			PrincipalID: principal.ID, Effect: contract.GrantDeny,
 			ServerID: contract.SyntheticServerID, UpstreamName: stringPointer("tool"),
 		})
@@ -54,7 +54,7 @@ func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
 	t.Run("single expiry timestamp and binding-only evidence", func(t *testing.T) {
 		principal, credential := createAdmissionCredential(t, repository)
 		expiresAt := testNow.Add(time.Second)
-		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{
+		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant",
 			PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &expiresAt,
 		})
 		expired := mustAuthenticateLease(t, repository, credential.Bearer)
@@ -192,7 +192,7 @@ func TestAdmissionAddsNoInvocationPersistenceOrCapabilityUse(t *testing.T) {
 	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO invocation", "internal/catalog", "internal/downstream", "AcquireRoute", "AcquireCapability", "Dispatch", "Execute"} {
 		assert.NotContains(t, string(source), forbidden)
 	}
-	assert.Equal(t, 11, storage.CurrentSchema)
+	assert.Equal(t, 12, storage.CurrentSchema)
 }
 
 func verifyLostResolvedBinding(t *testing.T, repository *Repository, store *storage.Store, lease *Lease) error {

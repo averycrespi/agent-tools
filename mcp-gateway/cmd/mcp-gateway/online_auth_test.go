@@ -93,7 +93,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"backup create", "server create --file PATH", "server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "server delete ID [--etag ETAG]",
 			"server operation start ID --kind KIND [--etag ETAG]", "server credential replace ID --file PATH [--etag ETAG]",
 			"principal create --display-name NAME --visibility VISIBILITY", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE]", "principal credential revoke ID [--etag ETAG]",
-			"grant create --principal-id ID --effect EFFECT --server-id ID [--upstream-name NAME] [--expires-at RFC3339] [--file PATH]", "grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--file PATH]", "grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
+			"grant create --name NAME --principal-id ID --effect EFFECT --server-id ID [--upstream-name NAME] [--expires-at RFC3339] [--file PATH]", "grant-request approve REQUEST_ID --name NAME --scope SCOPE --target TARGET [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--file PATH]", "grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
 		},
 		"no_content": {
 			"admin credential revoke ID", "backup delete BACKUP_ID", "server auth-flow cancel ID FLOW_ID", "grant delete ID",

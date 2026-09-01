@@ -165,7 +165,7 @@ func validatePrincipals(ctx context.Context, transaction *sql.Tx) (map[string]st
 func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGrantTargetInspector, principalIDs map[string]struct{}) error {
 	maximum := mustLimit("grants")
 	rows, err := transaction.QueryContext(ctx, `
-		SELECT insertion_sequence, id, principal_id, effect, server_id, upstream_name,
+		SELECT insertion_sequence, id, name, principal_id, effect, server_id, upstream_name,
 		       constraint_json, expires_at, created_at
 		FROM grants ORDER BY insertion_sequence, id LIMIT ?`, maximum+1)
 	if err != nil {
@@ -178,18 +178,18 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 	for rows.Next() {
 		var (
 			sequence                                int64
-			id, principalID, effect, serverID       string
+			id, name, principalID, effect, serverID string
 			upstreamName, constraintJSON, expiresAt sql.NullString
 			createdAt                               string
 		)
-		if err := rows.Scan(&sequence, &id, &principalID, &effect, &serverID, &upstreamName, &constraintJSON, &expiresAt, &createdAt); err != nil {
+		if err := rows.Scan(&sequence, &id, &name, &principalID, &effect, &serverID, &upstreamName, &constraintJSON, &expiresAt, &createdAt); err != nil {
 			return fmt.Errorf("scan grant for validation: %w", err)
 		}
 		if count >= maximum {
 			return errorsInvalidState("grant capacity is exceeded")
 		}
 		count++
-		if sequence <= previousSequence || !validOpaqueID(id) || !validOpaqueID(principalID) || !validOpaqueID(serverID) ||
+		if sequence <= previousSequence || !validOpaqueID(id) || !validGrantName(name) || !validOpaqueID(principalID) || !validOpaqueID(serverID) ||
 			(effect != string(contract.GrantAllow) && effect != string(contract.GrantDeny)) {
 			return errorsInvalidState("grant row is malformed")
 		}
@@ -240,6 +240,18 @@ func validOpaqueID(value string) bool { return opaqueIDPattern.MatchString(value
 
 func validDisplayName(value string) bool {
 	if !utf8.ValidString(value) || len(value) < 1 || int64(len(value)) > mustLimit("display_name_bytes") {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
+}
+
+func validGrantName(value string) bool {
+	if !utf8.ValidString(value) || len(value) < 1 || int64(len(value)) > mustLimit("grant_name_bytes") || strings.TrimSpace(value) != value {
 		return false
 	}
 	for _, character := range value {

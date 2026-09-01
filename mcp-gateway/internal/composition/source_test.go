@@ -644,7 +644,7 @@ func s3MigrationViolations(t *testing.T, root string) []string {
 	for _, path := range paths {
 		contents, readErr := os.ReadFile(path)
 		require.NoError(t, readErr)
-		if filepath.Base(path) == "008_authorization.sql" || !s3SQLVerb.Match(contents) {
+		if filepath.Base(path) == "008_authorization.sql" || filepath.Base(path) == "012_grant_names.sql" || !s3SQLVerb.Match(contents) {
 			continue
 		}
 		relative, relErr := filepath.Rel(root, path)

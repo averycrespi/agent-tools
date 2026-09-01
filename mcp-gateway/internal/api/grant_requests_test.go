@@ -49,9 +49,10 @@ func TestGrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 		"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
 		"If-Match": contract.GrantRequestETag(service.item.ID, "1"),
 	}
-	approved := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", `{"approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, approveHeaders)
+	approved := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", `{"name":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, approveHeaders)
 	require.Equal(t, http.StatusOK, approved.Code, approved.Body.String())
 	assert.Equal(t, "1", service.revision)
+	assert.Equal(t, "Approved access", service.name)
 	assert.Equal(t, contract.PolicyServer, service.policy.Scope)
 	assert.Equal(t, contract.GrantRequestETag(service.item.ID, "2"), approved.Header().Get("ETag"))
 
@@ -81,7 +82,7 @@ func TestGrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, badCursor.Code)
 	assert.Contains(t, badCursor.Body.String(), "invalid_cursor")
 
-	body := `{"approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`
+	body := `{"name":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`
 	contentHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
 	missing := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", body, contentHeaders)
 	assert.Equal(t, 428, missing.Code)
@@ -156,6 +157,7 @@ type fakeGrantRequestService struct {
 	filter   grantrequests.AdminFilter
 	cursor   *grantrequests.AdminCursor
 	revision string
+	name     string
 	policy   contract.Policy
 	reason   contract.GrantRequestRejectionReason
 	err      error
@@ -170,8 +172,8 @@ func (service *fakeGrantRequestService) GetAdmin(context.Context, string) (contr
 	return service.item, service.err
 }
 
-func (service *fakeGrantRequestService) ApproveAdmin(_ context.Context, _ string, revision string, policy contract.Policy) (contract.GrantRequest, error) {
-	service.revision, service.policy = revision, policy
+func (service *fakeGrantRequestService) ApproveAdmin(_ context.Context, _ string, revision, name string, policy contract.Policy) (contract.GrantRequest, error) {
+	service.revision, service.name, service.policy = revision, name, policy
 	item := service.item
 	item.Revision = "2"
 	return item, service.err

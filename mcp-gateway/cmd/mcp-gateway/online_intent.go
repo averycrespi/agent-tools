@@ -309,13 +309,13 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		},
 	},
 	"grant create": {
-		fileMembers: []string{"principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"},
+		fileMembers: []string{"name", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"},
 		direct: []onlineDirectFlag{
-			{name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"},
+			{name: "name", required: true}, {name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"},
 		},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, changed map[string]bool) ([]byte, error) {
-			body := map[string]any{"principal_id": values["principal-id"], "effect": values["effect"], "server_id": values["server-id"], "upstream_name": nil, "constraint": nil, "expires_at": nil}
+			body := map[string]any{"name": values["name"], "principal_id": values["principal-id"], "effect": values["effect"], "server_id": values["server-id"], "upstream_name": nil, "constraint": nil, "expires_at": nil}
 			for _, flag := range []string{"upstream-name", "expires-at"} {
 				if changed[flag] {
 					body[strings.ReplaceAll(flag, "-", "_")] = values[flag]
@@ -325,9 +325,9 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		},
 	},
 	"grant-request approve": {
-		fileMembers: []string{"approved_policy"},
+		fileMembers: []string{"name", "approved_policy"},
 		direct: []onlineDirectFlag{
-			{name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true},
+			{name: "name", required: true}, {name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true},
 		},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, toggles map[string]bool, changed map[string]bool) ([]byte, error) {
@@ -338,7 +338,7 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			if changed["acknowledge-future-tools"] {
 				policy["future_tools_acknowledged"] = toggles["acknowledge-future-tools"]
 			}
-			return marshalIntent(map[string]any{"approved_policy": policy})
+			return marshalIntent(map[string]any{"name": values["name"], "approved_policy": policy})
 		},
 	},
 	"grant-request reject": {

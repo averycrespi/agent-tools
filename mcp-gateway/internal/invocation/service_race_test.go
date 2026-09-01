@@ -47,7 +47,7 @@ func TestServiceAdmissionCommitExcludesCredentialAndPolicyMutationUntilDispatch(
 	<-committed
 
 	upstream := "tool"
-	_, err = authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+	_, err = authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	assert.ErrorIs(t, err, authorization.ErrResourceLimit)
@@ -62,7 +62,7 @@ func TestServiceAdmissionCommitExcludesCredentialAndPolicyMutationUntilDispatch(
 	assert.Equal(t, contract.DecisionAllow, *record.AuthorizationDecision)
 	assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
 
-	_, err = authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+	_, err = authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err, "policy mutation must proceed after invocation admission and dispatch release the gate")

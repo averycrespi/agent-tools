@@ -17,10 +17,10 @@ import (
 func TestEvaluateEnforcesDenyAllowBlockAndSmallestEvidence(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
-	allowOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
-	allowTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool")})
-	denyOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51)})
-	denyTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("tool")})
+	allowOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
+	allowTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool")})
+	denyOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51)})
+	denyTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("tool")})
 
 	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
 	require.NoError(t, err)
@@ -58,9 +58,9 @@ func TestEvaluateAppliesServerExactAndExpiryScopeAtOneTimestamp(t *testing.T) {
 	repository.clock = clock
 	principal := mustCreatePrincipal(t, repository)
 	expiresAt := testNow.Add(time.Second)
-	serverWide := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &expiresAt})
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("other")})
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(52), UpstreamName: stringPointer("tool")})
+	serverWide := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &expiresAt})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("other")})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(52), UpstreamName: stringPointer("tool")})
 
 	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestEvaluateConstraintUsesObjectOnlyLexicalScalarEquality(t *testing.T) {
 			repository, _ := newRepository(t, nil)
 			principal := mustCreatePrincipal(t, repository)
 			constraint := json.RawMessage(test.constraint)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &constraint})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &constraint})
 			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(test.arguments)})
 			require.NoError(t, err)
 			assert.Equal(t, test.decision, result.Decision)
@@ -113,7 +113,7 @@ func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(
 	t.Run("malformed arguments", func(t *testing.T) {
 		repository, _ := newRepository(t, nil)
 		principal := mustCreatePrincipal(t, repository)
-		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
+		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
 		for _, arguments := range []string{``, `[]`, `{"x":1,"x":2}`, `{"x":`} {
 			_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(arguments)})
 			assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
@@ -124,8 +124,8 @@ func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(
 		t.Run("corrupt "+string(effect), func(t *testing.T) {
 			repository, store := newRepository(t, nil)
 			principal := mustCreatePrincipal(t, repository)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
-			corrupt := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: effect, ServerID: id(51), UpstreamName: stringPointer("tool")})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
+			corrupt := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: effect, ServerID: id(51), UpstreamName: stringPointer("tool")})
 			require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 				_, err := transaction.Exec(`UPDATE grants SET constraint_json = '{"equals":{}}' WHERE id = ?`, corrupt.ID)
 				return err
@@ -143,7 +143,7 @@ func TestEvaluateGeneratedScalarCorpus(t *testing.T) {
 			repository, _ := newRepository(t, nil)
 			principal := mustCreatePrincipal(t, repository)
 			constraint := json.RawMessage(`{"equals":{"/value":` + scalar + `}}`)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &constraint})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &constraint})
 			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{"value":` + scalar + `}`)})
 			require.NoError(t, err)
 			assert.Equal(t, contract.DecisionAllow, result.Decision)

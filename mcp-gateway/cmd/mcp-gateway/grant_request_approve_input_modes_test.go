@@ -57,8 +57,8 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 		return stdout.Bytes(), nil
 	}
 	approveArgs := []string{"grant-request", "approve", resourceID, "--etag", etag}
-	directTool := append(append([]string(nil), approveArgs...), "--scope", "tool", "--target", "example_tool", "--yes")
-	toolBody := `{"approved_policy":{"scope":"tool","target":"example_tool","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`
+	directTool := append(append([]string(nil), approveArgs...), "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes")
+	toolBody := `{"name":"Approved access","approved_policy":{"scope":"tool","target":"example_tool","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`
 
 	output, err := execute(directTool...)
 	require.NoError(t, err, "%s", output)
@@ -71,15 +71,15 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	assert.Equal(t, string(directBody), string(<-requests))
 
-	output, err = execute(append(approveArgs, "--scope", "tool", "--target", "example_tool", "--duration-seconds", "600", "--yes")...)
+	output, err = execute(append(approveArgs, "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--duration-seconds", "600", "--yes")...)
 	require.NoError(t, err, "%s", output)
-	assert.JSONEq(t, `{"approved_policy":{"scope":"tool","target":"example_tool","constraint":null,"duration_seconds":"600","future_tools_acknowledged":false}}`, string(<-requests))
+	assert.JSONEq(t, `{"name":"Approved access","approved_policy":{"scope":"tool","target":"example_tool","constraint":null,"duration_seconds":"600","future_tools_acknowledged":false}}`, string(<-requests))
 
-	output, err = execute(append(approveArgs, "--scope", "server", "--target", resourceID, "--acknowledge-future-tools", "--yes")...)
+	output, err = execute(append(approveArgs, "--name", "Approved access", "--scope", "server", "--target", resourceID, "--acknowledge-future-tools", "--yes")...)
 	require.NoError(t, err, "%s", output)
-	assert.JSONEq(t, `{"approved_policy":{"scope":"server","target":"`+resourceID+`","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, string(<-requests))
+	assert.JSONEq(t, `{"name":"Approved access","approved_policy":{"scope":"server","target":"`+resourceID+`","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, string(<-requests))
 
-	constrainedBody := `{"approved_policy":{"scope":"tool","target":"example_tool","constraint":{"equals":{"/region":"us"}},"duration_seconds":"900","future_tools_acknowledged":false}}`
+	constrainedBody := `{"name":"Approved access","approved_policy":{"scope":"tool","target":"example_tool","constraint":{"equals":{"/region":"us"}},"duration_seconds":"900","future_tools_acknowledged":false}}`
 	constrainedFile := filepath.Join(dir, "constrained.json")
 	require.NoError(t, os.WriteFile(constrainedFile, []byte(constrainedBody), 0o600))
 	output, err = execute(append(approveArgs, "--file", constrainedFile, "--yes")...)
@@ -92,16 +92,17 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "missing scope", args: append(approveArgs, "--target", "example_tool", "--yes")},
-		{name: "invalid scope", args: append(approveArgs, "--scope", "global", "--target", "example_tool", "--yes")},
-		{name: "empty target", args: append(approveArgs, "--scope", "tool", "--target", "", "--yes")},
-		{name: "noncanonical duration", args: append(approveArgs, "--scope", "tool", "--target", "example_tool", "--duration-seconds", "060", "--yes")},
-		{name: "short duration", args: append(approveArgs, "--scope", "tool", "--target", "example_tool", "--duration-seconds", "59", "--yes")},
-		{name: "server missing acknowledgement", args: append(approveArgs, "--scope", "server", "--target", resourceID, "--yes")},
-		{name: "tool with acknowledgement", args: append(approveArgs, "--scope", "tool", "--target", "example_tool", "--acknowledge-future-tools", "--yes")},
-		{name: "mixed", args: append(approveArgs, "--scope", "tool", "--target", "example_tool", "--file", toolFile, "--yes")},
+		{name: "missing name", args: []string{"grant-request", "approve", resourceID, "--etag", etag, "--scope", "tool", "--target", "example_tool", "--yes"}},
+		{name: "missing scope", args: append(approveArgs, "--name", "Approved access", "--target", "example_tool", "--yes")},
+		{name: "invalid scope", args: append(approveArgs, "--name", "Approved access", "--scope", "global", "--target", "example_tool", "--yes")},
+		{name: "empty target", args: append(approveArgs, "--name", "Approved access", "--scope", "tool", "--target", "", "--yes")},
+		{name: "noncanonical duration", args: append(approveArgs, "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--duration-seconds", "060", "--yes")},
+		{name: "short duration", args: append(approveArgs, "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--duration-seconds", "59", "--yes")},
+		{name: "server missing acknowledgement", args: append(approveArgs, "--name", "Approved access", "--scope", "server", "--target", resourceID, "--yes")},
+		{name: "tool with acknowledgement", args: append(approveArgs, "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--acknowledge-future-tools", "--yes")},
+		{name: "mixed", args: append(approveArgs, "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--file", toolFile, "--yes")},
 		{name: "incomplete file", args: append(approveArgs, "--file", incompleteFile, "--yes")},
-		{name: "unconfirmed", args: append(approveArgs, "--scope", "tool", "--target", "example_tool")},
+		{name: "unconfirmed", args: append(approveArgs, "--name", "Approved access", "--scope", "tool", "--target", "example_tool")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := execute(test.args...)
@@ -114,7 +115,7 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 	root := newRootCmd()
 	command, _, err := root.Find([]string{"grant-request", "approve"})
 	require.NoError(t, err)
-	for _, flag := range []string{"scope", "target", "duration-seconds", "acknowledge-future-tools", "file"} {
+	for _, flag := range []string{"name", "scope", "target", "duration-seconds", "acknowledge-future-tools", "file"} {
 		assert.NotNil(t, command.Flags().Lookup(flag), flag)
 	}
 	assert.Contains(t, command.Example, "--scope")

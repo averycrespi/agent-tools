@@ -15,7 +15,7 @@ func (repository *Repository) CreateGrant(
 	request CreateGrantRequest,
 	validateTarget CurrentGrantTargetValidator,
 ) (contract.Grant, error) {
-	if validateTarget == nil || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.ServerID) || !validGrantEffect(request.Effect) ||
+	if validateTarget == nil || !validGrantName(request.Name) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.ServerID) || !validGrantEffect(request.Effect) ||
 		request.UpstreamName != nil && !validUpstreamName(*request.UpstreamName) || request.UpstreamName == nil && request.Constraint != nil {
 		return contract.Grant{}, ErrInvalidInput
 	}
@@ -67,10 +67,10 @@ func (repository *Repository) CreateGrant(
 		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO grants (
-				id, principal_id, effect, server_id, upstream_name,
+				id, name, principal_id, effect, server_id, upstream_name,
 				constraint_json, expires_at, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			grantID, request.PrincipalID, request.Effect, request.ServerID,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			grantID, request.Name, request.PrincipalID, request.Effect, request.ServerID,
 			nullableGrantString(request.UpstreamName), nullableGrantBytes(constraintJSON),
 			nullableGrantTime(request.ExpiresAt), createdAt); err != nil {
 			return fmt.Errorf("insert grant: %w", err)

@@ -140,6 +140,7 @@ var fixedLimits = []FixedLimit{
 	{Name: "s2_idempotency_records", Maximum: 1024},
 	{Name: "principals", Maximum: 128},
 	{Name: "grants", Maximum: 4096},
+	{Name: "grant_name_bytes", Maximum: 256},
 	{Name: "constraint_atoms", Maximum: 16},
 	{Name: "constraint_bytes", Maximum: 8192},
 	{Name: "constraint_pointer_bytes", Maximum: 256},

@@ -110,6 +110,7 @@ function decodeCreation(value: unknown): PrincipalCreation {
   const creation = record(value, ["principal", "default_grant"]);
   const grant = record(creation.default_grant, [
     "id",
+    "name",
     "principal_id",
     "effect",
     "server_id",
@@ -121,6 +122,7 @@ function decodeCreation(value: unknown): PrincipalCreation {
   ]);
   const principal = decodePrincipal(creation.principal);
   if (
+    grant.name !== "Default Gateway access" ||
     identifier(grant.principal_id) !== principal.id ||
     grant.effect !== "allow" ||
     grant.server_id !== "00000000000000000000000000" ||

@@ -19,11 +19,12 @@ import (
 type GrantRequestService interface {
 	ListAdmin(context.Context, grantrequests.AdminFilter, *grantrequests.AdminCursor, int) (grantrequests.AdminPage, error)
 	GetAdmin(context.Context, string) (contract.GrantRequest, error)
-	ApproveAdmin(context.Context, string, string, contract.Policy) (contract.GrantRequest, error)
+	ApproveAdmin(context.Context, string, string, string, contract.Policy) (contract.GrantRequest, error)
 	RejectAdmin(context.Context, string, string, contract.GrantRequestRejectionReason) (contract.GrantRequest, error)
 }
 
 type rawGrantRequestApproval struct {
+	Name           json.RawMessage `json:"name"`
 	ApprovedPolicy json.RawMessage `json:"approved_policy"`
 }
 
@@ -96,12 +97,13 @@ func (handler *Handler) grantRequestMember(writer http.ResponseWriter, request *
 		if !decodeStrictBody(writer, request, &raw) {
 			return
 		}
+		var name string
 		policy, ok := decodeApprovalPolicy(raw.ApprovedPolicy)
-		if !ok {
+		if !decodeRequiredGrantMember(raw.Name, &name) || !ok {
 			writeProblem(writer, contract.ProblemInvalidGrantRequest)
 			return
 		}
-		item, err := handler.grantRequests.ApproveAdmin(request.Context(), requestID, revision, policy)
+		item, err := handler.grantRequests.ApproveAdmin(request.Context(), requestID, revision, name, policy)
 		if err != nil {
 			writeGrantRequestError(writer, err)
 			return

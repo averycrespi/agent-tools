@@ -3,6 +3,7 @@ package contract
 const (
 	SyntheticServerID        = "00000000000000000000000000"
 	SyntheticServerNamespace = "mcp_gateway"
+	DefaultGrantName         = "Default Gateway access"
 )
 
 type PrincipalState string

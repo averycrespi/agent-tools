@@ -67,7 +67,7 @@ func TestCreateVsTargetAndPolicyIntegration(t *testing.T) {
 	assert.Equal(t, contract.DesiredServerDeleted, deleted.Server.DesiredState)
 
 	policyServer := createCompositionServer(t, built.servers, "policy-first", false, "/bin/true")
-	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, ServerID: policyServer.ID,
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
@@ -104,12 +104,12 @@ func TestApprovalVsPolicyAndCapacityIntegration(t *testing.T) {
 	approved := make(chan grantrequests.ApproveResult, 1)
 	approveErr := make(chan error, 1)
 	go func() {
-		result, approveError := built.requests.Approve(context.Background(), built.authorization, grantrequests.ApproveRequest{ID: created.Request.ID, ExpectedRevision: "1", ApprovedPolicy: policy})
+		result, approveError := built.requests.Approve(context.Background(), built.authorization, grantrequests.ApproveRequest{Name: "Test grant", ID: created.Request.ID, ExpectedRevision: "1", ApprovedPolicy: policy})
 		approved <- result
 		approveErr <- approveError
 	}()
 	<-entered
-	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, ServerID: server.ID,
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	assert.Error(t, err, "policy/capacity admission must not cross an in-flight approval gate")
@@ -129,11 +129,11 @@ func TestApprovalVsPolicyAndCapacityIntegration(t *testing.T) {
 	secondPolicy := contract.Policy{Scope: contract.PolicyServer, Target: secondServer.Namespace, FutureToolsAcknowledged: true}
 	second, err := built.requests.CreateOrExisting(context.Background(), grantrequests.CreateRequest{PrincipalID: principal.Principal.ID, Policy: secondPolicy})
 	require.NoError(t, err)
-	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, ServerID: secondServer.ID,
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
-	_, err = built.requests.Approve(context.Background(), built.authorization, grantrequests.ApproveRequest{ID: second.Request.ID, ExpectedRevision: "1", ApprovedPolicy: secondPolicy})
+	_, err = built.requests.Approve(context.Background(), built.authorization, grantrequests.ApproveRequest{Name: "Test grant", ID: second.Request.ID, ExpectedRevision: "1", ApprovedPolicy: secondPolicy})
 	assert.ErrorIs(t, err, grantrequests.ErrConflict)
 	pending, found, err := built.requests.GetOwned(context.Background(), principal.Principal.ID, second.Request.ID)
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestApprovalVsPolicyAndCapacityIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, grantLimit.Maximum, grants.InUse)
 	assert.True(t, grants.Saturated)
-	_, err = built.requests.Approve(context.Background(), built.authorization, grantrequests.ApproveRequest{ID: capacityRequest.Request.ID, ExpectedRevision: "1", ApprovedPolicy: capacityPolicy})
+	_, err = built.requests.Approve(context.Background(), built.authorization, grantrequests.ApproveRequest{Name: "Test grant", ID: capacityRequest.Request.ID, ExpectedRevision: "1", ApprovedPolicy: capacityPolicy})
 	assert.ErrorIs(t, err, grantrequests.ErrResourceLimit)
 	_, grantsAfter, occupancyErr := built.AuthorizationOccupancy(context.Background())
 	require.NoError(t, occupancyErr)

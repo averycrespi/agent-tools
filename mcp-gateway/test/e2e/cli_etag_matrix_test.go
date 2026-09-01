@@ -29,7 +29,7 @@ func TestCLIETagMatrix(t *testing.T) {
 	credentialInput := filepath.Join(t.TempDir(), "credential.json")
 	require.NoError(t, os.WriteFile(credentialInput, []byte(`{"kind":"static_credential","expected_revision":"0","values":{"token":"secret-canary"}}`), 0o600))
 	approveInput := filepath.Join(t.TempDir(), "approve.json")
-	require.NoError(t, os.WriteFile(approveInput, []byte(`{"approved_policy":{"scope":"tool","target":"example_tool","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`), 0o600))
+	require.NoError(t, os.WriteFile(approveInput, []byte(`{"name":"Approved access","approved_policy":{"scope":"tool","target":"example_tool","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`), 0o600))
 
 	cases := []struct {
 		name             string

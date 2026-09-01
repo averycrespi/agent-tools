@@ -27,6 +27,7 @@ type GrantState = "active" | "expired";
 type ScalarType = "null" | "boolean" | "string" | "number";
 interface Grant {
   id: string;
+  name: string;
   principalID: string;
   effect: Effect;
   serverID: string;
@@ -61,6 +62,7 @@ function id(value: unknown): string {
 function decodeGrant(value: unknown): Grant {
   const item = record(value, [
     "id",
+    "name",
     "principal_id",
     "effect",
     "server_id",
@@ -81,6 +83,7 @@ function decodeGrant(value: unknown): Grant {
     throw new Error("invalid response");
   return {
     id: id(item.id),
+    name: text(item.name),
     principalID: id(item.principal_id),
     effect: item.effect,
     serverID: id(item.server_id),
@@ -205,6 +208,7 @@ function GrantCreate({
   query: Readonly<Record<string, string>>;
 }) {
   const initialDraft = useRef({
+    name: "",
     principalID: query.principal_id ?? "",
     effect: "allow" as Effect,
     serverID: query.server_id ?? "",
@@ -213,6 +217,7 @@ function GrantCreate({
     expiresAt: "",
     atoms: [] as Atom[],
   });
+  const [name, setName] = useState(initialDraft.current.name);
   const [principalID, setPrincipalID] = useState(
     initialDraft.current.principalID,
   );
@@ -233,6 +238,7 @@ function GrantCreate({
   );
   const navigate = useUnsavedChanges(
     JSON.stringify({
+      name,
       principalID,
       effect,
       serverID,
@@ -253,6 +259,14 @@ function GrantCreate({
   const submit = async () => {
     setError(undefined);
     try {
+      if (
+        name.trim() !== name ||
+        name.length === 0 ||
+        new TextEncoder().encode(name).length > 256
+      )
+        throw new Error(
+          "Name must be between 1 and 256 bytes without surrounding whitespace.",
+        );
       if (!gatewayID.test(principalID) || !gatewayID.test(serverID))
         throw new Error(
           "Principal and server IDs must be complete Gateway IDs.",
@@ -275,7 +289,7 @@ function GrantCreate({
       )
         throw new Error("Expiry must be a future canonical UTC timestamp.");
       const constraint = constraintText(atoms);
-      const body = `{"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+      const body = `{"name":${JSON.stringify(name)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
       const spec: MutationSpec<Grant> = {
         route: "/api/v1/grants",
         method: "POST",
@@ -317,6 +331,18 @@ function GrantCreate({
             void submit();
           }}
         >
+          <FormField id="grant-name" label="Name" required>
+            {(attributes) => (
+              <input
+                {...attributes}
+                data-testid="grant-name"
+                value={name}
+                maxlength={256}
+                onInput={(event) => setName(event.currentTarget.value)}
+                required
+              />
+            )}
+          </FormField>
           <FormField id="grant-principal" label="Principal ID" required>
             {(attributes) => (
               <input
@@ -616,6 +642,7 @@ function GrantActions({
 
   const createSpec = (): MutationSpec<GrantActionResult> => {
     const body = JSON.stringify({
+      name: grant.name,
       principal_id: grant.principalID,
       effect: replacementEffect,
       server_id: grant.serverID,

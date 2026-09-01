@@ -46,7 +46,7 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 	principalETag = contract.PrincipalETag(principalID, principal.Revision)
 
 	grantPath := filepath.Join(dir, "grant.json")
-	grantBody := `{"principal_id":"` + principalID + `","effect":"deny","server_id":"` + contract.SyntheticServerID + `","upstream_name":"get_identity","constraint":null,"expires_at":null}`
+	grantBody := `{"name":"Lifecycle deny","principal_id":"` + principalID + `","effect":"deny","server_id":"` + contract.SyntheticServerID + `","upstream_name":"get_identity","constraint":null,"expires_at":null}`
 	require.NoError(t, os.WriteFile(grantPath, []byte(grantBody), 0o600))
 	grantResult := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--file", grantPath, "--output", "json")
 	results = append(results, grantResult)

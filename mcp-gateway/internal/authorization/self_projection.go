@@ -216,15 +216,15 @@ type selfGrantRow struct {
 func scanSelfGrant(scanner grantScanner, principalID string, now time.Time) (selfGrantRow, error) {
 	var (
 		row                                     selfGrantRow
-		storedPrincipalID                       string
+		name, storedPrincipalID                 string
 		upstreamName, constraintJSON, expiresAt sql.NullString
 	)
-	if err := scanner.Scan(&row.sequence, &row.id, &storedPrincipalID, &row.effect, &row.serverID,
+	if err := scanner.Scan(&row.sequence, &row.id, &name, &storedPrincipalID, &row.effect, &row.serverID,
 		&upstreamName, &constraintJSON, &expiresAt, &row.createdAt); err != nil {
 		return selfGrantRow{}, fmt.Errorf("scan self grant: %w", err)
 	}
 	created, createdValid := canonicalTimestamp(row.createdAt)
-	if row.sequence < 1 || !validOpaqueID(row.id) || storedPrincipalID != principalID || !validOpaqueID(row.serverID) ||
+	if row.sequence < 1 || !validOpaqueID(row.id) || !validGrantName(name) || storedPrincipalID != principalID || !validOpaqueID(row.serverID) ||
 		(row.effect != contract.GrantAllow && row.effect != contract.GrantDeny) || !createdValid {
 		return selfGrantRow{}, errorsInvalidState("self grant row is malformed")
 	}

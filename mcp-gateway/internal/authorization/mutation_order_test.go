@@ -143,7 +143,7 @@ func TestGrantMutationsDoNotCancelCredentialLeases(t *testing.T) {
 	created := make(chan contract.Grant, 1)
 	mutationResult := make(chan error, 1)
 	go func() {
-		grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+		grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 		created <- grant
 		mutationResult <- err
 	}()
@@ -205,7 +205,7 @@ func TestUncertainGrantMutationDoesNotCloseCredentialChannel(t *testing.T) {
 	require.NoError(t, err)
 	lease := mustAuthenticateLease(t, repository, credential.Bearer)
 	armed = true
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 	assert.ErrorIs(t, err, ErrStorageUnavailable)
 	assert.True(t, store.Latched())
 	assertLeaseOpen(t, lease)
@@ -328,14 +328,14 @@ func authorityMutationCases() []authorityMutationCase {
 			}
 		}},
 		{name: "grant create", prepare: credentialMutationCase(func(repository *Repository, credential contract.AgentCredentialCreation) error {
-			_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: credential.Principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+			_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: credential.Principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 			return err
 		})},
 		{name: "grant delete", prepare: func(t *testing.T, repository *Repository) (string, func() error) {
 			principal := mustCreatePrincipal(t, repository)
 			credential, err := repository.IssueCredential(context.Background(), principal.ID, principal.Revision)
 			require.NoError(t, err)
-			grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+			grant, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant", PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 			require.NoError(t, err)
 			return credential.Bearer, func() error { return repository.DeleteGrant(context.Background(), grant.ID) }
 		}},

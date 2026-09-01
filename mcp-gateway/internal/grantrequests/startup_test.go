@@ -88,7 +88,7 @@ func TestStartupAcceptsApprovedHistoricalGrantAfterLiveGrantDeletion(t *testing.
 		DisplayName: "Historical owner", Visibility: contract.VisibilityRequestable,
 	})
 	require.NoError(t, err)
-	grant, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{
+	grant, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
 		PrincipalID: principal.Principal.ID, Effect: contract.GrantAllow, ServerID: requestID(400),
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)

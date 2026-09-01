@@ -3463,6 +3463,7 @@ async function runPrincipals(
         principal: created,
         default_grant: {
           id: grantID,
+          name: "Default Gateway access",
           principal_id: createdID,
           effect: "allow",
           server_id: "00000000000000000000000000",
@@ -4026,6 +4027,7 @@ async function runGrantReadsCreate(
     expiresAt: string | null,
   ) => ({
     id,
+    name: id === firstGrantID ? "Reporting access" : "Restricted access",
     principal_id: principalID,
     effect,
     server_id: serverID,
@@ -4128,7 +4130,8 @@ async function runGrantReadsCreate(
     const body = JSON.parse(raw) as Record<string, unknown>;
     if (
       Object.keys(body).join(",") !==
-        "principal_id,effect,server_id,upstream_name,constraint,expires_at" ||
+        "name,principal_id,effect,server_id,upstream_name,constraint,expires_at" ||
+      body.name !== "New access" ||
       body.principal_id !== principalID ||
       body.server_id !== serverID
     )
@@ -4230,6 +4233,7 @@ async function runGrantReadsCreate(
     { principal: principalID, server: serverID },
   );
   await page.locator('[data-testid="grant-create-view"]').waitFor();
+  await page.locator('[data-testid="grant-name"]').fill("New access");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page.getByText("The grant is invalid.", { exact: true }).waitFor();
   if (attempts !== 1) fail("rejected grant creation was replayed");
@@ -4243,6 +4247,7 @@ async function runGrantReadsCreate(
     { principal: principalID, server: serverID },
   );
   await page.locator('[data-testid="grant-create-view"]').waitFor();
+  await page.locator('[data-testid="grant-name"]').fill("New access");
   await page.locator('[data-testid="grant-effect"]').selectOption("deny");
   await page.locator('[data-testid="grant-scope"]').selectOption("tool");
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
@@ -4337,6 +4342,7 @@ async function runGrantCorrection(
     state: "active" | "expired" = "active",
   ) => ({
     id,
+    name: target === zero ? "Default Gateway access" : `Grant ${id}`,
     principal_id: principalID,
     effect,
     server_id: target,
@@ -4451,6 +4457,8 @@ async function runGrantCorrection(
       unknown
     >;
     const principalID = body.principal_id as string;
+    if (typeof body.name !== "string" || body.name.length === 0)
+      fail("grant replacement omitted its name");
     if (principalID === principalIDs[2]) {
       await route.fulfill({
         status: 400,
@@ -4482,6 +4490,7 @@ async function runGrantCorrection(
       body.effect as "allow" | "deny",
       body.server_id as string,
     );
+    item.name = body.name;
     grants.set(replacementID, item);
     replacements.set(principalID, replacementID);
     await route.fulfill({
@@ -5036,7 +5045,11 @@ async function runRequestAdjudication(
         string,
         unknown
       >;
-      if (Object.keys(body).join(",") !== "approved_policy")
+      if (
+        Object.keys(body).join(",") !== "name,approved_policy" ||
+        typeof body.name !== "string" ||
+        !body.name.startsWith("Access to ")
+      )
         fail("approval body changed shape");
       const approved = body.approved_policy as ReturnType<typeof policy>;
       states.set(id, detail(id, submitted, "approved", approved));
@@ -5074,6 +5087,9 @@ async function runRequestAdjudication(
       .locator('[data-testid="request-adjudication-confirm-submit"]')
       .click();
   };
+  const reviewApproval = async () => {
+    await page.locator('[data-testid="request-approve"]').click();
+  };
 
   await page.evaluate((id) => {
     window.location.hash = `#/requests/${id}`;
@@ -5089,7 +5105,7 @@ async function runRequestAdjudication(
     .locator('[data-testid="approval-constraint"]')
     .fill('{"equals":{"/mode":"safe"}}');
   await page.locator('[data-testid="approval-duration"]').fill("600");
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await confirm();
   try {
     await page
@@ -5103,20 +5119,20 @@ async function runRequestAdjudication(
 
   await navigate(ids[1]!);
   await page.locator('[data-testid="approval-duration"]').fill("601");
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await page
     .getByText("Approval cannot extend the submitted duration.", {
       exact: true,
     })
     .waitFor();
   await page.locator('[data-testid="approval-duration"]').fill("");
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await page
     .getByText("A temporary request cannot become permanent.", { exact: true })
     .waitFor();
   await page.locator('[data-testid="approval-duration"]').fill("300");
   await page.locator('[data-testid="approval-constraint"]').fill("");
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await page
     .getByText(
       "Approval cannot remove or change a submitted constraint atom.",
@@ -5126,7 +5142,7 @@ async function runRequestAdjudication(
   await page
     .locator('[data-testid="approval-constraint"]')
     .fill('{"equals":{"/mode":"safe","/region":"local"}}');
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })
@@ -5152,14 +5168,14 @@ async function runRequestAdjudication(
 
   await navigate(ids[9]!);
   await page.locator('[data-testid="approval-duration"]').fill("60");
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })
     .waitFor();
 
   await navigate(ids[6]!);
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })
@@ -5175,7 +5191,7 @@ async function runRequestAdjudication(
   if ((attempts.get(ids[7]!) ?? 0) !== 1) fail("known failure replayed");
 
   await navigate(ids[8]!);
-  await page.locator('[data-testid="request-approve"]').click();
+  await reviewApproval();
   await confirm();
   await page
     .getByText("Adjudication outcome is unknown", { exact: true })

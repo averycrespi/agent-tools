@@ -42,6 +42,7 @@ type PatchPrincipalRequest struct {
 }
 
 type CreateGrantRequest struct {
+	Name         string
 	PrincipalID  string
 	Effect       contract.GrantEffect
 	ServerID     string

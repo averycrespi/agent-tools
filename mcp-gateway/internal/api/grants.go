@@ -16,6 +16,7 @@ import (
 )
 
 type rawGrantCreate struct {
+	Name         json.RawMessage `json:"name"`
 	PrincipalID  json.RawMessage `json:"principal_id"`
 	Effect       json.RawMessage `json:"effect"`
 	ServerID     json.RawMessage `json:"server_id"`
@@ -92,7 +93,8 @@ func (handler *Handler) createGrant(writer http.ResponseWriter, request *http.Re
 
 func decodeGrantCreate(writer http.ResponseWriter, raw rawGrantCreate) (authorization.CreateGrantRequest, bool) {
 	var request authorization.CreateGrantRequest
-	if !decodeRequiredGrantMember(raw.PrincipalID, &request.PrincipalID) ||
+	if !decodeRequiredGrantMember(raw.Name, &request.Name) ||
+		!decodeRequiredGrantMember(raw.PrincipalID, &request.PrincipalID) ||
 		!decodeRequiredGrantMember(raw.Effect, &request.Effect) ||
 		!decodeRequiredGrantMember(raw.ServerID, &request.ServerID) ||
 		!decodeNullableGrantMember(raw.UpstreamName, &request.UpstreamName) {

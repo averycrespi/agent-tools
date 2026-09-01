@@ -446,6 +446,8 @@ function RequestActions({
     controller.snapshot(),
   );
   const [mode, setMode] = useState<"approve" | "reject">("approve");
+  const defaultName = `Access to ${submitted.target}`;
+  const [name, setName] = useState(defaultName);
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
   const [constraint, setConstraint] = useState(
@@ -454,6 +456,7 @@ function RequestActions({
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
   const initialDraft = useRef({
+    name: defaultName,
     scope: submitted.scope,
     target: submitted.target,
     constraint:
@@ -462,7 +465,7 @@ function RequestActions({
     reason: "not_approved",
   });
   useUnsavedChanges(
-    JSON.stringify({ scope, target, constraint, duration, reason }) !==
+    JSON.stringify({ name, scope, target, constraint, duration, reason }) !==
       JSON.stringify(initialDraft.current),
   );
   const [error, setError] = useState<string>();
@@ -536,8 +539,17 @@ function RequestActions({
       const body =
         next === "approve"
           ? (() => {
+              if (
+                name.trim() !== name ||
+                name.length === 0 ||
+                new TextEncoder().encode(name).length > 256
+              )
+                throw new Error(
+                  "Grant name must be between 1 and 256 bytes without surrounding whitespace.",
+                );
               const policy = approvedPolicy();
               return JSON.stringify({
+                name,
                 approved_policy: {
                   scope: policy.scope,
                   target: policy.target,
@@ -572,7 +584,14 @@ function RequestActions({
     const outcome = await controller.submit();
     if (outcome.kind === "acknowledged") {
       setBlockedETag(undefined);
-      initialDraft.current = { scope, target, constraint, duration, reason };
+      initialDraft.current = {
+        name,
+        scope,
+        target,
+        constraint,
+        duration,
+        reason,
+      };
       onAcknowledged(outcome.value);
       controller.abandon();
       onRefresh();
@@ -611,6 +630,19 @@ function RequestActions({
         Approval creates one ordinary ALLOW only. It never resumes, retries, or
         executes a held call. Rejection records one closed reason.
       </p>
+      <FormField id="approval-name" label="Grant name" required>
+        {(attributes) => (
+          <input
+            {...attributes}
+            data-testid="approval-name"
+            value={name}
+            maxlength={256}
+            disabled={disabled}
+            onInput={(event) => setName(event.currentTarget.value)}
+            required
+          />
+        )}
+      </FormField>
       <FormField id="approval-scope" label="Approved scope">
         {(attributes) => (
           <select

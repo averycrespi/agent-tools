@@ -35,7 +35,7 @@ func runGrantCreate(command *cobra.Command, options *onlineOptions) error {
 }
 
 func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byte, error) {
-	allowed := []string{"principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"}
+	allowed := []string{"name", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"}
 	body, err := readOnlineJSONInput(command, options, allowed)
 	if err != nil {
 		return nil, err
@@ -49,9 +49,9 @@ func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byt
 			return nil, controlclient.ErrInvalidInput
 		}
 	}
-	var principalID, serverID string
+	var name, principalID, serverID string
 	var effect contract.GrantEffect
-	if json.Unmarshal(object["principal_id"], &principalID) != nil || !gatewayIDPattern.MatchString(principalID) || json.Unmarshal(object["server_id"], &serverID) != nil || !gatewayIDPattern.MatchString(serverID) || json.Unmarshal(object["effect"], &effect) != nil {
+	if json.Unmarshal(object["name"], &name) != nil || !validGrantName(name) || json.Unmarshal(object["principal_id"], &principalID) != nil || !gatewayIDPattern.MatchString(principalID) || json.Unmarshal(object["server_id"], &serverID) != nil || !gatewayIDPattern.MatchString(serverID) || json.Unmarshal(object["effect"], &effect) != nil {
 		return nil, controlclient.ErrInvalidInput
 	}
 	if _, err := contract.ParseGrantEffect(string(effect)); err != nil {
@@ -214,12 +214,16 @@ func grantDeleteUncertainTitle(id string) string {
 }
 
 func validGrant(grant contract.Grant) bool {
-	if !gatewayIDPattern.MatchString(grant.ID) || !gatewayIDPattern.MatchString(grant.PrincipalID) || !gatewayIDPattern.MatchString(grant.ServerID) {
+	if !gatewayIDPattern.MatchString(grant.ID) || !validGrantName(grant.Name) || !gatewayIDPattern.MatchString(grant.PrincipalID) || !gatewayIDPattern.MatchString(grant.ServerID) {
 		return false
 	}
 	_, effectErr := contract.ParseGrantEffect(string(grant.Effect))
 	_, stateErr := contract.ParseGrantState(string(grant.State))
 	return effectErr == nil && stateErr == nil
+}
+
+func validGrantName(value string) bool {
+	return len(value) >= 1 && len(value) <= 256 && utf8.ValidString(value) && !containsControl(value) && strings.TrimSpace(value) == value
 }
 
 func grantListTable(body []byte) (controlclient.Table, error) {
@@ -249,7 +253,7 @@ func grantTable(grants []contract.Grant) controlclient.Table {
 		if grant.Constraint != nil {
 			constraint = "scalar equals"
 		}
-		rows = append(rows, []string{grant.ID, grant.PrincipalID, string(grant.Effect), grant.ServerID, upstream, constraint, pointerText(grant.ExpiresAt), string(grant.State), grant.CreatedAt})
+		rows = append(rows, []string{grant.Name, grant.ID, grant.PrincipalID, string(grant.Effect), grant.ServerID, upstream, constraint, pointerText(grant.ExpiresAt), string(grant.State), grant.CreatedAt})
 	}
-	return controlclient.Table{Headers: []string{"ID", "PRINCIPAL", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"NAME", "ID", "PRINCIPAL", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
 }

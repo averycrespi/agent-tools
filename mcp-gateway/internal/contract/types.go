@@ -82,6 +82,7 @@ type AgentCredentialCreation struct {
 
 type Grant struct {
 	ID           string           `json:"id"`
+	Name         string           `json:"name"`
 	PrincipalID  string           `json:"principal_id"`
 	Effect       GrantEffect      `json:"effect"`
 	ServerID     string           `json:"server_id"`

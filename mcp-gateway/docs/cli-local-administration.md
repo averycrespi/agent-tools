@@ -77,7 +77,7 @@ Lists return one page and use command-scoped `--limit`, `--cursor`, and filter f
 | Strict `--file` only                        | `server create`, `server credential replace`                                                                        |
 | Direct flags or strict `--file`, never both | `server update`, `grant create`, `grant-request approve`                                                            |
 
-Use `--file PATH` or `--file -` for the strict file form. `--file -` conflicts with `--admin-bearer-stdin`. Constrained grant and approval shapes require the file form; their direct forms cover the ordinary unconstrained case. Credential issue, rotate, and revoke commands have no request-document input.
+Use `--file PATH` or `--file -` for the strict file form. `--file -` conflicts with `--admin-bearer-stdin`. Constrained grant and approval shapes require the file form; their direct forms cover the ordinary unconstrained case. Both forms require the human-readable grant `name` (`--name` in direct mode). Credential issue, rotate, and revoke commands have no request-document input.
 
 ## Confirmations and one-time values
 

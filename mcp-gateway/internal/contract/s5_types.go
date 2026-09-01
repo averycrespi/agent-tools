@@ -103,6 +103,7 @@ type GrantRequest struct {
 }
 
 type GrantRequestApproval struct {
+	Name           string `json:"name"`
 	ApprovedPolicy Policy `json:"approved_policy"`
 }
 
