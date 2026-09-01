@@ -35,13 +35,13 @@ type SelfIdentity struct {
 }
 
 type AgentGrant struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Effect    GrantEffect `json:"effect"`
-	Policy    GrantPolicy `json:"policy"`
-	ExpiresAt *string     `json:"expires_at"`
-	State     GrantState  `json:"state"`
-	CreatedAt string      `json:"created_at"`
+	ID          string      `json:"id"`
+	Description *string     `json:"description"`
+	Effect      GrantEffect `json:"effect"`
+	Policy      GrantPolicy `json:"policy"`
+	ExpiresAt   *string     `json:"expires_at"`
+	State       GrantState  `json:"state"`
+	CreatedAt   string      `json:"created_at"`
 }
 
 type AgentGrantRequest struct {
@@ -104,8 +104,8 @@ type GrantRequest struct {
 }
 
 type GrantRequestApproval struct {
-	Name           string `json:"name"`
-	ApprovedPolicy Policy `json:"approved_policy"`
+	Description    *string `json:"description"`
+	ApprovedPolicy Policy  `json:"approved_policy"`
 }
 
 type GrantRequestRejection struct {

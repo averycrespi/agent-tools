@@ -154,6 +154,8 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runOnlineRead(command, options, "/api/v1/grants/"+args[0], grantItemTable)
 	case "grant create":
 		return runGrantCreate(command, options)
+	case "grant update":
+		return runGrantUpdate(command, options, args)
 	case "grant delete":
 		return runGrantDelete(command, options, args)
 	case "grant-request list":

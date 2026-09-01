@@ -49,7 +49,7 @@ func TestGrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 		"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
 		"If-Match": contract.GrantRequestETag(service.item.ID, "1"),
 	}
-	approved := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", `{"name":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, approveHeaders)
+	approved := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", `{"description":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, approveHeaders)
 	require.Equal(t, http.StatusOK, approved.Code, approved.Body.String())
 	assert.Equal(t, "1", service.revision)
 	assert.Equal(t, "Approved access", service.name)
@@ -82,7 +82,7 @@ func TestGrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, badCursor.Code)
 	assert.Contains(t, badCursor.Body.String(), "invalid_cursor")
 
-	body := `{"name":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`
+	body := `{"description":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`
 	contentHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
 	missing := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", body, contentHeaders)
 	assert.Equal(t, 428, missing.Code)
@@ -172,8 +172,11 @@ func (service *fakeGrantRequestService) GetAdmin(context.Context, string) (contr
 	return service.item, service.err
 }
 
-func (service *fakeGrantRequestService) ApproveAdmin(_ context.Context, _ string, revision, name string, policy contract.Policy) (contract.GrantRequest, error) {
-	service.revision, service.name, service.policy = revision, name, policy
+func (service *fakeGrantRequestService) ApproveAdmin(_ context.Context, _ string, revision string, description *string, policy contract.Policy) (contract.GrantRequest, error) {
+	service.revision, service.policy = revision, policy
+	if description != nil {
+		service.name = *description
+	}
 	item := service.item
 	item.Revision = "2"
 	return item, service.err

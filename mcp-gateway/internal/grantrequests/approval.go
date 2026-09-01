@@ -23,7 +23,7 @@ type ApprovalAuthority interface {
 
 // ApproveRequest identifies one exact pending revision and its mechanically narrowed policy.
 type ApproveRequest struct {
-	Name             string
+	Description      *string
 	ID               string
 	ExpectedRevision string
 	ApprovedPolicy   contract.Policy
@@ -51,7 +51,7 @@ type approvalTransition struct {
 
 // Approve initiates one authorization-owned atomic approval transaction.
 func (repository *Repository) Approve(ctx context.Context, authority ApprovalAuthority, request ApproveRequest) (ApproveResult, error) {
-	if authority == nil || !validGrantName(request.Name) || !opaqueIDPattern.MatchString(request.ID) || !validExpectedRevision(request.ExpectedRevision) {
+	if authority == nil || !validGrantDescription(request.Description) || !opaqueIDPattern.MatchString(request.ID) || !validExpectedRevision(request.ExpectedRevision) {
 		return ApproveResult{}, ErrInvalidInput
 	}
 	approved, err := CompilePolicy(request.ApprovedPolicy)
@@ -164,7 +164,7 @@ func (transition *approvalTransition) PrepareGrantRequestApproval(ctx context.Co
 		duration = &value
 	}
 	return authorization.ApprovalGrantMaterial{
-		Name: transition.request.Name, PrincipalID: transition.principalID, ServerID: transition.serverID,
+		Description: transition.request.Description, PrincipalID: transition.principalID, ServerID: transition.serverID,
 		UpstreamName: approvedTarget.UpstreamName, Constraint: transition.approved.ConstraintJSON(), DurationSeconds: duration,
 	}, nil
 }
@@ -239,11 +239,14 @@ func (transition *approvalTransition) CommitGrantRequestApproval(
 	return result, nil
 }
 
-func validGrantName(value string) bool {
-	if !utf8.ValidString(value) || len(value) < 1 || len(value) > 256 || strings.TrimSpace(value) != value {
+func validGrantDescription(value *string) bool {
+	if value == nil {
+		return true
+	}
+	if !utf8.ValidString(*value) || len(*value) < 1 || len(*value) > 256 || strings.TrimSpace(*value) != *value {
 		return false
 	}
-	for _, character := range value {
+	for _, character := range *value {
 		if unicode.IsControl(character) {
 			return false
 		}

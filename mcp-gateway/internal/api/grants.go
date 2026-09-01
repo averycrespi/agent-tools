@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
@@ -16,7 +17,7 @@ import (
 )
 
 type rawGrantCreate struct {
-	Name         json.RawMessage `json:"name"`
+	Description  json.RawMessage `json:"description"`
 	PrincipalID  json.RawMessage `json:"principal_id"`
 	Effect       json.RawMessage `json:"effect"`
 	ServerID     json.RawMessage `json:"server_id"`
@@ -48,7 +49,10 @@ func (handler *Handler) grantMember(writer http.ResponseWriter, request *http.Re
 			writeGrantError(writer, err)
 			return
 		}
+		writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
 		writeJSON(writer, http.StatusOK, grant)
+	case http.MethodPatch:
+		handler.patchGrant(writer, request, grantID)
 	case http.MethodDelete:
 		if !bodyless(request) || request.URL.RawQuery != "" {
 			writeProblem(writer, contract.ProblemMalformedRequest)
@@ -63,6 +67,73 @@ func (handler *Handler) grantMember(writer http.ResponseWriter, request *http.Re
 	default:
 		writeProblem(writer, contract.ProblemNotFound)
 	}
+}
+
+type rawGrantPatch struct {
+	Description json.RawMessage `json:"description"`
+}
+
+func (handler *Handler) patchGrant(writer http.ResponseWriter, request *http.Request, grantID string) {
+	if request.URL.RawQuery != "" {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	var raw rawGrantPatch
+	if !decodeStrictBody(writer, request, &raw) {
+		return
+	}
+	if raw.Description == nil {
+		writeProblem(writer, contract.ProblemInvalidGrant)
+		return
+	}
+	var description *string
+	if !decodeNullableGrantMember(raw.Description, &description) {
+		writeProblem(writer, contract.ProblemInvalidGrant)
+		return
+	}
+	revision, ok := grantPrecondition(writer, request, grantID)
+	if !ok {
+		return
+	}
+	grant, err := handler.principals.PatchGrant(request.Context(), grantID, authorization.PatchGrantRequest{
+		ExpectedRevision: revision,
+		Description:      &description,
+	})
+	if err != nil {
+		writeGrantError(writer, err)
+		return
+	}
+	writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
+	handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
+	writeJSON(writer, http.StatusOK, grant)
+}
+
+func grantPrecondition(writer http.ResponseWriter, request *http.Request, grantID string) (string, bool) {
+	values := request.Header.Values("If-Match")
+	if len(values) == 0 {
+		writeProblem(writer, contract.ProblemGrantPreconditionRequired)
+		return "", false
+	}
+	if len(values) != 1 {
+		writeProblem(writer, contract.ProblemStaleGrantRevision)
+		return "", false
+	}
+	prefix := `"grant-` + grantID + `-`
+	value := values[0]
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, `"`) {
+		writeProblem(writer, contract.ProblemStaleGrantRevision)
+		return "", false
+	}
+	revision := strings.TrimSuffix(strings.TrimPrefix(value, prefix), `"`)
+	if revision == "" || len(revision) > 1 && revision[0] == '0' {
+		writeProblem(writer, contract.ProblemStaleGrantRevision)
+		return "", false
+	}
+	if _, err := strconv.ParseUint(revision, 10, 64); err != nil {
+		writeProblem(writer, contract.ProblemStaleGrantRevision)
+		return "", false
+	}
+	return revision, true
 }
 
 func (handler *Handler) createGrant(writer http.ResponseWriter, request *http.Request) {
@@ -88,12 +159,13 @@ func (handler *Handler) createGrant(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
+	writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
 	writeJSON(writer, http.StatusCreated, grant)
 }
 
 func decodeGrantCreate(writer http.ResponseWriter, raw rawGrantCreate) (authorization.CreateGrantRequest, bool) {
 	var request authorization.CreateGrantRequest
-	if !decodeRequiredGrantMember(raw.Name, &request.Name) ||
+	if !decodeNullableGrantMember(raw.Description, &request.Description) ||
 		!decodeRequiredGrantMember(raw.PrincipalID, &request.PrincipalID) ||
 		!decodeRequiredGrantMember(raw.Effect, &request.Effect) ||
 		!decodeRequiredGrantMember(raw.ServerID, &request.ServerID) ||
@@ -215,6 +287,10 @@ func writeGrantError(writer http.ResponseWriter, err error) {
 		writeProblem(writer, contract.ProblemInvalidGrant)
 	case errors.Is(err, authorization.ErrResourceLimit):
 		writeProblem(writer, contract.ProblemResourceLimit)
+	case errors.Is(err, authorization.ErrStaleRevision):
+		writeProblem(writer, contract.ProblemStaleGrantRevision)
+	case errors.Is(err, authorization.ErrConflict):
+		writeProblem(writer, contract.ProblemConflict)
 	case errors.Is(err, authorization.ErrStaleCursor):
 		writeProblem(writer, contract.ProblemStaleCursor)
 	case errors.Is(err, authorization.ErrShuttingDown):

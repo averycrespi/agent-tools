@@ -46,7 +46,7 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 | `/api/v1/principals/{id}`                            | `GET, PATCH`         | admin bearer or session                           |
 | `/api/v1/principals/{id}/credential`                 | `DELETE, POST`       | admin bearer or session                           |
 | `/api/v1/grants`                                     | `GET, POST`          | admin bearer or session                           |
-| `/api/v1/grants/{id}`                                | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v1/grants/{id}`                                | `DELETE, GET, PATCH` | admin bearer or session                           |
 | `/api/v1/grant-requests`                             | `GET`                | admin bearer or session                           |
 | `/api/v1/grant-requests/{id}`                        | `GET`                | admin bearer or session                           |
 | `/api/v1/grant-requests/{id}/approve`                | `POST`               | admin bearer or session                           |
@@ -99,6 +99,8 @@ Problems have exactly `status`, `code`, and `title`. The fixed table is exhausti
 |    503 | `downstream_unavailable`                | The downstream server is unavailable.                               |
 |    400 | `invalid_principal`                     | The principal is invalid.                                           |
 |    400 | `invalid_grant`                         | The grant is invalid.                                               |
+|    412 | `stale_grant_revision`                  | The grant revision is stale.                                        |
+|    428 | `grant_precondition_required`           | The current grant revision is required.                             |
 |    412 | `stale_principal_revision`              | The principal revision is stale.                                    |
 |    428 | `principal_precondition_required`       | The current principal revision is required.                         |
 |    503 | `authorization_unavailable`             | Authorization is unavailable.                                       |
@@ -204,7 +206,7 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `s2_idempotency_records`                |       1024 |
 | `principals`                            |        128 |
 | `grants`                                |       4096 |
-| `grant_name_bytes`                      |        256 |
+| `grant_description_bytes`               |        256 |
 | `constraint_atoms`                      |         16 |
 | `constraint_bytes`                      |       8192 |
 | `constraint_pointer_bytes`              |        256 |

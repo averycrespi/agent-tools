@@ -30,7 +30,8 @@ type GrantState = "active" | "expired";
 type ScalarType = "null" | "boolean" | "string" | "number";
 interface Grant {
   id: string;
-  name: string;
+  description: string | null;
+  revision: string;
   principalID: string;
   effect: Effect;
   serverID: string;
@@ -65,7 +66,8 @@ function id(value: unknown): string {
 function decodeGrant(value: unknown): Grant {
   const item = record(value, [
     "id",
-    "name",
+    "description",
+    "revision",
     "principal_id",
     "effect",
     "server_id",
@@ -86,7 +88,8 @@ function decodeGrant(value: unknown): Grant {
     throw new Error("invalid response");
   return {
     id: id(item.id),
-    name: text(item.name),
+    description: item.description === null ? null : text(item.description),
+    revision: text(item.revision),
     principalID: id(item.principal_id),
     effect: item.effect,
     serverID: id(item.server_id),
@@ -232,7 +235,7 @@ function GrantCreate({
   servers: readonly ServerView[];
 }) {
   const initialDraft = useRef({
-    name: "",
+    description: "",
     principalID: query.principal_id ?? "",
     effect: "allow" as Effect,
     serverID: query.server_id ?? "",
@@ -241,7 +244,9 @@ function GrantCreate({
     expiresAt: "",
     atoms: [] as Atom[],
   });
-  const [name, setName] = useState(initialDraft.current.name);
+  const [description, setDescription] = useState(
+    initialDraft.current.description,
+  );
   const [principalID, setPrincipalID] = useState(
     initialDraft.current.principalID,
   );
@@ -263,7 +268,7 @@ function GrantCreate({
   );
   const navigate = useUnsavedChanges(
     JSON.stringify({
-      name,
+      description,
       principalID,
       effect,
       serverID,
@@ -285,15 +290,15 @@ function GrantCreate({
     setError(undefined);
     try {
       if (
-        name.trim() !== name ||
-        name.length === 0 ||
-        new TextEncoder().encode(name).length > 256
+        description.length > 0 &&
+        (description.trim() !== description ||
+          new TextEncoder().encode(description).length > 256)
       )
         throw new Error(
-          "Name must be between 1 and 256 bytes without surrounding whitespace.",
+          "Description must be at most 256 bytes without surrounding whitespace.",
         );
-      if (containsControlCharacters(name))
-        throw new Error("Name cannot contain control characters.");
+      if (containsControlCharacters(description))
+        throw new Error("Description cannot contain control characters.");
       if (!gatewayID.test(principalID) || !gatewayID.test(serverID))
         throw new Error(
           "Principal and server IDs must be complete Gateway IDs.",
@@ -316,7 +321,7 @@ function GrantCreate({
       )
         throw new Error("Expiry must be a future canonical UTC timestamp.");
       const constraint = constraintText(atoms);
-      const body = `{"name":${JSON.stringify(name)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+      const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
       const spec: MutationSpec<Grant> = {
         route: "/api/v1/grants",
         method: "POST",
@@ -346,8 +351,8 @@ function GrantCreate({
           </div>
         </div>
         <p class="bounded-note">
-          The name, effect, target, scope, constraints, and expiry cannot be
-          edited after creation. Changing policy requires a separate grant.
+          The effect, target, scope, constraints, and expiry cannot be edited
+          after creation. You can update the optional description later.
         </p>
         <form
           onSubmit={(event) => {
@@ -355,15 +360,19 @@ function GrantCreate({
             review();
           }}
         >
-          <FormField id="grant-name" label="Name" required>
+          <FormField
+            id="grant-description"
+            label="Description"
+            hint="Display metadata; it does not change authorization policy."
+            optional
+          >
             {(attributes) => (
               <input
                 {...attributes}
-                data-testid="grant-name"
-                value={name}
+                data-testid="grant-description"
+                value={description}
                 maxlength={256}
-                onInput={(event) => setName(event.currentTarget.value)}
-                required
+                onInput={(event) => setDescription(event.currentTarget.value)}
               />
             )}
           </FormField>
@@ -443,7 +452,11 @@ function GrantCreate({
             )}
           </FormField>
           {scope === "tool" && (
-            <FormField id="grant-upstream" label="Exact upstream name" required>
+            <FormField
+              id="grant-upstream"
+              label="Exact upstream tool name"
+              required
+            >
               {(attributes) => (
                 <input
                   {...attributes}
@@ -616,8 +629,8 @@ function GrantCreate({
               </p>
               <dl class="fact-grid">
                 <div>
-                  <dt>Name</dt>
-                  <dd>{name}</dd>
+                  <dt>Description</dt>
+                  <dd>{description}</dd>
                 </div>
                 <div>
                   <dt>Principal</dt>
@@ -702,6 +715,106 @@ async function principalVisibility(
     : undefined;
 }
 
+function GrantDescriptionEditor({
+  mutations,
+  grant,
+}: {
+  mutations: MutationCoordinator;
+  grant: Grant;
+}) {
+  const [description, setDescription] = useState(grant.description ?? "");
+  const [error, setError] = useState<string>();
+  const [controller] = useState<MutationController<Grant>>(() =>
+    mutations.create<Grant>(),
+  );
+  const [mutation, setMutation] = useState<MutationSnapshot>(() =>
+    controller.snapshot(),
+  );
+  useEffect(() => controller.subscribe(setMutation), [controller]);
+  useEffect(() => () => controller.close(), [controller]);
+  const submit = async () => {
+    setError(undefined);
+    if (
+      description.length > 0 &&
+      (description.trim() !== description ||
+        new TextEncoder().encode(description).length > 256 ||
+        containsControlCharacters(description))
+    ) {
+      setError(
+        "Description must be at most 256 bytes without surrounding whitespace or control characters.",
+      );
+      return;
+    }
+    if (description === (grant.description ?? "")) {
+      setError("Change the description before saving.");
+      return;
+    }
+    controller.begin({
+      route: `/api/v1/grants/${grant.id}`,
+      method: "PATCH",
+      body: JSON.stringify({
+        description: description === "" ? null : description,
+      }),
+      precondition: `"grant-${grant.id}-${grant.revision}"`,
+      requiresPrecondition: true,
+      idempotency: "none",
+      successStatuses: [200],
+      decode: decodeMutation,
+    });
+    await controller.submit();
+  };
+  return (
+    <section
+      class="panel domain-panel"
+      aria-labelledby="grant-description-title"
+    >
+      <div class="panel-heading">
+        <div>
+          <span class="panel-code">DISPLAY METADATA</span>
+          <h2 id="grant-description-title">Description</h2>
+        </div>
+      </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <FormField
+          id="grant-description-edit"
+          label="Description"
+          hint="Editing this field does not change authorization policy."
+          optional
+        >
+          {(attributes) => (
+            <input
+              {...attributes}
+              value={description}
+              maxlength={256}
+              onInput={(event) => setDescription(event.currentTarget.value)}
+            />
+          )}
+        </FormField>
+        {error !== undefined && (
+          <StateNotice state="error" title="Description not saved">
+            <p>{error}</p>
+          </StateNotice>
+        )}
+        <button
+          class="button-safe"
+          type="submit"
+          disabled={
+            mutation.state === "submitting" ||
+            mutation.availability === "storage_latched"
+          }
+        >
+          {mutation.state === "submitting" ? "Saving…" : "Save description"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function GrantActions({
   session,
   mutations,
@@ -754,7 +867,7 @@ function GrantActions({
 
   const createSpec = (): MutationSpec<GrantActionResult> => {
     const body = JSON.stringify({
-      name: grant.name,
+      description: grant.description,
       principal_id: grant.principalID,
       effect: replacementEffect,
       server_id: grant.serverID,
@@ -1130,10 +1243,8 @@ export function Grants({
         <section class="panel domain-panel" aria-labelledby="grant-title">
           <div class="panel-heading">
             <div>
-              <span class="panel-value">
-                Immutable {detail.effect === "allow" ? "Allow" : "Deny"}
-              </span>
-              <h2 id="grant-title">{detail.name}</h2>
+              <span class="panel-value">Grant details</span>
+              <h2 id="grant-title">Grant {detail.id}</h2>
             </div>
             <StatusLabel
               state={detail.state === "active" ? "current" : "warning"}
@@ -1145,6 +1256,14 @@ export function Grants({
             <div>
               <dt>ID</dt>
               <dd>{detail.id}</dd>
+            </div>
+            <div>
+              <dt>Effect</dt>
+              <dd>{detail.effect === "allow" ? "Allow" : "Deny"}</dd>
+            </div>
+            <div>
+              <dt>Description</dt>
+              <dd>{detail.description ?? "—"}</dd>
             </div>
             <div>
               <dt>Principal</dt>
@@ -1191,6 +1310,11 @@ export function Grants({
             <InertJSON value={detail.constraint} label="Grant constraint" />
           )}
         </section>
+        <GrantDescriptionEditor
+          key={`${detail.id}-${detail.revision}`}
+          mutations={mutations}
+          grant={detail}
+        />
         <GrantActions
           key={detail.id}
           session={session}
@@ -1232,9 +1356,9 @@ export function Grants({
             filters={[
               {
                 key: "identity",
-                label: "Name or ID",
+                label: "Description or ID",
                 type: "text",
-                value: (grant) => grant.name,
+                value: (grant) => grant.description ?? "",
                 literalValues: (grant) => [grant.id],
               },
               {
@@ -1275,11 +1399,17 @@ export function Grants({
             ]}
             columns={[
               {
-                key: "name",
-                label: "Name",
-                sortValue: (grant) => grant.name,
+                key: "description",
+                label: "Description",
+                sortValue: (grant) => grant.description ?? "",
                 render: (grant) => (
-                  <a href={`#/grants/${grant.id}`}>{grant.name}</a>
+                  <a href={`#/grants/${grant.id}`}>
+                    {grant.description === null
+                      ? "—"
+                      : grant.description.length > 64
+                        ? `${grant.description.slice(0, 61)}…`
+                        : grant.description}
+                  </a>
                 ),
               },
               {

@@ -46,19 +46,20 @@ func TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss(t *testing.T) {
 	require.True(t, found)
 	require.Nil(t, inFlight.TerminalClass)
 
-	require.NoError(t, audits.store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		for index := 0; index < int(invocationLimit())-1; index++ {
-			_, insertErr := transaction.ExecContext(context.Background(), `INSERT INTO invocations (
-				id, principal_id, credential_id, credential_fingerprint, credential_revision,
-				admitted_at, admission_class
-			) VALUES (?, ?, ?, ?, ?, ?, 'invalid_params')`,
-				invocationID(1000+index), inFlight.PrincipalID, inFlight.CredentialID,
-				inFlight.CredentialFingerprint, inFlight.CredentialRevision, inFlight.AdmittedAt)
-			if insertErr != nil {
-				return insertErr
-			}
+	fixtures := make([]PreparedAdmission, int(invocationLimit())-1)
+	for index := range fixtures {
+		fixtures[index] = PreparedAdmission{
+			InvocationID: invocationID(1000 + index),
+			AdmittedAt:   inFlight.AdmittedAt,
+			admission: Admission{
+				PrincipalID: inFlight.PrincipalID, CredentialID: inFlight.CredentialID,
+				CredentialFingerprint: inFlight.CredentialFingerprint, CredentialRevision: inFlight.CredentialRevision,
+				Class: contract.AdmissionInvalidParams,
+			},
 		}
-		return nil
+	}
+	require.NoError(t, audits.store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		return insertInvocationFixtures(context.Background(), transaction, fixtures)
 	}))
 	prepared, err := audits.Prepare(Admission{
 		PrincipalID: inFlight.PrincipalID, CredentialID: inFlight.CredentialID,

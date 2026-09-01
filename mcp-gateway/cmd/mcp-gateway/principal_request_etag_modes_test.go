@@ -32,7 +32,8 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 	}{
 		{name: "principal update", args: []string{"principal", "update", id, "--display-name", "Renamed"}, etag: contract.PrincipalETag(id, "7")},
 		{name: "principal credential revoke", args: []string{"principal", "credential", "revoke", id, "--yes"}, etag: contract.PrincipalETag(id, "7")},
-		{name: "grant request approve", args: []string{"grant-request", "approve", id, "--name", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
+		{name: "grant update", args: []string{"grant", "update", id, "--description", "Updated access"}, etag: contract.GrantETag(id, "1")},
+		{name: "grant request approve", args: []string{"grant-request", "approve", id, "--description", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
 		{name: "grant request reject", args: []string{"grant-request", "reject", id, "--reason", "not_approved", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
 	}
 	for _, test := range cases {
@@ -59,7 +60,8 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 		etag string
 	}{
 		{name: "wrong principal", args: cases[0].args, etag: contract.PrincipalETag("01BX5ZZKBKACTAV9WEVGEMMVRZ", "7")},
-		{name: "malformed grant request", args: cases[2].args, etag: `W/"grant-request-` + id + `-1"`},
+		{name: "wrong grant", args: cases[2].args, etag: contract.GrantETag("01BX5ZZKBKACTAV9WEVGEMMVRZ", "1")},
+		{name: "malformed grant request", args: cases[3].args, etag: `W/"grant-request-` + id + `-1"`},
 	} {
 		t.Run(invalid.name+" explicit rejects before HTTP", func(t *testing.T) {
 			server, requests := newPrincipalRequestETagServer(t, id)
@@ -123,11 +125,21 @@ func newPrincipalRequestETagServer(t *testing.T, id string) (*httptest.Server, c
 				_, _ = response.Write([]byte(principalETagBody(id, "7", true)))
 				return
 			}
+			if strings.HasPrefix(request.URL.Path, "/api/v1/grants/") {
+				response.Header().Set("ETag", contract.GrantETag(id, "1"))
+				_, _ = response.Write([]byte(grantETagBody(id, "1", "Initial access")))
+				return
+			}
 			response.Header().Set("ETag", contract.GrantRequestETag(id, "1"))
 			_, _ = response.Write([]byte(grantRequestETagBody(id, "pending", "1", nil, nil)))
 			return
 		}
 		if request.Method == http.MethodPatch || request.Method == http.MethodDelete {
+			if strings.HasPrefix(request.URL.Path, "/api/v1/grants/") {
+				response.Header().Set("ETag", contract.GrantETag(id, "2"))
+				_, _ = response.Write([]byte(grantETagBody(id, "2", "Updated access")))
+				return
+			}
 			response.Header().Set("ETag", contract.PrincipalETag(id, "8"))
 			_, _ = response.Write([]byte(principalETagBody(id, "8", request.Method != http.MethodDelete)))
 			return
@@ -152,6 +164,10 @@ func principalETagBody(id, revision string, occupied bool) string {
 		credential = `{"id":"` + id + `","fingerprint":"sha256:test","revision":"1","created_at":"2026-08-30T00:00:00Z"}`
 	}
 	return `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"` + revision + `","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"}`
+}
+
+func grantETagBody(id, revision, description string) string {
+	return `{"id":"` + id + `","description":"` + description + `","revision":"` + revision + `","principal_id":"` + id + `","effect":"allow","server_id":"` + id + `","upstream_name":null,"constraint":null,"expires_at":null,"state":"active","created_at":"2026-08-30T00:00:00Z"}`
 }
 
 func grantRequestETagBody(id, state, revision string, approvedPolicy, rejectionReason json.RawMessage) string {

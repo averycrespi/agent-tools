@@ -16,7 +16,7 @@ func TestReleaseProfileDefinitions(t *testing.T) {
 	require.NoError(t, validateFinalReleaseProfile(profile))
 	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
 	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 232)
+	assert.Len(t, profile.Coverage.ProductBehaviors, 234)
 	assert.Len(t, profile.Checks, 21)
 }
 
@@ -48,7 +48,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	assert.Equal(t, expectedChecks, actualChecks)
 	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
 	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 232)
+	assert.Len(t, profile.Coverage.ProductBehaviors, 234)
 	assert.Len(t, profile.Coverage.CleanupCriteria, 10)
 	for _, id := range profile.Coverage.ProductBehaviors {
 		assert.Equal(t, 1, productOwners[id], id)

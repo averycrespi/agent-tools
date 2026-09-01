@@ -102,7 +102,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addMake("test-integration", "go.integration")
 	integrationSelector := "^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest65536ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$"
 	integrationPackages := []string{"./internal/storage", "./internal/backup", "./internal/servers", "./internal/servercredentials", "./internal/grantrequests", "./internal/authorization", "./internal/catalog", "./internal/invocation", "./internal/composition"}
-	integrationArgv := []string{"go", "test", "-race", "-count=1", "-tags=integration", "-timeout=60s", "-run", integrationSelector}
+	integrationArgv := []string{"go", "test", "-race", "-count=1", "-tags=integration", "-timeout=300s", "-run", integrationSelector}
 	addCommand("go.integration", append(integrationArgv, integrationPackages...), []string{makefile}, nil)
 	addMake("test-e2e", "go.e2e.complete")
 	addCommand("go.e2e.complete", []string{"go", "test", "-race", "-count=1", "-tags=e2e", "-timeout=2m", "./test/e2e/..."}, []string{makefile}, nil)

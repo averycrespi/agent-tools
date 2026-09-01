@@ -13,17 +13,15 @@ func TestGrantNameSchemaBackfillsExistingGrants(t *testing.T) {
 	ownership := newOwnership(t)
 	writePopulatedSchemaNineFixture(t, ctx, ownership)
 
-	raw := openRaw(t, ownership.Layout().Database)
-	_, err := raw.ExecContext(ctx, `INSERT INTO grants (
+	store, err := openConfigured(ctx, ownership.Layout(), testOptions{})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	_, err = store.database.ExecContext(ctx, `INSERT INTO grants (
 		id, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at
 	) VALUES ('01J60000000000000000000060', '01J60000000000000000000020', 'allow',
 		'00000000000000000000000000', NULL, NULL, NULL, '2026-08-26T00:00:00Z')`)
 	require.NoError(t, err)
-	require.NoError(t, raw.Close())
-
-	store, err := Open(ctx, ownership)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, store.Close()) }()
+	require.NoError(t, store.migrateThrough(ctx, 9, 12))
 	var name string
 	require.NoError(t, store.database.QueryRowContext(ctx,
 		`SELECT name FROM grants WHERE id = '01J60000000000000000000060'`).Scan(&name))
@@ -33,12 +31,11 @@ func TestGrantNameSchemaBackfillsExistingGrants(t *testing.T) {
 func TestGrantNameSchemaRequiresBoundedNames(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
-	store, err := Initialize(ctx, ownership, testInstallationID)
+	writePopulatedSchemaNineFixture(t, ctx, ownership)
+	store, err := openConfigured(ctx, ownership.Layout(), testOptions{})
 	require.NoError(t, err)
+	require.NoError(t, store.migrateThrough(ctx, 9, 12))
 	defer func() { require.NoError(t, store.Close()) }()
-
-	assert.Equal(t, 12, CurrentSchema)
-	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 
 	columns, err := store.database.QueryContext(ctx, `PRAGMA table_info(grants)`)
 	require.NoError(t, err)
@@ -56,5 +53,5 @@ func TestGrantNameSchemaRequiresBoundedNames(t *testing.T) {
 		}
 	}
 	require.NoError(t, columns.Err())
-	assert.True(t, found, "grants.name must exist")
+	assert.True(t, found, "schema-12 grants.name must exist")
 }

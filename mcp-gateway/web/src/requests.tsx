@@ -448,8 +448,8 @@ function RequestActions({
     controller.snapshot(),
   );
   const [mode, setMode] = useState<"approve" | "reject">("approve");
-  const defaultName = `Access to ${submitted.target}`;
-  const [name, setName] = useState(defaultName);
+  const defaultDescription = "";
+  const [description, setDescription] = useState(defaultDescription);
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
   const [constraint, setConstraint] = useState(
@@ -458,7 +458,7 @@ function RequestActions({
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
   const initialDraft = useRef({
-    name: defaultName,
+    description: defaultDescription,
     scope: submitted.scope,
     target: submitted.target,
     constraint:
@@ -467,8 +467,14 @@ function RequestActions({
     reason: "not_approved",
   });
   useUnsavedChanges(
-    JSON.stringify({ name, scope, target, constraint, duration, reason }) !==
-      JSON.stringify(initialDraft.current),
+    JSON.stringify({
+      description,
+      scope,
+      target,
+      constraint,
+      duration,
+      reason,
+    }) !== JSON.stringify(initialDraft.current),
   );
   const [error, setError] = useState<string>();
   const [blockedETag, setBlockedETag] = useState<string>();
@@ -542,20 +548,20 @@ function RequestActions({
         next === "approve"
           ? (() => {
               if (
-                name.trim() !== name ||
-                name.length === 0 ||
-                new TextEncoder().encode(name).length > 256
+                description.length > 0 &&
+                (description.trim() !== description ||
+                  new TextEncoder().encode(description).length > 256)
               )
                 throw new Error(
-                  "Grant name must be between 1 and 256 bytes without surrounding whitespace.",
+                  "Grant description must be at most 256 bytes without surrounding whitespace.",
                 );
-              if (containsControlCharacters(name))
+              if (containsControlCharacters(description))
                 throw new Error(
-                  "Grant name cannot contain control characters.",
+                  "Grant description cannot contain control characters.",
                 );
               const policy = approvedPolicy();
               return JSON.stringify({
-                name,
+                description: description === "" ? null : description,
                 approved_policy: {
                   scope: policy.scope,
                   target: policy.target,
@@ -591,7 +597,7 @@ function RequestActions({
     if (outcome.kind === "acknowledged") {
       setBlockedETag(undefined);
       initialDraft.current = {
-        name,
+        description,
         scope,
         target,
         constraint,
@@ -636,16 +642,20 @@ function RequestActions({
         Approval creates one ordinary ALLOW only. It never resumes, retries, or
         executes a held call. Rejection records one closed reason.
       </p>
-      <FormField id="approval-name" label="Grant name" required>
+      <FormField
+        id="approval-description"
+        label="Grant description"
+        hint="Display metadata; it does not change authorization policy."
+        optional
+      >
         {(attributes) => (
           <input
             {...attributes}
-            data-testid="approval-name"
-            value={name}
+            data-testid="approval-description"
+            value={description}
             maxlength={256}
             disabled={disabled}
-            onInput={(event) => setName(event.currentTarget.value)}
-            required
+            onInput={(event) => setDescription(event.currentTarget.value)}
           />
         )}
       </FormField>
@@ -905,7 +915,7 @@ export function Requests({
               </dd>
             </div>
             <div>
-              <dt>Resolved upstream name</dt>
+              <dt>Resolved upstream tool name</dt>
               <dd>{detail.resolvedUpstreamName ?? "Server scope"}</dd>
             </div>
           </dl>

@@ -20,6 +20,14 @@ func MatchesPrincipalETag(value, principalID, revision string) bool {
 	return value == PrincipalETag(principalID, revision)
 }
 
+func GrantETag(grantID, revision string) string {
+	return `"grant-` + grantID + `-` + revision + `"`
+}
+
+func MatchesGrantETag(value, grantID, revision string) bool {
+	return value == GrantETag(grantID, revision)
+}
+
 func GrantRequestETag(requestID, revision string) string {
 	return fmt.Sprintf(`"grant-request-%s-%s"`, requestID, revision)
 }

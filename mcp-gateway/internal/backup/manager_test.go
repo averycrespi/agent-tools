@@ -45,13 +45,13 @@ func newBackupManager(t *testing.T, fault func(FaultPoint) error) (*Manager, *st
 
 func TestCurrentSchemaBackupCompatibility(t *testing.T) {
 	manager, _, ownership := newBackupManager(t, nil)
-	created, replay, err := manager.Create(context.Background(), "authority", "schema-twelve")
+	created, replay, err := manager.Create(context.Background(), "authority", "schema-thirteen")
 	require.NoError(t, err)
 	assert.False(t, replay)
-	assert.Equal(t, "12", created.SchemaVersion)
+	assert.Equal(t, "13", created.SchemaVersion)
 	identity, err := storage.VerifyBackup(context.Background(), filepath.Join(ownership.Layout().Backups, created.ID, databaseFile))
 	require.NoError(t, err)
-	assert.Equal(t, 12, identity.SchemaVersion)
+	assert.Equal(t, 13, identity.SchemaVersion)
 }
 
 func TestCreatePublishesVerifiedOwnerOnlyGeneration(t *testing.T) {

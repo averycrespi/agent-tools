@@ -90,7 +90,7 @@ func TestServiceDispatchesPinnedAllowOnceAfterGateRelease(t *testing.T) {
 		target := serviceCallTarget(nil, func(context.Context) (executionLease, error) {
 			acquisitions++
 			upstream := "tool"
-			_, grantErr := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
+			_, grantErr := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
 				PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
 			}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 			require.NoError(t, grantErr, "dispatch acquisition must run after the authority gate is released")
@@ -130,7 +130,7 @@ func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
 	t.Run("committed deny is least disclosing", func(t *testing.T) {
 		_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 		upstream := "tool"
-		_, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Name: "Test grant",
+		_, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
 			PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
 		}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 		require.NoError(t, err)

@@ -31,8 +31,8 @@ func runCLIGrantInputMatrix(t *testing.T) {
 
 	grantPath := filepath.Join(dir, "grant.json")
 	invalidPath := filepath.Join(dir, "invalid.json")
-	grantBody := `{"name":"Restricted access","principal_id":"` + principalID + `","effect":"deny","server_id":"` + contract.SyntheticServerID + `","upstream_name":"get_identity","constraint":{"equals":{"/count":1.0,"/nested~1name":true}},"expires_at":null}`
-	invalidBody := `{"name":"Invalid access","principal_id":"` + principalID + `","effect":"allow","server_id":"` + contract.SyntheticServerID + `","upstream_name":null,"constraint":{"equals":{"/bad":true}},"expires_at":null}`
+	grantBody := `{"description":"Restricted access","principal_id":"` + principalID + `","effect":"deny","server_id":"` + contract.SyntheticServerID + `","upstream_name":"get_identity","constraint":{"equals":{"/count":1.0,"/nested~1name":true}},"expires_at":null}`
+	invalidBody := `{"description":"Invalid access","principal_id":"` + principalID + `","effect":"allow","server_id":"` + contract.SyntheticServerID + `","upstream_name":null,"constraint":{"equals":{"/bad":true}},"expires_at":null}`
 	require.NoError(t, os.WriteFile(grantPath, []byte(grantBody), 0o600))
 	require.NoError(t, os.WriteFile(invalidPath, []byte(invalidBody), 0o600))
 	results := []testutil.ProcessResult{principalResult}
@@ -40,7 +40,7 @@ func runCLIGrantInputMatrix(t *testing.T) {
 	invalid := runOnlineCLI(t, harness, bearerPath, false, "grant", "create", "--file", invalidPath, "--output", "json")
 	results = append(results, invalid)
 	assert.Equal(t, 2, invalid.ExitCode)
-	direct := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--name", "Direct access", "--principal-id", principalID, "--effect", "allow", "--server-id", contract.SyntheticServerID, "--upstream-name", "get_identity", "--output", "json")
+	direct := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--description", "Direct access", "--principal-id", principalID, "--effect", "allow", "--server-id", contract.SyntheticServerID, "--upstream-name", "get_identity", "--output", "json")
 	results = append(results, direct)
 	var directGrant contract.Grant
 	require.NoError(t, json.Unmarshal(direct.Stdout, &directGrant))

@@ -103,7 +103,8 @@ func TestGrantRequestAdminServiceReturnsFullAdjudicationWithoutFollowupRowRead(t
 	created := fixture.createRequest(t, serverApprovalPolicy())
 	fixture.clock.now = requestTestTime.Add(time.Minute)
 	fixture.invalidations = nil
-	approved, err := service.ApproveAdmin(context.Background(), created.ID, "1", "Approved access", contract.Policy{
+	description := "Approved access"
+	approved, err := service.ApproveAdmin(context.Background(), created.ID, "1", &description, contract.Policy{
 		Scope: contract.PolicyTool, Target: "sample.tool",
 	})
 	require.NoError(t, err)

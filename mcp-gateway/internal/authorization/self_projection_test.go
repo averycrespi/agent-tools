@@ -62,7 +62,8 @@ func TestSelfProjectionReturnsOnlyAdmittedIdentityAndCurrentOrdinaryGrants(t *te
 	assert.Equal(t, contract.SyntheticServerNamespace, first.Items[0].Policy.Target)
 	assert.Equal(t, contract.PolicyServer, first.Items[0].Policy.Scope)
 	assert.Equal(t, id(11), first.Items[1].ID)
-	assert.Equal(t, "Sample access", first.Items[1].Name)
+	require.NotNil(t, first.Items[1].Description)
+	assert.Equal(t, "Sample access", *first.Items[1].Description)
 	assert.Equal(t, "sample", first.Items[1].Policy.Target)
 	assert.Equal(t, contract.PolicyServer, first.Items[1].Policy.Scope)
 
@@ -228,7 +229,7 @@ func seedProjectedGrant(t *testing.T, store interface {
 			name = "Grant"
 		}
 		_, err := transaction.Exec(`INSERT INTO grants
-			(id, name, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
+			(id, description, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, row.id, name, row.principalID, row.effect, row.serverID,
 			upstream, constraint, expires, timestamp(testNow.Add(-time.Hour)))
 		return err

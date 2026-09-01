@@ -28,7 +28,7 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 		requests <- body
 		response.Header().Set("Content-Type", contract.MediaTypeJSON)
 		response.WriteHeader(http.StatusCreated)
-		_, _ = response.Write([]byte(`{"id":"` + resourceID + `","name":"Test grant","principal_id":"` + resourceID + `","effect":"allow","server_id":"` + resourceID + `","upstream_name":null,"constraint":null,"expires_at":null,"state":"active","created_at":"2026-08-30T00:00:00Z"}`))
+		_, _ = response.Write([]byte(`{"id":"` + resourceID + `","description":"Test grant","revision":"1","principal_id":"` + resourceID + `","effect":"allow","server_id":"` + resourceID + `","upstream_name":null,"constraint":null,"expires_at":null,"state":"active","created_at":"2026-08-30T00:00:00Z"}`))
 	}))
 	defer server.Close()
 
@@ -49,8 +49,8 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 		}
 		return stdout.Bytes(), nil
 	}
-	directArgs := []string{"grant", "create", "--name", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", resourceID}
-	baseBody := `{"name":"Test grant","principal_id":"` + resourceID + `","effect":"allow","server_id":"` + resourceID + `","upstream_name":null,"constraint":null,"expires_at":null}`
+	directArgs := []string{"grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", resourceID}
+	baseBody := `{"description":"Test grant","principal_id":"` + resourceID + `","effect":"allow","server_id":"` + resourceID + `","upstream_name":null,"constraint":null,"expires_at":null}`
 
 	output, err := execute(directArgs...)
 	require.NoError(t, err, "%s", output)
@@ -66,9 +66,9 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 	expiresAt := time.Now().UTC().Add(time.Hour).Truncate(time.Second).Format(time.RFC3339)
 	output, err = execute(append(directArgs, "--upstream-name", "example_tool", "--expires-at", expiresAt)...)
 	require.NoError(t, err, "%s", output)
-	assert.JSONEq(t, `{"name":"Test grant","principal_id":"`+resourceID+`","effect":"allow","server_id":"`+resourceID+`","upstream_name":"example_tool","constraint":null,"expires_at":"`+expiresAt+`"}`, string(<-requests))
+	assert.JSONEq(t, `{"description":"Test grant","principal_id":"`+resourceID+`","effect":"allow","server_id":"`+resourceID+`","upstream_name":"example_tool","constraint":null,"expires_at":"`+expiresAt+`"}`, string(<-requests))
 
-	constrainedBody := `{"name":"Test grant","principal_id":"` + resourceID + `","effect":"deny","server_id":"` + resourceID + `","upstream_name":"example_tool","constraint":{"equals":{"/region":"us"}},"expires_at":null}`
+	constrainedBody := `{"description":"Test grant","principal_id":"` + resourceID + `","effect":"deny","server_id":"` + resourceID + `","upstream_name":"example_tool","constraint":{"equals":{"/region":"us"}},"expires_at":null}`
 	constrainedFile := filepath.Join(dir, "constrained.json")
 	require.NoError(t, os.WriteFile(constrainedFile, []byte(constrainedBody), 0o600))
 	output, err = execute("grant", "create", "--file", constrainedFile)
@@ -81,10 +81,9 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "missing name", args: []string{"grant", "create", "--principal-id", resourceID, "--effect", "allow", "--server-id", resourceID}},
-		{name: "missing principal", args: []string{"grant", "create", "--name", "Test grant", "--effect", "allow", "--server-id", resourceID}},
-		{name: "invalid effect", args: []string{"grant", "create", "--name", "Test grant", "--principal-id", resourceID, "--effect", "audit", "--server-id", resourceID}},
-		{name: "invalid server", args: []string{"grant", "create", "--name", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", "bad"}},
+		{name: "missing principal", args: []string{"grant", "create", "--description", "Test grant", "--effect", "allow", "--server-id", resourceID}},
+		{name: "invalid effect", args: []string{"grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "audit", "--server-id", resourceID}},
+		{name: "invalid server", args: []string{"grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", "bad"}},
 		{name: "empty upstream", args: append(directArgs, "--upstream-name", "")},
 		{name: "invalid expiry", args: append(directArgs, "--expires-at", "tomorrow")},
 		{name: "mixed", args: append(directArgs, "--file", baseFile)},
@@ -101,7 +100,7 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 	root := newRootCmd()
 	command, _, err := root.Find([]string{"grant", "create"})
 	require.NoError(t, err)
-	for _, flag := range []string{"name", "principal-id", "effect", "server-id", "upstream-name", "expires-at", "file"} {
+	for _, flag := range []string{"description", "principal-id", "effect", "server-id", "upstream-name", "expires-at", "file"} {
 		assert.NotNil(t, command.Flags().Lookup(flag), flag)
 	}
 	assert.Contains(t, command.Example, "--principal-id")

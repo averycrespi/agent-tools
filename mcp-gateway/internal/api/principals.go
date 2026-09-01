@@ -25,6 +25,7 @@ type PrincipalService interface {
 	RevokeCredential(context.Context, string, string) (contract.Principal, error)
 	CreateGrant(context.Context, authorization.CreateGrantRequest, authorization.CurrentGrantTargetValidator) (contract.Grant, error)
 	GetGrant(context.Context, string) (contract.Grant, error)
+	PatchGrant(context.Context, string, authorization.PatchGrantRequest) (contract.Grant, error)
 	ListGrants(context.Context, authorization.GrantFilter, *authorization.SnapshotCursor, int) (authorization.GrantPage, error)
 	DeleteGrant(context.Context, string) error
 }

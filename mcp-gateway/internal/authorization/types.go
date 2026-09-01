@@ -42,13 +42,18 @@ type PatchPrincipalRequest struct {
 }
 
 type CreateGrantRequest struct {
-	Name         string
+	Description  *string
 	PrincipalID  string
 	Effect       contract.GrantEffect
 	ServerID     string
 	UpstreamName *string
 	Constraint   *json.RawMessage
 	ExpiresAt    *time.Time
+}
+
+type PatchGrantRequest struct {
+	ExpectedRevision string
+	Description      **string
 }
 
 type CurrentGrantTargetValidator func(context.Context, *sql.Tx, string) (bool, error)

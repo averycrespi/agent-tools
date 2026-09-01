@@ -80,17 +80,21 @@ func validGrantRequestArgs(args []string) (string, bool) {
 }
 
 func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([]byte, contract.Policy, error) {
-	body, err := readOnlineJSONInput(command, options, []string{"name", "approved_policy"})
+	body, err := readOnlineJSONInput(command, options, []string{"description", "approved_policy"})
 	if err != nil {
 		return nil, contract.Policy{}, err
 	}
 	var outer map[string]json.RawMessage
-	if json.Unmarshal(body, &outer) != nil || len(outer) != 2 || outer["name"] == nil || outer["approved_policy"] == nil {
+	if json.Unmarshal(body, &outer) != nil || len(outer) != 2 || outer["description"] == nil || outer["approved_policy"] == nil {
 		return nil, contract.Policy{}, controlclient.ErrInvalidInput
 	}
-	var name string
-	if json.Unmarshal(outer["name"], &name) != nil || !validGrantName(name) {
-		return nil, contract.Policy{}, controlclient.ErrInvalidInput
+	var description *string
+	if string(outer["description"]) != "null" {
+		var value string
+		if json.Unmarshal(outer["description"], &value) != nil || !validGrantDescription(value) {
+			return nil, contract.Policy{}, controlclient.ErrInvalidInput
+		}
+		description = &value
 	}
 	var raw map[string]json.RawMessage
 	if json.Unmarshal(outer["approved_policy"], &raw) != nil || len(raw) != 5 {
@@ -129,7 +133,7 @@ func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([
 	if (policy.Scope == contract.PolicyTool && policy.FutureToolsAcknowledged) || (policy.Scope == contract.PolicyServer && (!policy.FutureToolsAcknowledged || policy.Constraint != nil)) {
 		return nil, contract.Policy{}, controlclient.ErrInvalidInput
 	}
-	canonical, err := json.Marshal(contract.GrantRequestApproval{Name: name, ApprovedPolicy: policy})
+	canonical, err := json.Marshal(contract.GrantRequestApproval{Description: description, ApprovedPolicy: policy})
 	return canonical, policy, err
 }
 

@@ -30,7 +30,7 @@ func TestInvalidateStagedCredentialsClearsManyThenNoopsAtZero(t *testing.T) {
 		require.NoError(t, err)
 		second, secondBearer = issued.Principal, issued.Bearer
 		absent = mustCreatePrincipal(t, repository)
-		_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
+		_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
 			PrincipalID: first.ID, Effect: contract.GrantDeny, ServerID: id(51),
 		}, allowCurrentTarget)
 		require.NoError(t, err)

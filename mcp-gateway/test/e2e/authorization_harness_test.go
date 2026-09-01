@@ -99,7 +99,7 @@ type principalPatch struct {
 }
 
 type grantSpec struct {
-	Name         string
+	Description  string
 	PrincipalID  string
 	Effect       contract.GrantEffect
 	ServerID     string
@@ -242,18 +242,18 @@ func checkedPrincipal(t *testing.T, principal contract.Principal, etag string) p
 
 func (harness *gatewayHarness) CreateGrant(spec grantSpec) contract.Grant {
 	harness.t.Helper()
-	if spec.Name == "" {
-		spec.Name = "Test grant"
+	if spec.Description == "" {
+		spec.Description = "Test grant"
 	}
 	body, err := json.Marshal(struct {
-		Name         string          `json:"name"`
+		Description  string          `json:"description"`
 		PrincipalID  string          `json:"principal_id"`
 		Effect       string          `json:"effect"`
 		ServerID     string          `json:"server_id"`
 		UpstreamName *string         `json:"upstream_name"`
 		Constraint   json.RawMessage `json:"constraint"`
 		ExpiresAt    *string         `json:"expires_at"`
-	}{Name: spec.Name, PrincipalID: spec.PrincipalID, Effect: string(spec.Effect), ServerID: spec.ServerID, UpstreamName: spec.UpstreamName, Constraint: spec.Constraint, ExpiresAt: spec.ExpiresAt})
+	}{Description: spec.Description, PrincipalID: spec.PrincipalID, Effect: string(spec.Effect), ServerID: spec.ServerID, UpstreamName: spec.UpstreamName, Constraint: spec.Constraint, ExpiresAt: spec.ExpiresAt})
 	require.NoError(harness.t, err)
 	response := harness.adminSnapshot(http.MethodPost, "/api/v1/grants", body)
 	var grant contract.Grant

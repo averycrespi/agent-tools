@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,6 +13,8 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
 	"github.com/spf13/cobra"
 )
+
+var grantETagPattern = regexp.MustCompile(`^"grant-([0-7][0-9A-HJKMNP-TV-Z]{25})-([1-9][0-9]*)"$`)
 
 func grantListPath(options *onlineOptions) (string, error) {
 	filters := map[string]string{}
@@ -35,7 +38,7 @@ func runGrantCreate(command *cobra.Command, options *onlineOptions) error {
 }
 
 func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byte, error) {
-	allowed := []string{"name", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"}
+	allowed := []string{"description", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"}
 	body, err := readOnlineJSONInput(command, options, allowed)
 	if err != nil {
 		return nil, err
@@ -49,9 +52,15 @@ func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byt
 			return nil, controlclient.ErrInvalidInput
 		}
 	}
-	var name, principalID, serverID string
+	var principalID, serverID string
 	var effect contract.GrantEffect
-	if json.Unmarshal(object["name"], &name) != nil || !validGrantName(name) || json.Unmarshal(object["principal_id"], &principalID) != nil || !gatewayIDPattern.MatchString(principalID) || json.Unmarshal(object["server_id"], &serverID) != nil || !gatewayIDPattern.MatchString(serverID) || json.Unmarshal(object["effect"], &effect) != nil {
+	if string(object["description"]) != "null" {
+		var description string
+		if json.Unmarshal(object["description"], &description) != nil || !validGrantDescription(description) {
+			return nil, controlclient.ErrInvalidInput
+		}
+	}
+	if json.Unmarshal(object["principal_id"], &principalID) != nil || !gatewayIDPattern.MatchString(principalID) || json.Unmarshal(object["server_id"], &serverID) != nil || !gatewayIDPattern.MatchString(serverID) || json.Unmarshal(object["effect"], &effect) != nil {
 		return nil, controlclient.ErrInvalidInput
 	}
 	if _, err := contract.ParseGrantEffect(string(effect)); err != nil {
@@ -168,7 +177,50 @@ func runGrantCreateRequest(command *cobra.Command, options *onlineOptions, body 
 	if mode == controlclient.OutputJSON {
 		return controlclient.WriteSuccess(command.OutOrStdout(), mode, response.Body, controlclient.Table{})
 	}
-	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, grantTable([]contract.Grant{grant}))
+	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, grantTable([]contract.Grant{grant}, false))
+}
+
+func runGrantUpdate(command *cobra.Command, options *onlineOptions, args []string) error {
+	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) || options.intent.body == nil {
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant update input is invalid."))
+	}
+	var input struct {
+		Description *string `json:"description"`
+	}
+	if controlclient.DecodeResponse(options.intent.body, &input) != nil || (input.Description != nil && !validGrantDescription(*input.Description)) {
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant update input is invalid."))
+	}
+	etag, failure := resolveMutationETag(command, options, onlineItemGrant, args[0])
+	if failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
+	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
+	if err != nil {
+		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+	}
+	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: etag})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPatch, Path: "/api/v1/grants/" + args[0], Header: header, Body: options.intent.body})
+	if err != nil {
+		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
+	}
+	if failure := evaluateOnlineResponse(response, options.adminBearer.path); failure != nil {
+		return writeOnlineFailure(command, options.output, failure)
+	}
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != contract.MediaTypeJSON {
+		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
+	}
+	var grant contract.Grant
+	if controlclient.DecodeResponse(response.Body, &grant) != nil || !validGrant(grant) || !contract.MatchesGrantETag(response.Header.Get("ETag"), grant.ID, grant.Revision) {
+		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
+	}
+	mode, err := controlclient.ParseOutputMode(options.output)
+	if err != nil {
+		return writeOnlineFailure(command, string(controlclient.OutputTable), controlclient.NewInputError("The output mode is invalid."))
+	}
+	if mode == controlclient.OutputJSON {
+		return controlclient.WriteSuccess(command.OutOrStdout(), mode, response.Body, controlclient.Table{})
+	}
+	return controlclient.WriteSuccess(command.OutOrStdout(), mode, nil, grantTable([]contract.Grant{grant}, false))
 }
 
 func runGrantDelete(command *cobra.Command, options *onlineOptions, args []string) error {
@@ -214,7 +266,7 @@ func grantDeleteUncertainTitle(id string) string {
 }
 
 func validGrant(grant contract.Grant) bool {
-	if !gatewayIDPattern.MatchString(grant.ID) || !validGrantName(grant.Name) || !gatewayIDPattern.MatchString(grant.PrincipalID) || !gatewayIDPattern.MatchString(grant.ServerID) {
+	if !gatewayIDPattern.MatchString(grant.ID) || (grant.Description != nil && !validGrantDescription(*grant.Description)) || grant.Revision == "" || !gatewayIDPattern.MatchString(grant.PrincipalID) || !gatewayIDPattern.MatchString(grant.ServerID) {
 		return false
 	}
 	_, effectErr := contract.ParseGrantEffect(string(grant.Effect))
@@ -222,7 +274,7 @@ func validGrant(grant contract.Grant) bool {
 	return effectErr == nil && stateErr == nil
 }
 
-func validGrantName(value string) bool {
+func validGrantDescription(value string) bool {
 	return len(value) >= 1 && len(value) <= 256 && utf8.ValidString(value) && !containsControl(value) && strings.TrimSpace(value) == value
 }
 
@@ -231,7 +283,7 @@ func grantListTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return withNextCursor(grantTable(page.Items), page.NextCursor), nil
+	return withNextCursor(grantTable(page.Items, true), page.NextCursor), nil
 }
 
 func grantItemTable(body []byte) (controlclient.Table, error) {
@@ -239,10 +291,10 @@ func grantItemTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &grant); err != nil {
 		return controlclient.Table{}, err
 	}
-	return grantTable([]contract.Grant{grant}), nil
+	return grantTable([]contract.Grant{grant}, false), nil
 }
 
-func grantTable(grants []contract.Grant) controlclient.Table {
+func grantTable(grants []contract.Grant, truncateDescriptions bool) controlclient.Table {
 	rows := make([][]string, 0, len(grants))
 	for _, grant := range grants {
 		upstream := "all tools"
@@ -253,7 +305,15 @@ func grantTable(grants []contract.Grant) controlclient.Table {
 		if grant.Constraint != nil {
 			constraint = "scalar equals"
 		}
-		rows = append(rows, []string{grant.Name, grant.ID, grant.PrincipalID, string(grant.Effect), grant.ServerID, upstream, constraint, pointerText(grant.ExpiresAt), string(grant.State), grant.CreatedAt})
+		description := "—"
+		if grant.Description != nil {
+			description = *grant.Description
+			characters := []rune(description)
+			if truncateDescriptions && len(characters) > 64 {
+				description = string(characters[:61]) + "…"
+			}
+		}
+		rows = append(rows, []string{description, grant.ID, grant.PrincipalID, string(grant.Effect), grant.ServerID, upstream, constraint, pointerText(grant.ExpiresAt), string(grant.State), grant.CreatedAt})
 	}
-	return controlclient.Table{Headers: []string{"NAME", "ID", "PRINCIPAL", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"DESCRIPTION", "ID", "PRINCIPAL", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
 }

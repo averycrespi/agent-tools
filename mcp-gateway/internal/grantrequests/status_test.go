@@ -127,11 +127,11 @@ func TestEventsApprovalPublishesRequestThenAuthorizationOnlyOnSuccess(t *testing
 	fixture.invalidations = nil
 	policy := contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}
 
-	_, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Name: "Test grant", ID: created.ID, ExpectedRevision: "2", ApprovedPolicy: policy})
+	_, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Description: stringPointer("Test grant"), ID: created.ID, ExpectedRevision: "2", ApprovedPolicy: policy})
 	assert.ErrorIs(t, err, ErrStaleRevision)
 	assert.Empty(t, fixture.invalidations)
 
-	_, err = fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Name: "Test grant", ID: created.ID, ExpectedRevision: "1", ApprovedPolicy: policy})
+	_, err = fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Description: stringPointer("Test grant"), ID: created.ID, ExpectedRevision: "1", ApprovedPolicy: policy})
 	require.NoError(t, err)
 	assert.Equal(t, []contract.Invalidation{
 		{Kind: contract.InvalidationGrantRequests},

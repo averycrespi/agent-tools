@@ -16,7 +16,7 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/principals/{id}", Methods: []string{"GET", "PATCH"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/principals/{id}/credential", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/grants/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v1/grants/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
 	s3RouteStart := -1
@@ -82,6 +82,8 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 	expectedProblems := []Problem{
 		{Status: 400, Code: ProblemInvalidPrincipal, Title: "The principal is invalid."},
 		{Status: 400, Code: ProblemInvalidGrant, Title: "The grant is invalid."},
+		{Status: 412, Code: ProblemStaleGrantRevision, Title: "The grant revision is stale."},
+		{Status: 428, Code: ProblemGrantPreconditionRequired, Title: "The current grant revision is required."},
 		{Status: 412, Code: ProblemStalePrincipalRevision, Title: "The principal revision is stale."},
 		{Status: 428, Code: ProblemPrincipalPreconditionRequired, Title: "The current principal revision is required."},
 		{Status: 503, Code: ProblemAuthorizationUnavailable, Title: "Authorization is unavailable."},
@@ -97,6 +99,7 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 		{Name: "constraint_atoms", Maximum: 16},
 		{Name: "constraint_bytes", Maximum: 8192},
 		{Name: "constraint_pointer_bytes", Maximum: 256},
+		{Name: "grant_description_bytes", Maximum: 256},
 	}
 	for _, expected := range expectedLimits {
 		limit, ok := FixedLimitByName(expected.Name)
@@ -152,15 +155,20 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	expires := "2026-08-26T00:00:00Z"
 	credential := AgentCredential{ID: "credential", Fingerprint: "fingerprint", Revision: "1", CreatedAt: "2026-08-25T00:00:00Z"}
 	principal := Principal{ID: "principal", DisplayName: "Agent", State: PrincipalActive, Visibility: VisibilityRequestable, Revision: "1", CredentialRevision: "1", Credential: &credential, CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
-	grant := Grant{ID: "grant", Name: "Example grant", PrincipalID: principal.ID, Effect: GrantAllow, ServerID: SyntheticServerID, UpstreamName: nil, Constraint: &constraint, ExpiresAt: &expires, State: GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
+	description := "Example grant"
+	grant := Grant{ID: "grant", Description: &description, Revision: "1", PrincipalID: principal.ID, Effect: GrantAllow, ServerID: SyntheticServerID, UpstreamName: nil, Constraint: &constraint, ExpiresAt: &expires, State: GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
 	grantID := grant.ID
 
 	requireJSONKeys(t, credential, "id", "fingerprint", "revision", "created_at")
 	requireJSONKeys(t, principal, "id", "display_name", "state", "visibility", "revision", "credential_revision", "credential", "created_at", "updated_at")
 	requireJSONKeys(t, PrincipalCreation{Principal: principal, DefaultGrant: grant}, "principal", "default_grant")
 	requireJSONKeys(t, AgentCredentialCreation{Principal: principal, Bearer: "one-time"}, "principal", "bearer")
-	requireJSONKeys(t, grant, "id", "name", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "state", "created_at")
+	requireJSONKeys(t, grant, "id", "description", "revision", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "state", "created_at")
 	requireJSONKeys(t, AuthorizationResult{Decision: DecisionAllow, AuthorizationRevision: "1", EvaluatedAt: "2026-08-25T00:00:00Z", GrantID: &grantID}, "decision", "authorization_revision", "evaluated_at", "grant_id")
+
+	grantETag := GrantETag("01ARZ3NDEKTSV4RRFFQ69G5FAV", "7")
+	require.Equal(t, `"grant-01ARZ3NDEKTSV4RRFFQ69G5FAV-7"`, grantETag)
+	require.True(t, MatchesGrantETag(grantETag, "01ARZ3NDEKTSV4RRFFQ69G5FAV", "7"))
 
 	etag := PrincipalETag("01ARZ3NDEKTSV4RRFFQ69G5FAV", "7")
 	require.Equal(t, `"principal-01ARZ3NDEKTSV4RRFFQ69G5FAV-7"`, etag)

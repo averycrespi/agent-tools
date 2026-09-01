@@ -11,7 +11,7 @@ import (
 )
 
 const grantSelect = `
-	SELECT insertion_sequence, id, name, principal_id, effect, server_id, upstream_name,
+	SELECT insertion_sequence, id, description, revision, principal_id, effect, server_id, upstream_name,
 	       constraint_json, expires_at, created_at
 	FROM grants`
 
@@ -92,18 +92,23 @@ func scanGrant(scanner grantScanner, now time.Time) (int64, contract.Grant, erro
 	var (
 		sequence       int64
 		grant          contract.Grant
+		description    sql.NullString
 		upstreamName   sql.NullString
 		constraintJSON sql.NullString
 		expiresAt      sql.NullString
 	)
 	if err := scanner.Scan(
-		&sequence, &grant.ID, &grant.Name, &grant.PrincipalID, &grant.Effect, &grant.ServerID,
+		&sequence, &grant.ID, &description, &grant.Revision, &grant.PrincipalID, &grant.Effect, &grant.ServerID,
 		&upstreamName, &constraintJSON, &expiresAt, &grant.CreatedAt,
 	); err != nil {
 		return 0, contract.Grant{}, err
 	}
-	if !validGrantName(grant.Name) {
-		return 0, contract.Grant{}, errorsInvalidState("grant name is malformed")
+	if description.Valid {
+		value := description.String
+		grant.Description = &value
+	}
+	if !validGrantDescription(grant.Description) || !validRevision(grant.Revision) {
+		return 0, contract.Grant{}, errorsInvalidState("grant metadata is malformed")
 	}
 	if upstreamName.Valid {
 		value := upstreamName.String

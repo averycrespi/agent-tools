@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -71,23 +72,26 @@ func TestRepositoryRollsBackEvictionWhenInsertFails(t *testing.T) {
 }
 
 func insertInvocationFixtures(ctx context.Context, transaction *sql.Tx, prepared []PreparedAdmission) error {
-	statement, err := transaction.PrepareContext(ctx, `INSERT INTO invocations (
+	const columns = `INSERT INTO invocations (
 		id, principal_id, credential_id, credential_fingerprint, credential_revision,
 		admitted_at, admission_class, requested_name, redacted_arguments,
 		server_id, tool_id, upstream_name, descriptor_revision, descriptor_fingerprint,
 		decision, authorization_revision, evaluated_at, grant_id
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		return err
-	}
-	defer statement.Close()
-	for _, admission := range prepared {
-		values, valuesErr := admissionSQLValues(admission)
-		if valuesErr != nil {
-			return valuesErr
+	) VALUES `
+	const row = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	const batchSize = 50
+	for start := 0; start < len(prepared); start += batchSize {
+		end := min(start+batchSize, len(prepared))
+		arguments := make([]any, 0, (end-start)*18)
+		for _, admission := range prepared[start:end] {
+			values, err := admissionSQLValues(admission)
+			if err != nil {
+				return err
+			}
+			arguments = append(arguments, values...)
 		}
-		if _, execErr := statement.ExecContext(ctx, values...); execErr != nil {
-			return execErr
+		if _, err := transaction.ExecContext(ctx, columns+strings.TrimSuffix(strings.Repeat(row+",", end-start), ","), arguments...); err != nil {
+			return err
 		}
 	}
 	return nil

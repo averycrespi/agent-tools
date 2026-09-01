@@ -53,7 +53,7 @@ func (repository *Repository) CreatePrincipal(ctx context.Context, request Creat
 		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO grants (
-				id, name, principal_id, effect, server_id, upstream_name,
+				id, description, principal_id, effect, server_id, upstream_name,
 				constraint_json, expires_at, created_at
 			) VALUES (?, ?, ?, 'allow', ?, NULL, NULL, NULL, ?)`,
 			grantID, contract.DefaultGrantName, principalID, contract.SyntheticServerID, timestamp); err != nil {

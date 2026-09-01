@@ -35,6 +35,8 @@ const (
 	ProblemDownstreamUnavailable              ProblemCode = "downstream_unavailable"
 	ProblemInvalidPrincipal                   ProblemCode = "invalid_principal"
 	ProblemInvalidGrant                       ProblemCode = "invalid_grant"
+	ProblemStaleGrantRevision                 ProblemCode = "stale_grant_revision"
+	ProblemGrantPreconditionRequired          ProblemCode = "grant_precondition_required"
 	ProblemStalePrincipalRevision             ProblemCode = "stale_principal_revision"
 	ProblemPrincipalPreconditionRequired      ProblemCode = "principal_precondition_required"
 	ProblemAuthorizationUnavailable           ProblemCode = "authorization_unavailable"
@@ -86,6 +88,8 @@ var problems = []Problem{
 	{Status: 503, Code: ProblemDownstreamUnavailable, Title: "The downstream server is unavailable."},
 	{Status: 400, Code: ProblemInvalidPrincipal, Title: "The principal is invalid."},
 	{Status: 400, Code: ProblemInvalidGrant, Title: "The grant is invalid."},
+	{Status: 412, Code: ProblemStaleGrantRevision, Title: "The grant revision is stale."},
+	{Status: 428, Code: ProblemGrantPreconditionRequired, Title: "The current grant revision is required."},
 	{Status: 412, Code: ProblemStalePrincipalRevision, Title: "The principal revision is stale."},
 	{Status: 428, Code: ProblemPrincipalPreconditionRequired, Title: "The current principal revision is required."},
 	{Status: 503, Code: ProblemAuthorizationUnavailable, Title: "Authorization is unavailable."},

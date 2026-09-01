@@ -66,7 +66,7 @@ func TestAtomicApprovalAndPostCommitRecoveryIntegration(t *testing.T) {
 	clock.now = requestTestTime.Add(time.Minute)
 	armed = true
 
-	_, err = requests.Approve(context.Background(), authority, ApproveRequest{Name: "Test grant",
+	_, err = requests.Approve(context.Background(), authority, ApproveRequest{Description: stringPointer("Test grant"),
 		ID: created.Request.ID, ExpectedRevision: "1", ApprovedPolicy: serverApprovalPolicy(),
 	})
 	assert.ErrorIs(t, err, ErrStorageUnavailable)

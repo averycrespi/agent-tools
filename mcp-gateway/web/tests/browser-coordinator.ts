@@ -2129,7 +2129,8 @@ async function runAccessManagementReadCanary(
   };
   const grant = {
     id: grantID,
-    name: "Safe build access",
+    description: "Safe build access",
+    revision: "1",
     principal_id: principalID,
     effect: "allow",
     server_id: serverID,
@@ -3522,7 +3523,8 @@ async function runPrincipals(
         principal: created,
         default_grant: {
           id: grantID,
-          name: "Default Gateway access",
+          description: "Default Gateway access",
+          revision: "1",
           principal_id: createdID,
           effect: "allow",
           server_id: "00000000000000000000000000",
@@ -4186,7 +4188,8 @@ async function runGrantReadsCreate(
     expiresAt: string | null,
   ) => ({
     id,
-    name: id === firstGrantID ? "Reporting access" : "Restricted access",
+    description: id === firstGrantID ? "Reporting access" : "Restricted access",
+    revision: "1",
     principal_id: principalID,
     effect,
     server_id: serverID,
@@ -4331,8 +4334,8 @@ async function runGrantReadsCreate(
     const body = JSON.parse(raw) as Record<string, unknown>;
     if (
       Object.keys(body).join(",") !==
-        "name,principal_id,effect,server_id,upstream_name,constraint,expires_at" ||
-      body.name !== "New access" ||
+        "description,principal_id,effect,server_id,upstream_name,constraint,expires_at" ||
+      body.description !== "New access" ||
       body.principal_id !== principalID ||
       body.server_id !== serverID
     )
@@ -4397,7 +4400,7 @@ async function runGrantReadsCreate(
     () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
-  const grantSearch = page.getByLabel("Name or ID", { exact: true });
+  const grantSearch = page.getByLabel("Description or ID", { exact: true });
   await grantSearch.fill("Reportng access");
   if (
     (await page.locator('[data-testid="grant-row"]').count()) !== 1 ||
@@ -4418,7 +4421,7 @@ async function runGrantReadsCreate(
     if (!body.includes(phrase)) fail(`grant list omitted ${phrase}`);
   const headers = await page.locator("thead").first().innerText();
   if (
-    !headers.includes("Name") ||
+    !headers.includes("Description") ||
     !headers.includes("ID") ||
     headers.includes("Action")
   )
@@ -4491,14 +4494,18 @@ async function runGrantReadsCreate(
     )
   )
     fail("grant creation did not use named principal and server selectors");
-  await page.locator('[data-testid="grant-name"]').fill("Unsafe\u0085access");
+  await page
+    .locator('[data-testid="grant-description"]')
+    .fill("Unsafe\u0085access");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
-    .getByText("Name cannot contain control characters.", { exact: true })
+    .getByText("Description cannot contain control characters.", {
+      exact: true,
+    })
     .waitFor();
   if (Number(attempts) !== 0)
-    fail("control-character grant name reached the API");
-  await page.locator('[data-testid="grant-name"]').fill("New access");
+    fail("control-character grant description reached the API");
+  await page.locator('[data-testid="grant-description"]').fill("New access");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
     .getByRole("heading", { name: "Review grant", exact: true })
@@ -4528,7 +4535,7 @@ async function runGrantReadsCreate(
     { principal: principalID, server: serverID },
   );
   await page.locator('[data-testid="grant-create-view"]').waitFor();
-  await page.locator('[data-testid="grant-name"]').fill("New access");
+  await page.locator('[data-testid="grant-description"]').fill("New access");
   await page.locator('[data-testid="grant-effect"]').selectOption("deny");
   await page.locator('[data-testid="grant-scope"]').selectOption("tool");
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
@@ -4624,7 +4631,8 @@ async function runGrantCorrection(
     state: "active" | "expired" = "active",
   ) => ({
     id,
-    name: target === zero ? "Default Gateway access" : `Grant ${id}`,
+    description: target === zero ? "Default Gateway access" : `Grant ${id}`,
+    revision: "1",
     principal_id: principalID,
     effect,
     server_id: target,
@@ -4780,8 +4788,11 @@ async function runGrantCorrection(
       unknown
     >;
     const principalID = body.principal_id as string;
-    if (typeof body.name !== "string" || body.name.length === 0)
-      fail("grant replacement omitted its name");
+    if (
+      body.description !== null &&
+      (typeof body.description !== "string" || body.description.length === 0)
+    )
+      fail("grant replacement sent an invalid description");
     if (principalID === principalIDs[2]) {
       await route.fulfill({
         status: 400,
@@ -4813,7 +4824,7 @@ async function runGrantCorrection(
       body.effect as "allow" | "deny",
       body.server_id as string,
     );
-    item.name = body.name;
+    item.description = body.description as string;
     grants.set(replacementID, item);
     replacements.set(principalID, replacementID);
     await route.fulfill({
@@ -4824,15 +4835,14 @@ async function runGrantCorrection(
   });
 
   const navigate = async (grantID: string) => {
-    const expectedName = grants.get(grantID)?.name;
-    if (expectedName === undefined) fail(`missing grant fixture ${grantID}`);
+    if (!grants.has(grantID)) fail(`missing grant fixture ${grantID}`);
     await page.evaluate((id) => {
       window.location.hash = `#/access/grants/${id}`;
     }, grantID);
     await page.locator('[data-testid="grant-actions"]').waitFor();
     try {
       await page
-        .getByRole("heading", { name: expectedName, exact: true })
+        .getByRole("heading", { name: `Grant ${grantID}`, exact: true })
         .waitFor({ timeout: 3000 });
     } catch {
       fail(
@@ -5382,9 +5392,8 @@ async function runRequestAdjudication(
         unknown
       >;
       if (
-        Object.keys(body).join(",") !== "name,approved_policy" ||
-        typeof body.name !== "string" ||
-        !body.name.startsWith("Access to ")
+        Object.keys(body).join(",") !== "description,approved_policy" ||
+        (body.description !== null && typeof body.description !== "string")
       )
         fail("approval body changed shape");
       const approved = body.approved_policy as ReturnType<typeof policy>;
@@ -5436,16 +5445,18 @@ async function runRequestAdjudication(
   await waitForLifecycle(page, "authenticated");
   await navigate(ids[0]!);
   await page
-    .locator('[data-testid="approval-name"]')
+    .locator('[data-testid="approval-description"]')
     .fill("Unsafe\u0085access");
   await reviewApproval();
   await page
-    .getByText("Grant name cannot contain control characters.", { exact: true })
+    .getByText("Grant description cannot contain control characters.", {
+      exact: true,
+    })
     .waitFor();
   if ((attempts.get(ids[0]!) ?? 0) !== 0)
-    fail("control-character approval name reached the API");
+    fail("control-character approval description reached the API");
   await page
-    .locator('[data-testid="approval-name"]')
+    .locator('[data-testid="approval-description"]')
     .fill("Access to demo.safe");
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
   await page.locator('[data-testid="approval-target"]').fill("demo.safe");

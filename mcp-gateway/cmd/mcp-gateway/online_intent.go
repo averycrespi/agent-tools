@@ -146,6 +146,8 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 		parts = serverETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "principal "):
 		parts = principalETagPattern.FindStringSubmatch(options.etag)
+	case strings.HasPrefix(path, "grant "):
+		parts = grantETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "grant-request "):
 		parts = grantRequestETagPattern.FindStringSubmatch(options.etag)
 	default:
@@ -309,13 +311,16 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		},
 	},
 	"grant create": {
-		fileMembers: []string{"name", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"},
+		fileMembers: []string{"description", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"},
 		direct: []onlineDirectFlag{
-			{name: "name", required: true}, {name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"},
+			{name: "description"}, {name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"},
 		},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, changed map[string]bool) ([]byte, error) {
-			body := map[string]any{"name": values["name"], "principal_id": values["principal-id"], "effect": values["effect"], "server_id": values["server-id"], "upstream_name": nil, "constraint": nil, "expires_at": nil}
+			body := map[string]any{"description": nil, "principal_id": values["principal-id"], "effect": values["effect"], "server_id": values["server-id"], "upstream_name": nil, "constraint": nil, "expires_at": nil}
+			if changed["description"] {
+				body["description"] = values["description"]
+			}
 			for _, flag := range []string{"upstream-name", "expires-at"} {
 				if changed[flag] {
 					body[strings.ReplaceAll(flag, "-", "_")] = values[flag]
@@ -324,10 +329,21 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			return marshalIntent(body)
 		},
 	},
+	"grant update": {
+		direct:        []onlineDirectFlag{{name: "description", required: true}},
+		defaultDirect: true,
+		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {
+			var description any = values["description"]
+			if values["description"] == "" {
+				description = nil
+			}
+			return marshalIntent(map[string]any{"description": description})
+		},
+	},
 	"grant-request approve": {
-		fileMembers: []string{"name", "approved_policy"},
+		fileMembers: []string{"description", "approved_policy"},
 		direct: []onlineDirectFlag{
-			{name: "name", required: true}, {name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true},
+			{name: "description"}, {name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true},
 		},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, toggles map[string]bool, changed map[string]bool) ([]byte, error) {
@@ -338,7 +354,11 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			if changed["acknowledge-future-tools"] {
 				policy["future_tools_acknowledged"] = toggles["acknowledge-future-tools"]
 			}
-			return marshalIntent(map[string]any{"name": values["name"], "approved_policy": policy})
+			var description any
+			if changed["description"] {
+				description = values["description"]
+			}
+			return marshalIntent(map[string]any{"description": description, "approved_policy": policy})
 		},
 	},
 	"grant-request reject": {

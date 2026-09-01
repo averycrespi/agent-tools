@@ -24,11 +24,11 @@ func TestLoadDiscoveryPolicyReturnsOneCredentialBoundStructuralView(t *testing.T
 	tool := "tool"
 	constraint := json.RawMessage(`{"equals":{"/tenant":"one"}}`)
 	expires := testNow.Add(time.Hour)
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
 		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51),
 	}, allowCurrentTarget)
 	require.NoError(t, err)
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
 		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(52),
 		UpstreamName: &tool, Constraint: &constraint, ExpiresAt: &expires,
 	}, allowCurrentTarget)
@@ -59,7 +59,7 @@ func TestLoadDiscoveryPolicyAppliesExpiryAtCallerTimestampAndFailsClosed(t *test
 	expires := testNow.Add(time.Nanosecond)
 	tool := "tool"
 	constraint := json.RawMessage(`{"equals":{"/x":"value"}}`)
-	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
+	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
 		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &tool,
 		Constraint: &constraint, ExpiresAt: &expires,
 	}, allowCurrentTarget)

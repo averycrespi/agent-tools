@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -15,7 +17,7 @@ func (repository *Repository) CreateGrant(
 	request CreateGrantRequest,
 	validateTarget CurrentGrantTargetValidator,
 ) (contract.Grant, error) {
-	if validateTarget == nil || !validGrantName(request.Name) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.ServerID) || !validGrantEffect(request.Effect) ||
+	if validateTarget == nil || !validGrantDescription(request.Description) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.ServerID) || !validGrantEffect(request.Effect) ||
 		request.UpstreamName != nil && !validUpstreamName(*request.UpstreamName) || request.UpstreamName == nil && request.Constraint != nil {
 		return contract.Grant{}, ErrInvalidInput
 	}
@@ -67,10 +69,10 @@ func (repository *Repository) CreateGrant(
 		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO grants (
-				id, name, principal_id, effect, server_id, upstream_name,
+				id, description, principal_id, effect, server_id, upstream_name,
 				constraint_json, expires_at, created_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			grantID, request.Name, request.PrincipalID, request.Effect, request.ServerID,
+			grantID, nullableGrantString(request.Description), request.PrincipalID, request.Effect, request.ServerID,
 			nullableGrantString(request.UpstreamName), nullableGrantBytes(constraintJSON),
 			nullableGrantTime(request.ExpiresAt), createdAt); err != nil {
 			return fmt.Errorf("insert grant: %w", err)
@@ -82,6 +84,48 @@ func (repository *Repository) CreateGrant(
 		return err
 	})
 	return grant, repository.mapMutationError(err)
+}
+
+func (repository *Repository) PatchGrant(ctx context.Context, grantID string, request PatchGrantRequest) (contract.Grant, error) {
+	if !validOpaqueID(grantID) || request.Description == nil || !validGrantDescription(*request.Description) || !validRevision(request.ExpectedRevision) {
+		return contract.Grant{}, ErrInvalidInput
+	}
+	var updated contract.Grant
+	err := repository.mutateAuthorityTx(ctx, "", func(transaction *sql.Tx) error {
+		_, current, err := scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
+		if err != nil {
+			return err
+		}
+		if current.Revision != request.ExpectedRevision {
+			return ErrStaleRevision
+		}
+		if equalOptionalString(current.Description, *request.Description) {
+			return ErrConflict
+		}
+		revision, err := strconv.ParseUint(current.Revision, 10, 64)
+		if err != nil || revision == math.MaxUint64 {
+			return ErrInvalidState
+		}
+		result, err := transaction.ExecContext(ctx, `UPDATE grants SET description = ?, revision = ? WHERE id = ? AND revision = ?`,
+			nullableGrantString(*request.Description), revision+1, grantID, revision)
+		if err != nil {
+			return fmt.Errorf("update grant description: %w", err)
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("inspect grant description update: %w", err)
+		}
+		if changed != 1 {
+			return ErrStaleRevision
+		}
+		_, updated, err = scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
+		return err
+	})
+	return updated, repository.mapMutationError(err)
+}
+
+func equalOptionalString(left, right *string) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func (repository *Repository) DeleteGrant(ctx context.Context, grantID string) error {

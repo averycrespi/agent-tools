@@ -13,6 +13,7 @@ type onlineItemKind uint8
 const (
 	onlineItemServer onlineItemKind = iota
 	onlineItemPrincipal
+	onlineItemGrant
 	onlineItemGrantRequest
 )
 
@@ -45,6 +46,8 @@ func validItemETag(kind onlineItemKind, id, etag string) bool {
 		parts = serverETagPattern.FindStringSubmatch(etag)
 	case onlineItemPrincipal:
 		parts = principalETagPattern.FindStringSubmatch(etag)
+	case onlineItemGrant:
+		parts = grantETagPattern.FindStringSubmatch(etag)
 	case onlineItemGrantRequest:
 		parts = grantRequestETagPattern.FindStringSubmatch(etag)
 	default:
@@ -85,6 +88,8 @@ func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 		return "/api/v1/servers/" + id, true
 	case onlineItemPrincipal:
 		return "/api/v1/principals/" + id, true
+	case onlineItemGrant:
+		return "/api/v1/grants/" + id, true
 	case onlineItemGrantRequest:
 		return "/api/v1/grant-requests/" + id, true
 	default:
@@ -100,6 +105,9 @@ func validateOnlineItem(kind onlineItemKind, id, etag string, body []byte) bool 
 	case onlineItemPrincipal:
 		var principal contract.Principal
 		return controlclient.DecodeResponse(body, &principal) == nil && principal.ID == id && validPrincipal(principal) && contract.MatchesPrincipalETag(etag, principal.ID, principal.Revision)
+	case onlineItemGrant:
+		var grant contract.Grant
+		return controlclient.DecodeResponse(body, &grant) == nil && grant.ID == id && validGrant(grant) && contract.MatchesGrantETag(etag, grant.ID, grant.Revision)
 	case onlineItemGrantRequest:
 		var request contract.GrantRequest
 		return controlclient.DecodeResponse(body, &request) == nil && request.ID == id && validGrantRequest(request) && contract.MatchesGrantRequestETag(etag, request.ID, request.Revision)

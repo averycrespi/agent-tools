@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -39,12 +40,12 @@ func TestGrantCreateListGetDeleteAndInvalidation(t *testing.T) {
 	var invalidations []contract.Invalidation
 	handler := newGrantHandler(t, service, allowGrantTarget, &invalidations)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	created := perform(handler, http.MethodPost, "/api/v1/grants", `{"name":"Test grant","principal_id":"`+testID+`","effect":"deny","server_id":"`+testServerID+`","upstream_name":"danger","constraint":{"equals":{"/count":1.0}},"expires_at":"2027-08-25T00:00:00Z"}`, headers)
+	created := perform(handler, http.MethodPost, "/api/v1/grants", `{"description":"Test grant","principal_id":"`+testID+`","effect":"deny","server_id":"`+testServerID+`","upstream_name":"danger","constraint":{"equals":{"/count":1.0}},"expires_at":"2027-08-25T00:00:00Z"}`, headers)
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
-	assert.Empty(t, created.Header().Get("ETag"))
+	assert.Equal(t, contract.GrantETag(service.grants[0].ID, "1"), created.Header().Get("ETag"))
 	assert.Empty(t, created.Header().Get("Location"))
 	assert.Empty(t, created.Header().Get("Access-Control-Allow-Origin"))
-	assert.Contains(t, created.Body.String(), `"name":"Test grant"`)
+	assert.Contains(t, created.Body.String(), `"description":"Test grant"`)
 	assert.Contains(t, created.Body.String(), `"constraint":{"equals":{"/count":1.0}}`)
 	assert.Equal(t, authorization.GrantFilter{}, service.grantFilter)
 
@@ -64,36 +65,78 @@ func TestGrantCreateListGetDeleteAndInvalidation(t *testing.T) {
 
 	got := perform(handler, http.MethodGet, "/api/v1/grants/"+service.grants[0].ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
-	assert.Empty(t, got.Header().Get("ETag"))
+	assert.Equal(t, contract.GrantETag(service.grants[0].ID, "1"), got.Header().Get("ETag"))
+	updated := perform(handler, http.MethodPatch, "/api/v1/grants/"+service.grants[0].ID, `{"description":"Updated access"}`, map[string]string{
+		"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
+		"If-Match": contract.GrantETag(service.grants[0].ID, "1"),
+	})
+	require.Equal(t, http.StatusOK, updated.Code, updated.Body.String())
+	assert.Contains(t, updated.Body.String(), `"description":"Updated access"`)
+	assert.Equal(t, contract.GrantETag(service.grants[0].ID, "2"), updated.Header().Get("ETag"))
 	deleted := perform(handler, http.MethodDelete, "/api/v1/grants/"+second.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusNoContent, deleted.Code, deleted.Body.String())
 	assert.Empty(t, deleted.Body.String())
 	assert.Equal(t, []contract.Invalidation{
 		{Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus},
 		{Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus},
+		{Kind: contract.InvalidationAuthorization}, {Kind: contract.InvalidationSystemStatus},
 	}, invalidations)
+}
+
+func TestGrantPatchRequiresExactPreconditionAndClosedDescriptionBody(t *testing.T) {
+	grant := contract.Grant{ID: testID, Revision: "1", PrincipalID: testID, Effect: contract.GrantAllow, ServerID: testServerID, State: contract.GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
+	service := &fakePrincipalService{grants: []contract.Grant{grant}}
+	handler := newGrantHandler(t, service, allowGrantTarget, nil)
+	base := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
+	for _, test := range []struct {
+		name, body, etag string
+		status           int
+	}{
+		{name: "missing precondition", body: `{"description":null}`, status: http.StatusPreconditionRequired},
+		{name: "weak precondition", body: `{"description":null}`, etag: `W/` + contract.GrantETag(testID, "1"), status: http.StatusPreconditionFailed},
+		{name: "wrong resource", body: `{"description":null}`, etag: contract.GrantETag(testServerID, "1"), status: http.StatusPreconditionFailed},
+		{name: "unknown member", body: `{"description":null,"effect":"deny"}`, etag: contract.GrantETag(testID, "1"), status: http.StatusBadRequest},
+		{name: "missing description", body: `{}`, etag: contract.GrantETag(testID, "1"), status: http.StatusBadRequest},
+		{name: "clear description", body: `{"description":null}`, etag: contract.GrantETag(testID, "1"), status: http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			headers := maps.Clone(base)
+			if test.etag != "" {
+				headers["If-Match"] = test.etag
+			}
+			response := perform(handler, http.MethodPatch, "/api/v1/grants/"+testID, test.body, headers)
+			assert.Equal(t, test.status, response.Code, response.Body.String())
+		})
+	}
+
+	service.err = authorization.ErrStaleRevision
+	stale := maps.Clone(base)
+	stale["If-Match"] = contract.GrantETag(testID, "1")
+	response := perform(handler, http.MethodPatch, "/api/v1/grants/"+testID, `{"description":"changed"}`, stale)
+	assert.Equal(t, http.StatusPreconditionFailed, response.Code, response.Body.String())
 }
 
 func TestGrantCreateRequiresAllMembersAndExactNullableShapes(t *testing.T) {
 	service := &fakePrincipalService{}
 	handler := newGrantHandler(t, service, allowGrantTarget, nil)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	valid := `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`
+	valid := `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`
 	response := perform(handler, http.MethodPost, "/api/v1/grants", valid, headers)
 	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
-	assert.Equal(t, "Test grant", service.grantCreate.Name)
+	require.NotNil(t, service.grantCreate.Description)
+	assert.Equal(t, "Test grant", *service.grantCreate.Description)
 	assert.Nil(t, service.grantCreate.UpstreamName)
 	assert.Nil(t, service.grantCreate.Constraint)
 	assert.Nil(t, service.grantCreate.ExpiresAt)
 
 	for _, test := range []struct{ name, body, code string }{
 		{"missing name", `{"principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_grant"},
-		{"missing nullable", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null}`, "invalid_grant"},
-		{"null required", `{"name":"Test grant","principal_id":null,"effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_grant"},
-		{"wrong nullable type", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":1,"constraint":null,"expires_at":null}`, "invalid_grant"},
-		{"noncanonical expiry", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":"2027-08-25T00:00:00+00:00"}`, "invalid_grant"},
+		{"missing nullable", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null}`, "invalid_grant"},
+		{"null required", `{"description":"Test grant","principal_id":null,"effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_grant"},
+		{"wrong nullable type", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":1,"constraint":null,"expires_at":null}`, "invalid_grant"},
+		{"noncanonical expiry", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":"2027-08-25T00:00:00+00:00"}`, "invalid_grant"},
 		{"unknown member", valid[:len(valid)-1] + `,"extra":true}`, "invalid_json"},
-		{"duplicate member", `{"name":"Test grant","principal_id":"` + testID + `","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_json"},
+		{"duplicate member", `{"description":"Test grant","principal_id":"` + testID + `","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_json"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result := perform(handler, http.MethodPost, "/api/v1/grants", test.body, headers)
@@ -108,7 +151,7 @@ func TestGrantAuthenticationSessionAndTargetValidation(t *testing.T) {
 	handler := newGrantHandler(t, service, allowGrantTarget, nil)
 	unauthenticated := perform(handler, http.MethodGet, "/api/v1/grants", "", nil)
 	assert.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
-	body := `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":"not-yet-discovered","constraint":null,"expires_at":null}`
+	body := `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":"not-yet-discovered","constraint":null,"expires_at":null}`
 	session := perform(handler, http.MethodPost, "/api/v1/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusCreated, session.Code, session.Body.String())
 	missingOrigin := perform(handler, http.MethodPost, "/api/v1/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
@@ -142,8 +185,8 @@ func TestGrantQueryValidationErrorsAndNoFailureInvalidation(t *testing.T) {
 		method     string
 		path, body string
 	}{
-		{authorization.ErrInvalidInput, 400, "invalid_grant", http.MethodPost, "/api/v1/grants", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
-		{authorization.ErrResourceLimit, 429, "resource_limit", http.MethodPost, "/api/v1/grants", `{"name":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
+		{authorization.ErrInvalidInput, 400, "invalid_grant", http.MethodPost, "/api/v1/grants", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
+		{authorization.ErrResourceLimit, 429, "resource_limit", http.MethodPost, "/api/v1/grants", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
 		{authorization.ErrStaleCursor, 409, "stale_cursor", http.MethodGet, "/api/v1/grants", ""},
 		{authorization.ErrNotFound, 404, "not_found", http.MethodDelete, "/api/v1/grants/01ARZ3NDEKTSV4RRFFQ69G5FAY", ""},
 		{authorization.ErrStorageUnavailable, 503, "authorization_unavailable", http.MethodGet, "/api/v1/grants", ""},

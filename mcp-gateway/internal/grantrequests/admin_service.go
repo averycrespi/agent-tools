@@ -26,13 +26,13 @@ func (service *AdminService) GetAdmin(ctx context.Context, requestID string) (co
 	return service.repository.GetAdmin(ctx, requestID)
 }
 
-func (service *AdminService) ApproveAdmin(ctx context.Context, requestID, revision, name string, policy contract.Policy) (contract.GrantRequest, error) {
+func (service *AdminService) ApproveAdmin(ctx context.Context, requestID, revision string, description *string, policy contract.Policy) (contract.GrantRequest, error) {
 	before, err := service.repository.GetAdmin(ctx, requestID)
 	if err != nil {
 		return contract.GrantRequest{}, err
 	}
 	approved, err := service.repository.Approve(ctx, service.authority, ApproveRequest{
-		Name: name, ID: requestID, ExpectedRevision: revision, ApprovedPolicy: policy,
+		Description: description, ID: requestID, ExpectedRevision: revision, ApprovedPolicy: policy,
 	})
 	if err != nil {
 		return contract.GrantRequest{}, err

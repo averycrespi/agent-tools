@@ -56,7 +56,7 @@ func TestDenyConflictTxUsesConservativeOwnerScopeAndExpiry(t *testing.T) {
 			if test.denyPrincipalOther {
 				denyPrincipal = mustCreatePrincipal(t, repository).ID
 			}
-			_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Name: "Test grant",
+			_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
 				PrincipalID: denyPrincipal, Effect: contract.GrantDeny, ServerID: test.denyServer,
 				UpstreamName: test.denyUpstream, Constraint: test.constraint, ExpiresAt: test.expiresAt,
 			}, allowCurrentTarget)
