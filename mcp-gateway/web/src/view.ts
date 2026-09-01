@@ -284,7 +284,12 @@ export class ViewCoordinator {
       this.panelGenerations.set(panel.id, generation);
       const previous = this.panelState.get(panel.id);
       this.panelState.set(panel.id, {
-        status: previous?.hasValue === true ? "stale" : "loading",
+        status:
+          previous?.hasValue === true
+            ? this.streamConnected
+              ? "current"
+              : "stale"
+            : "loading",
         hasValue: previous?.hasValue === true,
       });
     }

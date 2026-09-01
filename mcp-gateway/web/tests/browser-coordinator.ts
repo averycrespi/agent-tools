@@ -1640,8 +1640,11 @@ async function assertViewGenerationFoundation(): Promise<void> {
     () => coordinator.snapshot().panels.b?.status === "error",
     "panel failure was not isolated",
   );
-  if (coordinator.snapshot().panels.a?.status !== "stale")
-    fail("matching prior snapshot was not labeled stale");
+  if (
+    coordinator.snapshot().panels.a?.status !== "current" ||
+    coordinator.snapshot().panels.a?.hasValue !== true
+  )
+    fail("background refresh did not preserve current prior data");
   coordinator.navigate("#/servers");
   if (
     coordinator.snapshot().panels.a?.status !== "loading" ||
@@ -6032,15 +6035,19 @@ async function runSystemStatus(
 
   holdStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();
+  await eventually(
+    () => releaseStatus !== undefined,
+    "System refresh did not start",
+  );
   await page.waitForFunction(
     () =>
       document
         .querySelector('[data-testid="system-status-panel"]')
-        ?.getAttribute("data-panel-status") === "stale",
+        ?.getAttribute("data-panel-status") === "current",
   );
   body = (await page.locator("body").textContent()) ?? "";
-  if (!body.includes("Data stale") || !body.includes("Schema 10"))
-    fail("System did not preserve and label stale status");
+  if (body.includes("Data stale") || !body.includes("Schema 10"))
+    fail("System refresh flashed stale text or discarded current status");
   holdStatus = false;
   releaseStatus?.();
   await page.waitForFunction(
