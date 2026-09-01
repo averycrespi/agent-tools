@@ -1934,7 +1934,8 @@ async function runOverviewInvocationSystemCanary(
   );
   body = (await page.locator("body").textContent()) ?? "";
   if (
-    !body.includes("bounded recent window of at most 4,096 rows") ||
+    !body.includes("retains at most 4,096 recent rows") ||
+    body.includes("Bounded invocation evidence") ||
     body.includes("redacted_arguments")
   )
     fail("Invocation workflow canary omitted bounds or exposed capture");
@@ -5992,8 +5993,8 @@ async function runInvocations(
   );
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "bounded recent window of at most 4,096 rows",
-    "FIFO eviction has no age guarantee",
+    "retains at most 4,096 recent rows",
+    "absence does not prove an invocation never existed or executed",
     "Filtered pages are independently coherent",
     "Request",
     "Outcome",

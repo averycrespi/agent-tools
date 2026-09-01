@@ -496,18 +496,6 @@ function Identities({ item }: { item: InvocationSummaryView }) {
     </details>
   );
 }
-function RetentionNotice() {
-  return (
-    <StateNotice state="warning" title="Bounded invocation evidence">
-      <p>
-        Invocation history is a bounded recent window of at most 4,096 rows.
-        FIFO eviction has no age guarantee; a missing or evicted item does not
-        prove it never existed or never executed.
-      </p>
-    </StateNotice>
-  );
-}
-
 export function Invocations({
   controller,
   view,
@@ -531,7 +519,6 @@ export function Invocations({
   );
   return (
     <div class="invocations-view" data-testid="invocations-view">
-      <RetentionNotice />
       {detail ? (
         <InvocationDetail snapshot={snapshot} panel={panel} />
       ) : (
@@ -580,7 +567,9 @@ function InvocationList({
       <p>
         Filtered pages are independently coherent. Outcome changes can move
         records into or out of later pages; refresh starts a new traversal and
-        traversals are never merged.
+        traversals are never merged. Invocation history retains at most 4,096
+        recent rows; absence does not prove an invocation never existed or
+        executed.
       </p>
       <form
         class="inline-filter"
