@@ -1,5 +1,6 @@
 import type { ComponentChildren, RefObject } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { parseFragment, serializeLocation } from "./location";
 
 export function containsControlCharacters(value: string): boolean {
   return /\p{Cc}/u.test(value);
@@ -175,6 +176,33 @@ function searchMatches(value: string, query: string): boolean {
     });
 }
 
+function collectionFilterValues<T>(
+  filters: readonly CollectionFilter<T>[],
+): Record<string, string> {
+  const location = parseFragment(window.location.hash);
+  if (location === undefined) return {};
+  return Object.fromEntries(
+    filters.flatMap((filter) => {
+      const value = location.query[`filter_${filter.key}`];
+      return value === undefined ? [] : [[filter.key, value]];
+    }),
+  );
+}
+
+function replaceCollectionFilter(key: string, value: string): void {
+  const location = parseFragment(window.location.hash);
+  if (location === undefined) return;
+  const query = { ...location.query };
+  const queryKey = `filter_${key}`;
+  if (value.trim() === "") delete query[queryKey];
+  else query[queryKey] = value;
+  window.history.replaceState(
+    null,
+    "",
+    serializeLocation({ ...location, query }),
+  );
+}
+
 export function CollectionTable<T>({
   caption,
   items,
@@ -202,8 +230,15 @@ export function CollectionTable<T>({
   onLoadMore?: () => void;
   loadMoreLabel?: string;
 }) {
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
+    collectionFilterValues(filters),
+  );
   const [sort, setSort] = useState(initialSort);
+  useEffect(() => {
+    const synchronize = () => setFilterValues(collectionFilterValues(filters));
+    window.addEventListener("hashchange", synchronize);
+    return () => window.removeEventListener("hashchange", synchronize);
+  }, [filters]);
   const visible = useMemo(() => {
     const filtered = items.filter((item) =>
       filters.every((filter) => {
@@ -260,24 +295,28 @@ export function CollectionTable<T>({
                 aria-label={filter.label}
                 placeholder={filter.placeholder ?? `${filter.label}…`}
                 value={filterValues[filter.key] ?? ""}
-                onInput={(event) =>
+                onInput={(event) => {
+                  const value = event.currentTarget.value;
+                  replaceCollectionFilter(filter.key, value);
                   setFilterValues((current) => ({
                     ...current,
-                    [filter.key]: event.currentTarget.value,
-                  }))
-                }
+                    [filter.key]: value,
+                  }));
+                }}
               />
             ) : (
               <select
                 key={filter.key}
                 aria-label={filter.label}
                 value={filterValues[filter.key] ?? ""}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  replaceCollectionFilter(filter.key, value);
                   setFilterValues((current) => ({
                     ...current,
-                    [filter.key]: event.currentTarget.value,
-                  }))
-                }
+                    [filter.key]: value,
+                  }));
+                }}
               >
                 <option value="">{filter.label}: any</option>
                 {filter.options.map((option) => (
@@ -292,10 +331,18 @@ export function CollectionTable<T>({
             class="text-button"
             type="button"
             disabled={!hasActiveFilters}
-            onClick={() => setFilterValues({})}
+            onClick={() => {
+              for (const filter of filters)
+                replaceCollectionFilter(filter.key, "");
+              setFilterValues({});
+            }}
           >
             Reset
           </button>
+          <output class="table-filter-summary" aria-live="polite">
+            Showing {visible.length} of {items.length}
+            {hasMore ? " loaded" : ""}
+          </output>
         </div>
       )}
       <ComparisonTable caption={caption}>

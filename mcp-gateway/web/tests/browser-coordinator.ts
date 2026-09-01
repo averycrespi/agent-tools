@@ -8950,9 +8950,19 @@ async function runServerCatalogReads(
     Math.abs(createButtonBox.x - serversViewBox.x) > 1
   )
     fail("Create server was not left aligned");
+  if (!(await page.getByText("Showing 2 of 2", { exact: true }).count()))
+    fail("server inventory omitted its visible result count");
   await page.getByLabel("Name or ID", { exact: true }).fill("Degraded catalog");
   if ((await page.locator('[data-testid="server-row"]').count()) !== 1)
     fail("server name filter did not narrow loaded rows");
+  if (!(await page.getByText("Showing 1 of 2", { exact: true }).count()))
+    fail("server inventory did not update its visible result count");
+  if (
+    !(await page.evaluate(() => window.location.hash)).includes(
+      "filter_name=Degraded%20catalog",
+    )
+  )
+    fail("server table filter was not persisted in the URL");
   await page
     .getByLabel("Name or ID", { exact: true })
     .fill(serverReadIDs.active);

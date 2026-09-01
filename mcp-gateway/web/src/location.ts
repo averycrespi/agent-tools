@@ -70,12 +70,26 @@ function parseQuery(raw: string): Record<string, string> | undefined {
     if (member === "" || member.indexOf("=") <= 0) return undefined;
     const separator = member.indexOf("=");
     if (separator !== member.lastIndexOf("=")) return undefined;
-    const key = member.slice(0, separator);
-    const value = member.slice(separator + 1);
+    let key: string;
+    let value: string;
+    try {
+      key = decodeURIComponent(member.slice(0, separator));
+      value = decodeURIComponent(member.slice(separator + 1));
+    } catch {
+      return undefined;
+    }
     if (value === "" || Object.hasOwn(result, key)) return undefined;
     result[key] = value;
   }
   return result;
+}
+
+function isCollectionFilter(key: string, value: string): boolean {
+  return (
+    /^filter_[a-z][a-z0-9_-]*$/.test(key) &&
+    new TextEncoder().encode(value).byteLength <= 256 &&
+    !/[\p{Cc}\p{Cf}]/u.test(value)
+  );
 }
 
 function exactQuery(
@@ -84,7 +98,11 @@ function exactQuery(
 ): boolean {
   for (const [key, value] of Object.entries(query)) {
     const validate = validators[key];
-    if (validate === undefined || !validate(value)) return false;
+    if (validate === undefined) {
+      if (!isCollectionFilter(key, value)) return false;
+      continue;
+    }
+    if (!validate(value)) return false;
   }
   return true;
 }
@@ -101,8 +119,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   if (
     raw.length < 3 ||
     raw.length > MAX_FRAGMENT_BYTES ||
-    !raw.startsWith("#/") ||
-    raw.includes("%")
+    !raw.startsWith("#/")
   ) {
     return undefined;
   }
@@ -113,6 +130,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   const question = raw.indexOf("?");
   if (question !== -1 && question !== raw.lastIndexOf("?")) return undefined;
   const path = raw.slice(2, question === -1 ? undefined : question);
+  if (path.includes("%")) return undefined;
   const rawQuery = question === -1 ? "" : raw.slice(question + 1);
   if (
     (question !== -1 && rawQuery === "") ||
@@ -133,11 +151,14 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   const noQuery = Object.keys(query).length === 0;
   const [first, second, third, fourth] = segments;
 
-  if (segments.length === 1 && noQuery) {
-    if (first === "overview" || first === "catalog" || first === "sign-in") {
-      return location(first, segments, query);
+  if (segments.length === 1) {
+    if (first === "overview" || first === "sign-in") {
+      if (noQuery) return location(first, segments, query);
     }
-    if (first === "servers") return location("servers", segments, query);
+    if (first === "catalog" && exactQuery(query, {}))
+      return location(first, segments, query);
+    if (first === "servers" && exactQuery(query, {}))
+      return location("servers", segments, query);
   }
   if (first === "servers") {
     if (segments.length === 2 && second === "new" && noQuery) {
@@ -163,7 +184,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     }
   }
   if (first === "principals") {
-    if (segments.length === 1 && noQuery)
+    if (segments.length === 1 && exactQuery(query, {}))
       return location("principals", segments, query);
     if (segments.length === 2 && second === "new" && noQuery)
       return location("principals", segments, query);
@@ -271,10 +292,19 @@ export function serializeLocation(value: ApplicationLocation): string {
   const query = { ...value.query };
   if (path.startsWith("servers/") && query.tab === "overview") delete query.tab;
   if (path === "system" && query.tab === "status") delete query.tab;
-  const keys = queryOrder[path] ?? (Object.hasOwn(query, "tab") ? ["tab"] : []);
+  const fixedKeys =
+    queryOrder[path] ?? (Object.hasOwn(query, "tab") ? ["tab"] : []);
+  const keys = [
+    ...fixedKeys,
+    ...Object.keys(query)
+      .filter((key) => key.startsWith("filter_") && !fixedKeys.includes(key))
+      .sort(),
+  ];
   const members = keys
     .filter((key) => Object.hasOwn(query, key))
-    .map((key) => `${key}=${query[key]}`);
+    .map(
+      (key) => `${encodeURIComponent(key)}=${encodeURIComponent(query[key]!)}`,
+    );
   return `#/${path}${members.length === 0 ? "" : `?${members.join("&")}`}`;
 }
 
