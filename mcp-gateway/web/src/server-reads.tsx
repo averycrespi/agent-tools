@@ -1749,7 +1749,7 @@ export function ServerReads({
       <div class="domain-view" data-testid="servers-view">
         <div class="collection-toolbar">
           <a
-            class="button-link primary-action"
+            class="button-link create-action"
             href="#/servers/new"
             data-testid="server-create-link"
           >

@@ -383,11 +383,12 @@ function PrincipalEditor({
           </h2>
         </div>
       </div>
-      <p>
-        {create
-          ? "Creating a principal also adds Default Gateway access for Gateway self-service tools."
-          : "Changing visibility does not change tool authorization. Re-enabling a principal does not restore revoked credentials or removed default access."}
-      </p>
+      {create && (
+        <p>
+          Creating a principal also adds Default Gateway access for Gateway
+          self-service tools.
+        </p>
+      )}
       <form
         data-testid="principal-editor"
         onSubmit={(event) => {
@@ -473,6 +474,7 @@ function PrincipalEditor({
         {notice !== undefined && <StateNotice state="empty" title={notice} />}
         <button
           ref={submitButton}
+          class={create ? "create-action" : "safe-action"}
           data-testid="principal-editor-submit"
           type="submit"
           disabled={disabled}
@@ -506,6 +508,7 @@ function PrincipalEditor({
         confirmLabel={
           state === "disabled" ? "Disable principal" : "Re-enable principal"
         }
+        destructive={state === "disabled"}
         returnFocus={submitButton}
         onCancel={() => controller.abandon()}
         onConfirm={() => void settle(controller.submit())}
@@ -678,6 +681,7 @@ function PrincipalCredentialActions({
       <div class="inline-actions">
         <button
           ref={issueButton}
+          class={principal.hasCredential ? "danger-action" : "create-action"}
           data-testid="principal-credential-issue"
           type="button"
           disabled={disabled}
@@ -907,7 +911,7 @@ export function Principals({
     <div class="domain-view" data-testid="principals-view">
       <div class="collection-toolbar">
         <a
-          class="button-link primary-action"
+          class="button-link create-action"
           href="#/principals/new"
           data-testid="principal-create-link"
         >

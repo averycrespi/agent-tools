@@ -136,7 +136,8 @@ button:disabled {
 
 button.primary-action,
 .button-link.primary-action,
-form button[type="submit"] {
+button.create-action,
+.button-link.create-action {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-text);
@@ -144,7 +145,8 @@ form button[type="submit"] {
 
 button.primary-action:not(:disabled):hover,
 .button-link.primary-action:hover,
-form button[type="submit"]:not(:disabled):hover {
+button.create-action:not(:disabled):hover,
+.button-link.create-action:hover {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-text);

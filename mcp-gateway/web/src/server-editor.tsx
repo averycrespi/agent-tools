@@ -1338,7 +1338,7 @@ export function ServerEditor({
         )}
         <button
           ref={submitButton}
-          class="primary-action"
+          class={create ? "create-action" : "safe-action"}
           type="submit"
           disabled={disabled}
           data-testid="server-editor-submit"
@@ -1367,6 +1367,7 @@ export function ServerEditor({
           )
         }
         confirmLabel={create ? "Create server" : "Apply behavioral change"}
+        destructive={!create}
         returnFocus={submitButton as unknown as RefObject<HTMLElement>}
         onCancel={() => controller.abandon()}
         onConfirm={() => void settle(controller.submit())}

@@ -3653,7 +3653,7 @@ async function runPrincipals(
   const principalCreate = page.locator('[data-testid="principal-create-link"]');
   if (
     !(await principalCreate.evaluate((element) =>
-      element.classList.contains("primary-action"),
+      element.classList.contains("create-action"),
     )) ||
     Math.abs(
       (await principalCreate.boundingBox())!.x -
@@ -3933,6 +3933,12 @@ async function runPrincipalCredentials(
       .count()) !== 1
   )
     fail("principal credential guidance or terminology was unclear");
+  if (
+    !(await page
+      .locator('[data-testid="principal-credential-issue"]')
+      .evaluate((element) => element.classList.contains("danger-action")))
+  )
+    fail("credential rotation was not styled as dangerous");
 
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
@@ -4337,7 +4343,7 @@ async function runGrantReadsCreate(
   const grantCreate = page.locator('[data-testid="grant-create-link"]');
   if (
     !(await grantCreate.evaluate((element) =>
-      element.classList.contains("primary-action"),
+      element.classList.contains("create-action"),
     )) ||
     Math.abs(
       (await grantCreate.boundingBox())!.x -
@@ -7338,9 +7344,22 @@ async function runServerOperations(
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=activity`;
   }, serverID);
-  await page
-    .locator('[data-testid="start-operation-disconnect_credentials"]')
-    .click();
+  const disconnectAction = page.locator(
+    '[data-testid="start-operation-disconnect_credentials"]',
+  );
+  if (
+    !(await disconnectAction.evaluate((element) =>
+      element.classList.contains("danger-action"),
+    ))
+  )
+    fail("credential disconnect was not styled as dangerous");
+  await disconnectAction.click();
+  if (
+    !(await page
+      .locator('[data-testid="operation-start-confirm-submit"]')
+      .evaluate((element) => element.classList.contains("danger-action")))
+  )
+    fail("credential disconnect confirmation was not dangerous");
   const disconnectText =
     (await page
       .locator("#operation-start-confirm-consequence")

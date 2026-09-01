@@ -276,6 +276,11 @@ function OperationStarter({
           {eligible.map((kind) => (
             <button
               key={kind}
+              class={
+                kind === "disconnect_credentials"
+                  ? "danger-action"
+                  : "safe-action"
+              }
               type="button"
               data-testid={`start-operation-${kind}`}
               disabled={disabled}
@@ -330,6 +335,7 @@ function OperationStarter({
           title={`${label(selected)}?`}
           consequence={consequence(selected)}
           confirmLabel={label(selected)}
+          destructive={selected === "disconnect_credentials"}
           returnFocus={trigger as unknown as RefObject<HTMLElement>}
           onCancel={() => controller.abandon()}
           onConfirm={() => void settle(controller.submit())}

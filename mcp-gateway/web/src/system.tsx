@@ -764,6 +764,7 @@ function Backups({
       </p>
       <div class="inline-actions">
         <button
+          class="create-action"
           data-testid="backup-create"
           type="button"
           disabled={disabled}
@@ -1118,6 +1119,7 @@ function AdminCredentials({
       </FormField>
       <button
         ref={createButton}
+        class="create-action"
         data-testid="admin-credential-create"
         type="button"
         disabled={disabled}

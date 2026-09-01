@@ -590,6 +590,7 @@ function GrantCreate({
             </StateNotice>
           )}
           <button
+            class="create-action"
             data-testid="grant-create-submit"
             type="submit"
             disabled={disabled}
@@ -835,6 +836,7 @@ function GrantActions({
             Delete grant
           </button>
           <button
+            class="danger-action"
             data-testid="grant-correct"
             type="button"
             disabled={
@@ -1145,7 +1147,7 @@ export function Grants({
     <div class="domain-view" data-testid="grants-view">
       <div class="collection-toolbar">
         <a
-          class="button-link primary-action"
+          class="button-link create-action"
           href={`#/grants/new${query === "" ? "" : `?${query}`}`}
           data-testid="grant-create-link"
         >
