@@ -26,7 +26,7 @@ type PrincipalState = "active" | "disabled";
 type PrincipalVisibility = "requestable" | "allowed-only" | "all";
 type JSONRecord = Record<string, unknown>;
 
-interface Principal {
+export interface Principal {
   id: string;
   displayName: string;
   state: PrincipalState;
@@ -157,7 +157,9 @@ async function readJSON(
     return { value: (await response.json()) as unknown, response };
   });
 }
-async function readPrincipals(session: SessionClient): Promise<Principal[]> {
+export async function readPrincipals(
+  session: SessionClient,
+): Promise<Principal[]> {
   const items: Principal[] = [];
   let cursor: string | null = null;
   let restarted = false;

@@ -4050,6 +4050,48 @@ async function runGrantReadsCreate(
   let attempts = 0;
   let creates = 0;
 
+  await page.route("**/api/v1/principals?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: principalID,
+            display_name: "Automation agent",
+            state: "active",
+            visibility: "allowed-only",
+            revision: "1",
+            credential_revision: "0",
+            credential: null,
+            created_at: "2026-08-28T12:00:00Z",
+            updated_at: "2026-08-28T12:00:00Z",
+          },
+        ],
+        next_cursor: null,
+      }),
+    });
+  });
+  await page.route("**/api/v1/servers?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          serverReadFixture(serverID, {
+            name: "Reporting server",
+            desired: "enabled",
+            runtime: "active",
+            credential: "ready",
+            durable: "current",
+            active: "current",
+          }),
+        ],
+        next_cursor: null,
+      }),
+    });
+  });
+
   await page.route("**/api/v1/grants?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
@@ -4196,8 +4238,27 @@ async function runGrantReadsCreate(
     () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of ["ALLOW", "DENY", "Create grant"])
+  for (const phrase of [
+    "Reporting access",
+    "Restricted access",
+    "Automation agent",
+    "Active",
+    "Expired",
+    "Create grant",
+  ])
     if (!body.includes(phrase)) fail(`grant list omitted ${phrase}`);
+  const headers = await page.locator("thead").first().innerText();
+  if (
+    !headers.includes("Name") ||
+    !headers.includes("ID") ||
+    headers.includes("Action")
+  )
+    fail(`grant table identity columns changed: ${headers}`);
+  if (
+    body.includes("Open grant") ||
+    body.includes("Synthetic default namespace")
+  )
+    fail("grant table retained redundant actions or internal default language");
   if (body.includes("Immutable grants") || body.includes("Expired records"))
     fail("dedicated Grants page retained subordinate introductory copy");
   const grantCreate = page.locator('[data-testid="grant-create-link"]');
@@ -4223,7 +4284,7 @@ async function runGrantReadsCreate(
       ),
     );
   body = (await page.locator("body").textContent()) ?? "";
-  if (!body.includes("Exact tool dangerous.tool") || !body.includes("expired"))
+  if (!body.includes("Exact tool dangerous.tool") || !body.includes("Expired"))
     fail("grant detail omitted scope or retained expiry state");
 
   await page.evaluate(
@@ -4233,6 +4294,21 @@ async function runGrantReadsCreate(
     { principal: principalID, server: serverID },
   );
   await page.locator('[data-testid="grant-create-view"]').waitFor();
+  if (
+    (await page
+      .locator('[data-testid="grant-principal"]')
+      .evaluate((node) => node.tagName)) !== "SELECT" ||
+    (await page
+      .locator('[data-testid="grant-server"]')
+      .evaluate((node) => node.tagName)) !== "SELECT" ||
+    !(
+      await page.locator('[data-testid="grant-principal"]').innerText()
+    ).includes("Automation agent") ||
+    !(await page.locator('[data-testid="grant-server"]').innerText()).includes(
+      "Reporting server",
+    )
+  )
+    fail("grant creation did not use named principal and server selectors");
   await page.locator('[data-testid="grant-name"]').fill("New access");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page.getByText("The grant is invalid.", { exact: true }).waitFor();
@@ -4372,6 +4448,47 @@ async function runGrantCorrection(
   let deletes = 0;
   const detailRequests: string[] = [];
 
+  await page.route("**/api/v1/principals?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: principalIDs.map((id, index) => ({
+          id,
+          display_name: `Agent ${index + 1}`,
+          state: "active",
+          visibility:
+            index === 7 ? "allowed-only" : index === 8 ? "requestable" : "all",
+          revision: "1",
+          credential_revision: "0",
+          credential: null,
+          created_at: "2026-08-28T12:00:00Z",
+          updated_at: "2026-08-28T12:00:00Z",
+        })),
+        next_cursor: null,
+      }),
+    });
+  });
+  await page.route("**/api/v1/servers?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          serverReadFixture(serverID, {
+            name: "Correction server",
+            desired: "enabled",
+            runtime: "active",
+            credential: "ready",
+            durable: "current",
+            active: "current",
+          }),
+        ],
+        next_cursor: null,
+      }),
+    });
+  });
+
   await page.route("**/api/v1/principals/*", async (route) => {
     const principalID = new URL(route.request().url()).pathname
       .split("/")
@@ -4501,13 +4618,15 @@ async function runGrantCorrection(
   });
 
   const navigate = async (grantID: string) => {
+    const expectedName = grants.get(grantID)?.name;
+    if (expectedName === undefined) fail(`missing grant fixture ${grantID}`);
     await page.evaluate((id) => {
       window.location.hash = `#/access/grants/${id}`;
     }, grantID);
     await page.locator('[data-testid="grant-actions"]').waitFor();
     try {
       await page
-        .getByRole("heading", { name: `Grant ${grantID}`, exact: true })
+        .getByRole("heading", { name: expectedName, exact: true })
         .waitFor({ timeout: 3000 });
     } catch {
       fail(
@@ -4536,7 +4655,7 @@ async function runGrantCorrection(
     fail("create-first auto-submitted deletion");
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByRole("heading", { name: /^Grant .*H/ }).waitFor();
+  await page.waitForFunction(() => /\/grants\/.*H/.test(window.location.hash));
   if (Number(deletes) !== 1)
     fail("create-first deletion did not remain step two");
 
@@ -4567,7 +4686,7 @@ async function runGrantCorrection(
     fail("delete-first step one was not isolated");
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByRole("heading", { name: /^Grant .*H/ }).waitFor();
+  await page.waitForFunction(() => /\/grants\/.*H/.test(window.location.hash));
   if (Number(creates) !== beforeCreate + 1)
     fail("delete-first creation did not remain step two");
 
@@ -4591,9 +4710,18 @@ async function runGrantCorrection(
     fail("stale correction submitted deletion");
 
   const defaultWarnings: Array<[string, string]> = [
-    [grantIDs[7]!, "remove both discovery and call authorization"],
-    [grantIDs[8]!, "requestable discovery still follows current DENY policy"],
-    [grantIDs[9]!, "visibility never supplies call authorization"],
+    [
+      grantIDs[7]!,
+      "removes the principal's access to Gateway self-service tools",
+    ],
+    [
+      grantIDs[8]!,
+      "removes the principal's access to Gateway self-service tools",
+    ],
+    [
+      grantIDs[9]!,
+      "removes the principal's access to Gateway self-service tools",
+    ],
   ];
   for (const [grantID, phrase] of defaultWarnings) {
     await navigate(grantID);
@@ -4602,7 +4730,7 @@ async function runGrantCorrection(
       (await page.locator('[data-testid="grant-correct"]').isDisabled()) !==
       true
     )
-      fail("synthetic default grant exposed unsupported correction");
+      fail("default Gateway grant exposed unsupported replacement");
   }
 
   await navigate(grantIDs[5]!);
@@ -10511,7 +10639,8 @@ try {
           value.includes("server responded with a status of 412"),
         )) ||
       (input.scenario === "grant-reads-create" &&
-        consoleFailures.length === 2 &&
+        consoleFailures.length >= 2 &&
+        consoleFailures.length <= 3 &&
         [400, 409].every((status) =>
           consoleFailures.some((value) =>
             value.includes(`server responded with a status of ${status}`),

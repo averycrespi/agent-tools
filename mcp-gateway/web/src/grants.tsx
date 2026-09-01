@@ -15,6 +15,8 @@ import {
   StateNotice,
   StatusLabel,
 } from "./primitives";
+import { readPrincipals, type Principal } from "./principals";
+import { decodeServer, type ServerView } from "./server-reads";
 import type { ProtectedContext, SessionClient } from "./session";
 import { UserTime } from "./time";
 import type { ViewSnapshot } from "./view";
@@ -115,6 +117,23 @@ async function requestJSON(
     return { response, value: (await response.json()) as unknown };
   });
 }
+async function readServers(session: SessionClient): Promise<ServerView[]> {
+  const items: ServerView[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const params = new URLSearchParams({ limit: "100" });
+    if (cursor !== null) params.set("cursor", cursor);
+    const result = await requestJSON(session, `/api/v1/servers?${params}`);
+    if (result === undefined) return [];
+    if (!result.response.ok) throw new Error("Server data is unavailable.");
+    const page = record(result.value, ["items", "next_cursor"]);
+    if (!Array.isArray(page.items)) throw new Error("invalid response");
+    items.push(...page.items.map(decodeServer));
+    if (page.next_cursor === null) return items;
+    cursor = text(page.next_cursor);
+  }
+}
+
 async function readGrants(
   session: SessionClient,
   query: Readonly<Record<string, string>>,
@@ -203,9 +222,13 @@ function previewConstraint(atoms: readonly Atom[]): unknown {
 function GrantCreate({
   mutations,
   query,
+  principals,
+  servers,
 }: {
   mutations: MutationCoordinator;
   query: Readonly<Record<string, string>>;
+  principals: readonly Principal[];
+  servers: readonly ServerView[];
 }) {
   const initialDraft = useRef({
     name: "",
@@ -320,11 +343,6 @@ function GrantCreate({
             <h2 id="grant-create-title">Create grant</h2>
           </div>
         </div>
-        <p>
-          Grants are immutable ALLOW or DENY records. The API remains
-          authoritative; this form validates only the closed syntax and makes no
-          overlap or visibility claim.
-        </p>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -343,15 +361,23 @@ function GrantCreate({
               />
             )}
           </FormField>
-          <FormField id="grant-principal" label="Principal ID" required>
+          <FormField id="grant-principal" label="Principal" required>
             {(attributes) => (
-              <input
+              <select
                 {...attributes}
                 data-testid="grant-principal"
                 value={principalID}
-                onInput={(event) => setPrincipalID(event.currentTarget.value)}
+                onChange={(event) => setPrincipalID(event.currentTarget.value)}
                 required
-              />
+              >
+                <option value="">Choose a principal</option>
+                {principals.map((principal) => (
+                  <option value={principal.id} key={principal.id}>
+                    {principal.displayName} — {principal.id}
+                    {principal.state === "disabled" ? " (Disabled)" : ""}
+                  </option>
+                ))}
+              </select>
             )}
           </FormField>
           <FormField id="grant-effect" label="Effect">
@@ -369,15 +395,28 @@ function GrantCreate({
               </select>
             )}
           </FormField>
-          <FormField id="grant-server" label="Server ID" required>
+          <FormField id="grant-server" label="Server or Gateway scope" required>
             {(attributes) => (
-              <input
+              <select
                 {...attributes}
                 data-testid="grant-server"
                 value={serverID}
-                onInput={(event) => setServerID(event.currentTarget.value)}
+                onChange={(event) => setServerID(event.currentTarget.value)}
                 required
-              />
+              >
+                <option value="">Choose a server</option>
+                <option value="00000000000000000000000000">
+                  Gateway self-service tools
+                </option>
+                {servers
+                  .filter((server) => server.desiredState !== "deleted")
+                  .map((server) => (
+                    <option value={server.id} key={server.id}>
+                      {server.displayName} — {server.id}
+                      {server.desiredState === "disabled" ? " (Disabled)" : ""}
+                    </option>
+                  ))}
+              </select>
             )}
           </FormField>
           <FormField id="grant-scope" label="Scope">
@@ -552,9 +591,7 @@ function GrantCreate({
             type="submit"
             disabled={disabled}
           >
-            {mutation.state === "submitting"
-              ? "Creating…"
-              : "Create immutable grant"}
+            {mutation.state === "submitting" ? "Creating…" : "Create grant"}
           </button>
         </form>
       </section>
@@ -626,11 +663,16 @@ function GrantActions({
   >();
   const [notice, setNotice] = useState<string>();
   const actionButton = useRef<HTMLButtonElement>(null);
-  const syntheticDefault = grant.serverID === "00000000000000000000000000";
+  const defaultGrant =
+    grant.effect === "allow" &&
+    grant.serverID === "00000000000000000000000000" &&
+    grant.upstreamName === null &&
+    grant.constraint === null &&
+    grant.expiresAt === null;
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
-    if (!syntheticDefault) return;
+    if (!defaultGrant) return;
     let current = true;
     void principalVisibility(session, grant.principalID).then((value) => {
       if (current) setVisibility(value);
@@ -638,7 +680,7 @@ function GrantActions({
     return () => {
       current = false;
     };
-  }, [grant.principalID, syntheticDefault]);
+  }, [grant.principalID, defaultGrant]);
 
   const createSpec = (): MutationSpec<GrantActionResult> => {
     const body = JSON.stringify({
@@ -683,7 +725,7 @@ function GrantActions({
   const refreshPolicy = () =>
     readGrants(session, {
       principal_id: grant.principalID,
-      ...(syntheticDefault ? {} : { server_id: grant.serverID }),
+      ...(defaultGrant ? {} : { server_id: grant.serverID }),
     });
   const confirm = async () => {
     setConfirming(false);
@@ -728,13 +770,9 @@ function GrantActions({
     setNotice(undefined);
   };
   const defaultWarning =
-    visibility === "allowed-only"
-      ? "This is the synthetic default ALLOW for an allowed-only principal. Deletion can remove both discovery and call authorization unless another ALLOW applies."
-      : visibility === "requestable"
-        ? "This is the synthetic default ALLOW for a requestable principal. Deletion removes broad call authorization; requestable discovery still follows current DENY policy."
-        : visibility === "all"
-          ? "This is the synthetic default ALLOW for an all-visible principal. Current tools may remain discoverable, but visibility never supplies call authorization."
-          : "This is a synthetic default ALLOW. Refresh principal visibility before relying on discovery consequences.";
+    visibility === undefined
+      ? "Deleting this default grant removes the principal's access to Gateway self-service tools. It is not restored automatically."
+      : `Deleting this default grant removes the principal's access to Gateway self-service tools. The principal's ${visibility} visibility does not restore authorization.`;
   const disabled =
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched";
@@ -747,20 +785,13 @@ function GrantActions({
       <div class="panel-heading">
         <div>
           <span class="panel-code">POLICY CHANGE</span>
-          <h2 id="grant-actions-title">Delete or correct this grant</h2>
+          <h2 id="grant-actions-title">Delete or replace this grant</h2>
         </div>
       </div>
-      <p>
-        Grants cannot be edited. Correction is exactly two independent operator
-        gestures; no composite mutation, force path, automatic second step, or
-        automatic replay exists.
-      </p>
-      {syntheticDefault && (
-        <StateNotice
-          state="warning"
-          title="Synthetic default-grant consequence"
-        >
+      {defaultGrant && (
+        <StateNotice state="warning" title="Default Gateway access consequence">
           <p>{defaultWarning}</p>
+          <p>Default Gateway access can be deleted but not replaced.</p>
         </StateNotice>
       )}
       {grant.state === "expired" && (
@@ -776,13 +807,13 @@ function GrantActions({
       )}
       {mutation.problem !== undefined && (
         <StateNotice state="error" title={mutation.problem.title}>
-          <p>No later correction step was submitted.</p>
+          <p>No later replacement step was submitted.</p>
         </StateNotice>
       )}
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Grant mutation outcome is unknown">
           <p>
-            Do not replay and do not submit the later correction step. Refresh
+            Do not replay and do not submit the later replacement step. Refresh
             policy to investigate.
           </p>
         </StateNotice>
@@ -803,17 +834,17 @@ function GrantActions({
           <button
             data-testid="grant-correct"
             type="button"
-            disabled={disabled || grant.constraint !== null || syntheticDefault}
+            disabled={disabled || grant.constraint !== null || defaultGrant}
             onClick={() => setCorrection(true)}
           >
-            Correct grant
+            Replace grant
           </button>
         </div>
       ) : (
         <div data-testid="grant-correction">
           {phase === "configure" && (
             <>
-              <FormField id="correction-order" label="Correction order">
+              <FormField id="correction-order" label="Replacement order">
                 {(attributes) => (
                   <select
                     {...attributes}
@@ -828,7 +859,7 @@ function GrantActions({
                     }
                   >
                     <option value="create_first">
-                      Create before delete — temporary overlap
+                      Create replacement before delete — temporary overlap
                     </option>
                     <option value="delete_first">
                       Delete before create — temporary loss
@@ -846,8 +877,8 @@ function GrantActions({
                       setReplacementEffect(event.currentTarget.value as Effect)
                     }
                   >
-                    <option value="allow">ALLOW</option>
-                    <option value="deny">DENY</option>
+                    <option value="allow">Allow</option>
+                    <option value="deny">Deny</option>
                   </select>
                 )}
               </FormField>
@@ -877,7 +908,7 @@ function GrantActions({
             </button>
             {phase === "configure" && (
               <button type="button" onClick={resetCorrection}>
-                Cancel correction
+                Cancel replacement
               </button>
             )}
           </div>
@@ -893,7 +924,7 @@ function GrantActions({
           <p>
             {action === "create"
               ? "This creates one independent immutable policy record. It does not delete or modify the current grant."
-              : "This permanently removes this policy record. No replacement or later correction step is automatic."}
+              : "This permanently removes this policy record. No replacement or later step is automatic."}
           </p>
         }
         confirmLabel={
@@ -924,7 +955,29 @@ export function Grants({
   const grantID = segments.length === 2 && !create ? segments[1] : undefined;
   const [items, setItems] = useState<Grant[]>();
   const [detail, setDetail] = useState<Grant>();
+  const [principals, setPrincipals] = useState<Principal[]>();
+  const [servers, setServers] = useState<ServerView[]>();
   const [error, setError] = useState<string>();
+  useEffect(() => {
+    let current = true;
+    void Promise.all([readPrincipals(session), readServers(session)])
+      .then(([nextPrincipals, nextServers]) => {
+        if (!current) return;
+        setPrincipals(nextPrincipals);
+        setServers(nextServers);
+      })
+      .catch((caught: unknown) => {
+        if (current)
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Grant references are unavailable.",
+          );
+      });
+    return () => {
+      current = false;
+    };
+  }, [view.generation]);
   useEffect(() => {
     let current = true;
     setError(undefined);
@@ -965,10 +1018,18 @@ export function Grants({
       current = false;
     };
   }, [resolved.canonicalFragment, view.generation]);
-  if (create)
+  if (create) {
+    if (principals === undefined || servers === undefined)
+      return <StateNotice state="loading" title="Loading grant options" />;
     return (
-      <GrantCreate mutations={mutations} query={resolved.location.query} />
+      <GrantCreate
+        mutations={mutations}
+        query={resolved.location.query}
+        principals={principals}
+        servers={servers}
+      />
     );
+  }
   if (error !== undefined)
     return (
       <StateNotice state="error" title="Grant data unavailable">
@@ -976,30 +1037,44 @@ export function Grants({
       </StateNotice>
     );
   if (grantID !== undefined) {
-    if (detail?.id !== grantID)
+    if (
+      detail?.id !== grantID ||
+      principals === undefined ||
+      servers === undefined
+    )
       return <StateNotice state="loading" title="Loading grant" />;
+    const principal = principals.find(
+      (candidate) => candidate.id === detail.principalID,
+    );
+    const server = servers.find(
+      (candidate) => candidate.id === detail.serverID,
+    );
     return (
       <div class="domain-view" data-testid="grant-detail">
         <section class="panel domain-panel" aria-labelledby="grant-title">
           <div class="panel-heading">
             <div>
               <span class="panel-value">
-                Immutable {detail.effect.toUpperCase()}
+                Immutable {detail.effect === "allow" ? "Allow" : "Deny"}
               </span>
-              <h2 id="grant-title">Grant {detail.id}</h2>
+              <h2 id="grant-title">{detail.name}</h2>
             </div>
             <StatusLabel
               state={detail.state === "active" ? "current" : "warning"}
             >
-              {detail.state}
+              {detail.state === "active" ? "Active" : "Expired"}
             </StatusLabel>
           </div>
           <dl class="fact-grid">
             <div>
+              <dt>ID</dt>
+              <dd>{detail.id}</dd>
+            </div>
+            <div>
               <dt>Principal</dt>
               <dd>
                 <a href={`#/principals/${detail.principalID}`}>
-                  {detail.principalID}
+                  {principal?.displayName ?? detail.principalID}
                 </a>
               </dd>
             </div>
@@ -1007,10 +1082,10 @@ export function Grants({
               <dt>Server</dt>
               <dd>
                 {detail.serverID === "00000000000000000000000000" ? (
-                  "Synthetic default namespace"
+                  "Gateway self-service tools"
                 ) : (
                   <a href={`#/servers/${detail.serverID}?tab=tools`}>
-                    {detail.serverID}
+                    {server?.displayName ?? detail.serverID}
                   </a>
                 )}
               </dd>
@@ -1049,8 +1124,14 @@ export function Grants({
       </div>
     );
   }
-  if (items === undefined)
+  if (items === undefined || principals === undefined || servers === undefined)
     return <StateNotice state="loading" title="Loading grants" />;
+  const principalNames = new Map(
+    principals.map((principal) => [principal.id, principal.displayName]),
+  );
+  const serverNames = new Map(
+    servers.map((server) => [server.id, server.displayName]),
+  );
   const query = new URLSearchParams(resolved.location.query).toString();
   return (
     <div class="domain-view" data-testid="grants-view">
@@ -1074,17 +1155,24 @@ export function Grants({
             rowTestID="grant-row"
             filters={[
               {
+                key: "identity",
+                label: "Name or ID",
+                type: "text",
+                value: (grant) => `${grant.name} ${grant.id}`,
+              },
+              {
                 key: "principal",
                 label: "Principal",
                 type: "text",
-                value: (grant) => grant.principalID,
+                value: (grant) =>
+                  `${principalNames.get(grant.principalID) ?? ""} ${grant.principalID}`,
               },
               {
                 key: "target",
                 label: "Target",
                 type: "text",
                 value: (grant) =>
-                  `${grant.serverID} ${grant.upstreamName ?? "Entire server"}`,
+                  `${serverNames.get(grant.serverID) ?? "Gateway self-service tools"} ${grant.serverID} ${grant.upstreamName ?? "Entire server"}`,
               },
               {
                 key: "effect",
@@ -1109,55 +1197,67 @@ export function Grants({
             ]}
             columns={[
               {
-                key: "effect",
-                label: "Effect",
-                sortValue: (grant) => grant.effect,
+                key: "name",
+                label: "Name",
+                sortValue: (grant) => grant.name,
                 render: (grant) => (
-                  <strong>{grant.effect.toUpperCase()}</strong>
+                  <a href={`#/grants/${grant.id}`}>{grant.name}</a>
+                ),
+              },
+              {
+                key: "id",
+                label: "ID",
+                sortValue: (grant) => grant.id,
+                render: (grant) => (
+                  <a href={`#/grants/${grant.id}`}>{grant.id}</a>
                 ),
               },
               {
                 key: "principal",
                 label: "Principal",
-                sortValue: (grant) => grant.principalID,
+                sortValue: (grant) =>
+                  principalNames.get(grant.principalID) ?? grant.principalID,
                 render: (grant) => (
                   <a href={`#/principals/${grant.principalID}`}>
-                    {grant.principalID}
+                    {principalNames.get(grant.principalID) ?? grant.principalID}
                   </a>
                 ),
               },
               {
                 key: "target",
                 label: "Target",
-                sortValue: (grant) => grant.upstreamName ?? grant.serverID,
+                sortValue: (grant) =>
+                  serverNames.get(grant.serverID) ?? grant.serverID,
                 render: (grant) =>
                   grant.serverID === "00000000000000000000000000" ? (
-                    "Synthetic default namespace"
+                    "Gateway self-service tools"
                   ) : (
                     <a href={`#/servers/${grant.serverID}?tab=tools`}>
+                      {serverNames.get(grant.serverID) ?? grant.serverID}
                       {grant.upstreamName === null
-                        ? "Entire server"
-                        : grant.upstreamName}
+                        ? " — All tools"
+                        : ` — ${grant.upstreamName}`}
                     </a>
                   ),
               },
               {
+                key: "effect",
+                label: "Effect",
+                sortValue: (grant) => grant.effect,
+                render: (grant) => (
+                  <strong>{grant.effect === "allow" ? "Allow" : "Deny"}</strong>
+                ),
+              },
+              {
                 key: "state",
-                label: "State",
+                label: "Status",
                 sortValue: (grant) => grant.state,
                 render: (grant) => (
                   <StatusLabel
                     state={grant.state === "active" ? "current" : "warning"}
                   >
-                    {grant.state}
+                    {grant.state === "active" ? "Active" : "Expired"}
                   </StatusLabel>
-                ),
-              },
-              {
-                key: "action",
-                label: "Action",
-                render: (grant) => (
-                  <a href={`#/grants/${grant.id}`}>Open grant</a>
                 ),
               },
             ]}
