@@ -4097,7 +4097,21 @@ async function runGrantReadsCreate(
       return;
     }
     const id = new URL(route.request().url()).pathname.split("/").pop();
-    const item = id === secondGrantID ? expired : active;
+    const item =
+      id === secondGrantID
+        ? expired
+        : id === createdIDs[0]
+          ? grant(id!, "allow", "active", null, null, null)
+          : id === createdIDs[1]
+            ? grant(
+                id!,
+                "deny",
+                "active",
+                "literal.tool",
+                null,
+                "2030-01-01T00:00:00Z",
+              )
+            : active;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -4197,7 +4211,14 @@ async function runGrantReadsCreate(
   await page.evaluate((id) => {
     window.location.hash = `#/access/grants/${id}`;
   }, secondGrantID);
-  await page.locator('[data-testid="grant-detail"]').waitFor();
+  await page
+    .locator('[data-testid="grant-detail"]')
+    .waitFor({ timeout: 5000 })
+    .catch(async () =>
+      fail(
+        `grant detail did not load: ${JSON.stringify({ hash: await page.evaluate(() => window.location.hash), body: await page.locator("body").innerText() })}`,
+      ),
+    );
   body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Exact tool dangerous.tool") || !body.includes("expired"))
     fail("grant detail omitted scope or retained expiry state");
