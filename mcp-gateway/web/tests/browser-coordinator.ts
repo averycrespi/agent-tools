@@ -8362,9 +8362,11 @@ async function runServerCatalogReads(
   );
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Authority required (server-b0)",
+    "Authority required",
+    "server-b0",
     "Authorization required",
-    "Degraded catalog (server-b1)",
+    "Degraded catalog",
+    "server-b1",
     "Needs attention",
   ])
     if (!body.includes(phrase)) fail(`server inventory omitted ${phrase}`);
@@ -8373,7 +8375,7 @@ async function runServerCatalogReads(
     .allTextContents();
   if (
     serverHeaders.map((value) => value.replace(/\s?[↑↓↕]$/, "")).join("|") !==
-    "Name|Status|Tools"
+    "Name|Namespace|Status|Tools"
   )
     fail(`server inventory columns drifted: ${serverHeaders.join("|")}`);
   if (
@@ -8383,8 +8385,9 @@ async function runServerCatalogReads(
   )
     fail("server inventory retained decorative status symbols");
   if (
-    (await page.getByLabel("Name").count()) !== 1 ||
-    (await page.getByLabel("Status").count()) !== 1 ||
+    (await page.getByLabel("Name", { exact: true }).count()) !== 1 ||
+    (await page.getByLabel("Namespace", { exact: true }).count()) !== 1 ||
+    (await page.getByLabel("Status", { exact: true }).count()) !== 1 ||
     (await page.getByRole("button", { name: "Reset" }).count()) !== 1
   )
     fail("server inventory omitted field-specific filters");
@@ -8415,7 +8418,19 @@ async function runServerCatalogReads(
     fail(
       `table controls were misaligned: ${JSON.stringify(tableControlLayout)}`,
     );
-  await page.getByLabel("Name").fill("Degraded catalog");
+  const createButtonBox = await page
+    .locator('[data-testid="server-create-link"]')
+    .boundingBox();
+  const serversViewBox = await page
+    .locator('[data-testid="servers-view"]')
+    .boundingBox();
+  if (
+    createButtonBox === null ||
+    serversViewBox === null ||
+    Math.abs(createButtonBox.x - serversViewBox.x) > 1
+  )
+    fail("Create server was not left aligned");
+  await page.getByLabel("Name", { exact: true }).fill("Degraded catalog");
   if ((await page.locator('[data-testid="server-row"]').count()) !== 1)
     fail("server Name filter did not narrow loaded rows");
   await page.getByRole("button", { name: "Reset" }).click();
@@ -8441,20 +8456,47 @@ async function runServerCatalogReads(
   if (!serverRestarted || body.includes("Discarded stale server"))
     fail("server stale traversal was merged");
 
+  await page.evaluate(() => {
+    (window as Window & { serverTabsOrphaned?: boolean }).serverTabsOrphaned =
+      false;
+    new MutationObserver(() => {
+      const tabs = document.querySelector('nav[aria-label="Server sections"]');
+      const context = document.querySelector('[data-testid="server-context"]');
+      if (tabs !== null && context === null)
+        (
+          window as Window & { serverTabsOrphaned?: boolean }
+        ).serverTabsOrphaned = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
   await page
     .locator(`a[href="#/servers/${serverReadIDs.active}?tab=tools"]`)
     .first()
     .click();
   await page.locator('[data-testid="descriptor-list"]').waitFor();
   await page.locator('[data-testid="server-context"]').waitFor();
+  if (
+    await page.evaluate(
+      () =>
+        (window as Window & { serverTabsOrphaned?: boolean })
+          .serverTabsOrphaned === true,
+    )
+  )
+    fail("server tabs appeared without their contextual header");
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Authority required",
-    "server-b0",
     "Authorization required",
     "Authorize",
   ])
     if (!body.includes(phrase)) fail(`server detail omitted ${phrase}`);
+  const serverContextText =
+    (await page.locator('[data-testid="server-context"]').textContent()) ?? "";
+  if (
+    serverContextText.includes("server-b0") ||
+    serverContextText.includes("available tools") ||
+    serverContextText.includes("View tools")
+  )
+    fail("server context retained redundant namespace or tool guidance");
   if (body.includes("Desired revision 7") || body.includes("Runtime identity"))
     fail("server overview exposed diagnostic implementation state");
 

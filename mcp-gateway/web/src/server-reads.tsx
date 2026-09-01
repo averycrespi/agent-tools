@@ -666,6 +666,12 @@ function listPath(
   return `/api/v1/servers/${match[1]!}/descriptors?${query.toString()}`;
 }
 
+function serverIDFromViewKey(viewKey: string): string | undefined {
+  return /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:[/?]|$)/.exec(
+    viewKey,
+  )?.[1];
+}
+
 function serverPanelID(viewKey: string): string {
   if (viewKey === "#/catalog") return "catalog-reads";
   if (/\?tab=activity$|\/operations\//.test(viewKey))
@@ -813,7 +819,12 @@ export class ServerReadsController {
   ): Promise<ReadResult> {
     if (context.viewKey !== this.value.viewKey) {
       this.continuation = undefined;
-      this.value = emptySnapshot(context.viewKey);
+      const serverID = serverIDFromViewKey(context.viewKey);
+      const server =
+        serverID !== undefined && this.value.server?.id === serverID
+          ? this.value.server
+          : undefined;
+      this.value = { ...emptySnapshot(context.viewKey), server };
       this.emit();
     }
     const authFlowItem =
@@ -1143,8 +1154,8 @@ function ServerTabs({
 interface ServerPresentation {
   label: string;
   state: "current" | "loading" | "warning" | "unavailable" | "empty";
-  action: string;
-  href: string;
+  action?: string;
+  href?: string;
 }
 
 function serverPresentation(server: ServerView): ServerPresentation {
@@ -1191,12 +1202,7 @@ function serverPresentation(server: ServerView): ServerPresentation {
     server.credentialState !== "locked" &&
     server.credentialState !== "unavailable"
   )
-    return {
-      label: "Ready",
-      state: "current",
-      action: "View tools",
-      href: `${root}?tab=tools`,
-    };
+    return { label: "Ready", state: "current" };
   return {
     label: "Needs attention",
     state: "warning",
@@ -1205,11 +1211,9 @@ function serverPresentation(server: ServerView): ServerPresentation {
   };
 }
 
-function serverExplanation(server: ServerView, status: string): string {
+function serverExplanation(status: string): string {
   if (status === "Authorization required")
     return "Authorize this server to restore authenticated access.";
-  if (status === "Ready")
-    return `${server.activeToolCount} available ${server.activeToolCount === 1 ? "tool" : "tools"}.`;
   if (status === "Disabled")
     return "This server will not connect until it is enabled.";
   if (status === "Connecting")
@@ -1228,29 +1232,25 @@ function ServerNavigation({
   serverID: string;
   current: string;
 }) {
+  if (server === undefined) return null;
+  const presentation = serverPresentation(server);
   return (
     <>
-      {server !== undefined &&
-        (() => {
-          const presentation = serverPresentation(server);
-          return (
-            <header class="server-context" data-testid="server-context">
-              <div class="server-context-heading">
-                <div>
-                  <h2>{server.displayName}</h2>
-                  <span class="server-namespace">{server.namespace}</span>
-                </div>
-                <StatusLabel state={presentation.state}>
-                  {presentation.label}
-                </StatusLabel>
-              </div>
-              <div class="server-context-guidance">
-                <p>{serverExplanation(server, presentation.label)}</p>
-                <a href={presentation.href}>{presentation.action}</a>
-              </div>
-            </header>
-          );
-        })()}
+      <header class="server-context" data-testid="server-context">
+        <div class="server-context-heading">
+          <h2>{server.displayName}</h2>
+          <StatusLabel state={presentation.state}>
+            {presentation.label}
+          </StatusLabel>
+        </div>
+        {presentation.action !== undefined &&
+          presentation.href !== undefined && (
+            <div class="server-context-guidance">
+              <p>{serverExplanation(presentation.label)}</p>
+              <a href={presentation.href}>{presentation.action}</a>
+            </div>
+          )}
+      </header>
       <ServerTabs serverID={serverID} current={current} />
     </>
   );
@@ -1268,7 +1268,13 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           key: "name",
           label: "Name",
           type: "text",
-          value: (server) => `${server.displayName} ${server.namespace}`,
+          value: (server) => server.displayName,
+        },
+        {
+          key: "namespace",
+          label: "Namespace",
+          type: "text",
+          value: (server) => server.namespace,
         },
         {
           key: "status",
@@ -1295,16 +1301,19 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           label: "Name",
           sortValue: (server) => server.displayName,
           render: (server) => (
-            <span class="server-table-name">
-              <a
-                class="primary-table-link"
-                href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "diagnostics" : "tools"}`}
-              >
-                {server.displayName}
-              </a>{" "}
-              <span>({server.namespace})</span>
-            </span>
+            <a
+              class="primary-table-link"
+              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "diagnostics" : "tools"}`}
+            >
+              {server.displayName}
+            </a>
           ),
+        },
+        {
+          key: "namespace",
+          label: "Namespace",
+          sortValue: (server) => server.namespace,
+          render: (server) => server.namespace,
         },
         {
           key: "status",

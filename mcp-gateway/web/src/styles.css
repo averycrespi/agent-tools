@@ -944,7 +944,7 @@ p {
 
 .collection-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-bottom: 12px;
 }
 
@@ -1043,14 +1043,6 @@ button.sort-button:not(:disabled):hover {
   letter-spacing: -0.035em;
 }
 
-.server-namespace {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 12px;
-}
-
 .server-context-guidance {
   align-items: flex-start;
   margin-top: 12px;
@@ -1065,11 +1057,6 @@ button.sort-button:not(:disabled):hover {
 .detail-navigation a {
   font-weight: 650;
   white-space: nowrap;
-}
-
-.server-table-name,
-.server-table-name > span {
-  display: inline !important;
 }
 
 .detail-navigation {
