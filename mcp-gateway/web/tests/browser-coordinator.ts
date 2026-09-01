@@ -6820,6 +6820,26 @@ async function runServerOperations(
   await page.waitForFunction(() =>
     document.body.textContent?.includes("Available actions"),
   );
+  const operationsView = page.locator('[data-testid="server-activity-view"]');
+  const operationsText = (await operationsView.textContent()) ?? "";
+  if (
+    !operationsText.includes("Operations") ||
+    operationsText.includes("OAuth activity")
+  )
+    fail("operations tab retained mixed activity content");
+  if (
+    operationsText.indexOf("Available actions") >
+    operationsText.indexOf("Operation history")
+  )
+    fail("available actions did not precede operation history");
+  if ((await operationsView.locator(".status-symbol").count()) !== 0)
+    fail("operation statuses retained decorative symbols");
+  if (
+    (await operationsView.getByLabel("Name").count()) !== 1 ||
+    (await operationsView.getByLabel("Status").count()) !== 1 ||
+    (await operationsView.getByRole("button", { name: "Reset" }).count()) !== 1
+  )
+    fail("operation table omitted field-specific filters");
   await page.waitForTimeout(350);
   if (listReads < 2)
     fail("server_operations event did not trigger a snapshot read");
@@ -6883,8 +6903,13 @@ async function runServerOperations(
   const detailText =
     (await page.locator('[data-testid="operation-detail"]').textContent()) ??
     "";
-  if (!detailText.includes("Activity") || !detailText.includes("Overview"))
-    fail("operation detail omitted terminal navigation links");
+  if (!detailText.includes("Back to operations"))
+    fail("operation detail omitted contextual back navigation");
+  if (
+    detailText.includes("Overview") ||
+    detailText.includes("Available actions")
+  )
+    fail("operation detail retained unrelated navigation or actions");
 
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=activity`;
@@ -7071,6 +7096,15 @@ async function runServerDisconnectDelete(
       }),
   );
   await page.route(
+    `${baseURL}/api/v1/servers/${serverID}/operations?*`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], next_cursor: null }),
+      }),
+  );
+  await page.route(
     `${baseURL}/api/v1/servers/${serverID}/operations`,
     async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
@@ -7140,43 +7174,43 @@ async function runServerDisconnectDelete(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="server-destructive-actions"]').waitFor();
-
+  if (
+    (await page
+      .locator('[data-testid="disconnect-server-credentials"]')
+      .count()) !== 0
+  )
+    fail("settings retained duplicate credential disconnect");
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=activity`;
+  }, serverID);
   const disconnect = page.locator(
-    '[data-testid="disconnect-server-credentials"]',
+    '[data-testid="start-operation-disconnect_credentials"]',
   );
+  await disconnect.waitFor();
   await disconnect.click();
   const disconnectText =
     (await page
-      .locator("#server-disconnect-confirm-consequence")
+      .locator("#operation-start-confirm-consequence")
       .textContent()) ?? "";
-  if (
-    !disconnectText.includes("not guaranteed") ||
-    !disconnectText.includes("cleanup may remain pending")
-  )
+  if (!disconnectText.includes("not guaranteed"))
     fail("disconnect consequence overstated cleanup");
-  await page
-    .locator('[data-testid="server-disconnect-confirm-cancel"]')
-    .click();
+  await page.locator('[data-testid="operation-start-confirm-cancel"]').click();
   if (disconnects !== 0) fail("cancelled disconnect submitted");
   await disconnect.click();
-  await page
-    .locator('[data-testid="server-disconnect-confirm-submit"]')
-    .click();
+  await page.locator('[data-testid="operation-start-confirm-submit"]').click();
   await page.getByText("Stale server revision").waitFor();
   await page.waitForFunction(
     () =>
       !(
         document.querySelector(
-          '[data-testid="disconnect-server-credentials"]',
+          '[data-testid="start-operation-disconnect_credentials"]',
         ) as HTMLButtonElement | null
       )?.disabled,
   );
   if (Number(disconnects) !== 1)
     fail("stale disconnect replayed automatically");
   await disconnect.click();
-  await page
-    .locator('[data-testid="server-disconnect-confirm-submit"]')
-    .click();
+  await page.locator('[data-testid="operation-start-confirm-submit"]').click();
   await page.locator('[data-testid="operation-detail"]').waitFor();
   if (Number(disconnects) !== 2) fail("confirmed disconnect count changed");
 
@@ -7184,17 +7218,6 @@ async function runServerDisconnectDelete(
     window.location.hash = `#/servers/${id}?tab=settings`;
   }, serverID);
   await page.locator('[data-testid="server-destructive-actions"]').waitFor();
-  const destructiveText =
-    (await page
-      .locator('[data-testid="server-destructive-actions"]')
-      .textContent()) ?? "";
-  if (
-    !destructiveText.includes("local-only") ||
-    !destructiveText.includes("does not replay remote revocation") ||
-    !destructiveText.includes("restore credential authority")
-  )
-    fail("cleanup-pending guidance implied restoration or revocation replay");
-
   const deleteButton = page.locator('[data-testid="delete-server"]');
   await deleteButton.click();
   const typed = page.locator('[data-testid="server-delete-confirm-value"]');
@@ -7240,9 +7263,7 @@ async function runServerDisconnectDelete(
     window.location.hash = `#/servers/${id}?tab=diagnostics`;
   }, serverID);
   await page.locator('[data-testid="server-diagnostics-view"]').waitFor();
-  await page.waitForFunction(() =>
-    document.body.textContent?.includes("2026-08-28T16:05:00Z"),
-  );
+  await page.locator('time[datetime="2026-08-28T16:05:00Z"]').waitFor();
   tombstone = (await page.locator("body").textContent()) ?? "";
   if (!tombstone.includes("Desired revision") || !tombstone.includes("10"))
     fail("deleted server diagnostics omitted permanent historical state");
@@ -7475,7 +7496,7 @@ async function runAuthFlows(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=activity`;
+    window.location.hash = `#/servers/${id}?tab=authentication`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -7512,6 +7533,8 @@ async function runAuthFlows(
     await page.getByRole("button", { name: "Dismiss and clear" }).click();
   }
   await display.waitFor({ state: "hidden" });
+  if ((await page.locator("body").textContent())?.includes(`Flow ${createdID}`))
+    fail("authorization exposed a redundant internal flow notice");
 
   await page.locator('[data-testid="start-auth-flow"]').click();
   await display.waitFor();
@@ -7565,9 +7588,6 @@ async function runAuthFlows(
     window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE9"}`;
   }, serverID);
   await page.locator('[data-testid="auth-flow-detail"]').waitFor();
-  await page
-    .getByText("An OAuth authorization is already in progress.")
-    .waitFor();
   if (
     (await page.locator('[data-testid="cancel-auth-flow"]').count()) !== 0 ||
     (await page.locator('[data-testid="start-auth-flow"]').count()) !== 0
@@ -7580,6 +7600,9 @@ async function runAuthFlows(
   await page
     .getByText("An OAuth authorization is already in progress.")
     .waitFor();
+  await page.locator('[data-testid="auth-flow-list"]').waitFor();
+  if ((await page.locator('[data-testid="auth-flow-row"]').count()) !== 2)
+    fail("authentication omitted OAuth activity history");
   if ((await page.locator('[data-testid="start-auth-flow"]').count()) !== 0)
     fail("authentication offered a second active OAuth flow");
 
@@ -7602,15 +7625,12 @@ async function runAuthFlows(
     window.location.hash = `#/servers/${id}?tab=diagnostics`;
   }, serverID);
   await page.locator('[data-testid="server-diagnostics-view"]').waitFor();
-  await page.waitForFunction(() =>
-    document.body.textContent?.includes("client registration"),
-  );
   finalDOM = (await page.locator("body").textContent()) ?? "";
   if (
-    !finalDOM.includes("OAuth failures") ||
-    !finalDOM.includes("client registration")
+    finalDOM.includes("OAuth failures") ||
+    finalDOM.includes("client registration")
   )
-    fail("server diagnostics omitted retained OAuth failure");
+    fail("server diagnostics duplicated OAuth history");
   if (finalDOM.includes(bearer)) fail("bearer leaked into auth flow DOM");
   if (finalDOM.includes(authorizationURL))
     fail("authorization URL remained outside its one-time sink");
@@ -8287,12 +8307,32 @@ async function runServerCatalogReads(
   );
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Authority required",
+    "Authority required (server-b0)",
     "Authorization required",
-    "Degraded catalog",
+    "Degraded catalog (server-b1)",
     "Needs attention",
   ])
     if (!body.includes(phrase)) fail(`server inventory omitted ${phrase}`);
+  const serverHeaders = await page
+    .locator('[data-testid="servers-view"] thead th')
+    .allTextContents();
+  if (
+    serverHeaders.map((value) => value.replace(/ [↑↓↕]$/, "")).join("|") !==
+    "Name|Status|Tools"
+  )
+    fail(`server inventory columns drifted: ${serverHeaders.join("|")}`);
+  if (
+    (await page
+      .locator('[data-testid="servers-view"] .status-symbol')
+      .count()) !== 0
+  )
+    fail("server inventory retained decorative status symbols");
+  if (
+    (await page.getByLabel("Name").count()) !== 1 ||
+    (await page.getByLabel("Status").count()) !== 1 ||
+    (await page.getByRole("button", { name: "Reset" }).count()) !== 1
+  )
+    fail("server inventory omitted field-specific filters");
   await page.locator('[data-testid="load-more-servers"]').click();
   await page.waitForFunction(
     () => document.querySelectorAll('[data-testid="server-row"]').length === 3,
@@ -8339,6 +8379,11 @@ async function runServerCatalogReads(
   body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Available") || !body.includes("Retired"))
     fail("tool list omitted available/retired labels");
+  if (
+    !body.includes("server.current-tool") ||
+    !body.includes("server.retired-tool")
+  )
+    fail("tool list omitted fully namespaced tool names");
   await page
     .locator(
       `a[href="#/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.retiredTool}"]`,
@@ -8347,14 +8392,20 @@ async function runServerCatalogReads(
   await page.locator('[data-testid="descriptor-detail"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
   if (
-    !body.includes("Durable catalog revision 6") ||
+    !body.includes("Catalog revision") ||
     !body.includes("Historical evidence; not callable") ||
+    !body.includes("Input schema") ||
     (await page
-      .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
-      .count()) === 0 ||
-    (await page.locator('a[href="#/catalog"]').count()) === 0
+      .locator('[data-testid="descriptor-detail"] .inert-json')
+      .count()) !== 0 ||
+    (await page
+      .locator('[data-testid="descriptor-detail"] a')
+      .filter({ hasText: "Back to tools" })
+      .count()) !== 1
   )
-    fail("descriptor detail omitted evidence or reciprocal routes");
+    fail(
+      "descriptor detail omitted structured evidence or contextual navigation",
+    );
 
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=tools`;

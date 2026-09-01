@@ -21,6 +21,7 @@ import {
   type ServerOperationView,
 } from "./server-operation-model";
 import type { ServerView } from "./server-reads";
+import { UserTime } from "./time";
 
 function eligibleKinds(
   server: ServerView,
@@ -117,10 +118,28 @@ function OperationRows({
       items={items}
       rowKey={(operation) => operation.id}
       rowTestID="operation-row"
-      filterLabel="Filter operations"
-      filterValue={(operation) =>
-        `${label(operation.kind)} ${words(operation.state)} ${operation.reason ?? ""}`
-      }
+      filters={[
+        {
+          key: "name",
+          label: "Name",
+          type: "text",
+          value: (operation) => label(operation.kind),
+        },
+        {
+          key: "status",
+          label: "Status",
+          type: "select",
+          value: (operation) => operation.state,
+          options: [
+            { value: "scheduled", label: "Scheduled" },
+            { value: "running", label: "Running" },
+            { value: "succeeded", label: "Succeeded" },
+            { value: "failed", label: "Failed" },
+            { value: "interrupted", label: "Interrupted" },
+          ],
+        },
+      ]}
+      initialSort={{ key: "started", direction: "descending" }}
       columns={[
         {
           key: "action",
@@ -147,9 +166,7 @@ function OperationRows({
           label: "Started",
           sortValue: (operation) => operation.startedAt ?? operation.createdAt,
           render: (operation) => (
-            <time dateTime={operation.startedAt ?? operation.createdAt}>
-              {operation.startedAt ?? operation.createdAt}
-            </time>
+            <UserTime value={operation.startedAt ?? operation.createdAt} />
           ),
         },
         {
@@ -240,7 +257,7 @@ function OperationStarter({
       {eligible.length === 0 ? (
         <StateNotice state="empty" title="No actions are currently available" />
       ) : (
-        <div class="dialog-actions">
+        <div class="action-list">
           {eligible.map((kind) => (
             <button
               key={kind}
@@ -347,22 +364,29 @@ export function ServerOperations({
               {words(operation.state)}
             </StatusLabel>
           </div>
-          <p>
-            <a href={`#/servers/${server.id}?tab=activity`}>Activity</a> ·{" "}
-            <a href={`#/servers/${server.id}`}>Overview</a>
+          <p class="detail-navigation">
+            <a href={`#/servers/${server.id}?tab=activity`}>
+              Back to operations
+            </a>
           </p>
           <dl class="detail-list">
             <div>
               <dt>Created</dt>
-              <dd>{operation.createdAt}</dd>
+              <dd>
+                <UserTime value={operation.createdAt} />
+              </dd>
             </div>
             <div>
               <dt>Started</dt>
-              <dd>{operation.startedAt ?? "Not started"}</dd>
+              <dd>
+                <UserTime value={operation.startedAt} fallback="Not started" />
+              </dd>
             </div>
             <div>
               <dt>Finished</dt>
-              <dd>{operation.finishedAt ?? "In progress"}</dd>
+              <dd>
+                <UserTime value={operation.finishedAt} fallback="In progress" />
+              </dd>
             </div>
             <div>
               <dt>Outcome</dt>
@@ -379,19 +403,19 @@ export function ServerOperations({
             </p>
           )}
         </section>
-        <OperationStarter
-          mutations={mutations}
-          server={server}
-          etag={etag}
-          readVersion={readVersion}
-          activeOperation={
-            operationIsTerminal(operation) ? undefined : operation
-          }
-        />
       </>
     );
   return (
     <>
+      <OperationStarter
+        mutations={mutations}
+        server={server}
+        etag={etag}
+        readVersion={readVersion}
+        activeOperation={operations.find(
+          (candidate) => !operationIsTerminal(candidate),
+        )}
+      />
       <section
         class="panel domain-panel"
         aria-labelledby="operation-list-title"
@@ -399,8 +423,7 @@ export function ServerOperations({
       >
         <div class="panel-heading">
           <div>
-            <span class="panel-code">OPERATION HISTORY</span>
-            <h2 id="operation-list-title">Operations</h2>
+            <h2 id="operation-list-title">Operation history</h2>
           </div>
         </div>
         {operations.length === 0 ? (
@@ -424,15 +447,6 @@ export function ServerOperations({
           </button>
         )}
       </section>
-      <OperationStarter
-        mutations={mutations}
-        server={server}
-        etag={etag}
-        readVersion={readVersion}
-        activeOperation={operations.find(
-          (candidate) => !operationIsTerminal(candidate),
-        )}
-      />
     </>
   );
 }

@@ -21,6 +21,7 @@ import {
 } from "./server-auth-flow-model";
 import type { ServerView } from "./server-reads";
 import type { PreparedOAuthSink, SensitiveSinkCoordinator } from "./sinks";
+import { UserTime } from "./time";
 
 function eligible(server: ServerView): boolean {
   if (server.desiredState === "deleted") return false;
@@ -56,8 +57,30 @@ function FlowRows({
       items={items}
       rowKey={(flow) => flow.id}
       rowTestID="auth-flow-row"
-      filterLabel="Filter OAuth activity"
-      filterValue={(flow) => `${words(flow.state)} ${flow.reason ?? ""}`}
+      filters={[
+        {
+          key: "name",
+          label: "Name",
+          type: "text",
+          value: () => "OAuth authorization",
+        },
+        {
+          key: "status",
+          label: "Status",
+          type: "select",
+          value: (flow) => flow.state,
+          options: [
+            { value: "preparing", label: "Preparing" },
+            { value: "awaiting_callback", label: "Awaiting callback" },
+            { value: "exchanging", label: "Exchanging" },
+            { value: "succeeded", label: "Succeeded" },
+            { value: "failed", label: "Failed" },
+            { value: "cancelled", label: "Cancelled" },
+            { value: "interrupted", label: "Interrupted" },
+          ],
+        },
+      ]}
+      initialSort={{ key: "started", direction: "descending" }}
       columns={[
         {
           key: "action",
@@ -90,9 +113,7 @@ function FlowRows({
           key: "started",
           label: "Started",
           sortValue: (flow) => flow.createdAt,
-          render: (flow) => (
-            <time dateTime={flow.createdAt}>{flow.createdAt}</time>
-          ),
+          render: (flow) => <UserTime value={flow.createdAt} />,
         },
         {
           key: "outcome",
@@ -137,13 +158,10 @@ function StartFlow({
   ) => {
     const outcome = await submission;
     if (outcome.kind === "acknowledged") {
-      if (sink.publish(outcome.value.authorizationURL) === "lost") {
+      if (sink.publish(outcome.value.authorizationURL) === "lost")
         setNotice(
           "The authorization URL could not be displayed. Start a new flow from current state.",
         );
-      } else {
-        setNotice(`Flow ${outcome.value.flow.id} is awaiting authorization.`);
-      }
       controller.abandon();
       return;
     }
@@ -406,22 +424,29 @@ export function ServerAuthFlows({
               {words(flow.state)}
             </StatusLabel>
           </div>
-          <p>
-            <a href={`#/servers/${server.id}?tab=activity`}>OAuth activity</a> ·{" "}
-            <a href={`#/servers/${server.id}`}>Overview</a>
+          <p class="detail-navigation">
+            <a href={`#/servers/${server.id}?tab=authentication`}>
+              Back to authentication
+            </a>
           </p>
           <dl class="detail-list">
             <div>
               <dt>Created</dt>
-              <dd>{flow.createdAt}</dd>
+              <dd>
+                <UserTime value={flow.createdAt} />
+              </dd>
             </div>
             <div>
               <dt>Expires</dt>
-              <dd>{flow.expiresAt}</dd>
+              <dd>
+                <UserTime value={flow.expiresAt} />
+              </dd>
             </div>
             <div>
               <dt>Finished</dt>
-              <dd>{flow.finishedAt ?? "In progress"}</dd>
+              <dd>
+                <UserTime value={flow.finishedAt} fallback="In progress" />
+              </dd>
             </div>
             <div>
               <dt>Outcome</dt>
@@ -460,14 +485,6 @@ export function ServerAuthFlows({
           )}
         </section>
         <CancelFlow mutations={mutations} flow={flow} onRefresh={onRefresh} />
-        <StartFlow
-          mutations={mutations}
-          sinks={sinks}
-          server={server}
-          etag={etag}
-          readVersion={readVersion}
-          exchangeActive={flow.state === "exchanging"}
-        />
       </>
     );
   if (mode === "action")

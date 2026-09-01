@@ -11,17 +11,6 @@ export type OperationalState =
   | "warning"
   | "unavailable";
 
-const stateSymbols: Readonly<Record<OperationalState, string>> = {
-  current: "✓",
-  stale: "↻",
-  loading: "…",
-  reconnecting: "↻",
-  empty: "—",
-  error: "!",
-  warning: "△",
-  unavailable: "×",
-};
-
 export function StatusLabel({
   state,
   children,
@@ -37,10 +26,7 @@ export function StatusLabel({
       data-state={state}
       data-testid={testID}
     >
-      <span class="status-symbol" aria-hidden="true">
-        {stateSymbols[state]}
-      </span>
-      <span>{children}</span>
+      {children}
     </span>
   );
 }
@@ -113,14 +99,30 @@ export interface CollectionColumn<T> {
   class?: string;
 }
 
+export type CollectionFilter<T> =
+  | {
+      key: string;
+      label: string;
+      type: "text";
+      value: (item: T) => string;
+      placeholder?: string;
+    }
+  | {
+      key: string;
+      label: string;
+      type: "select";
+      value: (item: T) => string;
+      options: readonly { value: string; label: string }[];
+    };
+
 export function CollectionTable<T>({
   caption,
   items,
   columns,
   rowKey,
   rowTestID,
-  filterLabel,
-  filterValue,
+  filters = [],
+  initialSort,
   emptyTitle = "No results",
   hasMore = false,
   loadingMore = false,
@@ -132,27 +134,27 @@ export function CollectionTable<T>({
   columns: readonly CollectionColumn<T>[];
   rowKey: (item: T) => string;
   rowTestID?: string;
-  filterLabel?: string;
-  filterValue?: (item: T) => string;
+  filters?: readonly CollectionFilter<T>[];
+  initialSort?: { key: string; direction: "ascending" | "descending" };
   emptyTitle?: string;
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
   loadMoreLabel?: string;
 }) {
-  const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<{
-    key: string;
-    direction: "ascending" | "descending";
-  }>();
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [sort, setSort] = useState(initialSort);
   const visible = useMemo(() => {
-    const needle = filter.trim().toLocaleLowerCase();
-    const filtered =
-      needle === "" || filterValue === undefined
-        ? [...items]
-        : items.filter((item) =>
-            filterValue(item).toLocaleLowerCase().includes(needle),
-          );
+    const filtered = items.filter((item) =>
+      filters.every((filter) => {
+        const selected = filterValues[filter.key]?.trim() ?? "";
+        if (selected === "") return true;
+        const value = filter.value(item);
+        return filter.type === "text"
+          ? value.toLocaleLowerCase().includes(selected.toLocaleLowerCase())
+          : value === selected;
+      }),
+    );
     if (sort === undefined) return filtered;
     const column = columns.find((candidate) => candidate.key === sort.key);
     if (column?.sortValue === undefined) return filtered;
@@ -165,7 +167,7 @@ export function CollectionTable<T>({
           : String(a).localeCompare(String(b));
       return sort.direction === "ascending" ? order : -order;
     });
-  }, [columns, filter, filterValue, items, sort]);
+  }, [columns, filterValues, filters, items, sort]);
   const changeSort = (key: string) =>
     setSort((current) => ({
       key,
@@ -174,17 +176,63 @@ export function CollectionTable<T>({
           ? "descending"
           : "ascending",
     }));
+  const hasActiveFilters = Object.values(filterValues).some(
+    (value) => value.trim() !== "",
+  );
   return (
     <div class="collection-table">
-      {filterLabel !== undefined && filterValue !== undefined && (
-        <label class="table-filter">
-          <span>{filterLabel}</span>
-          <input
-            type="search"
-            value={filter}
-            onInput={(event) => setFilter(event.currentTarget.value)}
-          />
-        </label>
+      {filters.length > 0 && (
+        <div
+          class="table-filters"
+          role="group"
+          aria-label={`${caption} filters`}
+        >
+          <span class="table-filters-label">Filter:</span>
+          {filters.map((filter) =>
+            filter.type === "text" ? (
+              <input
+                key={filter.key}
+                type="search"
+                aria-label={filter.label}
+                placeholder={filter.placeholder ?? `${filter.label}…`}
+                value={filterValues[filter.key] ?? ""}
+                onInput={(event) =>
+                  setFilterValues((current) => ({
+                    ...current,
+                    [filter.key]: event.currentTarget.value,
+                  }))
+                }
+              />
+            ) : (
+              <select
+                key={filter.key}
+                aria-label={filter.label}
+                value={filterValues[filter.key] ?? ""}
+                onChange={(event) =>
+                  setFilterValues((current) => ({
+                    ...current,
+                    [filter.key]: event.currentTarget.value,
+                  }))
+                }
+              >
+                <option value="">{filter.label}: any</option>
+                {filter.options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            ),
+          )}
+          <button
+            class="text-button"
+            type="button"
+            disabled={!hasActiveFilters}
+            onClick={() => setFilterValues({})}
+          >
+            Reset
+          </button>
+        </div>
       )}
       <ComparisonTable caption={caption}>
         <thead>

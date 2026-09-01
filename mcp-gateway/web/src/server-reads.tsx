@@ -3,7 +3,6 @@ import type { MutationCoordinator } from "./mutation";
 import {
   CollectionTable,
   ComparisonTable,
-  InertJSON,
   StateNotice,
   StatusLabel,
 } from "./primitives";
@@ -28,6 +27,7 @@ import {
 import { ServerOperations } from "./server-operations";
 import type { SessionClient } from "./session";
 import type { SensitiveSinkCoordinator } from "./sinks";
+import { UserTime } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -592,11 +592,19 @@ type ReadResult =
   | {
       kind: "descriptors";
       viewKey: string;
+      server: ServerView;
+      etag: string;
       page: Page<DescriptorView>;
       append: boolean;
       restarted: boolean;
     }
-  | { kind: "descriptor"; viewKey: string; descriptor: DescriptorView }
+  | {
+      kind: "descriptor";
+      viewKey: string;
+      server: ServerView;
+      etag: string;
+      descriptor: DescriptorView;
+    }
   | {
       kind: "catalog";
       viewKey: string;
@@ -735,7 +743,7 @@ export class ServerReadsController {
     register(
       "server-oauth-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=(?:activity|authentication|diagnostics)$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=authentication$/.test(
           key,
         ) ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
@@ -870,14 +878,23 @@ export class ServerReadsController {
         context.viewKey,
       );
     if (descriptorItem !== null) {
-      const response = await get(
-        context,
-        `/api/v1/servers/${descriptorItem[1]!}/descriptors/${descriptorItem[2]!}`,
-      );
+      const [serverResponse, descriptorResponse] = await Promise.all([
+        get(context, `/api/v1/servers/${descriptorItem[1]!}`),
+        get(
+          context,
+          `/api/v1/servers/${descriptorItem[1]!}/descriptors/${descriptorItem[2]!}`,
+        ),
+      ]);
+      const server = decodeServer(await json(serverResponse));
+      const etag = serverResponse.headers.get("ETag");
+      if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
+        throw new Error("invalid server ETag");
       return {
         kind: "descriptor",
         viewKey: context.viewKey,
-        descriptor: decodeDescriptor(await json(response)),
+        server,
+        etag,
+        descriptor: decodeDescriptor(await json(descriptorResponse)),
       };
     }
     const serverItem =
@@ -903,7 +920,7 @@ export class ServerReadsController {
     this.continuation = undefined;
     const next = continuation?.kind === kind ? continuation.cursor : null;
     const serverResponsePromise =
-      kind === "operations" || kind === "authFlows"
+      kind === "operations" || kind === "authFlows" || kind === "descriptors"
         ? get(
             context,
             `/api/v1/servers/${context.viewKey.slice("#/servers/".length, "#/servers/".length + 26)}`,
@@ -926,14 +943,23 @@ export class ServerReadsController {
         append: next !== null && !restarted,
         restarted,
       };
-    if (kind === "descriptors")
+    if (kind === "descriptors") {
+      if (historyServerResponse === undefined)
+        throw new Error("missing server descriptor response");
+      const server = decodeServer(await json(historyServerResponse));
+      const etag = historyServerResponse.headers.get("ETag");
+      if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
+        throw new Error("invalid server ETag");
       return {
         kind,
         viewKey: context.viewKey,
+        server,
+        etag,
         page: decodeDescriptorPage(await json(response)),
         append: next !== null && !restarted,
         restarted,
       };
+    }
     if (kind === "operations" || kind === "authFlows") {
       if (historyServerResponse === undefined)
         throw new Error("missing server history response");
@@ -1025,7 +1051,10 @@ export class ServerReadsController {
     else if (result.kind === "descriptor")
       this.value = {
         ...this.value,
+        server: result.server,
+        serverETag: result.etag,
         descriptor: result.descriptor,
+        readVersion: this.value.readVersion + 1,
         restarted: false,
       };
     else if (result.kind === "servers")
@@ -1040,10 +1069,13 @@ export class ServerReadsController {
     else if (result.kind === "descriptors")
       this.value = {
         ...this.value,
+        server: result.server,
+        serverETag: result.etag,
         descriptors: result.append
           ? [...this.value.descriptors, ...result.page.items]
           : result.page.items,
         descriptorNext: result.page.nextCursor,
+        readVersion: this.value.readVersion + 1,
         restarted: result.restarted,
       };
     else
@@ -1084,9 +1116,8 @@ function ServerTabs({
   current: string;
 }) {
   const tabs = [
-    ["overview", "Overview", `#/servers/${serverID}`],
     ["tools", "Tools", `#/servers/${serverID}?tab=tools`],
-    ["activity", "Activity", `#/servers/${serverID}?tab=activity`],
+    ["activity", "Operations", `#/servers/${serverID}?tab=activity`],
     [
       "authentication",
       "Authentication",
@@ -1151,8 +1182,8 @@ function serverPresentation(server: ServerView): ServerPresentation {
     return {
       label: "Connecting",
       state: "loading",
-      action: "View",
-      href: root,
+      action: "View operations",
+      href: `${root}?tab=activity`,
     };
   if (
     server.runtimeState === "active" &&
@@ -1163,8 +1194,8 @@ function serverPresentation(server: ServerView): ServerPresentation {
     return {
       label: "Ready",
       state: "current",
-      action: server.activeToolCount > 0 ? "View tools" : "View",
-      href: server.activeToolCount > 0 ? `${root}?tab=tools` : root,
+      action: "View tools",
+      href: `${root}?tab=tools`,
     };
   return {
     label: "Needs attention",
@@ -1174,6 +1205,57 @@ function serverPresentation(server: ServerView): ServerPresentation {
   };
 }
 
+function serverExplanation(server: ServerView, status: string): string {
+  if (status === "Authorization required")
+    return "Authorize this server to restore authenticated access.";
+  if (status === "Ready")
+    return `${server.activeToolCount} available ${server.activeToolCount === 1 ? "tool" : "tools"}.`;
+  if (status === "Disabled")
+    return "This server will not connect until it is enabled.";
+  if (status === "Connecting")
+    return "The gateway is establishing the server connection.";
+  if (status === "Deleted")
+    return "This server is retained as historical evidence.";
+  return "Review diagnostics for the latest server state.";
+}
+
+function ServerNavigation({
+  server,
+  serverID,
+  current,
+}: {
+  server: ServerView | undefined;
+  serverID: string;
+  current: string;
+}) {
+  return (
+    <>
+      {server !== undefined &&
+        (() => {
+          const presentation = serverPresentation(server);
+          return (
+            <header class="server-context" data-testid="server-context">
+              <div class="server-context-heading">
+                <div>
+                  <h2>{server.displayName}</h2>
+                  <span class="server-namespace">{server.namespace}</span>
+                </div>
+                <StatusLabel state={presentation.state}>
+                  {presentation.label}
+                </StatusLabel>
+              </div>
+              <div class="server-context-guidance">
+                <p>{serverExplanation(server, presentation.label)}</p>
+                <a href={presentation.href}>{presentation.action}</a>
+              </div>
+            </header>
+          );
+        })()}
+      <ServerTabs serverID={serverID} current={current} />
+    </>
+  );
+}
+
 function ServerRows({ items }: { items: readonly ServerView[] }) {
   return (
     <CollectionTable
@@ -1181,21 +1263,44 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
       items={items}
       rowKey={(server) => server.id}
       rowTestID="server-row"
-      filterLabel="Filter servers"
-      filterValue={(server) =>
-        `${server.displayName} ${server.namespace} ${serverPresentation(server).label}`
-      }
-      emptyTitle="No servers match this filter"
+      filters={[
+        {
+          key: "name",
+          label: "Name",
+          type: "text",
+          value: (server) => `${server.displayName} ${server.namespace}`,
+        },
+        {
+          key: "status",
+          label: "Status",
+          type: "select",
+          value: (server) => serverPresentation(server).label,
+          options: [
+            { value: "Ready", label: "Ready" },
+            { value: "Connecting", label: "Connecting" },
+            {
+              value: "Authorization required",
+              label: "Authorization required",
+            },
+            { value: "Disabled", label: "Disabled" },
+            { value: "Deleted", label: "Deleted" },
+            { value: "Needs attention", label: "Needs attention" },
+          ],
+        },
+      ]}
+      emptyTitle="No servers match these filters"
       columns={[
         {
-          key: "server",
-          label: "Server",
+          key: "name",
+          label: "Name",
           sortValue: (server) => server.displayName,
           render: (server) => (
-            <>
-              <a href={`#/servers/${server.id}`}>{server.displayName}</a>
-              <span class="table-secondary">{server.namespace}</span>
-            </>
+            <span class="server-table-name">
+              <a class="primary-table-link" href={`#/servers/${server.id}`}>
+                {server.displayName}
+              </a>{" "}
+              <span>({server.namespace})</span>
+            </span>
           ),
         },
         {
@@ -1217,50 +1322,71 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           sortValue: (server) => server.activeToolCount,
           render: (server) => server.activeToolCount || "—",
         },
-        {
-          key: "action",
-          label: "Action",
-          class: "action-column",
-          render: (server) => {
-            const presentation = serverPresentation(server);
-            return <a href={presentation.href}>{presentation.action}</a>;
-          },
-        },
       ]}
     />
   );
 }
-function OAuthDiagnostics({ flows }: { flows: readonly ServerAuthFlowView[] }) {
-  const diagnostics = flows.filter((flow) => flow.diagnostic !== null);
-  if (diagnostics.length === 0)
-    return <StateNotice state="empty" title="No retained OAuth failures" />;
+function schemaType(schema: JSONRecord): string {
+  if (typeof schema.type === "string") return schema.type;
+  if (Array.isArray(schema.type))
+    return schema.type
+      .filter((value) => typeof value === "string")
+      .join(" or ");
+  return "value";
+}
+
+function ToolSchema({ label, value }: { label: string; value: unknown }) {
+  const schema = value as JSONRecord;
+  const properties =
+    typeof schema.properties === "object" &&
+    schema.properties !== null &&
+    !Array.isArray(schema.properties)
+      ? (schema.properties as JSONRecord)
+      : {};
+  const required = new Set(
+    Array.isArray(schema.required)
+      ? schema.required.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : [],
+  );
+  const id = `${label.toLocaleLowerCase().replace(" ", "-")}-title`;
   return (
-    <ComparisonTable caption="OAuth failures">
-      <thead>
-        <tr>
-          <th scope="col">Time</th>
-          <th scope="col">Stage</th>
-          <th scope="col">Reason</th>
-          <th scope="col">HTTP</th>
-          <th scope="col">Correlation</th>
-        </tr>
-      </thead>
-      <tbody>
-        {diagnostics.map((flow) => (
-          <tr key={flow.id}>
-            <td>{flow.finishedAt ?? flow.createdAt}</td>
-            <td>{flow.diagnostic!.stage.replaceAll("_", " ")}</td>
-            <td>{flow.diagnostic!.reason.replaceAll("_", " ")}</td>
-            <td>{flow.diagnostic!.httpStatus ?? "—"}</td>
-            <td>
-              <a href={`#/servers/${flow.serverID}/auth-flows/${flow.id}`}>
-                {flow.diagnostic!.correlationID}
-              </a>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </ComparisonTable>
+    <section class="tool-schema" aria-labelledby={id}>
+      <div class="tool-schema-heading">
+        <h3 id={id}>{label}</h3>
+        <span>{schemaType(schema)}</span>
+      </div>
+      {typeof schema.description === "string" && <p>{schema.description}</p>}
+      {Object.keys(properties).length === 0 ? (
+        <p class="bounded-note">No fields are defined.</p>
+      ) : (
+        <dl class="schema-fields">
+          {Object.entries(properties).map(([name, candidate]) => {
+            const property = candidate as JSONRecord;
+            return (
+              <div key={name}>
+                <dt>
+                  <code>{name}</code>
+                  <span>{schemaType(property)}</span>
+                  {required.has(name) && <strong>Required</strong>}
+                </dt>
+                <dd>
+                  {typeof property.description === "string"
+                    ? property.description
+                    : "No description provided."}
+                  {Array.isArray(property.enum) && (
+                    <span class="schema-constraint">
+                      Allowed: {property.enum.map(String).join(", ")}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      )}
+    </section>
   );
 }
 
@@ -1288,9 +1414,8 @@ function CatalogRows({
                 href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
                 data-tool-name={descriptor.upstreamName}
               >
-                {descriptor.upstreamName}
+                {descriptor.externalName}
               </a>
-              <span class="table-secondary">{descriptor.externalName}</span>
             </th>
             <td>
               <a href={`#/servers/${descriptor.serverID}`}>
@@ -1326,9 +1451,8 @@ function DescriptorRows({ items }: { items: readonly DescriptorView[] }) {
                 href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
                 data-tool-name={descriptor.upstreamName}
               >
-                {descriptor.upstreamName}
+                {descriptor.externalName}
               </a>
-              <span class="table-secondary">{descriptor.externalName}</span>
             </th>
             <td>
               <StatusLabel
@@ -1339,7 +1463,9 @@ function DescriptorRows({ items }: { items: readonly DescriptorView[] }) {
                 {descriptor.retiredAt === null ? "Available" : "Retired"}
               </StatusLabel>
             </td>
-            <td>{descriptor.lastSeenAt}</td>
+            <td>
+              <UserTime value={descriptor.lastSeenAt} />
+            </td>
           </tr>
         ))}
       </tbody>
@@ -1511,7 +1637,11 @@ export function ServerReads({
   if (authenticationTab !== null)
     return (
       <div class="domain-view" data-testid="server-authentication-view">
-        <ServerTabs serverID={authenticationTab[1]!} current="authentication" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={authenticationTab[1]!}
+          current="authentication"
+        />
         <ReadPanel panel={authFlowPanel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1545,13 +1675,37 @@ export function ServerReads({
               />
             )}
         </ReadPanel>
+        <ReadPanel panel={authFlowPanel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerAuthFlows
+                mutations={mutations}
+                sinks={sinks}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                flows={snapshot.authFlows}
+                flow={undefined}
+                nextCursor={snapshot.authFlowNext}
+                loadingMore={snapshot.loadingMore}
+                restarted={snapshot.restarted}
+                onLoadMore={() => void controller.loadMore("authFlows")}
+                onRefresh={onRefresh}
+                mode="history"
+              />
+            )}
+        </ReadPanel>
       </div>
     );
   if (authFlowItem !== null) {
     const serverID = authFlowItem[1]!;
     return (
       <div class="domain-view" data-testid="server-auth-flows-view">
-        <ServerTabs serverID={serverID} current="activity" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={serverID}
+          current="authentication"
+        />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1577,7 +1731,11 @@ export function ServerReads({
   if (activityTab !== null)
     return (
       <div class="domain-view" data-testid="server-activity-view">
-        <ServerTabs serverID={activityTab[1]!} current="activity" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={activityTab[1]!}
+          current="activity"
+        />
         <ReadPanel panel={operationPanel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1595,33 +1753,17 @@ export function ServerReads({
               />
             )}
         </ReadPanel>
-        <ReadPanel panel={authFlowPanel}>
-          {snapshot.server !== undefined &&
-            snapshot.serverETag !== undefined && (
-              <ServerAuthFlows
-                mutations={mutations}
-                sinks={sinks}
-                server={snapshot.server}
-                etag={snapshot.serverETag}
-                readVersion={snapshot.readVersion}
-                flows={snapshot.authFlows}
-                flow={undefined}
-                nextCursor={snapshot.authFlowNext}
-                loadingMore={snapshot.loadingMore}
-                restarted={snapshot.restarted}
-                onLoadMore={() => void controller.loadMore("authFlows")}
-                onRefresh={onRefresh}
-                mode="history"
-              />
-            )}
-        </ReadPanel>
       </div>
     );
   if (operationItem !== null) {
     const serverID = operationItem[1]!;
     return (
       <div class="domain-view" data-testid="server-operations-view">
-        <ServerTabs serverID={serverID} current="activity" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={serverID}
+          current="activity"
+        />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1645,52 +1787,111 @@ export function ServerReads({
   if (descriptorItem !== null)
     return (
       <div class="domain-view" data-testid="descriptor-detail">
-        <ServerTabs serverID={descriptorItem[1]!} current="tools" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={descriptorItem[1]!}
+          current="tools"
+        />
         <section
           class="panel domain-panel"
           aria-labelledby="descriptor-detail-title"
         >
-          <div class="panel-heading">
-            <div>
-              <span class="panel-code">DURABLE DESCRIPTOR</span>
-              <h2 id="descriptor-detail-title">Descriptor evidence</h2>
-            </div>
-          </div>
           <ReadPanel panel={panel}>
-            {snapshot.descriptor !== undefined && (
-              <>
-                <StatusLabel
-                  state={
-                    snapshot.descriptor.retiredAt === null
-                      ? "current"
-                      : "unavailable"
-                  }
-                >
-                  {snapshot.descriptor.retiredAt === null
-                    ? "Current durable evidence"
-                    : "Historical evidence; not callable"}
-                </StatusLabel>
-                <p>
-                  Durable catalog revision {snapshot.descriptor.catalogRevision}
-                </p>
-                <p>
-                  Recorded server{" "}
-                  <a href={`#/servers/${snapshot.descriptor.serverID}`}>
-                    {snapshot.descriptor.serverID}
-                  </a>{" "}
-                  · <a href="#/catalog">active catalog</a>
-                </p>
-                <p>
-                  First seen {snapshot.descriptor.firstSeenAt} · last seen{" "}
-                  {snapshot.descriptor.lastSeenAt} · retired{" "}
-                  {snapshot.descriptor.retiredAt ?? "no"}
-                </p>
-                <InertJSON
-                  value={snapshot.descriptor.descriptor}
-                  label="Normalized durable tool descriptor"
-                />
-              </>
-            )}
+            {snapshot.descriptor !== undefined &&
+              (() => {
+                const descriptor = snapshot.descriptor;
+                const document = descriptor.descriptor as JSONRecord;
+                const annotations = document.annotations as JSONRecord;
+                return (
+                  <>
+                    <p class="detail-navigation">
+                      <a href={`#/servers/${descriptor.serverID}?tab=tools`}>
+                        Back to tools
+                      </a>
+                    </p>
+                    <div class="panel-heading tool-heading">
+                      <div>
+                        <h2 id="descriptor-detail-title">
+                          {descriptor.externalName}
+                        </h2>
+                        {typeof document.description === "string" && (
+                          <p>{document.description}</p>
+                        )}
+                      </div>
+                      <StatusLabel
+                        state={
+                          descriptor.retiredAt === null
+                            ? "current"
+                            : "unavailable"
+                        }
+                      >
+                        {descriptor.retiredAt === null
+                          ? "Available"
+                          : "Historical evidence; not callable"}
+                      </StatusLabel>
+                    </div>
+                    <dl class="tool-metadata">
+                      <div>
+                        <dt>Catalog revision</dt>
+                        <dd>{descriptor.catalogRevision}</dd>
+                      </div>
+                      <div>
+                        <dt>First seen</dt>
+                        <dd>
+                          <UserTime value={descriptor.firstSeenAt} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Last seen</dt>
+                        <dd>
+                          <UserTime value={descriptor.lastSeenAt} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Retired</dt>
+                        <dd>
+                          <UserTime
+                            value={descriptor.retiredAt}
+                            fallback="No"
+                          />
+                        </dd>
+                      </div>
+                    </dl>
+                    <div class="tool-annotations" aria-label="Tool behavior">
+                      <span>
+                        {annotations.readOnlyHint ? "Read only" : "May write"}
+                      </span>
+                      <span>
+                        {annotations.destructiveHint
+                          ? "Destructive"
+                          : "Non-destructive"}
+                      </span>
+                      <span>
+                        {annotations.idempotentHint
+                          ? "Idempotent"
+                          : "Not idempotent"}
+                      </span>
+                      <span>
+                        {annotations.openWorldHint
+                          ? "External access"
+                          : "Closed world"}
+                      </span>
+                    </div>
+                    <div class="tool-schema-grid">
+                      <ToolSchema
+                        label="Input schema"
+                        value={document.inputSchema}
+                      />
+                      {document.outputSchema !== undefined && (
+                        <ToolSchema
+                          label="Output schema"
+                          value={document.outputSchema}
+                        />
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
           </ReadPanel>
         </section>
       </div>
@@ -1698,7 +1899,11 @@ export function ServerReads({
   if (descriptorList !== null)
     return (
       <div class="domain-view" data-testid="descriptor-list">
-        <ServerTabs serverID={descriptorList[1]!} current="tools" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={descriptorList[1]!}
+          current="tools"
+        />
         <section
           class="panel domain-panel"
           aria-labelledby="descriptor-list-title"
@@ -1732,7 +1937,11 @@ export function ServerReads({
   if (settingsTab !== null)
     return (
       <div class="domain-view" data-testid="server-settings-view">
-        <ServerTabs serverID={settingsTab[1]!} current="settings" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={settingsTab[1]!}
+          current="settings"
+        />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined &&
@@ -1764,7 +1973,11 @@ export function ServerReads({
   if (diagnosticsTab !== null)
     return (
       <div class="domain-view" data-testid="server-diagnostics-view">
-        <ServerTabs serverID={diagnosticsTab[1]!} current="diagnostics" />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={diagnosticsTab[1]!}
+          current="diagnostics"
+        />
         <section
           class="panel domain-panel"
           aria-labelledby="server-diagnostics-title"
@@ -1815,26 +2028,19 @@ export function ServerReads({
                   </tr>
                   <tr>
                     <th scope="row">Last catalog success</th>
-                    <td>{snapshot.server.lastSuccessAt ?? "—"}</td>
+                    <td>
+                      <UserTime value={snapshot.server.lastSuccessAt} />
+                    </td>
                   </tr>
                   <tr>
                     <th scope="row">Deleted at</th>
-                    <td>{snapshot.server.deletedAt ?? "—"}</td>
+                    <td>
+                      <UserTime value={snapshot.server.deletedAt} />
+                    </td>
                   </tr>
                 </tbody>
               </ComparisonTable>
             )}
-          </ReadPanel>
-        </section>
-        <section
-          class="panel domain-panel"
-          aria-labelledby="oauth-diagnostics-title"
-        >
-          <div class="panel-heading">
-            <h2 id="oauth-diagnostics-title">OAuth failures</h2>
-          </div>
-          <ReadPanel panel={authFlowPanel}>
-            <OAuthDiagnostics flows={snapshot.authFlows} />
           </ReadPanel>
         </section>
       </div>
@@ -1842,56 +2048,23 @@ export function ServerReads({
   if (serverItem !== null)
     return (
       <div class="domain-view" data-testid="server-detail">
-        <ServerTabs serverID={serverItem[1]!} current="overview" />
-        <section
-          class="panel domain-panel server-summary"
-          aria-labelledby="server-detail-title"
-        >
-          <ReadPanel panel={panel}>
-            {snapshot.server !== undefined &&
-              (() => {
-                const presentation = serverPresentation(snapshot.server);
-                return (
-                  <>
-                    <div class="panel-heading">
-                      <div>
-                        <h2 id="server-detail-title">
-                          {snapshot.server.displayName}
-                        </h2>
-                        <span class="table-secondary">
-                          {snapshot.server.namespace}
-                        </span>
-                      </div>
-                      <StatusLabel state={presentation.state}>
-                        {presentation.label}
-                      </StatusLabel>
-                    </div>
-                    <p>
-                      {presentation.label === "Authorization required"
-                        ? "Connect this server to continue."
-                        : presentation.label === "Ready"
-                          ? `${snapshot.server.activeToolCount} available ${snapshot.server.activeToolCount === 1 ? "tool" : "tools"}.`
-                          : presentation.label === "Disabled"
-                            ? "This server will not connect until it is enabled."
-                            : "Review diagnostics for the latest internal state."}
-                    </p>
-                    <a
-                      class="button-link primary-action"
-                      href={presentation.href}
-                    >
-                      {presentation.action}
-                    </a>
-                  </>
-                );
-              })()}
-          </ReadPanel>
-        </section>
+        <ReadPanel panel={panel}>
+          <ServerNavigation
+            server={snapshot.server}
+            serverID={serverItem[1]!}
+            current=""
+          />
+        </ReadPanel>
       </div>
     );
   if (otherTab !== null)
     return (
       <div class="domain-view">
-        <ServerTabs serverID={otherTab[1]!} current={otherTab[2]!} />
+        <ServerNavigation
+          server={snapshot.server}
+          serverID={otherTab[1]!}
+          current={otherTab[2]!}
+        />
         <StateNotice state="unavailable" title="Workflow not yet available" />
       </div>
     );

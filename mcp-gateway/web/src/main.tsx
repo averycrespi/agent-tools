@@ -362,11 +362,15 @@ function App() {
     setTheme(value);
   };
   const destination = resolved.location.destination;
+  const isServerDetail =
+    destination === "servers" &&
+    resolved.canonicalFragment !== "#/servers" &&
+    resolved.canonicalFragment !== "#/servers/new";
   const destinationLabel =
     destination === "servers" && resolved.canonicalFragment !== "#/servers"
       ? resolved.canonicalFragment === "#/servers/new"
         ? "Create server"
-        : "Server"
+        : "Server details"
       : destinationLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
 
@@ -535,7 +539,14 @@ function App() {
           </p>
         )}
         <section class="intro" aria-labelledby="page-title">
-          <h1 ref={pageTitle} id="page-title" tabindex={-1}>
+          <h1
+            ref={pageTitle}
+            id="page-title"
+            class={
+              authenticated && isServerDetail ? "visually-hidden" : undefined
+            }
+            tabindex={-1}
+          >
             {authenticated ? destinationLabel : "Sign in"}
           </h1>
           <div class="visually-hidden">
