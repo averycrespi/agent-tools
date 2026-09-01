@@ -16,6 +16,7 @@ import (
 
 type Publication struct {
 	Fence             CommitFence
+	ServerDisplayName string
 	RuntimeID         string
 	RuntimeGeneration uint64
 	Candidate         NormalizedCandidate
@@ -63,9 +64,10 @@ type ActiveCursor struct {
 }
 
 type ActivePage struct {
-	Summary contract.CatalogSummary
-	Items   []DescriptorRecord
-	Next    *ActiveCursor
+	Summary            contract.CatalogSummary
+	Items              []DescriptorRecord
+	ServerDisplayNames map[string]string
+	Next               *ActiveCursor
 }
 
 type CurrentGeneration struct {
@@ -85,6 +87,7 @@ type ActiveTool struct {
 }
 
 type activeServerSnapshot struct {
+	ServerDisplayName   string
 	RuntimeID           string
 	RuntimeGeneration   uint64
 	DesiredRevision     string
@@ -201,7 +204,8 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
 	}
 	snapshot := activeServerSnapshot{
-		RuntimeID: publication.RuntimeID, RuntimeGeneration: publication.RuntimeGeneration,
+		ServerDisplayName: publication.ServerDisplayName,
+		RuntimeID:         publication.RuntimeID, RuntimeGeneration: publication.RuntimeGeneration,
 		DesiredRevision: publication.Fence.ExpectedDesiredRevision, CredentialRevisions: publication.Fence.ExpectedCredentialRevisions,
 		State: contract.ActiveCatalogCurrent, Revision: cloneActiveString(durable.Revision),
 		IssueCount: durable.IssueCount, Tools: tools,
@@ -492,10 +496,12 @@ func (registry *ActiveRegistry) List(cursor *ActiveCursor, limit int) (ActivePag
 		return ActivePage{}, servers.ErrStaleCursor
 	}
 	items := make([]DescriptorRecord, 0, registry.activeToolCountLocked())
-	for _, snapshot := range registry.servers {
+	serverDisplayNames := make(map[string]string, len(registry.servers))
+	for serverID, snapshot := range registry.servers {
 		if snapshot.State == contract.ActiveCatalogAbsent || snapshot.State == contract.ActiveCatalogUnavailable {
 			continue
 		}
+		serverDisplayNames[serverID] = snapshot.ServerDisplayName
 		for _, tool := range snapshot.Tools {
 			items = append(items, cloneDescriptorRecord(tool.Record))
 		}
@@ -519,7 +525,7 @@ func (registry *ActiveRegistry) List(cursor *ActiveCursor, limit int) (ActivePag
 		}
 		filtered = append(filtered, item)
 	}
-	page := ActivePage{Summary: registry.summaryLocked(), Items: filtered}
+	page := ActivePage{Summary: registry.summaryLocked(), Items: filtered, ServerDisplayNames: serverDisplayNames}
 	if len(page.Items) > limit {
 		page.Items = page.Items[:limit]
 		last := page.Items[len(page.Items)-1]

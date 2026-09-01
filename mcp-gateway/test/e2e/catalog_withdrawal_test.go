@@ -225,7 +225,7 @@ func controlCatalog(t *testing.T, harness *gatewayHarness, path string) contract
 	return page
 }
 
-func assertDescriptorReadable(t *testing.T, harness *gatewayHarness, serverID string, expected contract.ToolDescriptor) {
+func assertDescriptorReadable(t *testing.T, harness *gatewayHarness, serverID string, expected contract.CatalogToolDescriptor) {
 	t.Helper()
 	response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID+"/descriptors/"+expected.ID, nil)
 	var descriptor contract.ToolDescriptor

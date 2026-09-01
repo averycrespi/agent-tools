@@ -260,8 +260,9 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 		revision = *durable.Revision
 	}
 	status, err := coordinator.active.Publish(ctx, Publication{
-		Fence:     coordinator.commitFence(candidate, revision),
-		RuntimeID: candidate.RuntimeID, RuntimeGeneration: candidate.Generation, Candidate: normalized, Runtime: runtime,
+		Fence:             coordinator.commitFence(candidate, revision),
+		ServerDisplayName: candidate.Server.DisplayName,
+		RuntimeID:         candidate.RuntimeID, RuntimeGeneration: candidate.Generation, Candidate: normalized, Runtime: runtime,
 		Current: func() bool { return coordinator.live(candidate) },
 	})
 	if err != nil {

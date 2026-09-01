@@ -157,6 +157,9 @@ export interface DescriptorView {
   lastSeenAt: string;
   retiredAt: string | null;
 }
+interface CatalogDescriptorView extends DescriptorView {
+  serverDisplayName: string;
+}
 interface CatalogView {
   activeState: "empty" | "current" | "degraded";
   activeGeneration: string;
@@ -393,8 +396,13 @@ function decodeServerPage(value: unknown): Page<ServerView> {
     nextCursor: cursor(page.next_cursor),
   };
 }
-function decodeDescriptor(value: unknown): DescriptorView {
-  const item = record(value, [
+function decodeDescriptor(value: unknown): DescriptorView;
+function decodeDescriptor(value: unknown, catalog: true): CatalogDescriptorView;
+function decodeDescriptor(
+  value: unknown,
+  catalog = false,
+): DescriptorView | CatalogDescriptorView {
+  const keys = [
     "id",
     "server_id",
     "upstream_name",
@@ -405,7 +413,9 @@ function decodeDescriptor(value: unknown): DescriptorView {
     "first_seen_at",
     "last_seen_at",
     "retired_at",
-  ]);
+  ];
+  if (catalog) keys.push("server_display_name");
+  const item = record(value, keys);
   const descriptor = optionalRecord(
     item.descriptor,
     ["name", "inputSchema", "annotations"],
@@ -432,7 +442,7 @@ function decodeDescriptor(value: unknown): DescriptorView {
     "openWorldHint",
   ])
     booleanValue(annotations[key]);
-  return {
+  const decoded: DescriptorView = {
     id: identifier(item.id),
     serverID: identifier(item.server_id),
     upstreamName: text(item.upstream_name),
@@ -444,17 +454,20 @@ function decodeDescriptor(value: unknown): DescriptorView {
     lastSeenAt: text(item.last_seen_at),
     retiredAt: nullableText(item.retired_at),
   };
+  return catalog
+    ? { ...decoded, serverDisplayName: text(item.server_display_name) }
+    : decoded;
 }
 function decodeDescriptorPage(value: unknown): Page<DescriptorView> {
   const page = record(value, ["items", "next_cursor"]);
   return {
-    items: array(page.items).map(decodeDescriptor),
+    items: array(page.items).map((item) => decodeDescriptor(item)),
     nextCursor: cursor(page.next_cursor),
   };
 }
 function decodeCatalogPage(value: unknown): {
   catalog: CatalogView;
-  page: Page<DescriptorView>;
+  page: Page<CatalogDescriptorView>;
 } {
   const root = record(value, ["catalog", "items", "next_cursor"]);
   const summary = record(root.catalog, [
@@ -475,7 +488,7 @@ function decodeCatalogPage(value: unknown): {
       issueCount: integer(summary.issue_count),
     },
     page: {
-      items: array(root.items).map(decodeDescriptor),
+      items: array(root.items).map((item) => decodeDescriptor(item, true)),
       nextCursor: cursor(root.next_cursor),
     },
   };
@@ -536,7 +549,7 @@ interface ServerReadsSnapshot {
   descriptorNext: string | null;
   descriptor: DescriptorView | undefined;
   catalog: CatalogView | undefined;
-  catalogItems: readonly DescriptorView[];
+  catalogItems: readonly CatalogDescriptorView[];
   catalogNext: string | null;
   operations: readonly ServerOperationView[];
   operationNext: string | null;
@@ -609,7 +622,7 @@ type ReadResult =
       kind: "catalog";
       viewKey: string;
       catalog: CatalogView;
-      page: Page<DescriptorView>;
+      page: Page<CatalogDescriptorView>;
       append: boolean;
       restarted: boolean;
     };
@@ -1479,7 +1492,7 @@ function CatalogRows({
   items,
   degraded,
 }: {
-  items: readonly DescriptorView[];
+  items: readonly CatalogDescriptorView[];
   degraded: boolean;
 }) {
   return (
@@ -1499,7 +1512,17 @@ function CatalogRows({
           key: "server",
           label: "Server",
           type: "text",
-          value: (descriptor) => descriptor.serverID,
+          value: (descriptor) => descriptor.serverDisplayName,
+        },
+        {
+          key: "status",
+          label: "Status",
+          type: "select",
+          value: () => (degraded ? "degraded" : "available"),
+          options: [
+            { value: "available", label: "Available" },
+            { value: "degraded", label: "Catalog issue" },
+          ],
         },
       ]}
       columns={[
@@ -1519,10 +1542,10 @@ function CatalogRows({
         {
           key: "server",
           label: "Server",
-          sortValue: (descriptor) => descriptor.serverID,
+          sortValue: (descriptor) => descriptor.serverDisplayName,
           render: (descriptor) => (
             <a href={`#/servers/${descriptor.serverID}`}>
-              {descriptor.serverID}
+              {descriptor.serverDisplayName}
             </a>
           ),
         },
@@ -1679,39 +1702,10 @@ export function ServerReads({
   if (destination === "catalog")
     return (
       <div class="domain-view" data-testid="catalog-view">
-        <section class="panel domain-panel" aria-labelledby="catalog-title">
-          <div class="panel-heading">
-            <div>
-              <span class="panel-code">PROCESS CATALOG</span>
-              <h2 id="catalog-title">Active administrative catalog</h2>
-            </div>
-            <StatusLabel
-              state={
-                snapshot.catalog?.activeState === "degraded"
-                  ? "warning"
-                  : "current"
-              }
-            >
-              Catalog {snapshot.catalog?.activeState ?? "loading"}
-            </StatusLabel>
-          </div>
+        <section class="panel domain-panel" aria-labelledby="page-title">
           <ReadPanel panel={panel}>
             {snapshot.catalog !== undefined && (
               <>
-                <p>
-                  Process generation {snapshot.catalog.activeGeneration} ·
-                  changed{" "}
-                  <UserTime
-                    value={snapshot.catalog.changedAt}
-                    fallback="never"
-                  />{" "}
-                  · issues {snapshot.catalog.issueCount}
-                </p>
-                <p>
-                  {snapshot.catalog.activeState === "degraded"
-                    ? "Degraded administrative evidence does not establish routability."
-                    : "Process-local administrative publication; do not infer authorization or future callability."}
-                </p>
                 <CatalogRows
                   items={snapshot.catalogItems}
                   degraded={snapshot.catalog.activeState === "degraded"}

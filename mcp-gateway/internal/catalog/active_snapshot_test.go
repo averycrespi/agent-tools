@@ -17,7 +17,8 @@ func TestCurrentSnapshotIsDescriptorOnlyCurrentAndCloneIsolated(t *testing.T) {
 	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
 	require.NoError(t, err)
 	_, err = registry.Publish(context.Background(), Publication{
-		Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1,
+		Fence: catalogFence(server.ID, "0"), ServerDisplayName: "Sample server",
+		RuntimeID: "runtime-1", RuntimeGeneration: 1,
 		Candidate: candidateFor(t, server.ID, "sample", "one", "two"), Current: func() bool { return true },
 	})
 	require.NoError(t, err)
@@ -39,12 +40,14 @@ func TestCurrentSnapshotIsDescriptorOnlyCurrentAndCloneIsolated(t *testing.T) {
 	admin, err := registry.List(nil, 100)
 	require.NoError(t, err)
 	require.Len(t, admin.Items, 2)
+	assert.Equal(t, "Sample server", admin.ServerDisplayNames[server.ID])
 	assert.True(t, registry.MarkStaleExact(server.ID, "runtime-1", 1, 3))
 	assert.Empty(t, registry.CurrentSnapshot().Descriptors)
 	assert.False(t, registry.IsCurrentGeneration(snapshot.Generation))
 	admin, err = registry.List(nil, 100)
 	require.NoError(t, err)
 	assert.Len(t, admin.Items, 2, "administrative listing must retain stale descriptors")
+	assert.Equal(t, "Sample server", admin.ServerDisplayNames[server.ID])
 }
 
 func TestCurrentSnapshotGenerationFencesReplacementWithdrawalAndDrain(t *testing.T) {

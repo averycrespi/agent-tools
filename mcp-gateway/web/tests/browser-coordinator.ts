@@ -8339,14 +8339,17 @@ async function runServerCatalogReads(
           issue_count: 2,
         },
         items: [
-          descriptorReadFixture(
-            catalogRestarted
-              ? serverReadIDs.activeTool
-              : serverReadIDs.currentTool,
-            serverReadIDs.active,
-            catalogRestarted ? "active-restarted" : "active-before-stale",
-            false,
-          ),
+          {
+            ...descriptorReadFixture(
+              catalogRestarted
+                ? serverReadIDs.activeTool
+                : serverReadIDs.currentTool,
+              serverReadIDs.active,
+              catalogRestarted ? "active-restarted" : "active-before-stale",
+              false,
+            ),
+            server_display_name: "Authority required",
+          },
         ],
         next_cursor: catalogRestarted ? null : "catalog-stale",
       }),
@@ -8556,18 +8559,26 @@ async function runServerCatalogReads(
     window.location.hash = "#/catalog";
   });
   await page.locator('[data-testid="catalog-view"]').waitFor();
-  await page.waitForFunction(() =>
-    document
-      .querySelector('[data-testid="catalog-view"]')
-      ?.textContent?.includes("Process generation process-8"),
-  );
+  await page.locator('[data-testid="catalog-row"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Process generation process-8",
-    "Catalog degraded",
-    "Degraded administrative evidence does not establish routability",
+    "Active administrative catalog",
+    "Process generation",
+    "Process-local administrative publication",
+    "Degraded administrative evidence",
   ])
-    if (!body.includes(phrase)) fail(`active catalog omitted ${phrase}`);
+    if (body.includes(phrase)) fail(`active catalog retained ${phrase}`);
+  if (!body.includes("Authority required"))
+    fail("active catalog omitted server display name");
+  if (
+    (await page.getByLabel("Status", { exact: true }).count()) !== 1 ||
+    (await page.getByLabel("Server", { exact: true }).count()) !== 1
+  )
+    fail("active catalog omitted server or status filters");
+  await page.getByLabel("Status", { exact: true }).selectOption("degraded");
+  if ((await page.locator('[data-testid="catalog-row"]').count()) !== 1)
+    fail("active catalog status filter did not retain matching tools");
+  await page.getByRole("button", { name: "Reset" }).click();
   if (
     (await page
       .locator(`a[href="#/servers/${serverReadIDs.active}"]`)

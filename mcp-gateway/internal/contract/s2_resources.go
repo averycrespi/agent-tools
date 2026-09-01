@@ -188,6 +188,11 @@ type ToolDescriptor struct {
 	RetiredAt       *string                  `json:"retired_at"`
 }
 
+type CatalogToolDescriptor struct {
+	ToolDescriptor
+	ServerDisplayName string `json:"server_display_name"`
+}
+
 type CatalogSummary struct {
 	ActiveState      AggregateCatalogState `json:"active_state"`
 	ActiveGeneration string                `json:"active_generation"`
@@ -196,9 +201,9 @@ type CatalogSummary struct {
 }
 
 type CatalogPage struct {
-	Catalog    CatalogSummary   `json:"catalog"`
-	Items      []ToolDescriptor `json:"items"`
-	NextCursor *string          `json:"next_cursor"`
+	Catalog    CatalogSummary          `json:"catalog"`
+	Items      []CatalogToolDescriptor `json:"items"`
+	NextCursor *string                 `json:"next_cursor"`
 }
 
 type ServerMutation struct {
