@@ -1,6 +1,11 @@
 import type { ComponentChildren, RefObject } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
+export function sentenceCase(value: string): string {
+  const words = value.replaceAll("_", " ").replaceAll("-", " ");
+  return words.replace(/^./, (letter) => letter.toLocaleUpperCase());
+}
+
 export type OperationalState =
   | "current"
   | "stale"

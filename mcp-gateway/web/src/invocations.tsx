@@ -3,6 +3,7 @@ import {
   CollectionTable,
   ComparisonTable,
   InertJSON,
+  sentenceCase,
   StateNotice,
   StatusLabel,
 } from "./primitives";
@@ -483,7 +484,7 @@ function Identities({ item }: { item: InvocationSummaryView }) {
           <>
             <dt>Recorded authorization</dt>
             <dd>
-              {item.authorization.decision} · revision{" "}
+              {sentenceCase(item.authorization.decision)} · revision{" "}
               {item.authorization.revision}
               {item.authorization.grantID === null
                 ? ""
@@ -644,9 +645,7 @@ function InvocationList({
                         : "empty"
                   }
                 >
-                  {item.outcome
-                    .replaceAll("_", " ")
-                    .replace(/^./, (value) => value.toLocaleUpperCase())}
+                  {sentenceCase(item.outcome)}
                 </StatusLabel>
               ),
             },
@@ -716,7 +715,7 @@ function InvocationDetail({
         <StatusLabel
           state={item.outcome === "outcome_unknown" ? "warning" : "current"}
         >
-          {item.outcome}
+          {sentenceCase(item.outcome)}
         </StatusLabel>
       </div>
       <Identities item={item} />
@@ -730,7 +729,7 @@ function InvocationDetail({
           </tr>
           <tr>
             <th>Admission</th>
-            <td>{item.admissionClass}</td>
+            <td>{sentenceCase(item.admissionClass)}</td>
           </tr>
           <tr>
             <th>Requested name</th>
@@ -738,7 +737,7 @@ function InvocationDetail({
           </tr>
           <tr>
             <th>Outcome basis</th>
-            <td>{item.basis}</td>
+            <td>{sentenceCase(item.basis)}</td>
           </tr>
           <tr>
             <th>Completed</th>

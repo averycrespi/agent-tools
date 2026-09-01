@@ -7,7 +7,12 @@ import type {
   MutationSnapshot,
   MutationSpec,
 } from "./mutation";
-import { ConfirmationDialog, FormField, StateNotice } from "./primitives";
+import {
+  BinaryToggle,
+  ConfirmationDialog,
+  FormField,
+  StateNotice,
+} from "./primitives";
 import { decodeOperation } from "./server-operation-model";
 import type { ServerView } from "./server-reads";
 
@@ -610,22 +615,17 @@ function EditorForm({
       </FormField>
       <FormField
         id="server-enabled"
-        label={namespaceLocked ? "State" : "Initial state"}
+        label="Server enabled"
         hint="Enabled servers schedule connection work after creation."
-        required
       >
         {(attributes) => (
-          <select
-            {...attributes}
-            value={draft.enabled ? "enabled" : "disabled"}
+          <BinaryToggle
+            attributes={attributes}
+            checked={draft.enabled}
             disabled={disabled}
-            onChange={(event) =>
-              update("enabled", event.currentTarget.value === "enabled")
-            }
-          >
-            <option value="disabled">Disabled</option>
-            <option value="enabled">Enabled</option>
-          </select>
+            testID="server-enabled"
+            onChange={(enabled) => update("enabled", enabled)}
+          />
         )}
       </FormField>
       <fieldset class="choice-field">

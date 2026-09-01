@@ -12,6 +12,7 @@ import {
   ConfirmationDialog,
   FormField,
   InertJSON,
+  sentenceCase,
   StateNotice,
   StatusLabel,
 } from "./primitives";
@@ -333,7 +334,7 @@ function policyFacts(policy: Policy) {
     <dl class="fact-grid">
       <div>
         <dt>Scope</dt>
-        <dd>{policy.scope}</dd>
+        <dd>{sentenceCase(policy.scope)}</dd>
       </div>
       <div>
         <dt>Target</dt>
@@ -874,7 +875,7 @@ export function Requests({
             <StatusLabel
               state={detail.state === "pending" ? "warning" : "current"}
             >
-              {detail.state}
+              {sentenceCase(detail.state)}
             </StatusLabel>
           </div>
           <dl class="fact-grid">
@@ -934,15 +935,23 @@ export function Requests({
           <dl class="fact-grid">
             <div>
               <dt>Target</dt>
-              <dd>{detail.currentTarget.targetState}</dd>
+              <dd>{sentenceCase(detail.currentTarget.targetState)}</dd>
             </div>
             <div>
               <dt>Active descriptor</dt>
-              <dd>{detail.currentTarget.activeState ?? "Not applicable"}</dd>
+              <dd>
+                {detail.currentTarget.activeState === null
+                  ? "Not applicable"
+                  : sentenceCase(detail.currentTarget.activeState)}
+              </dd>
             </div>
             <div>
               <dt>Durable descriptor</dt>
-              <dd>{detail.currentTarget.durableState ?? "Not applicable"}</dd>
+              <dd>
+                {detail.currentTarget.durableState === null
+                  ? "Not applicable"
+                  : sentenceCase(detail.currentTarget.durableState)}
+              </dd>
             </div>
             <div>
               <dt>Current fingerprint</dt>
@@ -1036,7 +1045,9 @@ export function Requests({
             <span class="panel-code">REVIEW QUEUE</span>
             <h2 id="requests-title">Grant requests</h2>
           </div>
-          <StatusLabel state="current">{state} filter</StatusLabel>
+          <StatusLabel state="current">
+            {sentenceCase(state)} filter
+          </StatusLabel>
         </div>
         <p>
           Rows are summary-only. Open one request to retrieve immutable evidence
@@ -1049,7 +1060,7 @@ export function Requests({
                 aria-current={state === value ? "page" : undefined}
                 href={`#/requests?${new URLSearchParams({ ...(principal === undefined ? {} : { principal_id: principal }), state: value })}`}
               >
-                {value}
+                {sentenceCase(value)}
               </a>
             ),
           )}
@@ -1080,13 +1091,14 @@ export function Requests({
                     </a>
                   </td>
                   <td>
-                    {item.requestedPolicy.scope}: {item.requestedPolicy.target}
+                    {sentenceCase(item.requestedPolicy.scope)}:{" "}
+                    {item.requestedPolicy.target}
                   </td>
                   <td>
                     <StatusLabel
                       state={item.state === "pending" ? "warning" : "current"}
                     >
-                      {item.state}
+                      {sentenceCase(item.state)}
                     </StatusLabel>
                   </td>
                   <td>

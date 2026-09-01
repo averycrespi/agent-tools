@@ -3,6 +3,7 @@ import type { MutationCoordinator } from "./mutation";
 import {
   CollectionTable,
   ComparisonTable,
+  sentenceCase,
   StateNotice,
   StatusLabel,
 } from "./primitives";
@@ -1333,6 +1334,18 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           ),
         },
         {
+          key: "id",
+          label: "ID",
+          sortValue: (server) => server.id,
+          render: (server) => (
+            <a
+              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "diagnostics" : "tools"}`}
+            >
+              {server.id}
+            </a>
+          ),
+        },
+        {
           key: "namespace",
           label: "Namespace",
           sortValue: (server) => server.namespace,
@@ -2125,7 +2138,7 @@ export function ServerReads({
                 <tbody>
                   <tr>
                     <th scope="row">Desired state</th>
-                    <td>{snapshot.server.desiredState}</td>
+                    <td>{sentenceCase(snapshot.server.desiredState)}</td>
                   </tr>
                   <tr>
                     <th scope="row">Desired revision</th>
@@ -2133,11 +2146,15 @@ export function ServerReads({
                   </tr>
                   <tr>
                     <th scope="row">Runtime</th>
-                    <td>{snapshot.server.runtimeState}</td>
+                    <td>{sentenceCase(snapshot.server.runtimeState)}</td>
                   </tr>
                   <tr>
                     <th scope="row">Runtime reason</th>
-                    <td>{snapshot.server.runtimeReason ?? "—"}</td>
+                    <td>
+                      {snapshot.server.runtimeReason === null
+                        ? "—"
+                        : sentenceCase(snapshot.server.runtimeReason)}
+                    </td>
                   </tr>
                   <tr>
                     <th scope="row">Runtime identity</th>
@@ -2154,9 +2171,9 @@ export function ServerReads({
                   <tr>
                     <th scope="row">Catalog</th>
                     <td>
-                      Durable {snapshot.server.durableState} revision{" "}
-                      {snapshot.server.durableRevision ?? "—"}; active{" "}
-                      {snapshot.server.activeState} revision{" "}
+                      Durable {sentenceCase(snapshot.server.durableState)}{" "}
+                      revision {snapshot.server.durableRevision ?? "—"}; active{" "}
+                      {sentenceCase(snapshot.server.activeState)} revision{" "}
                       {snapshot.server.activeRevision ?? "—"}
                     </td>
                   </tr>

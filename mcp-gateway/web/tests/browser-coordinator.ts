@@ -4998,7 +4998,7 @@ async function runRequestReads(
     () => document.querySelectorAll('[data-testid="request-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of ["Grant requests", "pending filter", "summary-only"])
+  for (const phrase of ["Grant requests", "Pending filter", "summary-only"])
     if (!body.includes(phrase)) fail(`request queue omitted ${phrase}`);
   if (body.includes("EVIDENCE-CANARY") || detailReads !== 0)
     fail("request collection expanded immutable evidence");
@@ -5577,7 +5577,7 @@ async function runOverview(
   const body = (await page.locator("body").textContent()) ?? "";
   for (const text of [
     "Storage mutation is closed",
-    "Keyring unavailable",
+    "Keyring Unavailable",
     "Capacity saturated",
     "80% capacity pressure",
     "Needs operator attention",
@@ -6241,15 +6241,15 @@ async function runSystemStatus(
 
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Process storage_failed",
+    "Process Storage failed",
     "Started",
     "Schema 10",
     "Revision 7",
     "Mutation admission closed",
-    "Keyring unavailable",
+    "Keyring Unavailable",
     "OS-managed capability snapshot",
-    "Backup idle",
-    "Agent authentication principal_credentials",
+    "Backup Idle",
+    "Agent authentication Principal credentials",
     "modern 2026-07-28",
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
@@ -6921,11 +6921,14 @@ async function runServerCreateUpdate(
     fail("save toast was not exposed as an accessible status");
   await page.getByRole("link", { name: "Settings", exact: true }).click();
 
-  await page.locator("#server-enabled").selectOption("enabled");
+  const serverEnabled = page.getByRole("switch", { name: "Server enabled" });
+  if (await serverEnabled.isChecked())
+    fail("disabled server switch was checked");
+  await serverEnabled.click();
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
   await page.getByText("Stale server revision").waitFor();
-  if ((await page.locator("#server-enabled").inputValue()) !== "enabled")
+  if (!(await serverEnabled.isChecked()))
     fail("412 refresh discarded behavioral draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
@@ -8676,9 +8679,17 @@ async function runServerCatalogReads(
     .allTextContents();
   if (
     serverHeaders.map((value) => value.replace(/\s?[↑↓↕]$/, "")).join("|") !==
-    "Name|Namespace|Status|Tools"
+    "Name|ID|Namespace|Status|Tools"
   )
     fail(`server inventory columns drifted: ${serverHeaders.join("|")}`);
+  for (const id of [serverReadIDs.active, serverReadIDs.degraded]) {
+    const idLink = page.getByRole("link", { name: id, exact: true });
+    if (
+      (await idLink.count()) !== 1 ||
+      !(await idLink.getAttribute("href"))?.startsWith(`#/servers/${id}`)
+    )
+      fail(`server inventory ID ${id} was not linked`);
+  }
   if (
     (await page
       .locator('[data-testid="servers-view"] .status-symbol')

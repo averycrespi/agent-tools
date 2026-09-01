@@ -11,6 +11,7 @@ import {
   ComparisonTable,
   ConfirmationDialog,
   FormField,
+  sentenceCase,
   StateNotice,
   StatusLabel,
 } from "./primitives";
@@ -425,7 +426,7 @@ function StatusPanel({
           <h2 id="system-status-title">Runtime and durable posture</h2>
         </div>
         <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {panelStatus}
+          {sentenceCase(panelStatus)}
         </StatusLabel>
       </div>
       {panelStatus === "error" && status === undefined ? (
@@ -450,9 +451,9 @@ function StatusPanel({
           <div class="fact-grid">
             <article class="fact-card">
               <span class="panel-code">PROCESS</span>
-              <h3>Process {status.processState}</h3>
+              <h3>Process {sentenceCase(status.processState)}</h3>
               <StatusLabel state={status.ready ? "current" : "warning"}>
-                Ready {status.ready ? "yes" : "no"}
+                {status.ready ? "Ready" : "Not ready"}
               </StatusLabel>
               <p>
                 Started <UserTime value={status.startedAt} />
@@ -460,7 +461,7 @@ function StatusPanel({
             </article>
             <article class="fact-card">
               <span class="panel-code">SQLITE</span>
-              <h3>Storage {status.sqliteState}</h3>
+              <h3>Storage {sentenceCase(status.sqliteState)}</h3>
               <p>Schema {status.schemaVersion}</p>
               <p>Revision {status.revision}</p>
               <StatusLabel state={status.latched ? "error" : "current"}>
@@ -469,7 +470,7 @@ function StatusPanel({
             </article>
             <article class="fact-card">
               <span class="panel-code">KEYRING</span>
-              <h3>Keyring {status.keyring}</h3>
+              <h3>Keyring {sentenceCase(status.keyring)}</h3>
               <p>
                 OS-managed capability snapshot; later authority work may still
                 require interaction or fail.
@@ -477,7 +478,7 @@ function StatusPanel({
             </article>
             <article class="fact-card">
               <span class="panel-code">BACKUP</span>
-              <h3>Backup {status.backupState}</h3>
+              <h3>Backup {sentenceCase(status.backupState)}</h3>
               <p>
                 Last completed{" "}
                 <UserTime value={status.lastBackupAt} fallback="never" />
@@ -485,7 +486,7 @@ function StatusPanel({
             </article>
             <article class="fact-card fact-card-wide">
               <span class="panel-code">PROTOCOLS</span>
-              <h3>Agent authentication {status.agentAuth}</h3>
+              <h3>Agent authentication {sentenceCase(status.agentAuth)}</h3>
               <p>
                 modern {status.modernProtocol} · legacy {status.legacyProtocol}
               </p>
@@ -514,7 +515,7 @@ function StatusPanel({
                     <td>{limit.limit}</td>
                     <td>
                       <StatusLabel state={stateForLimit(limit)}>
-                        {limit.saturated ? "saturated" : "available"}
+                        {limit.saturated ? "Saturated" : "Available"}
                       </StatusLabel>
                     </td>
                   </tr>
@@ -754,7 +755,7 @@ function Backups({
           <h2 id="backups-title">Backups</h2>
         </div>
         <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {panelStatus}
+          {sentenceCase(panelStatus)}
         </StatusLabel>
       </div>
       <p>
@@ -1087,7 +1088,7 @@ function AdminCredentials({
           <h2 id="admin-credentials-title">Administrator credentials</h2>
         </div>
         <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {panelStatus}
+          {sentenceCase(panelStatus)}
         </StatusLabel>
       </div>
       <p>
@@ -1195,7 +1196,7 @@ function AdminCredentials({
                             : "unavailable"
                         }
                       >
-                        {credential.status}
+                        {sentenceCase(credential.status)}
                       </StatusLabel>
                     </td>
                     <td>
@@ -1253,7 +1254,7 @@ function AdminCredentials({
             </div>
             <div>
               <dt>Status</dt>
-              <dd>{detail.status}</dd>
+              <dd>{sentenceCase(detail.status)}</dd>
             </div>
             <div>
               <dt>Created</dt>

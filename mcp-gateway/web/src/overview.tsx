@@ -1,7 +1,12 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { decodeInvocationPage, type InvocationPageView } from "./invocations";
-import { ComparisonTable, StateNotice, StatusLabel } from "./primitives";
+import {
+  ComparisonTable,
+  sentenceCase,
+  StateNotice,
+  StatusLabel,
+} from "./primitives";
 import type { SessionClient } from "./session";
 import { UserTime } from "./time";
 import type {
@@ -656,7 +661,7 @@ function Panel({
           <h2 id={`${id}-title`}>{title}</h2>
         </div>
         <StatusLabel state={status === "error" ? "error" : status}>
-          {status}
+          {sentenceCase(status)}
         </StatusLabel>
       </div>
       {status === "error" && panel?.hasValue !== true ? (
@@ -700,7 +705,7 @@ export function Overview({
               <StatusLabel
                 state={snapshot.status.ready ? "current" : "warning"}
               >
-                Process {snapshot.status.processState}
+                Process {sentenceCase(snapshot.status.processState)}
               </StatusLabel>
               {snapshot.status.latched ? (
                 <StateNotice state="error" title="Storage mutation is closed">
@@ -711,7 +716,7 @@ export function Overview({
                 </StateNotice>
               ) : (
                 <StatusLabel state="current">
-                  SQLite {snapshot.status.sqliteState}
+                  SQLite {sentenceCase(snapshot.status.sqliteState)}
                 </StatusLabel>
               )}
               <StatusLabel
@@ -719,7 +724,7 @@ export function Overview({
                   snapshot.status.keyring === "ready" ? "current" : "warning"
                 }
               >
-                Keyring {snapshot.status.keyring}
+                Keyring {sentenceCase(snapshot.status.keyring)}
               </StatusLabel>
               {snapshot.status.keyring !== "ready" && (
                 <p>
@@ -785,9 +790,9 @@ export function Overview({
                             </>
                           )}
                         </td>
-                        <td>{item.runtime}</td>
-                        <td>{item.credential}</td>
-                        <td>{item.catalog}</td>
+                        <td>{sentenceCase(item.runtime)}</td>
+                        <td>{sentenceCase(item.credential)}</td>
+                        <td>{sentenceCase(item.catalog)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -850,8 +855,8 @@ export function Overview({
                       {item.requestedName ?? "Not resolved"}
                     </a>
                     <span>
-                      {item.outcome} · {item.basis} ·{" "}
-                      <UserTime value={item.admittedAt} />
+                      {sentenceCase(item.outcome)} · {sentenceCase(item.basis)}{" "}
+                      · <UserTime value={item.admittedAt} />
                     </span>
                     {item.basis === "missing_terminal" && (
                       <span class="warning-copy">
