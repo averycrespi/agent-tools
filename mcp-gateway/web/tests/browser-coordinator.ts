@@ -2312,9 +2312,9 @@ async function runSystemAdministrationCanary(
   await waitForLifecycle(page, "authenticated");
   const destinations: Array<[string, string]> = [
     ["#/system", "system-status-panel"],
+    ["#/system?tab=resource-limits", "system-limits-view"],
     ["#/system?tab=admin-credentials", "admin-credentials-view"],
     ["#/system?tab=backups", "backups-view"],
-    ["#/system?tab=recovery", "system-recovery"],
   ];
   let rendered = "";
   for (const [hash, testID] of destinations) {
@@ -2325,10 +2325,10 @@ async function runSystemAdministrationCanary(
     rendered += ` ${(await page.locator("body").textContent()) ?? ""}`;
   }
   for (const phrase of [
-    "Runtime and durable posture",
-    "Administrator credentials",
+    "Overall health",
+    "Resource limits",
+    "Admin credentials",
     "Backups",
-    "Stopped-process recovery boundary",
   ])
     if (!rendered.includes(phrase))
       fail(`System administration canary omitted ${phrase}`);
@@ -2546,6 +2546,10 @@ async function runBackups(
   await page.locator('[data-testid="backup-inspect"]').click();
   await page.locator('[data-testid="backup-detail"]').waitFor();
   await page.locator('[data-testid="backup-create"]').click();
+  await page.locator('[data-testid="backup-create-view"]').waitFor();
+  await page.locator('[data-testid="backup-review-create"]').click();
+  if (Number(creates) !== 0) fail("backup submitted before final review");
+  await page.locator('[data-testid="backup-create-confirm-submit"]').click();
   await page.getByText("Backup outcome is unknown", { exact: true }).waitFor();
   if (creates !== 1) fail("uncertain backup create replayed automatically");
   await page.locator('[data-testid="backup-replay"]').click();
@@ -2554,15 +2558,18 @@ async function runBackups(
   await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
   await page.getByText(/Backup deleted/).waitFor();
   await page.locator('[data-testid="backup-create"]').click();
-  await page.getByText("Backup outcome is unknown", { exact: true }).waitFor();
-  if (await page.locator('[data-testid="backup-create"]').isEnabled())
+  await page.locator('[data-testid="backup-review-create"]').click();
+  await page.locator('[data-testid="backup-create-confirm-submit"]').click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-mutation-availability") === "storage_latched",
+  );
+  if (await page.locator('[data-testid="backup-review-create"]').isEnabled())
     fail("storage latch left backup mutation enabled");
   const body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of [
-    "cannot restore",
-    "stopped restore guidance",
-    "Nothing is replayed automatically",
-  ])
+  for (const phrase of ["immutable owner-only", "stopped-process operation"])
     if (!body.includes(phrase)) fail(`backup boundary omitted ${phrase}`);
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -3009,19 +3016,19 @@ async function runAccessibilityKeyboardResponsive(
   });
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
   await page.locator('[data-testid="admin-credential-row"]').first().waitFor();
-  await page
-    .locator('[data-testid="admin-credential-create"]:enabled')
-    .waitFor();
+  await page.locator('[data-testid="admin-credential-create"]').waitFor();
   await scan("credential-table");
 
   const table = page.locator(
-    '.table-region[role="region"][aria-label="Administrator credential authority"]',
+    '.table-region[role="region"][aria-label="Admin credentials"]',
   );
   if (
-    (await table.locator('th[scope="col"]').count()) !== 5 ||
+    (await table.locator('th[scope="col"]').count()) !== 6 ||
     (await table.locator('th[scope="row"]').count()) !== 2
   )
     fail("credential table semantics changed");
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
   const expiry = page.locator('[data-testid="admin-credential-expiry"]');
   await expiry.fill("invalid");
   await page.locator('[data-testid="admin-credential-create"]').click();
@@ -3034,6 +3041,11 @@ async function runAccessibilityKeyboardResponsive(
   )
     fail("field error was not associated with the expiry input");
   await scan("form-error");
+  await expiry.fill("");
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page.locator('[data-testid="admin-credentials-view"]').waitFor();
   scriptedAssertions += 3;
 
   const firstRevoke = page
@@ -3267,17 +3279,44 @@ async function runAdminCredentials(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  if (
+    (await page
+      .getByRole("heading", {
+        level: 2,
+        name: "Admin credentials",
+        exact: true,
+      })
+      .count()) !== 1
+  )
+    fail("Admin credentials title was inconsistent");
+  const adminHeaders = await page
+    .locator('[data-testid="admin-credentials-view"] thead th')
+    .allTextContents();
+  if (
+    adminHeaders.map((value) => value.replace(/\s?[↑↓↕]$/, "")).join("|") !==
+    "Fingerprint|ID|Status|Created|Expires|Actions"
+  )
+    fail(`Admin credential columns drifted: ${adminHeaders.join("|")}`);
   await page
     .locator('[data-testid="admin-credential-inspect"]')
     .first()
     .click();
   await page.locator('[data-testid="admin-credential-detail"]').waitFor();
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
   await page.locator('[data-testid="admin-credential-expiry"]').fill("invalid");
   await page.locator('[data-testid="admin-credential-create"]').click();
   await page.getByText(/Expiry must be an RFC 3339 time/).waitFor();
   if (creates !== 0) fail("invalid admin expiry reached the API");
   await page.locator('[data-testid="admin-credential-expiry"]').fill("");
   await page.locator('[data-testid="admin-credential-create"]').click();
+  await page
+    .getByRole("heading", { name: "Review admin credential", exact: true })
+    .waitFor();
+  if (creates !== 0) fail("admin credential submitted before final review");
+  await page
+    .locator('[data-testid="admin-credential-create-confirm-submit"]')
+    .click();
   await page.locator('[data-testid="one-time-value"]').waitFor();
   if (
     (await page.locator('[data-testid="one-time-value"]').textContent()) !==
@@ -3286,6 +3325,10 @@ async function runAdminCredentials(
     fail("admin bearer did not reach the prepared sink");
   await page.locator('[data-testid="copy-one-time-value"]').click();
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page.locator('[data-testid="admin-credentials-view"]').waitFor();
   await page.locator('[data-testid="admin-credential-revoke"]').first().click();
   await page
     .locator('[data-testid="admin-credential-revoke-confirm-submit"]')
@@ -3297,7 +3340,7 @@ async function runAdminCredentials(
     .waitFor();
   const expiringRow = page
     .locator('[data-testid="admin-credential-row"]')
-    .filter({ hasText: "Expires" });
+    .filter({ hasText: ids[2]! });
   await expiringRow.locator('[data-testid="admin-credential-revoke"]').click();
   await page
     .locator('[data-testid="admin-credential-revoke-confirm-submit"]')
@@ -3332,6 +3375,11 @@ async function runAdminCredentials(
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
 
   await page.locator('[data-testid="admin-credential-create"]').click();
+  await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
+  await page.locator('[data-testid="admin-credential-create"]').click();
+  await page
+    .locator('[data-testid="admin-credential-create-confirm-submit"]')
+    .click();
   await lostStarted;
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   releaseLost?.();
@@ -3342,6 +3390,9 @@ async function runAdminCredentials(
     )
     .waitFor();
   await page.locator('[data-testid="admin-credential-create"]').click();
+  await page
+    .locator('[data-testid="admin-credential-create-confirm-submit"]')
+    .click();
   await page
     .getByText(
       "No bearer can be displayed. Inspect current state before another explicit action.",
@@ -5669,7 +5720,7 @@ async function runOverview(
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
-      query.get("limit") !== "100" ||
+      query.get("limit") !== "5" ||
       query.get("state") !== "pending" ||
       [...query.keys()].some((key) => key !== "limit" && key !== "state")
     )
@@ -5706,10 +5757,10 @@ async function runOverview(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="overview-grid"]').waitFor();
-  await page.waitForFunction(() =>
-    document
-      .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("2 configured"),
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="overview-server-row"]')
+        .length === 1,
   );
   const body = (await page.locator("body").textContent()) ?? "";
   for (const text of [
@@ -5723,6 +5774,14 @@ async function runOverview(
   ]) {
     if (!body.includes(text)) fail(`overview omitted ${text}`);
   }
+  const serverAttentionText =
+    (await page.locator('[data-testid="overview-servers"]').textContent()) ??
+    "";
+  if (
+    serverAttentionText.includes("literal-<script>") ||
+    serverAttentionText.includes("Deleted server history")
+  )
+    fail("overview server attention included healthy or deleted servers");
   if (
     (await page.locator("script").count()) !== 1 ||
     (
@@ -5737,11 +5796,20 @@ async function runOverview(
   )
     fail("Overview did not close mutation admission for latched storage");
   for (const href of [
+    "#/system",
+    "#/system?tab=resource-limits",
+    "#/servers",
     "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1?tab=tools",
     "#/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "#/requests?state=pending",
     "#/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAX",
+    "#/invocations",
   ]) {
-    if ((await page.locator(`a[href="${href}"]`).count()) !== 1)
+    if (
+      (await page
+        .locator(`[data-testid="overview-grid"] a[href="${href}"]`)
+        .count()) !== 1
+    )
       fail(`overview omitted route ${href}`);
   }
 
@@ -6377,30 +6445,35 @@ async function runSystemStatus(
   );
 
   let body = (await page.locator("body").textContent()) ?? "";
+  const systemTabs = await page
+    .locator('nav[aria-label="System sections"] a')
+    .allTextContents();
+  if (
+    systemTabs.join("|") !== "Status|Resource limits|Admin credentials|Backups"
+  )
+    fail(`System tabs were not task-oriented: ${systemTabs.join("|")}`);
   for (const phrase of [
-    "Process Storage failed",
-    "Started",
-    "Schema 10",
-    "Revision 7",
-    "Mutation admission closed",
-    "Keyring Unavailable",
-    "OS-managed capability snapshot",
-    "Backup Idle",
-    "Agent authentication Principal credentials",
-    "modern 2026-07-28",
+    "Overall health",
+    "Degraded",
+    "Issues requiring attention",
+    "Storage mutations are unavailable",
+    "Credential storage is unavailable",
+    "Resource summary",
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
+  if (body.includes("Stopped recovery"))
+    fail("System retained the documentation-only recovery tab");
   const processStart = page.locator('time[datetime="2026-08-28T00:00:00Z"]');
   if (
     (await processStart.count()) !== 1 ||
     (await processStart.textContent()) === "2026-08-28T00:00:00Z"
   )
     fail("System status did not render process start in user time");
-  const limitRows = await page
-    .locator('[data-testid="system-limit-row"]')
-    .count();
-  if (limitRows !== overviewLimitNames.length)
-    fail("System did not render every closed limit");
+  if (
+    (await page.locator('[data-testid="system-limit-row"]').count()) !== 0 ||
+    (await page.locator('a[href="#/system?tab=resource-limits"]').count()) < 1
+  )
+    fail("System status did not defer detailed limits to their tab");
   if (
     (await page
       .locator('[data-testid="gateway-shell"]')
@@ -6433,25 +6506,14 @@ async function runSystemStatus(
   );
 
   await page.evaluate(() => {
-    window.location.hash = "#/system?tab=recovery";
+    window.location.hash = "#/system?tab=resource-limits";
   });
-  await page.locator('[data-testid="system-recovery"]').waitFor();
-  body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of [
-    "mcp-gateway initialize --data-dir <owner-only-data-dir> --secret-output <new-owner-only-file>",
-    "mcp-gateway admin-reset --data-dir <owner-only-data-dir> --secret-output <new-owner-only-file>",
-    "mcp-gateway restore --verify-current --data-dir <owner-only-data-dir>",
-    "mcp-gateway restore <backup-id> --data-dir <owner-only-data-dir> --secret-output <new-owner-only-file>",
-    "Stop every Gateway process",
-    "does not prove whether the triggering write committed or rolled back",
-    "The browser never invokes these commands",
-    "Normal serve startup must verify the selected generation",
-  ])
-    if (!body.includes(phrase)) fail(`System recovery omitted ${phrase}`);
-  if (
-    (await page.locator('[data-testid="system-recovery"] button').count()) !== 0
-  )
-    fail("System recovery exposed online offline-authority controls");
+  await page.locator('[data-testid="system-limits-view"]').waitFor();
+  const limitRows = await page
+    .locator('[data-testid="system-limit-row"]')
+    .count();
+  if (limitRows !== overviewLimitNames.length)
+    fail("Resource limits did not render every closed limit");
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(

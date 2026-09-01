@@ -584,10 +584,7 @@ export class OverviewController {
       read: async (context) =>
         decodeRequestPage(
           await responseJSON(
-            await get(
-              context,
-              "/api/v1/grant-requests?limit=100&state=pending",
-            ),
+            await get(context, "/api/v1/grant-requests?limit=5&state=pending"),
           ),
         ),
       publish: (requests) => {
@@ -742,6 +739,10 @@ export function Overview({
                   — {item.name}: {item.inUse} / {item.limit}
                 </p>
               ))}
+              <div class="inline-actions">
+                <a href="#/system">View system status</a>
+                <a href="#/system?tab=resource-limits">View resource limits</a>
+              </div>
             </div>
           )}
         </Panel>
@@ -775,28 +776,33 @@ export function Overview({
                     </tr>
                   </thead>
                   <tbody>
-                    {snapshot.servers.items.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <a href={`#/servers/${item.id}?tab=tools`}>
-                            {item.name}
-                          </a>
-                          {item.attention && (
-                            <>
-                              {" · "}
-                              <StatusLabel state="warning">
-                                Needs operator attention
-                              </StatusLabel>
-                            </>
-                          )}
-                        </td>
-                        <td>{sentenceCase(item.runtime)}</td>
-                        <td>{sentenceCase(item.credential)}</td>
-                        <td>{sentenceCase(item.catalog)}</td>
-                      </tr>
-                    ))}
+                    {snapshot.servers.items
+                      .filter((item) => item.attention)
+                      .map((item) => (
+                        <tr key={item.id} data-testid="overview-server-row">
+                          <td>
+                            <a href={`#/servers/${item.id}?tab=tools`}>
+                              {item.name}
+                            </a>
+                            {item.attention && (
+                              <>
+                                {" · "}
+                                <StatusLabel state="warning">
+                                  Needs operator attention
+                                </StatusLabel>
+                              </>
+                            )}
+                          </td>
+                          <td>{sentenceCase(item.runtime)}</td>
+                          <td>{sentenceCase(item.credential)}</td>
+                          <td>{sentenceCase(item.catalog)}</td>
+                        </tr>
+                      ))}
                   </tbody>
                 </ComparisonTable>
+                <p>
+                  <a href="#/servers">View all servers</a>
+                </p>
               </>
             ))}
         </Panel>
@@ -820,6 +826,7 @@ export function Overview({
                   .sort((left, right) =>
                     right.createdAt.localeCompare(left.createdAt),
                   )
+                  .slice(0, 5)
                   .map((item) => (
                     <li key={item.id}>
                       <a href={`#/requests/${item.id}`}>{item.target}</a>
@@ -830,6 +837,9 @@ export function Overview({
                     </li>
                   ))}
               </ul>
+              <p>
+                <a href="#/requests?state=pending">View all pending requests</a>
+              </p>
             </>
           )}
         </Panel>
@@ -866,6 +876,9 @@ export function Overview({
                   </li>
                 ))}
               </ul>
+              <p>
+                <a href="#/invocations">View invocation history</a>
+              </p>
             </>
           )}
         </Panel>

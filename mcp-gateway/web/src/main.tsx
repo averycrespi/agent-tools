@@ -429,7 +429,11 @@ function App() {
         : destination === "grants" &&
             resolved.canonicalFragment.startsWith("#/grants/new")
           ? "Create grant"
-          : destinationLabels[destination];
+          : resolved.canonicalFragment === "#/system/backups/new"
+            ? "Create backup"
+            : resolved.canonicalFragment === "#/system/admin-credentials/new"
+              ? "Create admin credential"
+              : destinationLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
 
   return (

@@ -653,7 +653,6 @@ function PrincipalCredentialActions({
         controller.abandon();
         return;
       }
-      setPrepared(activeSink);
     }
     const outcome = await controller.submit();
     if (outcome.kind === "acknowledged") {

@@ -8,6 +8,7 @@ import type {
   MutationSpec,
 } from "./mutation";
 import {
+  CollectionTable,
   ComparisonTable,
   ConfirmationDialog,
   FormField,
@@ -23,7 +24,7 @@ import type { ViewCoordinator, ViewSnapshot } from "./view";
 type Listener = (status: StatusView | undefined) => void;
 type CredentialListener = (credentials: AdminCredential[] | undefined) => void;
 type BackupListener = (backups: Backup[] | undefined) => void;
-type SystemTab = "status" | "admin-credentials" | "backups" | "recovery";
+type SystemTab = "status" | "resource-limits" | "admin-credentials" | "backups";
 type CredentialStatus = "active" | "revoked" | "expired";
 type AdminCredential = {
   id: string;
@@ -251,9 +252,11 @@ async function responseJSON(response: Response): Promise<unknown> {
 }
 
 function tab(viewKey: string): SystemTab {
+  if (viewKey === "#/system/backups/new") return "backups";
+  if (viewKey === "#/system/admin-credentials/new") return "admin-credentials";
+  if (viewKey === "#/system?tab=resource-limits") return "resource-limits";
   if (viewKey === "#/system?tab=admin-credentials") return "admin-credentials";
   if (viewKey === "#/system?tab=backups") return "backups";
-  if (viewKey === "#/system?tab=recovery") return "recovery";
   return "status";
 }
 
@@ -284,7 +287,9 @@ export class SystemController {
     });
     views.registerPanel({
       id: "backups",
-      matches: (viewKey) => viewKey === "#/system?tab=backups",
+      matches: (viewKey) =>
+        viewKey === "#/system?tab=backups" ||
+        viewKey === "#/system/backups/new",
       invalidations: ["backups"],
       read: async (context) => readBackups(context.csrfToken, context.signal),
       publish: (backups) => {
@@ -294,7 +299,9 @@ export class SystemController {
     });
     views.registerPanel({
       id: "admin-credentials",
-      matches: (viewKey) => viewKey === "#/system?tab=admin-credentials",
+      matches: (viewKey) =>
+        viewKey === "#/system?tab=admin-credentials" ||
+        viewKey === "#/system/admin-credentials/new",
       invalidations: ["admin_credentials"],
       read: async (context) =>
         readCredentials(context.csrfToken, context.signal),
@@ -306,7 +313,7 @@ export class SystemController {
     views.registerPanel({
       id: "system-status",
       matches: (viewKey) =>
-        viewKey === "#/system" || viewKey === "#/system?tab=recovery",
+        viewKey === "#/system" || viewKey === "#/system?tab=resource-limits",
       invalidations: ["system_status"],
       read: async (context) =>
         decodeStatus(
@@ -381,13 +388,13 @@ function stateForLimit(limit: LimitView): "current" | "warning" {
 function SystemTabs({ current }: { current: SystemTab }) {
   const items: ReadonlyArray<[SystemTab, string, string]> = [
     ["status", "Status", "#/system"],
+    ["resource-limits", "Resource limits", "#/system?tab=resource-limits"],
     [
       "admin-credentials",
       "Admin credentials",
       "#/system?tab=admin-credentials",
     ],
     ["backups", "Backups", "#/system?tab=backups"],
-    ["recovery", "Stopped recovery", "#/system?tab=recovery"],
   ];
   return (
     <nav class="subnav" aria-label="System sections">
@@ -423,7 +430,7 @@ function StatusPanel({
       <div class="panel-heading">
         <div>
           <span class="panel-code">SYSTEM-01</span>
-          <h2 id="system-status-title">Runtime and durable posture</h2>
+          <h2 id="system-status-title">Gateway status</h2>
         </div>
         <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
           {sentenceCase(panelStatus)}
@@ -439,15 +446,45 @@ function StatusPanel({
         <StateNotice state="loading" title="Loading system status" />
       ) : status !== undefined ? (
         <div class="system-stack">
-          {status.latched && (
-            <StateNotice state="error" title="Storage mutation is closed">
-              <p>
-                Online mutations remain closed. Reads can remain available, but
-                elapsed time and successful reads cannot clear the latch.
-              </p>
-              <a href="#/system?tab=recovery">Open stopped-recovery guidance</a>
-            </StateNotice>
-          )}
+          <section aria-labelledby="overall-health-title">
+            <h3 id="overall-health-title">Overall health</h3>
+            <StatusLabel
+              state={
+                status.ready && !status.latched && status.keyring === "ready"
+                  ? "current"
+                  : "warning"
+              }
+            >
+              {status.ready && !status.latched && status.keyring === "ready"
+                ? "Healthy"
+                : "Degraded"}
+            </StatusLabel>
+          </section>
+          <section aria-labelledby="system-issues-title">
+            <h3 id="system-issues-title">Issues requiring attention</h3>
+            {status.latched && (
+              <StateNotice
+                state="error"
+                title="Storage mutations are unavailable"
+              >
+                <p>
+                  Reads can remain available, but only the documented
+                  stopped-process recovery procedure can clear this condition.
+                </p>
+              </StateNotice>
+            )}
+            {status.keyring !== "ready" && (
+              <StateNotice
+                state="warning"
+                title="Credential storage is unavailable"
+              >
+                <p>Credential operations may require interaction or fail.</p>
+              </StateNotice>
+            )}
+            {!status.latched && status.keyring === "ready" && (
+              <p>No current issues require operator action.</p>
+            )}
+          </section>
           <div class="fact-grid">
             <article class="fact-card">
               <span class="panel-code">PROCESS</span>
@@ -492,37 +529,14 @@ function StatusPanel({
               </p>
             </article>
           </div>
-          <details
-            class="limits-disclosure"
-            data-testid="system-limits"
-            open={status.limits.some((limit) => limit.saturated)}
-          >
-            <summary>Resource limits ({status.limits.length})</summary>
-            <ComparisonTable caption="Gateway resource occupancy and hard limits">
-              <thead>
-                <tr>
-                  <th scope="col">Resource</th>
-                  <th scope="col">In use</th>
-                  <th scope="col">Limit</th>
-                  <th scope="col">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {status.limits.map((limit) => (
-                  <tr key={limit.name} data-testid="system-limit-row">
-                    <th scope="row">{limit.name}</th>
-                    <td>{limit.inUse}</td>
-                    <td>{limit.limit}</td>
-                    <td>
-                      <StatusLabel state={stateForLimit(limit)}>
-                        {limit.saturated ? "Saturated" : "Available"}
-                      </StatusLabel>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </ComparisonTable>
-          </details>
+          <section aria-labelledby="resource-summary-title">
+            <h3 id="resource-summary-title">Resource summary</h3>
+            <p>
+              {status.limits.filter((limit) => limit.saturated).length}{" "}
+              saturated resources across {status.limits.length} enforced limits.
+            </p>
+            <a href="#/system?tab=resource-limits">View resource limits</a>
+          </section>
         </div>
       ) : (
         <StateNotice state="loading" title="Loading system status" />
@@ -531,99 +545,58 @@ function StatusPanel({
   );
 }
 
-function Recovery({ status }: { status: StatusView | undefined }) {
+function ResourceLimits({ status }: { status: StatusView | undefined }) {
+  if (status === undefined)
+    return <StateNotice state="loading" title="Loading resource limits" />;
+  const limits = [...status.limits].sort((left, right) => {
+    if (left.saturated !== right.saturated) return left.saturated ? -1 : 1;
+    return left.name.localeCompare(right.name);
+  });
   return (
     <section
-      class="panel recovery-panel"
-      aria-labelledby="system-recovery-title"
-      data-testid="system-recovery"
+      class="panel domain-panel"
+      aria-labelledby="system-limits-title"
+      data-testid="system-limits-view"
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">RECOVERY-STOPPED</span>
-          <h2 id="system-recovery-title">Stopped-process recovery boundary</h2>
+          <h2 id="system-limits-title">Resource limits</h2>
         </div>
-        <span class="classification">CLI ONLY</span>
+        <StatusLabel
+          state={
+            limits.some((limit) => limit.saturated) ? "warning" : "current"
+          }
+        >
+          {limits.some((limit) => limit.saturated)
+            ? "Attention needed"
+            : "Available"}
+        </StatusLabel>
       </div>
-      {status?.latched === true && (
-        <StateNotice state="error" title="Current status is latched">
-          <p>
-            A latched status does not prove whether the triggering write
-            committed or rolled back.
-          </p>
-        </StateNotice>
-      )}
-      <p>
-        Stop every Gateway process that owns the installation before using any
-        command below. Each command acquires exclusive stopped-process
-        ownership. The browser never invokes these commands.
-      </p>
-      <div class="recovery-grid">
-        <article class="recovery-step">
-          <span class="panel-code">NEW INSTALLATION</span>
-          <h3>Initialize authority</h3>
-          <p>
-            Create the installation and publish its first admin bearer once.
-          </p>
-          <pre tabindex={0}>
-            <code>
-              mcp-gateway initialize --data-dir &lt;owner-only-data-dir&gt;
-              --secret-output &lt;new-owner-only-file&gt;
-            </code>
-          </pre>
-        </article>
-        <article class="recovery-step">
-          <span class="panel-code">AUTHORITY LOSS</span>
-          <h3>Reset administrator authority</h3>
-          <p>
-            Revoke every prior active admin verifier and publish one
-            replacement.
-          </p>
-          <pre tabindex={0}>
-            <code>
-              mcp-gateway admin-reset --data-dir &lt;owner-only-data-dir&gt;
-              --secret-output &lt;new-owner-only-file&gt;
-            </code>
-          </pre>
-        </article>
-        <article class="recovery-step">
-          <span class="panel-code">INTEGRITY / LATCH</span>
-          <h3>Verify the current generation</h3>
-          <p>
-            Verify current identity, schema, migration history, durability,
-            bounds, integrity, and any recognized recovery marker before latch
-            clearing.
-          </p>
-          <pre tabindex={0}>
-            <code>
-              mcp-gateway restore --verify-current --data-dir
-              &lt;owner-only-data-dir&gt;
-            </code>
-          </pre>
-        </article>
-        <article class="recovery-step">
-          <span class="panel-code">BACKUP REPLACEMENT</span>
-          <h3>Restore one verified backup</h3>
-          <p>
-            Verify and select the named backup while replacing all restored
-            administrator authority with one newly published bearer.
-          </p>
-          <pre tabindex={0}>
-            <code>
-              mcp-gateway restore &lt;backup-id&gt; --data-dir
-              &lt;owner-only-data-dir&gt; --secret-output
-              &lt;new-owner-only-file&gt;
-            </code>
-          </pre>
-        </article>
-      </div>
-      <StateNotice state="warning" title="Verification is not readiness">
-        <p>
-          Normal serve startup must verify the selected generation before it can
-          become ready. Recovery output proves only the command's acknowledged
-          result; it does not infer the fate of another uncertain write.
-        </p>
-      </StateNotice>
+      <p>Current occupancy against enforced Gateway limits.</p>
+      <ComparisonTable caption="Gateway resource occupancy and hard limits">
+        <thead>
+          <tr>
+            <th scope="col">Resource</th>
+            <th scope="col">In use</th>
+            <th scope="col">Limit</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {limits.map((limit) => (
+            <tr key={limit.name} data-testid="system-limit-row">
+              <th scope="row">{limit.name}</th>
+              <td>{limit.inUse}</td>
+              <td>{limit.limit}</td>
+              <td>
+                <StatusLabel state={stateForLimit(limit)}>
+                  {limit.saturated ? "Saturated" : "Available"}
+                </StatusLabel>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </ComparisonTable>
     </section>
   );
 }
@@ -634,12 +607,14 @@ function Backups({
   view,
   mutations,
   onRefresh,
+  createMode,
 }: {
   session: SessionClient;
   backups: Backup[] | undefined;
   view: ViewSnapshot;
   mutations: MutationCoordinator;
   onRefresh: () => void;
+  createMode: boolean;
 }) {
   const [controller] = useState<MutationController<Backup | undefined>>(() =>
     mutations.create<Backup | undefined>(),
@@ -650,6 +625,7 @@ function Backups({
   const [detail, setDetail] = useState<Backup>();
   const [deleting, setDeleting] = useState<Backup>();
   const [notice, setNotice] = useState<string>();
+  const createButton = useRef<HTMLButtonElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
@@ -681,6 +657,8 @@ function Backups({
           : `Backup ${outcome.value.id} is durably published.`,
       );
       controller.abandon();
+      if (outcome.value !== undefined)
+        window.location.hash = "#/system?tab=backups";
       onRefresh();
     }
   };
@@ -698,8 +676,8 @@ function Backups({
     };
     controller.begin(spec);
     controller.confirm();
-    void controller.submit().then(settle);
   };
+  const confirmCreate = () => void controller.submit().then(settle);
   const inspect = async (backupID: string) => {
     const value = await session.runProtected(async (context) => {
       const response = await fetch(`/api/v1/backups/${backupID}`, {
@@ -743,6 +721,69 @@ function Backups({
     setDeleting(undefined);
     await settle(await controller.submit());
   };
+  if (createMode)
+    return (
+      <section
+        class="panel domain-panel"
+        aria-labelledby="backup-create-title"
+        data-testid="backup-create-view"
+      >
+        <div class="panel-heading">
+          <div>
+            <h2 id="backup-create-title">Create backup</h2>
+          </div>
+        </div>
+        <p>
+          A backup is an immutable owner-only recovery artifact. Restore remains
+          a stopped-process operation documented in the operator guide.
+        </p>
+        {mutation.problem !== undefined && (
+          <StateNotice state="error" title={mutation.problem.title} />
+        )}
+        {mutation.state === "uncertain" && (
+          <StateNotice state="warning" title="Backup outcome is unknown">
+            <p>
+              Nothing is replayed automatically. Return to backup inventory and
+              inspect current records before acting again.
+            </p>
+            {mutation.canReplay && (
+              <button
+                data-testid="backup-replay"
+                type="button"
+                onClick={() => void controller.replay().then(settle)}
+              >
+                Replay this same backup create
+              </button>
+            )}
+          </StateNotice>
+        )}
+        <div class="inline-actions">
+          <a class="button-link" href="#/system?tab=backups">
+            Cancel
+          </a>
+          <button
+            ref={createButton}
+            class="create-action"
+            data-testid="backup-review-create"
+            type="button"
+            disabled={disabled}
+            onClick={create}
+          >
+            Review and create
+          </button>
+        </div>
+        <ConfirmationDialog
+          id="backup-create-confirm"
+          open={mutation.state === "confirming"}
+          title="Review backup"
+          consequence="Create one immutable owner-only backup artifact. Restore remains a separate stopped-process operation."
+          confirmLabel="Create backup"
+          returnFocus={createButton}
+          onCancel={() => controller.abandon()}
+          onConfirm={confirmCreate}
+        />
+      </section>
+    );
   return (
     <section
       class="panel domain-panel"
@@ -762,17 +803,14 @@ function Backups({
         Create publishes one owner-only artifact. The browser cannot restore,
         reset, verify, or clear a storage latch.
       </p>
-      <div class="inline-actions">
-        <button
-          class="create-action"
+      <div class="collection-toolbar">
+        <a
+          class="button-link create-action"
           data-testid="backup-create"
-          type="button"
-          disabled={disabled}
-          onClick={create}
+          href="#/system/backups/new"
         >
           Create backup
-        </button>
-        <a href="#/system?tab=recovery">Open stopped restore guidance</a>
+        </a>
       </div>
       {mutation.availability === "storage_latched" && (
         <StateNotice state="error" title="Storage mutation is closed">
@@ -912,6 +950,7 @@ function AdminCredentials({
   mutations,
   sinks,
   onRefresh,
+  createMode,
 }: {
   session: SessionClient;
   credentials: AdminCredential[] | undefined;
@@ -919,6 +958,7 @@ function AdminCredentials({
   mutations: MutationCoordinator;
   sinks: SensitiveSinkCoordinator;
   onRefresh: () => void;
+  createMode: boolean;
 }) {
   const [controller] = useState<
     MutationController<CreatedAdminCredential | undefined>
@@ -962,7 +1002,7 @@ function AdminCredentials({
     if (response.status !== 204) throw new Error("invalid response");
     return undefined;
   };
-  const beginCreate = async () => {
+  const beginCreate = () => {
     setNotice(undefined);
     setExpiryError(undefined);
     let expiresAt: string | null = null;
@@ -981,15 +1021,8 @@ function AdminCredentials({
       }
       expiresAt = new Date(timestamp).toISOString();
     }
-    const sink = sinks.prepareOneTime("New administrator bearer");
-    if (sink === undefined) {
-      setNotice(
-        "The protected one-time display could not be prepared. No credential was created.",
-      );
-      return;
-    }
     setIntent("create");
-    setPrepared(sink);
+    setPrepared(undefined);
     const spec: MutationSpec<CreatedAdminCredential | undefined> = {
       route: "/api/v1/admin-credentials",
       method: "POST",
@@ -1002,6 +1035,16 @@ function AdminCredentials({
     };
     controller.begin(spec);
     controller.confirm();
+  };
+  const confirmCreate = async () => {
+    const sink = sinks.prepareOneTime("New administrator bearer");
+    if (sink === undefined) {
+      setNotice(
+        "The protected one-time display could not be prepared. No credential was created.",
+      );
+      controller.abandon();
+      return;
+    }
     const outcome = await controller.submit();
     if (outcome.kind === "acknowledged" && outcome.value !== undefined) {
       const publication = sink.publish(outcome.value.bearer);
@@ -1076,6 +1119,95 @@ function AdminCredentials({
     }
   };
 
+  if (createMode)
+    return (
+      <section
+        class="panel domain-panel"
+        aria-labelledby="admin-credential-create-title"
+        data-testid="admin-credential-create-view"
+      >
+        <div class="panel-heading">
+          <div>
+            <h2 id="admin-credential-create-title">Create admin credential</h2>
+          </div>
+        </div>
+        <p>
+          Gateway creates a permanent credential identity and displays its
+          bearer once. The expiry cannot be changed after creation.
+        </p>
+        <FormField
+          id="admin-credential-expiry"
+          label="Expiry (RFC 3339)"
+          hint="Blank creates non-expiring authority. Expiry must be 5 minutes through 365 days ahead."
+          optional
+          {...(expiryError === undefined ? {} : { error: expiryError })}
+        >
+          {(attributes) => (
+            <input
+              {...attributes}
+              data-testid="admin-credential-expiry"
+              value={expiry}
+              disabled={disabled}
+              placeholder="2030-01-01T00:00:00Z"
+              onInput={(event) => {
+                setExpiry(event.currentTarget.value);
+                setExpiryError(undefined);
+              }}
+            />
+          )}
+        </FormField>
+        {mutation.problem !== undefined && (
+          <StateNotice state="error" title={mutation.problem.title} />
+        )}
+        {notice !== undefined && <StateNotice state="empty" title={notice} />}
+        {mutation.state === "uncertain" && (
+          <StateNotice state="warning" title="Credential outcome is unknown">
+            <p>
+              Do not replay. The credential may be active while its bearer is
+              permanently lost. Refresh metadata, then explicitly revoke an
+              unusable credential before creating a deliberate replacement.
+            </p>
+          </StateNotice>
+        )}
+        <div class="inline-actions">
+          <a class="button-link" href="#/system?tab=admin-credentials">
+            Cancel
+          </a>
+          <button
+            ref={createButton}
+            class="create-action"
+            data-testid="admin-credential-create"
+            type="button"
+            disabled={disabled}
+            onClick={beginCreate}
+          >
+            Review and create
+          </button>
+        </div>
+        <ConfirmationDialog
+          id="admin-credential-create-confirm"
+          open={mutation.state === "confirming" && intent === "create"}
+          title="Review admin credential"
+          consequence={
+            <div class="review-stack">
+              <p>
+                Create one administrator authority whose bearer is displayed
+                once.
+              </p>
+              <dl>
+                <dt>Expiry</dt>
+                <dd>{expiry === "" ? "Non-expiring" : expiry}</dd>
+              </dl>
+            </div>
+          }
+          confirmLabel="Create admin credential"
+          returnFocus={createButton}
+          onCancel={() => controller.abandon()}
+          onConfirm={() => void confirmCreate()}
+        />
+      </section>
+    );
+
   return (
     <section
       class="panel domain-panel"
@@ -1086,7 +1218,7 @@ function AdminCredentials({
       <div class="panel-heading">
         <div>
           <span class="panel-code">ADMIN AUTHORITY</span>
-          <h2 id="admin-credentials-title">Administrator credentials</h2>
+          <h2 id="admin-credentials-title">Admin credentials</h2>
         </div>
         <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
           {sentenceCase(panelStatus)}
@@ -1096,37 +1228,15 @@ function AdminCredentials({
         Bearers appear once in the protected display. Persist only fingerprints
         and metadata; a bearer cannot be recovered or shown again.
       </p>
-      <FormField
-        id="admin-credential-expiry"
-        label="Expiry (RFC 3339)"
-        hint="Blank creates non-expiring authority. Expiry must be 5 minutes through 365 days ahead."
-        optional
-        {...(expiryError === undefined ? {} : { error: expiryError })}
-      >
-        {(attributes) => (
-          <input
-            {...attributes}
-            data-testid="admin-credential-expiry"
-            value={expiry}
-            disabled={disabled}
-            placeholder="2030-01-01T00:00:00Z"
-            onInput={(event) => {
-              setExpiry(event.currentTarget.value);
-              setExpiryError(undefined);
-            }}
-          />
-        )}
-      </FormField>
-      <button
-        ref={createButton}
-        class="create-action"
-        data-testid="admin-credential-create"
-        type="button"
-        disabled={disabled}
-        onClick={() => void beginCreate()}
-      >
-        Create administrator credential
-      </button>
+      <div class="collection-toolbar">
+        <a
+          class="button-link create-action"
+          data-testid="admin-credential-create"
+          href="#/system/admin-credentials/new"
+        >
+          Create admin credential
+        </a>
+      </div>
       {mutation.problem !== undefined && (
         <StateNotice state="error" title={mutation.problem.title}>
           <p>No force or silent overwrite path is available.</p>
@@ -1156,93 +1266,119 @@ function AdminCredentials({
       ) : credentials.length === 0 ? (
         <StateNotice state="empty" title="No administrator credentials" />
       ) : (
-        <ComparisonTable caption="Administrator credential authority">
-          <thead>
-            <tr>
-              <th scope="col">Credential</th>
-              <th scope="col">State</th>
-              <th scope="col">Lifetime</th>
-              <th scope="col">Revision</th>
-              <th scope="col">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...credentials]
-              .sort((left, right) =>
-                right.createdAt.localeCompare(left.createdAt),
-              )
-              .map((credential) => {
+        <CollectionTable
+          caption="Admin credentials"
+          items={[...credentials].sort((left, right) =>
+            right.createdAt.localeCompare(left.createdAt),
+          )}
+          rowKey={(credential) => credential.id}
+          rowTestID="admin-credential-row"
+          filters={[
+            {
+              key: "identity",
+              label: "Fingerprint or ID",
+              type: "text",
+              value: (credential) =>
+                `${credential.fingerprint} ${credential.id}`,
+            },
+            {
+              key: "status",
+              label: "Status",
+              type: "select",
+              value: (credential) => credential.status,
+              options: [
+                { value: "active", label: "Active" },
+                { value: "revoked", label: "Revoked" },
+                { value: "expired", label: "Expired" },
+              ],
+            },
+          ]}
+          columns={[
+            {
+              key: "fingerprint",
+              label: "Fingerprint",
+              render: (credential) => (
+                <button
+                  class="text-button"
+                  data-testid="admin-credential-inspect"
+                  type="button"
+                  onClick={() => void inspectCredential(credential.id)}
+                >
+                  {credential.fingerprint}
+                </button>
+              ),
+              sortValue: (credential) => credential.fingerprint,
+            },
+            {
+              key: "id",
+              label: "ID",
+              render: (credential) => <code>{credential.id}</code>,
+              sortValue: (credential) => credential.id,
+            },
+            {
+              key: "status",
+              label: "Status",
+              render: (credential) => (
+                <StatusLabel
+                  state={
+                    credential.status === "active" ? "current" : "unavailable"
+                  }
+                >
+                  {sentenceCase(credential.status)}
+                </StatusLabel>
+              ),
+              sortValue: (credential) => credential.status,
+            },
+            {
+              key: "created",
+              label: "Created",
+              render: (credential) => <UserTime value={credential.createdAt} />,
+              sortValue: (credential) => credential.createdAt,
+            },
+            {
+              key: "expires",
+              label: "Expires",
+              render: (credential) => (
+                <UserTime
+                  value={credential.expiresAt}
+                  fallback="Non-expiring"
+                />
+              ),
+              sortValue: (credential) => credential.expiresAt ?? "",
+            },
+            {
+              key: "actions",
+              label: "Actions",
+              render: (credential) => {
                 const protectedLast =
                   credential.status === "active" &&
                   credential.nonExpiring &&
                   activeNonExpiring <= 1;
-                return (
-                  <tr key={credential.id} data-testid="admin-credential-row">
-                    <th scope="row">
-                      <button
-                        class="text-button"
-                        data-testid="admin-credential-inspect"
-                        type="button"
-                        onClick={() => void inspectCredential(credential.id)}
-                      >
-                        {credential.fingerprint}
-                      </button>{" "}
-                      · <code>{credential.id}</code> · Created{" "}
-                      <UserTime value={credential.createdAt} />
-                    </th>
-                    <td>
-                      <StatusLabel
-                        state={
-                          credential.status === "active"
-                            ? "current"
-                            : "unavailable"
-                        }
-                      >
-                        {sentenceCase(credential.status)}
-                      </StatusLabel>
-                    </td>
-                    <td>
-                      {credential.nonExpiring ? (
-                        "Non-expiring"
-                      ) : (
-                        <>
-                          Expires{" "}
-                          <UserTime
-                            value={credential.expiresAt}
-                            fallback="unknown"
-                          />
-                        </>
-                      )}
-                    </td>
-                    <td>{credential.revision}</td>
-                    <td>
-                      {credential.status === "active" ? (
-                        <button
-                          class="danger-action"
-                          data-testid="admin-credential-revoke"
-                          type="button"
-                          disabled={disabled || protectedLast}
-                          title={
-                            protectedLast
-                              ? "The last active non-expiring administrator authority cannot be revoked."
-                              : undefined
-                          }
-                          onClick={(event) => {
-                            revokeButton.current = event.currentTarget;
-                            beginRevoke(credential);
-                          }}
-                        >
-                          Revoke
-                        </button>
-                      ) : (
-                        "Terminal"
-                      )}
-                    </td>
-                  </tr>
+                return credential.status === "active" ? (
+                  <button
+                    class="danger-action"
+                    data-testid="admin-credential-revoke"
+                    type="button"
+                    disabled={disabled || protectedLast}
+                    title={
+                      protectedLast
+                        ? "The last active non-expiring administrator authority cannot be revoked."
+                        : undefined
+                    }
+                    onClick={(event) => {
+                      revokeButton.current = event.currentTarget;
+                      beginRevoke(credential);
+                    }}
+                  >
+                    Revoke
+                  </button>
+                ) : (
+                  "Terminal"
                 );
-              })}
-          </tbody>
-        </ComparisonTable>
+              },
+            },
+          ]}
+        />
       )}
       {detail !== undefined && (
         <section class="subpanel" data-testid="admin-credential-detail">
@@ -1336,6 +1472,8 @@ export function System({
       <SystemTabs current={current} />
       {current === "status" ? (
         <StatusPanel status={status} view={view} />
+      ) : current === "resource-limits" ? (
+        <ResourceLimits status={status} />
       ) : current === "admin-credentials" ? (
         <AdminCredentials
           session={session}
@@ -1344,6 +1482,7 @@ export function System({
           mutations={mutations}
           sinks={sinks}
           onRefresh={onRefresh}
+          createMode={view.viewKey === "#/system/admin-credentials/new"}
         />
       ) : current === "backups" ? (
         <Backups
@@ -1352,9 +1491,8 @@ export function System({
           view={view}
           mutations={mutations}
           onRefresh={onRefresh}
+          createMode={view.viewKey === "#/system/backups/new"}
         />
-      ) : current === "recovery" ? (
-        <Recovery status={status} />
       ) : (
         <section class="panel" aria-labelledby="system-later-title">
           <div class="panel-heading">

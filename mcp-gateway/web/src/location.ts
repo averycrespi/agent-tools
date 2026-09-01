@@ -33,9 +33,9 @@ const serverTabs = new Set([
 ]);
 const systemTabs = new Set([
   "status",
+  "resource-limits",
   "admin-credentials",
   "backups",
-  "recovery",
 ]);
 const requestStates = new Set(["pending", "approved", "rejected", "cancelled"]);
 const admissionClasses = new Set([
@@ -236,12 +236,19 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("invocations", segments, query);
     }
   }
-  if (
-    first === "system" &&
-    segments.length === 1 &&
-    exactQuery(query, { tab: (value) => systemTabs.has(value) })
-  ) {
-    return location("system", segments, query);
+  if (first === "system") {
+    if (
+      segments.length === 1 &&
+      exactQuery(query, { tab: (value) => systemTabs.has(value) })
+    )
+      return location("system", segments, query);
+    if (
+      segments.length === 3 &&
+      (second === "backups" || second === "admin-credentials") &&
+      segments[2] === "new" &&
+      noQuery
+    )
+      return location("system", segments, query);
   }
   return undefined;
 }
