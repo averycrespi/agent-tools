@@ -249,6 +249,7 @@ function App() {
   const logoutButton = useRef<HTMLButtonElement>(null);
   const navigationReturnFocus = useRef<HTMLElement>(null);
   const focusAfterLogout = useRef(false);
+  const focusedDestination = useRef<Destination>();
 
   const setDirty = useCallback((owner: symbol, dirty: boolean) => {
     const changed = dirty
@@ -346,13 +347,19 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    if (session.lifecycle === "authenticated") {
+    if (
+      session.lifecycle === "authenticated" &&
+      focusedDestination.current !== resolved.location.destination
+    ) {
+      focusedDestination.current = resolved.location.destination;
       pageTitle.current?.focus();
     } else if (session.lifecycle === "signed_out" && focusAfterLogout.current) {
       focusAfterLogout.current = false;
+      focusedDestination.current = undefined;
       pageTitle.current?.focus();
     }
     if (session.lifecycle !== "authenticated") {
+      focusedDestination.current = undefined;
       setNavigationOpen(false);
       setLogoutConfirmationOpen(false);
       toastCoordinator.clear();

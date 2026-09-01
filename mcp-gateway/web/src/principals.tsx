@@ -822,7 +822,7 @@ export function Principals({
       </StateNotice>
     );
   if (principalID !== undefined) {
-    if (detail === undefined)
+    if (detail?.principal.id !== principalID)
       return <StateNotice state="loading" title="Loading principal" />;
     const principal = detail.principal;
     return (

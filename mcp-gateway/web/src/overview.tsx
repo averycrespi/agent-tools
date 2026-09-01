@@ -663,6 +663,8 @@ function Panel({
         <StateNotice state="error" title="Read unavailable">
           <p>Refresh after checking Gateway availability.</p>
         </StateNotice>
+      ) : status === "loading" && panel?.hasValue !== true ? (
+        <StateNotice state="loading" title="Loading current data" />
       ) : (
         children
       )}

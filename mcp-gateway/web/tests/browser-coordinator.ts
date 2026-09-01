@@ -3665,9 +3665,31 @@ async function runPrincipals(
     if (!body.includes(phrase)) fail(`principal detail omitted ${phrase}`);
 
   await page.evaluate((id) => {
+    (
+      window as Window & { principalDetailFlashed?: boolean }
+    ).principalDetailFlashed = false;
+    new MutationObserver(() => {
+      if (
+        window.location.hash === `#/principals/${id}` &&
+        document
+          .querySelector('[data-testid="principal-detail"]')
+          ?.textContent?.includes("Build agent")
+      )
+        (
+          window as Window & { principalDetailFlashed?: boolean }
+        ).principalDetailFlashed = true;
+    }).observe(document.body, { childList: true, subtree: true });
     window.location.hash = `#/access/principals/${id}`;
   }, secondID);
   await page.getByText("Disabled agent", { exact: true }).waitFor();
+  if (
+    await page.evaluate(
+      () =>
+        (window as Window & { principalDetailFlashed?: boolean })
+          .principalDetailFlashed === true,
+    )
+  )
+    fail("principal navigation flashed the prior identity");
   const untouchedPrincipalWarned = await page.evaluate(() => {
     const event = new Event("beforeunload", { cancelable: true });
     return !window.dispatchEvent(event);
@@ -8413,6 +8435,7 @@ async function runServerCatalogReads(
               false,
             ),
             server_display_name: "Authority required",
+            server_catalog_state: "stale",
           },
         ],
         next_cursor: catalogRestarted ? null : "catalog-stale",
@@ -8589,6 +8612,12 @@ async function runServerCatalogReads(
     )
     .click();
   await page.locator('[data-testid="descriptor-detail"]').waitFor();
+  if (
+    await page.evaluate(
+      () => document.activeElement?.getAttribute("id") === "page-title",
+    )
+  )
+    fail("server navigation moved focus to the hidden shell title");
   body = (await page.locator("body").textContent()) ?? "";
   if (
     !body.includes("Catalog revision") ||
@@ -8639,7 +8668,7 @@ async function runServerCatalogReads(
     (await page.getByLabel("Server", { exact: true }).count()) !== 1
   )
     fail("active catalog omitted server or status filters");
-  await page.getByLabel("Status", { exact: true }).selectOption("degraded");
+  await page.getByLabel("Status", { exact: true }).selectOption("issue");
   if ((await page.locator('[data-testid="catalog-row"]').count()) !== 1)
     fail("active catalog status filter did not retain matching tools");
   await page.getByRole("button", { name: "Reset" }).click();

@@ -190,7 +190,8 @@ type ToolDescriptor struct {
 
 type CatalogToolDescriptor struct {
 	ToolDescriptor
-	ServerDisplayName string `json:"server_display_name"`
+	ServerDisplayName  string             `json:"server_display_name"`
+	ServerCatalogState ActiveCatalogState `json:"server_catalog_state"`
 }
 
 type CatalogSummary struct {

@@ -35,7 +35,7 @@ func TestActiveCatalogResourceAndCursor(t *testing.T) {
 	item := descriptorResource()
 	next := catalog.ActiveCursor{Generation: apiActiveProcessID + "-1", Upper: 2, After: 1, AfterID: item.ID}
 	changed := "2026-08-23T00:00:00Z"
-	service := &fakeActiveCatalog{page: catalog.ActivePage{Summary: contract.CatalogSummary{ActiveState: contract.AggregateCatalogCurrent, ActiveGeneration: apiActiveProcessID + "-1", ChangedAt: &changed, IssueCount: 1}, Items: []catalog.DescriptorRecord{{InsertionSequence: 1, Resource: item}}, ServerDisplayNames: map[string]string{item.ServerID: "Display server"}, Next: &next}}
+	service := &fakeActiveCatalog{page: catalog.ActivePage{Summary: contract.CatalogSummary{ActiveState: contract.AggregateCatalogCurrent, ActiveGeneration: apiActiveProcessID + "-1", ChangedAt: &changed, IssueCount: 1}, Items: []catalog.DescriptorRecord{{InsertionSequence: 1, Resource: item}}, ServerDisplayNames: map[string]string{item.ServerID: "Display server"}, ServerStates: map[string]contract.ActiveCatalogState{item.ServerID: contract.ActiveCatalogCurrent}, Next: &next}}
 	handler := newActiveCatalogTestHandler(t, service)
 	response := perform(handler, http.MethodGet, "/api/v1/catalog?limit=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -43,6 +43,7 @@ func TestActiveCatalogResourceAndCursor(t *testing.T) {
 	assert.Contains(t, response.Body.String(), `"active_generation":"`+apiActiveProcessID+`-1"`)
 	assert.Contains(t, response.Body.String(), `"next_cursor":"`)
 	assert.Contains(t, response.Body.String(), `"server_display_name":"Display server"`)
+	assert.Contains(t, response.Body.String(), `"server_catalog_state":"current"`)
 	assert.Equal(t, 1, service.limit)
 
 	cursor := encodeActiveCatalogCursor(next)

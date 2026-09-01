@@ -434,6 +434,8 @@ function StatusPanel({
             Check Gateway availability, then refresh this authoritative read.
           </p>
         </StateNotice>
+      ) : panelStatus === "loading" && panel?.hasValue !== true ? (
+        <StateNotice state="loading" title="Loading system status" />
       ) : status !== undefined ? (
         <div class="system-stack">
           {status.latched && (
@@ -654,7 +656,8 @@ function Backups({
     if (detail !== undefined && backups !== undefined)
       setDetail(backups.find((backup) => backup.id === detail.id));
   }, [backups]);
-  const panelStatus = view.panels.backups?.status ?? "loading";
+  const panel = view.panels.backups;
+  const panelStatus = panel?.status ?? "loading";
   const disabled =
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched";
@@ -800,7 +803,8 @@ function Backups({
       {notice !== undefined && <StateNotice state="empty" title={notice} />}
       {panelStatus === "error" && backups === undefined ? (
         <StateNotice state="error" title="Backups unavailable" />
-      ) : backups === undefined ? (
+      ) : (panelStatus === "loading" && panel?.hasValue !== true) ||
+        backups === undefined ? (
         <StateNotice state="loading" title="Loading backups" />
       ) : backups.length === 0 ? (
         <StateNotice state="empty" title="No backups" />
@@ -937,7 +941,8 @@ function AdminCredentials({
     if (detail !== undefined && credentials !== undefined)
       setDetail(credentials.find((credential) => credential.id === detail.id));
   }, [credentials]);
-  const panelStatus = view.panels["admin-credentials"]?.status ?? "loading";
+  const panel = view.panels["admin-credentials"];
+  const panelStatus = panel?.status ?? "loading";
   const activeNonExpiring =
     credentials?.filter(
       (credential) => credential.status === "active" && credential.nonExpiring,
@@ -1139,7 +1144,8 @@ function AdminCredentials({
           state="error"
           title="Administrator credentials unavailable"
         />
-      ) : credentials === undefined ? (
+      ) : (panelStatus === "loading" && panel?.hasValue !== true) ||
+        credentials === undefined ? (
         <StateNotice
           state="loading"
           title="Loading administrator credentials"

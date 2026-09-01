@@ -67,6 +67,7 @@ type ActivePage struct {
 	Summary            contract.CatalogSummary
 	Items              []DescriptorRecord
 	ServerDisplayNames map[string]string
+	ServerStates       map[string]contract.ActiveCatalogState
 	Next               *ActiveCursor
 }
 
@@ -497,11 +498,13 @@ func (registry *ActiveRegistry) List(cursor *ActiveCursor, limit int) (ActivePag
 	}
 	items := make([]DescriptorRecord, 0, registry.activeToolCountLocked())
 	serverDisplayNames := make(map[string]string, len(registry.servers))
+	serverStates := make(map[string]contract.ActiveCatalogState, len(registry.servers))
 	for serverID, snapshot := range registry.servers {
 		if snapshot.State == contract.ActiveCatalogAbsent || snapshot.State == contract.ActiveCatalogUnavailable {
 			continue
 		}
 		serverDisplayNames[serverID] = snapshot.ServerDisplayName
+		serverStates[serverID] = snapshot.State
 		for _, tool := range snapshot.Tools {
 			items = append(items, cloneDescriptorRecord(tool.Record))
 		}
@@ -525,7 +528,10 @@ func (registry *ActiveRegistry) List(cursor *ActiveCursor, limit int) (ActivePag
 		}
 		filtered = append(filtered, item)
 	}
-	page := ActivePage{Summary: registry.summaryLocked(), Items: filtered, ServerDisplayNames: serverDisplayNames}
+	page := ActivePage{
+		Summary: registry.summaryLocked(), Items: filtered,
+		ServerDisplayNames: serverDisplayNames, ServerStates: serverStates,
+	}
 	if len(page.Items) > limit {
 		page.Items = page.Items[:limit]
 		last := page.Items[len(page.Items)-1]

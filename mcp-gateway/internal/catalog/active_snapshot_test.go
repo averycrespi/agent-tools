@@ -41,6 +41,7 @@ func TestCurrentSnapshotIsDescriptorOnlyCurrentAndCloneIsolated(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, admin.Items, 2)
 	assert.Equal(t, "Sample server", admin.ServerDisplayNames[server.ID])
+	assert.Equal(t, contract.ActiveCatalogCurrent, admin.ServerStates[server.ID])
 	assert.True(t, registry.MarkStaleExact(server.ID, "runtime-1", 1, 3))
 	assert.Empty(t, registry.CurrentSnapshot().Descriptors)
 	assert.False(t, registry.IsCurrentGeneration(snapshot.Generation))
@@ -48,6 +49,7 @@ func TestCurrentSnapshotIsDescriptorOnlyCurrentAndCloneIsolated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, admin.Items, 2, "administrative listing must retain stale descriptors")
 	assert.Equal(t, "Sample server", admin.ServerDisplayNames[server.ID])
+	assert.Equal(t, contract.ActiveCatalogStale, admin.ServerStates[server.ID])
 }
 
 func TestCurrentSnapshotGenerationFencesReplacementWithdrawalAndDrain(t *testing.T) {

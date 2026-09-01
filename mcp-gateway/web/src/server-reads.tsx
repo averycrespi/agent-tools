@@ -159,6 +159,7 @@ export interface DescriptorView {
 }
 interface CatalogDescriptorView extends DescriptorView {
   serverDisplayName: string;
+  serverCatalogState: string;
 }
 interface CatalogView {
   activeState: "empty" | "current" | "degraded";
@@ -414,7 +415,7 @@ function decodeDescriptor(
     "last_seen_at",
     "retired_at",
   ];
-  if (catalog) keys.push("server_display_name");
+  if (catalog) keys.push("server_display_name", "server_catalog_state");
   const item = record(value, keys);
   const descriptor = optionalRecord(
     item.descriptor,
@@ -455,7 +456,16 @@ function decodeDescriptor(
     retiredAt: nullableText(item.retired_at),
   };
   return catalog
-    ? { ...decoded, serverDisplayName: text(item.server_display_name) }
+    ? {
+        ...decoded,
+        serverDisplayName: text(item.server_display_name),
+        serverCatalogState: closed(item.server_catalog_state, [
+          "refreshing",
+          "current",
+          "stale",
+          "unavailable",
+        ] as const),
+      }
     : decoded;
 }
 function decodeDescriptorPage(value: unknown): Page<DescriptorView> {
@@ -1488,13 +1498,7 @@ function ToolSchema({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function CatalogRows({
-  items,
-  degraded,
-}: {
-  items: readonly CatalogDescriptorView[];
-  degraded: boolean;
-}) {
+function CatalogRows({ items }: { items: readonly CatalogDescriptorView[] }) {
   return (
     <CollectionTable
       caption="Available tools"
@@ -1518,10 +1522,11 @@ function CatalogRows({
           key: "status",
           label: "Status",
           type: "select",
-          value: () => (degraded ? "degraded" : "available"),
+          value: (descriptor) =>
+            descriptor.serverCatalogState === "current" ? "available" : "issue",
           options: [
             { value: "available", label: "Available" },
-            { value: "degraded", label: "Catalog issue" },
+            { value: "issue", label: "Catalog issue" },
           ],
         },
       ]}
@@ -1552,11 +1557,14 @@ function CatalogRows({
         {
           key: "status",
           label: "Status",
-          render: () => (
-            <StatusLabel state={degraded ? "warning" : "current"}>
-              {degraded ? "Catalog issue" : "Available"}
-            </StatusLabel>
-          ),
+          render: (descriptor) => {
+            const available = descriptor.serverCatalogState === "current";
+            return (
+              <StatusLabel state={available ? "current" : "warning"}>
+                {available ? "Available" : "Catalog issue"}
+              </StatusLabel>
+            );
+          },
         },
       ]}
     />
@@ -1706,10 +1714,7 @@ export function ServerReads({
           <ReadPanel panel={panel}>
             {snapshot.catalog !== undefined && (
               <>
-                <CatalogRows
-                  items={snapshot.catalogItems}
-                  degraded={snapshot.catalog.activeState === "degraded"}
-                />
+                <CatalogRows items={snapshot.catalogItems} />
                 {snapshot.catalogNext !== null && (
                   <button
                     data-testid="load-more-catalog"

@@ -34,8 +34,9 @@ func (handler *Handler) activeCatalogCollection(writer http.ResponseWriter, requ
 	items := make([]contract.CatalogToolDescriptor, 0, len(page.Items))
 	for _, item := range page.Items {
 		items = append(items, contract.CatalogToolDescriptor{
-			ToolDescriptor:    item.Resource,
-			ServerDisplayName: page.ServerDisplayNames[item.Resource.ServerID],
+			ToolDescriptor:     item.Resource,
+			ServerDisplayName:  page.ServerDisplayNames[item.Resource.ServerID],
+			ServerCatalogState: page.ServerStates[item.Resource.ServerID],
 		})
 	}
 	var next *string

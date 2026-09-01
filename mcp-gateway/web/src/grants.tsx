@@ -949,7 +949,7 @@ export function Grants({
       </StateNotice>
     );
   if (grantID !== undefined) {
-    if (detail === undefined)
+    if (detail?.id !== grantID)
       return <StateNotice state="loading" title="Loading grant" />;
     return (
       <div class="domain-view" data-testid="grant-detail">
