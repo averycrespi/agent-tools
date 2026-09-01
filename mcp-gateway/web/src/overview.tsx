@@ -707,8 +707,8 @@ export function Overview({
               {snapshot.status.latched ? (
                 <StateNotice state="error" title="Storage mutation is closed">
                   <p>
-                    SQLite is latched. Inspect System for stopped recovery
-                    guidance.
+                    SQLite is latched. Use the documented stopped-process
+                    recovery procedure.
                   </p>
                 </StateNotice>
               ) : (

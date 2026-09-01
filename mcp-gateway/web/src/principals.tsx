@@ -1008,8 +1008,8 @@ export function Principals({
                 key: "name",
                 label: "Name or ID",
                 type: "text",
-                value: (principal) =>
-                  `${principal.displayName} ${principal.id}`,
+                value: (principal) => principal.displayName,
+                literalValues: (principal) => [principal.id],
               },
               {
                 key: "state",

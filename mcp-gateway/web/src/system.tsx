@@ -1281,8 +1281,11 @@ function AdminCredentials({
               key: "identity",
               label: "Fingerprint or ID",
               type: "text",
-              value: (credential) =>
-                `${credential.fingerprint} ${credential.id}`,
+              value: () => "",
+              literalValues: (credential) => [
+                credential.fingerprint,
+                credential.id,
+              ],
             },
             {
               key: "status",

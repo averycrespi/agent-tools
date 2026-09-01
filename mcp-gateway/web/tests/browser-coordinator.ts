@@ -3651,6 +3651,9 @@ async function runPrincipals(
     )
   )
     fail("principal typo search did not match");
+  await principalSearch.fill(secondID.toLowerCase());
+  if ((await page.locator('[data-testid="principal-row"]').count()) !== 0)
+    fail("principal ID search was not literal");
   await principalSearch.fill(secondID);
   if (
     (await page.locator('[data-testid="principal-row"]').count()) !== 1 ||
@@ -5748,6 +5751,7 @@ async function runOverview(
   );
   const body = (await page.locator("body").textContent()) ?? "";
   for (const text of [
+    "Use the documented stopped-process recovery procedure",
     "Storage mutation is closed",
     "Keyring Unavailable",
     "Capacity saturated",
@@ -5766,6 +5770,8 @@ async function runOverview(
     serverAttentionText.includes("Deleted server history")
   )
     fail("overview server attention included healthy or deleted servers");
+  if (body.includes("Inspect System for stopped recovery guidance"))
+    fail("overview pointed to removed recovery UI");
   if (
     (await page.locator("script").count()) !== 1 ||
     (

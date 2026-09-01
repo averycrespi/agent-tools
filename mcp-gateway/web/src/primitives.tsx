@@ -114,6 +114,7 @@ export type CollectionFilter<T> =
       label: string;
       type: "text";
       value: (item: T) => string;
+      literalValues?: (item: T) => readonly string[];
       placeholder?: string;
     }
   | {
@@ -210,7 +211,11 @@ export function CollectionTable<T>({
         if (selected === "") return true;
         const value = filter.value(item);
         return filter.type === "text"
-          ? searchMatches(value, selected)
+          ? (filter
+              .literalValues?.(item)
+              .some((literal) => literal.includes(selected)) ??
+              false) ||
+              searchMatches(value, selected)
           : value === selected;
       }),
     );

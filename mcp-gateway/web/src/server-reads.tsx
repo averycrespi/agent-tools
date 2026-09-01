@@ -1292,7 +1292,8 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           key: "name",
           label: "Name or ID",
           type: "text",
-          value: (server) => `${server.displayName} ${server.id}`,
+          value: (server) => server.displayName,
+          literalValues: (server) => [server.id],
         },
         {
           key: "namespace",

@@ -1234,21 +1234,23 @@ export function Grants({
                 key: "identity",
                 label: "Name or ID",
                 type: "text",
-                value: (grant) => `${grant.name} ${grant.id}`,
+                value: (grant) => grant.name,
+                literalValues: (grant) => [grant.id],
               },
               {
                 key: "principal",
                 label: "Principal",
                 type: "text",
-                value: (grant) =>
-                  `${principalNames.get(grant.principalID) ?? ""} ${grant.principalID}`,
+                value: (grant) => principalNames.get(grant.principalID) ?? "",
+                literalValues: (grant) => [grant.principalID],
               },
               {
                 key: "target",
                 label: "Target",
                 type: "text",
                 value: (grant) =>
-                  `${serverNames.get(grant.serverID) ?? "Gateway self-service tools"} ${grant.serverID} ${grant.upstreamName ?? "Entire server"}`,
+                  `${serverNames.get(grant.serverID) ?? "Gateway self-service tools"} ${grant.upstreamName ?? "Entire server"}`,
+                literalValues: (grant) => [grant.serverID],
               },
               {
                 key: "effect",
