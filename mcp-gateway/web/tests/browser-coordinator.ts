@@ -4844,7 +4844,9 @@ async function runRequestReads(
   if (
     (await page.locator(`a[href="#/principals/${principalID}"]`).count()) ===
       0 ||
-    (await page.locator(`a[href="#/servers/${serverID}"]`).count()) === 0 ||
+    (await page
+      .locator(`a[href="#/servers/${serverID}?tab=tools"]`)
+      .count()) === 0 ||
     (await page
       .locator(`a[href="#/servers/${serverID}/descriptors/${toolID}"]`)
       .count()) === 0
@@ -5410,7 +5412,7 @@ async function runOverview(
   )
     fail("Overview did not close mutation admission for latched storage");
   for (const href of [
-    "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1",
+    "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1?tab=tools",
     "#/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "#/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAX",
   ]) {
@@ -8585,6 +8587,11 @@ async function runServerCatalogReads(
     .click();
   await page.locator('[data-testid="descriptor-list"]').waitFor();
   await page.locator('[data-testid="server-context"]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document.activeElement ===
+      document.querySelector('[data-testid="server-context"] h2'),
+  );
   if (
     await page.evaluate(
       () =>
@@ -8695,7 +8702,7 @@ async function runServerCatalogReads(
   await page.getByRole("button", { name: "Reset" }).click();
   if (
     (await page
-      .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
+      .locator(`a[href="#/servers/${serverReadIDs.active}?tab=tools"]`)
       .count()) === 0 ||
     (await page
       .locator(

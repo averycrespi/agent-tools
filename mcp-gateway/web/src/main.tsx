@@ -249,7 +249,7 @@ function App() {
   const logoutButton = useRef<HTMLButtonElement>(null);
   const navigationReturnFocus = useRef<HTMLElement>(null);
   const focusAfterLogout = useRef(false);
-  const focusedDestination = useRef<Destination>();
+  const focusedLocationOwner = useRef<string>();
 
   const setDirty = useCallback((owner: symbol, dirty: boolean) => {
     const changed = dirty
@@ -347,23 +347,51 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    const serverID =
+      resolved.location.destination === "servers" &&
+      resolved.location.segments[1] !== undefined &&
+      resolved.location.segments[1] !== "new"
+        ? resolved.location.segments[1]
+        : undefined;
+    const owner =
+      serverID === undefined
+        ? resolved.location.destination
+        : `server:${serverID}`;
+    let observer: MutationObserver | undefined;
     if (
       session.lifecycle === "authenticated" &&
-      focusedDestination.current !== resolved.location.destination
+      focusedLocationOwner.current !== owner
     ) {
-      focusedDestination.current = resolved.location.destination;
-      pageTitle.current?.focus();
+      focusedLocationOwner.current = owner;
+      if (serverID === undefined) {
+        pageTitle.current?.focus();
+      } else {
+        const focusServerTitle = () => {
+          const heading = document.querySelector<HTMLElement>(
+            '[data-testid="server-context"] h2',
+          );
+          heading?.focus();
+          return heading !== null;
+        };
+        if (!focusServerTitle()) {
+          observer = new MutationObserver(() => {
+            if (focusServerTitle()) observer?.disconnect();
+          });
+          observer.observe(document.body, { childList: true, subtree: true });
+        }
+      }
     } else if (session.lifecycle === "signed_out" && focusAfterLogout.current) {
       focusAfterLogout.current = false;
-      focusedDestination.current = undefined;
+      focusedLocationOwner.current = undefined;
       pageTitle.current?.focus();
     }
     if (session.lifecycle !== "authenticated") {
-      focusedDestination.current = undefined;
+      focusedLocationOwner.current = undefined;
       setNavigationOpen(false);
       setLogoutConfirmationOpen(false);
       toastCoordinator.clear();
     }
+    return () => observer?.disconnect();
   }, [resolved.canonicalFragment, session.lifecycle]);
 
   const chooseTheme = (value: ThemePreference) => {

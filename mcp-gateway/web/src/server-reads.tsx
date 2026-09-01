@@ -1261,7 +1261,7 @@ function ServerNavigation({
     <>
       <header class="server-context" data-testid="server-context">
         <div class="server-context-heading">
-          <h2>{server.displayName}</h2>
+          <h2 tabindex={-1}>{server.displayName}</h2>
           <StatusLabel state={presentation.state}>
             {presentation.label}
           </StatusLabel>
@@ -1549,7 +1549,7 @@ function CatalogRows({ items }: { items: readonly CatalogDescriptorView[] }) {
           label: "Server",
           sortValue: (descriptor) => descriptor.serverDisplayName,
           render: (descriptor) => (
-            <a href={`#/servers/${descriptor.serverID}`}>
+            <a href={`#/servers/${descriptor.serverID}?tab=tools`}>
               {descriptor.serverDisplayName}
             </a>
           ),

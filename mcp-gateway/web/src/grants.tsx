@@ -982,7 +982,9 @@ export function Grants({
                 {detail.serverID === "00000000000000000000000000" ? (
                   "Synthetic default namespace"
                 ) : (
-                  <a href={`#/servers/${detail.serverID}`}>{detail.serverID}</a>
+                  <a href={`#/servers/${detail.serverID}?tab=tools`}>
+                    {detail.serverID}
+                  </a>
                 )}
               </dd>
             </div>
@@ -1105,7 +1107,7 @@ export function Grants({
                   grant.serverID === "00000000000000000000000000" ? (
                     "Synthetic default namespace"
                   ) : (
-                    <a href={`#/servers/${grant.serverID}`}>
+                    <a href={`#/servers/${grant.serverID}?tab=tools`}>
                       {grant.upstreamName === null
                         ? "Entire server"
                         : grant.upstreamName}

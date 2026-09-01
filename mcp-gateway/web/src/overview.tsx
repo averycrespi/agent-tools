@@ -773,7 +773,9 @@ export function Overview({
                     {snapshot.servers.items.map((item) => (
                       <tr key={item.id}>
                         <td>
-                          <a href={`#/servers/${item.id}`}>{item.name}</a>
+                          <a href={`#/servers/${item.id}?tab=tools`}>
+                            {item.name}
+                          </a>
                           {item.attention && (
                             <>
                               {" · "}

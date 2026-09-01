@@ -861,7 +861,7 @@ export function Requests({
             <div>
               <dt>Resolved server</dt>
               <dd>
-                <a href={`#/servers/${detail.resolvedServerID}`}>
+                <a href={`#/servers/${detail.resolvedServerID}?tab=tools`}>
                   {detail.resolvedServerID}
                 </a>
               </dd>
