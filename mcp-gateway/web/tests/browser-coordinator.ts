@@ -8412,6 +8412,7 @@ async function runServerCatalogReads(
     .first()
     .click();
   await page.locator('[data-testid="descriptor-list"]').waitFor();
+  await page.locator('[data-testid="server-context"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Authority required",
