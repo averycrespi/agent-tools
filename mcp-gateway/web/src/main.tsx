@@ -433,6 +433,14 @@ function App() {
   const isInvocationDetail =
     destination === "invocations" &&
     resolved.location.segments[1] !== undefined;
+  const isGrantDetail =
+    destination === "grants" &&
+    resolved.location.segments[1] !== undefined &&
+    resolved.location.segments[1] !== "new";
+  const isRequestDetail =
+    destination === "requests" && resolved.location.segments[1] !== undefined;
+  const isResourceDetail =
+    isPrincipalDetail || isInvocationDetail || isGrantDetail || isRequestDetail;
   const destinationLabel =
     destination === "servers" && resolved.canonicalFragment !== "#/servers"
       ? resolved.canonicalFragment === "#/servers/new"
@@ -616,7 +624,7 @@ function App() {
           </p>
         )}
         <section class="intro" aria-labelledby="page-title">
-          {authenticated && (isPrincipalDetail || isInvocationDetail) ? (
+          {authenticated && isResourceDetail ? (
             <span
               ref={(element) => {
                 pageTitle.current = element;
@@ -625,7 +633,13 @@ function App() {
               class="visually-hidden"
               tabindex={-1}
             >
-              {isPrincipalDetail ? "Principal details" : "Invocation details"}
+              {isPrincipalDetail
+                ? "Principal details"
+                : isInvocationDetail
+                  ? "Invocation details"
+                  : isGrantDetail
+                    ? "Grant details"
+                    : "Request details"}
             </span>
           ) : (
             <h1

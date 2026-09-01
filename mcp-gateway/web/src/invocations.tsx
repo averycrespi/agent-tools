@@ -486,7 +486,9 @@ function InvocationFacts({ item }: { item: InvocationSummaryView }) {
       <div>
         <dt>Principal</dt>
         <dd>
-          <a href={`#/principals/${item.principalID}`}>{item.principalID}</a>
+          <a href={`#/principals/${item.principalID}`}>
+            Principal {item.principalID}
+          </a>
         </dd>
       </div>
       <div>
@@ -507,7 +509,7 @@ function InvocationFacts({ item }: { item: InvocationSummaryView }) {
             <dt>Grant</dt>
             <dd>
               <a href={`#/grants/${item.authorization.grantID}`}>
-                {item.authorization.grantID}
+                Grant {item.authorization.grantID}
               </a>
             </dd>
           </div>
@@ -517,7 +519,7 @@ function InvocationFacts({ item }: { item: InvocationSummaryView }) {
           <dt>Server</dt>
           <dd>
             <a href={`#/servers/${item.target.serverID}`}>
-              {item.target.serverID}
+              Server {item.target.serverID}
             </a>
           </dd>
         </div>
@@ -746,45 +748,50 @@ function InvocationDetail({
     );
   const item = snapshot.item;
   return (
-    <section
-      class="panel domain-panel"
-      data-testid="invocation-detail"
-      aria-labelledby="invocation-detail-title"
-    >
-      <div class="panel-heading">
-        <div>
-          <span class="panel-value">Invocation details</span>
-          <h1 id="invocation-detail-title" tabindex={-1}>
-            Invocation {item.id}
-          </h1>
+    <div class="domain-view">
+      <nav class="detail-navigation" aria-label="Invocation navigation">
+        <a href="#/invocations">Back to invocations</a>
+      </nav>
+      <section
+        class="panel domain-panel"
+        data-testid="invocation-detail"
+        aria-labelledby="invocation-detail-title"
+      >
+        <div class="panel-heading">
+          <div>
+            <span class="panel-value">Invocation details</span>
+            <h1 id="invocation-detail-title" tabindex={-1}>
+              Invocation {item.id}
+            </h1>
+          </div>
+          <StatusLabel
+            state={item.outcome === "outcome_unknown" ? "warning" : "current"}
+          >
+            {sentenceCase(item.outcome)}
+          </StatusLabel>
         </div>
-        <StatusLabel
-          state={item.outcome === "outcome_unknown" ? "warning" : "current"}
-        >
-          {sentenceCase(item.outcome)}
-        </StatusLabel>
-      </div>
-      <InvocationFacts item={item} />
-      {item.basis === "missing_terminal" && (
-        <StateNotice state="warning" title="Audit completion is unknown">
-          <p>
-            Missing terminal evidence does not prove nonexecution and is not
-            safe-to-retry evidence. Gateway does not automatically replay
-            invocations; an explicit caller retry can duplicate an effect.
-          </p>
-          {item.target?.kind === "gateway" && (
+        <InvocationFacts item={item} />
+        {item.basis === "missing_terminal" && (
+          <StateNotice state="warning" title="Audit completion is unknown">
             <p>
-              This is a Gateway-owned local target. Missing terminal evidence is
-              not proof of downstream handoff.
+              Missing terminal evidence does not prove nonexecution and is not
+              safe-to-retry evidence. Gateway does not automatically replay
+              invocations; an explicit caller retry can duplicate an effect.
             </p>
-          )}
-        </StateNotice>
-      )}
-      <h3>Fixed-redacted arguments</h3>
-      <InertJSON
-        value={item.redactedArguments}
-        label="Fixed-redacted invocation arguments"
-      />
-    </section>
+            {item.target?.kind === "gateway" && (
+              <p>
+                This is a Gateway-owned local target. Missing terminal evidence
+                is not proof of downstream handoff.
+              </p>
+            )}
+          </StateNotice>
+        )}
+        <h3>Fixed-redacted arguments</h3>
+        <InertJSON
+          value={item.redactedArguments}
+          label="Fixed-redacted invocation arguments"
+        />
+      </section>
+    </div>
   );
 }

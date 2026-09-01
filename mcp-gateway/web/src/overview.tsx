@@ -831,8 +831,10 @@ export function Overview({
                     <li key={item.id}>
                       <a href={`#/requests/${item.id}`}>{item.target}</a>
                       <span>
-                        Principal {item.principalID} ·{" "}
-                        <UserTime value={item.createdAt} />
+                        <a href={`#/principals/${item.principalID}`}>
+                          Principal {item.principalID}
+                        </a>{" "}
+                        · <UserTime value={item.createdAt} />
                       </span>
                     </li>
                   ))}

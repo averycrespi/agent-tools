@@ -881,11 +881,20 @@ export function Requests({
       detail.submittedEvidence.fingerprint !== detail.currentTarget.fingerprint;
     return (
       <div class="domain-view" data-testid="request-detail">
+        <nav class="detail-navigation" aria-label="Request navigation">
+          <a href={`#/requests?principal_id=${detail.principalID}`}>
+            Back to principal requests
+          </a>
+          <span aria-hidden="true">·</span>
+          <a href="#/requests">Back to requests</a>
+        </nav>
         <section class="panel domain-panel" aria-labelledby="request-title">
           <div class="panel-heading">
             <div>
               <span class="panel-code">REQUEST EVIDENCE</span>
-              <h2 id="request-title">Request {detail.id}</h2>
+              <h1 id="request-title" tabindex={-1}>
+                Request {detail.id}
+              </h1>
             </div>
             <StatusLabel
               state={detail.state === "pending" ? "warning" : "current"}
@@ -898,7 +907,7 @@ export function Requests({
               <dt>Principal</dt>
               <dd>
                 <a href={`#/principals/${detail.principalID}`}>
-                  {detail.principalID}
+                  Principal {detail.principalID}
                 </a>
               </dd>
             </div>
@@ -910,7 +919,7 @@ export function Requests({
               <dt>Resolved server</dt>
               <dd>
                 <a href={`#/servers/${detail.resolvedServerID}?tab=tools`}>
-                  {detail.resolvedServerID}
+                  Server {detail.resolvedServerID}
                 </a>
               </dd>
             </div>
@@ -1029,7 +1038,7 @@ export function Requests({
           {detail.approvedGrantID !== null && (
             <p>
               <a href={`#/grants/${detail.approvedGrantID}`}>
-                Open historically created grant
+                Grant {detail.approvedGrantID}
               </a>
               . This historical link does not prove the grant still exists, is
               active, or currently authorizes calls.
@@ -1102,7 +1111,7 @@ export function Requests({
                   </th>
                   <td>
                     <a href={`#/principals/${item.principalID}`}>
-                      {item.principalID}
+                      Principal {item.principalID}
                     </a>
                   </td>
                   <td>

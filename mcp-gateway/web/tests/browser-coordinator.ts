@@ -5213,7 +5213,7 @@ async function runRequestReads(
   for (const phrase of [
     "retired historical evidence",
     "Retained evidence is not callable authority",
-    "historically created grant",
+    `Grant ${grantID}`,
     "does not prove the grant still exists",
   ])
     if (!body.includes(phrase))
@@ -9106,9 +9106,14 @@ async function runServerCatalogReads(
       .locator('[data-testid="descriptor-detail"] .inert-json')
       .count()) !== 0 ||
     (await page
-      .locator('[data-testid="descriptor-detail"] a')
-      .filter({ hasText: "Back to tools" })
-      .count()) !== 1
+      .getByRole("navigation", { name: "Tool navigation" })
+      .getByRole("link", { name: "Back to tools", exact: true })
+      .getAttribute("href")) !==
+      `#/servers/${serverReadIDs.active}?tab=tools` ||
+    (await page
+      .getByRole("navigation", { name: "Tool navigation" })
+      .getByRole("link", { name: "Back to catalog", exact: true })
+      .getAttribute("href")) !== "#/catalog"
   )
     fail(
       "descriptor detail omitted structured evidence or contextual navigation",

@@ -1240,11 +1240,20 @@ export function Grants({
     );
     return (
       <div class="domain-view" data-testid="grant-detail">
+        <nav class="detail-navigation" aria-label="Grant navigation">
+          <a href={`#/grants?principal_id=${detail.principalID}`}>
+            Back to principal grants
+          </a>
+          <span aria-hidden="true">·</span>
+          <a href="#/grants">Back to grants</a>
+        </nav>
         <section class="panel domain-panel" aria-labelledby="grant-title">
           <div class="panel-heading">
             <div>
               <span class="panel-value">Grant details</span>
-              <h2 id="grant-title">Grant {detail.id}</h2>
+              <h1 id="grant-title" tabindex={-1}>
+                Grant {detail.id}
+              </h1>
             </div>
             <StatusLabel
               state={detail.state === "active" ? "current" : "warning"}
@@ -1269,7 +1278,7 @@ export function Grants({
               <dt>Principal</dt>
               <dd>
                 <a href={`#/principals/${detail.principalID}`}>
-                  {principal?.displayName ?? detail.principalID}
+                  {principal?.displayName ?? `Principal ${detail.principalID}`}
                 </a>
               </dd>
             </div>
@@ -1280,7 +1289,7 @@ export function Grants({
                   "Gateway self-service tools"
                 ) : (
                   <a href={`#/servers/${detail.serverID}?tab=tools`}>
-                    {server?.displayName ?? detail.serverID}
+                    {server?.displayName ?? `Server ${detail.serverID}`}
                   </a>
                 )}
               </dd>
@@ -1427,7 +1436,8 @@ export function Grants({
                   principalNames.get(grant.principalID) ?? grant.principalID,
                 render: (grant) => (
                   <a href={`#/principals/${grant.principalID}`}>
-                    {principalNames.get(grant.principalID) ?? grant.principalID}
+                    {principalNames.get(grant.principalID) ??
+                      `Principal ${grant.principalID}`}
                   </a>
                 ),
               },
@@ -1441,7 +1451,8 @@ export function Grants({
                     "Gateway self-service tools"
                   ) : (
                     <a href={`#/servers/${grant.serverID}?tab=tools`}>
-                      {serverNames.get(grant.serverID) ?? grant.serverID}
+                      {serverNames.get(grant.serverID) ??
+                        `Server ${grant.serverID}`}
                       {grant.upstreamName === null
                         ? " — All tools"
                         : ` — ${grant.upstreamName}`}

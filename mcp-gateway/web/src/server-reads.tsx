@@ -1952,11 +1952,13 @@ export function ServerReads({
                 const annotations = document.annotations as JSONRecord;
                 return (
                   <>
-                    <p class="detail-navigation">
+                    <nav class="detail-navigation" aria-label="Tool navigation">
                       <a href={`#/servers/${descriptor.serverID}?tab=tools`}>
                         Back to tools
                       </a>
-                    </p>
+                      <span aria-hidden="true">·</span>
+                      <a href="#/catalog">Back to catalog</a>
+                    </nav>
                     <div class="panel-heading tool-heading">
                       <div>
                         <h2 id="descriptor-detail-title">

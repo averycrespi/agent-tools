@@ -405,8 +405,8 @@ export function ServerAuthFlows({
         >
           <div class="panel-heading">
             <div>
-              <h2 id="auth-flow-detail-title">OAuth authorization</h2>
-              <span class="table-secondary">Correlation {flow.id}</span>
+              <h2 id="auth-flow-detail-title">OAuth flow {flow.id}</h2>
+              <span class="table-secondary">OAuth authorization</span>
             </div>
             <StatusLabel
               state={

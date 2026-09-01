@@ -916,6 +916,9 @@ export function Principals({
     const principal = detail.principal;
     return (
       <div class="domain-view" data-testid="principal-detail">
+        <nav class="detail-navigation" aria-label="Principal navigation">
+          <a href="#/principals">Back to principals</a>
+        </nav>
         <header class="server-context" data-testid="principal-context">
           <div class="server-context-heading">
             <div>

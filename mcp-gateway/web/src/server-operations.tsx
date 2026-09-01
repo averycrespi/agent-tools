@@ -378,8 +378,8 @@ export function ServerOperations({
         >
           <div class="panel-heading">
             <div>
-              <h2 id="operation-detail-title">{label(operation.kind)}</h2>
-              <span class="table-secondary">Correlation {operation.id}</span>
+              <h2 id="operation-detail-title">Operation {operation.id}</h2>
+              <span class="table-secondary">{label(operation.kind)}</span>
             </div>
             <StatusLabel state={operationState(operation)}>
               {words(operation.state)}
