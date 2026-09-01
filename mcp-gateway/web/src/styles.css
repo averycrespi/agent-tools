@@ -1035,12 +1035,21 @@ p {
 .table-filters input,
 .table-filters select {
   min-height: 38px;
-  width: min(220px, 100%);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   padding: 8px 10px;
   background: var(--canvas);
   color: var(--text);
+}
+
+.table-filters input {
+  width: min(220px, 100%);
+}
+
+.table-filters select {
+  width: max-content;
+  min-width: 128px;
+  max-width: 100%;
 }
 
 .table-filters .text-button {

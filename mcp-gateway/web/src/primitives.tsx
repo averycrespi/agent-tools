@@ -124,6 +124,56 @@ export type CollectionFilter<T> =
       options: readonly { value: string; label: string }[];
     };
 
+function normalizedSearchText(value: string): string {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+}
+
+function withinOneEdit(left: string, right: string): boolean {
+  if (Math.abs(left.length - right.length) > 1) return false;
+  if (left === right) return true;
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let edits = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    if (left[leftIndex] === right[rightIndex]) {
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (
+      left.length === right.length &&
+      left[leftIndex] === right[rightIndex + 1] &&
+      left[leftIndex + 1] === right[rightIndex]
+    ) {
+      leftIndex += 2;
+      rightIndex += 2;
+    } else if (left.length > right.length) leftIndex += 1;
+    else if (right.length > left.length) rightIndex += 1;
+    else {
+      leftIndex += 1;
+      rightIndex += 1;
+    }
+  }
+  return edits + (left.length - leftIndex) + (right.length - rightIndex) <= 1;
+}
+
+function searchMatches(value: string, query: string): boolean {
+  const candidate = normalizedSearchText(value);
+  return normalizedSearchText(query)
+    .split(/\s+/u)
+    .filter(Boolean)
+    .every((token) => {
+      if (candidate.includes(token)) return true;
+      if (token.length < 4 || /\d/u.test(token)) return false;
+      return candidate
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean)
+        .some((word) => withinOneEdit(word, token));
+    });
+}
+
 export function CollectionTable<T>({
   caption,
   items,
@@ -160,7 +210,7 @@ export function CollectionTable<T>({
         if (selected === "") return true;
         const value = filter.value(item);
         return filter.type === "text"
-          ? value.toLowerCase().includes(selected.toLowerCase())
+          ? searchMatches(value, selected)
           : value === selected;
       }),
     );

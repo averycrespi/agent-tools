@@ -926,9 +926,10 @@ export function Principals({
             filters={[
               {
                 key: "name",
-                label: "Name",
+                label: "Name or ID",
                 type: "text",
-                value: (principal) => principal.displayName,
+                value: (principal) =>
+                  `${principal.displayName} ${principal.id}`,
               },
               {
                 key: "state",

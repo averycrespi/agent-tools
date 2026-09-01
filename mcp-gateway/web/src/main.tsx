@@ -51,8 +51,8 @@ const navigation: ReadonlyArray<{
   href: string;
 }> = [
   { destination: "overview", label: "Overview", href: "#/overview" },
-  { destination: "servers", label: "Servers", href: "#/servers" },
   { destination: "catalog", label: "Catalog", href: "#/catalog" },
+  { destination: "servers", label: "Servers", href: "#/servers" },
   {
     destination: "principals",
     label: "Principals",

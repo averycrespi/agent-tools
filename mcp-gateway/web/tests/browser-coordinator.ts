@@ -3607,6 +3607,24 @@ async function runPrincipals(
   let body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Disabled agent"))
     fail("principal list omitted a principal");
+  const principalSearch = page.getByLabel("Name or ID", { exact: true });
+  await principalSearch.fill("Build agnt");
+  if (
+    (await page.locator('[data-testid="principal-row"]').count()) !== 1 ||
+    !(await page.locator('[data-testid="principal-row"]').innerText()).includes(
+      "Build agent",
+    )
+  )
+    fail("principal typo search did not match");
+  await principalSearch.fill(secondID);
+  if (
+    (await page.locator('[data-testid="principal-row"]').count()) !== 1 ||
+    !(await page.locator('[data-testid="principal-row"]').innerText()).includes(
+      "Disabled agent",
+    )
+  )
+    fail("principal ID search did not match");
+  await page.getByRole("button", { name: "Reset" }).click();
   for (const phrase of [
     "Permanent agent principals",
     "Compare permanent identity",
@@ -4283,6 +4301,16 @@ async function runGrantReadsCreate(
     () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
+  const grantSearch = page.getByLabel("Name or ID", { exact: true });
+  await grantSearch.fill("Reportng access");
+  if (
+    (await page.locator('[data-testid="grant-row"]').count()) !== 1 ||
+    !(await page.locator('[data-testid="grant-row"]').innerText()).includes(
+      "Reporting access",
+    )
+  )
+    fail("grant typo search did not match");
+  await page.getByRole("button", { name: "Reset" }).click();
   for (const phrase of [
     "Reporting access",
     "Restricted access",
@@ -8719,7 +8747,7 @@ async function runServerCatalogReads(
   )
     fail("server inventory retained decorative status symbols");
   if (
-    (await page.getByLabel("Name", { exact: true }).count()) !== 1 ||
+    (await page.getByLabel("Name or ID", { exact: true }).count()) !== 1 ||
     (await page.getByLabel("Namespace", { exact: true }).count()) !== 1 ||
     (await page.getByLabel("Status", { exact: true }).count()) !== 1 ||
     (await page.getByRole("button", { name: "Reset" }).count()) !== 1
@@ -8727,7 +8755,7 @@ async function runServerCatalogReads(
     fail("server inventory omitted field-specific filters");
   const tableControlLayout = await page.evaluate(() => {
     const input = document.querySelector<HTMLElement>(
-      '.table-filters input[aria-label="Name"]',
+      '.table-filters input[aria-label="Name or ID"]',
     )!;
     const reset = document.querySelector<HTMLElement>(
       ".table-filters .text-button",
@@ -8764,9 +8792,19 @@ async function runServerCatalogReads(
     Math.abs(createButtonBox.x - serversViewBox.x) > 1
   )
     fail("Create server was not left aligned");
-  await page.getByLabel("Name", { exact: true }).fill("Degraded catalog");
+  await page.getByLabel("Name or ID", { exact: true }).fill("Degraded catalog");
   if ((await page.locator('[data-testid="server-row"]').count()) !== 1)
-    fail("server Name filter did not narrow loaded rows");
+    fail("server name filter did not narrow loaded rows");
+  await page
+    .getByLabel("Name or ID", { exact: true })
+    .fill(serverReadIDs.active);
+  if (
+    (await page.locator('[data-testid="server-row"]').count()) !== 1 ||
+    !(await page.locator('[data-testid="server-row"]').innerText()).includes(
+      "Authority required",
+    )
+  )
+    fail("server ID search did not match");
   await page.getByRole("button", { name: "Reset" }).click();
   if ((await page.locator('[data-testid="server-row"]').count()) !== 2)
     fail("server filter Reset did not restore loaded rows");
@@ -8917,6 +8955,33 @@ async function runServerCatalogReads(
     (await page.getByLabel("Server", { exact: true }).count()) !== 1
   )
     fail("active catalog omitted server or status filters");
+  const catalogFilterLayout = await page.evaluate(() => {
+    const toolbar = document.querySelector<HTMLElement>(
+      '[data-testid="catalog-view"] .table-filters',
+    )!;
+    const input = toolbar.querySelector<HTMLElement>(
+      'input[aria-label="Tool"]',
+    )!;
+    const select = toolbar.querySelector<HTMLElement>(
+      'select[aria-label="Status"]',
+    )!;
+    const controls = [
+      ...toolbar.querySelectorAll<HTMLElement>("input, select, button"),
+    ];
+    const tops = controls.map((control) => control.getBoundingClientRect().top);
+    return {
+      inputWidth: input.getBoundingClientRect().width,
+      selectWidth: select.getBoundingClientRect().width,
+      rowSpread: Math.max(...tops) - Math.min(...tops),
+    };
+  });
+  if (
+    catalogFilterLayout.selectWidth >= catalogFilterLayout.inputWidth * 0.75 ||
+    catalogFilterLayout.rowSpread > 1
+  )
+    fail(
+      `catalog filters were wastefully sized: ${JSON.stringify(catalogFilterLayout)}`,
+    );
   await page.getByLabel("Status", { exact: true }).selectOption("issue");
   if ((await page.locator('[data-testid="catalog-row"]').count()) !== 1)
     fail("active catalog status filter did not retain matching tools");
@@ -9745,6 +9810,18 @@ async function runShellPrimitives(
     if (colors.some((color) => color.trim() === ""))
       fail(`${choice} theme did not resolve semantic tokens`);
   }
+
+  const navigationHrefs = await page
+    .locator("aside nav a")
+    .evaluateAll((links) =>
+      links.map((link) => link.getAttribute("href") ?? ""),
+    );
+  if (
+    navigationHrefs.indexOf("#/catalog") < 0 ||
+    navigationHrefs.indexOf("#/servers") < 0 ||
+    navigationHrefs.indexOf("#/catalog") >= navigationHrefs.indexOf("#/servers")
+  )
+    fail("Catalog did not appear before Servers");
 
   await page.locator('aside nav a[href="#/servers"]').focus();
   await page.keyboard.press("Enter");

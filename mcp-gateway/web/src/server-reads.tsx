@@ -1290,9 +1290,9 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
       filters={[
         {
           key: "name",
-          label: "Name",
+          label: "Name or ID",
           type: "text",
-          value: (server) => server.displayName,
+          value: (server) => `${server.displayName} ${server.id}`,
         },
         {
           key: "namespace",
