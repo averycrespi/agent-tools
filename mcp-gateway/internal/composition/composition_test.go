@@ -541,7 +541,7 @@ func TestStartBindsBeforeReconstructionAndIsolatesServerFailure(t *testing.T) {
 	assert.Equal(t, contract.RuntimeInactive, built.manager.Status(inactive.ID).State)
 	require.Eventually(t, func() bool {
 		status := built.manager.Status(failed.ID)
-		return status.State == contract.RuntimeDegraded && status.Reason != nil
+		return status.State == contract.RuntimeRetryWait && status.Reason != nil && *status.Reason == contract.ReasonConnectivity
 	}, 2*time.Second, time.Millisecond)
 }
 
