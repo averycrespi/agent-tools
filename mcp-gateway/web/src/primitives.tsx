@@ -312,6 +312,42 @@ interface FieldControlAttributes {
   "aria-invalid"?: true;
 }
 
+export function BinaryToggle({
+  attributes,
+  checked,
+  disabled = false,
+  enabledLabel = "Enabled",
+  disabledLabel = "Disabled",
+  testID,
+  onChange,
+}: {
+  attributes: FieldControlAttributes;
+  checked: boolean;
+  disabled?: boolean;
+  enabledLabel?: string;
+  disabledLabel?: string;
+  testID?: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <span class="binary-toggle">
+      <input
+        {...attributes}
+        data-testid={testID}
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
+      <span aria-hidden="true" class="binary-toggle-track" />
+      <span class="binary-toggle-state">
+        {checked ? enabledLabel : disabledLabel}
+      </span>
+    </span>
+  );
+}
+
 export function FormField({
   id,
   label,

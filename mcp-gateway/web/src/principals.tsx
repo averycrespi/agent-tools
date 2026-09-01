@@ -9,6 +9,7 @@ import {
   type MutationSpec,
 } from "./mutation";
 import {
+  BinaryToggle,
   CollectionTable,
   ConfirmationDialog,
   FormField,
@@ -378,21 +379,15 @@ function PrincipalEditor({
             {create ? "PRINCIPAL NEW" : "PRINCIPAL EDIT"}
           </span>
           <h2 id="principal-editor-title">
-            {create ? "Create principal" : "Edit principal record"}
+            {create ? "Create principal" : "Edit principal"}
           </h2>
         </div>
       </div>
       <p>
-        Principal identity is permanent. Discovery visibility is not call
-        authorization. Creation atomically adds a permanent synthetic default
-        ALLOW grant for the principal namespace.
+        {create
+          ? "Creating a principal also adds Default Gateway access for Gateway self-service tools."
+          : "Changing visibility does not change tool authorization. Re-enabling a principal does not restore revoked credentials or removed default access."}
       </p>
-      {!create && (
-        <p>
-          Re-enabling restores neither a revoked credential nor a deleted
-          default grant.
-        </p>
-      )}
       <form
         data-testid="principal-editor"
         onSubmit={(event) => {
@@ -413,20 +408,21 @@ function PrincipalEditor({
           )}
         </FormField>
         {!create && (
-          <FormField id="principal-state" label="Principal state">
+          <FormField
+            id="principal-state"
+            label="Principal enabled"
+            hint="Disabling immediately removes current credential authority."
+          >
             {(attributes) => (
-              <select
-                {...attributes}
-                data-testid="principal-state"
-                value={state}
+              <BinaryToggle
+                attributes={attributes}
+                checked={state === "active"}
                 disabled={disabled}
-                onChange={(event) =>
-                  setState(event.currentTarget.value as PrincipalState)
+                testID="principal-state"
+                onChange={(checked) =>
+                  setState(checked ? "active" : "disabled")
                 }
-              >
-                <option value="active">Active</option>
-                <option value="disabled">Disabled</option>
-              </select>
+              />
             )}
           </FormField>
         )}
@@ -502,8 +498,8 @@ function PrincipalEditor({
             </p>
           ) : (
             <p>
-              Re-enabling restores neither a credential nor a deleted default
-              grant.
+              Re-enabling does not restore revoked credentials or removed
+              default access.
             </p>
           )
         }
@@ -536,7 +532,7 @@ function PrincipalCredentialActions({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
-  const [action, setAction] = useState<"issue" | "replace" | "revoke">("issue");
+  const [action, setAction] = useState<"issue" | "rotate" | "revoke">("issue");
   const [prepared, setPrepared] = useState<PreparedOneTimeSink>();
   const [blockedETag, setBlockedETag] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -567,7 +563,7 @@ function PrincipalCredentialActions({
       successStatuses: [201],
       decode: decodeCredentialCreation,
     };
-    setAction(principal.hasCredential ? "replace" : "issue");
+    setAction(principal.hasCredential ? "rotate" : "issue");
     setPrepared(sink);
     controller.begin(spec);
     controller.confirm();
@@ -604,7 +600,7 @@ function PrincipalCredentialActions({
         setNotice(
           publication === "published"
             ? "The one-time agent bearer is ready. It cannot be revealed again."
-            : action === "replace"
+            : action === "rotate"
               ? "The replacement may now be current and the prior bearer may already be invalid. Review principal metadata, then explicitly rotate or revoke the lost current credential. Do not replay the operation."
               : "A current credential may now occupy the slot, but its bearer was lost and cannot be recovered. Review principal metadata, then explicitly rotate or revoke it. Do not replay issue.",
         );
@@ -642,16 +638,15 @@ function PrincipalCredentialActions({
       <div class="panel-heading">
         <div>
           <span class="panel-code">AGENT AUTHORITY</span>
-          <h2 id="principal-credential-title">Singular agent credential</h2>
+          <h2 id="principal-credential-title">Agent credential</h2>
         </div>
         <StatusLabel state={principal.hasCredential ? "current" : "empty"}>
           {principal.hasCredential ? "Credential present" : "No credential"}
         </StatusLabel>
       </div>
       <p>
-        Issuing replaces any current bearer without overlap. The prior bearer,
-        authenticated sessions, and streams are interrupted immediately. A new
-        bearer appears once in the protected display and cannot be recovered.
+        Only one agent credential may be active at a time. Rotating it replaces
+        the current credential.
       </p>
       {principal.state !== "active" && (
         <StateNotice state="unavailable" title="Principal is disabled">
@@ -671,7 +666,7 @@ function PrincipalCredentialActions({
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Credential outcome is unknown">
           <p>
-            {action === "replace"
+            {action === "rotate"
               ? "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the principal, then explicitly rotate or revoke the observed current credential."
               : action === "issue"
                 ? "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the principal, then explicitly rotate or revoke the observed credential."
@@ -688,7 +683,7 @@ function PrincipalCredentialActions({
           disabled={disabled}
           onClick={beginIssue}
         >
-          {principal.hasCredential ? "Replace credential" : "Issue credential"}
+          {principal.hasCredential ? "Rotate credential" : "Issue credential"}
         </button>
         {principal.hasCredential && (
           <button
@@ -707,17 +702,17 @@ function PrincipalCredentialActions({
         id="principal-credential-confirm"
         open={mutation.state === "confirming"}
         title={
-          action === "replace"
-            ? "Replace agent credential?"
+          action === "rotate"
+            ? "Rotate agent credential?"
             : action === "issue"
               ? "Issue agent credential?"
               : "Revoke agent credential?"
         }
         consequence={
-          action === "replace" ? (
+          action === "rotate" ? (
             <p>
-              Current agent authority is interrupted immediately. There is no
-              overlap and the new bearer is displayed once.
+              Rotating immediately replaces current agent authority. The new
+              bearer is displayed once.
             </p>
           ) : action === "issue" ? (
             <p>
@@ -732,8 +727,8 @@ function PrincipalCredentialActions({
           )
         }
         confirmLabel={
-          action === "replace"
-            ? "Replace credential"
+          action === "rotate"
+            ? "Rotate credential"
             : action === "issue"
               ? "Issue credential"
               : "Revoke credential"
@@ -831,16 +826,26 @@ export function Principals({
     const principal = detail.principal;
     return (
       <div class="domain-view" data-testid="principal-detail">
+        <header class="server-context" data-testid="principal-context">
+          <div class="server-context-heading">
+            <div>
+              <span class="panel-code">PRINCIPAL</span>
+              <h1 id="principal-page-title" tabindex={-1}>
+                {principal.displayName}
+              </h1>
+            </div>
+          </div>
+        </header>
         <section class="panel domain-panel" aria-labelledby="principal-title">
           <div class="panel-heading">
             <div>
               <span class="panel-code">PERMANENT IDENTITY</span>
-              <h2 id="principal-title">{principal.displayName}</h2>
+              <h2 id="principal-title">Principal details</h2>
             </div>
             <StatusLabel
               state={principal.state === "active" ? "current" : "warning"}
             >
-              {principal.state}
+              {principal.state === "active" ? "Active" : "Disabled"}
             </StatusLabel>
           </div>
           <dl class="fact-grid">
@@ -962,6 +967,14 @@ export function Principals({
                 ),
               },
               {
+                key: "id",
+                label: "ID",
+                sortValue: (principal) => principal.id,
+                render: (principal) => (
+                  <a href={`#/principals/${principal.id}`}>{principal.id}</a>
+                ),
+              },
+              {
                 key: "state",
                 label: "Status",
                 sortValue: (principal) => principal.state,
@@ -969,7 +982,7 @@ export function Principals({
                   <StatusLabel
                     state={principal.state === "active" ? "current" : "warning"}
                   >
-                    {principal.state}
+                    {principal.state === "active" ? "Active" : "Disabled"}
                   </StatusLabel>
                 ),
               },

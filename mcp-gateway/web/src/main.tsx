@@ -244,7 +244,7 @@ function App() {
   const acceptedFragment = useRef(initialLocation.canonicalFragment);
   const bypassHashGuard = useRef(false);
   const dirtyOwners = useRef(new Set<symbol>());
-  const pageTitle = useRef<HTMLHeadingElement>(null);
+  const pageTitle = useRef<HTMLElement>(null);
   const navigationToggle = useRef<HTMLButtonElement>(null);
   const logoutButton = useRef<HTMLButtonElement>(null);
   const navigationReturnFocus = useRef<HTMLElement>(null);
@@ -353,29 +353,39 @@ function App() {
       resolved.location.segments[1] !== "new"
         ? resolved.location.segments[1]
         : undefined;
+    const principalID =
+      resolved.location.destination === "principals" &&
+      resolved.location.segments[1] !== undefined &&
+      resolved.location.segments[1] !== "new"
+        ? resolved.location.segments[1]
+        : undefined;
     const owner =
-      serverID === undefined
-        ? resolved.location.destination
-        : `server:${serverID}`;
+      serverID !== undefined
+        ? `server:${serverID}`
+        : principalID !== undefined
+          ? `principal:${principalID}`
+          : resolved.location.destination;
     let observer: MutationObserver | undefined;
     if (
       session.lifecycle === "authenticated" &&
       focusedLocationOwner.current !== owner
     ) {
       focusedLocationOwner.current = owner;
-      if (serverID === undefined) {
+      if (serverID === undefined && principalID === undefined) {
         pageTitle.current?.focus();
       } else {
-        const focusServerTitle = () => {
+        const focusContextTitle = () => {
           const heading = document.querySelector<HTMLElement>(
-            '[data-testid="server-context"] h2',
+            serverID !== undefined
+              ? '[data-testid="server-context"] h2'
+              : '[data-testid="principal-context"] h1',
           );
           heading?.focus();
           return heading !== null;
         };
-        if (!focusServerTitle()) {
+        if (!focusContextTitle()) {
           observer = new MutationObserver(() => {
-            if (focusServerTitle()) observer?.disconnect();
+            if (focusContextTitle()) observer?.disconnect();
           });
           observer.observe(document.body, { childList: true, subtree: true });
         }
@@ -403,6 +413,10 @@ function App() {
     destination === "servers" &&
     resolved.canonicalFragment !== "#/servers" &&
     resolved.canonicalFragment !== "#/servers/new";
+  const isPrincipalDetail =
+    destination === "principals" &&
+    resolved.canonicalFragment !== "#/principals" &&
+    resolved.canonicalFragment !== "#/principals/new";
   const destinationLabel =
     destination === "servers" && resolved.canonicalFragment !== "#/servers"
       ? resolved.canonicalFragment === "#/servers/new"
@@ -576,16 +590,31 @@ function App() {
           </p>
         )}
         <section class="intro" aria-labelledby="page-title">
-          <h1
-            ref={pageTitle}
-            id="page-title"
-            class={
-              authenticated && isServerDetail ? "visually-hidden" : undefined
-            }
-            tabindex={-1}
-          >
-            {authenticated ? destinationLabel : "Sign in"}
-          </h1>
+          {authenticated && isPrincipalDetail ? (
+            <span
+              ref={(element) => {
+                pageTitle.current = element;
+              }}
+              id="page-title"
+              class="visually-hidden"
+              tabindex={-1}
+            >
+              Principal details
+            </span>
+          ) : (
+            <h1
+              ref={(element) => {
+                pageTitle.current = element;
+              }}
+              id="page-title"
+              class={
+                authenticated && isServerDetail ? "visually-hidden" : undefined
+              }
+              tabindex={-1}
+            >
+              {authenticated ? destinationLabel : "Sign in"}
+            </h1>
+          )}
           <div class="visually-hidden">
             <StatusLabel
               state={authenticated ? "current" : "unavailable"}

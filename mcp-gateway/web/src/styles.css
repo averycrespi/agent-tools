@@ -563,6 +563,76 @@ p {
   font-weight: 450;
 }
 
+.binary-toggle {
+  position: relative;
+  display: inline-grid;
+  width: max-content;
+  grid-template-columns: 44px auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.form-field .binary-toggle input {
+  position: absolute;
+  z-index: 1;
+  width: 44px;
+  min-height: 24px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.binary-toggle-track {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.binary-toggle-track::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  content: "";
+  transition:
+    transform 120ms ease,
+    background 120ms ease;
+}
+
+.binary-toggle input:checked + .binary-toggle-track {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.binary-toggle input:checked + .binary-toggle-track::after {
+  transform: translateX(20px);
+  background: var(--accent);
+}
+
+.binary-toggle input:focus-visible + .binary-toggle-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.binary-toggle input:disabled {
+  cursor: not-allowed;
+}
+
+.binary-toggle input:disabled + .binary-toggle-track,
+.binary-toggle input:disabled ~ .binary-toggle-state {
+  opacity: 0.55;
+}
+
 .choice-field,
 .collection-field {
   display: grid;
@@ -1038,6 +1108,7 @@ button.sort-button:not(:disabled):hover {
   gap: 16px;
 }
 
+.server-context h1,
 .server-context h2 {
   font-size: clamp(28px, 3vw, 38px);
   letter-spacing: -0.035em;

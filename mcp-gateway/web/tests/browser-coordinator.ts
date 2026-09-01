@@ -2143,6 +2143,7 @@ async function runAccessManagementReadCanary(
   };
   const grant = {
     id: grantID,
+    name: "Safe build access",
     principal_id: principalID,
     effect: "allow",
     server_id: serverID,
@@ -2185,6 +2186,27 @@ async function runAccessManagementReadCanary(
       descriptor: { name: "safe", inputSchema: {}, annotations: {} },
     },
   };
+  await page.route("**/api/v1/principals", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([principal]),
+    });
+  });
+  await page.route("**/api/v1/servers", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: serverID,
+          display_name: "Build server",
+          namespace: "demo",
+          created_at: "2026-08-28T12:00:00Z",
+        },
+      ]),
+    });
+  });
   await page.route("**/api/v1/principals/**", async (route) => {
     if (route.request().method() !== "GET") {
       mutationCount += 1;
@@ -3596,7 +3618,7 @@ async function runPrincipals(
   if (
     principalHeaders
       .map((value) => value.replace(/\s?[↑↓↕]$/, ""))
-      .join("|") !== "Name|Status|Visibility"
+      .join("|") !== "Name|ID|Status|Visibility"
   )
     fail(`principal columns drifted: ${principalHeaders.join("|")}`);
   if (
@@ -3627,8 +3649,11 @@ async function runPrincipals(
   });
   await page.locator('[data-testid="principal-create-view"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
-  if (!body.includes("permanent synthetic default ALLOW grant"))
-    fail("principal creation omitted atomic default grant explanation");
+  if (
+    body.includes("permanent synthetic default ALLOW grant") ||
+    !body.includes("Gateway self-service tools")
+  )
+    fail("principal creation retained internal default-grant language");
   await page
     .locator('[data-testid="principal-display-name"]')
     .fill("New automation");
@@ -3655,15 +3680,25 @@ async function runPrincipals(
     window.location.hash = `#/access/principals/${id}`;
   }, firstID);
   await page.locator('[data-testid="principal-detail"]').waitFor();
-  await page.getByText("Build agent", { exact: true }).waitFor();
+  await page
+    .getByRole("heading", { level: 1, name: "Build agent", exact: true })
+    .waitFor();
+  if (
+    (await page
+      .getByRole("heading", {
+        level: 2,
+        name: "Principal details",
+        exact: true,
+      })
+      .count()) !== 1
+  )
+    fail("principal detail did not separate page and card titles");
   body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of [
-    "PERMANENT IDENTITY",
-    "Visibility is not call authorization",
-    "Credential authority",
-    "Re-enabling restores neither",
-  ])
-    if (!body.includes(phrase)) fail(`principal detail omitted ${phrase}`);
+  if (
+    body.includes("permanent synthetic default ALLOW grant") ||
+    body.includes("Re-enabling restores neither")
+  )
+    fail("principal detail retained implementation-oriented copy");
 
   await page.evaluate((id) => {
     (
@@ -3709,23 +3744,23 @@ async function runPrincipals(
   await page
     .getByRole("heading", { name: "Renamed agent", exact: true })
     .waitFor();
-  await page
-    .locator('[data-testid="principal-state"]')
-    .selectOption("disabled");
+  const principalState = page.getByRole("switch", {
+    name: "Principal enabled",
+  });
+  if (!(await principalState.isChecked()))
+    fail("active principal switch was not checked");
+  await principalState.click();
   await page.locator('[data-testid="principal-editor-submit"]').click();
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page
     .getByText("The principal revision is stale.", { exact: true })
     .waitFor();
-  if (
-    (await page.locator('[data-testid="principal-state"]').inputValue()) !==
-    "disabled"
-  )
+  if ((await principalState.isChecked()) !== false)
     fail("principal stale refresh discarded safe draft");
   await page.locator('[data-testid="principal-editor-submit"]').click();
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page
-    .locator(".status-label.warning", { hasText: "disabled" })
+    .locator(".status-label.warning", { hasText: "Disabled" })
     .waitFor();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -3868,13 +3903,17 @@ async function runPrincipalCredentials(
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="principal-credential-actions"]').waitFor();
   let body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of [
-    "without overlap",
-    "interrupted immediately",
-    "cannot be recovered",
-  ])
-    if (!body.includes(phrase))
-      fail(`principal credential warning omitted ${phrase}`);
+  if (
+    !body.includes("Only one agent credential may be active at a time.") ||
+    body.includes("interrupted immediately") ||
+    (await page
+      .getByRole("heading", { name: "Agent credential", exact: true })
+      .count()) !== 1 ||
+    (await page
+      .getByRole("button", { name: "Rotate credential", exact: true })
+      .count()) !== 1
+  )
+    fail("principal credential guidance or terminology was unclear");
 
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
@@ -3971,7 +4010,12 @@ async function runPrincipalCredentials(
     () => document.body.textContent?.includes("No credential") === true,
   );
   body = (await page.locator("body").textContent()) ?? "";
-  if (!body.includes("Prior authority no longer authenticates"))
+  if (
+    !body.includes("Prior authority no longer authenticates") ||
+    (await page
+      .getByRole("button", { name: "Issue credential", exact: true })
+      .count()) !== 1
+  )
     fail("principal credential revoke omitted authority result");
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
