@@ -37,6 +37,10 @@ type Driver interface {
 	Stop(context.Context, Candidate) bool
 }
 
+type ownershipDriver interface {
+	Owned(Candidate) bool
+}
+
 type ActivePublisher interface {
 	Fence(string, uint64)
 	Withdraw(Candidate)
@@ -1038,7 +1042,11 @@ func (manager *Manager) withdrawCandidate(candidate Candidate) {
 
 func (manager *Manager) stopCandidate(candidate Candidate) bool {
 	manager.withdrawCandidate(candidate)
-	return manager.driver.Stop(context.Background(), candidate)
+	if manager.driver.Stop(context.Background(), candidate) {
+		return true
+	}
+	owner, ok := manager.driver.(ownershipDriver)
+	return ok && !owner.Owned(candidate)
 }
 
 func (manager *Manager) stopCatalogHandoffCandidate(candidate Candidate) bool {

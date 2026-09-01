@@ -171,6 +171,31 @@ func (driver *immediateDriver) Reconcile(_ context.Context, candidate Candidate,
 }
 func (*immediateDriver) Stop(context.Context, Candidate) bool { return true }
 
+type releasedOwnershipDriver struct{ owned bool }
+
+func (*releasedOwnershipDriver) Reconcile(context.Context, Candidate, *MaterialLease) Outcome {
+	return Outcome{}
+}
+func (*releasedOwnershipDriver) Stop(context.Context, Candidate) bool { return false }
+func (driver *releasedOwnershipDriver) Owned(Candidate) bool          { return driver.owned }
+
+func TestManagerTreatsOnlyAlreadyReleasedCandidateAsStopped(t *testing.T) {
+	candidate := Candidate{Server: servers.Server{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAW"}, RuntimeID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", Generation: 1}
+	for _, test := range []struct {
+		name  string
+		owned bool
+		want  bool
+	}{
+		{name: "released", want: true},
+		{name: "still owned", owned: true, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := &Manager{driver: &releasedOwnershipDriver{owned: test.owned}, publisher: newMemoryPublisher()}
+			assert.Equal(t, test.want, manager.stopCandidate(candidate))
+		})
+	}
+}
+
 type leasingAuthority struct{}
 
 func (leasingAuthority) Resolve(_ context.Context, candidate Candidate) AuthorityOutcome {
