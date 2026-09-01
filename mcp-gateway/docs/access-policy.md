@@ -10,7 +10,7 @@ This guide owns operator workflows for principal lifecycle, one-time agent crede
 - `mcp-gateway grant --help`
 - `mcp-gateway grant-request --help`
 
-See [Identity and authorization](design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
+See [DESIGN](../DESIGN.md) for the system design index and [Identity and authorization](design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
 
 ## Create and inspect principals
 

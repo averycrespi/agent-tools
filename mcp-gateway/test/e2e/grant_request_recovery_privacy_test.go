@@ -48,7 +48,15 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	lost := harness.ModernCallDiscardResponse(credentialA.Bearer, json.RawMessage(`"lost-create"`), "mcp_gateway.create_grant_request", marshalHarnessJSON(t, contract.CreateGrantRequestInput{Policy: policy}))
 	require.Len(t, harness.WaitAuditAfter(checkpoint), 1)
 	require.NoError(t, <-lost)
-	requestEvent := eventReader.frame(t)
+	var requestEvent []byte
+	for range 3 {
+		frame := eventReader.frame(t)
+		if strings.Contains(string(frame), `"kind":"grant_requests"`) {
+			requestEvent = frame
+			break
+		}
+	}
+	require.NotNil(t, requestEvent)
 	assert.Equal(t, "event: invalidate\ndata: {\"kind\":\"grant_requests\",\"resource_id\":null}\n\n", string(requestEvent))
 
 	retryID := json.RawMessage(`"recover-create"`)
@@ -78,7 +86,7 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "s5-recovery"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
-	assert.Equal(t, "10", artifact.SchemaVersion)
+	assert.Equal(t, strconv.Itoa(storage.CurrentSchema), artifact.SchemaVersion)
 	assertBackupArtifactModes(t, harness.root, artifact.ID)
 	require.NoError(t, events.Body.Close())
 

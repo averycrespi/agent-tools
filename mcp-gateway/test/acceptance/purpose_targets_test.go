@@ -15,7 +15,7 @@ import (
 func TestPurposeNamedLeafTargetDryRuns(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	checks := map[string][]string{
-		"test-unit":                         {"go test -race -count=1 -timeout=90s ./..."},
+		"test-unit":                         {"go test -race -count=1 -timeout=300s ./..."},
 		"test-integration":                  {"-count=1", "-tags=integration", "Test.*Integration", "TestRestoreAcceptedSchemaLineages"},
 		"test-e2e":                          {"-count=1", "-tags=e2e", "./test/e2e/..."},
 		"test-security":                     {"-count=1", "-tags=security", "TestReleaseReportSecretSinkBoundaries", "./test/security/...", "./test/acceptance"},

@@ -113,7 +113,7 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 	staticRoot := filepath.Join(root, "mcp-gateway", "internal", "api", "static")
 	entries, err := os.ReadDir(staticRoot)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"app.css", "app.js", "index.html"}, func() []string {
+	assert.Equal(t, []string{"app.css", "app.js", "favicon.svg", "index.html"}, func() []string {
 		names := make([]string, 0, len(entries))
 		for _, entry := range entries {
 			names = append(names, entry.Name())

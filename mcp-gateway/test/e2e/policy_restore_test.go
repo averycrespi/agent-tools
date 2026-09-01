@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
 	assert.Equal(t, contract.MediaTypeJSON, backupResponse.Header.Get("Content-Type"))
 	assert.Equal(t, "no-store", backupResponse.Header.Get("Cache-Control"))
-	assert.Equal(t, "10", artifact.SchemaVersion)
+	assert.Equal(t, strconv.Itoa(storage.CurrentSchema), artifact.SchemaVersion)
 	assert.Equal(t, status.SQLite.Revision, artifact.SourceRevision)
 	backupEvent := eventReader.frame(t)
 	statusEvent := eventReader.frame(t)

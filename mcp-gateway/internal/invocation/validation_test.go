@@ -50,18 +50,48 @@ func TestValidateStartupRejectsCorruptInvocationRows(t *testing.T) {
 
 func TestValidateStartupRejectsInvocationCapacityOverflow(t *testing.T) {
 	repository, store, _ := newInvocationRepository(t, nil, entropyBytes(64))
-	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		for index := 0; index < int(invocationLimit())+1; index++ {
-			row := validRawInvocation()
-			row.sequence = int64(index + 1)
-			row.id = invocationID(index + 100)
-			if err := insertRawInvocation(context.Background(), transaction, row); err != nil {
-				return err
-			}
+	fixtures := make([]PreparedAdmission, int(invocationLimit())+1)
+	for index := range fixtures {
+		fixtures[index] = PreparedAdmission{
+			InvocationID: invocationID(index + 100),
+			AdmittedAt:   canonicalInvocationTime(invocationTestTime),
+			admission: Admission{
+				PrincipalID: invocationID(1), CredentialID: invocationID(2),
+				CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1",
+				Class: contract.AdmissionInvalidParams,
+			},
 		}
-		return nil
+	}
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		return insertValidationFixtures(context.Background(), transaction, fixtures)
 	}))
 	assert.ErrorIs(t, repository.ValidateStartup(context.Background()), ErrInvalidState)
+}
+
+func insertValidationFixtures(ctx context.Context, transaction *sql.Tx, prepared []PreparedAdmission) error {
+	const columns = `INSERT INTO invocations (
+		id, principal_id, credential_id, credential_fingerprint, credential_revision,
+		admitted_at, admission_class, requested_name, redacted_arguments,
+		server_id, tool_id, upstream_name, descriptor_revision, descriptor_fingerprint,
+		decision, authorization_revision, evaluated_at, grant_id
+	) VALUES `
+	const row = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	const batchSize = 50
+	for start := 0; start < len(prepared); start += batchSize {
+		end := min(start+batchSize, len(prepared))
+		arguments := make([]any, 0, (end-start)*18)
+		for _, admission := range prepared[start:end] {
+			values, err := admissionSQLValues(admission)
+			if err != nil {
+				return err
+			}
+			arguments = append(arguments, values...)
+		}
+		if _, err := transaction.ExecContext(ctx, columns+strings.TrimSuffix(strings.Repeat(row+",", end-start), ","), arguments...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type rawInvocation struct {

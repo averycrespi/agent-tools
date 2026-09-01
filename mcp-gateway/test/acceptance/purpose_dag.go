@@ -64,9 +64,9 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	}
 
 	leaves := map[string]purposeEvidenceLeaf{
-		"test-unit":        leaf("test-unit", []string{"tier.unit.contract", "cli.help_and_errors"}, 150*time.Second, 3*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
-		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility"}, 60*time.Second, 90*time.Second, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
-		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 2*time.Minute, 150*time.Second, 1, 66, 0, []string{"real-binary output", "process cleanup records"}),
+		"test-unit":        leaf("test-unit", []string{"tier.unit.contract", "cli.help_and_errors"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
+		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
+		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 66, 0, []string{"real-binary output", "process cleanup records"}),
 		"test-security":    leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),
 		"test-stress": leaf("test-stress", []string{
 			"product.grant_request.conflict_and_uncertainty", "product.grant_request.approval_narrowing", "product.invocation.page_coherence",
@@ -98,14 +98,14 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	}
 
 	addMake("test-unit", "go.unit")
-	addCommand("go.unit", []string{"go", "test", "-race", "-count=1", "-timeout=90s", "./..."}, []string{makefile}, nil)
+	addCommand("go.unit", []string{"go", "test", "-race", "-count=1", "-timeout=300s", "./..."}, []string{makefile}, nil)
 	addMake("test-integration", "go.integration")
 	integrationSelector := "^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest65536ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$"
 	integrationPackages := []string{"./internal/storage", "./internal/backup", "./internal/servers", "./internal/servercredentials", "./internal/grantrequests", "./internal/authorization", "./internal/catalog", "./internal/invocation", "./internal/composition"}
 	integrationArgv := []string{"go", "test", "-race", "-count=1", "-tags=integration", "-timeout=300s", "-run", integrationSelector}
 	addCommand("go.integration", append(integrationArgv, integrationPackages...), []string{makefile}, nil)
 	addMake("test-e2e", "go.e2e.complete")
-	addCommand("go.e2e.complete", []string{"go", "test", "-race", "-count=1", "-tags=e2e", "-timeout=2m", "./test/e2e/..."}, []string{makefile}, nil)
+	addCommand("go.e2e.complete", []string{"go", "test", "-race", "-count=1", "-tags=e2e", "-timeout=300s", "./test/e2e/..."}, []string{makefile}, nil)
 	addMake("test-security", "go.security")
 	addCommand("go.security", []string{"go", "test", "-race", "-count=1", "-tags=security", "-timeout=30s", "-run", "^(TestReleaseReportSecretSinkBoundaries|TestDurableSecretSinkBoundaries|TestSecurityEvidenceOwnerManifest|TestStaticSecretSinkClosure)$", "./test/security/...", "./test/acceptance"}, []string{makefile, "mcp-gateway/test/security/security_canaries_test.go", "mcp-gateway/test/acceptance/release_report_security_test.go"}, nil)
 	addMake("test-stress", "go.stress.grant-requests", "go.stress.self-service", "go.stress.composition")

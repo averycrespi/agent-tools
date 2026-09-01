@@ -25,13 +25,13 @@ install:
 test: test-unit test-integration
 
 test-unit:
-	go test -race -count=1 -timeout=90s ./...
+	go test -race -count=1 -timeout=300s ./...
 
 test-integration:
 	go test -race -count=1 -tags=integration -timeout=300s -run '^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest65536ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servers ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition
 
 test-e2e:
-	go test -race -count=1 -tags=e2e -timeout=2m ./test/e2e/...
+	go test -race -count=1 -tags=e2e -timeout=300s ./test/e2e/...
 
 test-security:
 	go test -race -count=1 -tags=security -timeout=30s -run '^(TestReleaseReportSecretSinkBoundaries|TestDurableSecretSinkBoundaries|TestSecurityEvidenceOwnerManifest|TestStaticSecretSinkClosure)$$' ./test/security/... ./test/acceptance

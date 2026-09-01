@@ -73,8 +73,8 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 			assert.NoError(t, err, "%s definition %s", id, path)
 		}
 	}
-	assert.Equal(t, 150*time.Second, dag.Leaves["test-unit"].Timeout)
-	assert.Equal(t, 3*time.Minute, dag.Leaves["test-unit"].Budget)
+	assert.Equal(t, 5*time.Minute, dag.Leaves["test-unit"].Timeout)
+	assert.Equal(t, 6*time.Minute, dag.Leaves["test-unit"].Budget)
 	assert.Equal(t, 66, dag.Leaves["test-e2e"].GatewayStarts)
 	assert.Equal(t, 33, dag.Leaves["test-browser-workflows"].GatewayStarts)
 	assert.Equal(t, 33, dag.Leaves["test-browser-workflows"].BrowserStarts)

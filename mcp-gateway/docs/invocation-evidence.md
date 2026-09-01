@@ -6,7 +6,7 @@ Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
 This guide owns read-only invocation inspection, redacted evidence, terminal outcomes, transport certainty, and the operator response to unknown outcomes. Generated `mcp-gateway invocation --help` owns exact syntax.
 
-See [Invocation and MCP ingress](design/invocation-and-ingress.md) for normative admission, execution, audit-retention, and failure semantics. See [Access policy](access-policy.md) for principals, grants, requests, and authorization decisions. See [CLI and local administration](cli-local-administration.md) for shared pagination and output behavior.
+See [DESIGN](../DESIGN.md) for the system design index and [Invocation and MCP ingress](design/invocation-and-ingress.md) for normative admission, execution, audit-retention, and failure semantics. See [Access policy](access-policy.md) for principals, grants, requests, and authorization decisions. See [CLI and local administration](cli-local-administration.md) for shared pagination and output behavior.
 
 ## List and inspect evidence
 
@@ -83,7 +83,7 @@ Successful content, `structuredContent`, unsuccessful content, raw errors, downs
 
 ## Follow live updates safely
 
-The browser can refresh the newest visible invocation snapshot from ID-only authenticated invalidation hints while live mode is enabled. Pausing live mode keeps the displayed snapshot stable for inspection. Neither event handling nor repeated operator reads submit, complete, resume, or replay a call, and reads do not alter audit rows, policy, routes, or request state.
+Polling never submits, completes, resumes, or replays a call. The browser can refresh the newest visible invocation snapshot from ID-only authenticated invalidation hints while live mode is enabled. Pausing live mode keeps the displayed snapshot stable for inspection. Neither event handling nor repeated operator reads submit, complete, resume, or replay a call, and reads do not alter audit rows, policy, routes, or request state.
 
 When a cursor becomes stale, restart the read from the newest page. When a record is evicted, do not infer an outcome from absence. When current policy or catalog state differs from retained evidence, treat the row as historical evidence for that attempt and use current owner reads for present state.
 

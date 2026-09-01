@@ -18,7 +18,7 @@ import (
 
 func TestBrowserCapabilityAudit(t *testing.T) {
 	rows := contract.ControlPlaneCapabilityManifest()
-	require.Len(t, rows, 31)
+	require.Len(t, rows, 32)
 	ids, scenarios := map[string]struct{}{}, map[string]struct{}{}
 	mechanics := strings.Builder{}
 	for _, row := range rows {
