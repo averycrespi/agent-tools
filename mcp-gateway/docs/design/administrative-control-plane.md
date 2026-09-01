@@ -1,0 +1,129 @@
+# Administrative Control Plane
+
+Audience: Maintainers and contributors changing administrator authority, browser and CLI clients, events, and shutdown
+
+Authority: Normative product design
+
+This chapter owns the behavior and invariants described below. Operational procedures remain in the linked guides; exact executable contract values remain owned by `internal/contract` and must agree with this chapter.
+
+## Administrative authority and sessions
+
+Admin bearer creation uses 32 bytes of entropy and the fixed `mgw_admin_` domain prefix. SQLite stores only a domain-separated SHA-256 verifier, a separately domain-separated 16-character fingerprint, metadata, status, and revision. Authentication distinguishes the reserved agent prefix before performing constant-time verifier comparisons; unknown and malformed admin values remain non-enumerating.
+
+`initialize` and `admin reset` require stopped-process ownership. They complete an approved one-time sink before entering the latched security mutation. Initialization activates only an empty authority set. Reset revokes every prior active verifier and inserts one replacement in the same revisioned transaction. Sink failure leaves all persisted authority unchanged, while an activation failure cannot make an unpublished bearer usable. Command JSON, standard error, argv, logs, and SQLite never contain the raw bearer.
+
+Credential creation validates optional expiry against the compiled five-minute and one-year bounds before consuming entropy. Metadata reads derive expiry from the injected clock; authentication compares all active verifier candidates in constant time and rejects expired, revoked, unknown, malformed, and wrong-domain values safely. Revocation transactionally preserves at least one active non-expiring authority. At the 128-record cap, creation/reset prunes the oldest revoked or expired records by creation time and ID; it rejects without queuing when every record remains active.
+
+Online `admin credential rotate OLD_CREDENTIAL_ID` captures the authority generation, conditionally creates one non-expiring replacement, publishes it through a fresh owner-only file with file and parent-directory durability, securely reopens it, matches metadata/fingerprint, and authenticates it before submitting one conditional targeted completion with the replacement bearer. It then verifies old, replacement, and authority records. It never overwrites the default bearer, compensates, or replays. Pre-verification workflow failures preserve old authority; once publication and replacement authentication succeed, a conflict or uncertain completion may safely leave both credentials active. One bounded old-record read may recognize a completed uncertain revoke; otherwise recovery uses the retained replacement file and metadata guidance.
+
+Bearer exchange reserves one of 128 in-memory session slots before generating independent 32-byte session and CSRF values. Sessions use a host-only `mcp_gateway_session` cookie with `Path=/`, `HttpOnly`, and `SameSite=Strict`; no `Domain` is present, and `Secure` is omitted only for the fixed plain-loopback transport. Activity refreshes the 30-minute idle bound without extending the eight-hour absolute bound. Exact-Origin `POST /api/v1/admin-sessions/current` accepts exact `EmptyObject` `{}` and returns `AdminSessionBootstrap`, recovering the in-memory CSRF and refreshed expiries from one current cookie without reissuing it; malformed, duplicate, unknown, expired, revoked, reset-invalidated, and restart-invalidated cookie authority is cleared with the exact expiry cookie. Logout, idle/absolute or parent expiry, parent revocation, reset, and shutdown remove the slot and synchronously close its subscription channel. Ambiguous bearer-plus-cookie authority and incorrect session-bound CSRF fail without changing activity. No session state survives manager or process restart.
+
+## HTTP administration
+
+`serve` verifies stopped-process ownership and storage, takes one secret-free keyring capability snapshot, and only then opens the exact configured numeric IPv4 loopback listener. The boundary validates request target, header, forwarding, Host, Origin, route, and method constraints before authentication or body work. Health, ordinary, control-auth, and authenticated-admin permits are independent and nonblocking; authenticated control work transfers permits without allowing ordinary traffic to consume recovery capacity.
+
+The control API implements bearer-to-session exchange, current-session bootstrap, session logout, bounded administrator credential/authority/rotation-completion and backup resources, invalidation events, system status, desired-server create/list/read/PATCH/DELETE, operation and auth-flow resources, server credential replacement, catalog and descriptor reads, permanent principal create/list/read/PATCH with singular credential issue/revoke, immutable grant create/list/read/delete, and grant-request summary/item/approve/reject resources with exact request ETags and preconditions. Collections exclude descriptor evidence; item and adjudication responses include bounded evidence and read-time target comparison, while approval atomically creates one ordinary grant and rejection remains request-owned.
+
+Bearer and cookie authority cannot be combined. Cookie requests require the exact configured Origin; safe GET reads may use the browser-compatible fallback of an absent Origin plus the exact in-memory session CSRF token, while unsafe cookie requests always require exact Origin, the session CSRF value, and JSON media type.
+
+JSON parsing bounds body size and nesting and rejects invalid UTF-8, duplicate members, unknown members, and trailing input. Server creation and explicit operations use parent-authority-scoped durable idempotency; server and operation lists use snapshot cursors; server reads and mutations carry exact strong Server ETags, with required exact `If-Match` on PATCH, DELETE, and operation creation.
+
+API responses are `no-store`, problems retain the fixed safe envelope, and no response enables CORS.
+
+## Browser development boundary
+
+The frontend development path is build/test-only and uses a second independently managed numeric-loopback Vite process. It serves authored source and local HMR, admits only segment-bounded `/api/v1/` traffic to one fixed numeric-loopback Gateway origin, rewrites only the exact frontend Origin, and preserves the host-only cookie/CSRF boundary without adding production CORS or alternate-Origin authority. It never supervises Gateway, proxies `/mcp` or `/oauth/callback`, writes the embedded asset directory, or enters the production import graph; OAuth callback authority remains at Gateway. The operational contract is documented in [docs/frontend-development.md](../frontend-development.md).
+
+## Browser state and workflow ownership
+
+### Production assets and navigation
+
+The developer control application is built from strict TypeScript and Preact with Vite into a fixed embedded HTML, stylesheet, and module allowlist. The checked-in bundle contains no external or inline active content, source maps, chunks, or runtime Node dependency and uses the fixed restrictive CSP.
+
+Its manual fragment parser accepts only ASCII `#/` locations up to 2,048 bytes from the closed destination table, canonical Gateway IDs, and destination-specific closed filters; it rejects percent escapes, controls, empty/trailing segments, duplicate or unknown keys, cursors, open text, and unknown values before API work or rendering. Initial, invalid, and noncanonical locations use `history.replaceState`, while ordinary accepted anchors retain browser back behavior.
+
+Rejected text is never rendered or diagnosed, and signed-out fallback is fixed at `#/sign-in` (`#/overview` is reserved for authenticated fallback). Theme persistence is owned only by `theme.ts` under the single `mcp_gateway_theme` localStorage key with `system`, `light`, or `dark`; the application creates no sessionStorage, IndexedDB, Cache Storage, or service-worker state.
+
+### Session and read lifecycle
+
+`session.ts` validates bootstrap and problem envelopes from unknown values and owns exchange, bootstrap, logout, and monotonically increasing authentication epochs. Epoch changes abort tracked requests/streams, cancel timers and polls, clear registered protected state, discard late results, and never replay a mutation; one coalesced bootstrap settles session loss.
+
+The masked sign-in field has no reusable credential name or value attribute, clears before awaiting exchange settlement, and never publishes the bearer or in-memory CSRF value. `view.ts` binds panel reads to that epoch plus the canonical location and a monotonic view generation, aborts and discards superseded reads, preserves only matching prior values as explicitly stale, isolates panel failures, groups equal-interval visible polling, and pauses polling while hidden.
+
+The Overview composes strict public reads for system posture, a bounded complete server traversal with one stale-cursor restart, one explicitly partial pending-request page, and newest retained invocation summaries. It distinguishes saturation from integer-safe 80% capacity pressure, marks incomplete counts, links directly to records, closes mutation admission from authoritative latch status, and polls invocation summaries every five visible seconds without treating elapsed time or polling as completion evidence.
+
+The invocation destination applies only closed fragment filters plus an in-memory requested-name filter, serializes one filter-bound traversal with stale-cursor restart, labels retained/filtered-page limits and historical identities, and renders fixed-redacted arguments only on item detail as inert JSON. List and detail polling pause while hidden; missing-terminal and evicted evidence never imply nonexecution, downstream handoff for local targets, automatic replay, or safe retry.
+
+System status strictly projects every process, SQLite, keyring, backup, protocol, and closed limit fact, closes global mutation admission from the authoritative latch, and presents stopped-process-only initialize, authority reset, current-integrity verification, and verified-backup restore command boundaries without online execution or commit/rollback inference. Server, descriptor, and aggregate catalog reads paginate one generation at a time with stale-cursor restart.
+
+### Server workflows
+
+The server inventory presents identity, a synthesized plain-language status, available-tool count, and the next useful action through the shared filterable and sortable responsive collection primitive; implementation revisions and reason codes remain absent. A server is organized into Overview, Tools, Activity, Authentication, Settings, and Diagnostics: Overview presents one synthesized status, explanation, and contextual action; Activity combines human-readable operation and OAuth histories while isolating their read failures; Authentication exposes only actions possible for the configured no-auth, bearer, local-secret, or OAuth mode; Settings alone owns editing, disconnect, and deletion; and Diagnostics contains bounded internal revisions, runtime facts, tombstone timing, and retained redacted OAuth failure records.
+
+Server create/update forms require explicit connection and authentication choices, reveal only applicable fields, construct the complete secret-free transport union from structured list and key/value controls, default new HTTP servers to strict automatic protocol negotiation, warn that stdio OS-user execution is not containment, summarize permanent identity and behavioral consequences before confirmation, and preserve only live safe drafts across authoritative conflict refreshes. Every draft-bearing mutation form registers semantic dirty state with the shell: ordinary internal navigation receives an accessible discard confirmation, browser history and unload receive native protection, cancellation preserves the in-memory draft, accepted navigation clears sensitive sinks, successful submission bypasses stale warnings, and forced authentication loss remains authoritative.
+
+Required controls use native required semantics, while labels mark optional fields explicitly and associate actionable field errors through the shared form primitive. HTTP endpoints, issuer identifiers, static client IDs, and trusted origins discard surrounding whitespace before validation, review, and submission so the review reflects the exact safe payload.
+
+Operation history/detail reads use authoritative two-second visible nonterminal polling and event-triggered refreshes; explicit starts retain exact ETag/idempotency tuples, confirm only reload/disconnect consequences, and never infer completion or replay automatically. Credential replacement uses only blank write-only controls, current desired/credential revisions, consequence confirmation, immediate post-handoff clearing, and fresh server/operation investigation without replay when keyring or transport settlement is unknowable.
+
+Foreground OAuth flows use authoritative paginated and two-second visible reads, current server ETags, state-gated confirmed cancellation, and a prepared one-time inert authorization-URL sink with explicit opener-isolated opening, clearing, loss guidance, and no replay; callback and external authorization authority remain server-owned. Failed retained flows expose an administrator-readable exact diagnostic containing only the flow correlation ID, closed discovery/registration/authorization/callback/exchange/installation stage, stable public reason, and optional received HTTP status.
+
+The failure response repeats only the correlation ID in a dedicated header; invalidation events remain ID-only refresh hints, and diagnostic retention follows the existing bounded terminal-flow record. Server credential disconnect and permanent deletion use current ETags, consequence confirmation, exact immutable-namespace typing for deletion, tombstone presentation, and explicit local-invalidation, route-withdrawal, best-effort remote-revocation, local-only cleanup-retry, and no-force/no-restoration boundaries.
+
+### Mutations and invalidations
+
+Its manually reconnected session-only POST stream strictly parses the closed invalidation vocabulary, treats resource IDs only as refresh hints, coalesces matching reads for 250 milliseconds, and reloads visible snapshots on every connection without deriving records or completion from events. `mutation.ts` owns the closed editing/confirming/submitting/acknowledged/rejected/uncertain state machine and exact route-specific ETag and idempotency mechanics.
+
+It fences duplicate submission, retains an idempotent route/body/precondition/key tuple only within the current authentication epoch, exposes only explicit same-intent replay, abandons tuples on edit or known settlement, forces authoritative refresh and reconfirmation after 409/412/428, classifies post-handoff and storage failures without claiming rollback, and globally rejects new mutation submission while storage is latched. The signed-out and authenticated layouts share one landmark and heading hierarchy, desktop rail and narrow keyboard disclosure, route-focus and polite announcement behavior, non-color status vocabulary, reduced-motion rules, and `primitives.tsx` owners for native confirmation/focus restoration, labeled overflow tables, a shared filter/sort/load-more collection, associated form fields, inert JSON, and loading/empty/error/stale notices.
+
+One header control refreshes the current view; healthy freshness is silent, while stale or reconnecting state appears once in the header and affected local failures remain beside their content. One route-surviving, epoch-cleared live-region toast owner presents only bounded product-authored nonsecret success text; failures, uncertain outcomes, and corrective guidance remain persistent and local.
+
+### One-time secret and URL sinks
+
+Primitive text is interpolated only as text. `sinks.ts` owns epoch- and navigation-fenced sink preparation plus blank write-only controls; `sinks-ui.tsx` alone owns ephemeral bearer DOM text, explicit user-gesture clipboard publication, and inert one-time OAuth URL presentation/opening.
+
+A bearer-producing mutation receives a prepared live handle before submission; preparation failure prevents submission, while a late, invalid, uncertain, dismissed, navigated, or stale-epoch response cannot publish. Dismissal and fencing clear secret/URL strings, DOM selection, status, and write-only fields without claiming to clear the operating-system clipboard.
+
+OAuth URLs are text, never links, and only the dedicated button calls `window.open` synchronously with `noopener,noreferrer`, nulls any accessible opener, retains no window reference, and clears the URL after success. `/oauth/callback` is production-wired to the one-time flow registry and returns only fixed success/failure/transient HTML with no-store, deny-all CSP, no-referrer, and nosniff headers; it never reflects query or dependency data.
+
+### Presentation and accessibility
+
+The browser presentation is a compact operational interface rather than a decorative control-plane simulation. Every visible string, surface, divider, and gap must identify state, explain a consequential distinction, prevent an operator mistake, or enable an action; ambient trust slogans, internal card codes, repeated status, and ornamental labels are omitted. Security guidance appears at the decision or input it affects instead of becoming global chrome. Layouts use available space efficiently, reserve cards for meaningful boundaries, prefer aligned tables and grouped fields for operational data, and progressively disclose healthy detail or advanced controls without hiding exceptions. Shared typography, spacing, controls, empty states, tables, forms, and responsive navigation make the compact path the default. Narrow layouts preserve every action and state distinction without clipping tabs or relying on unexplained horizontal overflow, while minimum targets, focus, reflow, and non-color semantics remain mandatory.
+
+The remaining browser projections apply those same owners to principal/credential, immutable-grant, request/evidence/adjudication, administrator-credential, and backup workflows. Operations and foreground OAuth records poll only while nonterminal every two visible seconds; invocation views use five-second visible polling. All polling pauses while hidden. Automated accessibility qualification owns serious/critical scanning plus keyboard, focus, dialog, live-region, form, non-color, reduced-motion, touch-target, 320-pixel, and 200% reflow semantics. Linux Chromium is blocking, Firefox and Playwright WebKit block when available, and real Safari plus VoiceOver/Safari use separately validated exact-revision external evidence; unavailable external cells remain additive, never synthetic passes.
+
+## CLI authority, output, and recovery
+
+### Installation and stopped commands
+
+The executable resolves one installation root without mutation: explicit `--data-dir`, otherwise absolute `$XDG_DATA_HOME/mcp-gateway`, otherwise the operating-system account home at `~/.local/share/mcp-gateway`; relative XDG input fails and `$HOME` is not trusted as an account-home source. Zero-argument `initialize` securely prepares that root and publishes a fresh `0600` bearer at `<root>/admin-bearer` before activating authority; zero-argument `serve` uses the same root and `127.0.0.1:8210`. Initialization never overwrites. Stopped `admin reset` and backup restore require a fresh explicit `--secret-output`, do not replace the default bearer file, and direct subsequent online recovery to select that new file; `restore --verify-current` forbids replacement output. Administrator grammar is only `admin credential ...` and `admin reset`; the former hyphenated spellings have no aliases or compatibility path.
+
+### Online transport and output
+
+`internal/controlclient` is the sole online CLI transport owner. Every online leaf selects administrator authority from an explicit owner-only nonsymlink `--admin-bearer-file`, exclusive `--admin-bearer-stdin`, or the resolved default `<root>/admin-bearer`; simultaneous explicit file/stdin sources fail, and there is no prompt, argv, or environment fallback.
+
+After reading only that credential source, commands use the public canonical numeric-loopback HTTP API and never private storage, keyring, lock, or domain owners. The transport disables proxy, redirect, cookies, compression, keepalive reuse, and automatic retry.
+
+Commands validate bounded closed input before handoff, use command-scoped ETags/idempotency tuples and consequence confirmation, publish one-time bearers or authorization URLs only through a prepared controlling terminal or fresh `0600` owner-only file, and classify pre-handoff versus uncertain post-handoff failures into stable stderr-only problems and typed exit codes. Server create and server credential replacement remain strict-file-only; administrator create, principal create/update, operation start, and request rejection are direct-only; server update, grant create, and request approval accept either direct flags or one mutually exclusive strict file.
+
+Omitted ordinary mutation ETags perform one validated item preflight; explicit ETags skip that convenience read and are never refreshed. Agent issue/rotate always read slot state and respectively require empty/occupied authority.
+
+Human output is the default; `--output json` and `--json` select exact JSON public-API projections. Finite successes use stdout, finite failures leave stdout empty and use stderr, startup emits one acknowledgement, clean shutdown emits no trailer, and post-start failure emits one bounded terminal problem.
+
+No command polls, refreshes a precondition after conflict, recovers a one-time value, invokes a private owner, or replays automatically. A proven refused selected loopback renders the exact `mcp-gateway serve` command, including explicit address and data-directory choices.
+
+Command selection, output, authentication-source, and recovery procedures are canonical in [CLI and local administration](../cli-local-administration.md).
+
+## Events, limits, and shutdown
+
+### Event delivery
+
+The authenticated event hub admits 16 streams with 16 buffered invalidations each. Publication is nonblocking and carries only the closed safe `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, and `grant_requests` representations; production emits every listed kind, and approval publishes `grant_requests` before `authorization`. Frames have no ID, cursor, replay, or storage authority. Connect and reconnect begin with no history; a full buffer disconnects the slow stream so its client recovers by reloading authenticated snapshots. A 15-second comment keepalive and per-write deadline bound dead peers. Request cancellation, session terminal state, parent-bearer invalidation, and shutdown close the stream and release its permit.
+
+### Occupancy and status
+
+Event streams release authenticated-admin admission after authentication because their own registry supplies the lifetime bound; saturation therefore cannot consume the status/recovery pool. Live status composes the independent HTTP, session, MCP, event, backup, keyring-work, candidate, credential, idempotency, backup-record, database, durable server identity, nondeleted server, process-local runtime, reconciliation, foreground OAuth-flow, principal, grant, global request-row, and request-evidence-byte occupancies from their actual owners. Principal/grant reads come from the sole composition-owned authority and retain fixed zero-use limits on a transient read failure; `agent_auth` is `principal_credentials`, sourced from the same composition bundle as the positive authenticator and discovery service. Server reads compose process-local runtime state and safe reason/runtime identifiers over durable desired authority; restore never turns durable rows into active facts before fresh reconstruction. Every admission and retained-record cap is compiled, rejects before expensive allocation without queuing, and releases on every terminal path.
+
+### Drain and shutdown
+
+The first `SIGINT` or `SIGTERM` atomically enters drain, makes readiness false, and invokes the composition's one-shot drain before storage closure. Its synchronous prefix first fences new invocation pipelines, then fences authentication, removes and cancels every registered pre-admission lease, marks the active catalog draining so old discovery generations are non-current, and withdraws active routes. It then cancels catalog work, fences OAuth and keyring producers, snapshots every runtime-owner phase, launches independent stops concurrently, and waits outside authority/catalog locks for invocation pipelines through terminal annotation plus authority-gate and owner quiescence within the fixed ten-second bound while events, MCP compatibility state, admin sessions, and HTTP are closed. A second signal invokes immediate forced exit rather than waiting for context-free work. Graceful completion removes the durable run marker only when every owned runtime stop is verified; forced, expired, or blocked cleanup leaves it for the next startup's full storage verification. Runtime registries are never serialized, so no session or in-flight work resumes.

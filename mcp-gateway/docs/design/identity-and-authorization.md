@@ -1,0 +1,86 @@
+# Identity and Authorization
+
+Audience: Maintainers and contributors changing principal identity, authorization, grants, and self-service requests
+
+Authority: Normative product design
+
+This chapter owns the behavior and invariants described below. Operational procedures remain in the linked guides; exact executable contract values remain owned by `internal/contract` and must agree with this chapter.
+
+## Principal and grant contract
+
+| Method and pattern                          | Closed request schema | Success schema/status           | Cursor | Idempotency | Exact `If-Match` | Response ETag |
+| ------------------------------------------- | --------------------- | ------------------------------- | ------ | ----------- | ---------------- | ------------- |
+| `GET /api/v1/principals`                    | `PrincipalListQuery`  | `Page<Principal>` / 200         | yes    | no          | no               | no            |
+| `POST /api/v1/principals`                   | `PrincipalCreate`     | `PrincipalCreation` / 201       | no     | no          | no               | yes           |
+| `GET /api/v1/principals/{id}`               | `None`                | `Principal` / 200               | no     | no          | no               | yes           |
+| `PATCH /api/v1/principals/{id}`             | `PrincipalPatch`      | `Principal` / 200               | no     | no          | yes              | yes           |
+| `POST /api/v1/principals/{id}/credential`   | `EmptyObject`         | `AgentCredentialCreation` / 201 | no     | no          | yes              | yes           |
+| `DELETE /api/v1/principals/{id}/credential` | `EmptyObject`         | `Principal` / 200               | no     | no          | yes              | yes           |
+| `GET /api/v1/grants`                        | `GrantListQuery`      | `Page<Grant>` / 200             | yes    | no          | no               | no            |
+| `POST /api/v1/grants`                       | `GrantCreate`         | `Grant` / 201                   | no     | no          | no               | no            |
+| `GET /api/v1/grants/{id}`                   | `None`                | `Grant` / 200                   | no     | no          | no               | no            |
+| `DELETE /api/v1/grants/{id}`                | `None`                | `Empty` / 204                   | no     | no          | no               | no            |
+
+The principal collection accepts only singleton nonempty `cursor` and `limit` query members, uses a collection-bound insertion-watermark cursor, and returns no ETag; create/read/PATCH use the sole composition-owned repository and exact strong principal ETags. Create accepts only required non-null display name and visibility and returns the principal plus its atomic ordinary default grant.
+
+PATCH accepts a nonempty non-null subset of display name, state, and visibility; absent, weak, wildcard, malformed, multiple, wrong-principal, or stale preconditions fail safely, and exact no-ops conflict without invalidation. Successful mutations publish one ID-free authorization invalidation after commit.
+
+The singular credential route accepts exact `{}` plus the current principal ETag: POST issues or replaces the slot and returns `AgentCredentialCreation` with the raw bearer exactly once, while DELETE revokes current authority and returns the safe principal. Both advance principal and credential revisions, expose the resulting ETag, and publish only the same ID-free invalidation after an acknowledged success; failures and retries never replay a bearer.
+
+Grant list/create/read/delete use the same sole authority and a servers-owned supplied-transaction target callback. Creation requires every member, including nullable `upstream_name`, `constraint`, and `expires_at`; listing accepts singleton principal/server filters bound into its insertion-watermark cursor.
+
+Grant resources are immutable, expose no ETag or idempotency surface, and successful create/delete publishes only the ID-free authorization invalidation.
+
+`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{id,display_name,state,visibility,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` is exactly `{id,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`.
+
+## Principal credentials, grants, and policy
+
+Principal creation is one marker-armed transaction that inserts revision-1 active authority with credential revision 0, inserts one ordinary permanent server-wide synthetic ALLOW, and advances the authorization revision exactly once. PATCH advances the principal revision once for any actual change; display-name and visibility changes do not alter authorization revision, while each active/disabled transition advances authorization revision once. Disablement clears the current credential slot and advances credential revision even when the slot is already absent; re-enablement restores neither credential nor deleted grant. Empty, stale, and exact no-op mutations fail without durable change, and principal identities are permanent.
+
+Credential issue and replacement require the exact active principal revision, consume independent 32-byte entropy plus a fresh ULID, and return `mgw_agent_` plus raw unpadded base64url exactly once. SQLite retains only the ID, issuance time, `SHA-256("mcp-gateway/agent-verifier/v1\x00" || bearer)`, and the first eight lowercase-hex bytes of `SHA-256("mcp-gateway/agent-fingerprint/v1\x00" || verifier)`. Publication replaces the singular slot and advances principal and credential revisions once under the agent-candidate recovery marker; explicit revoke clears a present slot and advances both once under an ordinary marker. Neither changes authorization revision. Preparation or known rollback preserves prior authority. Any unacknowledged committed candidate returns no bearer, leaves online storage latched, and stopped recovery invalidates the exact candidate without restoring its predecessor.
+
+Ordinary grants are immutable rows removed only by DELETE. Creation accepts a permanent or strictly future expiry, server-wide scope without a constraint, or exact scope with an optional compiled constraint; an exact upstream name needs no descriptor. It checks the fixed all-row capacity and the non-deleted server target through the servers-owned callback inside the same transaction, then advances authorization revision once. A server deletion ordered later leaves the grant readable but inapplicable; one ordered first rejects creation. Expired rows remain counted, readable, and deletable, and no issuer, reason, history, revocation, idempotency, or ETag machinery exists.
+
+Policy evaluation parses one bounded token-preserving argument object, captures one UTC timestamp, and reads the authorization revision and every grant for the principal from one coherent transaction. Every loaded row is validated before a result can escape. Matching DENY takes precedence over matching ALLOW, otherwise evaluation returns BLOCK; DENY and ALLOW evidence names only the lexicographically smallest matching grant, while BLOCK names none. Expiry is strict at the captured timestamp. Malformed arguments, invalid loaded policy, matcher failure, or unavailable storage fail closed without a partial decision or constraint data.
+
+## Policy constraints
+
+Constraints compile only the closed `{equals:{pointer:scalar}}` form. Compilation retains each valid number's original token, decodes RFC 6901 `~0` and `~1` into immutable object-member segments, permits empty/numeric segments and pointer-prefix pairs, and accepts only string, boolean, number, or null leaves. Evaluation traverses objects only: arrays are never indexed, and no coercion, numeric normalization, schema interpretation, or overlap analysis occurs. Durable startup, grant reads, and evaluation reject any constraint that cannot be compiled under the fixed byte, atom, pointer, and JSON-depth bounds.
+
+## Self-service grant requests
+
+### Surface and public contract
+
+Administrative and agent procedures for these contracts are canonical in [access policy](../access-policy.md). The self-service contract implements exactly six self-only descriptors under `mcp_gateway`: `get_identity`, `list_grants`, `create_grant_request`, `get_grant_request`, `list_grant_requests`, and `cancel_grant_request`. Their compiled synthetic catalog extends discoverable cardinality to 2,054 through `discoverable_tools`=2054 without changing downstream `active_tools`=2048. The request vocabulary is closed over `pending`, `approved`, `rejected`, and `cancelled`; request policy scope is `tool` or `server`, duration is permanent or a canonical 60 through 2592000 seconds, and approval/cancellation never replays an original invocation.
+
+The administrator resources are `GET` `/api/v1/grant-requests`, `GET` `/api/v1/grant-requests/{id}`, `POST` `/api/v1/grant-requests/{id}/approve`, and `POST` `/api/v1/grant-requests/{id}/reject`. Their mechanics use `GrantRequestListQuery` → `Page<GrantRequestSummary>`, `None` → `GrantRequest`, `GrantRequestApproval` → `GrantRequest`, and `GrantRequestRejection` → `GrantRequest`; item/adjudication resources use exact ETags and adjudication requires a precondition. The [public contract](public-contract.md) owns the exact safe failures and fixed bounds. Authenticated status exposes only global request-row and request-evidence-byte occupancy.
+
+### Request policy and storage
+
+The ID-free `grant_requests` invalidation is snapshot-recovered and never replayed. These resources are composed into the production binary.
+
+The ordinary permanent synthetic server-wide default ALLOW makes all six tools discoverable and callable under normal DENY-overrides semantics until an administrator deletes it; synthetic descriptors consume no durable or active downstream-catalog capacity or admin catalog state. Transaction ownership remains narrow: servers resolve extant or tombstoned namespaces on a caller-supplied transaction, catalog returns revalidated current/retired durable descriptor facts on that same transaction, and authorization returns only a conservative owner-principal active-DENY overlap bit.
+
+The request-policy primitive compiles the existing lexical constraint language, encodes version-1 dedupe identity with decoded pointers and original number tokens, bounds canonical descriptor evidence, derives expiry from the approval timestamp, and permits only the closed scope/constraint/duration narrowing matrix. None of these seams opens, commits, or rolls back a transaction.
+
+The request repository is the sole online schema-10 DML owner; schema 10 stores no bearer, invocation link, successful result, raw error, free-form reason, or reviewer identity, and bounded descriptor evidence is admin-item-only: it resolves names and semantic duplicates before current-target, evidence, DENY, and capacity work; retains permanent ID tombstones; evicts only the oldest terminal prefix needed for row/evidence pressure; and publishes one ID-free request invalidation only after acknowledged commit. Existing duplicates and closed rejections roll back the read transaction without consuming identity, refreshing evidence, evicting history, or emitting events; uncertain post-commit completion latches storage and returns no success.
+
+### Agent projections and cursors
+
+An acknowledged ALLOW detachment also mints one sealed admitted subject containing only principal/credential IDs and revisions plus the evaluated authorization revision. Authorization-owned self projection reads accept no principal selector: they reverify that subject against the current credential while coherently projecting only safe identity fields and insertion-watermarked ordinary ALLOW/DENY grants, preserving exact constraints and derived active/expired state while resolving synthetic, extant, or deleted immutable target namespaces through a servers-owned supplied-transaction inspector.
+
+Agent request get/list reads derive only the admitted subject's stable principal ID and select no internal target, dedupe, or evidence columns; missing and foreign IDs are the same result, pages pin the owner's insertion watermark, and later inserts cannot enter. Self-service owns one process-local HMAC cursor codec whose fixed canonical frames bind method, subject IDs and revisions, exact state filter, process generation, watermark, and position: malformed syntax is rejected before handler work, unauthenticatable frames are invalid, and authenticated cross-boundary frames are stale.
+
+### Cancellation and adjudication
+
+Request-owned cancellation and rejection are exact pending-to-terminal revision-2 transitions with one transaction timestamp; cancellation is owner-only and idempotent, while rejection checks revision before terminal conflict. Closed/no-op reads consume no clock or event, successful transitions publish one ID-free request invalidation only after acknowledged commit, and uncertainty reports no success.
+
+### Startup validation and approval
+
+Before readiness, the request repository coherently validates every retained public state plus permanent identity, owner existence, immutable extant/tombstoned target, versioned dedupe bytes, canonical submitted/approved evidence linkage and aggregate, and capacities through narrow supplied-transaction facts. Approved grant IDs remain shape-validated historical evidence without a live-grant dependency.
+
+Atomic approval is authorization-owned: its nonqueueing authority gate encloses one storage mutation, current owner/DENY/grant-capacity checks, one timestamp-derived ordinary ALLOW insert, one request-owned exact-row callback, and one authorization revision advance. The callback validates current ETag before terminal conflict, resolves immutable target and narrowing, captures server-to-tool evidence under aggregate capacity, and writes revision 2 with the same timestamp and grant ID.
+
+Only acknowledged completion emits request then authorization invalidations; known failure rolls back both domains and post-commit uncertainty reports no success or event. The injected administrator API adds strict summary-list, evidence-bearing item, approve, and reject resources with a distinct filter/watermark cursor and exact strong request ETags.
+
+Collections never select or serialize evidence/internal target facts; items compare the selected requested-or-approved target at read time across namespace tombstones, durable descriptors, and a narrow active-state fact. Adjudication responses retain pre-transition immutable item facts and transaction-returned approved evidence, avoiding a racy post-commit row lookup after terminal retention becomes eligible.

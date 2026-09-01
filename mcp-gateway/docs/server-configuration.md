@@ -9,7 +9,7 @@ This guide owns server configuration, durable catalog inspection, write-only sta
 - `mcp-gateway server --help`
 - `mcp-gateway catalog --help`
 
-See [DESIGN](../DESIGN.md) for normative transport, credential-authority, OAuth, catalog, and runtime semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, input, output, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
+See [Downstream servers](design/downstream-servers.md) for normative transport, credential-authority, OAuth, catalog, and runtime semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, input, output, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
 
 ## Keep the three server states distinct
 

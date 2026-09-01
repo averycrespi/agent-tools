@@ -32,11 +32,20 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"Gateway must be stopped", "mcp-gateway restore --verify-current", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
 		},
 		"../../DESIGN.md": {
-			"Public HTTP and data contract", "complete public-HTTP online CLI command tree", "`internal/controlclient` is the sole online CLI transport owner",
-			"Automated accessibility qualification", "grant_requests", "sole online schema-10 DML owner", "no-check adopter",
+			"## Documentation authority", "docs/design/public-contract.md", "docs/design/identity-and-authorization.md", "docs/design/storage-and-recovery.md",
+			"docs/design/downstream-servers.md", "docs/design/invocation-and-ingress.md", "docs/design/administrative-control-plane.md",
+		},
+		"../../docs/design/identity-and-authorization.md": {
+			"grant_requests", "sole online schema-10 DML owner",
+		},
+		"../../docs/design/administrative-control-plane.md": {
+			"`internal/controlclient` is the sole online CLI transport owner", "Automated accessibility qualification",
+		},
+		"../../docs/release-verification.md": {
+			"no-check adoption", "clean revision",
 		},
 		"../../CLAUDE.md": {
-			"`internal/contract` is the only source", "`internal/composition` is the sole production constructor", "`internal/remote` is the sole production downstream/OAuth HTTP client",
+			"`internal/contract` is the executable source", "`internal/composition` is the sole production constructor", "`internal/remote` is the sole production downstream/OAuth HTTP client",
 			"Online CLI commands acquire one selected administrator bearer", "docs/release-verification.md", "npm run ui:verify-supply-chain",
 		},
 	}
@@ -113,7 +122,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 		require.NotContains(t, readme, phrase)
 	}
 
-	designBytes, err := os.ReadFile("../../DESIGN.md")
+	designBytes, err := os.ReadFile("../../docs/design/administrative-control-plane.md")
 	require.NoError(t, err)
 	design := string(designBytes)
 	for _, phrase := range []string{
@@ -154,46 +163,35 @@ func TestReadmeRelativeLinksResolve(t *testing.T) {
 func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 	t.Parallel()
 
-	document, err := os.ReadFile("../../DESIGN.md")
-	require.NoError(t, err)
-	text := string(document)
+	text := readDesignCorpus(t)
 
 	for _, heading := range []string{
 		"## System boundaries and composition",
-		"## Public HTTP and data contract",
-		"### Request mechanics",
-		"### Principal and grant mechanics",
+		"# Public Contract",
+		"### Server, catalog, and OAuth request mechanics",
 		"### Server and catalog vocabulary",
-		"### Strict JSON and policy constraints",
-		"### Self-service grant requests",
-		"## Storage durability and recovery",
-		"### Principal credentials, grants, and policy",
-		"### Security mutation and stopped recovery",
-		"### Backup and generation replacement",
+		"## Strict JSON",
+		"# Identity and Authorization",
+		"## Policy constraints",
+		"## Self-service grant requests",
+		"# Storage and Recovery",
+		"## Security mutation and stopped recovery",
+		"## Backup and generation replacement",
+		"# Downstream Servers",
 		"## Server and catalog authority",
 		"## Direct stdio supervision",
 		"## Downstream protocol and remote transport",
-		"### Governed invocation and audit evidence",
-		"### OAuth authority and catalog publication",
+		"## OAuth authority and catalog publication",
+		"# Invocation and MCP Ingress",
+		"## Governed invocation and audit evidence",
 		"## MCP ingress and governed invocation",
 	} {
 		require.Contains(t, text, heading)
 	}
 
-	ownedRanges := [][2]string{
-		{"## Purpose", "## Administrative authority and sessions"},
-		{"## Keyring capability and generation cutover", "## Verification and release evidence"},
-		{"## MCP ingress and governed invocation", "## Operational composition and compatibility"},
-	}
 	phaseResidue := regexp.MustCompile(`(?i)\bS[1-6](?:\.\d+)?\b|\bimplemented\b|\bfoundation\b|\btask owner\b|\bmilestone owner\b`)
-	for _, bounds := range ownedRanges {
-		start := strings.Index(text, bounds[0])
-		end := strings.Index(text, bounds[1])
-		require.NotEqual(t, -1, start, bounds[0])
-		require.Greater(t, end, start, bounds[1])
-		owned := strings.ReplaceAll(text[start:end], "`mcp-gateway/s2`", "")
-		require.Empty(t, phaseResidue.FindString(owned), "%s", bounds[0])
-	}
+	currentDesign := strings.ReplaceAll(text, "`mcp-gateway/s2`", "")
+	require.Empty(t, phaseResidue.FindString(currentDesign))
 
 	behaviorClaims := map[string]string{
 		"product.server_catalog.state_separation":          "durable desired authority remains distinct from process-local runtime and active catalog state",
@@ -223,27 +221,13 @@ func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T) {
 	t.Parallel()
 
-	document, err := os.ReadFile("../../DESIGN.md")
+	text := readDesignCorpus(t)
+	releaseBytes, err := os.ReadFile("../../docs/release-verification.md")
 	require.NoError(t, err)
-	text := string(document)
-
-	for _, heading := range []string{
-		"## Administrative authority and sessions",
-		"## Verification and release evidence",
-		"## HTTP administration and control-plane clients",
-		"### Browser production and development boundaries",
-		"### Browser state and workflow ownership",
-		"### CLI authority, output, and recovery",
-		"## Events, limits, and shutdown",
-		"## Operational composition and compatibility",
-		"## Non-goals",
-	} {
-		require.Contains(t, text, heading)
-	}
-
-	currentDesign := strings.ReplaceAll(text, "`mcp-gateway/s2`", "")
-	chronology := regexp.MustCompile(`(?i)\bS[1-6](?:\.\d+)?\b|\bAC-[0-9]+\b|\bimplemented\b|\bfoundation\b|\btask owner\b|\bmilestone owner\b|planned.{0,20}executable`)
-	require.Empty(t, chronology.FindString(currentDesign))
+	text += "\n" + string(releaseBytes)
+	indexBytes, err := os.ReadFile("../../DESIGN.md")
+	require.NoError(t, err)
+	index := string(indexBytes)
 
 	for _, guide := range []string{
 		"docs/cli-local-administration.md",
@@ -254,8 +238,27 @@ func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T)
 		"docs/frontend-development.md",
 		"docs/release-verification.md",
 	} {
-		require.Equal(t, 1, strings.Count(text, "("+guide+")"), guide)
+		require.Equal(t, 1, strings.Count(index, "("+guide+")"), guide)
 	}
+
+	for _, heading := range []string{
+		"# Administrative Control Plane",
+		"## Administrative authority and sessions",
+		"## HTTP administration",
+		"## Browser development boundary",
+		"## Browser state and workflow ownership",
+		"## CLI authority, output, and recovery",
+		"## Events, limits, and shutdown",
+		"## Operational composition and compatibility",
+		"## Non-goals",
+		"# Release verification and acceptance evidence",
+	} {
+		require.Contains(t, text, heading)
+	}
+
+	currentDesign := strings.ReplaceAll(text, "`mcp-gateway/s2`", "")
+	chronology := regexp.MustCompile(`(?i)\bS[1-6](?:\.\d+)?\b|\bAC-[0-9]+\b|\bimplemented\b|\bfoundation\b|\btask owner\b|\bmilestone owner\b|planned.{0,20}executable`)
+	require.Empty(t, chronology.FindString(currentDesign))
 
 	for _, claim := range []string{
 		"Bearer exchange reserves one of 128 in-memory session slots",
@@ -267,24 +270,43 @@ func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T)
 		"Linux Chromium is blocking",
 		"there is no prompt, argv, or environment fallback",
 		"No command polls, refetches a precondition",
-		"`accept` composes disjoint leaves directly",
-		"Reports from superseded definitions are incompatible",
-		"`skipped` remains additive",
-		"no-check adopter",
-		"clean unchanged revision",
+		"`accept` invokes disjoint leaves directly",
+		"Reports from superseded report definitions are incompatible",
+		"`skipped` is an explicit additive gap",
+		"no-check adoption",
+		"clean revision",
 		"A second signal invokes immediate forced exit",
-		"Product compatibility preserves public HTTP and MCP JSON",
+		"Product compatibility includes public HTTP and MCP JSON",
 	} {
 		require.Contains(t, text, claim)
 	}
 }
 
+func readDesignCorpus(t *testing.T) string {
+	t.Helper()
+
+	paths := []string{
+		"../../DESIGN.md",
+		"../../docs/design/public-contract.md",
+		"../../docs/design/identity-and-authorization.md",
+		"../../docs/design/storage-and-recovery.md",
+		"../../docs/design/downstream-servers.md",
+		"../../docs/design/invocation-and-ingress.md",
+		"../../docs/design/administrative-control-plane.md",
+	}
+	var documents []string
+	for _, path := range paths {
+		contents, err := os.ReadFile(path)
+		require.NoError(t, err, path)
+		documents = append(documents, string(contents))
+	}
+	return strings.Join(documents, "\n")
+}
+
 func TestDesignDocumentsTheExecutableContract(t *testing.T) {
 	t.Parallel()
 
-	document, err := os.ReadFile("../../DESIGN.md")
-	require.NoError(t, err)
-	text := string(document)
+	text := readDesignCorpus(t)
 
 	for _, route := range Routes() {
 		require.Contains(t, text, "`"+route.Pattern+"`", route.Pattern)

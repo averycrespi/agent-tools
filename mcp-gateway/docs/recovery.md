@@ -101,4 +101,4 @@ Failed commands leave stdout empty and emit one bounded human or JSON problem on
 
 Never copy a replacement bearer into arguments, environment variables, logs, or the old default file as a shortcut. Keep fresh secret outputs owner-only and remove obsolete bearer files after authority has been confirmed.
 
-See [CLI and local administration](cli-local-administration.md) for path resolution, output modes, and authentication selection. See [DESIGN](../DESIGN.md) for normative storage, backup, migration, authority-invalidation, and failure semantics. Return to the [Gateway README](../README.md) for ordinary startup and status checks.
+See [CLI and local administration](cli-local-administration.md) for path resolution, output modes, and authentication selection. See [Storage and recovery](design/storage-and-recovery.md) for normative storage, backup, migration, authority-invalidation, and failure semantics. Return to the [Gateway README](../README.md) for ordinary startup and status checks.

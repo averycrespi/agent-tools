@@ -138,4 +138,4 @@ Focused workflow ownership:
 - [Invocation evidence and unknown outcomes](invocation-evidence.md)
 - [Backup, restore, and recovery](recovery.md)
 
-Consult [DESIGN](../DESIGN.md) for normative trust boundaries, state transitions, limits, and failure semantics. Return to the [Gateway README](../README.md) for installation and common workflows.
+Consult [Administrative control plane](design/administrative-control-plane.md) for normative CLI and administrator trust boundaries, and [Public contract](design/public-contract.md) for public limits and failure vocabulary. Return to the [Gateway README](../README.md) for installation and common workflows.

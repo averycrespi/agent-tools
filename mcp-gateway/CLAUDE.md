@@ -96,7 +96,7 @@ docs/                       Canonical operational and maintainer guides
 
 ### Contracts and boundaries
 
-- `internal/contract` is the only source for public routes, safe problems, media/protocol values, fixed limits, closed states/reasons/events, resource mechanics, approved secret sinks, and behavior manifests. Change the corresponding contract tests and [DESIGN.md](DESIGN.md) deliberately when intended behavior changes.
+- `internal/contract` is the executable source for public routes, safe problems, media/protocol values, fixed limits, closed states/reasons/events, resource mechanics, approved secret sinks, and behavior manifests. Change the corresponding contract tests and the owning [normative design chapter](DESIGN.md#documentation-authority) deliberately when intended behavior changes.
 - `internal/strictjson` is the dependency-neutral parser for API, downstream, OAuth, and catalog input. Use explicit positive size/depth bounds, reject duplicate/unknown/trailing values for closed shapes, and preserve lexical number tokens where policy or canonical evidence depends on them.
 - Keep exact numeric-loopback validation, route classification, and admission ahead of authentication or body work. Every API response remains `no-store`; never add CORS authority.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation channels separate. Raw secrets never enter configuration, arguments, environment variables, URLs, logs, metrics, events, SQLite, backups, browser storage, or read APIs.
@@ -131,7 +131,7 @@ docs/                       Canonical operational and maintainer guides
 - The `e2e` build tag replaces only the composition provider factory with deterministic test material. Ordinary builds select the native keyring backend; neither selection is public configuration.
 - Keep focused tests with their behavior owner. Large persistence, migration, protocol, browser, and real-binary suites stay count one. Repeated execution belongs only to dedicated named stress scenarios.
 - Repository source guards use exact paths and symbols. Extend an allowlist only for a deliberate ownership change; never broaden a guard to make an unrelated refactor pass. Keep the narrow discovery conversion suppressions limited to reversible sign-bit mapping, bounded nanoseconds, and bounded page positions.
-- README is the user entry point; DESIGN is normative architecture and behavior; this file is maintainer commands, layout, dependency flow, and non-obvious editing constraints. Detailed workflows belong to the manifest-owned guides under `docs/`.
+- README is the user entry point; DESIGN is the normative architecture index and `docs/design/` contains its domain chapters; this file is maintainer commands, layout, dependency flow, and non-obvious editing constraints. Detailed workflows belong to the focused operational and maintainer guides under `docs/`.
 - Release evidence must remain bound to a clean unchanged revision and immutable definitions. Native and external gaps stay typed and visible; a failed blocking owner blocks. Follow the release guide rather than copying acceptance command inventories here.
 
 ## Dependency flow

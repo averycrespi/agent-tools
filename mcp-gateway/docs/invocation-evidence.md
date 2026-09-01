@@ -6,7 +6,7 @@ Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
 This guide owns read-only invocation inspection, redacted evidence, terminal outcomes, transport certainty, and the operator response to unknown outcomes. Generated `mcp-gateway invocation --help` owns exact syntax.
 
-See [DESIGN](../DESIGN.md) for normative admission, execution, audit-retention, and failure semantics. See [Access policy](access-policy.md) for principals, grants, requests, and authorization decisions. See [CLI and local administration](cli-local-administration.md) for shared pagination and output behavior.
+See [Invocation and MCP ingress](design/invocation-and-ingress.md) for normative admission, execution, audit-retention, and failure semantics. See [Access policy](access-policy.md) for principals, grants, requests, and authorization decisions. See [CLI and local administration](cli-local-administration.md) for shared pagination and output behavior.
 
 ## List and inspect evidence
 

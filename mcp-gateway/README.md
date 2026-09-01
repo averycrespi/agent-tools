@@ -44,7 +44,7 @@ Gateway provides:
 - an embedded browser application and a matching public-HTTP administration CLI;
 - verified backups, stopped-process restore and recovery, and ordered shutdown.
 
-The [DESIGN](DESIGN.md) document is the source of truth for architecture, behavior, limits, failure semantics, and security decisions.
+The [DESIGN](DESIGN.md) overview and its linked domain chapters are the source of truth for architecture, behavior, limits, failure semantics, and security decisions.
 
 ## Common workflows
 
@@ -78,7 +78,7 @@ If an online command proves that the selected loopback Gateway is stopped, its e
 - An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
 - Native keyring operations may prompt, fail, or outlive cancellation. Gateway never falls back to plaintext credential storage.
 
-See [DESIGN](DESIGN.md) for the complete trust boundary and [Invocation evidence](docs/invocation-evidence.md) for outcome interpretation.
+See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and MCP ingress](docs/design/invocation-and-ingress.md) for normative call semantics, and [Invocation evidence](docs/invocation-evidence.md) for operator interpretation.
 
 ## Guides
 

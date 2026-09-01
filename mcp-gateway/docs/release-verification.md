@@ -4,9 +4,11 @@ Audience: Maintainers producing release evidence
 
 Purpose: Run and adopt exact-revision acceptance evidence.
 
+Authority: Normative maintainer evidence procedure
+
 This guide owns the purpose-based verification DAG, clean-revision acceptance, report adoption, native and external evidence classification, and failure discipline. The Makefile and generated help are authoritative for available target definitions; this guide explains ownership and composition.
 
-See [maintainer guidance](../CLAUDE.md) for package ownership and editing invariants, [DESIGN](../DESIGN.md) for normative security and compatibility boundaries, and [frontend development](frontend-development.md) for the separate live-reload and production-asset workflows.
+See [maintainer guidance](../CLAUDE.md) for package ownership and editing invariants, the [DESIGN overview](../DESIGN.md) for normative security and compatibility boundaries, and [frontend development](frontend-development.md) for the separate live-reload and production-asset workflows.
 
 ## Purpose-based verification DAG
 
@@ -42,7 +44,13 @@ Run `make help` for exact target spelling and required variables. Do not preserv
 
 Pull requests may run individual leaves in separate jobs, but the final acceptance profile remains the authority for exact multiplicity and report composition. Do not wrap leaf jobs in an aggregate that causes the same package or browser workflow to execute twice.
 
-The root repository deliberately keeps Gateway acceptance separate from other-tool checks. Run the non-Gateway owner and Gateway release owner independently rather than nesting one inside the other.
+The root repository aggregate deliberately excludes Gateway acceptance. The Gateway `accept` profile includes `make check-other-tools` once as its disjoint `repository-other-tools` leaf; do not wrap `accept` in another aggregate or run that leaf separately as part of the same evidence set.
+
+## Harness safety invariants
+
+Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors.
+
+The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, owns an identity-revalidated process group, applies bounded TERM/KILL/reap cleanup when its context expires, and can signal a bounded started process for lifecycle tests. The single E2E harness and acceptance executor inherit that ownership through an outer cleanup ledger and fail on surviving processes, listeners, or temporary roots. Component-specific fault hooks, protocol fixtures, and barriers remain with their owning packages.
 
 ## Freeze the candidate
 
