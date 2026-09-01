@@ -779,7 +779,7 @@ async function runFragmentStorage(
     ["#/servers", "#/servers"],
     ["#/servers/new", "#/servers/new"],
     [`#/servers/${idA}`, `#/servers/${idA}`],
-    ...["tools", "activity", "authentication", "settings", "diagnostics"].map(
+    ...["status", "tools", "activity", "authentication", "settings"].map(
       (tab): [string, string] => [
         `#/servers/${idA}?tab=${tab}`,
         `#/servers/${idA}?tab=${tab}`,
@@ -1915,7 +1915,8 @@ async function runOverviewInvocationSystemCanary(
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Operational posture",
-    "Server attention",
+    "Active tools",
+    "Configured servers",
     "Pending requests",
     "Recent invocations",
   ])
@@ -2061,12 +2062,12 @@ async function runServerManagementCanary(
   await waitForLifecycle(page, "authenticated");
 
   const destinations: Array<[string, string]> = [
-    [`#/servers/${serverID}`, "server-detail"],
+    [`#/servers/${serverID}`, "server-status-view"],
+    [`#/servers/${serverID}?tab=status`, "server-status-view"],
     [`#/servers/${serverID}?tab=tools`, "descriptor-list"],
     [`#/servers/${serverID}?tab=activity`, "server-activity-view"],
     [`#/servers/${serverID}?tab=authentication`, "server-authentication-view"],
     [`#/servers/${serverID}?tab=settings`, "server-settings-view"],
-    [`#/servers/${serverID}?tab=diagnostics`, "server-diagnostics-view"],
     ["#/catalog", "catalog-view"],
   ];
   for (const [hash, testID] of destinations) {
@@ -2075,6 +2076,19 @@ async function runServerManagementCanary(
     }, hash);
     await page.locator(`[data-testid="${testID}"]`).waitFor();
   }
+  await page.evaluate((id) => {
+    window.location.hash = `#/servers/${id}?tab=status`;
+  }, serverID);
+  const statusCards = page.locator(
+    '[data-testid="server-status-cards"] > .fact-card',
+  );
+  await statusCards.first().waitFor();
+  if (
+    (await statusCards.count()) !== 4 ||
+    (await statusCards.locator(".fact-card").count()) !== 0 ||
+    (await page.locator(".subnav a").first().textContent())?.trim() !== "Status"
+  )
+    fail("server status did not use four sibling cards with Status first");
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=settings`;
   }, serverID);
@@ -5801,7 +5815,7 @@ async function runOverview(
     "#/system",
     "#/system?tab=resource-limits",
     "#/servers",
-    "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1?tab=tools",
+    "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1?tab=status",
     "#/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "#/requests?state=pending",
     "#/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAX",
@@ -7101,7 +7115,7 @@ async function runServerCreateUpdate(
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
   await page.getByText("Mutation outcome unknown").waitFor();
   await page.locator('[data-testid="server-create-replay"]').click();
-  await page.locator('[data-testid="server-detail"]').waitFor();
+  await page.locator('[data-testid="server-status-view"]').waitFor();
   if (
     createKeys[0] === createKeys[1] ||
     createKeys[1] === "" ||
@@ -7838,20 +7852,24 @@ async function runServerDisconnectDelete(
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}`;
   }, serverID);
-  await page.locator('[data-testid="server-detail"]').waitFor();
-  await page.getByText("Deleted", { exact: true }).waitFor();
+  await page.locator('[data-testid="server-status-view"]').waitFor();
+  await page
+    .locator('[data-testid="server-context"]')
+    .getByText("Deleted", { exact: true })
+    .waitFor();
   let tombstone =
-    (await page.locator('[data-testid="server-detail"]').textContent()) ?? "";
-  if (!tombstone.includes("View diagnostics"))
-    fail("deleted server overview omitted its diagnostic action");
+    (await page.locator('[data-testid="server-status-view"]').textContent()) ??
+    "";
+  if (!tombstone.includes("View status"))
+    fail("deleted server overview omitted its status action");
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=diagnostics`;
+    window.location.hash = `#/servers/${id}?tab=status`;
   }, serverID);
-  await page.locator('[data-testid="server-diagnostics-view"]').waitFor();
+  await page.locator('[data-testid="server-status-view"]').waitFor();
   await page.locator('time[datetime="2026-08-28T16:05:00Z"]').waitFor();
   tombstone = (await page.locator("body").textContent()) ?? "";
-  if (!tombstone.includes("Desired revision") || !tombstone.includes("10"))
-    fail("deleted server diagnostics omitted permanent historical state");
+  if (!tombstone.includes("Deleted") || !tombstone.includes("durable tools"))
+    fail("deleted server status omitted permanent historical state");
   if (
     (await page
       .locator('[data-testid="server-destructive-actions"]')
@@ -8097,9 +8115,29 @@ async function runAuthFlows(
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=authentication`;
   }, serverID);
-  await page.locator('[data-testid="start-auth-flow"]').waitFor();
+  const authorizationAction = page.locator('[data-testid="start-auth-flow"]');
+  await authorizationAction.waitFor();
+  if (
+    (await authorizationAction.textContent())?.trim() !== "Authorize server" ||
+    !(await authorizationAction.getAttribute("class"))?.includes(
+      "primary-action",
+    )
+  )
+    fail("missing OAuth authority did not use the creation action");
+  server.credential_state = "ready";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.getByRole("button", { name: "Reauthorize server" }).waitFor();
+  if (
+    (await authorizationAction.getAttribute("class"))?.includes(
+      "primary-action",
+    )
+  )
+    fail("OAuth authority replacement used creation styling");
+  server.credential_state = "reauthentication_required";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.getByRole("button", { name: "Authorize server" }).waitFor();
 
-  await page.locator('[data-testid="start-auth-flow"]').click();
+  await authorizationAction.click();
   const display = page.locator('[data-testid="one-time-oauth-url"]');
   await display.waitFor();
   if ((await display.locator("a").count()) !== 0)
@@ -8207,15 +8245,15 @@ async function runAuthFlows(
   ])
     if (!finalDOM.includes(value)) fail(`OAuth detail omitted ${value}`);
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=diagnostics`;
+    window.location.hash = `#/servers/${id}?tab=status`;
   }, serverID);
-  await page.locator('[data-testid="server-diagnostics-view"]').waitFor();
+  await page.locator('[data-testid="server-status-view"]').waitFor();
   finalDOM = (await page.locator("body").textContent()) ?? "";
   if (
     finalDOM.includes("OAuth failures") ||
     finalDOM.includes("client registration")
   )
-    fail("server diagnostics duplicated OAuth history");
+    fail("server status duplicated OAuth history");
   if (finalDOM.includes(bearer)) fail("bearer leaked into auth flow DOM");
   if (finalDOM.includes(authorizationURL))
     fail("authorization URL remained outside its one-time sink");
@@ -9053,9 +9091,11 @@ async function runServerCatalogReads(
   for (const phrase of [
     "Authority required",
     "Authorization required",
-    "Authorize",
+    "Manage credentials",
   ])
     if (!body.includes(phrase)) fail(`server detail omitted ${phrase}`);
+  if (body.includes("Authorize server"))
+    fail("non-OAuth server offered OAuth authorization");
   const serverContextText =
     (await page.locator('[data-testid="server-context"]').textContent()) ?? "";
   if (

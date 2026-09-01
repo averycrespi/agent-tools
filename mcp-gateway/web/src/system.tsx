@@ -521,13 +521,6 @@ function StatusPanel({
                 <UserTime value={status.lastBackupAt} fallback="never" />
               </p>
             </article>
-            <article class="fact-card fact-card-wide">
-              <span class="panel-code">PROTOCOLS</span>
-              <h3>Agent authentication {sentenceCase(status.agentAuth)}</h3>
-              <p>
-                modern {status.modernProtocol} · legacy {status.legacyProtocol}
-              </p>
-            </article>
           </div>
           <section aria-labelledby="resource-summary-title">
             <h3 id="resource-summary-title">Resource summary</h3>

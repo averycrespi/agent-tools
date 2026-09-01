@@ -1,12 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { decodeInvocationPage, type InvocationPageView } from "./invocations";
-import {
-  ComparisonTable,
-  sentenceCase,
-  StateNotice,
-  StatusLabel,
-} from "./primitives";
+import { sentenceCase, StateNotice, StatusLabel } from "./primitives";
 import type { SessionClient } from "./session";
 import { UserTime } from "./time";
 import type {
@@ -81,6 +76,7 @@ interface ServerView {
   runtime: string;
   credential: string;
   catalog: string;
+  activeToolCount: number;
   attention: boolean;
 }
 interface ServerSummary {
@@ -383,7 +379,7 @@ function decodeServer(value: unknown): ServerView {
   nullableString(catalog.durable_revision);
   nullableString(catalog.active_revision);
   integer(catalog.durable_tool_count);
-  integer(catalog.active_tool_count);
+  const activeToolCount = integer(catalog.active_tool_count);
   nullableString(catalog.last_success_at);
   validateLimit(catalog.traversal);
   stringValue(item.created_at);
@@ -401,6 +397,7 @@ function decodeServer(value: unknown): ServerView {
     runtime: runtimeState,
     credential,
     catalog: activeCatalog,
+    activeToolCount,
     attention,
   };
 }
@@ -688,6 +685,14 @@ export function Overview({
     snapshot.status?.limits.filter(
       (item) => capacityState(item) !== undefined,
     ) ?? [];
+  const configuredServers = snapshot.servers?.items.length ?? 0;
+  const activeTools =
+    snapshot.servers?.items.reduce(
+      (total, server) => total + server.activeToolCount,
+      0,
+    ) ?? 0;
+  const serversNeedingAttention =
+    snapshot.servers?.items.filter((server) => server.attention) ?? [];
   return (
     <div class="overview" data-testid="overview-grid">
       <div class="overview-grid">
@@ -749,62 +754,60 @@ export function Overview({
         <Panel
           id="overview-servers"
           code="SERVERS-01"
-          title="Server attention"
+          title="Servers and tools"
           panel={panel("overview-servers")}
         >
-          {snapshot.servers !== undefined &&
-            (snapshot.servers.items.length === 0 ? (
-              <p>
-                No servers configured. <a href="#/servers/new">Create server</a>
-              </p>
-            ) : (
-              <>
-                <p>
-                  <strong>
+          {snapshot.servers !== undefined && (
+            <>
+              <div class="fact-grid">
+                <article class="fact-card">
+                  <span class="panel-code">Active tools</span>
+                  <h3>{activeTools} active</h3>
+                  <p>
                     {snapshot.servers.complete
-                      ? `${snapshot.servers.items.length} configured`
-                      : `At least ${snapshot.servers.items.length} configured; count incomplete`}
-                  </strong>
-                </p>
-                <ComparisonTable caption="Server operational posture">
-                  <thead>
-                    <tr>
-                      <th>Server</th>
-                      <th>Runtime</th>
-                      <th>Credential</th>
-                      <th>Catalog</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {snapshot.servers.items
-                      .filter((item) => item.attention)
-                      .map((item) => (
-                        <tr key={item.id} data-testid="overview-server-row">
-                          <td>
-                            <a href={`#/servers/${item.id}?tab=tools`}>
-                              {item.name}
-                            </a>
-                            {item.attention && (
-                              <>
-                                {" · "}
-                                <StatusLabel state="warning">
-                                  Needs operator attention
-                                </StatusLabel>
-                              </>
-                            )}
-                          </td>
-                          <td>{sentenceCase(item.runtime)}</td>
-                          <td>{sentenceCase(item.credential)}</td>
-                          <td>{sentenceCase(item.catalog)}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </ComparisonTable>
+                      ? "Available across the current active catalog."
+                      : "Shown across loaded servers; count incomplete."}
+                  </p>
+                  <a href="#/catalog">View catalog</a>
+                </article>
+                <article class="fact-card">
+                  <span class="panel-code">Configured servers</span>
+                  <h3>{configuredServers} configured</h3>
+                  <p>
+                    {snapshot.servers.complete
+                      ? "Configured total."
+                      : "Loaded so far; count incomplete."}
+                  </p>
+                  <a href="#/servers">View servers</a>
+                </article>
+              </div>
+              {configuredServers === 0 && (
                 <p>
-                  <a href="#/servers">View all servers</a>
+                  No servers configured.{" "}
+                  <a href="#/servers/new">Create server</a>
                 </p>
-              </>
-            ))}
+              )}
+              {serversNeedingAttention.length > 0 && (
+                <section aria-labelledby="overview-attention-title">
+                  <h3 id="overview-attention-title">Needs attention</h3>
+                  <ul class="record-list">
+                    {serversNeedingAttention.map((item) => (
+                      <li key={item.id} data-testid="overview-server-row">
+                        <a href={`#/servers/${item.id}?tab=status`}>
+                          {item.name}
+                        </a>
+                        <span>
+                          {sentenceCase(item.runtime)} · Credentials{" "}
+                          {sentenceCase(item.credential)} · Catalog{" "}
+                          {sentenceCase(item.catalog)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
+          )}
         </Panel>
         <Panel
           id="overview-requests"

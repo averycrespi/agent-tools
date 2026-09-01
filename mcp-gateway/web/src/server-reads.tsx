@@ -676,7 +676,7 @@ function listPath(
   if (kind === "catalog") return `/api/v1/catalog?${query.toString()}`;
   if (kind === "operations" || kind === "authFlows") {
     const match =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:activity|authentication|diagnostics)$/.exec(
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:activity|authentication|status)$/.exec(
         viewKey,
       );
     if (match === null) throw new Error("invalid server history location");
@@ -755,7 +755,7 @@ export class ServerReadsController {
       "server-overview-reads",
       (key) =>
         key === "#/servers" ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=(?:authentication|settings|diagnostics))?$/.test(
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=(?:authentication|settings|status))?$/.test(
           key,
         ),
       ["servers", "catalog"],
@@ -933,7 +933,7 @@ export class ServerReadsController {
       };
     }
     const serverItem =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:\?tab=(?:authentication|settings|diagnostics))?$/.exec(
+      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:\?tab=(?:authentication|settings|status))?$/.exec(
         context.viewKey,
       );
     if (serverItem !== null && forcedKind === undefined) {
@@ -1151,6 +1151,7 @@ function ServerTabs({
   current: string;
 }) {
   const tabs = [
+    ["status", "Status", `#/servers/${serverID}?tab=status`],
     ["tools", "Tools", `#/servers/${serverID}?tab=tools`],
     ["activity", "Operations", `#/servers/${serverID}?tab=activity`],
     [
@@ -1159,7 +1160,6 @@ function ServerTabs({
       `#/servers/${serverID}?tab=authentication`,
     ],
     ["settings", "Settings", `#/servers/${serverID}?tab=settings`],
-    ["diagnostics", "Diagnostics", `#/servers/${serverID}?tab=diagnostics`],
   ] as const;
   return (
     <nav class="subnav" aria-label="Server sections">
@@ -1182,14 +1182,28 @@ interface ServerPresentation {
   href?: string;
 }
 
+function serverUsesOAuth(server: ServerView): boolean {
+  if (typeof server.transport !== "object" || server.transport === null)
+    return false;
+  const transport = server.transport as JSONRecord;
+  if (transport.kind !== "streamable_http") return false;
+  const authentication = transport.authentication;
+  return (
+    typeof authentication === "object" &&
+    authentication !== null &&
+    !Array.isArray(authentication) &&
+    (authentication as JSONRecord).mode === "oauth"
+  );
+}
+
 function serverPresentation(server: ServerView): ServerPresentation {
   const root = `#/servers/${server.id}`;
   if (server.desiredState === "deleted")
     return {
       label: "Deleted",
       state: "unavailable",
-      action: "View diagnostics",
-      href: `${root}?tab=diagnostics`,
+      action: "View status",
+      href: `${root}?tab=status`,
     };
   if (server.desiredState === "disabled")
     return {
@@ -1206,7 +1220,9 @@ function serverPresentation(server: ServerView): ServerPresentation {
     return {
       label: "Authorization required",
       state: "warning",
-      action: "Authorize",
+      action: serverUsesOAuth(server)
+        ? "Authorize server"
+        : "Manage credentials",
       href: `${root}?tab=authentication`,
     };
   if (
@@ -1230,21 +1246,23 @@ function serverPresentation(server: ServerView): ServerPresentation {
   return {
     label: "Needs attention",
     state: "warning",
-    action: "Diagnose",
-    href: `${root}?tab=diagnostics`,
+    action: "View status",
+    href: `${root}?tab=status`,
   };
 }
 
-function serverExplanation(status: string): string {
-  if (status === "Authorization required")
-    return "Authorize this server to restore authenticated access.";
-  if (status === "Disabled")
+function serverExplanation(presentation: ServerPresentation): string {
+  if (presentation.label === "Authorization required")
+    return presentation.action === "Authorize server"
+      ? "Authorize this server to restore authenticated access."
+      : "Provide valid credentials to restore authenticated access.";
+  if (presentation.label === "Disabled")
     return "This server will not connect until it is enabled.";
-  if (status === "Connecting")
+  if (presentation.label === "Connecting")
     return "The gateway is establishing the server connection.";
-  if (status === "Deleted")
+  if (presentation.label === "Deleted")
     return "This server is retained as historical evidence.";
-  return "Review diagnostics for the latest server state.";
+  return "Review status for the latest server state.";
 }
 
 function ServerNavigation({
@@ -1270,7 +1288,7 @@ function ServerNavigation({
         {presentation.action !== undefined &&
           presentation.href !== undefined && (
             <div class="server-context-guidance">
-              <p>{serverExplanation(presentation.label)}</p>
+              <p>{serverExplanation(presentation)}</p>
               <a href={presentation.href}>{presentation.action}</a>
             </div>
           )}
@@ -1328,7 +1346,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           render: (server) => (
             <a
               class="primary-table-link"
-              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "diagnostics" : "tools"}`}
+              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "status" : "tools"}`}
             >
               {server.displayName}
             </a>
@@ -1340,7 +1358,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           sortValue: (server) => server.id,
           render: (server) => (
             <a
-              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "diagnostics" : "tools"}`}
+              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "status" : "tools"}`}
             >
               {server.id}
             </a>
@@ -1692,8 +1710,8 @@ export function ServerReads({
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=settings$/.exec(
       view.viewKey,
     );
-  const diagnosticsTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=diagnostics$/.exec(
+  const statusTab =
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=status$/.exec(
       view.viewKey,
     );
   const descriptorItem =
@@ -1709,6 +1727,7 @@ export function ServerReads({
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=([^&]+)$/.exec(
       view.viewKey,
     );
+  const statusServerID = statusTab?.[1] ?? serverItem?.[1];
   if (view.viewKey === "#/servers/new")
     return (
       <div class="domain-view" data-testid="server-create-view">
@@ -2120,95 +2139,89 @@ export function ServerReads({
         </ReadPanel>
       </div>
     );
-  if (diagnosticsTab !== null)
+  if (statusServerID !== undefined)
     return (
-      <div class="domain-view" data-testid="server-diagnostics-view">
+      <div class="domain-view" data-testid="server-status-view">
         <ServerNavigation
           server={snapshot.server}
-          serverID={diagnosticsTab[1]!}
-          current="diagnostics"
+          serverID={statusServerID}
+          current="status"
         />
         <section
           class="panel domain-panel"
-          aria-labelledby="server-diagnostics-title"
+          aria-labelledby="server-status-title"
         >
           <div class="panel-heading">
-            <h2 id="server-diagnostics-title">Server diagnostics</h2>
+            <h2 id="server-status-title">Server status</h2>
           </div>
           <ReadPanel panel={panel}>
-            {snapshot.server !== undefined && (
-              <ComparisonTable caption="Internal server state">
-                <tbody>
-                  <tr>
-                    <th scope="row">Desired state</th>
-                    <td>{sentenceCase(snapshot.server.desiredState)}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Desired revision</th>
-                    <td>{snapshot.server.desiredRevision}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Runtime</th>
-                    <td>{sentenceCase(snapshot.server.runtimeState)}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Runtime reason</th>
-                    <td>
-                      {snapshot.server.runtimeReason === null
-                        ? "—"
-                        : sentenceCase(snapshot.server.runtimeReason)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Runtime identity</th>
-                    <td>{snapshot.server.runtimeID ?? "—"}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Credential revisions</th>
-                    <td>
-                      Static {snapshot.server.staticRevision}; OAuth client{" "}
-                      {snapshot.server.oauthClientRevision}; tokens{" "}
-                      {snapshot.server.oauthTokensRevision}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Catalog</th>
-                    <td>
-                      Durable {sentenceCase(snapshot.server.durableState)}{" "}
-                      revision {snapshot.server.durableRevision ?? "—"}; active{" "}
-                      {sentenceCase(snapshot.server.activeState)} revision{" "}
-                      {snapshot.server.activeRevision ?? "—"}
-                    </td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Last catalog success</th>
-                    <td>
-                      <UserTime value={snapshot.server.lastSuccessAt} />
-                    </td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Deleted at</th>
-                    <td>
-                      <UserTime value={snapshot.server.deletedAt} />
-                    </td>
-                  </tr>
-                </tbody>
-              </ComparisonTable>
-            )}
+            {snapshot.server !== undefined &&
+              (() => {
+                const server = snapshot.server;
+                const presentation = serverPresentation(server);
+                return (
+                  <div class="fact-grid" data-testid="server-status-cards">
+                    <article class="fact-card">
+                      <span class="panel-code">RUNTIME</span>
+                      <h3>{sentenceCase(server.runtimeState)}</h3>
+                      <p>Desired state {sentenceCase(server.desiredState)}</p>
+                      <p>
+                        {server.runtimeReason === null
+                          ? "No runtime issue reported."
+                          : `Reason: ${sentenceCase(server.runtimeReason)}`}
+                      </p>
+                      <p>Runtime ID {server.runtimeID ?? "—"}</p>
+                    </article>
+                    <article class="fact-card">
+                      <span class="panel-code">CREDENTIALS</span>
+                      <h3>{sentenceCase(server.credentialState)}</h3>
+                      <p>Static revision {server.staticRevision}</p>
+                      <p>
+                        OAuth client {server.oauthClientRevision} · tokens{" "}
+                        {server.oauthTokensRevision}
+                      </p>
+                      <a href={`#/servers/${server.id}?tab=authentication`}>
+                        Manage authentication
+                      </a>
+                    </article>
+                    <article class="fact-card">
+                      <span class="panel-code">CATALOG</span>
+                      <h3>{sentenceCase(server.activeState)}</h3>
+                      <p>
+                        {server.activeToolCount} active ·{" "}
+                        {server.durableToolCount} durable tools
+                      </p>
+                      <p>
+                        Last successful refresh{" "}
+                        <UserTime value={server.lastSuccessAt} />
+                      </p>
+                      <a href={`#/servers/${server.id}?tab=tools`}>
+                        View tools
+                      </a>
+                    </article>
+                    <article class="fact-card">
+                      <span class="panel-code">ACTIONABLE ISSUES</span>
+                      <h3>{presentation.label}</h3>
+                      {presentation.action === undefined ||
+                      presentation.href === undefined ? (
+                        <p>No current issues require operator action.</p>
+                      ) : (
+                        <>
+                          <p>{serverExplanation(presentation)}</p>
+                          <a href={presentation.href}>{presentation.action}</a>
+                        </>
+                      )}
+                      {server.deletedAt !== null && (
+                        <p>
+                          Deleted <UserTime value={server.deletedAt} />
+                        </p>
+                      )}
+                    </article>
+                  </div>
+                );
+              })()}
           </ReadPanel>
         </section>
-      </div>
-    );
-  if (serverItem !== null)
-    return (
-      <div class="domain-view" data-testid="server-detail">
-        <ReadPanel panel={panel}>
-          <ServerNavigation
-            server={snapshot.server}
-            serverID={serverItem[1]!}
-            current=""
-          />
-        </ReadPanel>
       </div>
     );
   if (otherTab !== null)

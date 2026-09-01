@@ -25,11 +25,11 @@ export interface ResolvedLocation {
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const serverTabs = new Set([
+  "status",
   "tools",
   "activity",
   "authentication",
   "settings",
-  "diagnostics",
 ]);
 const systemTabs = new Set([
   "status",

@@ -212,6 +212,7 @@ function StartFlow({
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched" ||
     waitingForRead;
+  const replacingAuthority = server.credentialState === "ready";
 
   return (
     <section class="panel domain-panel" aria-labelledby="auth-flow-start-title">
@@ -231,12 +232,12 @@ function StartFlow({
       {eligible(server) && !exchangeActive ? (
         <button
           type="button"
-          class="primary-action"
+          class={replacingAuthority ? undefined : "primary-action"}
           data-testid="start-auth-flow"
           disabled={disabled}
           onClick={start}
         >
-          Authorize server
+          {replacingAuthority ? "Reauthorize server" : "Authorize server"}
         </button>
       ) : (
         <StateNotice state="empty" title="OAuth is unavailable">
