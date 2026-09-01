@@ -5426,12 +5426,17 @@ async function runOverview(
 
   heldStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.waitForFunction(
-    () =>
-      document
-        .querySelector('[data-testid="overview-status"]')
-        ?.getAttribute("data-panel-status") === "stale",
+  await eventually(
+    () => releaseHeldStatus !== undefined,
+    "held overview refresh did not start",
   );
+  if (
+    (await page
+      .locator('[data-testid="overview-status"]')
+      .getAttribute("data-panel-status")) !== "current" ||
+    ((await page.locator("body").textContent()) ?? "").includes("Data stale")
+  )
+    fail("overview refresh flashed stale feedback");
   heldStatus = false;
   await page.locator('[data-testid="manual-refresh"]').click();
   releaseHeldStatus?.();
