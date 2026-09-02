@@ -563,8 +563,25 @@ func TestStartBarrierFailureRunsNoReconstructionAndCannotRetry(t *testing.T) {
 	assert.ErrorIs(t, built.Start(context.Background()), ErrStartFailed)
 }
 
-func TestCompositionFailsEveryMandatoryConstructor(t *testing.T) {
-	for _, stage := range mandatoryConstructorStages {
+func TestCompositionVisitsEveryMandatoryConstructorInOrder(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	observed := make([]string, 0, len(mandatoryConstructorStages))
+	built, err := newWithHooks(options, constructorHooks{before: func(stage string) error {
+		observed = append(observed, stage)
+		return nil
+	}})
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	assert.Equal(t, mandatoryConstructorStages, observed)
+}
+
+func TestCompositionConstructorFailuresCleanPartialGraph(t *testing.T) {
+	for _, stage := range []string{
+		mandatoryConstructorStages[0],
+		mandatoryConstructorStages[len(mandatoryConstructorStages)/2],
+		mandatoryConstructorStages[len(mandatoryConstructorStages)-1],
+	} {
 		t.Run(stage, func(t *testing.T) {
 			options, cleanup := newCompositionOptions(t)
 			defer cleanup()

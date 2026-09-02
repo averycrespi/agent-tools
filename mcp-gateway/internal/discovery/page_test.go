@@ -30,15 +30,28 @@ func (projector *fakeProjector) Project(_ context.Context, request Request) (Pro
 }
 
 type countingEncoder struct {
-	calls    int
-	maxTools int
-	mutate   bool
-	id       json.RawMessage
+	calls          int
+	maxTools       int
+	baselineBytes  int
+	cursorOverhead int
+	bytesPerTool   int
+	mutate         bool
+	id             json.RawMessage
 }
 
 func (encoder *countingEncoder) encode(_ context.Context, result ListResult) ([]byte, error) {
 	encoder.calls++
 	encoder.maxTools = max(encoder.maxTools, len(result.Tools))
+	if encoder.bytesPerTool > 0 {
+		size := encoder.baselineBytes + len(result.Tools)*encoder.bytesPerTool
+		if len(result.Tools) > 1 {
+			size += len(result.Tools) - 1
+		}
+		if result.NextCursor != "" {
+			size += encoder.cursorOverhead + len(result.NextCursor)
+		}
+		return make([]byte, size), nil
+	}
 	id := encoder.id
 	if len(id) == 0 {
 		id = json.RawMessage(`17`)
@@ -132,8 +145,11 @@ func TestPagerNearBoundaryIsExactlyMaximalAndPreservesFields(t *testing.T) {
 	codec := mustCursorCodec(t, 13)
 	tools := compactTools(40)
 	for _, tool := range tools {
+		tool.Title = "Preserved title"
 		tool.Description = strings.Repeat(`x"<&`, 25_000)
 		tool.InputSchema = json.RawMessage(`{"type":"object","properties":{"quoted":{"const":"\\\"<&"}}}`)
+		tool.OutputSchema = json.RawMessage(`{"type":"string"}`)
+		tool.Annotations.Title = "Preserved annotation"
 	}
 	projector := &fakeProjector{projection: Projection{Tools: tools, Snapshot: testCursorState().Snapshot}}
 	encoder := &countingEncoder{}
@@ -153,23 +169,38 @@ func TestPagerNearBoundaryIsExactlyMaximalAndPreservesFields(t *testing.T) {
 	candidateBytes, err := encoder.encode(t.Context(), candidate)
 	require.NoError(t, err)
 	assert.Greater(t, len(candidateBytes), pageMaximumBytes)
+	assert.Contains(t, string(page.Encoded), `"title":"Preserved title"`)
 	assert.Contains(t, string(page.Encoded), `"inputSchema":{"type":"object"`)
+	assert.Contains(t, string(page.Encoded), `"outputSchema":{"type":"string"}`)
+	assert.Contains(t, string(page.Encoded), `"title":"Preserved annotation"`)
 	assert.Contains(t, string(page.Encoded), `"annotations":`)
 }
 
 func TestPagerReachesAll2048ToolsAndMoreThan32LargePages(t *testing.T) {
 	codec := mustCursorCodec(t, 14)
+	byteLimited := byteLimitedTools(2048)
+	encodedTool, err := json.Marshal(byteLimited[0])
+	require.NoError(t, err)
+	realEncoder := &countingEncoder{}
+	empty, err := realEncoder.encode(t.Context(), ListResult{Tools: []*Tool{}})
+	require.NoError(t, err)
+	withCursor, err := realEncoder.encode(t.Context(), ListResult{Tools: []*Tool{}, NextCursor: "cursor"})
+	require.NoError(t, err)
+	cursorOverhead := len(withCursor) - len(empty) - len("cursor")
 	for _, test := range []struct {
 		name         string
 		tools        []*Tool
 		minimumPages int
+		bytesPerTool int
 	}{
 		{name: "compact", tools: compactTools(2048), minimumPages: 21},
-		{name: "maximum fields", tools: maximumFieldTools(2048), minimumPages: 33},
+		{name: "byte limited", tools: byteLimited, minimumPages: 33, bytesPerTool: len(encodedTool)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			projector := &fakeProjector{projection: Projection{Tools: test.tools, Snapshot: testCursorState().Snapshot}}
-			encoder := &countingEncoder{}
+			encoder := &countingEncoder{
+				baselineBytes: len(empty), cursorOverhead: cursorOverhead, bytesPerTool: test.bytesPerTool,
+			}
 			pager := mustPager(t, projector, codec)
 			cursor := ""
 			seen := make([]string, 0, len(test.tools))
@@ -245,17 +276,13 @@ func compactTools(count int) []*Tool {
 	return tools
 }
 
-func maximumFieldTools(count int) []*Tool {
-	schema := json.RawMessage(`{"type":"object","description":"` + strings.Repeat("s", 96*1024-40) + `"}`)
-	description := strings.Repeat("d", 16*1024)
-	title := strings.Repeat("t", 1024)
-	annotationTitle := strings.Repeat("a", 1024)
+func byteLimitedTools(count int) []*Tool {
+	schema := json.RawMessage(`{"type":"object","description":"` + strings.Repeat("s", 64*1024) + `"}`)
 	tools := make([]*Tool, count)
 	for index := range count {
 		tools[index] = &Tool{
-			Name: fmt.Sprintf("max-%04d", index), Title: title, Description: description,
-			InputSchema: schema, OutputSchema: json.RawMessage(`{"type":"object"}`),
-			Annotations: &ToolAnnotations{Title: annotationTitle, DestructiveHint: boolPointer(true), OpenWorldHint: boolPointer(true)},
+			Name: fmt.Sprintf("large-%04d", index), InputSchema: schema,
+			Annotations: &ToolAnnotations{DestructiveHint: boolPointer(true), OpenWorldHint: boolPointer(true)},
 		}
 	}
 	return tools
