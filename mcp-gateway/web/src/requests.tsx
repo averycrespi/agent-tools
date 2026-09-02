@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import type { PrincipalDirectory } from "./principals";
 import { useUnsavedChanges } from "./navigation";
 import {
   type MutationController,
@@ -8,7 +9,8 @@ import {
   type MutationSpec,
 } from "./mutation";
 import {
-  ComparisonTable,
+  BinaryToggle,
+  CollectionTable,
   ConfirmationDialog,
   containsControlCharacters,
   FormField,
@@ -284,9 +286,10 @@ async function readRequests(
   const items: RequestSummary[] = [];
   let cursor: string | null = null;
   let restarted = false;
-  const state = query.state ?? "pending";
+  const state = query.state;
   for (;;) {
-    const params = new URLSearchParams({ limit: "50", state });
+    const params = new URLSearchParams({ limit: "50" });
+    if (state !== undefined) params.set("state", state);
     if (query.principal_id !== undefined)
       params.set("principal_id", query.principal_id);
     if (cursor !== null) params.set("cursor", cursor);
@@ -812,12 +815,14 @@ function RequestActions({
 
 export function Requests({
   session,
+  principals,
   mutations,
   resolved,
   view,
   onRefresh,
 }: {
   session: SessionClient;
+  principals: PrincipalDirectory;
   mutations: MutationCoordinator;
   resolved: ResolvedLocation;
   view: ViewSnapshot;
@@ -830,6 +835,11 @@ export function Requests({
   const [items, setItems] = useState<RequestSummary[]>();
   const [detail, setDetail] = useState<RequestDetail>();
   const [error, setError] = useState<string>();
+  const [live, setLive] = useState(true);
+  const [updatesAvailable, setUpdatesAvailable] = useState(false);
+  const liveRef = useRef(true);
+  const [principalNames, setPrincipalNames] = useState(principals.snapshot());
+  useEffect(() => principals.subscribe(setPrincipalNames), [principals]);
   useEffect(() => {
     let current = true;
     setError(undefined);
@@ -847,11 +857,15 @@ export function Requests({
                 : "Request data is unavailable.",
             );
         });
+    } else if (!liveRef.current) {
+      setUpdatesAvailable(true);
     } else {
-      setItems(undefined);
       void readRequests(session, resolved.location.query)
         .then((value) => {
-          if (current) setItems(value);
+          if (current) {
+            setItems(value);
+            setUpdatesAvailable(false);
+          }
         })
         .catch((caught: unknown) => {
           if (current)
@@ -907,7 +921,7 @@ export function Requests({
               <dt>Principal</dt>
               <dd>
                 <a href={`#/principals/${detail.principalID}`}>
-                  Principal {detail.principalID}
+                  {principalNames.get(detail.principalID) ?? detail.principalID}
                 </a>
               </dd>
             </div>
@@ -1059,80 +1073,124 @@ export function Requests({
   }
   if (items === undefined)
     return <StateNotice state="loading" title="Loading requests" />;
-  const state = resolved.location.query.state ?? "pending";
-  const principal = resolved.location.query.principal_id;
+  const changeLive = (next: boolean) => {
+    liveRef.current = next;
+    setLive(next);
+    setUpdatesAvailable(false);
+    if (next) onRefresh();
+  };
   return (
     <div class="domain-view" data-testid="requests-view">
-      <section class="panel domain-panel" aria-labelledby="requests-title">
-        <div class="panel-heading">
-          <div>
-            <span class="panel-code">REVIEW QUEUE</span>
-            <h2 id="requests-title">Grant requests</h2>
-          </div>
-          <StatusLabel state="current">
-            {sentenceCase(state)} filter
-          </StatusLabel>
-        </div>
-        <p>
-          Rows are summary-only. Open one request to retrieve immutable evidence
-          and a separate current target comparison.
-        </p>
-        <nav class="inline-actions" aria-label="Request state filter">
-          {(["pending", "approved", "rejected", "cancelled"] as const).map(
-            (value) => (
-              <a
-                aria-current={state === value ? "page" : undefined}
-                href={`#/requests?${new URLSearchParams({ ...(principal === undefined ? {} : { principal_id: principal }), state: value })}`}
-              >
-                {sentenceCase(value)}
-              </a>
-            ),
+      <section class="panel domain-panel" aria-label="Grant requests">
+        <div class="collection-toolbar live-collection-toolbar">
+          <label for="request-live-mode">Live mode</label>
+          <BinaryToggle
+            attributes={{ id: "request-live-mode" }}
+            checked={live}
+            enabledLabel="Live updates on"
+            disabledLabel="Live updates paused"
+            onChange={changeLive}
+          />
+          {updatesAvailable && (
+            <StatusLabel state="warning">Updates available</StatusLabel>
           )}
-        </nav>
-        {items.length === 0 ? (
-          <StateNotice state="empty" title="No requests match" />
-        ) : (
-          <ComparisonTable caption="Grant request summaries">
-            <thead>
-              <tr>
-                <th scope="col">Request</th>
-                <th scope="col">Principal</th>
-                <th scope="col">Requested target</th>
-                <th scope="col">State</th>
-                <th scope="col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr data-testid="request-row" key={item.id}>
-                  <th scope="row">
-                    <strong>{item.id}</strong>
-                    <span>Revision {item.revision}</span>
-                  </th>
-                  <td>
-                    <a href={`#/principals/${item.principalID}`}>
-                      Principal {item.principalID}
-                    </a>
-                  </td>
-                  <td>
-                    {sentenceCase(item.requestedPolicy.scope)}:{" "}
-                    {item.requestedPolicy.target}
-                  </td>
-                  <td>
-                    <StatusLabel
-                      state={item.state === "pending" ? "warning" : "current"}
-                    >
-                      {sentenceCase(item.state)}
-                    </StatusLabel>
-                  </td>
-                  <td>
-                    <a href={`#/requests/${item.id}`}>Open request</a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </ComparisonTable>
-        )}
+        </div>
+        <CollectionTable
+          caption="Grant request summaries"
+          items={items}
+          rowKey={(item) => item.id}
+          rowTestID="request-row"
+          emptyTitle="No requests match"
+          initialSort={{ key: "submitted", direction: "descending" }}
+          filters={[
+            {
+              key: "request",
+              label: "Request ID",
+              type: "text",
+              value: () => "",
+              literalValues: (item) => [item.id],
+            },
+            {
+              key: "principal",
+              label: "Principal",
+              type: "text",
+              value: (item) => principalNames.get(item.principalID) ?? "",
+              literalValues: (item) => [item.principalID],
+            },
+            {
+              key: "target",
+              label: "Requested target",
+              type: "text",
+              value: (item) => item.requestedPolicy.target,
+            },
+            {
+              key: "scope",
+              label: "Scope",
+              type: "select",
+              value: (item) => item.requestedPolicy.scope,
+              options: [
+                { value: "tool", label: "Tool" },
+                { value: "server", label: "Server" },
+              ],
+            },
+            {
+              key: "state",
+              label: "State",
+              type: "select",
+              value: (item) => item.state,
+              options: [
+                { value: "pending", label: "Pending" },
+                { value: "approved", label: "Approved" },
+                { value: "rejected", label: "Rejected" },
+                { value: "cancelled", label: "Cancelled" },
+              ],
+            },
+          ]}
+          columns={[
+            {
+              key: "request",
+              label: "Request ID",
+              render: (item) => <a href={`#/requests/${item.id}`}>{item.id}</a>,
+              sortValue: (item) => item.id,
+            },
+            {
+              key: "principal",
+              label: "Principal",
+              render: (item) => (
+                <a href={`#/principals/${item.principalID}`}>
+                  {principalNames.get(item.principalID) ?? item.principalID}
+                </a>
+              ),
+              sortValue: (item) =>
+                principalNames.get(item.principalID) ?? item.principalID,
+            },
+            {
+              key: "target",
+              label: "Requested target",
+              render: (item) =>
+                `${sentenceCase(item.requestedPolicy.scope)}: ${item.requestedPolicy.target}`,
+              sortValue: (item) => item.requestedPolicy.target,
+            },
+            {
+              key: "state",
+              label: "State",
+              render: (item) => (
+                <StatusLabel
+                  state={item.state === "pending" ? "warning" : "current"}
+                >
+                  {sentenceCase(item.state)}
+                </StatusLabel>
+              ),
+              sortValue: (item) => item.state,
+            },
+            {
+              key: "submitted",
+              label: "Submitted",
+              render: (item) => <UserTime value={item.createdAt} />,
+              sortValue: (item) => item.createdAt,
+            },
+          ]}
+        />
       </section>
     </div>
   );

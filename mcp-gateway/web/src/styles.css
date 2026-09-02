@@ -1068,12 +1068,12 @@ p {
   margin-top: 16px;
 }
 
-.invocation-toolbar {
+.live-collection-toolbar {
   align-items: center;
   gap: 10px;
 }
 
-.invocation-toolbar > label {
+.live-collection-toolbar > label {
   font-size: 12px;
   font-weight: 650;
 }

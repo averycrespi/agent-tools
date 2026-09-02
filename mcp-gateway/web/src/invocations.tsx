@@ -630,7 +630,7 @@ function InvocationList({
 }) {
   return (
     <section class="panel domain-panel" aria-label="Invocations">
-      <div class="collection-toolbar invocation-toolbar">
+      <div class="collection-toolbar live-collection-toolbar">
         <label for="invocation-live-mode">Live mode</label>
         <BinaryToggle
           attributes={{ id: "invocation-live-mode" }}

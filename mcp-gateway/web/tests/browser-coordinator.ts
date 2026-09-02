@@ -5182,13 +5182,40 @@ async function runRequestReads(
   let staleRestarted = false;
   let listReads = 0;
   let detailReads = 0;
+  let principalReads = 0;
+  let releaseInvalidation: (() => void) | undefined;
+  const invalidationReady = new Promise<void>((resolve) => {
+    releaseInvalidation = resolve;
+  });
+  await page.route(
+    `${baseURL}/api/v1/events`,
+    async (route) => {
+      await invalidationReady;
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `event: invalidate\ndata: ${JSON.stringify({ kind: "grant_requests", resource_id: requestIDs[0] })}\n\n`,
+      });
+    },
+    { times: 1 },
+  );
+  await page.route(
+    `${baseURL}/api/v1/events`,
+    async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: ": reconnect before request invalidation\n\n",
+      }),
+    { times: 1 },
+  );
   await page.route("**/api/v1/grant-requests?*", async (route) => {
     listReads += 1;
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
-      query.get("state") !== "pending" ||
+      query.has("state") ||
       query.get("principal_id") !== principalID ||
       [...query.keys()].some(
         (key) =>
@@ -5218,12 +5245,43 @@ async function runRequestReads(
       contentType: "application/json",
       body: JSON.stringify(
         cursor === "request-next"
-          ? { items: [summary(requestIDs[2]!, "pending")], next_cursor: null }
+          ? {
+              items: [summary(requestIDs[2]!, "cancelled")],
+              next_cursor: null,
+            }
           : {
-              items: [summary(requestIDs[0]!, "pending")],
+              items: [
+                summary(requestIDs[0]!, "pending"),
+                ...(staleRestarted
+                  ? [summary(requestIDs[1]!, "approved")]
+                  : []),
+              ],
               next_cursor: staleRestarted ? "request-next" : "request-stale",
             },
       ),
+    });
+  });
+  await page.route("**/api/v1/principals?*", async (route) => {
+    principalReads += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: principalID,
+            display_name: "Requesting agent",
+            state: "active",
+            visibility: "all",
+            revision: "1",
+            credential_revision: "0",
+            credential: null,
+            created_at: "2026-08-28T12:00:00Z",
+            updated_at: "2026-08-28T12:00:00Z",
+          },
+        ],
+        next_cursor: null,
+      }),
     });
   });
   await page.route("**/api/v1/grant-requests/*", async (route) => {
@@ -5248,13 +5306,77 @@ async function runRequestReads(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.waitForFunction(
-    () => document.querySelectorAll('[data-testid="request-row"]').length === 2,
+    () => document.querySelectorAll('[data-testid="request-row"]').length === 3,
   );
+  await page
+    .getByText("Requesting agent", { exact: true })
+    .first()
+    .waitFor({ timeout: 5000 })
+    .catch(async () =>
+      fail(
+        `request principal directory did not publish (${principalReads} reads): ${(await page.locator("body").textContent()) ?? ""}`,
+      ),
+    );
   let body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of ["Grant requests", "Pending filter", "summary-only"])
-    if (!body.includes(phrase)) fail(`request queue omitted ${phrase}`);
-  if (body.includes("EVIDENCE-CANARY") || detailReads !== 0)
-    fail("request collection expanded immutable evidence");
+  if (
+    body.includes("summary-only") ||
+    body.includes("Pending filter") ||
+    (await page.locator('[data-testid="requests-view"] h2').count()) !== 0 ||
+    (await page
+      .locator('[data-testid="requests-view"] .panel-code')
+      .count()) !== 0
+  )
+    fail("request queue retained duplicate introductory presentation");
+  const requestHeaders = await page.locator("thead th").allTextContents();
+  if (
+    requestHeaders.map((header) => header.replace(/[↕↑↓]/g, "")).join("|") !==
+    "Request ID|Principal|Requested target|State|Submitted"
+  )
+    fail(`request table columns changed: ${requestHeaders.join("|")}`);
+  if (
+    !body.includes("Requesting agent") ||
+    !body.includes("Showing 3 of 3") ||
+    body.includes("EVIDENCE-CANARY") ||
+    detailReads !== 0
+  )
+    fail("request collection omitted shared metadata or expanded evidence");
+  const stateFilter = page.getByLabel("State", { exact: true });
+  await stateFilter.selectOption("approved");
+  if (
+    (await page.locator('[data-testid="request-row"]').count()) !== 1 ||
+    !(await page.evaluate(() => window.location.hash)).includes(
+      "filter_state=approved",
+    )
+  )
+    fail("request state filter was not URL-backed");
+  await page.getByRole("button", { name: "Reset" }).click();
+  if ((await page.locator('[data-testid="request-row"]').count()) !== 3)
+    fail("request filter Reset did not restore rows");
+
+  const liveSwitch = page.getByRole("switch", { name: "Live mode" });
+  if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
+    fail("request live mode was not enabled by default");
+  const beforeIdle = listReads;
+  await page.waitForTimeout(5100);
+  if (listReads !== beforeIdle)
+    fail("request live mode polled instead of waiting for invalidations");
+  await liveSwitch.uncheck();
+  const beforePausedRefresh = listReads;
+  releaseInvalidation?.();
+  await page.getByText("Updates available", { exact: true }).waitFor();
+  if (
+    listReads !== beforePausedRefresh ||
+    (await page.locator('[data-testid="request-row"]').count()) !== 3
+  )
+    fail("paused request collection replaced its stable rows");
+  await liveSwitch.check();
+  await page.waitForFunction(
+    () =>
+      !document.body.textContent?.includes("Updates available") &&
+      document.querySelectorAll('[data-testid="request-row"]').length === 3,
+  );
+  if (listReads <= beforePausedRefresh)
+    fail("resuming request live mode did not perform one authoritative read");
 
   const navigate = async (id: string) => {
     await page.evaluate((requestID) => {
@@ -5923,7 +6045,7 @@ async function runOverview(
     "#/servers",
     "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1?tab=status",
     "#/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
-    "#/requests?state=pending",
+    "#/requests?filter_state=pending",
     "#/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAX",
     "#/invocations",
   ]) {

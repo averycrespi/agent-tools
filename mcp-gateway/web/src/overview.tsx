@@ -887,7 +887,9 @@ export function Overview({
                   ))}
               </ul>
               <p>
-                <a href="#/requests?state=pending">View all pending requests</a>
+                <a href="#/requests?filter_state=pending">
+                  View all pending requests
+                </a>
               </p>
             </>
           )}
