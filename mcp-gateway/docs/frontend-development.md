@@ -84,6 +84,14 @@ Press `Ctrl-C` in the frontend terminal and the Gateway terminal to stop each in
 - **The browser returns to sign-in:** confirm both selectors still name the intended origins. A session cookie belongs to the selected frontend host, and Gateway restart or authority revocation can invalidate the session.
 - **OAuth completion fails:** confirm the provider redirects directly to the Gateway `/oauth/callback` origin rather than the frontend development origin.
 
+## Visual verification
+
+For every change that can affect rendered UI or browser interaction, use a real browser to exercise each affected state before reporting the work complete. Prefer Playwright so the interaction and evidence are reproducible. Inspect the rendered result at representative desktop and narrow viewports; include loading, empty, error, confirmation, overflow, or populated states when the change can affect them.
+
+Use semantic snapshots to verify content, controls, and accessible state. Take and actually inspect screenshots to verify layout, hierarchy, spacing, clipping, overlap, wrapping, responsive behavior, and unintended visual regressions. Running browser tests, generating screenshots, or validating screenshot dimensions and hashes is not visual inspection by itself.
+
+Record the states and viewports inspected in the completion report, along with any console or network failure relevant to the change. If authentication or the local runtime blocks browser verification, report that gap explicitly rather than implying the UI was inspected. Do not retain screenshots containing administrator bearers, one-time secrets, or other sensitive values.
+
 ## Focused verification
 
 Run the fast development checks directly:
