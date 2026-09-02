@@ -4558,6 +4558,18 @@ async function runGrantReadsCreate(
     )?.trim() !== "Review and create"
   )
     fail("grant creation omitted page or immutability guidance");
+  const grantSubmitGap = await page
+    .locator('[data-testid="grant-create-submit"]')
+    .evaluate((button) => {
+      const previous = button.previousElementSibling;
+      if (previous === null) return -1;
+      return (
+        button.getBoundingClientRect().top -
+        previous.getBoundingClientRect().bottom
+      );
+    });
+  if (grantSubmitGap < 16)
+    fail(`grant submit spacing collapsed: ${grantSubmitGap}px`);
   if (
     (await page
       .locator('[data-testid="grant-principal"]')
@@ -10275,6 +10287,17 @@ async function runShellPrimitives(
     (await bearerInput.getAttribute("aria-describedby")) !== "admin-bearer-hint"
   )
     fail("shared form field did not associate its hint");
+  const signInGap = await page
+    .locator('[data-testid="sign-in-submit"]')
+    .evaluate((button) => {
+      const previous = button.previousElementSibling;
+      if (previous === null) return -1;
+      return (
+        button.getBoundingClientRect().top -
+        previous.getBoundingClientRect().bottom
+      );
+    });
+  if (signInGap < 16) fail(`sign-in submit spacing collapsed: ${signInGap}px`);
   await bearerInput.fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");

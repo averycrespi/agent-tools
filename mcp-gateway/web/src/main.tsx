@@ -200,7 +200,7 @@ function SignInPanel({
           )}
         </FormField>
         <button
-          class="primary-action"
+          class="primary-action form-submit-action"
           data-testid="sign-in-submit"
           type="submit"
           disabled={submitting || snapshot.lifecycle !== "signed_out"}

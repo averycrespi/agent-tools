@@ -607,7 +607,7 @@ function GrantCreate({
           )}
           <button
             ref={submitButton}
-            class="create-action"
+            class="create-action form-submit-action"
             data-testid="grant-create-submit"
             type="submit"
             disabled={disabled}

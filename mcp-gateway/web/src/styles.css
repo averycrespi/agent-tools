@@ -532,7 +532,8 @@ p {
   border-color: var(--accent);
 }
 
-.panel > button {
+.panel > button,
+.form-submit-action {
   margin-top: 16px;
 }
 
