@@ -30,7 +30,7 @@ type invocationScanner interface {
 
 func (repository *Repository) ValidateStartup(ctx context.Context) error {
 	return repository.view(ctx, func(transaction *sql.Tx) error {
-		rows, err := transaction.QueryContext(ctx, invocationSelect+` ORDER BY insertion_sequence, id LIMIT ?`, invocationLimit()+1)
+		rows, err := transaction.QueryContext(ctx, invocationSelect+` ORDER BY insertion_sequence, id LIMIT ?`, repository.limit+1)
 		if err != nil {
 			return fmt.Errorf("read invocations for validation: %w", err)
 		}
@@ -41,7 +41,7 @@ func (repository *Repository) ValidateStartup(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("scan invocation for validation: %w", err)
 			}
-			if count >= invocationLimit() {
+			if count >= repository.limit {
 				return invalidInvocationState("invocation capacity is exceeded")
 			}
 			count++

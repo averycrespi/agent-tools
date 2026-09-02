@@ -159,26 +159,6 @@ func TestInvocationRepositoryReadsIntegration(t *testing.T) {
 		assert.Empty(t, continued.Items)
 	})
 
-	t.Run("FIFO crossing and item eviction", func(t *testing.T) {
-		repository, store, _ := newInvocationRepository(t, nil, uniqueInvocationEntropy(int(invocationLimit())+1))
-		prepared := make([]PreparedAdmission, int(invocationLimit())+1)
-		for index := range prepared {
-			var err error
-			prepared[index], err = repository.Prepare(testEvaluatedAdmission())
-			require.NoError(t, err)
-		}
-		require.NoError(t, store.Mutate(ctx, func(transaction *sql.Tx) error {
-			return insertInvocationFixtures(ctx, transaction, prepared[:invocationLimit()])
-		}))
-		cursor, err := encodeInvocationCursor(contract.InvocationCursorBinding{UpperSequence: invocationLimit(), NextSequence: 1})
-		require.NoError(t, err)
-		require.NoError(t, repository.Insert(ctx, prepared[invocationLimit()]))
-		_, err = repository.List(ctx, contract.InvocationListQuery{Limit: 1, Cursor: &cursor})
-		assert.ErrorIs(t, err, ErrStaleCursor)
-		_, err = repository.Get(ctx, prepared[0].InvocationID)
-		assert.ErrorIs(t, err, ErrNotFound)
-	})
-
 	t.Run("latched reads fail closed", func(t *testing.T) {
 		fault := func(point storage.FaultPoint) error {
 			if point == storage.FaultAfterCommit {

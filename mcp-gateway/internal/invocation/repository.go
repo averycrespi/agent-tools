@@ -67,6 +67,7 @@ type Repository struct {
 	clock      Clock
 	entropy    io.Reader
 	invalidate func(contract.Invalidation)
+	limit      int64
 	entropyMu  sync.Mutex
 }
 
@@ -78,7 +79,7 @@ func NewRepository(store *storage.Store, clock Clock, entropy io.Reader, invalid
 	if len(invalidators) == 1 {
 		invalidate = invalidators[0]
 	}
-	return &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate}, nil
+	return &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate, limit: invocationLimit()}, nil
 }
 
 func (repository *Repository) Prepare(admission Admission) (PreparedAdmission, error) {
@@ -152,7 +153,7 @@ func (repository *Repository) InsertTx(ctx context.Context, transaction *sql.Tx,
 	if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM invocations`).Scan(&count); err != nil {
 		return fmt.Errorf("count invocations before insert: %w", err)
 	}
-	if excess := count - invocationLimit() + 1; excess > 0 {
+	if excess := count - repository.limit + 1; excess > 0 {
 		if _, err := transaction.ExecContext(ctx, `DELETE FROM invocations WHERE insertion_sequence IN (
 			SELECT insertion_sequence FROM invocations ORDER BY insertion_sequence LIMIT ?
 		)`, excess); err != nil {

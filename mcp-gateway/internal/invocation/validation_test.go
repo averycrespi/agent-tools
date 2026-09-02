@@ -49,8 +49,10 @@ func TestValidateStartupRejectsCorruptInvocationRows(t *testing.T) {
 }
 
 func TestValidateStartupRejectsInvocationCapacityOverflow(t *testing.T) {
+	const limit = 3
 	repository, store, _ := newInvocationRepository(t, nil, entropyBytes(64))
-	fixtures := make([]PreparedAdmission, int(invocationLimit())+1)
+	repository.limit = limit
+	fixtures := make([]PreparedAdmission, limit+1)
 	for index := range fixtures {
 		fixtures[index] = PreparedAdmission{
 			InvocationID: invocationID(index + 100),
@@ -63,7 +65,11 @@ func TestValidateStartupRejectsInvocationCapacityOverflow(t *testing.T) {
 		}
 	}
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		return insertValidationFixtures(context.Background(), transaction, fixtures)
+		return insertValidationFixtures(context.Background(), transaction, fixtures[:limit])
+	}))
+	require.NoError(t, repository.ValidateStartup(context.Background()))
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		return insertValidationFixtures(context.Background(), transaction, fixtures[limit:])
 	}))
 	assert.ErrorIs(t, repository.ValidateStartup(context.Background()), ErrInvalidState)
 }

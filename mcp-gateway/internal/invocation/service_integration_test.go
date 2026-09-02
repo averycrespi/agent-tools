@@ -15,7 +15,9 @@ import (
 )
 
 func TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss(t *testing.T) {
+	const limit = 4
 	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+	audits.limit = limit
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
 	require.NoError(t, err)
 	defer lease.Release()
@@ -46,7 +48,7 @@ func TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss(t *testing.T) {
 	require.True(t, found)
 	require.Nil(t, inFlight.TerminalClass)
 
-	fixtures := make([]PreparedAdmission, int(invocationLimit())-1)
+	fixtures := make([]PreparedAdmission, limit-1)
 	for index := range fixtures {
 		fixtures[index] = PreparedAdmission{
 			InvocationID: invocationID(1000 + index),
@@ -81,6 +83,6 @@ func TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss(t *testing.T) {
 	assert.Equal(t, 1, executions)
 	count, err := audits.Count(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, invocationLimit(), count)
+	assert.Equal(t, int64(limit), count)
 	assert.False(t, audits.store.Latched())
 }
