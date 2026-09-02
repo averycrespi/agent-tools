@@ -9236,6 +9236,25 @@ async function runServerCatalogReads(
   await page.waitForFunction(
     () => document.querySelectorAll('[data-testid="server-row"]').length === 2,
   );
+  const serverTableSurface = await page
+    .locator('[data-testid="servers-view"] .table-region')
+    .evaluate((table) => {
+      const panel = table.closest(".panel");
+      if (panel === null) return undefined;
+      const style = getComputedStyle(panel);
+      return {
+        background: style.backgroundColor,
+        borderWidth: style.borderTopWidth,
+        padding: style.paddingTop,
+      };
+    });
+  if (
+    serverTableSurface === undefined ||
+    serverTableSurface.background === "rgba(0, 0, 0, 0)" ||
+    serverTableSurface.borderWidth === "0px" ||
+    serverTableSurface.padding === "0px"
+  )
+    fail("server inventory was not presented on a panel surface");
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Authority required",

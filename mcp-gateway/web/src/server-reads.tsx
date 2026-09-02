@@ -1776,29 +1776,31 @@ export function ServerReads({
             Create server
           </a>
         </div>
-        <ReadPanel panel={panel}>
-          {snapshot.servers.length === 0 ? (
-            <StateNotice state="empty" title="No servers" />
-          ) : (
-            <ServerRows items={snapshot.servers} />
-          )}
-          {snapshot.restarted && (
-            <p class="bounded-note">
-              The server list changed while loading. Current results replaced
-              the stale pages.
-            </p>
-          )}
-          {snapshot.serverNext !== null && (
-            <button
-              data-testid="load-more-servers"
-              type="button"
-              disabled={snapshot.loadingMore}
-              onClick={() => void controller.loadMore("servers")}
-            >
-              {snapshot.loadingMore ? "Loading…" : "Load more"}
-            </button>
-          )}
-        </ReadPanel>
+        <section class="panel domain-panel" aria-labelledby="page-title">
+          <ReadPanel panel={panel}>
+            {snapshot.servers.length === 0 ? (
+              <StateNotice state="empty" title="No servers" />
+            ) : (
+              <ServerRows items={snapshot.servers} />
+            )}
+            {snapshot.restarted && (
+              <p class="bounded-note">
+                The server list changed while loading. Current results replaced
+                the stale pages.
+              </p>
+            )}
+            {snapshot.serverNext !== null && (
+              <button
+                data-testid="load-more-servers"
+                type="button"
+                disabled={snapshot.loadingMore}
+                onClick={() => void controller.loadMore("servers")}
+              >
+                {snapshot.loadingMore ? "Loading…" : "Load more"}
+              </button>
+            )}
+          </ReadPanel>
+        </section>
       </div>
     );
   if (authenticationTab !== null)
