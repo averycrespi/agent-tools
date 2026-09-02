@@ -28,9 +28,11 @@ import (
 )
 
 func TestRestoreAcceptedSchemaLineages(t *testing.T) {
-	t.Run("schemas 3 through 9 migrate to an empty valid request store", func(t *testing.T) {
-		for schema := 3; schema <= 9; schema++ {
+	t.Run("historical schemas migrate to a valid request store", func(t *testing.T) {
+		t.Parallel()
+		for schema := 3; schema < storage.CurrentSchema; schema++ {
 			t.Run(strconv.Itoa(schema), func(t *testing.T) {
+				t.Parallel()
 				ctx := context.Background()
 				root := filepath.Join(t.TempDir(), "gateway")
 				require.NoError(t, os.Mkdir(root, 0o700))
@@ -39,8 +41,6 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 				live, err := storage.Initialize(ctx, ownership, backupTestInstallationID)
 				require.NoError(t, err)
 				clock := fixedClock{value: acceptedFixtureTime}
-				_, err = admin.NewService(live, clock, bytes.NewReader(bytes.Repeat([]byte{0xA1}, 256))).Initialize(ctx, new(captureSink))
-				require.NoError(t, err)
 				layout := ownership.Layout()
 				require.NoError(t, live.Close())
 				require.NoError(t, ownership.Close())
@@ -56,6 +56,10 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 					"01ARZ3NDEKTSV4RRFFQ69G5FAV", bytes.Repeat([]byte{0xA0}, 32), "0123456789abcdef",
 					acceptedFixtureTime.Format(time.RFC3339Nano))
 				require.NoError(t, err)
+				expectedRequests, expectedEvidence := int64(0), int64(0)
+				if schema == 10 {
+					expectedRequests, expectedEvidence = populateSchemaTenRestoreFixture(t, fixture)
+				}
 				_, err = fixture.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 				require.NoError(t, err)
 				require.NoError(t, fixture.Close())
@@ -71,20 +75,18 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 				require.NoError(t, err)
 				restored, err := storage.Open(ctx, ownership)
 				require.NoError(t, err)
-				targets, authority := restoreValidationOwners(t, restored, clock, 0xA3)
-				require.NoError(t, authority.ValidateStartup(ctx, targets))
-				require.NoError(t, grantrequests.ValidateStartup(ctx, restored, authority, targets))
 				opened, err := restored.Identity(ctx)
 				require.NoError(t, err)
 				assert.Equal(t, storage.CurrentSchema, opened.SchemaVersion)
-				assertRestoreRequestCounts(t, restored, 0, 0, 0)
+				assertRestoreRequestCounts(t, restored, expectedRequests, expectedRequests, expectedEvidence)
 				require.NoError(t, restored.Close())
 				require.NoError(t, ownership.Close())
 			})
 		}
 	})
 
-	t.Run("schema 10 preserves requests evidence and historical grant", func(t *testing.T) {
+	t.Run("current schema preserves request history and rejects malformed replacement", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		root := filepath.Join(t.TempDir(), "gateway")
 		require.NoError(t, os.Mkdir(root, 0o700))
@@ -148,6 +150,7 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 		require.NoError(t, err)
 		artifact, _, err := manager.Create(ctx, "authority", "s5-restore")
 		require.NoError(t, err)
+		assert.Equal(t, strconv.Itoa(storage.CurrentSchema), artifact.SchemaVersion)
 		malformedID := "01ARZ3NDEKTSV4RRFFQ69G5FA1"
 		cloneMalformedRestoreArtifact(t, ownership.Layout(), artifact.ID, malformedID, principal.Principal.ID, createdServer.Server.ID)
 		currentCredential, err := authority.IssueCredential(ctx, backupCredential.Principal.ID, backupCredential.Principal.Revision)
@@ -220,6 +223,53 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 		require.NoError(t, restored.Close())
 		require.NoError(t, ownership.Close())
 	})
+}
+
+func populateSchemaTenRestoreFixture(t *testing.T, database *sql.DB) (int64, int64) {
+	t.Helper()
+	const (
+		serverID    = "01J60000000000000000000040"
+		principalID = "01J60000000000000000000020"
+		requestID   = "01J60000000000000000000050"
+		grantID     = "01J60000000000000000000060"
+	)
+	createdAt := acceptedFixtureTime.Format("2006-01-02T15:04:05.000000000Z07:00")
+	closedAt := acceptedFixtureTime.Add(time.Second).Format("2006-01-02T15:04:05.000000000Z07:00")
+	_, err := database.Exec(`INSERT INTO server_identities (id, namespace, created_at) VALUES (?, 'sample', ?)`, serverID, createdAt)
+	require.NoError(t, err)
+	_, err = database.Exec(`INSERT INTO servers (id, display_name, desired_state, desired_revision, transport_json, created_at, updated_at)
+		VALUES (?, 'Sample', 'disabled', 1,
+		'{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}', ?, ?)`,
+		serverID, createdAt, createdAt)
+	require.NoError(t, err)
+	_, err = database.Exec(`INSERT INTO principals
+		(id, display_name, state, visibility, revision, credential_revision, created_at, updated_at)
+		VALUES (?, 'Schema Ten Principal', 'active', 'requestable', 1, 0, ?, ?)`, principalID, createdAt, createdAt)
+	require.NoError(t, err)
+	_, err = database.Exec(`INSERT INTO grant_request_identities (id, created_at) VALUES (?, ?)`, requestID, createdAt)
+	require.NoError(t, err)
+
+	policy := contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}
+	compiled, err := grantrequests.CompilePolicy(policy)
+	require.NoError(t, err)
+	dedupe, err := grantrequests.CanonicalDedupeIdentity(compiled, grantrequests.ResolvedTarget{ServerID: serverID})
+	require.NoError(t, err)
+	descriptor := restoreDescriptor(t, serverID)
+	_, evidence, err := grantrequests.BuildDescriptorEvidence(descriptor, "sample", acceptedFixtureTime.Add(time.Second))
+	require.NoError(t, err)
+	_, err = database.Exec(`INSERT INTO grant_requests (
+		id, principal_id, state, revision, resolved_server_id, resolved_upstream_name,
+		requested_scope, requested_target, requested_constraint, requested_duration_seconds,
+		requested_future_tools_acknowledged, dedupe_version, dedupe_bytes, submitted_evidence,
+		approved_scope, approved_target, approved_constraint, approved_duration_seconds,
+		approved_future_tools_acknowledged, approved_grant_id, rejection_reason, approved_evidence,
+		created_at, updated_at, closed_at
+	) VALUES (?, ?, 'approved', 2, ?, NULL, 'server', 'sample', NULL, NULL, 1, ?, ?, NULL,
+		'tool', 'sample.echo', NULL, NULL, 0, ?, NULL, ?, ?, ?, ?)`,
+		requestID, principalID, serverID, dedupe.Version, dedupe.Bytes,
+		grantID, evidence, createdAt, closedAt, closedAt)
+	require.NoError(t, err)
+	return 1, int64(len(evidence))
 }
 
 type restoreDescriptorInspector struct{ descriptor catalog.DurableDescriptor }

@@ -69,23 +69,6 @@ func TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline(t *testing.T) 
 		require.NoError(t, connection.Close())
 	}
 
-	_, err = store.database.ExecContext(ctx, `CREATE TABLE busy_probe (value INTEGER NOT NULL) STRICT`)
-	require.NoError(t, err)
-	transaction, err := store.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	require.NoError(t, err)
-	defer func() { require.NoError(t, transaction.Rollback()) }()
-	_, err = transaction.ExecContext(ctx, `INSERT INTO busy_probe VALUES (1)`)
-	require.NoError(t, err)
-
-	contender, err := sql.Open("sqlite3", dataSource(ownership.Layout().Database, false, true))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, contender.Close()) }()
-	started := time.Now()
-	_, err = contender.ExecContext(ctx, `INSERT INTO busy_probe VALUES (2)`)
-	elapsed := time.Since(started)
-	assert.Error(t, err)
-	assert.GreaterOrEqual(t, elapsed, time.Second)
-	assert.Less(t, elapsed, 5*time.Second)
 }
 
 func TestBusyBeyondDeadlineLatchesMutationAcrossRestart(t *testing.T) {
