@@ -5306,6 +5306,17 @@ async function runRequestReads(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="request-row"]').length === 1,
+  );
+  const loadOlderRequests = page.getByRole("button", {
+    name: "Load older requests",
+  });
+  await loadOlderRequests.click();
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid="request-row"]').length === 2,
+  );
+  await loadOlderRequests.click();
+  await page.waitForFunction(
     () => document.querySelectorAll('[data-testid="request-row"]').length === 3,
   );
   await page
@@ -5373,7 +5384,7 @@ async function runRequestReads(
   await page.waitForFunction(
     () =>
       !document.body.textContent?.includes("Updates available") &&
-      document.querySelectorAll('[data-testid="request-row"]').length === 3,
+      document.querySelectorAll('[data-testid="request-row"]').length === 2,
   );
   if (listReads <= beforePausedRefresh)
     fail("resuming request live mode did not perform one authoritative read");

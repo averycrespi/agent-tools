@@ -279,17 +279,21 @@ async function requestJSON(
     return { response, value: (await response.json()) as unknown };
   });
 }
-async function readRequests(
+interface RequestPage {
+  items: RequestSummary[];
+  nextCursor: string | null;
+  restarted: boolean;
+}
+async function readRequestPage(
   session: SessionClient,
   query: Readonly<Record<string, string>>,
-): Promise<RequestSummary[]> {
-  const items: RequestSummary[] = [];
-  let cursor: string | null = null;
+  requestedCursor: string | null,
+): Promise<RequestPage> {
+  let cursor = requestedCursor;
   let restarted = false;
-  const state = query.state;
   for (;;) {
     const params = new URLSearchParams({ limit: "50" });
-    if (state !== undefined) params.set("state", state);
+    if (query.state !== undefined) params.set("state", query.state);
     if (query.principal_id !== undefined)
       params.set("principal_id", query.principal_id);
     if (cursor !== null) params.set("cursor", cursor);
@@ -297,9 +301,8 @@ async function readRequests(
       session,
       `/api/v1/grant-requests?${params}`,
     );
-    if (result === undefined) return [];
+    if (result === undefined) return { items: [], nextCursor: null, restarted };
     if (result.response.status === 409 && cursor !== null && !restarted) {
-      items.length = 0;
       cursor = null;
       restarted = true;
       continue;
@@ -307,11 +310,17 @@ async function readRequests(
     if (!result.response.ok) throw new Error("Request data is unavailable.");
     const page = record(result.value, ["items", "next_cursor"]);
     if (!Array.isArray(page.items)) throw new Error("invalid response");
-    items.push(...page.items.map(decodeSummary));
-    if (page.next_cursor === null) return items;
-    cursor = text(page.next_cursor);
-    if (cursor.length === 0 || cursor.length > 4096)
+    const nextCursor = nullableText(page.next_cursor);
+    if (
+      nextCursor !== null &&
+      (nextCursor.length === 0 || nextCursor.length > 4096)
+    )
       throw new Error("invalid response");
+    return {
+      items: page.items.map(decodeSummary),
+      nextCursor,
+      restarted,
+    };
   }
 }
 async function readRequest(
@@ -835,6 +844,9 @@ export function Requests({
   const [items, setItems] = useState<RequestSummary[]>();
   const [detail, setDetail] = useState<RequestDetail>();
   const [error, setError] = useState<string>();
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadPending = useRef(false);
   const [live, setLive] = useState(true);
   const [updatesAvailable, setUpdatesAvailable] = useState(false);
   const liveRef = useRef(true);
@@ -860,10 +872,11 @@ export function Requests({
     } else if (!liveRef.current) {
       setUpdatesAvailable(true);
     } else {
-      void readRequests(session, resolved.location.query)
-        .then((value) => {
+      void readRequestPage(session, resolved.location.query, null)
+        .then((page) => {
           if (current) {
-            setItems(value);
+            setItems(page.items);
+            setNextCursor(page.nextCursor);
             setUpdatesAvailable(false);
           }
         })
@@ -1073,6 +1086,31 @@ export function Requests({
   }
   if (items === undefined)
     return <StateNotice state="loading" title="Loading requests" />;
+  const loadMore = async () => {
+    if (loadPending.current || nextCursor === null) return;
+    loadPending.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await readRequestPage(
+        session,
+        resolved.location.query,
+        nextCursor,
+      );
+      setItems((current) =>
+        page.restarted ? page.items : [...(current ?? []), ...page.items],
+      );
+      setNextCursor(page.nextCursor);
+    } catch (caught: unknown) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Request data is unavailable.",
+      );
+    } finally {
+      loadPending.current = false;
+      setLoadingMore(false);
+    }
+  };
   const changeLive = (next: boolean) => {
     liveRef.current = next;
     setLive(next);
@@ -1102,6 +1140,10 @@ export function Requests({
           rowTestID="request-row"
           emptyTitle="No requests match"
           initialSort={{ key: "submitted", direction: "descending" }}
+          hasMore={nextCursor !== null}
+          loadingMore={loadingMore}
+          onLoadMore={() => void loadMore()}
+          loadMoreLabel="Load older requests"
           filters={[
             {
               key: "request",
