@@ -6,6 +6,7 @@ Monorepo of tools for working with AI coding agents.
 
 ```
 mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
+mcp-gateway/         Locally secure MCP gateway — see mcp-gateway/CLAUDE.md
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
@@ -18,17 +19,28 @@ Each Go tool has its own `CLAUDE.md` with tool-specific instructions.
 ## Development
 
 ```bash
-npm install           # install Husky/Prettier deps and Git hooks
-make install          # install all Go tool binaries
-make build            # build all Go tools
-make check            # check formatting, lint, and run unit tests
-make test-integration # run integration suites for tools that provide them
-make test-e2e         # run end-to-end suites for tools that provide them
-make vulncheck        # run blocking govulncheck scans for all Go tools
-make audit            # tidy + fmt + lint + test + govulncheck for all Go tools
+npm install                 # install Husky/Prettier deps and Git hooks
+make install                # install all Go tool binaries
+make build                  # build all Go tools
+make check                  # check formatting, lint, and run unit tests
+make test-integration       # run integration suites for tools that provide them
+make test-e2e               # run end-to-end suites for tools that provide them
+make vulncheck              # run blocking govulncheck scans for all Go tools
+make check-other-tools      # lint + test non-Gateway modules only
+make audit                  # tidy + fmt + lint + test + govulncheck for all Go tools
+make test-browser           # Gateway browser developer aggregate
+make frontend-typecheck
+npm run ui:dev              # foreground live-reload server
+make test-frontend-development
+make frontend-build
+make frontend-verify-generated
+make frontend-verify-supply-chain
+make frontend-audit
 ```
 
-Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
+For the two-process live-reload workflow, follow the [MCP Gateway frontend development guide](mcp-gateway/docs/frontend-development.md). For Gateway evidence tiers, exact-revision acceptance, external qualification, and report adoption, follow the [release verification guide](mcp-gateway/docs/release-verification.md).
+
+Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. `check-other-tools` deliberately excludes `mcp-gateway` because Gateway release acceptance is a separate owner; do not compose both under another aggregate. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 
 GitHub Actions runs formatting and lint checks, Linux unit, integration, and end-to-end tests, a macOS `sandbox-manager` unit-test job, and a blocking vulnerability scan. Keep `.github/workflows/ci.yml` aligned with the root Makefile targets so the same checks can be reproduced locally.
 

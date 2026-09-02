@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mcp-gateway:release-external-evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "behavior_id",
+    "cell_id",
+    "candidate_head",
+    "profile_hash",
+    "manifest_hash",
+    "acceptance_class",
+    "probe",
+    "availability",
+    "result",
+    "operator",
+    "environment",
+    "checklist",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "behavior_id": { "type": "string", "minLength": 1 },
+    "cell_id": { "type": "string", "minLength": 1 },
+    "candidate_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "profile_hash": { "$ref": "#/$defs/digest" },
+    "manifest_hash": { "$ref": "#/$defs/digest" },
+    "acceptance_class": { "enum": ["blocking", "blocking_when_available"] },
+    "unavailable_class": { "enum": ["additive"] },
+    "probe": { "$ref": "#/$defs/probe" },
+    "availability": { "enum": ["available", "unavailable"] },
+    "result": { "enum": ["pending", "passed", "failed", "unavailable"] },
+    "operator": { "$ref": "#/$defs/operator" },
+    "environment": { "$ref": "#/$defs/environment" },
+    "checklist": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "failure_handoff": { "$ref": "#/$defs/failure" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "observed_os", "observed_arch"],
+      "properties": {
+        "availability": { "enum": ["available", "unavailable"] },
+        "unavailable_reason": {
+          "enum": [
+            "platform_mismatch",
+            "executable_not_found",
+            "assistive_technology_unavailable"
+          ]
+        },
+        "observed_os": { "type": "string", "minLength": 1 },
+        "observed_arch": { "type": "string", "minLength": 1 }
+      }
+    },
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": { "name": { "type": "string" } }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "browser",
+        "browser_version",
+        "executable",
+        "executable_sha256"
+      ],
+      "properties": {
+        "os": { "type": "string" },
+        "browser": { "type": "string" },
+        "browser_version": { "type": "string" },
+        "assistive_technology": { "type": "string" },
+        "assistive_technology_version": { "type": "string" },
+        "executable": { "type": "string" },
+        "executable_sha256": { "type": "string" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "result"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "result": { "enum": ["pending", "passed", "failed"] },
+        "notes": { "type": "string" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocking", "summary"],
+      "properties": {
+        "blocking": { "type": "boolean" },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

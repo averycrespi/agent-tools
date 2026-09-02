@@ -1,0 +1,12 @@
+{
+  "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+  "created_at": "2026-08-22T12:00:00Z",
+  "installation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "schema_version": "3",
+  "source_revision": "1",
+  "size_bytes": 65536,
+  "sha256": "a9924abde466dd78fa043a69cd1a3fe34f2a9855898059d3f7cfadaa1ace3a44",
+  "authority_hash": "c5b3ad8996006dc246862d4b4105c34d52f19e86e1b8102727cae430fd89e490",
+  "key_hash": "73a5f469cfa9c6a1687cd1da652336c3f1fcd46235df87263404cda8a510174b",
+  "input_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+}

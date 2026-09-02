@@ -1,0 +1,77 @@
+package contract
+
+const DocumentationOwnershipManifestVersion = 1
+
+type DocumentationGuide struct {
+	ID       string
+	Path     string
+	Audience string
+	Purpose  string
+}
+
+type DocumentationCommandFamily struct {
+	ID             string
+	CommandPath    string
+	CanonicalOwner string
+	HelpInvocation string
+}
+
+type DocumentationSecurityContract struct {
+	ID             string
+	CanonicalOwner string
+	HelpFamilies   []string
+}
+
+var documentationGuides = []DocumentationGuide{
+	{ID: "docs.guide.cli.local.administration", Path: "docs/cli-local-administration.md", Audience: "Gateway operators and automation authors", Purpose: "Run local administration safely through the public CLI."},
+	{ID: "docs.guide.server.configuration", Path: "docs/server-configuration.md", Audience: "Gateway operators configuring upstream MCP servers", Purpose: "Configure servers, credentials, and OAuth without broadening trust."},
+	{ID: "docs.guide.access.policy", Path: "docs/access-policy.md", Audience: "Gateway administrators managing agent access", Purpose: "Manage principals, credentials, grants, and grant requests."},
+	{ID: "docs.guide.invocation.evidence", Path: "docs/invocation-evidence.md", Audience: "Operators investigating governed tool calls", Purpose: "Interpret invocation evidence, redaction, and unknown outcomes."},
+	{ID: "docs.guide.recovery", Path: "docs/recovery.md", Audience: "Operators responsible for Gateway recovery", Purpose: "Create backups and perform restore or stopped-process recovery safely."},
+	{ID: "docs.guide.frontend.development", Path: "docs/frontend-development.md", Audience: "Maintainers developing the Gateway web application", Purpose: "Run trusted live reload without changing the production asset boundary."},
+	{ID: "docs.guide.release.verification", Path: "docs/release-verification.md", Audience: "Maintainers producing release evidence", Purpose: "Run and adopt exact-revision acceptance evidence."},
+}
+
+var documentationCommandFamilies = []DocumentationCommandFamily{
+	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/cli-local-administration.md", HelpInvocation: "mcp-gateway admin credential --help"},
+	{ID: "docs.command.admin.reset", CommandPath: "admin reset", CanonicalOwner: "docs/recovery.md", HelpInvocation: "mcp-gateway admin reset --help"},
+	{ID: "docs.command.backup", CommandPath: "backup", CanonicalOwner: "docs/recovery.md", HelpInvocation: "mcp-gateway backup --help"},
+	{ID: "docs.command.catalog", CommandPath: "catalog", CanonicalOwner: "docs/server-configuration.md", HelpInvocation: "mcp-gateway catalog --help"},
+	{ID: "docs.command.grant", CommandPath: "grant", CanonicalOwner: "docs/access-policy.md", HelpInvocation: "mcp-gateway grant --help"},
+	{ID: "docs.command.grant.request", CommandPath: "grant-request", CanonicalOwner: "docs/access-policy.md", HelpInvocation: "mcp-gateway grant-request --help"},
+	{ID: "docs.command.initialize", CommandPath: "initialize", CanonicalOwner: "docs/cli-local-administration.md", HelpInvocation: "mcp-gateway initialize --help"},
+	{ID: "docs.command.invocation", CommandPath: "invocation", CanonicalOwner: "docs/invocation-evidence.md", HelpInvocation: "mcp-gateway invocation --help"},
+	{ID: "docs.command.principal", CommandPath: "principal", CanonicalOwner: "docs/access-policy.md", HelpInvocation: "mcp-gateway principal --help"},
+	{ID: "docs.command.restore", CommandPath: "restore", CanonicalOwner: "docs/recovery.md", HelpInvocation: "mcp-gateway restore --help"},
+	{ID: "docs.command.serve", CommandPath: "serve", CanonicalOwner: "docs/cli-local-administration.md", HelpInvocation: "mcp-gateway serve --help"},
+	{ID: "docs.command.server", CommandPath: "server", CanonicalOwner: "docs/server-configuration.md", HelpInvocation: "mcp-gateway server --help"},
+	{ID: "docs.command.status", CommandPath: "status", CanonicalOwner: "docs/cli-local-administration.md", HelpInvocation: "mcp-gateway status --help"},
+}
+
+var documentationSecurityContracts = []DocumentationSecurityContract{
+	{ID: "docs.security.admin.authority", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"initialize", "admin credential"}},
+	{ID: "docs.security.local.control", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"serve", "status"}},
+	{ID: "docs.security.one.time.sinks", CanonicalOwner: "docs/cli-local-administration.md", HelpFamilies: []string{"admin credential", "principal", "server"}},
+	{ID: "docs.security.server.credentials.oauth", CanonicalOwner: "docs/server-configuration.md", HelpFamilies: []string{"server"}},
+	{ID: "docs.security.principal.policy", CanonicalOwner: "docs/access-policy.md", HelpFamilies: []string{"principal", "grant", "grant-request"}},
+	{ID: "docs.security.invocation.uncertainty", CanonicalOwner: "docs/invocation-evidence.md", HelpFamilies: []string{"invocation"}},
+	{ID: "docs.security.backup.recovery", CanonicalOwner: "docs/recovery.md", HelpFamilies: []string{"admin reset", "backup", "restore"}},
+	{ID: "docs.security.frontend.trust", CanonicalOwner: "docs/frontend-development.md", HelpFamilies: []string{"serve"}},
+}
+
+func DocumentationGuideManifest() []DocumentationGuide {
+	return append([]DocumentationGuide(nil), documentationGuides...)
+}
+
+func DocumentationCommandManifest() []DocumentationCommandFamily {
+	return append([]DocumentationCommandFamily(nil), documentationCommandFamilies...)
+}
+
+func DocumentationSecurityManifest() []DocumentationSecurityContract {
+	rows := make([]DocumentationSecurityContract, len(documentationSecurityContracts))
+	for index, row := range documentationSecurityContracts {
+		rows[index] = row
+		rows[index].HelpFamilies = append([]string(nil), row.HelpFamilies...)
+	}
+	return rows
+}

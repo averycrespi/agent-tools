@@ -5,6 +5,7 @@ use (
 	./local-git-mcp
 	./local-gomod-proxy
 	./mcp-broker
+	./mcp-gateway
 	./sandbox-manager
 	./telegram-mcp
 )

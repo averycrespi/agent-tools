@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "playwright_version": "1.62.1",
+  "cells": [
+    {
+      "id": "linux-chromium",
+      "os": "linux",
+      "browser": "chromium",
+      "browser_version": "151.0.7922.34",
+      "availability": "available",
+      "acceptance_class": "blocking",
+      "owner": "browser_workflows",
+      "executable_locator": "playwright:chromium",
+      "executable_sha256": "sha256:f48b8e30d70593004542b4d5c16a8f2f8ec5d540111670ecc5f4715df8210eaa"
+    },
+    {
+      "id": "linux-firefox",
+      "os": "linux",
+      "browser": "firefox",
+      "browser_version": "153.0",
+      "availability": "available",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "browser_cross",
+      "executable_locator": "playwright:firefox",
+      "executable_sha256": "sha256:d05db54a87f95746a38295d31b0e2621aaab05ae74d6ce7d7271b9e8e14a65e1"
+    },
+    {
+      "id": "linux-playwright-webkit",
+      "os": "linux",
+      "browser": "playwright_webkit",
+      "browser_version": "26.5",
+      "availability": "available",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "browser_cross",
+      "executable_locator": "playwright:webkit",
+      "executable_sha256": "sha256:a85baad3d8c07173ac387a59b41500c382b21ed692afe0964d29aac247ccc63b"
+    },
+    {
+      "id": "macos-safari",
+      "os": "macos",
+      "browser": "safari",
+      "availability": "unavailable_on_linux_runner",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "external_evidence",
+      "executable_locator": "/Applications/Safari.app"
+    },
+    {
+      "id": "macos-voiceover-safari",
+      "os": "macos",
+      "browser": "safari",
+      "assistive_technology": "voiceover",
+      "availability": "unavailable_on_linux_runner",
+      "acceptance_class": "blocking_when_available",
+      "unavailable_class": "additive",
+      "owner": "external_evidence",
+      "executable_locator": "/Applications/Safari.app"
+    }
+  ]
+}

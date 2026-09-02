@@ -1,0 +1,218 @@
+package authorization
+
+import (
+	"context"
+	"database/sql"
+	"sync"
+	"sync/atomic"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
+)
+
+type leasePhase uint32
+
+const (
+	leasePending leasePhase = iota
+	leaseAdmitted
+	leaseCancelled
+	leaseReleased
+)
+
+type Lease struct {
+	owner   *authorityRegistry
+	binding CredentialBinding
+	done    chan struct{}
+	phase   atomic.Uint32
+}
+
+func (lease *Lease) Binding() CredentialBinding {
+	if lease == nil {
+		return CredentialBinding{}
+	}
+	return lease.binding
+}
+
+func (lease *Lease) Done() <-chan struct{} {
+	if lease == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return lease.done
+}
+
+func (lease *Lease) Current() bool {
+	return lease != nil && leasePhase(lease.phase.Load()) == leasePending &&
+		!lease.owner.draining.Load() && !lease.owner.store.Latched()
+}
+
+func (lease *Lease) Release() {
+	if lease == nil {
+		return
+	}
+	for {
+		phase := leasePhase(lease.phase.Load())
+		if phase == leaseCancelled || phase == leaseReleased {
+			lease.owner.remove(lease)
+			return
+		}
+		if lease.phase.CompareAndSwap(uint32(phase), uint32(leaseReleased)) {
+			close(lease.done)
+			lease.owner.remove(lease)
+			return
+		}
+	}
+}
+
+func (lease *Lease) cancel() {
+	if lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseCancelled)) {
+		close(lease.done)
+	}
+}
+
+type authorityHooks struct {
+	afterGateAcquire   func()
+	afterBindingRead   func()
+	afterLeaseRegister func()
+	afterDrainFence    func()
+}
+
+type authorityRegistry struct {
+	store    *storage.Store
+	gate     chan struct{}
+	draining atomic.Bool
+
+	mu     sync.Mutex
+	leases map[*Lease]struct{}
+	hooks  authorityHooks
+}
+
+func newAuthorityRegistry(store *storage.Store) *authorityRegistry {
+	return &authorityRegistry{store: store, gate: make(chan struct{}, 1), leases: make(map[*Lease]struct{})}
+}
+
+func (registry *authorityRegistry) tryAcquire(ctx context.Context) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if registry.draining.Load() {
+		return nil, ErrShuttingDown
+	}
+	select {
+	case registry.gate <- struct{}{}:
+		if registry.hooks.afterGateAcquire != nil {
+			registry.hooks.afterGateAcquire()
+		}
+		if err := ctx.Err(); err != nil {
+			<-registry.gate
+			return nil, err
+		}
+		if registry.draining.Load() {
+			<-registry.gate
+			return nil, ErrShuttingDown
+		}
+		return func() { <-registry.gate }, nil
+	default:
+		return nil, ErrResourceLimit
+	}
+}
+
+func (registry *authorityRegistry) register(binding CredentialBinding) (*Lease, error) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if registry.draining.Load() || registry.store.Latched() {
+		if registry.store.Latched() {
+			return nil, ErrStorageUnavailable
+		}
+		return nil, ErrShuttingDown
+	}
+	lease := &Lease{owner: registry, binding: binding, done: make(chan struct{})}
+	lease.phase.Store(uint32(leasePending))
+	registry.leases[lease] = struct{}{}
+	return lease, nil
+}
+
+func (registry *authorityRegistry) remove(lease *Lease) {
+	registry.mu.Lock()
+	delete(registry.leases, lease)
+	registry.mu.Unlock()
+}
+
+func (registry *authorityRegistry) cancelPending() {
+	registry.cancelMatching(func(*Lease) bool { return true })
+}
+
+func (registry *authorityRegistry) cancelPrincipal(principalID string) {
+	registry.cancelMatching(func(lease *Lease) bool { return lease.binding.PrincipalID == principalID })
+}
+
+func (registry *authorityRegistry) cancelMatching(matches func(*Lease) bool) {
+	registry.mu.Lock()
+	leases := make([]*Lease, 0, len(registry.leases))
+	for lease := range registry.leases {
+		if matches(lease) {
+			delete(registry.leases, lease)
+			leases = append(leases, lease)
+		}
+	}
+	registry.mu.Unlock()
+	for _, lease := range leases {
+		lease.cancel()
+	}
+}
+
+func (repository *Repository) mutateAuthorityTx(ctx context.Context, affectedPrincipalID string, mutate func(*sql.Tx) error) error {
+	return repository.mutateAuthority(ctx, affectedPrincipalID, func() error {
+		return repository.store.Mutate(ctx, mutate)
+	})
+}
+
+func (repository *Repository) mutateCredentialCandidate(
+	ctx context.Context,
+	affectedPrincipalID string,
+	candidate storage.AgentCredentialCandidate,
+	mutate func(*sql.Tx) error,
+) error {
+	return repository.mutateAuthority(ctx, affectedPrincipalID, func() error {
+		return repository.store.MutateAgentCredentialCandidate(ctx, candidate, mutate)
+	})
+}
+
+func (repository *Repository) mutateAuthority(ctx context.Context, affectedPrincipalID string, mutate func() error) error {
+	releaseGate, err := repository.authority.tryAcquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseGate()
+	err = mutate()
+	if affectedPrincipalID != "" && (err == nil || repository.store.Latched()) {
+		repository.authority.cancelPrincipal(affectedPrincipalID)
+	}
+	return err
+}
+
+func (repository *Repository) BeginDrain() {
+	registry := repository.authority
+	if !registry.draining.CompareAndSwap(false, true) {
+		return
+	}
+	if registry.hooks.afterDrainFence != nil {
+		registry.hooks.afterDrainFence()
+	}
+	registry.cancelPending()
+}
+
+func (repository *Repository) Drain(ctx context.Context) error {
+	repository.BeginDrain()
+	registry := repository.authority
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case registry.gate <- struct{}{}:
+		defer func() { <-registry.gate }()
+		return ctx.Err()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

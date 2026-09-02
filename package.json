@@ -6,18 +6,33 @@
     "prepare": "husky",
     "format": "npm run format:go && npm run format:prettier",
     "format:go": "gofmt -w $(git ls-files '*.go')",
-    "format:prettier": "prettier --write \"**/*.{md,json,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{md,json,yml,yaml}\"",
+    "format:prettier": "prettier --write \"**/*.{md,json,yml,yaml,ts,tsx,css,html}\"",
+    "format:check": "prettier --check \"**/*.{md,json,yml,yaml,ts,tsx,css,html}\"",
+    "ui:typecheck": "tsc -p mcp-gateway/web/tsconfig.json --noEmit",
+    "ui:dev": "node mcp-gateway/web/dev-server.ts",
+    "ui:test-dev": "node --test --test-concurrency=1 --test-timeout=30000",
+    "ui:generate-dev-contract": "go -C mcp-gateway run ./web/scripts/generate-development-contract.go --output web/generated/development-contract.ts",
+    "ui:verify-dev-contract": "go -C mcp-gateway run ./web/scripts/generate-development-contract.go --check web/generated/development-contract.ts",
+    "ui:build": "vite build --config mcp-gateway/web/vite.config.ts",
+    "ui:verify-generated": "node mcp-gateway/web/scripts/verify-generated.mjs",
+    "ui:verify-supply-chain": "node mcp-gateway/web/scripts/verify-supply-chain.mjs",
+    "ui:audit": "npm audit --audit-level=high",
     "lint": "make lint",
     "precommit": "lint-staged && make lint"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.4.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.4",
-    "prettier": "^3.8.1"
+    "preact": "10.29.8",
+    "prettier": "^3.8.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
   },
   "lint-staged": {
     "*.go": "gofmt -w",
-    "*.{md,json,yml,yaml}": "prettier --write"
+    "*.{md,json,yml,yaml,ts,tsx,css,html}": "prettier --write"
   }
 }

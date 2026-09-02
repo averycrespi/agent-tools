@@ -1,0 +1,120 @@
+package grantrequests
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
+)
+
+var (
+	ErrNotFound                = errors.New("grant request was not found")
+	ErrInvalidInput            = errors.New("grant request input is invalid")
+	ErrIdentityUnavailable     = errors.New("grant request identity is unavailable")
+	ErrResourceLimit           = errors.New("grant request resource limit is reached")
+	ErrInvalidState            = errors.New("grant request durable state is invalid")
+	ErrStaleRevision           = errors.New("grant request revision is stale")
+	ErrConflict                = errors.New("grant request conflicts with current state")
+	ErrStaleCursor             = errors.New("grant request cursor is stale")
+	ErrStorageUnavailable      = errors.New("grant request storage is unavailable")
+	ErrStorageOutcomeUncertain = fmt.Errorf("%w: mutation outcome is uncertain", ErrStorageUnavailable)
+)
+
+type Clock interface {
+	Now() time.Time
+}
+
+type NamespaceInspector interface {
+	LookupNamespaceTargetTx(context.Context, *sql.Tx, string) (servers.NamespaceTarget, error)
+}
+
+type DescriptorInspector interface {
+	LookupDurableDescriptorTx(context.Context, *sql.Tx, string, string) (catalog.DurableDescriptor, error)
+}
+
+type DenyInspector interface {
+	HasActiveDenyConflictTx(context.Context, *sql.Tx, authorization.DenyConflictScope, time.Time) (bool, error)
+}
+
+type ActiveTargetInspector interface {
+	CompareActiveTarget(context.Context, string, string, string) contract.TargetActiveState
+}
+
+type Options struct {
+	Store       *storage.Store
+	Clock       Clock
+	Entropy     io.Reader
+	Namespaces  NamespaceInspector
+	Descriptors DescriptorInspector
+	Denies      DenyInspector
+	Active      ActiveTargetInspector
+	Invalidate  func(contract.Invalidation)
+}
+
+type requestCapacity struct {
+	rows          int64
+	pending       int64
+	evidenceBytes int64
+}
+
+type Repository struct {
+	store       *storage.Store
+	clock       Clock
+	entropy     io.Reader
+	namespaces  NamespaceInspector
+	descriptors DescriptorInspector
+	denies      DenyInspector
+	active      ActiveTargetInspector
+	invalidate  func(contract.Invalidation)
+	capacity    requestCapacity
+	entropyMu   sync.Mutex
+}
+
+type CreateRequest struct {
+	PrincipalID string
+	Policy      contract.Policy
+}
+
+type AdminFilter struct {
+	PrincipalID string
+	State       *contract.GrantRequestState
+}
+
+type AdminCursor struct {
+	Collection  string                      `json:"collection"`
+	PrincipalID string                      `json:"principal_id"`
+	State       *contract.GrantRequestState `json:"state"`
+	Upper       int64                       `json:"upper"`
+	After       int64                       `json:"after"`
+	AfterID     string                      `json:"after_id"`
+}
+
+type AdminPage struct {
+	Items []contract.GrantRequestSummary
+	Next  *AdminCursor
+}
+
+func New(options Options) (*Repository, error) {
+	if options.Store == nil || options.Clock == nil || options.Entropy == nil || options.Namespaces == nil ||
+		options.Descriptors == nil || options.Denies == nil || options.Invalidate == nil {
+		return nil, errors.New("grant request repository dependencies are incomplete")
+	}
+	return &Repository{
+		store: options.Store, clock: options.Clock, entropy: options.Entropy,
+		namespaces: options.Namespaces, descriptors: options.Descriptors, denies: options.Denies,
+		active: options.Active, invalidate: options.Invalidate,
+		capacity: requestCapacity{
+			rows: fixedLimit("grant_requests"), pending: fixedLimit("pending_grant_requests_per_principal"),
+			evidenceBytes: fixedLimit("grant_request_evidence_bytes"),
+		},
+	}, nil
+}

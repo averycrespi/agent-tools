@@ -10,6 +10,7 @@ This repo is opinionated. It provides sandboxed execution and broker-backed exte
 
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
+- **[MCP Gateway](#mcp-gateway)** — Locally secure, deny-by-default MCP service foundation
 - **[HTTP Broker](#http-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -48,6 +49,7 @@ make vulncheck
 # Or, to install individual tools
 cd sandbox-manager && make install
 cd mcp-broker && make install
+cd mcp-gateway && make install
 cd http-broker && make install
 cd local-git-mcp && make install
 cd local-gomod-proxy && make install
@@ -84,6 +86,12 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 - A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
 See the [mcp-broker README](mcp-broker/README.md) for more information.
+
+### MCP Gateway
+
+`mcp-gateway` is a locally secure, deny-by-default service for governing MCP access. It combines a strict loopback HTTP/MCP boundary with dynamic downstream runtimes and catalogs, principal credentials and grants, governed tool invocation, bounded redacted evidence, browser and CLI administration, and verified recovery.
+
+Gateway permits at most one automatic authorized attempt and never queues or automatically replays a tool call. Uncertain handoff remains explicit because an effect may already have occurred. Start with the [Gateway README](mcp-gateway/README.md), then use the [CLI and local administration guide](mcp-gateway/docs/cli-local-administration.md) for operation or [DESIGN](mcp-gateway/DESIGN.md) for normative behavior and security boundaries.
 
 ### HTTP Broker
 
