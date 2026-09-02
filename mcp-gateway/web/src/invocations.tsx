@@ -635,8 +635,7 @@ function InvocationList({
         <BinaryToggle
           attributes={{ id: "invocation-live-mode" }}
           checked={snapshot.live}
-          enabledLabel="Live updates on"
-          disabledLabel="Live updates paused"
+          showState={false}
           onChange={setLive}
         />
         {snapshot.updatesAvailable && (

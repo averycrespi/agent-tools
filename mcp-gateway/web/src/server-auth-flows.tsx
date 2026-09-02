@@ -226,9 +226,6 @@ function StartFlow({
         Continue authorization in a new browser page. The one-time URL is
         cleared when it is dismissed, opened, or you leave this page.
       </p>
-      <p class="bounded-note">
-        If the authorization page is lost, start again to receive a new URL.
-      </p>
       {eligible(server) && !exchangeActive ? (
         <button
           type="button"

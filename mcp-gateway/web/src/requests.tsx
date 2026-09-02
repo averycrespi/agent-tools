@@ -1125,8 +1125,7 @@ export function Requests({
           <BinaryToggle
             attributes={{ id: "request-live-mode" }}
             checked={live}
-            enabledLabel="Live updates on"
-            disabledLabel="Live updates paused"
+            showState={false}
             onChange={changeLive}
           />
           {updatesAvailable && (

@@ -1937,12 +1937,14 @@ async function runOverviewInvocationSystemCanary(
   );
   body = (await page.locator("body").textContent()) ?? "";
   if (
-    !body.includes("Live updates on") ||
+    body.includes("Live updates on") ||
+    body.includes("Live updates paused") ||
+    !(await page.getByRole("switch", { name: "Live mode" }).isChecked()) ||
     body.includes("retains at most 4,096 recent rows") ||
     body.includes("Bounded invocation evidence") ||
     body.includes("redacted_arguments")
   )
-    fail("Invocation workflow canary omitted live state or exposed capture");
+    fail("Invocation workflow canary exposed redundant copy or capture");
 
   await page.evaluate(() => {
     window.location.hash = "#/system";
@@ -5379,6 +5381,8 @@ async function runRequestReads(
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
   if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
     fail("request live mode was not enabled by default");
+  if (body.includes("Live updates on") || body.includes("Live updates paused"))
+    fail("request live mode retained redundant state text");
   const beforeIdle = listReads;
   await page.waitForTimeout(5100);
   if (listReads !== beforeIdle)
@@ -6539,12 +6543,13 @@ async function runInvocations(
   if (listReads !== beforeWait)
     fail("invocation live mode retained polling instead of event updates");
   await liveSwitch.uncheck();
+  const pausedBody = (await page.locator("body").textContent()) ?? "";
   if (
-    !((await page.locator("body").textContent()) ?? "").includes(
-      "Live updates paused",
-    )
+    (await liveSwitch.isChecked()) ||
+    pausedBody.includes("Live updates on") ||
+    pausedBody.includes("Live updates paused")
   )
-    fail("invocation live mode did not expose its paused state");
+    fail("invocation live mode did not expose state through the switch alone");
   const beforeContinuation = continuationReads;
   const loadOlder = page.getByRole("button", {
     name: "Load older invocations",
@@ -8421,6 +8426,12 @@ async function runAuthFlows(
   }, serverID);
   const authorizationAction = page.locator('[data-testid="start-auth-flow"]');
   await authorizationAction.waitFor();
+  if (
+    ((await page.locator("body").textContent()) ?? "").includes(
+      "If the authorization page is lost",
+    )
+  )
+    fail("server authentication retained redundant restart guidance");
   if (
     (await authorizationAction.textContent())?.trim() !== "Authorize server" ||
     !(await authorizationAction.getAttribute("class"))?.includes(

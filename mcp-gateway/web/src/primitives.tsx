@@ -463,6 +463,7 @@ export function BinaryToggle({
   disabled = false,
   enabledLabel = "Enabled",
   disabledLabel = "Disabled",
+  showState = true,
   testID,
   onChange,
 }: {
@@ -471,6 +472,7 @@ export function BinaryToggle({
   disabled?: boolean;
   enabledLabel?: string;
   disabledLabel?: string;
+  showState?: boolean;
   testID?: string;
   onChange: (checked: boolean) => void;
 }) {
@@ -486,9 +488,11 @@ export function BinaryToggle({
         onChange={(event) => onChange(event.currentTarget.checked)}
       />
       <span aria-hidden="true" class="binary-toggle-track" />
-      <span class="binary-toggle-state">
-        {checked ? enabledLabel : disabledLabel}
-      </span>
+      {showState && (
+        <span class="binary-toggle-state">
+          {checked ? enabledLabel : disabledLabel}
+        </span>
+      )}
     </span>
   );
 }
