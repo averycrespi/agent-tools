@@ -254,9 +254,17 @@ async function responseJSON(response: Response): Promise<unknown> {
 function tab(viewKey: string): SystemTab {
   if (viewKey === "#/system/backups/new") return "backups";
   if (viewKey === "#/system/admin-credentials/new") return "admin-credentials";
-  if (viewKey === "#/system?tab=resource-limits") return "resource-limits";
-  if (viewKey === "#/system?tab=admin-credentials") return "admin-credentials";
-  if (viewKey === "#/system?tab=backups") return "backups";
+  const queryStart = viewKey.indexOf("?");
+  if (queryStart === -1) return "status";
+  const selected = new URLSearchParams(viewKey.slice(queryStart + 1)).get(
+    "tab",
+  );
+  if (
+    selected === "resource-limits" ||
+    selected === "admin-credentials" ||
+    selected === "backups"
+  )
+    return selected;
   return "status";
 }
 
@@ -287,9 +295,7 @@ export class SystemController {
     });
     views.registerPanel({
       id: "backups",
-      matches: (viewKey) =>
-        viewKey === "#/system?tab=backups" ||
-        viewKey === "#/system/backups/new",
+      matches: (viewKey) => tab(viewKey) === "backups",
       invalidations: ["backups"],
       read: async (context) => readBackups(context.csrfToken, context.signal),
       publish: (backups) => {
@@ -299,9 +305,7 @@ export class SystemController {
     });
     views.registerPanel({
       id: "admin-credentials",
-      matches: (viewKey) =>
-        viewKey === "#/system?tab=admin-credentials" ||
-        viewKey === "#/system/admin-credentials/new",
+      matches: (viewKey) => tab(viewKey) === "admin-credentials",
       invalidations: ["admin_credentials"],
       read: async (context) =>
         readCredentials(context.csrfToken, context.signal),
@@ -312,8 +316,10 @@ export class SystemController {
     });
     views.registerPanel({
       id: "system-status",
-      matches: (viewKey) =>
-        viewKey === "#/system" || viewKey === "#/system?tab=resource-limits",
+      matches: (viewKey) => {
+        const selected = tab(viewKey);
+        return selected === "status" || selected === "resource-limits";
+      },
       invalidations: ["system_status"],
       read: async (context) =>
         decodeStatus(

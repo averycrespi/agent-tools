@@ -318,6 +318,14 @@ export class InvocationsController {
         key.startsWith("#/invocations?") ||
         /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
       invalidations: ["invocations"],
+      onInvalidation: () => {
+        if (this.value.live) return true;
+        if (!this.value.updatesAvailable) {
+          this.value = { ...this.value, updatesAvailable: true };
+          this.emit();
+        }
+        return false;
+      },
       read: (context) => this.read(context),
       publish: (result) => this.publish(result),
     });
@@ -444,7 +452,7 @@ export class InvocationsController {
         item: result.item,
         missing: false,
       };
-    else if (!this.value.live && this.value.items.length > 0)
+    else if (!this.value.live && !(result.append && this.continuationPending))
       this.value = { ...this.value, updatesAvailable: true };
     else
       this.value = {
@@ -493,7 +501,17 @@ function InvocationFacts({ item }: { item: InvocationSummaryView }) {
       </div>
       <div>
         <dt>Tool</dt>
-        <dd>{targetLabel(item.target, item.requestedName)}</dd>
+        <dd>
+          {item.target?.kind === "downstream" ? (
+            <a
+              href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+            >
+              {targetLabel(item.target, item.requestedName)}
+            </a>
+          ) : (
+            targetLabel(item.target, item.requestedName)
+          )}
+        </dd>
       </div>
       <div>
         <dt>Authorization decision</dt>

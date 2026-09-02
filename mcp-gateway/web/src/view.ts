@@ -40,6 +40,7 @@ export interface ViewPanel<T> {
   id: string;
   matches: (viewKey: string) => boolean;
   invalidations: readonly InvalidationKind[];
+  onInvalidation?: (invalidation: Invalidation) => boolean;
   pollMilliseconds?: number;
   shouldPoll?: () => boolean;
   read: (context: ViewReadContext) => Promise<T>;
@@ -244,7 +245,10 @@ export class ViewCoordinator {
     if (!this.active) return;
     let matched = false;
     for (const panel of this.visiblePanels()) {
-      if (panel.invalidations.includes(invalidation.kind)) {
+      if (
+        panel.invalidations.includes(invalidation.kind) &&
+        (panel.onInvalidation?.(invalidation) ?? true)
+      ) {
         this.pendingInvalidations.add(panel.id);
         matched = true;
       }

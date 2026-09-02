@@ -718,9 +718,11 @@ async function principalVisibility(
 function GrantDescriptionEditor({
   mutations,
   grant,
+  onAcknowledged,
 }: {
   mutations: MutationCoordinator;
   grant: Grant;
+  onAcknowledged: (grant: Grant) => void;
 }) {
   const [description, setDescription] = useState(grant.description ?? "");
   const [error, setError] = useState<string>();
@@ -761,7 +763,8 @@ function GrantDescriptionEditor({
       successStatuses: [200],
       decode: decodeMutation,
     });
-    await controller.submit();
+    const outcome = await controller.submit();
+    if (outcome.kind === "acknowledged") onAcknowledged(outcome.value);
   };
   return (
     <section
@@ -1323,6 +1326,7 @@ export function Grants({
           key={`${detail.id}-${detail.revision}`}
           mutations={mutations}
           grant={detail}
+          onAcknowledged={setDetail}
         />
         <GrantActions
           key={detail.id}

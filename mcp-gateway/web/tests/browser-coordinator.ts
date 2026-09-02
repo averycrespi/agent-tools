@@ -3017,6 +3017,15 @@ async function runAccessibilityKeyboardResponsive(
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
   await page.locator('[data-testid="admin-credential-row"]').first().waitFor();
   await page.locator('[data-testid="admin-credential-create"]').waitFor();
+  await page.getByLabel("Fingerprint or ID", { exact: true }).fill(ids[0]!);
+  await page.waitForFunction(
+    (id) =>
+      window.location.hash ===
+      `#/system?tab=admin-credentials&filter_identity=${id}`,
+    ids[0],
+  );
+  await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  await page.getByRole("button", { name: "Reset" }).click();
   await scan("credential-table");
 
   const table = page.locator(
@@ -4202,7 +4211,9 @@ async function runGrantReadsCreate(
     expiresAt: string | null,
   ) => ({
     id,
-    description: id === firstGrantID ? "Reporting access" : "Restricted access",
+    description: (id === firstGrantID
+      ? "Reporting access"
+      : "Restricted access") as string | null,
     revision: "1",
     principal_id: principalID,
     effect,
@@ -4225,6 +4236,7 @@ async function runGrantReadsCreate(
   let staleRestarted = false;
   let attempts = 0;
   let creates = 0;
+  let descriptionPatches = 0;
 
   await page.route("**/api/v1/principals?*", async (route) => {
     await route.fulfill({
@@ -4312,11 +4324,42 @@ async function runGrantReadsCreate(
     });
   });
   await page.route("**/api/v1/grants/*", async (route) => {
-    if (route.request().method() !== "GET") {
+    const request = route.request();
+    const id = new URL(request.url()).pathname.split("/").pop();
+    if (request.method() === "PATCH") {
+      const headers = await request.allHeaders();
+      if (
+        id !== firstGrantID ||
+        headers["if-match"] !== `"grant-${firstGrantID}-${active.revision}"`
+      )
+        fail(
+          `grant description PATCH precondition changed: ${JSON.stringify({ id, actual: headers["if-match"], revision: active.revision })}`,
+        );
+      const patch = JSON.parse(request.postData() ?? "") as Record<
+        string,
+        unknown
+      >;
+      if (
+        Object.keys(patch).join(",") !== "description" ||
+        (patch.description !== "Updated reporting access" &&
+          patch.description !== null)
+      )
+        fail("grant description PATCH body changed");
+      descriptionPatches += 1;
+      active.description = patch.description as string | null;
+      active.revision = String(Number(active.revision) + 1);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"grant-${firstGrantID}-${active.revision}"` },
+        body: JSON.stringify(active),
+      });
+      return;
+    }
+    if (request.method() !== "GET") {
       await route.fallback();
       return;
     }
-    const id = new URL(route.request().url()).pathname.split("/").pop();
     const item =
       id === secondGrantID
         ? expired
@@ -4458,6 +4501,20 @@ async function runGrantReadsCreate(
     ) > 1
   )
     fail("Create grant was not aligned with other create actions");
+  await page.evaluate((id) => {
+    window.location.hash = `#/access/grants/${id}`;
+  }, firstGrantID);
+  await page.locator('[data-testid="grant-detail"]').waitFor();
+  const descriptionEditor = page.locator("#grant-description-edit");
+  await descriptionEditor.fill("Updated reporting access");
+  await page.getByRole("button", { name: "Save description" }).click();
+  await page.waitForTimeout(100);
+  await descriptionEditor.fill("");
+  await page.getByRole("button", { name: "Save description" }).click();
+  await page.waitForTimeout(100);
+  if (descriptionPatches !== 2)
+    fail("grant description save and clear did not both reach the API");
+
   await page.evaluate((id) => {
     window.location.hash = `#/access/grants/${id}`;
   }, secondGrantID);
@@ -6252,8 +6309,6 @@ async function runInvocations(
     )
   )
     fail("invocation live mode did not expose its paused state");
-  await liveSwitch.check();
-
   const beforeContinuation = continuationReads;
   const loadOlder = page.getByRole("button", {
     name: "Load older invocations",
@@ -6271,7 +6326,8 @@ async function runInvocations(
     )
     .catch(() => fail("invocation continuation did not render five rows"));
   if (continuationReads !== beforeContinuation + 1)
-    fail("invocation continuation was duplicated");
+    fail("invocation continuation was duplicated or discarded while paused");
+  await liveSwitch.check();
   body = (await page.locator("body").textContent()) ?? "";
   if (body.includes("missing_terminal") || body.includes("basis"))
     fail("invocation collection exposed internal outcome semantics");

@@ -81,6 +81,7 @@ const preconditionRoutes = [
   new RegExp(`^POST /api/v1/servers/${gatewayID}/credential-replacements$`),
   new RegExp(`^POST /api/v1/servers/${gatewayID}/auth-flows$`),
   new RegExp(`^PATCH /api/v1/principals/${gatewayID}$`),
+  new RegExp(`^PATCH /api/v1/grants/${gatewayID}$`),
   new RegExp(`^(?:POST|DELETE) /api/v1/principals/${gatewayID}/credential$`),
   new RegExp(`^POST /api/v1/grant-requests/${gatewayID}/(?:approve|reject)$`),
 ];
