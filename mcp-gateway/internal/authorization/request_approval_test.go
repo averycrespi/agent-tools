@@ -3,7 +3,6 @@ package authorization
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -45,15 +44,7 @@ func TestApprovalGrantCapacityRollsBackBeforeRequestTransition(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		for index := int64(1); index < mustLimit("grants"); index++ {
-			grantID := fmt.Sprintf("01J6%022d", index)
-			if _, insertErr := transaction.Exec(`INSERT INTO grants
-				(id, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
-				VALUES (?, ?, 'allow', ?, NULL, NULL, NULL, ?)`, grantID, principal.Principal.ID, id(51), timestamp(testNow)); insertErr != nil {
-				return insertErr
-			}
-		}
-		return nil
+		return insertGrantFixtures(transaction, mustLimit("grants")-1, principal.Principal.ID, id(51), nil)
 	}))
 	before, err := repository.AuthorizationRevision(context.Background())
 	require.NoError(t, err)

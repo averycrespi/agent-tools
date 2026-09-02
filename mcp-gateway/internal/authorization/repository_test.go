@@ -225,6 +225,16 @@ func seedGrant(t *testing.T, store *storage.Store, row grantRow) {
 	}))
 }
 
+func insertGrantFixtures(transaction *sql.Tx, count int64, principalID, serverID string, upstreamName any) error {
+	_, err := transaction.Exec(`WITH RECURSIVE fixtures(sequence) AS (
+		SELECT 1 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence < ?
+	) INSERT INTO grants
+		(id, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
+	SELECT printf('%026d', sequence + 100000), ?, 'allow', ?, ?, NULL, NULL, ? FROM fixtures`,
+		count, principalID, serverID, upstreamName, timestamp(testNow))
+	return err
+}
+
 func newRepository(t *testing.T, fault func(storage.FaultPoint) error) (*Repository, *storage.Store) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")

@@ -239,15 +239,7 @@ func TestCreatePrincipalDefaultGrantAcceptsNAndRejectsNPlusOneGrantCapacity(t *t
 	repository, store := newRepository(t, nil)
 	seedPrincipal(t, store, principalRow{id: id(1), displayName: "Seed"})
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		for index := 0; index < 4095; index++ {
-			_, err := transaction.Exec(`INSERT INTO grants
-				(id, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
-				VALUES (?, ?, 'allow', ?, 'tool', NULL, NULL, ?)`, wideID(index+1000), id(1), contract.SyntheticServerID, timestamp(testNow))
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+		return insertGrantFixtures(transaction, 4095, id(1), contract.SyntheticServerID, "tool")
 	}))
 	_, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "At Capacity", Visibility: contract.VisibilityRequestable})
 	require.NoError(t, err)

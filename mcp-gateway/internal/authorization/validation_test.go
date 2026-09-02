@@ -40,10 +40,15 @@ func TestValidateStartupAcceptsEmptyAndValidPopulatedAuthority(t *testing.T) {
 }
 
 func TestValidateStartupRejectsMalformedDurableRows(t *testing.T) {
+	const (
+		principalFixture = 1
+		grantFixture     = 2
+	)
 	tests := []struct {
 		name      string
 		mutate    func(*sql.Tx) error
 		inspector targetInspector
+		fixture   int
 	}{
 		{name: "missing synthetic singleton", mutate: execMutation(`DELETE FROM synthetic_server_identity`)},
 		{name: "duplicate synthetic singleton", mutate: uncheckedMutation(`INSERT INTO synthetic_server_identity (singleton, server_id, namespace) VALUES (2, '01J60000000000000000000099', 'foreign')`)},
@@ -51,29 +56,33 @@ func TestValidateStartupRejectsMalformedDurableRows(t *testing.T) {
 		{name: "synthetic S2 collision", mutate: noMutation, inspector: targetInspector{missing: map[string]bool{contract.SyntheticServerID: true}}},
 		{name: "missing authorization singleton", mutate: execMutation(`DELETE FROM authorization_meta`)},
 		{name: "negative authorization revision", mutate: uncheckedMutation(`UPDATE authorization_meta SET revision = -1`)},
-		{name: "invalid principal state", mutate: uncheckedMutation(`UPDATE principals SET state = 'foreign'`)},
-		{name: "invalid principal visibility", mutate: uncheckedMutation(`UPDATE principals SET visibility = 'foreign'`)},
-		{name: "invalid principal revision", mutate: uncheckedMutation(`UPDATE principals SET revision = 0`)},
-		{name: "noncanonical principal timestamp", mutate: execMutation(`UPDATE principals SET updated_at = '2026-08-25T18:00:00Z'`)},
-		{name: "principal timestamp reversal", mutate: execMutation(`UPDATE principals SET updated_at = '2020-01-01T00:00:00.000000000Z'`)},
-		{name: "partial credential slot", mutate: uncheckedMutation(`UPDATE principals SET credential_verifier = NULL`)},
-		{name: "disabled current credential", mutate: uncheckedMutation(`UPDATE principals SET state = 'disabled'`)},
-		{name: "invalid credential fingerprint", mutate: uncheckedMutation(`UPDATE principals SET credential_fingerprint = 'ABCDEF0123456789'`)},
-		{name: "invalid grant effect", mutate: uncheckedMutation(`UPDATE grants SET effect = 'foreign'`)},
-		{name: "invalid grant target ID", mutate: uncheckedMutation(`UPDATE grants SET server_id = 'malformed'`)},
-		{name: "missing grant target", mutate: noMutation, inspector: targetInspector{missing: map[string]bool{id(51): true}}},
-		{name: "server-wide constraint", mutate: uncheckedMutation(`UPDATE grants SET upstream_name = NULL`)},
-		{name: "nonobject constraint", mutate: uncheckedMutation(`UPDATE grants SET constraint_json = '[]'`)},
-		{name: "duplicate constraint member", mutate: uncheckedMutation(`UPDATE grants SET constraint_json = '{"equals":{},"equals":{}}'`)},
-		{name: "invalid upstream name", mutate: uncheckedMutation(`UPDATE grants SET upstream_name = 'bad/name'`)},
-		{name: "noncanonical grant timestamp", mutate: execMutation(`UPDATE grants SET created_at = '2026-08-25T17:00:00Z'`)},
-		{name: "expiry not after creation", mutate: execMutation(`UPDATE grants SET expires_at = created_at`)},
+		{name: "invalid principal state", mutate: uncheckedMutation(`UPDATE principals SET state = 'foreign'`), fixture: principalFixture},
+		{name: "invalid principal visibility", mutate: uncheckedMutation(`UPDATE principals SET visibility = 'foreign'`), fixture: principalFixture},
+		{name: "invalid principal revision", mutate: uncheckedMutation(`UPDATE principals SET revision = 0`), fixture: principalFixture},
+		{name: "noncanonical principal timestamp", mutate: execMutation(`UPDATE principals SET updated_at = '2026-08-25T18:00:00Z'`), fixture: principalFixture},
+		{name: "principal timestamp reversal", mutate: execMutation(`UPDATE principals SET updated_at = '2020-01-01T00:00:00.000000000Z'`), fixture: principalFixture},
+		{name: "partial credential slot", mutate: uncheckedMutation(`UPDATE principals SET credential_verifier = NULL`), fixture: principalFixture},
+		{name: "disabled current credential", mutate: uncheckedMutation(`UPDATE principals SET state = 'disabled'`), fixture: principalFixture},
+		{name: "invalid credential fingerprint", mutate: uncheckedMutation(`UPDATE principals SET credential_fingerprint = 'ABCDEF0123456789'`), fixture: principalFixture},
+		{name: "invalid grant effect", mutate: uncheckedMutation(`UPDATE grants SET effect = 'foreign'`), fixture: grantFixture},
+		{name: "invalid grant target ID", mutate: uncheckedMutation(`UPDATE grants SET server_id = 'malformed'`), fixture: grantFixture},
+		{name: "missing grant target", mutate: noMutation, inspector: targetInspector{missing: map[string]bool{id(51): true}}, fixture: grantFixture},
+		{name: "server-wide constraint", mutate: uncheckedMutation(`UPDATE grants SET upstream_name = NULL`), fixture: grantFixture},
+		{name: "nonobject constraint", mutate: uncheckedMutation(`UPDATE grants SET constraint_json = '[]'`), fixture: grantFixture},
+		{name: "duplicate constraint member", mutate: uncheckedMutation(`UPDATE grants SET constraint_json = '{"equals":{},"equals":{}}'`), fixture: grantFixture},
+		{name: "invalid upstream name", mutate: uncheckedMutation(`UPDATE grants SET upstream_name = 'bad/name'`), fixture: grantFixture},
+		{name: "noncanonical grant timestamp", mutate: execMutation(`UPDATE grants SET created_at = '2026-08-25T17:00:00Z'`), fixture: grantFixture},
+		{name: "expiry not after creation", mutate: execMutation(`UPDATE grants SET expires_at = created_at`), fixture: grantFixture},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repository, store := newRepository(t, nil)
-			seedPrincipal(t, store, principalRow{id: id(1), displayName: "Valid Agent", credential: true})
-			seedGrant(t, store, grantRow{id: id(11), principalID: id(1), serverID: id(51), constraint: `{"equals":{"/n":1.0}}`, expiresAt: timePointer(testNow.Add(time.Hour))})
+			if test.fixture >= principalFixture {
+				seedPrincipal(t, store, principalRow{id: id(1), displayName: "Valid Agent", credential: true})
+			}
+			if test.fixture >= grantFixture {
+				seedGrant(t, store, grantRow{id: id(11), principalID: id(1), serverID: id(51), constraint: `{"equals":{"/n":1.0}}`, expiresAt: timePointer(testNow.Add(time.Hour))})
+			}
 			require.NoError(t, store.Mutate(context.Background(), test.mutate))
 
 			err := repository.ValidateStartup(context.Background(), test.inspector)
@@ -143,14 +152,7 @@ func TestValidateStartupRejectsCapacityOverflow(t *testing.T) {
 		repository, store := newRepository(t, nil)
 		seedPrincipal(t, store, principalRow{id: id(1), displayName: "Agent"})
 		require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			for index := 0; index < 4097; index++ {
-				if _, err := transaction.Exec(`INSERT INTO grants
-					(id, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
-					VALUES (?, ?, 'allow', ?, 'tool', NULL, NULL, ?)`, wideID(index+1000), id(1), contract.SyntheticServerID, timestamp(testNow)); err != nil {
-					return err
-				}
-			}
-			return nil
+			return insertGrantFixtures(transaction, 4097, id(1), contract.SyntheticServerID, "tool")
 		}))
 		assert.ErrorIs(t, repository.ValidateStartup(context.Background(), targetInspector{}), ErrInvalidState)
 	})

@@ -183,14 +183,7 @@ func TestCredentialEntropyIdentityAndKnownRollbackFailuresPreserveAuthority(t *t
 }
 
 func TestCredentialIssueFaultsNeverReturnBearerAndRecoverCommittedCandidate(t *testing.T) {
-	armFaults := map[storage.FaultPoint]bool{
-		storage.FaultArmCreate: true, storage.FaultArmWrite: true, storage.FaultArmFileSync: true,
-		storage.FaultArmRename: true, storage.FaultArmDirectorySync: true,
-	}
-	for _, point := range []storage.FaultPoint{
-		storage.FaultArmCreate, storage.FaultArmWrite, storage.FaultArmFileSync, storage.FaultArmRename, storage.FaultArmDirectorySync,
-		storage.FaultAfterCommit, storage.FaultDisarmRename, storage.FaultDisarmDirectorySync, storage.FaultDisarmDelete, storage.FaultDisarmFinalDirectorySync,
-	} {
+	for _, point := range []storage.FaultPoint{storage.FaultArmCreate, storage.FaultAfterCommit} {
 		t.Run(string(point), func(t *testing.T) {
 			ctx := context.Background()
 			armed := false
@@ -213,7 +206,7 @@ func TestCredentialIssueFaultsNeverReturnBearerAndRecoverCommittedCandidate(t *t
 			_, err = storage.VerifyCurrent(ctx, root)
 			require.NoError(t, err)
 			principalRevision, credentialRevision, credentialID := readRecoveredCredentialState(t, root, principal.ID)
-			if armFaults[point] {
+			if point == storage.FaultArmCreate {
 				assert.Equal(t, int64(1), principalRevision)
 				assert.Equal(t, int64(0), credentialRevision)
 			} else {

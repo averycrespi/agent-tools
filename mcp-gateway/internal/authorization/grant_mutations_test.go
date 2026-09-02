@@ -270,15 +270,7 @@ func TestCreateGrantAcceptsNAndRejectsNPlusOneCapacity(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-		for index := 0; index < 4094; index++ {
-			_, err := transaction.Exec(`INSERT INTO grants
-				(id, principal_id, effect, server_id, upstream_name, constraint_json, expires_at, created_at)
-				VALUES (?, ?, 'allow', ?, 'tool', NULL, NULL, ?)`, wideID(index+1000), principal.ID, contract.SyntheticServerID, timestamp(testNow))
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+		return insertGrantFixtures(transaction, 4094, principal.ID, contract.SyntheticServerID, "tool")
 	}))
 	_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
 	require.NoError(t, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -96,13 +97,14 @@ func TestEvaluateConstraintUsesObjectOnlyLexicalScalarEquality(t *testing.T) {
 		{name: "escaped and empty members", constraint: `{"equals":{"/a~1b/~0//":"value"}}`, arguments: `{"a/b":{"~":{"":{"":"value"}}}}`, decision: contract.DecisionAllow},
 		{name: "prefix pair has no overlap analysis", constraint: `{"equals":{"/x":1,"/x/y":2}}`, arguments: `{"x":1}`, decision: contract.DecisionBlock},
 	}
-	for _, test := range tests {
+	repository, _ := newRepository(t, nil)
+	principal := mustCreatePrincipal(t, repository)
+	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			repository, _ := newRepository(t, nil)
-			principal := mustCreatePrincipal(t, repository)
+			upstreamName := fmt.Sprintf("tool-%d", index)
 			constraint := json.RawMessage(test.constraint)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &constraint})
-			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(test.arguments)})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &upstreamName, Constraint: &constraint})
+			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: upstreamName, Arguments: json.RawMessage(test.arguments)})
 			require.NoError(t, err)
 			assert.Equal(t, test.decision, result.Decision)
 		})
@@ -138,13 +140,14 @@ func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(
 
 func TestEvaluateGeneratedScalarCorpus(t *testing.T) {
 	scalars := []string{`null`, `true`, `false`, `""`, `"text"`, `0`, `-0`, `1.0`, `1e+2`, `1E-2`}
-	for _, scalar := range scalars {
+	repository, _ := newRepository(t, nil)
+	principal := mustCreatePrincipal(t, repository)
+	for index, scalar := range scalars {
 		t.Run(scalar, func(t *testing.T) {
-			repository, _ := newRepository(t, nil)
-			principal := mustCreatePrincipal(t, repository)
+			upstreamName := fmt.Sprintf("scalar-%d", index)
 			constraint := json.RawMessage(`{"equals":{"/value":` + scalar + `}}`)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &constraint})
-			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{"value":` + scalar + `}`)})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &upstreamName, Constraint: &constraint})
+			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: upstreamName, Arguments: json.RawMessage(`{"value":` + scalar + `}`)})
 			require.NoError(t, err)
 			assert.Equal(t, contract.DecisionAllow, result.Decision)
 		})
