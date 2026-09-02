@@ -1,7 +1,16 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { decodeInvocationPage, type InvocationPageView } from "./invocations";
-import { sentenceCase, StateNotice, StatusLabel } from "./primitives";
+import {
+  decodeInvocationPage,
+  invocationTargetLabel,
+  type InvocationPageView,
+} from "./invocations";
+import {
+  CompactRecord,
+  sentenceCase,
+  StateNotice,
+  StatusLabel,
+} from "./primitives";
 import type { SessionClient } from "./session";
 import { UserTime } from "./time";
 import type {
@@ -762,7 +771,9 @@ export function Overview({
               <div class="fact-grid">
                 <article class="fact-card">
                   <span class="panel-code">Active tools</span>
-                  <h3>{activeTools} active</h3>
+                  <h3>
+                    {activeTools} active {activeTools === 1 ? "tool" : "tools"}
+                  </h3>
                   <p>
                     {snapshot.servers.complete
                       ? "Available across the current active catalog."
@@ -772,7 +783,10 @@ export function Overview({
                 </article>
                 <article class="fact-card">
                   <span class="panel-code">Configured servers</span>
-                  <h3>{configuredServers} configured</h3>
+                  <h3>
+                    {configuredServers} configured{" "}
+                    {configuredServers === 1 ? "server" : "servers"}
+                  </h3>
                   <p>
                     {snapshot.servers.complete
                       ? "Configured total."
@@ -792,16 +806,30 @@ export function Overview({
                   <h3 id="overview-attention-title">Needs attention</h3>
                   <ul class="record-list">
                     {serversNeedingAttention.map((item) => (
-                      <li key={item.id} data-testid="overview-server-row">
-                        <a href={`#/servers/${item.id}?tab=status`}>
-                          {item.name}
-                        </a>
-                        <span>
-                          {sentenceCase(item.runtime)} · Credentials{" "}
-                          {sentenceCase(item.credential)} · Catalog{" "}
-                          {sentenceCase(item.catalog)}
-                        </span>
-                      </li>
+                      <CompactRecord
+                        key={item.id}
+                        testID="overview-server-row"
+                        primaryLabel="Server"
+                        primary={
+                          <a href={`#/servers/${item.id}?tab=status`}>
+                            {item.name}
+                          </a>
+                        }
+                        fields={[
+                          {
+                            label: "Runtime",
+                            value: sentenceCase(item.runtime),
+                          },
+                          {
+                            label: "Credentials",
+                            value: sentenceCase(item.credential),
+                          },
+                          {
+                            label: "Catalog",
+                            value: sentenceCase(item.catalog),
+                          },
+                        ]}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -818,11 +846,9 @@ export function Overview({
           {snapshot.requests !== undefined && (
             <>
               <p>
-                {snapshot.requests.items.length} pending{" "}
-                {snapshot.requests.complete
-                  ? "total"
-                  : "shown; count incomplete"}
-                .
+                {snapshot.requests.items.length} pending grant{" "}
+                {snapshot.requests.items.length === 1 ? "request" : "requests"}
+                {snapshot.requests.complete ? "" : " shown; count incomplete"}.
               </p>
               <ul class="record-list">
                 {[...snapshot.requests.items]
@@ -831,15 +857,27 @@ export function Overview({
                   )
                   .slice(0, 5)
                   .map((item) => (
-                    <li key={item.id}>
-                      <a href={`#/requests/${item.id}`}>{item.target}</a>
-                      <span>
-                        <a href={`#/principals/${item.principalID}`}>
-                          Principal {item.principalID}
-                        </a>{" "}
-                        · <UserTime value={item.createdAt} />
-                      </span>
-                    </li>
+                    <CompactRecord
+                      key={item.id}
+                      primaryLabel="Requested target"
+                      primary={
+                        <a href={`#/requests/${item.id}`}>{item.target}</a>
+                      }
+                      fields={[
+                        {
+                          label: "Principal",
+                          value: (
+                            <a href={`#/principals/${item.principalID}`}>
+                              Principal {item.principalID}
+                            </a>
+                          ),
+                        },
+                        {
+                          label: "Submitted",
+                          value: <UserTime value={item.createdAt} />,
+                        },
+                      ]}
+                    />
                   ))}
               </ul>
               <p>
@@ -863,24 +901,45 @@ export function Overview({
                   : ""}
                 . Polling is not completion authority.
               </p>
-              <ul class="record-list">
-                {snapshot.invocations.items.map((item) => (
-                  <li key={item.id}>
-                    <a href={`#/invocations/${item.id}`}>
-                      {item.requestedName ?? "Not resolved"}
-                    </a>
-                    <span>
-                      {sentenceCase(item.outcome)} · {sentenceCase(item.basis)}{" "}
-                      · <UserTime value={item.admittedAt} />
-                    </span>
-                    {item.basis === "missing_terminal" && (
-                      <span class="warning-copy">
-                        Missing terminal evidence does not prove nonexecution.
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              {snapshot.invocations.items.length === 0 ? (
+                <StateNotice state="empty" title="No recent invocations" />
+              ) : (
+                <ul class="record-list">
+                  {snapshot.invocations.items.map((item) => (
+                    <CompactRecord
+                      key={item.id}
+                      primaryLabel="Tool"
+                      primary={
+                        <a href={`#/invocations/${item.id}`}>
+                          {invocationTargetLabel(
+                            item.target,
+                            item.requestedName,
+                          )}
+                        </a>
+                      }
+                      fields={[
+                        {
+                          label: "Status",
+                          value: sentenceCase(item.basis),
+                        },
+                        {
+                          label: "Outcome",
+                          value: sentenceCase(item.outcome),
+                        },
+                        {
+                          label: "Admitted",
+                          value: <UserTime value={item.admittedAt} />,
+                        },
+                      ]}
+                      warning={
+                        item.basis === "missing_terminal"
+                          ? "Missing terminal evidence does not prove nonexecution."
+                          : undefined
+                      }
+                    />
+                  ))}
+                </ul>
+              )}
               <p>
                 <a href="#/invocations">View invocation history</a>
               </p>

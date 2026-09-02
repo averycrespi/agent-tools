@@ -473,7 +473,7 @@ export class InvocationsController {
   }
 }
 
-function targetLabel(
+export function invocationTargetLabel(
   target: InvocationTargetView | null,
   requestedName?: string | null,
 ): string {
@@ -506,10 +506,10 @@ function InvocationFacts({ item }: { item: InvocationSummaryView }) {
             <a
               href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
             >
-              {targetLabel(item.target, item.requestedName)}
+              {invocationTargetLabel(item.target, item.requestedName)}
             </a>
           ) : (
-            targetLabel(item.target, item.requestedName)
+            invocationTargetLabel(item.target, item.requestedName)
           )}
         </dd>
       </div>
@@ -640,7 +640,8 @@ function InvocationList({
               key: "tool",
               label: "Tool",
               type: "text",
-              value: (item) => targetLabel(item.target, item.requestedName),
+              value: (item) =>
+                invocationTargetLabel(item.target, item.requestedName),
             },
             {
               key: "principal",
@@ -692,7 +693,8 @@ function InvocationList({
             {
               key: "tool",
               label: "Tool",
-              render: (item) => targetLabel(item.target, item.requestedName),
+              render: (item) =>
+                invocationTargetLabel(item.target, item.requestedName),
             },
             {
               key: "principal",

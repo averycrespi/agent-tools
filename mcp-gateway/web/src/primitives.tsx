@@ -101,6 +101,40 @@ export function ComparisonTable({
   );
 }
 
+export function CompactRecord({
+  primaryLabel,
+  primary,
+  fields,
+  warning,
+  testID,
+}: {
+  primaryLabel: string;
+  primary: ComponentChildren;
+  fields: readonly { label: string; value: ComponentChildren }[];
+  warning?: ComponentChildren;
+  testID?: string;
+}) {
+  return (
+    <li class="compact-record" data-testid={testID}>
+      <div class="compact-record-primary">
+        <span>{primaryLabel}</span>
+        {primary}
+      </div>
+      <dl class="compact-record-fields">
+        {fields.map((field) => (
+          <div key={field.label}>
+            <dt>{field.label}</dt>
+            <dd>{field.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {warning !== undefined && (
+        <p class="warning-copy compact-record-warning">{warning}</p>
+      )}
+    </li>
+  );
+}
+
 export interface CollectionColumn<T> {
   key: string;
   label: string;

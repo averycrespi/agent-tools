@@ -532,7 +532,7 @@ p {
   border-color: var(--accent);
 }
 
-.panel button {
+.panel > button {
   margin-top: 16px;
 }
 
@@ -540,7 +540,9 @@ p {
 .inline-actions button,
 .refresh-controls button,
 .inline-filter button,
-.dialog-actions button {
+.dialog-actions button,
+.collection-table button,
+.table-region button {
   margin-top: 0;
 }
 
@@ -575,7 +577,7 @@ p {
   min-height: 32px;
 }
 
-.form-field .binary-toggle input {
+.binary-toggle > input {
   position: absolute;
   z-index: 1;
   width: 44px;
@@ -880,6 +882,43 @@ p {
   font-size: 12px;
 }
 
+.compact-record {
+  display: grid;
+  gap: 8px;
+}
+
+.compact-record-primary {
+  display: grid;
+  gap: 2px;
+}
+
+.compact-record-primary > span,
+.compact-record-fields dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.compact-record-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.compact-record-fields > div {
+  min-width: 0;
+}
+
+.compact-record-fields dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.compact-record-warning {
+  margin: 0;
+}
+
 .record-list .warning-copy {
   color: var(--warning);
 }
@@ -923,6 +962,11 @@ p {
   color: var(--muted);
   font-weight: 600;
   text-decoration: none;
+}
+
+.table-region .inline-actions {
+  align-items: center;
+  margin-top: 0;
 }
 
 .inline-actions a:hover,
@@ -1018,6 +1062,10 @@ p {
   display: flex;
   justify-content: flex-start;
   margin-bottom: 12px;
+}
+
+.collection-toolbar-after-copy {
+  margin-top: 16px;
 }
 
 .invocation-toolbar {
@@ -1160,7 +1208,15 @@ button.sort-button:not(:disabled):hover {
 }
 
 .detail-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 16px !important;
+}
+
+.detail-navigation > [aria-hidden="true"] {
+  color: var(--muted);
 }
 
 .action-list {
@@ -1342,7 +1398,7 @@ button.sort-button:not(:disabled):hover {
   overflow: hidden;
   border-bottom: 1px solid var(--line);
   text-overflow: ellipsis;
-  vertical-align: top;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
@@ -1478,7 +1534,8 @@ button.sort-button:not(:disabled):hover {
 }
 
 .system-view,
-.system-stack {
+.system-stack,
+.system-status-view {
   display: grid;
   min-width: 0;
   gap: 14px;
@@ -1486,7 +1543,8 @@ button.sort-button:not(:disabled):hover {
 
 .domain-view,
 .system-view > *,
-.system-stack > * {
+.system-stack > *,
+.system-status-view > * {
   min-width: 0;
 }
 
@@ -1758,6 +1816,10 @@ button.sort-button:not(:disabled):hover {
 
   .filter-actions {
     width: 100%;
+  }
+
+  .compact-record-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .audit-identities {

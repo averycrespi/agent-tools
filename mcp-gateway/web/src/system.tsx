@@ -428,7 +428,7 @@ function StatusPanel({
   const panelStatus = panel?.status ?? "loading";
   return (
     <section
-      class="panel"
+      class="system-status-view"
       aria-labelledby="system-status-title"
       data-testid="system-status-panel"
       data-panel-status={panelStatus}
@@ -492,7 +492,7 @@ function StatusPanel({
             )}
           </section>
           <div class="fact-grid">
-            <article class="fact-card">
+            <article class="panel fact-card">
               <span class="panel-code">PROCESS</span>
               <h3>Process {sentenceCase(status.processState)}</h3>
               <StatusLabel state={status.ready ? "current" : "warning"}>
@@ -502,7 +502,7 @@ function StatusPanel({
                 Started <UserTime value={status.startedAt} />
               </p>
             </article>
-            <article class="fact-card">
+            <article class="panel fact-card">
               <span class="panel-code">SQLITE</span>
               <h3>Storage {sentenceCase(status.sqliteState)}</h3>
               <p>Schema {status.schemaVersion}</p>
@@ -511,7 +511,7 @@ function StatusPanel({
                 Mutation admission {status.latched ? "closed" : "open"}
               </StatusLabel>
             </article>
-            <article class="fact-card">
+            <article class="panel fact-card">
               <span class="panel-code">KEYRING</span>
               <h3>Keyring {sentenceCase(status.keyring)}</h3>
               <p>
@@ -519,7 +519,7 @@ function StatusPanel({
                 require interaction or fail.
               </p>
             </article>
-            <article class="fact-card">
+            <article class="panel fact-card">
               <span class="panel-code">BACKUP</span>
               <h3>Backup {sentenceCase(status.backupState)}</h3>
               <p>
@@ -528,14 +528,6 @@ function StatusPanel({
               </p>
             </article>
           </div>
-          <section aria-labelledby="resource-summary-title">
-            <h3 id="resource-summary-title">Resource summary</h3>
-            <p>
-              {status.limits.filter((limit) => limit.saturated).length}{" "}
-              saturated resources across {status.limits.length} enforced limits.
-            </p>
-            <a href="#/system?tab=resource-limits">View resource limits</a>
-          </section>
         </div>
       ) : (
         <StateNotice state="loading" title="Loading system status" />
@@ -544,9 +536,20 @@ function StatusPanel({
   );
 }
 
-function ResourceLimits({ status }: { status: StatusView | undefined }) {
+function ResourceLimits({
+  status,
+  view,
+}: {
+  status: StatusView | undefined;
+  view: ViewSnapshot;
+}) {
+  const panel = view.panels["system-status"];
   if (status === undefined)
-    return <StateNotice state="loading" title="Loading resource limits" />;
+    return panel?.status === "error" ? (
+      <StateNotice state="error" title="Resource limits unavailable" />
+    ) : (
+      <StateNotice state="loading" title="Loading resource limits" />
+    );
   const limits = [...status.limits].sort((left, right) => {
     if (left.saturated !== right.saturated) return left.saturated ? -1 : 1;
     return left.name.localeCompare(right.name);
@@ -805,7 +808,7 @@ function Backups({
         Create publishes one owner-only artifact. The browser cannot restore,
         reset, verify, or clear a storage latch.
       </p>
-      <div class="collection-toolbar">
+      <div class="collection-toolbar collection-toolbar-after-copy">
         <a
           class="button-link create-action"
           data-testid="backup-create"
@@ -1230,7 +1233,7 @@ function AdminCredentials({
         Bearers appear once in the protected display. Persist only fingerprints
         and metadata; a bearer cannot be recovered or shown again.
       </p>
-      <div class="collection-toolbar">
+      <div class="collection-toolbar collection-toolbar-after-copy">
         <a
           class="button-link create-action"
           data-testid="admin-credential-create"
@@ -1478,7 +1481,7 @@ export function System({
       {current === "status" ? (
         <StatusPanel status={status} view={view} />
       ) : current === "resource-limits" ? (
-        <ResourceLimits status={status} />
+        <ResourceLimits status={status} view={view} />
       ) : current === "admin-credentials" ? (
         <AdminCredentials
           session={session}

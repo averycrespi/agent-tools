@@ -5856,6 +5856,24 @@ async function runOverview(
   if (body.includes("Inspect System for stopped recovery guidance"))
     fail("overview pointed to removed recovery UI");
   if (
+    !(
+      await page
+        .locator('[data-testid="overview-servers"] h3')
+        .allTextContents()
+    ).some((text) => /\d+ active tools?/.test(text)) ||
+    !(
+      await page
+        .locator('[data-testid="overview-servers"] h3')
+        .allTextContents()
+    ).some((text) => /\d+ configured servers?/.test(text))
+  )
+    fail("overview counts were not self-describing");
+  const invocationFieldLabels = await page
+    .locator('[data-testid="overview-invocations"] .compact-record-fields dt')
+    .allTextContents();
+  if (invocationFieldLabels.join("|") !== "Status|Outcome|Admitted")
+    fail("overview invocation fields were not structured");
+  if (
     (await page.locator("script").count()) !== 1 ||
     (
       await page.locator('[data-testid="overview-invocations"]').textContent()
@@ -6540,9 +6558,18 @@ async function runSystemStatus(
     "Issues requiring attention",
     "Storage mutations are unavailable",
     "Credential storage is unavailable",
-    "Resource summary",
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
+  if (body.includes("Resource summary"))
+    fail("System status retained the duplicate resource summary");
+  const statusPanel = page.locator('[data-testid="system-status-panel"]');
+  if (
+    (await statusPanel.getAttribute("class"))?.split(/\s+/).includes("panel") ||
+    (await statusPanel.locator(".fact-grid > .panel.fact-card").count()) !==
+      4 ||
+    (await statusPanel.locator(".fact-card .fact-card").count()) !== 0
+  )
+    fail("System status did not render four sibling operational cards");
   if (body.includes("Stopped recovery"))
     fail("System retained the documentation-only recovery tab");
   const processStart = page.locator('time[datetime="2026-08-28T00:00:00Z"]');
