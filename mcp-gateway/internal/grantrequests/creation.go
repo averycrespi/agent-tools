@@ -111,7 +111,7 @@ func (repository *Repository) CreateOrExisting(ctx context.Context, request Crea
 		if conflict {
 			return createResult(contract.RequestDenyConflict, nil)
 		}
-		if capacityErr := ensureRequestCapacity(ctx, transaction, request.PrincipalID, int64(len(evidence))); capacityErr != nil {
+		if capacityErr := repository.ensureRequestCapacity(ctx, transaction, request.PrincipalID, int64(len(evidence))); capacityErr != nil {
 			if errors.Is(capacityErr, errRequestCapacity) {
 				return createResult(contract.RequestLimitReached, nil)
 			}

@@ -9,10 +9,10 @@ import (
 
 var errRequestCapacity = errors.New("grant request capacity is exhausted")
 
-func ensureRequestCapacity(ctx context.Context, transaction *sql.Tx, principalID string, newEvidenceBytes int64) error {
-	rowLimit := fixedLimit("grant_requests")
-	pendingLimit := fixedLimit("pending_grant_requests_per_principal")
-	evidenceLimit := fixedLimit("grant_request_evidence_bytes")
+func (repository *Repository) ensureRequestCapacity(ctx context.Context, transaction *sql.Tx, principalID string, newEvidenceBytes int64) error {
+	rowLimit := repository.capacity.rows
+	pendingLimit := repository.capacity.pending
+	evidenceLimit := repository.capacity.evidenceBytes
 	if newEvidenceBytes < 0 || newEvidenceBytes > fixedLimit("grant_request_evidence_snapshot_bytes") {
 		return ErrInvalidState
 	}

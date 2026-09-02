@@ -60,6 +60,12 @@ type Options struct {
 	Invalidate  func(contract.Invalidation)
 }
 
+type requestCapacity struct {
+	rows          int64
+	pending       int64
+	evidenceBytes int64
+}
+
 type Repository struct {
 	store       *storage.Store
 	clock       Clock
@@ -69,6 +75,7 @@ type Repository struct {
 	denies      DenyInspector
 	active      ActiveTargetInspector
 	invalidate  func(contract.Invalidation)
+	capacity    requestCapacity
 	entropyMu   sync.Mutex
 }
 
@@ -105,5 +112,9 @@ func New(options Options) (*Repository, error) {
 		store: options.Store, clock: options.Clock, entropy: options.Entropy,
 		namespaces: options.Namespaces, descriptors: options.Descriptors, denies: options.Denies,
 		active: options.Active, invalidate: options.Invalidate,
+		capacity: requestCapacity{
+			rows: fixedLimit("grant_requests"), pending: fixedLimit("pending_grant_requests_per_principal"),
+			evidenceBytes: fixedLimit("grant_request_evidence_bytes"),
+		},
 	}, nil
 }

@@ -30,17 +30,7 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 			descriptors: &fakeDescriptorInspector{}, denies: new(fakeDenyInspector), invalidate: func(contract.Invalidation) {},
 		})
 		require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			inserter, err := newFixtureRequestInserter(context.Background(), transaction)
-			if err != nil {
-				return err
-			}
-			defer inserter.Close()
-			for sequence := int64(1); sequence <= fixedLimit("grant_requests"); sequence++ {
-				if err := inserter.Insert(context.Background(), fixtureID(sequence), fixtureID(100000), contract.RequestCancelled, []byte(fmt.Sprintf("row-%d", sequence)), nil); err != nil {
-					return err
-				}
-			}
-			return nil
+			return insertRequestCapacityFixtures(context.Background(), transaction, fixedLimit("grant_requests"), contract.RequestCancelled)
 		}))
 		result, err := repository.CreateOrExisting(context.Background(), CreateRequest{PrincipalID: fixtureID(200000), Policy: contract.Policy{
 			Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true,
@@ -91,19 +81,9 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 			clock: &countingRequestClock{now: requestTestTime}, namespaces: namespaces,
 			descriptors: &fakeDescriptorInspector{}, denies: new(fakeDenyInspector), invalidate: func(contract.Invalidation) {},
 		})
+		repository.capacity.rows = 4
 		require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			inserter, err := newFixtureRequestInserter(context.Background(), transaction)
-			if err != nil {
-				return err
-			}
-			defer inserter.Close()
-			for sequence := int64(1); sequence <= fixedLimit("grant_requests"); sequence++ {
-				principal := fixtureID(250000 + sequence/127)
-				if err := inserter.Insert(context.Background(), fixtureID(sequence), principal, contract.RequestPending, []byte(fmt.Sprintf("full-%d", sequence)), nil); err != nil {
-					return err
-				}
-			}
-			return nil
+			return insertRequestCapacityFixtures(context.Background(), transaction, repository.capacity.rows, contract.RequestPending)
 		}))
 		result, err := repository.CreateOrExisting(context.Background(), CreateRequest{PrincipalID: fixtureID(299999), Policy: contract.Policy{
 			Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true,
@@ -113,7 +93,7 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 		require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
 			var rows int64
 			require.NoError(t, transaction.QueryRowContext(context.Background(), `SELECT count(*) FROM grant_requests`).Scan(&rows))
-			assert.Equal(t, fixedLimit("grant_requests"), rows)
+			assert.Equal(t, repository.capacity.rows, rows)
 			return nil
 		}))
 	})
@@ -126,6 +106,7 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 			clock: &countingRequestClock{now: requestTestTime}, namespaces: namespaces,
 			descriptors: &fakeDescriptorInspector{}, denies: new(fakeDenyInspector), invalidate: func(contract.Invalidation) {},
 		})
+		repository.capacity.pending = 3
 		principalID := fixtureID(300000)
 		require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 			inserter, err := newFixtureRequestInserter(context.Background(), transaction)
@@ -133,7 +114,7 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 				return err
 			}
 			defer inserter.Close()
-			for sequence := int64(1); sequence <= fixedLimit("pending_grant_requests_per_principal"); sequence++ {
+			for sequence := int64(1); sequence <= repository.capacity.pending; sequence++ {
 				if err := inserter.Insert(context.Background(), fixtureID(sequence), principalID, contract.RequestPending, []byte(fmt.Sprintf("pending-%d", sequence)), nil); err != nil {
 					return err
 				}
@@ -148,17 +129,8 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 	})
 
 	t.Run("exact evidence byte boundary rejects then evicts terminal prefix", func(t *testing.T) {
-		large := fixtureEvidence(t, 90000)
-		minimum := fixtureEvidence(t, 0)
-		limit := fixedLimit("grant_request_evidence_bytes")
-		largeCount := (limit - int64(len(minimum))) / int64(len(large))
-		remaining := limit - largeCount*int64(len(large))
-		if remaining < int64(len(minimum)) {
-			largeCount--
-			remaining += int64(len(large))
-		}
-		final := fixtureEvidence(t, int(remaining)-len(minimum))
-		require.Equal(t, remaining, int64(len(final)))
+		large := fixtureEvidence(t, 4096)
+		limit := 2 * int64(len(large))
 
 		namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 			"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
@@ -170,19 +142,19 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 			clock: &countingRequestClock{now: requestTestTime}, namespaces: namespaces,
 			descriptors: descriptors, denies: new(fakeDenyInspector), invalidate: func(contract.Invalidation) {},
 		})
+		repository.capacity.evidenceBytes = limit
 		require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 			inserter, err := newFixtureRequestInserter(context.Background(), transaction)
 			if err != nil {
 				return err
 			}
 			defer inserter.Close()
-			for sequence := int64(1); sequence <= largeCount; sequence++ {
-				principal := fixtureID(400000 + sequence/127)
-				if err := inserter.Insert(context.Background(), fixtureID(sequence), principal, contract.RequestPending, []byte(fmt.Sprintf("evidence-%d", sequence)), large); err != nil {
+			for sequence := int64(1); sequence <= 2; sequence++ {
+				if err := inserter.Insert(context.Background(), fixtureID(sequence), fixtureID(400000+sequence), contract.RequestPending, []byte(fmt.Sprintf("evidence-%d", sequence)), large); err != nil {
 					return err
 				}
 			}
-			return inserter.Insert(context.Background(), fixtureID(largeCount+1), fixtureID(500000), contract.RequestPending, []byte("evidence-final"), final)
+			return nil
 		}))
 		principalID := fixtureID(600000)
 		request := CreateRequest{PrincipalID: principalID, Policy: contract.Policy{Scope: contract.PolicyTool, Target: "sample.echo"}}
@@ -210,6 +182,36 @@ func TestRequestRetentionAndEvidenceLimitsIntegration(t *testing.T) {
 			return nil
 		}))
 	})
+}
+
+func insertRequestCapacityFixtures(ctx context.Context, transaction *sql.Tx, count int64, state contract.GrantRequestState) error {
+	timestamp := requestTimestamp(requestTestTime)
+	if _, err := transaction.ExecContext(ctx, `WITH RECURSIVE fixtures(sequence) AS (
+		SELECT 1 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence < ?
+	) INSERT INTO grant_request_identities (id, created_at)
+	SELECT printf('%026d', sequence), ? FROM fixtures`, count, timestamp); err != nil {
+		return err
+	}
+	revision := 1
+	var closed any
+	if state != contract.RequestPending {
+		revision = 2
+		closed = requestTimestamp(requestTestTime.Add(time.Second))
+	}
+	_, err := transaction.ExecContext(ctx, `WITH RECURSIVE fixtures(sequence) AS (
+		SELECT 1 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence < ?
+	) INSERT INTO grant_requests (
+		id, principal_id, state, revision, resolved_server_id, resolved_upstream_name,
+		requested_scope, requested_target, requested_constraint, requested_duration_seconds,
+		requested_future_tools_acknowledged, dedupe_version, dedupe_bytes, submitted_evidence,
+		approved_scope, approved_target, approved_constraint, approved_duration_seconds,
+		approved_future_tools_acknowledged, approved_grant_id, rejection_reason, approved_evidence,
+		created_at, updated_at, closed_at
+	) SELECT printf('%026d', sequence), printf('%026d', sequence + 100000), ?, ?, printf('%026d', 400), NULL,
+		'server', 'sample', NULL, NULL, 1, 1, CAST(printf('fixture-%d', sequence) AS BLOB), NULL,
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, COALESCE(?, ?), ? FROM fixtures`,
+		count, state, revision, timestamp, closed, timestamp, closed)
+	return err
 }
 
 type fixtureRequestInserter struct {
