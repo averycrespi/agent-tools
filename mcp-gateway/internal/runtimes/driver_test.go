@@ -347,7 +347,7 @@ func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.
 	}
 }
 
-func TestConcreteDriverReportsHTTPSessionLossOnce(t *testing.T) {
+func TestConcreteDriverLeavesHTTPSessionLossToCatalogOwner(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var envelope struct {
 			ID     uint64 `json:"id"`
@@ -390,14 +390,14 @@ func TestConcreteDriverReportsHTTPSessionLossOnce(t *testing.T) {
 
 	_, err = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
 	assert.ErrorIs(t, err, downstream.ErrSessionLost)
-	failure := <-reports
-	assert.Equal(t, contract.ReasonConnectivity, failure.Reason)
-	assert.True(t, failure.Retryable)
-	select {
-	case duplicate := <-reports:
-		t.Fatalf("duplicate failure report: %+v", duplicate)
-	default:
-	}
+	assert.Never(t, func() bool {
+		select {
+		case <-reports:
+			return true
+		default:
+			return false
+		}
+	}, 50*time.Millisecond, time.Millisecond)
 	assert.True(t, driver.Stop(context.Background(), candidate))
 }
 

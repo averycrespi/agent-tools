@@ -213,9 +213,9 @@ func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {
 			return false
 		}
 		observedState, observedReason = server.Runtime.State, server.Runtime.Reason
-		return observedState == contract.RuntimeDegraded && observedReason != nil
+		return observedState == contract.RuntimeRetryWait && observedReason != nil
 	}, 3*time.Second, 10*time.Millisecond)
-	assert.Equal(t, contract.ReasonStopUnconfirmed, *observedReason)
+	assert.Equal(t, contract.ReasonConnectivity, *observedReason)
 	ready := harness.Request(http.MethodGet, "/readyz", "", nil)
 	assert.Equal(t, http.StatusOK, ready.StatusCode)
 	_ = ready.Body.Close()

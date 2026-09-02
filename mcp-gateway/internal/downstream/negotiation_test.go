@@ -140,7 +140,7 @@ func TestNegotiatorDoesNotProjectMalformedOAuthChallenge(t *testing.T) {
 	}
 }
 
-func TestRuntimeReturnsFirstPageOAuthDispositionWithoutReportingFatalFailure(t *testing.T) {
+func TestRuntimeReturnsFirstPageOAuthDisposition(t *testing.T) {
 	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
 		modernSuccess,
 		func(Message) WireResponse {
@@ -158,11 +158,6 @@ func TestRuntimeReturnsFirstPageOAuthDispositionWithoutReportingFatalFailure(t *
 	assert.Equal(t, OAuthChallengeStepUp, disposition.Kind)
 	assert.Equal(t, []string{"write"}, disposition.Scopes)
 	assert.Len(t, transport.messages, 2)
-	select {
-	case <-runtime.Failures():
-		t.Fatal("projected OAuth challenge reported fatal runtime failure")
-	default:
-	}
 }
 
 func TestNegotiatorProjectsChallengeOnVersionRetryWithoutFurtherReplay(t *testing.T) {
@@ -326,10 +321,9 @@ func TestNegotiatorRequiresVerifiedProbeStopBeforeLegacyConstruction(t *testing.
 	assert.Equal(t, 1, opened)
 }
 
-func TestSelectedRuntimeReportsFirstFatalRequestFailureOnce(t *testing.T) {
+func TestSelectedRuntimeReturnsFatalRequestFailureToCatalogOwner(t *testing.T) {
 	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
 		modernSuccess,
-		func(message Message) WireResponse { return jsonResponse(message, `{"result":`) },
 		func(message Message) WireResponse { return jsonResponse(message, `{"result":`) },
 	}}
 	negotiator := newScriptedNegotiator(t, transport)
@@ -337,18 +331,10 @@ func TestSelectedRuntimeReportsFirstFatalRequestFailureOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
-	assert.Error(t, err)
-	failure := <-runtime.Failures()
-	assert.ErrorIs(t, failure, ErrInvalidMessage)
-	_, _ = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
-	select {
-	case duplicate := <-runtime.Failures():
-		t.Fatalf("duplicate runtime failure: %v", duplicate)
-	default:
-	}
+	assert.ErrorIs(t, err, ErrInvalidMessage)
 }
 
-func TestSelectedRuntimeDoesNotReportHealthyApplicationFailure(t *testing.T) {
+func TestSelectedRuntimeReturnsHealthyApplicationFailure(t *testing.T) {
 	transport := &scriptedTransport{exchanges: []func(Message) WireResponse{
 		modernSuccess,
 		func(message Message) WireResponse {
@@ -362,14 +348,9 @@ func TestSelectedRuntimeDoesNotReportHealthyApplicationFailure(t *testing.T) {
 	response, err := runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
 	require.NoError(t, err)
 	require.NotNil(t, response.Error)
-	select {
-	case failure := <-runtime.Failures():
-		t.Fatalf("healthy application failure reported runtime loss: %v", failure)
-	default:
-	}
 }
 
-func TestSelectedRuntimeClassifiesFatalHTTPStatus(t *testing.T) {
+func TestSelectedRuntimeClassifiesFatalHTTPStatusForCatalogOwner(t *testing.T) {
 	tests := []struct {
 		status int
 		want   error
@@ -388,7 +369,6 @@ func TestSelectedRuntimeClassifiesFatalHTTPStatus(t *testing.T) {
 
 			_, err = runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
 			assert.ErrorIs(t, err, test.want)
-			assert.ErrorIs(t, <-runtime.Failures(), test.want)
 		})
 	}
 }

@@ -99,15 +99,15 @@ func TestGatewayBinaryActivatesAndPublishesStdioCatalog(t *testing.T) {
 }
 
 func TestGatewayBinaryWithdrawsStdioCatalogOnProcessAndOutputFailure(t *testing.T) {
-	// Retried fixture faults reap themselves during negotiation, so the terminal fail-closed reason is cleanup proof rather than the initiating class.
+	// Retried fixture faults reap themselves during negotiation, so verified cleanup permits connectivity retry instead of a terminal cleanup failure.
 	for _, test := range []struct {
 		name   string
 		mode   string
 		reason contract.PublicReason
 		kill   bool
 	}{
-		{name: "process exit", mode: "process-failure", reason: contract.ReasonStopUnconfirmed, kill: true},
-		{name: "bounded output", mode: "output-failure", reason: contract.ReasonStopUnconfirmed},
+		{name: "process exit", mode: "process-failure", reason: contract.ReasonConnectivity, kill: true},
+		{name: "bounded output", mode: "output-failure", reason: contract.ReasonConnectivity},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			harness := newGatewayHarness(t)
@@ -131,7 +131,7 @@ func TestGatewayBinaryWithdrawsStdioCatalogOnProcessAndOutputFailure(t *testing.
 				require.NoError(t, syscall.Kill(pid, syscall.SIGKILL))
 			}
 			server := waitForStdioServer(t, harness, creation.Server.ID, func(server stdioServerView) bool {
-				return server.Runtime.State == contract.RuntimeDegraded && server.Runtime.Reason != nil && *server.Runtime.Reason == test.reason && server.Catalog.ActiveRevision == nil && server.Catalog.ActiveToolCount == 0
+				return server.Runtime.State == contract.RuntimeRetryWait && server.Runtime.Reason != nil && *server.Runtime.Reason == test.reason && server.Catalog.ActiveRevision == nil && server.Catalog.ActiveToolCount == 0
 			})
 			assert.Equal(t, contract.ActiveCatalogUnavailable, server.Catalog.ActiveState)
 			allEvents := waitForFixtureEvents(t, eventsPath, func(events []stdioFixtureEvent) bool {

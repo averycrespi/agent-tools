@@ -272,8 +272,13 @@ func (driver *ConcreteDriver) watchFailures(candidate Candidate, key CandidateKe
 		cancel()
 		return
 	}
-	handle.failureCancel = cancel
 	stdioDone := handle.stdioDone
+	if stdioDone == nil {
+		handle.mu.Unlock()
+		cancel()
+		return
+	}
+	handle.failureCancel = cancel
 	handle.mu.Unlock()
 	go func() {
 		select {
@@ -283,18 +288,6 @@ func (driver *ConcreteDriver) watchFailures(candidate Candidate, key CandidateKe
 			if ok {
 				driver.reportHandleFailure(candidate, key, handle, FailureDisposition{State: contract.RuntimeDegraded, Reason: exit.Reason, Retryable: exit.Retryable, RuntimeLost: true})
 			}
-		case err := <-runtime.Failures():
-			if stdioDone != nil {
-				select {
-				case exit, ok := <-stdioDone:
-					if ok {
-						driver.reportHandleFailure(candidate, key, handle, FailureDisposition{State: contract.RuntimeDegraded, Reason: exit.Reason, Retryable: exit.Retryable, RuntimeLost: true})
-					}
-					return
-				default:
-				}
-			}
-			driver.reportHandleFailure(candidate, key, handle, ClassifyFailure(err))
 		}
 	}()
 }
