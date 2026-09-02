@@ -1,4 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
+import type { PrincipalDirectory } from "./principals";
 import {
   BinaryToggle,
   CollectionTable,
@@ -484,7 +485,13 @@ export function invocationTargetLabel(
     ? `mcp_gateway.${target.upstreamName}`
     : target.upstreamName;
 }
-function InvocationFacts({ item }: { item: InvocationSummaryView }) {
+function InvocationFacts({
+  item,
+  principalNames,
+}: {
+  item: InvocationSummaryView;
+  principalNames: ReadonlyMap<string, string>;
+}) {
   return (
     <dl class="fact-grid">
       <div>
@@ -495,7 +502,7 @@ function InvocationFacts({ item }: { item: InvocationSummaryView }) {
         <dt>Principal</dt>
         <dd>
           <a href={`#/principals/${item.principalID}`}>
-            Principal {item.principalID}
+            {principalNames.get(item.principalID) ?? item.principalID}
           </a>
         </dd>
       </div>
@@ -573,13 +580,17 @@ function InvocationFacts({ item }: { item: InvocationSummaryView }) {
 }
 export function Invocations({
   controller,
+  principals,
   view,
 }: {
   controller: InvocationsController;
+  principals: PrincipalDirectory;
   view: ViewSnapshot;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
+  const [principalNames, setPrincipalNames] = useState(principals.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
+  useEffect(() => principals.subscribe(setPrincipalNames), [principals]);
   const panel: PanelSnapshot | undefined = view.panels.invocations;
   const detail = /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
     view.viewKey,
@@ -587,13 +598,18 @@ export function Invocations({
   return (
     <div class="invocations-view" data-testid="invocations-view">
       {detail ? (
-        <InvocationDetail snapshot={snapshot} panel={panel} />
+        <InvocationDetail
+          snapshot={snapshot}
+          panel={panel}
+          principalNames={principalNames}
+        />
       ) : (
         <InvocationList
           snapshot={snapshot}
           panel={panel}
           setLive={(live) => controller.setLive(live)}
           loadOlder={() => void controller.loadOlder()}
+          principalNames={principalNames}
         />
       )}
     </div>
@@ -604,11 +620,13 @@ function InvocationList({
   panel,
   setLive,
   loadOlder,
+  principalNames,
 }: {
   snapshot: InvocationsSnapshot;
   panel: PanelSnapshot | undefined;
   setLive: (live: boolean) => void;
   loadOlder: () => void;
+  principalNames: ReadonlyMap<string, string>;
 }) {
   return (
     <section class="panel domain-panel" aria-label="Invocations">
@@ -645,9 +663,9 @@ function InvocationList({
             },
             {
               key: "principal",
-              label: "Principal ID",
+              label: "Principal",
               type: "text",
-              value: () => "",
+              value: (item) => principalNames.get(item.principalID) ?? "",
               literalValues: (item) => [item.principalID],
             },
             {
@@ -675,6 +693,12 @@ function InvocationList({
                 { value: "block", label: "Block" },
                 { value: "invalid_params", label: "Invalid parameters" },
                 { value: "unknown_tool", label: "Unknown tool" },
+                { value: "invalid_arguments", label: "Invalid arguments" },
+                {
+                  value: "authorization_unavailable",
+                  label: "Authorization unavailable",
+                },
+                { value: "prestart_failure", label: "Prestart failure" },
               ],
             },
           ]}
@@ -701,7 +725,7 @@ function InvocationList({
               label: "Principal",
               render: (item) => (
                 <a href={`#/principals/${item.principalID}`}>
-                  {item.principalID}
+                  {principalNames.get(item.principalID) ?? item.principalID}
                 </a>
               ),
             },
@@ -744,9 +768,11 @@ function InvocationList({
 function InvocationDetail({
   snapshot,
   panel,
+  principalNames,
 }: {
   snapshot: InvocationsSnapshot;
   panel: PanelSnapshot | undefined;
+  principalNames: ReadonlyMap<string, string>;
 }) {
   if (snapshot.missing)
     return (
@@ -779,7 +805,6 @@ function InvocationDetail({
       >
         <div class="panel-heading">
           <div>
-            <span class="panel-value">Invocation details</span>
             <h1 id="invocation-detail-title" tabindex={-1}>
               Invocation {item.id}
             </h1>
@@ -790,7 +815,7 @@ function InvocationDetail({
             {sentenceCase(item.outcome)}
           </StatusLabel>
         </div>
-        <InvocationFacts item={item} />
+        <InvocationFacts item={item} principalNames={principalNames} />
         {item.basis === "missing_terminal" && (
           <StateNotice state="warning" title="Audit completion is unknown">
             <p>

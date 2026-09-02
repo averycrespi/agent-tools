@@ -19,7 +19,7 @@ import {
 import type { ProtectedContext, SessionClient } from "./session";
 import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
 import { UserTime } from "./time";
-import type { ViewSnapshot } from "./view";
+import type { ViewCoordinator, ViewSnapshot } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const decimal = /^(0|[1-9][0-9]*)$/;
@@ -207,6 +207,56 @@ export async function readPrincipals(
       throw new Error("invalid response");
   }
 }
+
+export class PrincipalDirectory {
+  private readonly listeners = new Set<
+    (principals: ReadonlyMap<string, string>) => void
+  >();
+  private principals: ReadonlyMap<string, string> = new Map();
+
+  constructor(session: SessionClient, views: ViewCoordinator) {
+    views.registerPanel({
+      id: "principal-directory",
+      matches: (key) =>
+        key === "#/overview" ||
+        key === "#/invocations" ||
+        key.startsWith("#/invocations?") ||
+        /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key) ||
+        key === "#/requests" ||
+        key.startsWith("#/requests?") ||
+        /^#\/requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
+      invalidations: ["authorization"],
+      read: () => readPrincipals(session),
+      publish: (principals) => {
+        this.principals = new Map(
+          principals.map((principal) => [principal.id, principal.displayName]),
+        );
+        this.emit();
+      },
+    });
+    session.registerProtectedState(() => {
+      this.principals = new Map();
+      this.emit();
+    });
+  }
+
+  snapshot(): ReadonlyMap<string, string> {
+    return this.principals;
+  }
+
+  subscribe(
+    listener: (principals: ReadonlyMap<string, string>) => void,
+  ): () => void {
+    this.listeners.add(listener);
+    listener(this.principals);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit(): void {
+    for (const listener of this.listeners) listener(this.principals);
+  }
+}
+
 async function readPrincipal(
   session: SessionClient,
   id: string,

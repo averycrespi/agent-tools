@@ -5,6 +5,7 @@ import {
   invocationTargetLabel,
   type InvocationPageView,
 } from "./invocations";
+import { type PrincipalDirectory } from "./principals";
 import {
   CompactRecord,
   sentenceCase,
@@ -682,13 +683,17 @@ function Panel({
 
 export function Overview({
   controller,
+  principals,
   view,
 }: {
   controller: OverviewController;
+  principals: PrincipalDirectory;
   view: ViewSnapshot;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
+  const [principalNames, setPrincipalNames] = useState(principals.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
+  useEffect(() => principals.subscribe(setPrincipalNames), [principals]);
   const panel = (id: string) => view.panels[id];
   const pressure =
     snapshot.status?.limits.filter(
@@ -868,7 +873,8 @@ export function Overview({
                           label: "Principal",
                           value: (
                             <a href={`#/principals/${item.principalID}`}>
-                              Principal {item.principalID}
+                              {principalNames.get(item.principalID) ??
+                                `Principal ${item.principalID}`}
                             </a>
                           ),
                         },

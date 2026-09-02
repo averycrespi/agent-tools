@@ -17,7 +17,7 @@ import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
-import { Principals } from "./principals";
+import { PrincipalDirectory, Principals } from "./principals";
 import { Requests } from "./requests";
 import {
   ConfirmationDialog,
@@ -95,6 +95,10 @@ const overviewController = new OverviewController(
   (latched) => mutationCoordinator.setStorageLatched(latched),
 );
 const invocationsController = new InvocationsController(
+  sessionClient,
+  viewCoordinator,
+);
+const principalDirectory = new PrincipalDirectory(
   sessionClient,
   viewCoordinator,
 );
@@ -669,9 +673,17 @@ function App() {
           <SessionTransition lifecycle={session.lifecycle} />
         ) : authenticated ? (
           destination === "overview" ? (
-            <Overview controller={overviewController} view={view} />
+            <Overview
+              controller={overviewController}
+              principals={principalDirectory}
+              view={view}
+            />
           ) : destination === "invocations" ? (
-            <Invocations controller={invocationsController} view={view} />
+            <Invocations
+              controller={invocationsController}
+              principals={principalDirectory}
+              view={view}
+            />
           ) : destination === "system" ? (
             <System
               controller={systemController}

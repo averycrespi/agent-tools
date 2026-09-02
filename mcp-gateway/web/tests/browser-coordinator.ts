@@ -4476,13 +4476,21 @@ async function runGrantReadsCreate(
     "Create grant",
   ])
     if (!body.includes(phrase)) fail(`grant list omitted ${phrase}`);
-  const headers = await page.locator("thead").first().innerText();
+  const headers = await page.locator("thead th").allTextContents();
   if (
-    !headers.includes("Description") ||
-    !headers.includes("ID") ||
+    headers[0] !== "ID↕" ||
+    headers[1] !== "Description↕" ||
     headers.includes("Action")
   )
-    fail(`grant table identity columns changed: ${headers}`);
+    fail(`grant table identity columns changed: ${headers.join("|")}`);
+  const firstGrantRow = page.locator('[data-testid="grant-row"]').first();
+  if (
+    (await firstGrantRow
+      .locator(`a[href="#/grants/${firstGrantID}"]`)
+      .count()) !== 1 ||
+    (await firstGrantRow.locator("td").first().locator("a").count()) !== 0
+  )
+    fail("grant description remained navigational metadata");
   if (
     body.includes("Open grant") ||
     body.includes("Synthetic default namespace")
@@ -5804,6 +5812,28 @@ async function runOverview(
       }),
     });
   });
+  await page.route("**/api/v1/principals?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: overviewRequestFixture().principal_id,
+            display_name: "Overview agent",
+            state: "active",
+            visibility: "all",
+            revision: "1",
+            credential_revision: "0",
+            credential: null,
+            created_at: "2026-08-28T00:00:00Z",
+            updated_at: "2026-08-28T00:00:00Z",
+          },
+        ],
+        next_cursor: null,
+      }),
+    });
+  });
   await page.route("**/api/v1/invocations?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
@@ -5840,6 +5870,7 @@ async function runOverview(
     "Capacity saturated",
     "80% capacity pressure",
     "Needs operator attention",
+    "Overview agent",
     "count incomplete",
     "Missing terminal evidence",
   ]) {
@@ -6278,6 +6309,29 @@ async function runInvocations(
     });
   });
 
+  await page.route("**/api/v1/principals?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: invocationIDs.principal,
+            display_name: "Build agent",
+            state: "active",
+            visibility: "all",
+            revision: "1",
+            credential_revision: "1",
+            credential: null,
+            created_at: "2026-08-28T12:00:00Z",
+            updated_at: "2026-08-28T12:00:00Z",
+          },
+        ],
+        next_cursor: null,
+      }),
+    });
+  });
+
   await page.evaluate(() => {
     window.location.hash = "#/invocations";
   });
@@ -6306,6 +6360,25 @@ async function runInvocations(
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
   if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
     fail("invocation live mode was not enabled by default");
+  if (
+    (await liveSwitch.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return style.position !== "absolute" || style.opacity !== "0";
+    })) ||
+    !body.includes("Build agent")
+  )
+    fail("invocation live control or principal label was not normalized");
+  const outcomeOptions = await page
+    .getByLabel("Outcome", { exact: true })
+    .locator("option")
+    .allTextContents();
+  for (const outcome of [
+    "Invalid arguments",
+    "Authorization unavailable",
+    "Prestart failure",
+  ])
+    if (!outcomeOptions.includes(outcome))
+      fail(`invocation outcome filter omitted ${outcome}`);
   if ((await page.locator('[data-testid="invocation-row"] time').count()) !== 2)
     fail("invocation list did not render admitted timestamps in user time");
   if (
@@ -6405,11 +6478,14 @@ async function runInvocations(
     "not proof of downstream handoff",
     "does not automatically replay",
     "explicit caller retry can duplicate an effect",
-    "Invocation details",
+    "Build agent",
     "Authorization decision",
   ])
     if (!body.includes(phrase)) fail(`invocation detail omitted ${phrase}`);
   if (
+    (await page
+      .locator('[data-testid="invocation-detail"] .panel-value')
+      .count()) !== 0 ||
     (await page
       .locator('[data-testid="invocation-detail"] .fact-grid')
       .count()) !== 1 ||

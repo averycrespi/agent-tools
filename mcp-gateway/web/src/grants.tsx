@@ -1412,26 +1412,23 @@ export function Grants({
             ]}
             columns={[
               {
-                key: "description",
-                label: "Description",
-                sortValue: (grant) => grant.description ?? "",
-                render: (grant) => (
-                  <a href={`#/grants/${grant.id}`}>
-                    {grant.description === null
-                      ? "—"
-                      : grant.description.length > 64
-                        ? `${grant.description.slice(0, 61)}…`
-                        : grant.description}
-                  </a>
-                ),
-              },
-              {
                 key: "id",
                 label: "ID",
                 sortValue: (grant) => grant.id,
                 render: (grant) => (
                   <a href={`#/grants/${grant.id}`}>{grant.id}</a>
                 ),
+              },
+              {
+                key: "description",
+                label: "Description",
+                sortValue: (grant) => grant.description ?? "",
+                render: (grant) =>
+                  grant.description === null
+                    ? "—"
+                    : grant.description.length > 64
+                      ? `${grant.description.slice(0, 61)}…`
+                      : grant.description,
               },
               {
                 key: "principal",
