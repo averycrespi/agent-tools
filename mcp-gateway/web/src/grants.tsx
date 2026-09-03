@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import { readMatcherDescriptors } from "./matcher-catalog";
 import { validateMatcherConstraint } from "./matcher-validation";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -18,7 +19,11 @@ import {
   StatusLabel,
 } from "./primitives";
 import { readPrincipals, type Principal } from "./principals";
-import { decodeServer, type ServerView } from "./server-reads";
+import {
+  decodeServer,
+  type DescriptorView,
+  type ServerView,
+} from "./server-reads";
 import type { ProtectedContext, SessionClient } from "./session";
 import { UserTime } from "./time";
 import type { ViewSnapshot } from "./view";
@@ -271,6 +276,8 @@ function GrantCreate({
     initialDraft.current.scope,
   );
   const [upstreamName, setUpstreamName] = useState("");
+  const [descriptors, setDescriptors] = useState<DescriptorView[]>();
+  const [catalogError, setCatalogError] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [error, setError] = useState<string>();
@@ -299,6 +306,25 @@ function GrantCreate({
   );
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
+  useEffect(() => {
+    let current = true;
+    setCatalogError(false);
+    setDescriptors(undefined);
+    if (scope !== "tool" || !gatewayID.test(serverID))
+      return () => {
+        current = false;
+      };
+    void readMatcherDescriptors(session, serverID)
+      .then((items) => {
+        if (current && items !== undefined) setDescriptors(items);
+      })
+      .catch(() => {
+        if (current) setCatalogError(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, [scope, serverID, session]);
   const updateAtom = (index: number, patch: Partial<Atom>) => {
     setError(undefined);
     setAtoms((current) =>
@@ -495,23 +521,54 @@ function GrantCreate({
             )}
           </FormField>
           {scope === "tool" && (
-            <FormField
-              id="grant-upstream"
-              label="Exact upstream tool name"
-              required
-            >
-              {(attributes) => (
-                <input
-                  {...attributes}
-                  data-testid="grant-upstream"
-                  value={upstreamName}
-                  onInput={(event) =>
-                    setUpstreamName(event.currentTarget.value)
-                  }
-                  required
-                />
-              )}
-            </FormField>
+            <div>
+              <FormField
+                id="grant-upstream"
+                label="Exact upstream tool name"
+                hint="Search current durable tools or enter a literal future tool name. Only the exact name is stored."
+                required
+              >
+                {(attributes) => (
+                  <input
+                    {...attributes}
+                    data-testid="grant-upstream"
+                    value={upstreamName}
+                    list="grant-tool-options"
+                    autocomplete="off"
+                    onInput={(event) =>
+                      setUpstreamName(event.currentTarget.value)
+                    }
+                    required
+                  />
+                )}
+              </FormField>
+              <datalist id="grant-tool-options">
+                {(descriptors ?? []).map((descriptor) => (
+                  <option
+                    value={descriptor.upstreamName}
+                    label={descriptor.externalName}
+                    key={descriptor.id}
+                  />
+                ))}
+              </datalist>
+              <p
+                class="bounded-note"
+                role="status"
+                aria-live="polite"
+                data-testid="grant-tool-posture"
+              >
+                {catalogError
+                  ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority."
+                  : descriptors === undefined
+                    ? "Loading current durable tools…"
+                    : descriptors.some(
+                          (descriptor) =>
+                            descriptor.upstreamName === upstreamName,
+                        )
+                      ? "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority."
+                      : "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported."}
+              </p>
+            </div>
           )}
           <FormField
             id="grant-expiry"

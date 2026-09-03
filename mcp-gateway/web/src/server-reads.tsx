@@ -169,7 +169,7 @@ interface CatalogView {
   changedAt: string | null;
   issueCount: number;
 }
-interface Page<T> {
+export interface Page<T> {
   items: T[];
   nextCursor: string | null;
 }
@@ -470,7 +470,7 @@ function decodeDescriptor(
       }
     : decoded;
 }
-function decodeDescriptorPage(value: unknown): Page<DescriptorView> {
+export function decodeDescriptorPage(value: unknown): Page<DescriptorView> {
   const page = record(value, ["items", "next_cursor"]);
   return {
     items: array(page.items).map((item) => decodeDescriptor(item)),

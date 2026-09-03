@@ -4361,6 +4361,7 @@ async function runGrantReadsCreate(
   let attempts = 0;
   let creates = 0;
   let descriptionPatches = 0;
+  let descriptorRequests = 0;
 
   await page.route("**/api/v1/principals?*", async (route) => {
     await route.fulfill({
@@ -4403,6 +4404,80 @@ async function runGrantReadsCreate(
       }),
     });
   });
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors?*`,
+    async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      descriptorRequests += 1;
+      if (descriptorRequests > 2) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 503,
+            code: "storage_unavailable",
+            title: "Catalog tools are unavailable.",
+          }),
+        });
+        return;
+      }
+      if (
+        route.request().method() !== "GET" ||
+        query.get("limit") !== "100" ||
+        [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+      )
+        fail("grant descriptor traversal changed shape");
+      const descriptor = (id: string, upstream: string, external: string) => ({
+        id,
+        server_id: serverID,
+        upstream_name: upstream,
+        external_name: external,
+        descriptor: {
+          name: upstream,
+          inputSchema: { type: "object", properties: {} },
+          annotations: {
+            title: null,
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+          },
+        },
+        fingerprint: `fingerprint-${upstream}`,
+        catalog_revision: "1",
+        first_seen_at: "2026-08-28T12:00:00Z",
+        last_seen_at: "2026-08-28T12:00:00Z",
+        retired_at: null,
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          query.get("cursor") === "descriptor-next"
+            ? {
+                items: [
+                  descriptor(
+                    "01ARZ3NDEKTSV4RRFFQ69G5FC1",
+                    "literal.tool",
+                    "Literal tool",
+                  ),
+                ],
+                next_cursor: null,
+              }
+            : {
+                items: [
+                  descriptor(
+                    "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+                    "other.tool",
+                    "Other tool",
+                  ),
+                ],
+                next_cursor: "descriptor-next",
+              },
+        ),
+      });
+    },
+  );
 
   await page.route("**/api/v1/grants?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
@@ -4773,7 +4848,47 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="grant-description"]').fill("New access");
   await page.locator('[data-testid="grant-effect"]').selectOption("deny");
   await page.locator('[data-testid="grant-scope"]').selectOption("tool");
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll(
+        '#grant-tool-options option[value="literal.tool"]',
+      ).length === 1,
+  );
+  if (
+    (await page
+      .locator('[data-testid="grant-upstream"]')
+      .getAttribute("list")) !== "grant-tool-options"
+  )
+    fail("grant tool entry is not catalog-searchable and editable");
+  await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
+  await page
+    .getByText(
+      "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported.",
+      { exact: true },
+    )
+    .waitFor();
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page
+    .getByText(
+      "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority.",
+      { exact: true },
+    )
+    .waitFor();
+  await page
+    .locator('[data-testid="grant-server"]')
+    .selectOption("00000000000000000000000000");
+  await page.locator('[data-testid="grant-server"]').selectOption(serverID);
+  await page
+    .getByText(
+      "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority.",
+      { exact: true },
+    )
+    .waitFor();
+  if (
+    (await page.locator('[data-testid="grant-upstream"]').inputValue()) !==
+    "literal.tool"
+  )
+    fail("catalog failure discarded the literal tool draft");
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
@@ -11778,9 +11893,9 @@ try {
           value.includes("server responded with a status of 412"),
         )) ||
       (input.scenario === "grant-reads-create" &&
-        consoleFailures.length >= 2 &&
-        consoleFailures.length <= 3 &&
-        [400, 409].every((status) =>
+        consoleFailures.length >= 3 &&
+        consoleFailures.length <= 4 &&
+        [400, 409, 503].every((status) =>
           consoleFailures.some((value) =>
             value.includes(`server responded with a status of ${status}`),
           ),
