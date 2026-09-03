@@ -4538,10 +4538,12 @@ async function runGrantReadsCreate(
       body.effect !== "deny" ||
       body.upstream_name !== "literal.tool" ||
       body.expires_at !== "2030-01-01T00:00:00Z" ||
+      !raw.includes('"version":2') ||
       !raw.includes('"/a~1b/0":1.0') ||
       !raw.includes('"/empty/":null') ||
       !raw.includes('"/flag":true') ||
-      !raw.includes('"/name":"literal"')
+      !raw.includes('"/name":"literal"') ||
+      !raw.includes('"/resource":"item-\\\\d+"')
     )
       fail(`exact-tool lexical constraint changed shape: ${raw}`);
     const item = grant(
@@ -4826,12 +4828,30 @@ async function runGrantReadsCreate(
     .nth(3)
     .selectOption("string");
   await page.locator('[data-testid="constraint-value"]').nth(2).fill("literal");
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  await page
+    .locator('[data-testid="constraint-operator"]')
+    .nth(4)
+    .selectOption("regex");
+  await page
+    .locator('[data-testid="constraint-pointer"]')
+    .nth(4)
+    .fill("/resource");
+  await page
+    .locator('[data-testid="constraint-value"]')
+    .nth(3)
+    .fill("item-\\d+");
   if (
     (await page.locator('[data-testid="grant-expiry"]').inputValue()) !==
     "2030-01-01T00:00:00Z"
   )
     fail("grant constraint edits discarded the expiry draft");
   await page.locator('[data-testid="grant-create-submit"]').click();
+  const matcherReview =
+    (await page.locator("#grant-create-confirm-consequence").textContent()) ??
+    "";
+  if (!matcherReview.includes("4 equality · 1 regex"))
+    fail("grant review omitted matcher operator counts");
   await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.locator('[data-testid="grant-detail"]').waitFor();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
