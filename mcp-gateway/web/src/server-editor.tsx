@@ -1404,7 +1404,7 @@ export function ServerEditor({
         )}
         <button
           ref={submitButton}
-          class={create ? "create-action" : "safe-action"}
+          class={`${create ? "create-action" : "safe-action"} form-submit-action`}
           type="submit"
           disabled={disabled}
           data-testid="server-editor-submit"

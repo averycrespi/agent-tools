@@ -553,7 +553,7 @@ function PrincipalEditor({
         {notice !== undefined && <StateNotice state="empty" title={notice} />}
         <button
           ref={submitButton}
-          class={create ? "create-action" : "safe-action"}
+          class={`${create ? "create-action" : "safe-action"} form-submit-action`}
           data-testid="principal-editor-submit"
           type="submit"
           disabled={disabled}

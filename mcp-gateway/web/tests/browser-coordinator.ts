@@ -3828,6 +3828,19 @@ async function runPrincipals(
     !body.includes("permanent identity")
   )
     fail("principal creation retained internal default-grant language");
+  const principalActionGap = await page.evaluate(() => {
+    const field = document.querySelector<HTMLElement>(
+      '[data-testid="principal-visibility"]',
+    )!;
+    const action = document.querySelector<HTMLElement>(
+      '[data-testid="principal-editor-submit"]',
+    )!;
+    return (
+      action.getBoundingClientRect().top - field.getBoundingClientRect().bottom
+    );
+  });
+  if (principalActionGap < 15)
+    fail(`principal create action gap was ${principalActionGap}px`);
   await page
     .locator('[data-testid="principal-display-name"]')
     .fill("New automation");
@@ -7413,6 +7426,19 @@ async function runServerCreateUpdate(
     )
   )
     fail("server form omitted its required-field convention");
+  const serverActionGap = await page.evaluate(() => {
+    const field = document.querySelector<HTMLElement>(
+      '[data-testid="server-editor"] .choice-field',
+    )!;
+    const action = document.querySelector<HTMLElement>(
+      '[data-testid="server-editor-submit"]',
+    )!;
+    return (
+      action.getBoundingClientRect().top - field.getBoundingClientRect().bottom
+    );
+  });
+  if (serverActionGap < 15)
+    fail(`server create action gap was ${serverActionGap}px`);
   if (
     !((await editor.textContent()) ?? "").includes(
       "Namespace cannot be changed after creation.",
