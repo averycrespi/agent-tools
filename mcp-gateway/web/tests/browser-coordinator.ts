@@ -2067,6 +2067,18 @@ async function runServerManagementCanary(
       window.location.hash = target;
     }, hash);
     await page.locator(`[data-testid="${testID}"]`).waitFor();
+    if (testID === "server-authentication-view") {
+      const authenticationView = page.locator(
+        '[data-testid="server-authentication-view"]',
+      );
+      if (
+        (await authenticationView
+          .locator(".server-context-guidance")
+          .count()) !== 0 ||
+        (await authenticationView.getByText("Inspect activity").count()) !== 0
+      )
+        fail("server authentication repeated status guidance or navigation");
+    }
   }
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=status`;
@@ -2085,18 +2097,25 @@ async function runServerManagementCanary(
       .locator('[data-testid="server-status-operational"]')
       .count()) !== 1 ||
     (await serverStatus
-      .locator('[data-testid="server-status-details"]')
+      .locator('section[data-testid="server-status-details"]')
       .count()) !== 1 ||
-    (await page.locator('[data-testid="server-id"]').textContent()) !==
-      serverID ||
-    (await page.getByRole("button", { name: "Copy server ID" }).count()) !==
-      1 ||
+    (await serverStatus
+      .locator(
+        '[data-testid="server-status-details"] [data-testid="server-id"]',
+      )
+      .textContent()) !== serverID ||
+    (await page
+      .locator('[data-testid="server-context"] [data-testid="server-id"]')
+      .count()) !== 0 ||
+    (await serverStatus
+      .getByRole("button", { name: "Copy server ID" })
+      .count()) !== 1 ||
     !((await serverStatus.textContent()) ?? "").includes(
       "Dispatch capacity is saturated",
     )
   )
     fail("server status did not use the shared operator hierarchy");
-  await page.getByRole("button", { name: "Copy server ID" }).click();
+  await serverStatus.getByRole("button", { name: "Copy server ID" }).click();
   await page.waitForFunction(() => {
     const status = document.querySelector(
       ".copyable-value-status",
@@ -6725,6 +6744,7 @@ async function runSystemStatus(
   await waitForLifecycle(page, "signed_out");
   let statusReads = 0;
   let eventStreams = 0;
+  let currentStatus = overviewStatusFixture();
   let holdStatus = false;
   let releaseStatus: (() => void) | undefined;
   page.on("request", (request) => {
@@ -6747,7 +6767,7 @@ async function runSystemStatus(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(overviewStatusFixture()),
+      body: JSON.stringify(currentStatus),
     });
   });
   await page.route(
@@ -6807,7 +6827,6 @@ async function runSystemStatus(
   )
     fail(`System tabs were not task-oriented: ${systemTabs.join("|")}`);
   for (const phrase of [
-    "Overall health",
     "Degraded",
     "Needs attention",
     "Gateway is not ready",
@@ -6827,7 +6846,7 @@ async function runSystemStatus(
       .includes("panel") ||
     (await statusPanel
       .locator('[data-testid="system-status-summary"]')
-      .count()) !== 1 ||
+      .count()) !== 0 ||
     (await statusPanel
       .locator('[data-testid="system-status-issues"]')
       .count()) !== 1 ||
@@ -6835,7 +6854,7 @@ async function runSystemStatus(
       .locator('[data-testid="system-status-operational"]')
       .count()) !== 1 ||
     (await statusPanel
-      .locator('[data-testid="system-status-details"]')
+      .locator('section[data-testid="system-status-details"]')
       .count()) !== 1 ||
     body.includes("SYSTEM-01")
   )
@@ -6859,6 +6878,29 @@ async function runSystemStatus(
       .getAttribute("data-mutation-availability")) !== "storage_latched"
   )
     fail("System did not close mutation admission for latched storage");
+
+  currentStatus = {
+    ...currentStatus,
+    process: { ...currentStatus.process, state: "ready", ready: true },
+    sqlite: { ...currentStatus.sqlite, state: "ready", latched: false },
+    keyring: { capability: "ready" },
+    limits: Object.fromEntries(
+      Object.entries(currentStatus.limits).map(([name, limit]) => [
+        name,
+        { ...limit, in_use: 0, saturated: false },
+      ]),
+    ),
+  };
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.getByText("Healthy", { exact: true }).waitFor();
+  body = (await statusPanel.textContent()) ?? "";
+  if (
+    (body.match(/No current issues require operator action\./g) ?? [])
+      .length !== 1 ||
+    body.includes("No action required") ||
+    body.includes("Gateway is operating normally")
+  )
+    fail("System healthy status repeated its conclusion");
 
   holdStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();
@@ -8948,13 +8990,19 @@ async function runServerCredentials(
     } as unknown as typeof currentServer.transport,
   };
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.getByRole("heading", { name: "No authentication" }).waitFor();
+  await page
+    .getByRole("heading", { name: "Authentication", exact: true })
+    .waitFor();
   if (
     (await page
       .locator('[data-testid="credential-replacement-form"]')
+      .count()) !== 0 ||
+    (await page.getByText("Inspect activity", { exact: true }).count()) !== 0 ||
+    (await page
+      .getByText("This server does not require credentials.", { exact: true })
       .count()) !== 0
   )
-    fail("no-auth server offered credential replacement");
+    fail("no-auth server repeated state or offered irrelevant actions");
   eligibilityModes += 1;
   currentServer = {
     ...currentServer,

@@ -1318,26 +1318,11 @@ function ServerNavigation({
     <>
       <header class="server-context" data-testid="server-context">
         <div class="server-context-heading">
-          <div>
-            <h2 tabindex={-1}>{server.displayName}</h2>
-            <CopyableValue
-              value={server.id}
-              label="server ID"
-              testID="server-id"
-            />
-          </div>
+          <h2 tabindex={-1}>{server.displayName}</h2>
           <StatusLabel state={presentation.state}>
             {presentation.label}
           </StatusLabel>
         </div>
-        {current !== "status" &&
-          presentation.action !== undefined &&
-          presentation.href !== undefined && (
-            <div class="server-context-guidance">
-              <p>{serverExplanation(presentation, server)}</p>
-              <a href={presentation.href}>{presentation.action}</a>
-            </div>
-          )}
       </header>
       <ServerTabs serverID={serverID} current={current} />
     </>
@@ -2226,11 +2211,9 @@ export function ServerReads({
                     >
                       <div class="operator-status-section-heading">
                         <h3 id="server-issues-title">Needs attention</h3>
-                        <span>
-                          {hasPrimaryIssue || saturated.length > 0
-                            ? "Operator action may be required"
-                            : "No action required"}
-                        </span>
+                        {(hasPrimaryIssue || saturated.length > 0) && (
+                          <span>Operator action may be required</span>
+                        )}
                       </div>
                       {server.desiredState === "deleted" && (
                         <StateNotice state="unavailable" title="Deleted">
@@ -2306,11 +2289,14 @@ export function ServerReads({
                             <strong>
                               {sentenceCase(server.credentialState)}
                             </strong>
-                            <a
-                              href={`#/servers/${server.id}?tab=authentication`}
-                            >
-                              Manage authentication
-                            </a>
+                            {presentation.href !==
+                              `#/servers/${server.id}?tab=authentication` && (
+                              <a
+                                href={`#/servers/${server.id}?tab=authentication`}
+                              >
+                                Manage authentication
+                              </a>
+                            )}
                           </dd>
                         </div>
                         <div>
@@ -2333,12 +2319,25 @@ export function ServerReads({
                       </dl>
                     </section>
 
-                    <details
+                    <section
                       class="operator-status-details"
+                      aria-labelledby="server-technical-details-title"
                       data-testid="server-status-details"
                     >
-                      <summary>Technical details</summary>
+                      <h3 id="server-technical-details-title">
+                        Technical details
+                      </h3>
                       <dl class="technical-details-grid">
+                        <div>
+                          <dt>Server ID</dt>
+                          <dd>
+                            <CopyableValue
+                              value={server.id}
+                              label="server ID"
+                              testID="server-id"
+                            />
+                          </dd>
+                        </div>
                         <div>
                           <dt>Namespace</dt>
                           <dd>{server.namespace}</dd>
@@ -2384,7 +2383,7 @@ export function ServerReads({
                           </dd>
                         </div>
                       </dl>
-                    </details>
+                    </section>
                   </div>
                 );
               })()}

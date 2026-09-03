@@ -453,6 +453,11 @@ function StatusPanel({
     >
       <div class="panel-heading">
         <h2 id="system-status-title">Gateway status</h2>
+        {status !== undefined && (
+          <StatusLabel state={healthy ? "current" : "warning"}>
+            {healthy ? "Healthy" : "Degraded"}
+          </StatusLabel>
+        )}
       </div>
       {panelStatus === "error" && status === undefined ? (
         <StateNotice state="error" title="System status unavailable">
@@ -465,40 +470,13 @@ function StatusPanel({
       ) : status !== undefined ? (
         <div class="operator-status-stack">
           <section
-            class="operator-status-summary"
-            aria-labelledby="overall-health-title"
-            data-testid="system-status-summary"
-          >
-            <div>
-              <span class="panel-code">Overall health</span>
-              <h3 id="overall-health-title">
-                {healthy
-                  ? "Gateway is operating normally"
-                  : "Gateway needs attention"}
-              </h3>
-              <p>
-                {healthy
-                  ? "All evaluated operational checks are healthy."
-                  : "One or more operational checks require review."}
-              </p>
-            </div>
-            <StatusLabel state={healthy ? "current" : "warning"}>
-              {healthy ? "Healthy" : "Degraded"}
-            </StatusLabel>
-          </section>
-
-          <section
             class="operator-status-section"
             aria-labelledby="system-issues-title"
             data-testid="system-status-issues"
           >
             <div class="operator-status-section-heading">
               <h3 id="system-issues-title">Needs attention</h3>
-              <span>
-                {healthy
-                  ? "No action required"
-                  : "Operator action may be required"}
-              </span>
+              {!healthy && <span>Operator action may be required</span>}
             </div>
             {!status.ready && (
               <StateNotice state="warning" title="Gateway is not ready">
@@ -585,11 +563,12 @@ function StatusPanel({
             </dl>
           </section>
 
-          <details
+          <section
             class="operator-status-details"
+            aria-labelledby="system-technical-details-title"
             data-testid="system-status-details"
           >
-            <summary>Technical details</summary>
+            <h3 id="system-technical-details-title">Technical details</h3>
             <dl class="technical-details-grid">
               <div>
                 <dt>Schema</dt>
@@ -612,7 +591,7 @@ function StatusPanel({
                 <dd>{sentenceCase(status.agentAuth)}</dd>
               </div>
             </dl>
-          </details>
+          </section>
         </div>
       ) : (
         <StateNotice state="loading" title="Loading system status" />

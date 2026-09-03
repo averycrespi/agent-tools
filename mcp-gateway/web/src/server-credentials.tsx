@@ -352,7 +352,7 @@ function ReplacementFormHost(
 
 function authenticationPresentation(server: ServerView): {
   heading: string;
-  description: string;
+  description: string | undefined;
   status: string;
   warning: boolean;
 } {
@@ -365,8 +365,8 @@ function authenticationPresentation(server: ServerView): {
     };
   const transport = server.transport as JSONRecord;
   const authentication = (transport.authentication ?? {}) as JSONRecord;
-  let heading = "No authentication";
-  let description = "This server does not require credentials.";
+  let heading = "Authentication";
+  let description: string | undefined;
   if (transport.kind === "stdio") {
     const environment = (transport.secret_environment ?? {}) as JSONRecord;
     if (Object.keys(environment).length > 0) {
@@ -393,7 +393,7 @@ function authenticationPresentation(server: ServerView): {
     heading,
     description,
     status:
-      heading === "No authentication"
+      description === undefined
         ? "Not required"
         : warning
           ? "Action required"
@@ -434,10 +434,9 @@ export function ServerCredentials({
           {presentation.status}
         </StatusLabel>
       </div>
-      <p>{presentation.description}</p>
-      <p>
-        <a href={`#/servers/${server.id}?tab=activity`}>Inspect activity</a>
-      </p>
+      {presentation.description !== undefined && (
+        <p>{presentation.description}</p>
+      )}
       {shape !== undefined && (
         <ReplacementFormHost
           mutations={mutations}
