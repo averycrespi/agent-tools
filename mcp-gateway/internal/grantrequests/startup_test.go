@@ -32,6 +32,7 @@ func TestStartupAcceptsCompleteLifecycleAndHistoricalDeletedGrantID(t *testing.T
 		{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true},
 		{Scope: contract.PolicyServer, Target: "sample", DurationSeconds: stringPointer("60"), FutureToolsAcknowledged: true},
 		{Scope: contract.PolicyServer, Target: "sample", DurationSeconds: stringPointer("61"), FutureToolsAcknowledged: true},
+		{Scope: contract.PolicyTool, Target: "sample.echo", Constraint: constraint(`{"version":2,"regex":{"/resource":"[a-z]+/[0-9]+"}}`)},
 	}
 	created := make([]contract.AgentGrantRequest, 0, len(policies))
 	for _, policy := range policies {
@@ -39,6 +40,13 @@ func TestStartupAcceptsCompleteLifecycleAndHistoricalDeletedGrantID(t *testing.T
 		require.NoError(t, err)
 		created = append(created, *result.Request)
 	}
+	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+		var version int64
+		require.NoError(t, transaction.QueryRow(`SELECT dedupe_version FROM grant_requests WHERE id = ?`, created[4].ID).Scan(&version))
+		assert.Equal(t, DedupeVersionV2, version)
+		return nil
+	}))
+
 	clock.now = requestTestTime.Add(time.Second)
 	_, err := repository.Reject(context.Background(), RejectRequest{ID: created[2].ID, ExpectedRevision: "1", Reason: contract.RejectionExistingAccess})
 	require.NoError(t, err)
