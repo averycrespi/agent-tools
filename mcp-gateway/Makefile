@@ -1,12 +1,13 @@
 STRESS_COUNT ?= 20
+TEMPORARY_LISTEN ?= 127.0.0.1:8211
 
 .NOTPARALLEL: test test-browser test-frontend-development
 
-.PHONY: help build install test test-unit test-integration test-e2e test-security test-stress test-keyring-native test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
+.PHONY: help build install serve-temporary test test-unit test-integration test-e2e test-security test-stress test-keyring-native test-serve-temporary test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
 
 help:
 	@printf '%s\n' \
-		'test-unit | test-integration | test-e2e | test-security | test-stress | test-keyring-native' \
+		'test-unit | test-integration | test-e2e | test-security | test-stress | test-keyring-native | test-serve-temporary' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
 		'test-browser (developer aggregate)' \
 		'test-frontend-development-node | test-frontend-development-browser | test-frontend-development (developer aggregate)' \
@@ -14,18 +15,25 @@ help:
 		'qualify-external-evidence' \
 		'accept REPORT=<absolute-path>' \
 		'adopt-acceptance-report REPORT=<absolute-path> ADOPTION=<absolute-path>' \
+		'serve-temporary [TEMPORARY_LISTEN=127.0.0.1:8211]' \
 		'build | install | lint | fmt | tidy | verify | audit'
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
 
+serve-temporary:
+	./scripts/serve-temporary.sh --listen "$(TEMPORARY_LISTEN)"
+
 install:
 	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/mcp-gateway
 
-test: test-unit test-integration
+test: test-unit test-integration test-serve-temporary
 
 test-unit:
 	go test -race -count=1 -timeout=300s ./...
+
+test-serve-temporary:
+	./test/serve-temporary.sh
 
 test-integration:
 	go test -race -count=1 -tags=integration -timeout=300s -run '^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest65536ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servers ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/composition

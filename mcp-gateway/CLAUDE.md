@@ -11,6 +11,7 @@ Run commands from `mcp-gateway/` unless noted:
 ```bash
 make build                 # build ./cmd/mcp-gateway
 make install               # install the binary into GOPATH/bin
+make serve-temporary       # build and serve an isolated disposable test Gateway
 make test                  # race-enabled ordinary package suite
 make test-unit             # count-one ordinary correctness
 make test-integration      # race-enabled real SQLite/filesystem tests
@@ -18,6 +19,7 @@ make test-e2e              # count-one real-binary suite
 make test-security         # security/privacy source and sink evidence
 make test-stress           # repeat only five named stress scenarios
 make test-keyring-native   # typed native keyring evidence
+make test-serve-temporary  # disposable runner lifecycle and cleanup
 make test-browser          # developer aggregate for five browser leaves
 make frontend-typecheck
 make frontend-build
@@ -44,6 +46,8 @@ npm run ui:verify-generated
 npm run ui:verify-supply-chain
 npm run ui:audit
 ```
+
+Use `make serve-temporary` for feature-branch testing that must not touch the default Gateway installation or native keyring. It builds the existing `e2e` variant into a temporary owner-only root, serves on `127.0.0.1:8211` by default, and removes the binary, database, bearer, and in-memory keyring when stopped. Override the authority with `TEMPORARY_LISTEN=127.0.0.1:PORT`. This workflow does not qualify native-keyring behavior or persistence across Gateway restarts.
 
 Use [frontend development](docs/maintainers/frontend-development.md) for the two-process live-reload trust boundary. Use [release verification](docs/maintainers/release-verification.md) for evidence tiers, acceptance, external qualification, and report adoption. Do not use a full acceptance run as the first integration or debugging loop.
 
