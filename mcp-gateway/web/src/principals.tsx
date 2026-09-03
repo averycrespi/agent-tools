@@ -1011,10 +1011,6 @@ export function Principals({
               </dd>
             </div>
           </dl>
-          <p>
-            Visibility is not call authorization. Grants and current credential
-            authority are evaluated separately.
-          </p>
         </section>
         <PrincipalCredentialActions
           mutations={mutations}

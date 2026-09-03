@@ -3850,9 +3850,13 @@ async function runPrincipals(
   body = (await page.locator("body").textContent()) ?? "";
   if (
     body.includes("permanent synthetic default ALLOW grant") ||
-    body.includes("Re-enabling restores neither")
+    body.includes("Re-enabling restores neither") ||
+    body.includes("Visibility is not call authorization") ||
+    body.includes("View grants") ||
+    body.includes("View requests") ||
+    body.includes("View invocations")
   )
-    fail("principal detail retained implementation-oriented copy");
+    fail("principal detail retained implementation-oriented copy or shortcuts");
 
   await page.evaluate((id) => {
     (
@@ -4547,12 +4551,33 @@ async function runGrantReadsCreate(
     window.location.hash = `#/access/grants/${id}`;
   }, firstGrantID);
   await page.locator('[data-testid="grant-detail"]').waitFor();
+  const grantDetail = page.locator('[data-testid="grant-detail"]');
+  const grantFactLabels = await grantDetail.locator("dt").allTextContents();
+  if (
+    !grantFactLabels.includes("Grant ID") ||
+    grantFactLabels.includes("ID") ||
+    (await grantDetail.getByText("Back to principal grants").count()) !== 0
+  )
+    fail("grant detail retained ambiguous identity or scoped navigation");
   const descriptionEditor = page.locator("#grant-description-edit");
+  const saveDescription = page.getByRole("button", {
+    name: "Save description",
+  });
+  const saveDescriptionGap = await saveDescription.evaluate((button) => {
+    const previous = button.previousElementSibling;
+    if (previous === null) return -1;
+    return (
+      button.getBoundingClientRect().top -
+      previous.getBoundingClientRect().bottom
+    );
+  });
+  if (saveDescriptionGap < 16)
+    fail(`grant description submit spacing collapsed: ${saveDescriptionGap}px`);
   await descriptionEditor.fill("Updated reporting access");
-  await page.getByRole("button", { name: "Save description" }).click();
+  await saveDescription.click();
   await page.waitForTimeout(100);
   await descriptionEditor.fill("");
-  await page.getByRole("button", { name: "Save description" }).click();
+  await saveDescription.click();
   await page.waitForTimeout(100);
   if (descriptionPatches !== 2)
     fail("grant description save and clear did not both reach the API");
@@ -6617,6 +6642,16 @@ async function runInvocations(
     (await page
       .locator('[data-testid="invocation-detail"] .fact-grid')
       .count()) !== 1 ||
+    (
+      await page
+        .locator('[data-testid="invocation-detail"] dt')
+        .allTextContents()
+    ).filter((label) => label === "Invocation ID").length !== 1 ||
+    (
+      await page
+        .locator('[data-testid="invocation-detail"] dt')
+        .allTextContents()
+    ).includes("ID") ||
     (await page
       .locator(
         `[data-testid="invocation-detail"] a[href="#/principals/${invocationIDs.principal}"]`,

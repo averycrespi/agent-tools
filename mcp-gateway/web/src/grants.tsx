@@ -798,7 +798,7 @@ function GrantDescriptionEditor({
           </StateNotice>
         )}
         <button
-          class="button-safe"
+          class="button-safe form-submit-action"
           type="submit"
           disabled={
             mutation.state === "submitting" ||
@@ -1250,7 +1250,7 @@ export function Grants({
           </div>
           <dl class="fact-grid">
             <div>
-              <dt>ID</dt>
+              <dt>Grant ID</dt>
               <dd>{detail.id}</dd>
             </div>
             <div>

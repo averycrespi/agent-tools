@@ -479,7 +479,7 @@ function InvocationFacts({
   return (
     <dl class="fact-grid">
       <div>
-        <dt>ID</dt>
+        <dt>Invocation ID</dt>
         <dd>{item.id}</dd>
       </div>
       <div>
