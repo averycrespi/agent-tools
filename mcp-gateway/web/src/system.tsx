@@ -1031,7 +1031,6 @@ function Backups({
 }
 
 function AdminCredentials({
-  session,
   credentials,
   view,
   mutations,
@@ -1039,7 +1038,6 @@ function AdminCredentials({
   onRefresh,
   createMode,
 }: {
-  session: SessionClient;
   credentials: AdminCredential[] | undefined;
   view: ViewSnapshot;
   mutations: MutationCoordinator;
@@ -1057,7 +1055,6 @@ function AdminCredentials({
   const [prepared, setPrepared] = useState<PreparedOneTimeSink>();
   const [intent, setIntent] = useState<"create" | "revoke">("create");
   const [revoke, setRevoke] = useState<AdminCredential>();
-  const [detail, setDetail] = useState<AdminCredential>();
   const [notice, setNotice] = useState<string>();
   const [expiryError, setExpiryError] = useState<string>();
   useUnsavedChanges(expiry !== "");
@@ -1066,10 +1063,6 @@ function AdminCredentials({
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => () => prepared?.cancel(), [prepared]);
-  useEffect(() => {
-    if (detail !== undefined && credentials !== undefined)
-      setDetail(credentials.find((credential) => credential.id === detail.id));
-  }, [credentials]);
   const panel = view.panels["admin-credentials"];
   const panelStatus = panel?.status ?? "loading";
   const activeNonExpiring =
@@ -1149,29 +1142,6 @@ function AdminCredentials({
     if (outcome.kind === "uncertain") sink.lose();
     else sink.cancel();
     setPrepared(undefined);
-  };
-  const inspectCredential = async (credentialID: string) => {
-    setNotice(undefined);
-    const value = await session.runProtected(async (context) => {
-      const response = await fetch(
-        `/api/v1/admin-credentials/${credentialID}`,
-        {
-          method: "GET",
-          headers: { "X-CSRF-Token": context.csrfToken },
-          credentials: "same-origin",
-          redirect: "error",
-          signal: context.signal,
-        },
-      );
-      if (await context.sessionLost(response)) return undefined;
-      if (
-        response.status !== 200 ||
-        response.headers.get("Content-Type") !== "application/json"
-      )
-        throw new Error("Administrator credential detail is unavailable.");
-      return decodeCredential((await response.json()) as unknown);
-    });
-    setDetail(value);
   };
   const beginRevoke = (credential: AdminCredential) => {
     setNotice(undefined);
@@ -1383,16 +1353,7 @@ function AdminCredentials({
             {
               key: "fingerprint",
               label: "Fingerprint",
-              render: (credential) => (
-                <button
-                  class="text-button"
-                  data-testid="admin-credential-inspect"
-                  type="button"
-                  onClick={() => void inspectCredential(credential.id)}
-                >
-                  {credential.fingerprint}
-                </button>
-              ),
+              render: (credential) => <code>{credential.fingerprint}</code>,
               sortValue: (credential) => credential.fingerprint,
             },
             {
@@ -1466,39 +1427,6 @@ function AdminCredentials({
           ]}
         />
       )}
-      {detail !== undefined && (
-        <section class="subpanel" data-testid="admin-credential-detail">
-          <h3>Credential {detail.fingerprint}</h3>
-          <dl class="fact-grid">
-            <div>
-              <dt>Permanent ID</dt>
-              <dd>
-                <code>{detail.id}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Status</dt>
-              <dd>{sentenceCase(detail.status)}</dd>
-            </div>
-            <div>
-              <dt>Created</dt>
-              <dd>
-                <UserTime value={detail.createdAt} />
-              </dd>
-            </div>
-            <div>
-              <dt>Expiry</dt>
-              <dd>
-                <UserTime value={detail.expiresAt} fallback="Non-expiring" />
-              </dd>
-            </div>
-            <div>
-              <dt>Revision</dt>
-              <dd>{detail.revision}</dd>
-            </div>
-          </dl>
-        </section>
-      )}
       <ConfirmationDialog
         id="admin-credential-revoke-confirm"
         open={revoke !== undefined && mutation.state === "confirming"}
@@ -1555,7 +1483,6 @@ export function System({
         <ResourceLimits status={status} view={view} />
       ) : current === "admin-credentials" ? (
         <AdminCredentials
-          session={session}
           credentials={credentials}
           view={view}
           mutations={mutations}

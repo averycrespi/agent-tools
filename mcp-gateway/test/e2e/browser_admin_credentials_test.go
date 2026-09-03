@@ -55,7 +55,6 @@ func TestBrowserAdminCredentials(t *testing.T) {
 		Requests          int    `json:"requests"`
 		Creates           int    `json:"creates"`
 		Revokes           int    `json:"revokes"`
-		DetailReads       int    `json:"detail_reads"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "admin_credentials_complete", event.Event)
@@ -64,7 +63,6 @@ func TestBrowserAdminCredentials(t *testing.T) {
 	assert.Positive(t, event.Requests)
 	assert.Equal(t, 3, event.Creates)
 	assert.Equal(t, 3, event.Revokes)
-	assert.Equal(t, 1, event.DetailReads)
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "admin credential scenario must own one Gateway lifecycle")
 }

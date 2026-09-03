@@ -3217,7 +3217,6 @@ async function runAdminCredentials(
   let items = [credential(0), credential(1), credential(2, "active", false)];
   let creates = 0;
   let revokes = 0;
-  let detailReads = 0;
   let releaseLost: (() => void) | undefined;
   let markLostStarted: (() => void) | undefined;
   const lostStarted = new Promise<void>((resolve) => {
@@ -3237,17 +3236,6 @@ async function runAdminCredentials(
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ items, next_cursor: null }),
-      });
-      return;
-    }
-    if (request.method() === "GET" && id !== undefined) {
-      detailReads += 1;
-      const item = items.find((candidate) => candidate.id === id);
-      if (item === undefined) fail("unknown admin credential detail");
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(item),
       });
       return;
     }
@@ -3355,11 +3343,16 @@ async function runAdminCredentials(
     "Fingerprint|ID|Status|Created|Expires|Actions"
   )
     fail(`Admin credential columns drifted: ${adminHeaders.join("|")}`);
-  await page
-    .locator('[data-testid="admin-credential-inspect"]')
-    .first()
-    .click();
-  await page.locator('[data-testid="admin-credential-detail"]').waitFor();
+  if (
+    (await page.locator('[data-testid="admin-credential-inspect"]').count()) !==
+      0 ||
+    (await page.locator('[data-testid="admin-credential-detail"]').count()) !==
+      0 ||
+    (await page
+      .locator('[data-testid="admin-credential-row"] th code')
+      .count()) !== items.length
+  )
+    fail("admin credential fingerprints remained interactive or expanded");
   await page.locator('[data-testid="admin-credential-create"]').click();
   await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
   await page.locator('[data-testid="admin-credential-expiry"]').fill("invalid");
@@ -3470,7 +3463,7 @@ async function runAdminCredentials(
     false,
   );
   process.stdout.write(
-    `${JSON.stringify({ event: "admin_credentials_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, revokes, detail_reads: detailReads })}\n`,
+    `${JSON.stringify({ event: "admin_credentials_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, revokes })}\n`,
   );
 }
 
