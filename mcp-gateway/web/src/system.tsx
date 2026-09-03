@@ -587,7 +587,9 @@ function ResourceLimits({
         <tbody>
           {limits.map((limit) => (
             <tr key={limit.name} data-testid="system-limit-row">
-              <th scope="row">{limit.name}</th>
+              <th class="system-limit-name" scope="row">
+                {limit.name}
+              </th>
               <td>{limit.inUse}</td>
               <td>{limit.limit}</td>
               <td>

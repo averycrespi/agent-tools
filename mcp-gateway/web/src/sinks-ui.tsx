@@ -212,6 +212,9 @@ function OAuthDisplay({
     "awaiting",
   );
   const [openFailed, setOpenFailed] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
 
   useEffect(() => {
     const presenter: OAuthPresenter = {
@@ -222,6 +225,7 @@ function OAuthDisplay({
         setLabel(nextLabel);
         setURL("");
         setOpenFailed(false);
+        setCopyStatus("idle");
         setPhase("awaiting");
         try {
           node.showModal();
@@ -239,6 +243,7 @@ function OAuthDisplay({
         }
         setURL(value);
         setOpenFailed(false);
+        setCopyStatus("idle");
         setPhase("display");
         return true;
       },
@@ -246,6 +251,7 @@ function OAuthDisplay({
         if (!coordinator.isCurrent(currentGeneration)) return;
         setURL("");
         setOpenFailed(false);
+        setCopyStatus("idle");
         setPhase("lost");
         clearSelection();
       },
@@ -253,6 +259,7 @@ function OAuthDisplay({
         setURL("");
         setLabel("");
         setOpenFailed(false);
+        setCopyStatus("idle");
         setPhase("awaiting");
         clearSelection();
         if (dialog.current?.open) dialog.current.close();
@@ -268,11 +275,20 @@ function OAuthDisplay({
     );
     if (result === "blocked") {
       setOpenFailed(true);
+      setCopyStatus("idle");
       return;
     }
     setURL("");
     clearSelection();
     coordinator.dismiss(generation);
+  };
+
+  const copy = async () => {
+    if (phase !== "display" || url === "") return;
+    const result = await copyToClipboard(url, (value) =>
+      navigator.clipboard.writeText(value),
+    );
+    if (coordinator.isCurrent(generation)) setCopyStatus(result);
   };
 
   return (
@@ -313,12 +329,24 @@ function OAuthDisplay({
         aria-atomic="true"
       >
         {openFailed &&
-          "The browser blocked the new page. The URL remains available in this dialog."}
+          "The browser blocked the new page. The URL remains available in this dialog. Copying leaves it in the operating-system clipboard until you overwrite it."}
+        {copyStatus === "copied" &&
+          " Copied to the operating-system clipboard."}
+        {copyStatus === "failed" && " Clipboard copy failed."}
       </div>
       <div class="dialog-actions">
         <button type="button" onClick={() => coordinator.dismiss(generation)}>
           Dismiss and clear
         </button>
+        {phase === "display" && openFailed && (
+          <button
+            type="button"
+            data-testid="copy-oauth-url"
+            onClick={() => void copy()}
+          >
+            Copy URL
+          </button>
+        )}
         {phase === "display" && (
           <button
             class="primary-action"

@@ -84,7 +84,7 @@ Primitive text is interpolated only as text. `sinks.ts` owns epoch- and navigati
 
 A bearer-producing mutation receives a prepared live handle before submission; preparation failure prevents submission, while a late, invalid, uncertain, dismissed, navigated, or stale-epoch response cannot publish. Dismissal and fencing clear secret/URL strings, DOM selection, status, and write-only fields without claiming to clear the operating-system clipboard.
 
-OAuth URLs are text, never links, and only the dedicated button calls `window.open` synchronously with `noopener,noreferrer`, nulls any accessible opener, retains no window reference, and clears the URL after success. `/oauth/callback` is production-wired to the one-time flow registry and returns only fixed success/failure/transient HTML with no-store, deny-all CSP, no-referrer, and nosniff headers; it never reflects query or dependency data.
+OAuth URLs are text, never links, and only the dedicated button calls `window.open` synchronously with `noopener,noreferrer`, nulls any accessible opener, retains no window reference, and clears the URL after success. A blocked open keeps the inert URL available and exposes an explicit user-gesture clipboard fallback with live success or failure status. `/oauth/callback` is production-wired to the one-time flow registry and returns only fixed success/failure/transient HTML with no-store, deny-all CSP, no-referrer, and nosniff headers; it never reflects query or dependency data.
 
 ### Presentation and accessibility
 

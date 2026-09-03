@@ -1407,6 +1407,12 @@ button.sort-button:not(:disabled):hover {
   border-bottom: 0;
 }
 
+.table-region .system-limit-name {
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .table-region thead th {
   color: var(--muted);
   font-size: 11px;
@@ -1849,17 +1855,6 @@ button.sort-button:not(:disabled):hover {
     align-items: flex-start;
     flex-direction: column;
     gap: 8px;
-  }
-
-  .system-view .table-region table {
-    min-width: 100%;
-    table-layout: fixed;
-  }
-
-  .system-view .table-region th,
-  .system-view .table-region td {
-    padding: 7px 6px;
-    font-size: 10px;
   }
 }
 

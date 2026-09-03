@@ -2877,6 +2877,50 @@ async function runVisualResponsiveMatrix(
     )
   )
     fail("320 CSS pixel reflow caused page overflow");
+  const narrowAdminActionsFit = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>(".table-region");
+    const actions = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-testid="admin-credential-revoke"]',
+      ),
+    ];
+    if (region === null || actions.length === 0) return false;
+    region.scrollLeft = region.scrollWidth;
+    const bounds = region.getBoundingClientRect();
+    return actions.every((action) => {
+      const actionBounds = action.getBoundingClientRect();
+      return (
+        actionBounds.left >= bounds.left - 1 &&
+        actionBounds.right <= bounds.right + 1
+      );
+    });
+  });
+  if (!narrowAdminActionsFit)
+    fail("320 CSS pixel admin actions were clipped inside the table");
+
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=resource-limits";
+  });
+  await page.locator('[data-testid="system-limit-row"]').first().waitFor();
+  const narrowResourceNamesFit = await page.evaluate(() => {
+    const names = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-testid="system-limit-row"] th[scope="row"]',
+      ),
+    ];
+    return (
+      names.length > 0 &&
+      names.every((name) => {
+        const style = getComputedStyle(name);
+        return (
+          style.textOverflow !== "ellipsis" && style.whiteSpace !== "nowrap"
+        );
+      })
+    );
+  });
+  if (!narrowResourceNamesFit)
+    fail("320 CSS pixel resource names lost visible information");
+
   await page.setViewportSize({ width: 720, height: 450 });
   const zoomLayout = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -8459,6 +8503,50 @@ async function runAuthFlows(
     fail("authorization URL became active content");
   if ((await display.textContent()) !== authorizationURL)
     fail("authorization URL display changed");
+
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(baseURL).origin,
+  });
+  await page.evaluate(() => {
+    const nativeOpen = window.open.bind(window);
+    const state = { blocked: true };
+    Object.defineProperty(window, "__oauthOpenState", {
+      configurable: true,
+      value: state,
+    });
+    window.open = (...arguments_) =>
+      state.blocked ? null : nativeOpen(...arguments_);
+  });
+  await page.locator('[data-testid="open-oauth-url"]').click();
+  await page.getByText("The browser blocked the new page.").waitFor();
+  const copyURL = page.locator('[data-testid="copy-oauth-url"]');
+  await copyURL.waitFor();
+  await copyURL.click();
+  await page.getByText("Copied to the operating-system clipboard.").waitFor();
+  if (
+    (await page.evaluate(() => navigator.clipboard.readText())) !==
+    authorizationURL
+  )
+    fail("blocked authorization URL lacked a copy fallback");
+  await page.evaluate(async () => {
+    await navigator.clipboard.writeText(
+      "clipboard overwritten after OAuth fallback test",
+    );
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      configurable: true,
+      value: async () => {
+        throw new Error("clipboard denied");
+      },
+    });
+    (
+      window as typeof window & {
+        __oauthOpenState: { blocked: boolean };
+      }
+    ).__oauthOpenState.blocked = false;
+  });
+  await copyURL.click();
+  await page.getByText("Clipboard copy failed.").waitFor();
+
   const popupPromise = page.waitForEvent("popup");
   await page.locator('[data-testid="open-oauth-url"]').click();
   const popup = await popupPromise;
