@@ -1335,6 +1335,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
       caption="Servers"
       items={items}
       rowKey={(server) => server.id}
+      initialSort={{ key: "name", direction: "ascending" }}
       rowTestID="server-row"
       filters={[
         {
@@ -1568,6 +1569,7 @@ function CatalogRows({ items }: { items: readonly CatalogDescriptorView[] }) {
       caption="Available tools"
       items={items}
       rowKey={(descriptor) => descriptor.id}
+      initialSort={{ key: "tool", direction: "ascending" }}
       rowTestID="catalog-row"
       filters={[
         {

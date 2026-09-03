@@ -3588,13 +3588,13 @@ async function runPrincipals(
       body: JSON.stringify(
         query.get("cursor") === "principal-next"
           ? {
-              items: [
-                principal(secondID, "Disabled agent", "disabled", "all", "4"),
-              ],
+              items: [current],
               next_cursor: null,
             }
           : {
-              items: [current],
+              items: [
+                principal(secondID, "Disabled agent", "disabled", "all", "4"),
+              ],
               next_cursor: staleListRestarted
                 ? "principal-next"
                 : "principal-stale",
@@ -3755,6 +3755,18 @@ async function runPrincipals(
   let body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Disabled agent"))
     fail("principal list omitted a principal");
+  const principalNames = await page
+    .locator('[data-testid="principal-row"] th[scope="row"]')
+    .allTextContents();
+  if (
+    principalNames.map((name) => name.trim()).join("|") !==
+      "Build agent|Disabled agent" ||
+    (await page
+      .locator('[data-testid="principals-view"] thead th')
+      .first()
+      .getAttribute("aria-sort")) !== "ascending"
+  )
+    fail(`principals did not default to Name ascending: ${principalNames}`);
   const principalSearch = page.getByLabel("Name or ID", { exact: true });
   await principalSearch.fill("Build agnt");
   if (
@@ -9448,7 +9460,7 @@ async function runServerCatalogReads(
         cursor === "server-next"
           ? { items: [deletedServer], next_cursor: null }
           : {
-              items: [activeServer, degradedServer],
+              items: [degradedServer, activeServer],
               next_cursor: "server-next",
             },
       ),
@@ -9491,20 +9503,41 @@ async function runServerCatalogReads(
           changed_at: "2026-08-28T13:00:00Z",
           issue_count: 2,
         },
-        items: [
-          {
-            ...descriptorReadFixture(
-              catalogRestarted
-                ? serverReadIDs.activeTool
-                : serverReadIDs.currentTool,
-              serverReadIDs.active,
-              catalogRestarted ? "active-restarted" : "active-before-stale",
-              false,
-            ),
-            server_display_name: "Authority required",
-            server_catalog_state: "stale",
-          },
-        ],
+        items: catalogRestarted
+          ? [
+              {
+                ...descriptorReadFixture(
+                  serverReadIDs.activeTool,
+                  serverReadIDs.active,
+                  "active-restarted",
+                  false,
+                ),
+                server_display_name: "Authority required",
+                server_catalog_state: "stale",
+              },
+            ]
+          : [
+              {
+                ...descriptorReadFixture(
+                  serverReadIDs.currentTool,
+                  serverReadIDs.active,
+                  "zulu-tool",
+                  false,
+                ),
+                server_display_name: "Authority required",
+                server_catalog_state: "stale",
+              },
+              {
+                ...descriptorReadFixture(
+                  serverReadIDs.retiredTool,
+                  serverReadIDs.active,
+                  "alpha-tool",
+                  false,
+                ),
+                server_display_name: "Authority required",
+                server_catalog_state: "current",
+              },
+            ],
         next_cursor: catalogRestarted ? null : "catalog-stale",
       }),
     });
@@ -9537,6 +9570,18 @@ async function runServerCatalogReads(
   )
     fail("server inventory was not presented on a panel surface");
   let body = (await page.locator("body").textContent()) ?? "";
+  const serverNames = await page
+    .locator('[data-testid="server-row"] th[scope="row"]')
+    .allTextContents();
+  if (
+    serverNames.map((name) => name.trim()).join("|") !==
+      "Authority required|Degraded catalog" ||
+    (await page
+      .locator('[data-testid="servers-view"] thead th')
+      .first()
+      .getAttribute("aria-sort")) !== "ascending"
+  )
+    fail(`servers did not default to Name ascending: ${serverNames}`);
   for (const phrase of [
     "Authority required",
     "server-b0",
@@ -9783,8 +9828,20 @@ async function runServerCatalogReads(
     window.location.hash = "#/catalog";
   });
   await page.locator('[data-testid="catalog-view"]').waitFor();
-  await page.locator('[data-testid="catalog-row"]').waitFor();
+  await page.locator('[data-testid="catalog-row"]').first().waitFor();
   body = (await page.locator("body").textContent()) ?? "";
+  const toolNames = await page
+    .locator('[data-testid="catalog-row"] th[scope="row"]')
+    .allTextContents();
+  if (
+    toolNames.map((name) => name.trim()).join("|") !==
+      "server.alpha-tool|server.zulu-tool" ||
+    (await page
+      .locator('[data-testid="catalog-view"] thead th')
+      .first()
+      .getAttribute("aria-sort")) !== "ascending"
+  )
+    fail(`catalog did not default to Tool ascending: ${toolNames}`);
   for (const phrase of [
     "Active administrative catalog",
     "Process generation",

@@ -1045,6 +1045,7 @@ export function Principals({
             caption="Principal identities"
             items={items}
             rowKey={(principal) => principal.id}
+            initialSort={{ key: "name", direction: "ascending" }}
             rowTestID="principal-row"
             filters={[
               {
