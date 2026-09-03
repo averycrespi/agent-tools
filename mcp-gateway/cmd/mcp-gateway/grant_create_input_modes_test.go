@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +12,39 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGrantConstraintSummaryDistinguishesVersionsAndOperators(t *testing.T) {
+	v1 := json.RawMessage(`{"equals":{"/region":"us","/attempt":1e0}}`)
+	v2 := json.RawMessage(`{"version":2,"equals":{"/attempt":1e0},"regex":{"/resource":"item-\\d+"}}`)
+	invalid := json.RawMessage(`{"version":3,"equals":{"/x":1}}`)
+	assert.Equal(t, "none", grantConstraintSummary(nil))
+	assert.Equal(t, "v1 equals (2)", grantConstraintSummary(&v1))
+	assert.Equal(t, "v2 equals (1), regex (1)", grantConstraintSummary(&v2))
+	assert.Equal(t, "invalid", grantConstraintSummary(&invalid))
+}
+
+func TestCLIGrantConstraintValidationMatchesProductionCompiler(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"equals":{"/x":1e0}}`),
+		json.RawMessage(`{"version":2,"regex":{"/x":"item-\\d+"}}`),
+		json.RawMessage(`{"version":2,"equals":{},"regex":{"/x":"item-\\d+"}}`),
+		json.RawMessage(`{"version":2,"equals":{"/x":1},"regex":{}}`),
+		json.RawMessage(`{"version":3,"equals":{"/x":1}}`),
+		json.RawMessage(`{"version":2,"regex":{"/x":"["}}`),
+		json.RawMessage(`{"version":2,"regex":{"/x":1}}`),
+		json.RawMessage(`{"version":2,"equals":{"x":1}}`),
+		json.RawMessage(`{"version":2,"equals":{},"regex":{}}`),
+		json.RawMessage(`{"equals":{"/x":{}}}`),
+	} {
+		_, err := authorization.CompileConstraint(raw)
+		assert.Equal(t, err == nil, validGrantConstraint(raw), "%s", raw)
+	}
+}
 
 func TestCLIGrantCreateInputModes(t *testing.T) {
 	const resourceID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
@@ -68,12 +98,15 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"description":"Test grant","principal_id":"`+resourceID+`","effect":"allow","server_id":"`+resourceID+`","upstream_name":"example_tool","constraint":null,"expires_at":"`+expiresAt+`"}`, string(<-requests))
 
-	constrainedBody := `{"description":"Test grant","principal_id":"` + resourceID + `","effect":"deny","server_id":"` + resourceID + `","upstream_name":"example_tool","constraint":{"equals":{"/region":"us"}},"expires_at":null}`
+	constrainedBody := `{"description":"Test grant","principal_id":"` + resourceID + `","effect":"deny","server_id":"` + resourceID + `","upstream_name":"example_tool","constraint":{"version":2,"equals":{"/attempt":1e0},"regex":{"/resource":"item-\\d+"}},"expires_at":null}`
 	constrainedFile := filepath.Join(dir, "constrained.json")
 	require.NoError(t, os.WriteFile(constrainedFile, []byte(constrainedBody), 0o600))
 	output, err = execute("grant", "create", "--file", constrainedFile)
 	require.NoError(t, err, "%s", output)
-	assert.JSONEq(t, constrainedBody, string(<-requests))
+	constrainedRequest := string(<-requests)
+	assert.JSONEq(t, constrainedBody, constrainedRequest)
+	assert.Contains(t, constrainedRequest, `1e0`)
+	assert.Contains(t, constrainedRequest, `"item-\\d+"`)
 
 	incompleteFile := filepath.Join(dir, "incomplete.json")
 	require.NoError(t, os.WriteFile(incompleteFile, []byte(`{"principal_id":"`+resourceID+`"}`), 0o600))

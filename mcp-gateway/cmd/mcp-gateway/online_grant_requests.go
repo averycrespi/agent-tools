@@ -241,6 +241,11 @@ func grantRequestTable(requests []contract.GrantRequestSummary, target *contract
 	rows := make([][]string, 0, len(requests))
 	for _, request := range requests {
 		approvedGrant := pointerText(request.ApprovedGrantID)
+		policy := request.RequestedPolicy
+		if request.ApprovedPolicy != nil {
+			policy = *request.ApprovedPolicy
+		}
+		constraint := grantConstraintSummary(policy.Constraint)
 		reason := "-"
 		if request.RejectionReason != nil {
 			reason = string(*request.RejectionReason)
@@ -252,7 +257,7 @@ func grantRequestTable(requests []contract.GrantRequestSummary, target *contract
 				targetState += "/" + string(*target.DurableState)
 			}
 		}
-		rows = append(rows, []string{request.ID, request.PrincipalID, string(request.State), request.Revision, string(request.RequestedPolicy.Scope), request.RequestedPolicy.Target, approvedGrant, reason, targetState, request.UpdatedAt})
+		rows = append(rows, []string{request.ID, request.PrincipalID, string(request.State), request.Revision, string(request.RequestedPolicy.Scope), request.RequestedPolicy.Target, constraint, approvedGrant, reason, targetState, request.UpdatedAt})
 	}
-	return controlclient.Table{Headers: []string{"ID", "PRINCIPAL", "STATE", "REVISION", "SCOPE", "TARGET", "GRANT", "REASON", "CURRENT_TARGET", "UPDATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"ID", "PRINCIPAL", "STATE", "REVISION", "SCOPE", "TARGET", "CONSTRAINT", "GRANT", "REASON", "CURRENT_TARGET", "UPDATED"}, Rows: rows}
 }

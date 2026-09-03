@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -91,28 +93,94 @@ func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byt
 	return json.Marshal(object)
 }
 
+type grantConstraintShape struct {
+	version     int
+	equalities  int
+	expressions int
+}
+
 func validGrantConstraint(raw json.RawMessage) bool {
-	if len(raw) > 8192 {
-		return false
+	_, ok := parseGrantConstraint(raw)
+	return ok
+}
+
+func parseGrantConstraint(raw json.RawMessage) (grantConstraintShape, bool) {
+	limit, _ := contract.FixedLimitByName("constraint_bytes")
+	if !limit.Allows(int64(len(raw))) {
+		return grantConstraintShape{}, false
 	}
 	var outer map[string]json.RawMessage
-	if json.Unmarshal(raw, &outer) != nil || len(outer) != 1 || outer["equals"] == nil {
-		return false
+	if json.Unmarshal(raw, &outer) != nil {
+		return grantConstraintShape{}, false
 	}
+	shape := grantConstraintShape{version: 1}
+	if len(outer) == 1 && outer["equals"] != nil {
+		shape.equalities = validGrantEquals(outer["equals"])
+	} else {
+		shape.version = 2
+		if len(outer) < 2 || len(outer) > 3 || string(outer["version"]) != "2" || (outer["equals"] == nil && outer["regex"] == nil) {
+			return grantConstraintShape{}, false
+		}
+		for member := range outer {
+			if member != "version" && member != "equals" && member != "regex" {
+				return grantConstraintShape{}, false
+			}
+		}
+		if outer["equals"] != nil {
+			shape.equalities = validGrantEquals(outer["equals"])
+		}
+		if outer["regex"] != nil {
+			shape.expressions = validGrantRegex(outer["regex"])
+		}
+	}
+	atomLimit, _ := contract.FixedLimitByName("constraint_atoms")
+	atoms := shape.equalities + shape.expressions
+	if shape.equalities < 0 || shape.expressions < 0 || atoms < 1 || !atomLimit.Allows(int64(atoms)) {
+		return grantConstraintShape{}, false
+	}
+	return shape, true
+}
+
+func validGrantEquals(raw json.RawMessage) int {
 	var equals map[string]json.RawMessage
-	if json.Unmarshal(outer["equals"], &equals) != nil || len(equals) < 1 || len(equals) > 16 {
-		return false
+	if json.Unmarshal(raw, &equals) != nil {
+		return -1
 	}
 	for pointer, scalar := range equals {
 		if !validGrantPointer(pointer) || !validJSONScalar(scalar) {
-			return false
+			return -1
 		}
 	}
-	return true
+	return len(equals)
+}
+
+func validGrantRegex(raw json.RawMessage) int {
+	var expressions map[string]json.RawMessage
+	if json.Unmarshal(raw, &expressions) != nil {
+		return -1
+	}
+	patternLimit, _ := contract.FixedLimitByName("constraint_regex_pattern_bytes")
+	programLimit, _ := contract.FixedLimitByName("constraint_regex_program_instructions")
+	for pointer, rawPattern := range expressions {
+		var pattern string
+		if !validGrantPointer(pointer) || json.Unmarshal(rawPattern, &pattern) != nil || !patternLimit.Allows(int64(len(pattern))) {
+			return -1
+		}
+		parsed, err := syntax.Parse(`\A(?:`+pattern+`)\z`, syntax.Perl)
+		if err != nil {
+			return -1
+		}
+		program, err := syntax.Compile(parsed.Simplify())
+		if err != nil || !programLimit.Allows(int64(len(program.Inst))) {
+			return -1
+		}
+	}
+	return len(expressions)
 }
 
 func validGrantPointer(pointer string) bool {
-	if !strings.HasPrefix(pointer, "/") || len(pointer) > 256 || !utf8.ValidString(pointer) {
+	limit, _ := contract.FixedLimitByName("constraint_pointer_bytes")
+	if !strings.HasPrefix(pointer, "/") || !limit.Allows(int64(len(pointer))) || !utf8.ValidString(pointer) {
 		return false
 	}
 	for index := 0; index < len(pointer); index++ {
@@ -143,6 +211,20 @@ func validJSONScalar(raw json.RawMessage) bool {
 	default:
 		return false
 	}
+}
+
+func grantConstraintSummary(raw *json.RawMessage) string {
+	if raw == nil {
+		return "none"
+	}
+	shape, ok := parseGrantConstraint(*raw)
+	if !ok {
+		return "invalid"
+	}
+	if shape.version == 1 {
+		return fmt.Sprintf("v1 equals (%d)", shape.equalities)
+	}
+	return fmt.Sprintf("v2 equals (%d), regex (%d)", shape.equalities, shape.expressions)
 }
 
 func runGrantCreateRequest(command *cobra.Command, options *onlineOptions, body []byte) error {
@@ -271,7 +353,7 @@ func validGrant(grant contract.Grant) bool {
 	}
 	_, effectErr := contract.ParseGrantEffect(string(grant.Effect))
 	_, stateErr := contract.ParseGrantState(string(grant.State))
-	return effectErr == nil && stateErr == nil
+	return effectErr == nil && stateErr == nil && (grant.UpstreamName != nil || grant.Constraint == nil) && grantConstraintSummary(grant.Constraint) != "invalid"
 }
 
 func validGrantDescription(value string) bool {
@@ -301,10 +383,7 @@ func grantTable(grants []contract.Grant, truncateDescriptions bool) controlclien
 		if grant.UpstreamName != nil {
 			upstream = *grant.UpstreamName
 		}
-		constraint := "none"
-		if grant.Constraint != nil {
-			constraint = "scalar equals"
-		}
+		constraint := grantConstraintSummary(grant.Constraint)
 		description := "—"
 		if grant.Description != nil {
 			description = *grant.Description
