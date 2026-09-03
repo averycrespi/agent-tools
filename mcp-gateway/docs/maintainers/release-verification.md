@@ -1,14 +1,14 @@
 # Release verification and acceptance evidence
 
-Audience: Maintainers producing release evidence
+Audience: Release owners and maintainers preparing release evidence
 
-Purpose: Run and adopt exact-revision acceptance evidence.
+Purpose: Prepare, run, and adopt exact-revision acceptance evidence without turning release acceptance into a development loop.
 
 Authority: Normative maintainer evidence procedure
 
-This guide owns the purpose-based verification DAG, clean-revision acceptance, report adoption, native and external evidence classification, and failure discipline. The Makefile and generated help are authoritative for available target definitions; this guide explains ownership and composition.
+This guide owns the purpose-based verification DAG, clean-revision acceptance, report adoption, native and external evidence classification, and failure discipline. The Makefile and generated help are authoritative for available target definitions; this guide explains ownership and composition. Freezing a candidate, completing external qualification, and adopting a report are release-owner actions; coding agents should perform them only when the requested workflow authorizes those externally consequential steps.
 
-See [maintainer guidance](../CLAUDE.md) for package ownership and editing invariants, the [DESIGN overview](../DESIGN.md) for normative security and compatibility boundaries, and [frontend development](frontend-development.md) for the separate live-reload and production-asset workflows.
+See [maintainer and agent guidance](../../CLAUDE.md) for package ownership and editing invariants, the [DESIGN overview](../../DESIGN.md) for normative security and compatibility boundaries, and [frontend development](frontend-development.md) for the separate live-reload and production-asset workflows.
 
 ## Purpose-based verification DAG
 

@@ -32,7 +32,7 @@ API responses are `no-store`, problems retain the fixed safe envelope, and no re
 
 ## Browser development boundary
 
-The frontend development path is build/test-only and uses a second independently managed numeric-loopback Vite process. It serves authored source and local HMR, admits only segment-bounded `/api/v1/` traffic to one fixed numeric-loopback Gateway origin, rewrites only the exact frontend Origin, and preserves the host-only cookie/CSRF boundary without adding production CORS or alternate-Origin authority. It never supervises Gateway, proxies `/mcp` or `/oauth/callback`, writes the embedded asset directory, or enters the production import graph; OAuth callback authority remains at Gateway. The operational contract is documented in [docs/frontend-development.md](../frontend-development.md).
+The frontend development path is build/test-only and uses a second independently managed numeric-loopback Vite process. It serves authored source and local HMR, admits only segment-bounded `/api/v1/` traffic to one fixed numeric-loopback Gateway origin, rewrites only the exact frontend Origin, and preserves the host-only cookie/CSRF boundary without adding production CORS or alternate-Origin authority. It never supervises Gateway, proxies `/mcp` or `/oauth/callback`, writes the embedded asset directory, or enters the production import graph; OAuth callback authority remains at Gateway. The operational contract is documented in [frontend development](../maintainers/frontend-development.md).
 
 ## Browser state and workflow ownership
 
@@ -112,7 +112,7 @@ Human output is the default; `--output json` and `--json` select exact JSON publ
 
 No command polls, refreshes a precondition after conflict, recovers a one-time value, invokes a private owner, or replays automatically. A proven refused selected loopback renders the exact `mcp-gateway serve` command, including explicit address and data-directory choices.
 
-Command selection, output, authentication-source, and recovery procedures are canonical in [CLI and local administration](../cli-local-administration.md).
+Command selection, output, authentication-source, and recovery procedures are canonical in [Administrator CLI and local administration](../operators/administration.md).
 
 ## Events, limits, and shutdown
 

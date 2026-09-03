@@ -27,6 +27,11 @@ func testDocumentationGuideOwnership(t *testing.T) {
 	expectedPaths := make([]string, 0, len(guides))
 	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
 	require.NoError(t, err)
+	documentationMapPath := filepath.Join(root, "docs", "README.md")
+	documentationMapBytes, err := os.ReadFile(documentationMapPath)
+	require.NoError(t, err)
+	documentationMap := string(documentationMapBytes)
+	assertMarkdownLinksResolve(t, documentationMapPath, documentationMap)
 
 	for _, guide := range guides {
 		expectedPaths = append(expectedPaths, guide.Path)
@@ -36,11 +41,17 @@ func testDocumentationGuideOwnership(t *testing.T) {
 		assert.Contains(t, text, "Audience: "+guide.Audience, guide.Path)
 		assert.Contains(t, text, "Purpose: "+guide.Purpose, guide.Path)
 		assert.Contains(t, string(readme), "("+guide.Path+")", guide.Path)
+		assert.Contains(t, documentationMap, "("+strings.TrimPrefix(guide.Path, "docs/")+")", guide.Path)
 		assertMarkdownLinksResolve(t, filepath.Join(root, filepath.FromSlash(guide.Path)), text)
 	}
 
-	matches, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
+	operatorMatches, err := filepath.Glob(filepath.Join(root, "docs", "operators", "*.md"))
 	require.NoError(t, err)
+	maintainerMatches, err := filepath.Glob(filepath.Join(root, "docs", "maintainers", "*.md"))
+	require.NoError(t, err)
+	matches := make([]string, 0, len(operatorMatches)+len(maintainerMatches))
+	matches = append(matches, operatorMatches...)
+	matches = append(matches, maintainerMatches...)
 	actualPaths := make([]string, 0, len(matches))
 	for _, match := range matches {
 		relative, relErr := filepath.Rel(root, match)
@@ -77,7 +88,7 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	require.NoError(t, err)
 	readme := string(readmeBytes)
 	assert.Less(t, len(readmeBytes), 12000, "README must remain a concise entry point")
-	for _, heading := range []string{"## Installation", "## Quick start", "## Common workflows", "## Security", "## Guides", "## Development"} {
+	for _, heading := range []string{"## Installation", "## Quick start", "## Common workflows", "## Security", "## Documentation", "## Development"} {
 		assert.Contains(t, readme, heading)
 	}
 	for _, command := range []string{"make install", "mcp-gateway initialize", "mcp-gateway serve", "mcp-gateway status"} {
@@ -103,7 +114,7 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	assert.NotContains(t, gatewayOverview, "being built")
 	assert.NotRegexp(t, regexp.MustCompile(`\bS[1-6]\b`), gatewayOverview)
 	assert.Contains(t, gatewayOverview, "mcp-gateway/README.md")
-	assert.Contains(t, gatewayOverview, "mcp-gateway/docs/cli-local-administration.md")
+	assert.Contains(t, gatewayOverview, "mcp-gateway/docs/README.md")
 }
 
 func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
@@ -114,7 +125,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 		require.NoError(t, err)
 		return string(contents)
 	}
-	cli := read("docs/cli-local-administration.md")
+	cli := read("docs/operators/administration.md")
 	for _, phrase := range []string{
 		"$XDG_DATA_HOME/mcp-gateway", "~/.local/share/mcp-gateway", "`--data-dir` has highest precedence",
 		"Online administrator authentication never prompts", "--admin-bearer-file", "--admin-bearer-stdin",
@@ -123,7 +134,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	} {
 		assert.Contains(t, cli, phrase)
 	}
-	recovery := read("docs/recovery.md")
+	recovery := read("docs/operators/backup-and-recovery.md")
 	for _, phrase := range []string{
 		"mcp-gateway backup create", "mcp-gateway restore --verify-current", "mcp-gateway restore BACKUP_ID",
 		"mcp-gateway admin reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
@@ -142,10 +153,10 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 		return string(contents)
 	}
 	guides := map[string]string{
-		"product.server_catalog.": read("docs/server-configuration.md"),
-		"product.access_policy.":  read("docs/access-policy.md"),
-		"product.grant_request.":  read("docs/access-policy.md"),
-		"product.invocation.":     read("docs/invocation-evidence.md"),
+		"product.server_catalog.": read("docs/operators/upstream-servers.md"),
+		"product.access_policy.":  read("docs/operators/access-control.md"),
+		"product.grant_request.":  read("docs/operators/access-control.md"),
+		"product.invocation.":     read("docs/operators/invocation-evidence.md"),
 	}
 	markers := map[string]string{
 		"product.server_catalog.state_separation":           "desired configuration, durable catalog evidence, and active runtime state",
@@ -211,7 +222,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 		"access":     guides["product.access_policy."],
 		"invocation": guides["product.invocation."],
 	} {
-		assert.Contains(t, guide, "[DESIGN](../DESIGN.md)", path)
+		assert.Contains(t, guide, "[DESIGN](../../DESIGN.md)", path)
 		assert.NotContains(t, guide, "/api/v1/", path+" should link to normative routes rather than copy them")
 		assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|executable|milestone|implementation phase)`), guide, path)
 	}
@@ -227,14 +238,14 @@ func TestMaintainerGuidanceAndReleaseDocumentation(t *testing.T) {
 	}
 	gatewayGuidance := read("CLAUDE.md")
 	rootGuidance := read("../CLAUDE.md")
-	release := read("docs/release-verification.md")
-	frontend := read("docs/frontend-development.md")
+	release := read("docs/maintainers/release-verification.md")
+	frontend := read("docs/maintainers/frontend-development.md")
 
 	assert.Less(t, len(gatewayGuidance), 20000, "maintainer guidance must link to product contracts rather than copy them")
 	for _, heading := range []string{"## Development", "## Package layout", "## Editing invariants", "## Dependency flow"} {
 		assert.Contains(t, gatewayGuidance, heading)
 	}
-	for _, link := range []string{"docs/frontend-development.md", "docs/release-verification.md"} {
+	for _, link := range []string{"docs/maintainers/frontend-development.md", "docs/maintainers/release-verification.md"} {
 		assert.Contains(t, gatewayGuidance, link)
 		assert.Contains(t, rootGuidance, "mcp-gateway/"+link)
 	}

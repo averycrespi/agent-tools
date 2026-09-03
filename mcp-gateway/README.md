@@ -14,7 +14,7 @@ From the `mcp-gateway` directory:
 make install
 ```
 
-The installed `mcp-gateway` binary owns its data directory, SQLite database, administrator authority, and local service lifecycle. See [CLI and local administration](docs/cli-local-administration.md) for installation paths and credential selection.
+The installed `mcp-gateway` binary owns its data directory, SQLite database, administrator authority, and local service lifecycle. See [Administrator CLI and local administration](docs/operators/administration.md) for installation paths and credential selection.
 
 ## Quick start
 
@@ -50,22 +50,13 @@ The [DESIGN](DESIGN.md) overview and its linked domain chapters are the source o
 
 Generated `mcp-gateway --help` and subcommand help are the exact command reference.
 
-- Resolve local paths, authenticate the CLI, select output, and inspect status with [CLI and local administration](docs/cli-local-administration.md).
-- Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Server configuration and credentials](docs/server-configuration.md).
-- Create principals, issue agent credentials, and manage grants or requests with [Principals, grants, and requests](docs/access-policy.md).
-- Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/invocation-evidence.md).
-- Create backups or perform stopped-process verification, restore, and administrator reset with [Backup, restore, and recovery](docs/recovery.md).
+- Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
+- Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md).
+- Create principals, issue agent credentials, and manage grants or requests with [Access control](docs/operators/access-control.md).
+- Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
+- Create backups or perform stopped-process verification, restore, and administrator reset with [Backup, restore, and recovery](docs/operators/backup-and-recovery.md).
 
-Routine administrator-key rollover is online and replacement-first:
-
-```bash
-mcp-gateway admin credential rotate OLD_CREDENTIAL_ID \
-  --secret-output /safe/new/admin-bearer \
-  --yes
-mcp-gateway status --admin-bearer-file /safe/new/admin-bearer
-```
-
-The rotation publishes, reopens, authenticates, and verifies the replacement before it conditionally revokes the named old credential. It does not overwrite the default bearer file. `mcp-gateway admin reset` is the separate stopped-process operation that revokes all administrator authority. Legacy hyphenated administrator spellings have no aliases.
+Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.
 
 If an online command proves that the selected loopback Gateway is stopped, its error renders the matching `mcp-gateway serve` command, including nondefault address and data-directory selections. Gateway never automatically replays a mutation or governed tool call. Follow the command-specific read guidance before deciding whether an explicit retry is safe.
 
@@ -78,17 +69,30 @@ If an online command proves that the selected loopback Gateway is stopped, its e
 - An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
 - Native keyring operations may prompt, fail, or outlive cancellation. Gateway never falls back to plaintext credential storage.
 
-See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and MCP ingress](docs/design/invocation-and-ingress.md) for normative call semantics, and [Invocation evidence](docs/invocation-evidence.md) for operator interpretation.
+See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and MCP ingress](docs/design/invocation-and-ingress.md) for normative call semantics, and [Invocation evidence](docs/operators/invocation-evidence.md) for operator interpretation.
 
-## Guides
+## Documentation
 
-- [CLI and local administration](docs/cli-local-administration.md)
-- [Server configuration and credentials](docs/server-configuration.md)
-- [Principals, grants, and requests](docs/access-policy.md)
-- [Invocation evidence and unknown outcomes](docs/invocation-evidence.md)
-- [Backup, restore, and recovery](docs/recovery.md)
-- [Frontend development](docs/frontend-development.md)
-- [Release verification and acceptance evidence](docs/release-verification.md)
+Use the [documentation map](docs/README.md) to choose material by role and task.
+
+### Gateway administrators
+
+- [Administrator CLI and local administration](docs/operators/administration.md)
+- [Upstream server configuration](docs/operators/upstream-servers.md)
+- [Access control](docs/operators/access-control.md)
+- [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)
+- [Backup, restore, and recovery](docs/operators/backup-and-recovery.md)
+
+### Maintainers and coding agents
+
+- [Maintainer and agent guidance](CLAUDE.md)
+- [Frontend development](docs/maintainers/frontend-development.md)
+- [Release verification and acceptance evidence](docs/maintainers/release-verification.md)
+
+### System design
+
+- [Normative architecture index](DESIGN.md)
+- [Domain design chapters](docs/design/)
 
 ## Development
 
@@ -102,7 +106,7 @@ npm run ui:typecheck
 npm run ui:build
 ```
 
-Use the [frontend development guide](docs/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/release-verification.md) for release evidence and failure discipline.
+Use the [frontend development guide](docs/maintainers/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/maintainers/release-verification.md) for release evidence and failure discipline.
 
 ## Coexistence with MCP Broker
 

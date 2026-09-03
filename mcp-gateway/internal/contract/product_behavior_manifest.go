@@ -170,7 +170,7 @@ func SecurityBehaviorManifest() []ProductBehavior {
 func DocumentationBehaviorManifest() []DocumentationBehavior {
 	rows := make([]DocumentationBehavior, 0, 40)
 	for _, id := range productCapabilityIDs {
-		rows = append(rows, DocumentationBehavior{ID: "docs.capability." + strings.ReplaceAll(id, "-", "."), EvidenceOwner: "tier.unit.contract", CanonicalOwner: "cli-local-administration"})
+		rows = append(rows, DocumentationBehavior{ID: "docs.capability." + strings.ReplaceAll(id, "-", "."), EvidenceOwner: "tier.unit.contract", CanonicalOwner: "administration"})
 	}
 	for _, id := range documentationTopicIDs {
 		rows = append(rows, DocumentationBehavior{ID: "docs.topic." + strings.ReplaceAll(id, "-", "."), EvidenceOwner: "tier.unit.contract", CanonicalOwner: strings.ReplaceAll(id, "-", "_")})

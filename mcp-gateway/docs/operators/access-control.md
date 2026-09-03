@@ -1,4 +1,4 @@
-# Principals, grants, and requests
+# Access control: principals, grants, and requests
 
 Audience: Gateway administrators managing agent access
 
@@ -10,7 +10,7 @@ This guide owns operator workflows for principal lifecycle, one-time agent crede
 - `mcp-gateway grant --help`
 - `mcp-gateway grant-request --help`
 
-See [DESIGN](../DESIGN.md) for the system design index and [Identity and authorization](design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
+See [DESIGN](../../DESIGN.md) for the system design index and [Identity and authorization](../design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [Administrator CLI and local administration](administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
 
 ## Create and inspect principals
 
@@ -138,4 +138,4 @@ The fixed tools are `mcp_gateway.get_identity`, `mcp_gateway.list_grants`, `mcp_
 
 A request may target one exact external tool or one server namespace. Exact-tool requests may include the same bounded equality constraint. Server-wide requests require explicit future-tools acknowledgement and cannot include a constraint. Duration is permanent when null or a canonical decimal from 60 through 2,592,000 seconds. Approval can narrow but never broaden those terms.
 
-See [Invocation evidence and unknown outcomes](invocation-evidence.md) for interpreting policy decisions and call outcomes. Return to the [Gateway README](../README.md) for common workflows.
+See [Invocation evidence and unknown outcomes](invocation-evidence.md) for interpreting policy decisions and call outcomes. Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for common workflows.

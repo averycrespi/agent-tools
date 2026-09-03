@@ -4,7 +4,7 @@
 
 MCP Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one durable audit transaction before one immediate attempt on a pinned downstream capability or fixed local handler. Gateway retains no queue, replay state, successful result, or raw downstream error.
 
-This document is the normative architecture overview and index. The linked design chapters own detailed product behavior. Operator procedures belong to the focused guides under [`docs/`](docs/), while maintainer commands, package layout, and editing invariants belong to [`CLAUDE.md`](CLAUDE.md).
+This document is the normative architecture overview and index. The linked design chapters own detailed product behavior. The [documentation map](docs/README.md) routes readers to operator and maintainer procedures, while maintainer commands, package layout, and editing invariants belong to [`CLAUDE.md`](CLAUDE.md).
 
 ## Documentation authority
 
@@ -21,15 +21,20 @@ Normative behavior is divided by stable product domain:
 
 The chapters are normative for product intent, invariants, ownership, lifecycle, and failure semantics. `internal/contract` is the executable authority for public routes, safe problems, media and protocol values, fixed limits, closed states and reasons, resource mechanics, approved secret sinks, and behavior manifests. Contract code, tests, and the owning design chapter must change together when behavior changes.
 
-Operational guides explain safe procedures without redefining product semantics. In executable documentation manifests, “canonical owner” identifies the guide that owns a workflow or operator explanation, not a competing source of product semantics:
+Operational guides explain safe procedures without redefining product semantics. In executable documentation manifests, “canonical owner” identifies the guide that owns a workflow or operator explanation, not a competing source of product semantics.
 
-- [CLI and local administration](docs/cli-local-administration.md)
-- [Server configuration and credentials](docs/server-configuration.md)
-- [Principals, grants, and requests](docs/access-policy.md)
-- [Invocation evidence and unknown outcomes](docs/invocation-evidence.md)
-- [Backup, restore, and recovery](docs/recovery.md)
-- [Frontend development](docs/frontend-development.md)
-- [Release verification and acceptance evidence](docs/release-verification.md)
+Operator procedures:
+
+- [Administrator CLI and local administration](docs/operators/administration.md)
+- [Upstream server configuration](docs/operators/upstream-servers.md)
+- [Access control](docs/operators/access-control.md)
+- [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)
+- [Backup, restore, and recovery](docs/operators/backup-and-recovery.md)
+
+Maintainer procedures:
+
+- [Frontend development](docs/maintainers/frontend-development.md)
+- [Release verification and acceptance evidence](docs/maintainers/release-verification.md)
 
 If summaries disagree, the owning normative chapter controls product intent and `internal/contract` controls its executable closed vocabulary. Generated CLI help and Make targets control command and target syntax respectively.
 

@@ -34,7 +34,7 @@ func testDocumentationOwnershipManifestSchema(t *testing.T) {
 	}
 	for _, guide := range guides {
 		addID(guide.ID)
-		assert.Regexp(t, `^docs/[a-z0-9-]+\.md$`, guide.Path)
+		assert.Regexp(t, `^docs/(?:operators|maintainers)/[a-z0-9-]+\.md$`, guide.Path)
 		assert.NotEmpty(t, guide.Audience, guide.ID)
 		assert.NotEmpty(t, guide.Purpose, guide.ID)
 		_, duplicate := guidePaths[guide.Path]

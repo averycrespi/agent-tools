@@ -91,7 +91,7 @@ See the [mcp-broker README](mcp-broker/README.md) for more information.
 
 `mcp-gateway` is a locally secure, deny-by-default service for governing MCP access. It combines a strict loopback HTTP/MCP boundary with dynamic downstream runtimes and catalogs, principal credentials and grants, governed tool invocation, bounded redacted evidence, browser and CLI administration, and verified recovery.
 
-Gateway permits at most one automatic authorized attempt and never queues or automatically replays a tool call. Uncertain handoff remains explicit because an effect may already have occurred. Start with the [Gateway README](mcp-gateway/README.md), then use the [CLI and local administration guide](mcp-gateway/docs/cli-local-administration.md) for operation or [DESIGN](mcp-gateway/DESIGN.md) for normative behavior and security boundaries.
+Gateway permits at most one automatic authorized attempt and never queues or automatically replays a tool call. Uncertain handoff remains explicit because an effect may already have occurred. Start with the [Gateway README](mcp-gateway/README.md), then use the [documentation map](mcp-gateway/docs/README.md) to find operator and maintainer procedures or [DESIGN](mcp-gateway/DESIGN.md) for normative behavior and security boundaries.
 
 ### HTTP Broker
 

@@ -38,7 +38,7 @@ make frontend-verify-supply-chain
 make frontend-audit
 ```
 
-For the two-process live-reload workflow, follow the [MCP Gateway frontend development guide](mcp-gateway/docs/frontend-development.md). For Gateway evidence tiers, exact-revision acceptance, external qualification, and report adoption, follow the [release verification guide](mcp-gateway/docs/release-verification.md).
+For the two-process live-reload workflow, follow the [MCP Gateway frontend development guide](mcp-gateway/docs/maintainers/frontend-development.md). For Gateway evidence tiers, exact-revision acceptance, external qualification, and report adoption, follow the [release verification guide](mcp-gateway/docs/maintainers/release-verification.md).
 
 Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. `check-other-tools` deliberately excludes `mcp-gateway` because Gateway release acceptance is a separate owner; do not compose both under another aggregate. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 

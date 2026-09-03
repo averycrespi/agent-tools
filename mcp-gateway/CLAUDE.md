@@ -1,6 +1,8 @@
 # mcp-gateway
 
-Locally secure, deny-by-default MCP service and control plane.
+Audience: Human maintainers and coding agents changing MCP Gateway
+
+Purpose: Provide repository-local commands, package ownership, editing constraints, and verification requirements. This is not an operator runbook; use the [documentation map](docs/README.md) to find operator procedures and normative product design.
 
 ## Development
 
@@ -43,7 +45,7 @@ npm run ui:verify-supply-chain
 npm run ui:audit
 ```
 
-Use [docs/frontend-development.md](docs/frontend-development.md) for the two-process live-reload trust boundary. Use [docs/release-verification.md](docs/release-verification.md) for evidence tiers, acceptance, external qualification, and report adoption. Do not use a full acceptance run as the first integration or debugging loop.
+Use [frontend development](docs/maintainers/frontend-development.md) for the two-process live-reload trust boundary. Use [release verification](docs/maintainers/release-verification.md) for evidence tiers, acceptance, external qualification, and report adoption. Do not use a full acceptance run as the first integration or debugging loop.
 
 Run `make verify` before committing Go changes. Run focused race-enabled tests for changed behavior; reserve complete count-one suites for their integration or release owner. Repeat only the dedicated named stress scenarios, never an entire package containing migration, retention, protocol, browser, or real-binary matrices.
 
@@ -87,7 +89,7 @@ test/e2e/                   Shared real-binary and browser harnesses
 test/security/              Security/privacy source and sink evidence
 test/keyringnative/         Isolated native keyring evidence
 test/material/              External-package material acquisition evidence
-docs/                       Canonical operational and maintainer guides
+docs/                       Role-oriented operator, maintainer, and design documentation
 ```
 
 `internal/dependencies` is only a dependency pin. Production files must not import `internal/testutil`; it is test-only.
@@ -120,7 +122,7 @@ docs/                       Canonical operational and maintainer guides
 ### Browser and CLI
 
 - Authored web source builds deterministically to the exact `internal/api/static` allowlist. Development Node/Vite code is build/test-only and must not enter the production import graph or write production assets.
-- Before completing a change that can affect rendered UI or browser interaction, exercise the affected states in a real browser and visually inspect screenshots at representative desktop and narrow viewports. Browser tests, DOM snapshots, screenshot creation, and screenshot hashes do not substitute for inspecting the rendered result. Follow [frontend development](docs/frontend-development.md#visual-verification).
+- Before completing a change that can affect rendered UI or browser interaction, exercise the affected states in a real browser and visually inspect screenshots at representative desktop and narrow viewports. Browser tests, DOM snapshots, screenshot creation, and screenshot hashes do not substitute for inspecting the rendered result. Follow [frontend development](docs/maintainers/frontend-development.md#visual-verification).
 - Preserve the single owners under `web/src/`: location grammar, theme persistence, session epochs, visible refresh, mutation state, accessible primitives, and one-time sinks. Domain pages compose these owners; they do not add independent storage, timers, streams, fetch mutation/retry, clipboard, opener, or active-content paths.
 - The development proxy remains a trusted loopback-only process with a closed selector grammar and segment-bounded control API proxy. It never owns Gateway startup, MCP ingress, OAuth callback, or production behavior.
 - Online CLI commands acquire one selected administrator bearer and then use `internal/controlclient` only. There is no prompt, argv, or environment fallback. `--data-dir` selects credential location; it never opens private storage, keyring, or domain packages. Preserve separate stdout/stderr, typed exits, strict input, exact ETags, prepared one-time sinks, confirmation, and no automatic replay.
@@ -132,8 +134,8 @@ docs/                       Canonical operational and maintainer guides
 - The `e2e` build tag replaces only the composition provider factory with deterministic test material. Ordinary builds select the native keyring backend; neither selection is public configuration.
 - Keep focused tests with their behavior owner. Large persistence, migration, protocol, browser, and real-binary suites stay count one. Repeated execution belongs only to dedicated named stress scenarios.
 - Repository source guards use exact paths and symbols. Extend an allowlist only for a deliberate ownership change; never broaden a guard to make an unrelated refactor pass. Keep the narrow discovery conversion suppressions limited to reversible sign-bit mapping, bounded nanoseconds, and bounded page positions.
-- README is the user entry point; DESIGN is the normative architecture index and `docs/design/` contains its domain chapters; this file is maintainer commands, layout, dependency flow, and non-obvious editing constraints. Detailed workflows belong to the focused operational and maintainer guides under `docs/`.
-- Release evidence must remain bound to a clean unchanged revision and immutable definitions. Native and external gaps stay typed and visible; a failed blocking owner blocks. Follow the release guide rather than copying acceptance command inventories here.
+- README is the user entry point; `docs/README.md` maps documentation by role and task; DESIGN is the normative architecture index and `docs/design/` contains its domain chapters. This file owns maintainer commands, layout, dependency flow, and non-obvious editing constraints. Detailed workflows belong to `docs/operators/` and `docs/maintainers/`.
+- Release evidence must remain bound to a clean unchanged revision and immutable definitions. Native and external gaps stay typed and visible; a failed blocking owner blocks. Follow [release verification](docs/maintainers/release-verification.md) rather than copying acceptance command inventories here.
 
 ## Dependency flow
 

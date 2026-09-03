@@ -12,7 +12,7 @@ import (
 
 func TestFrontendDevelopmentDocumentation(t *testing.T) {
 	root := frontendDevelopmentModuleRoot(t)
-	guidePath := filepath.Join(root, "docs", "frontend-development.md")
+	guidePath := filepath.Join(root, "docs", "maintainers", "frontend-development.md")
 	guideBytes, err := os.ReadFile(guidePath)
 	require.NoError(t, err)
 	guide := string(guideBytes)
@@ -42,11 +42,11 @@ func TestFrontendDevelopmentDocumentation(t *testing.T) {
 	for _, owner := range []string{"README.md", "DESIGN.md", "CLAUDE.md"} {
 		contents, readErr := os.ReadFile(filepath.Join(root, owner))
 		require.NoError(t, readErr)
-		require.Contains(t, string(contents), "docs/frontend-development.md", owner)
+		require.Contains(t, string(contents), "docs/maintainers/frontend-development.md", owner)
 	}
 	rootClaude, err := os.ReadFile(filepath.Join(filepath.Dir(root), "CLAUDE.md"))
 	require.NoError(t, err)
-	require.Contains(t, string(rootClaude), "mcp-gateway/docs/frontend-development.md")
+	require.Contains(t, string(rootClaude), "mcp-gateway/docs/maintainers/frontend-development.md")
 
 	developmentSource, err := os.ReadFile(filepath.Join(root, "web", "dev-server.ts"))
 	require.NoError(t, err)

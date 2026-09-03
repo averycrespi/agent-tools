@@ -4,7 +4,7 @@ Audience: Maintainers developing the Gateway web application
 
 Purpose: Run trusted live reload without changing the production asset boundary.
 
-See [Administrative control plane](design/administrative-control-plane.md) for the normative production browser and development-proxy trust boundaries, and [maintainer guidance](../CLAUDE.md) for package ownership and editing invariants.
+See [Administrative control plane](../design/administrative-control-plane.md) for the normative production browser and development-proxy trust boundaries, and [maintainer and agent guidance](../../CLAUDE.md) for package ownership and editing invariants.
 
 Use the development server to work on the authored TypeScript, Preact, and CSS with Vite live reload. The workflow uses two independently owned loopback processes. The development server is a separate trusted local process, not a mode of the production Gateway binary.
 
@@ -86,11 +86,11 @@ Press `Ctrl-C` in the frontend terminal and the Gateway terminal to stop each in
 
 ## Visual verification
 
-For every change that can affect rendered UI or browser interaction, use a real browser to exercise each affected state before reporting the work complete. Prefer Playwright so the interaction and evidence are reproducible. Inspect the rendered result at representative desktop and narrow viewports; include loading, empty, error, confirmation, overflow, or populated states when the change can affect them.
+Human maintainers and coding agents must use a real browser to exercise each affected state for every change that can affect rendered UI or browser interaction before reporting the work complete. Prefer Playwright so the interaction and evidence are reproducible. Inspect the rendered result at representative desktop and narrow viewports; include loading, empty, error, confirmation, overflow, or populated states when the change can affect them.
 
 Use semantic snapshots to verify content, controls, and accessible state. Take and actually inspect screenshots to verify layout, hierarchy, spacing, clipping, overlap, wrapping, responsive behavior, and unintended visual regressions. Running browser tests, generating screenshots, or validating screenshot dimensions and hashes is not visual inspection by itself.
 
-Record the states and viewports inspected in the completion report, along with any console or network failure relevant to the change. If authentication or the local runtime blocks browser verification, report that gap explicitly rather than implying the UI was inspected. Do not retain screenshots containing administrator bearers, one-time secrets, or other sensitive values.
+Record the states and viewports inspected in the change or agent completion report, along with any console or network failure relevant to the change. If authentication or the local runtime blocks browser verification, report that gap explicitly rather than implying the UI was inspected. Do not retain screenshots containing administrator bearers, one-time secrets, or other sensitive values.
 
 ## Manual exploratory audits
 

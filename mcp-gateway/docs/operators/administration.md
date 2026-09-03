@@ -1,10 +1,10 @@
-# CLI and local administration
+# Administrator CLI and local administration
 
 Audience: Gateway operators and automation authors
 
 Purpose: Run local administration safely through the public CLI.
 
-Generated `mcp-gateway --help` and subcommand help are the canonical command and flag reference. This guide owns local defaults, administrator authentication, output modes, and safe command execution.
+Generated `mcp-gateway --help` and subcommand help are the canonical command and flag reference. This guide owns operator procedures for installation roots, administrator authentication, output modes, and safe command execution. See [Administrative control plane](../design/administrative-control-plane.md) for normative defaults and trust boundaries.
 
 ## Installation root
 
@@ -61,7 +61,7 @@ mcp-gateway --data-dir /path/to/gateway-data \
   status --admin-bearer-file /safe/new/admin-bearer
 ```
 
-See [Backup, restore, and recovery](recovery.md) for replacement-authority workflows.
+See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-authority workflows.
 
 ## Output and failures
 
@@ -112,7 +112,7 @@ If durable publication itself fails after creation, the output path may contain 
 
 Use stopped-process `mcp-gateway admin reset` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `admin reset` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
 
-For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](recovery.md).
+For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](backup-and-recovery.md).
 
 ## Command families
 
@@ -133,9 +133,9 @@ mcp-gateway admin reset --help
 
 Focused workflow ownership:
 
-- [Server configuration and credentials](server-configuration.md)
-- [Principals, grants, and requests](access-policy.md)
+- [Upstream server configuration](upstream-servers.md)
+- [Access control](access-control.md)
 - [Invocation evidence and unknown outcomes](invocation-evidence.md)
-- [Backup, restore, and recovery](recovery.md)
+- [Backup, restore, and recovery](backup-and-recovery.md)
 
-Consult [Administrative control plane](design/administrative-control-plane.md) for normative CLI and administrator trust boundaries, and [Public contract](design/public-contract.md) for public limits and failure vocabulary. Return to the [Gateway README](../README.md) for installation and common workflows.
+Consult [Administrative control plane](../design/administrative-control-plane.md) for normative CLI and administrator trust boundaries, and [Public contract](../design/public-contract.md) for public limits and failure vocabulary. Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for installation and common workflows.

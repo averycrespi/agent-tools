@@ -4,9 +4,9 @@ Audience: Operators investigating governed tool calls
 
 Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
-This guide owns read-only invocation inspection, redacted evidence, terminal outcomes, transport certainty, and the operator response to unknown outcomes. Generated `mcp-gateway invocation --help` owns exact syntax.
+This guide owns operator procedures for read-only invocation inspection and the response to unknown outcomes. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `mcp-gateway invocation --help` owns exact syntax.
 
-See [DESIGN](../DESIGN.md) for the system design index and [Invocation and MCP ingress](design/invocation-and-ingress.md) for normative admission, execution, audit-retention, and failure semantics. See [Access policy](access-policy.md) for principals, grants, requests, and authorization decisions. See [CLI and local administration](cli-local-administration.md) for shared pagination and output behavior.
+See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for principals, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
 
 ## List and inspect evidence
 
@@ -87,4 +87,4 @@ Polling never submits, completes, resumes, or replays a call. The browser can re
 
 When a cursor becomes stale, restart the read from the newest page. When a record is evicted, do not infer an outcome from absence. When current policy or catalog state differs from retained evidence, treat the row as historical evidence for that attempt and use current owner reads for present state.
 
-Return to the [Gateway README](../README.md) for common workflows or [Server configuration](server-configuration.md) to inspect current runtime and catalog state.
+Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for common workflows, or use [Upstream server configuration](upstream-servers.md) to inspect current runtime and catalog state.

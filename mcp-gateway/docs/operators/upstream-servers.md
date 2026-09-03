@@ -1,15 +1,15 @@
-# Server configuration and credentials
+# Upstream server configuration
 
 Audience: Gateway operators configuring upstream MCP servers
 
 Purpose: Configure servers, credentials, and OAuth without broadening trust.
 
-This guide owns server configuration, durable catalog inspection, write-only static credentials, OAuth authorization, and runtime operations. Generated help owns exact syntax:
+This guide owns operator procedures for server configuration, durable catalog inspection, write-only static credentials, OAuth authorization, and runtime operations. Generated help owns exact syntax:
 
 - `mcp-gateway server --help`
 - `mcp-gateway catalog --help`
 
-See [DESIGN](../DESIGN.md) for the system design index and [Downstream servers](design/downstream-servers.md) for normative transport, credential-authority, OAuth, catalog, and runtime semantics. See [CLI and local administration](cli-local-administration.md) for shared authentication, input, output, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
+See [DESIGN](../../DESIGN.md) for the system design index and [Downstream servers](../design/downstream-servers.md) for normative transport, credential-authority, OAuth, catalog, and runtime semantics. See [Administrator CLI and local administration](administration.md) for shared authentication, input, output, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
 
 ## Keep the three server states distinct
 
@@ -132,4 +132,4 @@ mcp-gateway server delete SERVER_ID --etag ETAG --yes
 
 Deletion tombstones the identity, withdraws active routes, retires durable descriptors, and invalidates local credential domains. There is no force path, and scheduled cleanup cannot guarantee remote revocation. If cleanup remains pending, retry only the documented local cleanup operation; never interpret a tombstone as restored authority.
 
-Return to the [Gateway README](../README.md) for common workflows. Use [Access policy](access-policy.md) to decide which principals can discover and call active tools, and [Invocation evidence](invocation-evidence.md) to investigate attempted calls.
+Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for common workflows. Use [Access control](access-control.md) to decide which principals can discover and call active tools, and [Invocation evidence](invocation-evidence.md) to investigate attempted calls.

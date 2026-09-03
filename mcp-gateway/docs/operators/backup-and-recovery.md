@@ -4,7 +4,7 @@ Audience: Operators responsible for Gateway recovery
 
 Purpose: Create backups and perform restore or stopped-process recovery safely.
 
-This guide owns backup lifecycle, restore verification, administrator reset, stopped-process requirements, compatibility, and uncertain recovery failures. Generated help owns exact syntax:
+This guide owns operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
 
 - `mcp-gateway backup --help`
 - `mcp-gateway restore --help`
@@ -101,4 +101,4 @@ Failed commands leave stdout empty and emit one bounded human or JSON problem on
 
 Never copy a replacement bearer into arguments, environment variables, logs, or the old default file as a shortcut. Keep fresh secret outputs owner-only and remove obsolete bearer files after authority has been confirmed.
 
-See [CLI and local administration](cli-local-administration.md) for path resolution, output modes, and authentication selection. See [Storage and recovery](design/storage-and-recovery.md) for normative storage, backup, migration, authority-invalidation, and failure semantics. Return to the [Gateway README](../README.md) for ordinary startup and status checks.
+See [Administrator CLI and local administration](administration.md) for path resolution, output modes, and authentication selection. Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for ordinary startup and status checks.

@@ -16,19 +16,19 @@ func TestDocumentationContractDrift(t *testing.T) {
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"locally secure, deny-by-default service", "never queues or automatically replays", "mcp-gateway/docs/cli-local-administration.md",
+			"locally secure, deny-by-default service", "never queues or automatically replays", "mcp-gateway/docs/README.md",
 		},
 		"../../../CLAUDE.md": {
-			"mcp-gateway/docs/release-verification.md", "Gateway release acceptance is a separate owner", "make frontend-verify-supply-chain", "make frontend-audit",
+			"mcp-gateway/docs/maintainers/release-verification.md", "Gateway release acceptance is a separate owner", "make frontend-verify-supply-chain", "make frontend-audit",
 		},
 		"../../README.md": {
-			"## Current capabilities", "## Common workflows", "docs/cli-local-administration.md", "docs/recovery.md",
+			"## Current capabilities", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
 			"at most one automatic attempt", "deny by default", "Native keyring operations may prompt", "## Coexistence with MCP Broker",
 		},
-		"../../docs/cli-local-administration.md": {
+		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/mcp-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
 		},
-		"../../docs/recovery.md": {
+		"../../docs/operators/backup-and-recovery.md": {
 			"Gateway must be stopped", "mcp-gateway restore --verify-current", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
 		},
 		"../../DESIGN.md": {
@@ -41,12 +41,12 @@ func TestDocumentationContractDrift(t *testing.T) {
 		"../../docs/design/administrative-control-plane.md": {
 			"`internal/controlclient` is the sole online CLI transport owner", "Automated accessibility qualification",
 		},
-		"../../docs/release-verification.md": {
+		"../../docs/maintainers/release-verification.md": {
 			"no-check adoption", "clean revision",
 		},
 		"../../CLAUDE.md": {
 			"`internal/contract` is the executable source", "`internal/composition` is the sole production constructor", "`internal/remote` is the sole production downstream/OAuth HTTP client",
-			"Online CLI commands acquire one selected administrator bearer", "docs/release-verification.md", "npm run ui:verify-supply-chain",
+			"Online CLI commands acquire one selected administrator bearer", "docs/maintainers/release-verification.md", "npm run ui:verify-supply-chain",
 		},
 	}
 	prohibited := []string{
@@ -97,7 +97,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 		require.NotContains(t, readme, detailed)
 	}
 
-	cliBytes, err := os.ReadFile("../../docs/cli-local-administration.md")
+	cliBytes, err := os.ReadFile("../../docs/operators/administration.md")
 	require.NoError(t, err)
 	cli := string(cliBytes)
 	for _, phrase := range []string{
@@ -106,7 +106,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	} {
 		require.Contains(t, cli, phrase)
 	}
-	recoveryBytes, err := os.ReadFile("../../docs/recovery.md")
+	recoveryBytes, err := os.ReadFile("../../docs/operators/backup-and-recovery.md")
 	require.NoError(t, err)
 	recovery := string(recoveryBytes)
 	for _, phrase := range []string{"mcp-gateway restore --verify-current", "does not rewrite the default `admin-bearer`", "--admin-bearer-file"} {
@@ -222,7 +222,7 @@ func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T)
 	t.Parallel()
 
 	text := readDesignCorpus(t)
-	releaseBytes, err := os.ReadFile("../../docs/release-verification.md")
+	releaseBytes, err := os.ReadFile("../../docs/maintainers/release-verification.md")
 	require.NoError(t, err)
 	text += "\n" + string(releaseBytes)
 	indexBytes, err := os.ReadFile("../../DESIGN.md")
@@ -230,13 +230,13 @@ func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T)
 	index := string(indexBytes)
 
 	for _, guide := range []string{
-		"docs/cli-local-administration.md",
-		"docs/server-configuration.md",
-		"docs/access-policy.md",
-		"docs/invocation-evidence.md",
-		"docs/recovery.md",
-		"docs/frontend-development.md",
-		"docs/release-verification.md",
+		"docs/operators/administration.md",
+		"docs/operators/upstream-servers.md",
+		"docs/operators/access-control.md",
+		"docs/operators/invocation-evidence.md",
+		"docs/operators/backup-and-recovery.md",
+		"docs/maintainers/frontend-development.md",
+		"docs/maintainers/release-verification.md",
 	} {
 		require.Equal(t, 1, strings.Count(index, "("+guide+")"), guide)
 	}
