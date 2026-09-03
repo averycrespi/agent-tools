@@ -77,7 +77,7 @@ Gateway-local tools use a narrower result boundary. Known and post-commit-uncert
 
 Gateway retains at most 65,536 invocation rows and evicts the oldest row in the same transaction as a new admission. Evidence is ordered by durable insertion sequence rather than client timestamps.
 
-Argument capture uses fixed recursive sensitive-key redaction and an 8 KiB compact bound. Overflow stores a fixed placeholder. Redaction or encoding failure stores no capture rather than raw arguments. This is defense in depth, not guaranteed secret detection; callers must not submit secrets where the tool contract does not require them.
+The browser labels this evidence **Retained argument capture**. A JSON value is the compact historical capture after fixed recursive sensitive-key redaction. `[REDACTED]` replaces a value whose field name matched the recognized key set; other secrets may remain visible, so inspect the capture only when operationally necessary. `[TRUNCATED]` means the redacted capture exceeded the 8 KiB compact bound and argument content was not retained. An absent capture means redaction or encoding did not produce evidence; Gateway retained no raw fallback. This is defense in depth, not guaranteed secret detection, and the capture is not necessarily the exact original request. Callers must not submit secrets where the tool contract does not require them.
 
 Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Backups contain only the same bounded safe evidence. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
 
