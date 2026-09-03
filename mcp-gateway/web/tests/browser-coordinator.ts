@@ -2547,6 +2547,14 @@ async function runBackups(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="backups-view"]').waitFor();
+  if (
+    (
+      (await page.locator('[data-testid="backups-view"]').textContent()) ?? ""
+    ).includes(
+      "The browser cannot restore, reset, verify, or clear a storage latch.",
+    )
+  )
+    fail("backup inventory retained redundant recovery guidance");
   await page.locator('[data-testid="backup-inspect"]').click();
   await page.locator('[data-testid="backup-detail"]').waitFor();
   await page.locator('[data-testid="backup-create"]').click();
@@ -3334,6 +3342,15 @@ async function runAdminCredentials(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  const inventoryCopy =
+    (await page
+      .locator('[data-testid="admin-credentials-view"]')
+      .textContent()) ?? "";
+  if (
+    inventoryCopy.includes("Bearers appear once in the protected display.") ||
+    inventoryCopy.includes("Revocation closes child sessions")
+  )
+    fail("admin credential inventory retained workflow-only guidance");
   if (
     (await page
       .getByRole("heading", {
@@ -3402,13 +3419,8 @@ async function runAdminCredentials(
     .click();
   await page.getByText(/Administrator credential revoked/).waitFor();
   const body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of [
-    "closes every browser session",
-    "cannot be forced",
-    "last active non-expiring",
-  ])
-    if (!body.includes(phrase))
-      fail(`admin credential consequence omitted ${phrase}`);
+  if (!body.includes("cannot be forced"))
+    fail("admin credential consequence omitted cannot be forced");
 
   await page.locator('[data-testid="admin-credential-revoke"]').last().click();
   await page
@@ -6893,6 +6905,14 @@ async function runSystemStatus(
     .count();
   if (limitRows !== overviewLimitNames.length)
     fail("Resource limits did not render every closed limit");
+  if (
+    (
+      (await page
+        .locator('[data-testid="system-limits-view"]')
+        .textContent()) ?? ""
+    ).includes("Current occupancy against enforced Gateway limits.")
+  )
+    fail("Resource limits retained redundant occupancy guidance");
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -9376,9 +9396,9 @@ async function runServerCatalogReads(
     const idLink = page.getByRole("link", { name: id, exact: true });
     if (
       (await idLink.count()) !== 1 ||
-      !(await idLink.getAttribute("href"))?.startsWith(`#/servers/${id}`)
+      (await idLink.getAttribute("href")) !== `#/servers/${id}`
     )
-      fail(`server inventory ID ${id} was not linked`);
+      fail(`server inventory ID ${id} did not target Status`);
   }
   if (
     (await page
@@ -9470,8 +9490,7 @@ async function runServerCatalogReads(
   await page.locator('[data-testid="manual-refresh"]').click();
   await page.locator('[data-testid="load-more-servers"]').click();
   await page.waitForFunction(
-    (id) =>
-      document.querySelector(`a[href="#/servers/${id}?tab=tools"]`) !== null,
+    (id) => document.querySelector(`a[href="#/servers/${id}"]`) !== null,
     serverReadIDs.active,
   );
   body = (await page.locator("body").textContent()) ?? "";
@@ -9491,10 +9510,10 @@ async function runServerCatalogReads(
     }).observe(document.body, { childList: true, subtree: true });
   });
   await page
-    .locator(`a[href="#/servers/${serverReadIDs.active}?tab=tools"]`)
+    .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
     .first()
     .click();
-  await page.locator('[data-testid="descriptor-list"]').waitFor();
+  await page.locator('[data-testid="server-status-view"]').waitFor();
   await page.locator('[data-testid="server-context"]').waitFor();
   await page.waitForFunction(
     () =>

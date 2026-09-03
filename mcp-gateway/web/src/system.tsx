@@ -574,7 +574,6 @@ function ResourceLimits({
             : "Available"}
         </StatusLabel>
       </div>
-      <p>Current occupancy against enforced Gateway limits.</p>
       <ComparisonTable caption="Gateway resource occupancy and hard limits">
         <thead>
           <tr>
@@ -806,10 +805,6 @@ function Backups({
           {sentenceCase(panelStatus)}
         </StatusLabel>
       </div>
-      <p>
-        Create publishes one owner-only artifact. The browser cannot restore,
-        reset, verify, or clear a storage latch.
-      </p>
       <div class="collection-toolbar collection-toolbar-after-copy">
         <a
           class="button-link create-action"
@@ -1231,10 +1226,6 @@ function AdminCredentials({
           {sentenceCase(panelStatus)}
         </StatusLabel>
       </div>
-      <p>
-        Bearers appear once in the protected display. Persist only fingerprints
-        and metadata; a bearer cannot be recovered or shown again.
-      </p>
       <div class="collection-toolbar collection-toolbar-after-copy">
         <a
           class="button-link create-action"
@@ -1423,13 +1414,6 @@ function AdminCredentials({
           </dl>
         </section>
       )}
-      <StateNotice state="warning" title="Revocation closes child sessions">
-        <p>
-          Revoking authority closes every browser session authenticated by that
-          credential, including this session when it is a child. The Gateway
-          refuses removal of the last active non-expiring authority.
-        </p>
-      </StateNotice>
       <ConfirmationDialog
         id="admin-credential-revoke-confirm"
         open={revoke !== undefined && mutation.state === "confirming"}

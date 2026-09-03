@@ -1344,10 +1344,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           label: "Name",
           sortValue: (server) => server.displayName,
           render: (server) => (
-            <a
-              class="primary-table-link"
-              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "status" : "tools"}`}
-            >
+            <a class="primary-table-link" href={`#/servers/${server.id}`}>
               {server.displayName}
             </a>
           ),
@@ -1357,11 +1354,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           label: "ID",
           sortValue: (server) => server.id,
           render: (server) => (
-            <a
-              href={`#/servers/${server.id}?tab=${server.desiredState === "deleted" ? "status" : "tools"}`}
-            >
-              {server.id}
-            </a>
+            <a href={`#/servers/${server.id}`}>{server.id}</a>
           ),
         },
         {
