@@ -1166,19 +1166,21 @@ button.sort-button:not(:disabled):hover {
   border: 0;
 }
 
-.server-context {
+.server-context,
+.detail-context {
   padding: 8px 0 18px;
 }
 
-.server-context-heading {
+.server-context-heading,
+.detail-context-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
 
-.server-context h1,
-.server-context h2 {
+.server-context h2,
+.detail-context h1 {
   font-size: clamp(28px, 3vw, 38px);
   letter-spacing: -0.035em;
 }

@@ -763,9 +763,7 @@ function PrincipalCredentialActions({
         Only one agent credential may be active at a time. Rotating it replaces
         the current credential.
       </p>
-      {principal.credential === null ? (
-        <p>Not issued</p>
-      ) : (
+      {principal.credential !== null && (
         <dl class="fact-grid">
           <div>
             <dt>Credential ID</dt>
@@ -969,8 +967,8 @@ export function Principals({
         <nav class="detail-navigation" aria-label="Principal navigation">
           <a href="#/principals">Back to principals</a>
         </nav>
-        <header class="server-context" data-testid="principal-context">
-          <div class="server-context-heading">
+        <header class="detail-context" data-testid="detail-context">
+          <div class="detail-context-heading">
             <div>
               <span class="panel-code">PRINCIPAL</span>
               <h1 id="principal-page-title" tabindex={-1}>

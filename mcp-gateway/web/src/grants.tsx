@@ -1234,14 +1234,16 @@ export function Grants({
         <nav class="detail-navigation" aria-label="Grant navigation">
           <a href="#/grants">Back to grants</a>
         </nav>
+        <header class="detail-context" data-testid="detail-context">
+          <div class="detail-context-heading">
+            <h1 id="grant-page-title" tabindex={-1}>
+              Grant {detail.id}
+            </h1>
+          </div>
+        </header>
         <section class="panel domain-panel" aria-labelledby="grant-title">
           <div class="panel-heading">
-            <div>
-              <span class="panel-value">Grant details</span>
-              <h1 id="grant-title" tabindex={-1}>
-                Grant {detail.id}
-              </h1>
-            </div>
+            <h2 id="grant-title">Grant details</h2>
             <StatusLabel
               state={detail.state === "active" ? "current" : "warning"}
             >

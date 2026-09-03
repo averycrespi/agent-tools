@@ -579,23 +579,23 @@ export function Invocations({
   const detail = /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
     view.viewKey,
   );
+  if (detail)
+    return (
+      <InvocationDetail
+        snapshot={snapshot}
+        panel={panel}
+        principalNames={principalNames}
+      />
+    );
   return (
     <div class="invocations-view" data-testid="invocations-view">
-      {detail ? (
-        <InvocationDetail
-          snapshot={snapshot}
-          panel={panel}
-          principalNames={principalNames}
-        />
-      ) : (
-        <InvocationList
-          snapshot={snapshot}
-          panel={panel}
-          setLive={(live) => controller.setLive(live)}
-          loadOlder={() => void controller.loadOlder()}
-          principalNames={principalNames}
-        />
-      )}
+      <InvocationList
+        snapshot={snapshot}
+        panel={panel}
+        setLive={(live) => controller.setLive(live)}
+        loadOlder={() => void controller.loadOlder()}
+        principalNames={principalNames}
+      />
     </div>
   );
 }
@@ -777,21 +777,23 @@ function InvocationDetail({
     );
   const item = snapshot.item;
   return (
-    <div class="domain-view">
+    <div class="domain-view" data-testid="invocation-detail">
       <nav class="detail-navigation" aria-label="Invocation navigation">
         <a href="#/invocations">Back to invocations</a>
       </nav>
+      <header class="detail-context" data-testid="detail-context">
+        <div class="detail-context-heading">
+          <h1 id="invocation-page-title" tabindex={-1}>
+            Invocation {item.id}
+          </h1>
+        </div>
+      </header>
       <section
         class="panel domain-panel"
-        data-testid="invocation-detail"
         aria-labelledby="invocation-detail-title"
       >
         <div class="panel-heading">
-          <div>
-            <h1 id="invocation-detail-title" tabindex={-1}>
-              Invocation {item.id}
-            </h1>
-          </div>
+          <h2 id="invocation-detail-title">Invocation details</h2>
           <StatusLabel
             state={item.outcome === "outcome_unknown" ? "warning" : "current"}
           >

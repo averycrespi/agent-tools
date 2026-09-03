@@ -3884,9 +3884,10 @@ async function runPrincipals(
         name: "Principal details",
         exact: true,
       })
-      .count()) !== 1
+      .count()) !== 1 ||
+    (await page.locator('[data-testid="detail-context"] h1').count()) !== 1
   )
-    fail("principal detail did not separate page and card titles");
+    fail("principal detail did not use the shared detail hierarchy");
   body = (await page.locator("body").textContent()) ?? "";
   if (
     body.includes("permanent synthetic default ALLOW grant") ||
@@ -3916,6 +3917,13 @@ async function runPrincipals(
     window.location.hash = `#/access/principals/${id}`;
   }, secondID);
   await page.getByText("Disabled agent", { exact: true }).waitFor();
+  if (
+    (
+      ((await page.locator("body").textContent()) ?? "").match(/Not issued/g) ??
+      []
+    ).length !== 1
+  )
+    fail("principal credential absence was repeated");
   if (
     await page.evaluate(
       () =>
@@ -4596,9 +4604,16 @@ async function runGrantReadsCreate(
   if (
     !grantFactLabels.includes("Grant ID") ||
     grantFactLabels.includes("ID") ||
-    (await grantDetail.getByText("Back to principal grants").count()) !== 0
+    (await grantDetail.getByText("Back to principal grants").count()) !== 0 ||
+    (await grantDetail.locator('[data-testid="detail-context"] h1').count()) !==
+      1 ||
+    (await grantDetail
+      .getByRole("heading", { level: 2, name: "Grant details", exact: true })
+      .count()) !== 1 ||
+    (await grantDetail.locator("section.panel h1").count()) !== 0 ||
+    (await grantDetail.locator(".panel-value").count()) !== 0
   )
-    fail("grant detail retained ambiguous identity or scoped navigation");
+    fail("grant detail did not use the shared detail hierarchy");
   const descriptionEditor = page.locator("#grant-description-edit");
   const saveDescription = page.getByRole("button", {
     name: "Save description",
@@ -5501,6 +5516,21 @@ async function runRequestReads(
     await page
       .getByRole("heading", { name: `Request ${id}`, exact: true })
       .waitFor();
+    const requestDetail = page.locator('[data-testid="request-detail"]');
+    if (
+      (await requestDetail
+        .locator('[data-testid="detail-context"] h1')
+        .count()) !== 1 ||
+      (await requestDetail
+        .getByRole("heading", {
+          level: 2,
+          name: "Request details",
+          exact: true,
+        })
+        .count()) !== 1 ||
+      (await requestDetail.locator("section.panel h1").count()) !== 0
+    )
+      fail("request detail did not use the shared detail hierarchy");
   };
   await navigate(requestIDs[0]!);
   body = (await page.locator("body").textContent()) ?? "";
@@ -6626,7 +6656,7 @@ async function runInvocations(
     fail("invocation collection exposed internal outcome semantics");
 
   const toolFilter = page.getByLabel("Tool", { exact: true });
-  await toolFilter.fill("mcp_gateway.get_identity");
+  await toolFilter.fill("namespace.allowed");
   await page
     .waitForFunction(
       () =>
@@ -6636,7 +6666,7 @@ async function runInvocations(
     .catch(() => fail("invocation tool filter did not narrow rows"));
   if (
     !(await page.evaluate(() => window.location.hash)).includes(
-      "filter_tool=mcp_gateway.get_identity",
+      "filter_tool=namespace.allowed",
     )
   )
     fail("invocation tool filter was not persisted in the URL");
@@ -6644,7 +6674,7 @@ async function runInvocations(
   if ((await toolFilter.inputValue()) !== "")
     fail("invocation filter Reset did not clear the field");
   const storage = await browserStorage(page);
-  if (JSON.stringify(storage).includes("mcp_gateway.get_identity"))
+  if (JSON.stringify(storage).includes("namespace.allowed"))
     fail("invocation filter entered browser storage");
 
   staleMode = true;
@@ -6678,6 +6708,22 @@ async function runInvocations(
   if (
     (await page
       .locator('[data-testid="invocation-detail"] .panel-value')
+      .count()) !== 0 ||
+    (await page
+      .locator(
+        '[data-testid="invocation-detail"] [data-testid="detail-context"] h1',
+      )
+      .count()) !== 1 ||
+    (await page
+      .locator('[data-testid="invocation-detail"]')
+      .getByRole("heading", {
+        level: 2,
+        name: "Invocation details",
+        exact: true,
+      })
+      .count()) !== 1 ||
+    (await page
+      .locator('[data-testid="invocation-detail"] section.panel h1')
       .count()) !== 0 ||
     (await page
       .locator('[data-testid="invocation-detail"] .fact-grid')

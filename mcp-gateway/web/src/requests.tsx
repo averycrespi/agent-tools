@@ -907,14 +907,16 @@ export function Requests({
         <nav class="detail-navigation" aria-label="Request navigation">
           <a href="#/requests">Back to requests</a>
         </nav>
+        <header class="detail-context" data-testid="detail-context">
+          <div class="detail-context-heading">
+            <h1 id="request-page-title" tabindex={-1}>
+              Request {detail.id}
+            </h1>
+          </div>
+        </header>
         <section class="panel domain-panel" aria-labelledby="request-title">
           <div class="panel-heading">
-            <div>
-              <span class="panel-code">REQUEST EVIDENCE</span>
-              <h1 id="request-title" tabindex={-1}>
-                Request {detail.id}
-              </h1>
-            </div>
+            <h2 id="request-title">Request details</h2>
             <StatusLabel
               state={detail.state === "pending" ? "warning" : "current"}
             >
