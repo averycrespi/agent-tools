@@ -138,18 +138,12 @@ async function readServers(session: SessionClient): Promise<ServerView[]> {
   }
 }
 
-async function readGrants(
-  session: SessionClient,
-  query: Readonly<Record<string, string>>,
-): Promise<Grant[]> {
+async function readGrants(session: SessionClient): Promise<Grant[]> {
   const items: Grant[] = [];
   let cursor: string | null = null;
   let restarted = false;
   for (;;) {
     const params = new URLSearchParams({ limit: "50" });
-    if (query.principal_id !== undefined)
-      params.set("principal_id", query.principal_id);
-    if (query.server_id !== undefined) params.set("server_id", query.server_id);
     if (cursor !== null) params.set("cursor", cursor);
     const result = await requestJSON(session, `/api/v1/grants?${params}`);
     if (result === undefined) return [];
@@ -908,11 +902,7 @@ function GrantActions({
     controller.begin(next === "create" ? createSpec() : deleteSpec());
     setConfirming(true);
   };
-  const refreshPolicy = () =>
-    readGrants(session, {
-      principal_id: grant.principalID,
-      ...(defaultGrant ? {} : { server_id: grant.serverID }),
-    });
+  const refreshPolicy = () => readGrants(session);
   const confirm = async () => {
     setConfirming(false);
     const outcome = await controller.submit();
@@ -920,7 +910,7 @@ function GrantActions({
     await refreshPolicy();
     controller.abandon();
     if (!correction) {
-      window.location.hash = `#/grants?principal_id=${grant.principalID}`;
+      window.location.hash = "#/grants";
       return;
     }
     if (phase === "configure") {
@@ -941,9 +931,7 @@ function GrantActions({
     const destination =
       outcome.value.kind === "created" ? outcome.value.grant.id : replacementID;
     window.location.hash =
-      destination === undefined
-        ? `#/grants?principal_id=${grant.principalID}`
-        : `#/grants/${destination}`;
+      destination === undefined ? "#/grants" : `#/grants/${destination}`;
   };
   const cancelConfirmation = () => {
     setConfirming(false);
@@ -1193,7 +1181,7 @@ export function Grants({
         });
     } else {
       setItems(undefined);
-      void readGrants(session, resolved.location.query)
+      void readGrants(session)
         .then((value) => {
           if (current) setItems(value);
         })
@@ -1244,10 +1232,6 @@ export function Grants({
     return (
       <div class="domain-view" data-testid="grant-detail">
         <nav class="detail-navigation" aria-label="Grant navigation">
-          <a href={`#/grants?principal_id=${detail.principalID}`}>
-            Back to principal grants
-          </a>
-          <span aria-hidden="true">·</span>
           <a href="#/grants">Back to grants</a>
         </nav>
         <section class="panel domain-panel" aria-labelledby="grant-title">
@@ -1345,13 +1329,12 @@ export function Grants({
   const serverNames = new Map(
     servers.map((server) => [server.id, server.displayName]),
   );
-  const query = new URLSearchParams(resolved.location.query).toString();
   return (
     <div class="domain-view" data-testid="grants-view">
       <div class="collection-toolbar">
         <a
           class="button-link create-action"
-          href={`#/grants/new${query === "" ? "" : `?${query}`}`}
+          href="#/grants/new"
           data-testid="grant-create-link"
         >
           Create grant

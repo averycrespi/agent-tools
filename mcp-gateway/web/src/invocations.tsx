@@ -257,24 +257,8 @@ async function problemCode(
     return undefined;
   }
 }
-function listPath(viewKey: string, nextCursor: string | null): string {
-  const query = new URLSearchParams();
-  query.set("limit", "50");
-  const separator = viewKey.indexOf("?");
-  if (separator !== -1) {
-    const allowed = new Set([
-      "principal_id",
-      "server_id",
-      "requested_name",
-      "admission_class",
-      "decision",
-      "outcome",
-    ]);
-    for (const [key, value] of new URLSearchParams(
-      viewKey.slice(separator + 1),
-    ))
-      if (allowed.has(key)) query.set(key, value);
-  }
+function listPath(nextCursor: string | null): string {
+  const query = new URLSearchParams({ limit: "50" });
   if (nextCursor !== null) query.set("cursor", nextCursor);
   return `/api/v1/invocations?${query.toString()}`;
 }
@@ -418,12 +402,12 @@ export class InvocationsController {
     }
     const continuation = this.continuation;
     this.continuation = null;
-    let response = await get(context, listPath(context.viewKey, continuation));
+    let response = await get(context, listPath(continuation));
     if (
       continuation !== null &&
       (await problemCode(response, 409)) === "stale_cursor"
     ) {
-      response = await get(context, listPath(context.viewKey, null));
+      response = await get(context, listPath(null));
       return {
         kind: "list",
         viewKey: context.viewKey,

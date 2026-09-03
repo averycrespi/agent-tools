@@ -286,16 +286,12 @@ interface RequestPage {
 }
 async function readRequestPage(
   session: SessionClient,
-  query: Readonly<Record<string, string>>,
   requestedCursor: string | null,
 ): Promise<RequestPage> {
   let cursor = requestedCursor;
   let restarted = false;
   for (;;) {
     const params = new URLSearchParams({ limit: "50" });
-    if (query.state !== undefined) params.set("state", query.state);
-    if (query.principal_id !== undefined)
-      params.set("principal_id", query.principal_id);
     if (cursor !== null) params.set("cursor", cursor);
     const result = await requestJSON(
       session,
@@ -872,7 +868,7 @@ export function Requests({
     } else if (!liveRef.current) {
       setUpdatesAvailable(true);
     } else {
-      void readRequestPage(session, resolved.location.query, null)
+      void readRequestPage(session, null)
         .then((page) => {
           if (current) {
             setItems(page.items);
@@ -909,10 +905,6 @@ export function Requests({
     return (
       <div class="domain-view" data-testid="request-detail">
         <nav class="detail-navigation" aria-label="Request navigation">
-          <a href={`#/requests?principal_id=${detail.principalID}`}>
-            Back to principal requests
-          </a>
-          <span aria-hidden="true">·</span>
           <a href="#/requests">Back to requests</a>
         </nav>
         <section class="panel domain-panel" aria-labelledby="request-title">
@@ -1091,11 +1083,7 @@ export function Requests({
     loadPending.current = true;
     setLoadingMore(true);
     try {
-      const page = await readRequestPage(
-        session,
-        resolved.location.query,
-        nextCursor,
-      );
+      const page = await readRequestPage(session, nextCursor);
       setItems((current) =>
         page.restarted ? page.items : [...(current ?? []), ...page.items],
       );

@@ -37,28 +37,6 @@ const systemTabs = new Set([
   "admin-credentials",
   "backups",
 ]);
-const requestStates = new Set(["pending", "approved", "rejected", "cancelled"]);
-const admissionClasses = new Set([
-  "invalid_params",
-  "unknown_tool",
-  "invalid_arguments",
-  "authorization_unavailable",
-  "evaluated",
-]);
-const decisions = new Set(["allow", "deny", "block"]);
-const outcomes = new Set([
-  "invalid_params",
-  "unknown_tool",
-  "invalid_arguments",
-  "authorization_unavailable",
-  "deny",
-  "block",
-  "prestart_failure",
-  "succeeded",
-  "downstream_failure",
-  "outcome_unknown",
-]);
-
 function isGatewayID(value: string): boolean {
   return gatewayID.test(value);
 }
@@ -197,10 +175,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("principals", segments, query);
   }
   if (first === "grants") {
-    if (
-      segments.length === 1 &&
-      exactQuery(query, { principal_id: isGatewayID, server_id: isGatewayID })
-    )
+    if (segments.length === 1 && exactQuery(query, {}))
       return location("grants", segments, query);
     if (
       segments.length === 2 &&
@@ -217,13 +192,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("grants", segments, query);
   }
   if (first === "requests") {
-    if (
-      segments.length === 1 &&
-      exactQuery(query, {
-        principal_id: isGatewayID,
-        state: (value) => requestStates.has(value),
-      })
-    ) {
+    if (segments.length === 1 && exactQuery(query, {})) {
       return location("requests", segments, query);
     }
     if (
@@ -236,16 +205,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     }
   }
   if (first === "invocations") {
-    if (
-      segments.length === 1 &&
-      exactQuery(query, {
-        principal_id: isGatewayID,
-        server_id: isGatewayID,
-        admission_class: (value) => admissionClasses.has(value),
-        decision: (value) => decisions.has(value),
-        outcome: (value) => outcomes.has(value),
-      })
-    ) {
+    if (segments.length === 1 && exactQuery(query, {})) {
       return location("invocations", segments, query);
     }
     if (
@@ -275,16 +235,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
 }
 
 const queryOrder: Readonly<Record<string, readonly string[]>> = {
-  grants: ["principal_id", "server_id"],
   "grants/new": ["principal_id", "server_id"],
-  requests: ["principal_id", "state"],
-  invocations: [
-    "principal_id",
-    "server_id",
-    "admission_class",
-    "decision",
-    "outcome",
-  ],
 };
 
 export function serializeLocation(value: ApplicationLocation): string {

@@ -811,12 +811,6 @@ async function runFragmentStorage(
       `#/grants/new?principal_id=${idA}&server_id=${idB}`,
     ],
     [`#/grants/${idA}`, `#/grants/${idA}`],
-    [`#/grants?principal_id=${idA}`, `#/grants?principal_id=${idA}`],
-    [`#/grants?server_id=${idB}`, `#/grants?server_id=${idB}`],
-    [
-      `#/grants?server_id=${idB}&principal_id=${idA}`,
-      `#/grants?principal_id=${idA}&server_id=${idB}`,
-    ],
     ["#/access/grants", "#/grants"],
     ["#/access/grants/new", "#/grants/new"],
     [
@@ -824,56 +818,10 @@ async function runFragmentStorage(
       `#/grants/new?principal_id=${idA}&server_id=${idB}`,
     ],
     [`#/access/grants/${idA}`, `#/grants/${idA}`],
-    [`#/access/grants?principal_id=${idA}`, `#/grants?principal_id=${idA}`],
     ["#/requests", "#/requests"],
     [`#/requests/${idA}`, `#/requests/${idA}`],
-    ...["pending", "approved", "rejected", "cancelled"].map(
-      (state): [string, string] => [
-        `#/requests?state=${state}`,
-        `#/requests?state=${state}`,
-      ],
-    ),
-    [
-      `#/requests?state=pending&principal_id=${idA}`,
-      `#/requests?principal_id=${idA}&state=pending`,
-    ],
     ["#/invocations", "#/invocations"],
     [`#/invocations/${idA}`, `#/invocations/${idA}`],
-    [`#/invocations?principal_id=${idA}`, `#/invocations?principal_id=${idA}`],
-    [`#/invocations?server_id=${idB}`, `#/invocations?server_id=${idB}`],
-    ...[
-      "invalid_params",
-      "unknown_tool",
-      "invalid_arguments",
-      "authorization_unavailable",
-      "evaluated",
-    ].map((value): [string, string] => [
-      `#/invocations?admission_class=${value}`,
-      `#/invocations?admission_class=${value}`,
-    ]),
-    ...["allow", "deny", "block"].map((value): [string, string] => [
-      `#/invocations?decision=${value}`,
-      `#/invocations?decision=${value}`,
-    ]),
-    ...[
-      "invalid_params",
-      "unknown_tool",
-      "invalid_arguments",
-      "authorization_unavailable",
-      "deny",
-      "block",
-      "prestart_failure",
-      "succeeded",
-      "downstream_failure",
-      "outcome_unknown",
-    ].map((value): [string, string] => [
-      `#/invocations?outcome=${value}`,
-      `#/invocations?outcome=${value}`,
-    ]),
-    [
-      `#/invocations?outcome=succeeded&decision=allow&server_id=${idB}&principal_id=${idA}&admission_class=evaluated`,
-      `#/invocations?principal_id=${idA}&server_id=${idB}&admission_class=evaluated&decision=allow&outcome=succeeded`,
-    ],
     ["#/system", "#/system"],
     ...["status", "resource-limits", "admin-credentials", "backups"].map(
       (tab): [string, string] => [
@@ -929,9 +877,16 @@ async function runFragmentStorage(
     `#/servers/${idA}?tab=unknown`,
     `#/servers/${idA}?tab=oauth&tab=oauth`,
     `#/servers/${idA}?tab=null`,
-    "#/requests?state=unknown",
-    "#/invocations?decision=ALLOW",
-    "#/invocations?outcome=unknown",
+    `#/grants?principal_id=${idA}`,
+    `#/grants?server_id=${idB}`,
+    `#/access/grants?principal_id=${idA}`,
+    "#/requests?state=pending",
+    `#/requests?principal_id=${idA}`,
+    `#/invocations?principal_id=${idA}`,
+    `#/invocations?server_id=${idB}`,
+    "#/invocations?admission_class=evaluated",
+    "#/invocations?decision=allow",
+    "#/invocations?outcome=succeeded",
     "#/https://example.com",
     "#/overview/é",
     "#/overview/\n",
@@ -941,7 +896,13 @@ async function runFragmentStorage(
     await page.evaluate((fragment) => {
       window.location.hash = fragment;
     }, raw);
-    await page.waitForFunction(() => window.location.hash === "#/sign-in");
+    await page
+      .waitForFunction(() => window.location.hash === "#/sign-in")
+      .catch(async () =>
+        fail(
+          `invalid fragment was accepted: ${raw} -> ${await page.evaluate(() => window.location.hash)}`,
+        ),
+      );
     if ((await page.locator('[data-testid="location-notice"]').count()) !== 1)
       fail("invalid fragment did not report fixed notice");
   }
@@ -4368,15 +4329,7 @@ async function runGrantReadsCreate(
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
-      query.get("principal_id") !== principalID ||
-      query.get("server_id") !== serverID ||
-      [...query.keys()].some(
-        (key) =>
-          key !== "limit" &&
-          key !== "cursor" &&
-          key !== "principal_id" &&
-          key !== "server_id",
-      )
+      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
     )
       fail("grant list filters changed shape");
     const cursor = query.get("cursor");
@@ -4526,12 +4479,9 @@ async function runGrantReadsCreate(
     });
   });
 
-  await page.evaluate(
-    ({ principal, server }) => {
-      window.location.hash = `#/access/grants?principal_id=${principal}&server_id=${server}`;
-    },
-    { principal: principalID, server: serverID },
-  );
+  await page.evaluate(() => {
+    window.location.hash = "#/access/grants";
+  });
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -4583,6 +4533,7 @@ async function runGrantReadsCreate(
     fail("dedicated Grants page retained subordinate introductory copy");
   const grantCreate = page.locator('[data-testid="grant-create-link"]');
   if (
+    (await grantCreate.getAttribute("href")) !== "#/grants/new" ||
     !(await grantCreate.evaluate((element) =>
       element.classList.contains("create-action"),
     )) ||
@@ -5310,15 +5261,7 @@ async function runRequestReads(
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
-      query.has("state") ||
-      query.get("principal_id") !== principalID ||
-      [...query.keys()].some(
-        (key) =>
-          key !== "limit" &&
-          key !== "cursor" &&
-          key !== "principal_id" &&
-          key !== "state",
-      )
+      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
     )
       fail("request queue filters changed shape");
     const cursor = query.get("cursor");
@@ -5393,9 +5336,9 @@ async function runRequestReads(
     });
   });
 
-  await page.evaluate((principal) => {
-    window.location.hash = `#/requests?principal_id=${principal}`;
-  }, principalID);
+  await page.evaluate(() => {
+    window.location.hash = "#/requests";
+  });
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -6394,16 +6337,7 @@ async function runInvocations(
       return;
     }
     const query = url.searchParams;
-    const allowed = new Set([
-      "limit",
-      "cursor",
-      "principal_id",
-      "server_id",
-      "requested_name",
-      "admission_class",
-      "decision",
-      "outcome",
-    ]);
+    const allowed = new Set(["limit", "cursor"]);
     if (
       query.get("limit") !== "50" ||
       [...query.keys()].some((key) => !allowed.has(key)) ||
@@ -6455,34 +6389,6 @@ async function runInvocations(
                 next_cursor: "stale-floor",
               },
         ),
-      });
-      return;
-    }
-    if (query.has("requested_name") || query.has("outcome")) {
-      if (
-        query.get("principal_id") !== invocationIDs.principal ||
-        query.get("server_id") !== invocationIDs.server ||
-        query.get("admission_class") !== "evaluated" ||
-        query.get("decision") !== "allow" ||
-        query.get("outcome") !== "outcome_unknown" ||
-        (query.has("requested_name") &&
-          query.get("requested_name") !== "live-only.tool")
-      )
-        fail("invocation fragment or requested-name filters changed");
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          items: [
-            invocationFixture(
-              invocationIDs.missing,
-              "missing_terminal",
-              "outcome_unknown",
-              "gateway",
-            ),
-          ],
-          next_cursor: null,
-        }),
       });
       return;
     }
@@ -6654,15 +6560,6 @@ async function runInvocations(
   if (body.includes("missing_terminal") || body.includes("basis"))
     fail("invocation collection exposed internal outcome semantics");
 
-  const fragment = `#/invocations?outcome=outcome_unknown&decision=allow&server_id=${invocationIDs.server}&principal_id=${invocationIDs.principal}&admission_class=evaluated`;
-  await page.evaluate((value) => {
-    window.location.hash = value;
-  }, fragment);
-  const canonical = `#/invocations?principal_id=${invocationIDs.principal}&server_id=${invocationIDs.server}&admission_class=evaluated&decision=allow&outcome=outcome_unknown`;
-  await page.waitForFunction(
-    (value) => window.location.hash === value,
-    canonical,
-  );
   const toolFilter = page.getByLabel("Tool", { exact: true });
   await toolFilter.fill("mcp_gateway.get_identity");
   await page

@@ -1015,12 +1015,6 @@ export function Principals({
             Visibility is not call authorization. Grants and current credential
             authority are evaluated separately.
           </p>
-          <div class="inline-actions">
-            <a href={`#/grants?principal_id=${principal.id}`}>View grants</a>
-            <a href={`#/requests?principal_id=${principal.id}`}>
-              View requests
-            </a>
-          </div>
         </section>
         <PrincipalCredentialActions
           mutations={mutations}
