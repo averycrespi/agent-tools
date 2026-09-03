@@ -27,6 +27,7 @@ import {
 } from "./server-operation-model";
 import { ServerOperations } from "./server-operations";
 import type { SessionClient } from "./session";
+import { CopyableValue } from "./sinks-ui";
 import type { SensitiveSinkCoordinator } from "./sinks";
 import { UserTime } from "./time";
 import type {
@@ -1199,12 +1200,7 @@ function serverUsesOAuth(server: ServerView): boolean {
 function serverPresentation(server: ServerView): ServerPresentation {
   const root = `#/servers/${server.id}`;
   if (server.desiredState === "deleted")
-    return {
-      label: "Deleted",
-      state: "unavailable",
-      action: "View status",
-      href: `${root}?tab=status`,
-    };
+    return { label: "Deleted", state: "unavailable" };
   if (server.desiredState === "disabled")
     return {
       label: "Disabled",
@@ -1226,9 +1222,23 @@ function serverPresentation(server: ServerView): ServerPresentation {
       href: `${root}?tab=authentication`,
     };
   if (
+    server.credentialState === "locked" ||
+    server.credentialState === "interaction_required" ||
+    server.credentialState === "unavailable" ||
+    server.credentialState === "unsupported"
+  )
+    return {
+      label: "Authentication unavailable",
+      state: "warning",
+      action: "Manage credentials",
+      href: `${root}?tab=authentication`,
+    };
+  if (
     server.runtimeState === "activating" ||
     server.runtimeState === "retry_wait" ||
-    server.credentialState === "refreshing"
+    server.credentialState === "refreshing" ||
+    server.credentialState === "disconnecting" ||
+    server.credentialState === "cleanup_pending"
   )
     return {
       label: "Connecting",
@@ -1236,33 +1246,61 @@ function serverPresentation(server: ServerView): ServerPresentation {
       action: "View operations",
       href: `${root}?tab=activity`,
     };
+  const capacitySaturated =
+    server.reconciliation.saturated ||
+    server.dispatch.saturated ||
+    server.traversal.saturated;
   if (
     server.runtimeState === "active" &&
     server.activeState === "current" &&
-    server.credentialState !== "locked" &&
-    server.credentialState !== "unavailable"
+    (server.credentialState === "ready" ||
+      server.credentialState === "not_required") &&
+    !capacitySaturated
   )
     return { label: "Ready", state: "current" };
+  if (server.runtimeState !== "active")
+    return {
+      label: "Needs attention",
+      state: "warning",
+      action: "View operations",
+      href: `${root}?tab=activity`,
+    };
+  if (server.activeState !== "current")
+    return {
+      label: "Needs attention",
+      state: "warning",
+      action: "View tools",
+      href: `${root}?tab=tools`,
+    };
   return {
-    label: "Needs attention",
+    label: "Capacity saturated",
     state: "warning",
     action: "View status",
     href: `${root}?tab=status`,
   };
 }
 
-function serverExplanation(presentation: ServerPresentation): string {
+function serverExplanation(
+  presentation: ServerPresentation,
+  server: ServerView,
+): string {
   if (presentation.label === "Authorization required")
     return presentation.action === "Authorize server"
       ? "Authorize this server to restore authenticated access."
       : "Provide valid credentials to restore authenticated access.";
+  if (presentation.label === "Authentication unavailable")
+    return "Credential storage requires operator attention before authentication can succeed.";
   if (presentation.label === "Disabled")
     return "This server will not connect until it is enabled.";
   if (presentation.label === "Connecting")
-    return "The gateway is establishing the server connection.";
+    return "The gateway is establishing or cleaning up the server connection.";
   if (presentation.label === "Deleted")
     return "This server is retained as historical evidence.";
-  return "Review status for the latest server state.";
+  if (presentation.label === "Capacity saturated")
+    return "One or more server capacity limits are saturated.";
+  if (server.runtimeReason !== null)
+    return `Runtime reported ${sentenceCase(server.runtimeReason)}.`;
+  return `The catalog is ${sentenceCase(server.activeState)}.`;
 }
 
 function ServerNavigation({
@@ -1280,15 +1318,23 @@ function ServerNavigation({
     <>
       <header class="server-context" data-testid="server-context">
         <div class="server-context-heading">
-          <h2 tabindex={-1}>{server.displayName}</h2>
+          <div>
+            <h2 tabindex={-1}>{server.displayName}</h2>
+            <CopyableValue
+              value={server.id}
+              label="server ID"
+              testID="server-id"
+            />
+          </div>
           <StatusLabel state={presentation.state}>
             {presentation.label}
           </StatusLabel>
         </div>
-        {presentation.action !== undefined &&
+        {current !== "status" &&
+          presentation.action !== undefined &&
           presentation.href !== undefined && (
             <div class="server-context-guidance">
-              <p>{serverExplanation(presentation)}</p>
+              <p>{serverExplanation(presentation, server)}</p>
               <a href={presentation.href}>{presentation.action}</a>
             </div>
           )}
@@ -1330,6 +1376,14 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
             {
               value: "Authorization required",
               label: "Authorization required",
+            },
+            {
+              value: "Authentication unavailable",
+              label: "Authentication unavailable",
+            },
+            {
+              value: "Capacity saturated",
+              label: "Capacity saturated",
             },
             { value: "Disabled", label: "Disabled" },
             { value: "Deleted", label: "Deleted" },
@@ -2143,7 +2197,7 @@ export function ServerReads({
           current="status"
         />
         <section
-          class="panel domain-panel"
+          class="panel domain-panel operator-status-view"
           aria-labelledby="server-status-title"
         >
           <div class="panel-heading">
@@ -2154,64 +2208,183 @@ export function ServerReads({
               (() => {
                 const server = snapshot.server;
                 const presentation = serverPresentation(server);
+                const capacities = [
+                  ["Reconciliation", server.reconciliation],
+                  ["Dispatch", server.dispatch],
+                  ["Catalog traversal", server.traversal],
+                ] as const;
+                const saturated = capacities.filter(
+                  ([, value]) => value.saturated,
+                );
+                const hasPrimaryIssue = presentation.action !== undefined;
                 return (
-                  <div class="fact-grid" data-testid="server-status-cards">
-                    <article class="fact-card">
-                      <span class="panel-code">RUNTIME</span>
-                      <h3>{sentenceCase(server.runtimeState)}</h3>
-                      <p>Desired state {sentenceCase(server.desiredState)}</p>
-                      <p>
-                        {server.runtimeReason === null
-                          ? "No runtime issue reported."
-                          : `Reason: ${sentenceCase(server.runtimeReason)}`}
-                      </p>
-                      <p>Runtime ID {server.runtimeID ?? "—"}</p>
-                    </article>
-                    <article class="fact-card">
-                      <span class="panel-code">CREDENTIALS</span>
-                      <h3>{sentenceCase(server.credentialState)}</h3>
-                      <p>Static revision {server.staticRevision}</p>
-                      <p>
-                        OAuth client {server.oauthClientRevision} · tokens{" "}
-                        {server.oauthTokensRevision}
-                      </p>
-                      <a href={`#/servers/${server.id}?tab=authentication`}>
-                        Manage authentication
-                      </a>
-                    </article>
-                    <article class="fact-card">
-                      <span class="panel-code">CATALOG</span>
-                      <h3>{sentenceCase(server.activeState)}</h3>
-                      <p>
-                        {server.activeToolCount} active ·{" "}
-                        {server.durableToolCount} durable tools
-                      </p>
-                      <p>
-                        Last successful refresh{" "}
-                        <UserTime value={server.lastSuccessAt} />
-                      </p>
-                      <a href={`#/servers/${server.id}?tab=tools`}>
-                        View tools
-                      </a>
-                    </article>
-                    <article class="fact-card">
-                      <span class="panel-code">ACTIONABLE ISSUES</span>
-                      <h3>{presentation.label}</h3>
-                      {presentation.action === undefined ||
-                      presentation.href === undefined ? (
+                  <div class="operator-status-stack">
+                    <section
+                      class="operator-status-section"
+                      aria-labelledby="server-issues-title"
+                      data-testid="server-status-issues"
+                    >
+                      <div class="operator-status-section-heading">
+                        <h3 id="server-issues-title">Needs attention</h3>
+                        <span>
+                          {hasPrimaryIssue || saturated.length > 0
+                            ? "Operator action may be required"
+                            : "No action required"}
+                        </span>
+                      </div>
+                      {server.desiredState === "deleted" && (
+                        <StateNotice state="unavailable" title="Deleted">
+                          <p>{serverExplanation(presentation, server)}</p>
+                          {server.deletedAt !== null && (
+                            <p>
+                              Deleted <UserTime value={server.deletedAt} />
+                            </p>
+                          )}
+                        </StateNotice>
+                      )}
+                      {hasPrimaryIssue && (
+                        <StateNotice
+                          state={
+                            presentation.state === "current"
+                              ? "warning"
+                              : presentation.state
+                          }
+                          title={presentation.label}
+                        >
+                          <p>{serverExplanation(presentation, server)}</p>
+                          {presentation.href !== undefined &&
+                            presentation.href !==
+                              `#/servers/${server.id}?tab=status` && (
+                              <a href={presentation.href}>
+                                {presentation.action}
+                              </a>
+                            )}
+                        </StateNotice>
+                      )}
+                      {saturated.map(([label, capacity]) => (
+                        <StateNotice
+                          key={label}
+                          state="warning"
+                          title={`${label} capacity is saturated`}
+                        >
+                          <p>
+                            {capacity.inUse} of {capacity.limit} slots are in
+                            use. New work cannot be admitted until capacity is
+                            released.
+                          </p>
+                        </StateNotice>
+                      ))}
+                      {!hasPrimaryIssue && saturated.length === 0 && (
                         <p>No current issues require operator action.</p>
-                      ) : (
-                        <>
-                          <p>{serverExplanation(presentation)}</p>
-                          <a href={presentation.href}>{presentation.action}</a>
-                        </>
                       )}
-                      {server.deletedAt !== null && (
-                        <p>
-                          Deleted <UserTime value={server.deletedAt} />
-                        </p>
-                      )}
-                    </article>
+                    </section>
+
+                    <section
+                      class="operator-status-section"
+                      aria-labelledby="server-operational-title"
+                      data-testid="server-status-operational"
+                    >
+                      <h3 id="server-operational-title">Operational state</h3>
+                      <dl class="operator-status-grid">
+                        <div>
+                          <dt>Runtime</dt>
+                          <dd>
+                            <strong>{sentenceCase(server.runtimeState)}</strong>
+                            <span>
+                              Desired {sentenceCase(server.desiredState)}
+                            </span>
+                            <span>
+                              {server.runtimeReason === null
+                                ? "No runtime issue reported"
+                                : `Reason: ${sentenceCase(server.runtimeReason)}`}
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Authentication</dt>
+                          <dd>
+                            <strong>
+                              {sentenceCase(server.credentialState)}
+                            </strong>
+                            <a
+                              href={`#/servers/${server.id}?tab=authentication`}
+                            >
+                              Manage authentication
+                            </a>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Catalog</dt>
+                          <dd>
+                            <strong>{sentenceCase(server.activeState)}</strong>
+                            <span>
+                              {server.activeToolCount} active ·{" "}
+                              {server.durableToolCount} durable tools
+                            </span>
+                            <span>
+                              Last successful refresh{" "}
+                              <UserTime value={server.lastSuccessAt} />
+                            </span>
+                            <a href={`#/servers/${server.id}?tab=tools`}>
+                              View tools
+                            </a>
+                          </dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <details
+                      class="operator-status-details"
+                      data-testid="server-status-details"
+                    >
+                      <summary>Technical details</summary>
+                      <dl class="technical-details-grid">
+                        <div>
+                          <dt>Namespace</dt>
+                          <dd>{server.namespace}</dd>
+                        </div>
+                        <div>
+                          <dt>Runtime ID</dt>
+                          <dd>{server.runtimeID ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Desired revision</dt>
+                          <dd>{server.desiredRevision}</dd>
+                        </div>
+                        <div>
+                          <dt>Static credential revision</dt>
+                          <dd>{server.staticRevision}</dd>
+                        </div>
+                        <div>
+                          <dt>OAuth client revision</dt>
+                          <dd>{server.oauthClientRevision}</dd>
+                        </div>
+                        <div>
+                          <dt>OAuth token revision</dt>
+                          <dd>{server.oauthTokensRevision}</dd>
+                        </div>
+                        <div>
+                          <dt>Durable catalog revision</dt>
+                          <dd>{server.durableRevision ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Active catalog revision</dt>
+                          <dd>{server.activeRevision ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Created</dt>
+                          <dd>
+                            <UserTime value={server.createdAt} />
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Updated</dt>
+                          <dd>
+                            <UserTime value={server.updatedAt} />
+                          </dd>
+                        </div>
+                      </dl>
+                    </details>
                   </div>
                 );
               })()}

@@ -391,6 +391,16 @@ function stateForLimit(limit: LimitView): "current" | "warning" {
   return limit.saturated ? "warning" : "current";
 }
 
+function keyringGuidance(capability: string): string {
+  if (capability === "locked")
+    return "Unlock the operating-system keyring, then refresh status.";
+  if (capability === "interaction_required")
+    return "Complete the operating-system keyring interaction, then refresh status.";
+  if (capability === "absent" || capability === "unsupported")
+    return "Configure a supported operating-system keyring before managing credentials.";
+  return "Check operating-system keyring availability and Gateway process access.";
+}
+
 function SystemTabs({ current }: { current: SystemTab }) {
   const items: ReadonlyArray<[SystemTab, string, string]> = [
     ["status", "Status", "#/system"],
@@ -426,21 +436,23 @@ function StatusPanel({
 }) {
   const panel = view.panels["system-status"];
   const panelStatus = panel?.status ?? "loading";
+  const saturatedLimits =
+    status?.limits.filter((limit) => limit.saturated) ?? [];
+  const healthy =
+    status !== undefined &&
+    status.ready &&
+    !status.latched &&
+    status.keyring === "ready" &&
+    saturatedLimits.length === 0;
   return (
     <section
-      class="system-status-view"
+      class="panel domain-panel operator-status-view system-status-view"
       aria-labelledby="system-status-title"
       data-testid="system-status-panel"
       data-panel-status={panelStatus}
     >
       <div class="panel-heading">
-        <div>
-          <span class="panel-code">SYSTEM-01</span>
-          <h2 id="system-status-title">Gateway status</h2>
-        </div>
-        <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {sentenceCase(panelStatus)}
-        </StatusLabel>
+        <h2 id="system-status-title">Gateway status</h2>
       </div>
       {panelStatus === "error" && status === undefined ? (
         <StateNotice state="error" title="System status unavailable">
@@ -451,23 +463,51 @@ function StatusPanel({
       ) : panelStatus === "loading" && panel?.hasValue !== true ? (
         <StateNotice state="loading" title="Loading system status" />
       ) : status !== undefined ? (
-        <div class="system-stack">
-          <section aria-labelledby="overall-health-title">
-            <h3 id="overall-health-title">Overall health</h3>
-            <StatusLabel
-              state={
-                status.ready && !status.latched && status.keyring === "ready"
-                  ? "current"
-                  : "warning"
-              }
-            >
-              {status.ready && !status.latched && status.keyring === "ready"
-                ? "Healthy"
-                : "Degraded"}
+        <div class="operator-status-stack">
+          <section
+            class="operator-status-summary"
+            aria-labelledby="overall-health-title"
+            data-testid="system-status-summary"
+          >
+            <div>
+              <span class="panel-code">Overall health</span>
+              <h3 id="overall-health-title">
+                {healthy
+                  ? "Gateway is operating normally"
+                  : "Gateway needs attention"}
+              </h3>
+              <p>
+                {healthy
+                  ? "All evaluated operational checks are healthy."
+                  : "One or more operational checks require review."}
+              </p>
+            </div>
+            <StatusLabel state={healthy ? "current" : "warning"}>
+              {healthy ? "Healthy" : "Degraded"}
             </StatusLabel>
           </section>
-          <section aria-labelledby="system-issues-title">
-            <h3 id="system-issues-title">Issues requiring attention</h3>
+
+          <section
+            class="operator-status-section"
+            aria-labelledby="system-issues-title"
+            data-testid="system-status-issues"
+          >
+            <div class="operator-status-section-heading">
+              <h3 id="system-issues-title">Needs attention</h3>
+              <span>
+                {healthy
+                  ? "No action required"
+                  : "Operator action may be required"}
+              </span>
+            </div>
+            {!status.ready && (
+              <StateNotice state="warning" title="Gateway is not ready">
+                <p>
+                  The process is {sentenceCase(status.processState)}. Review the
+                  remaining health checks before restoring traffic.
+                </p>
+              </StateNotice>
+            )}
             {status.latched && (
               <StateNotice
                 state="error"
@@ -484,50 +524,95 @@ function StatusPanel({
                 state="warning"
                 title="Credential storage is unavailable"
               >
-                <p>Credential operations may require interaction or fail.</p>
+                <p>{keyringGuidance(status.keyring)}</p>
               </StateNotice>
             )}
-            {!status.latched && status.keyring === "ready" && (
-              <p>No current issues require operator action.</p>
+            {saturatedLimits.length > 0 && (
+              <StateNotice
+                state="warning"
+                title={`${saturatedLimits.length} resource ${saturatedLimits.length === 1 ? "limit is" : "limits are"} saturated`}
+              >
+                <p>New work using saturated capacity cannot be admitted.</p>
+                <a href="#/system?tab=resource-limits">View resource limits</a>
+              </StateNotice>
             )}
+            {healthy && <p>No current issues require operator action.</p>}
           </section>
-          <div class="fact-grid">
-            <article class="panel fact-card">
-              <span class="panel-code">PROCESS</span>
-              <h3>Process {sentenceCase(status.processState)}</h3>
-              <StatusLabel state={status.ready ? "current" : "warning"}>
-                {status.ready ? "Ready" : "Not ready"}
-              </StatusLabel>
-              <p>
-                Started <UserTime value={status.startedAt} />
-              </p>
-            </article>
-            <article class="panel fact-card">
-              <span class="panel-code">SQLITE</span>
-              <h3>Storage {sentenceCase(status.sqliteState)}</h3>
-              <p>Schema {status.schemaVersion}</p>
-              <p>Revision {status.revision}</p>
-              <StatusLabel state={status.latched ? "error" : "current"}>
-                Mutation admission {status.latched ? "closed" : "open"}
-              </StatusLabel>
-            </article>
-            <article class="panel fact-card">
-              <span class="panel-code">KEYRING</span>
-              <h3>Keyring {sentenceCase(status.keyring)}</h3>
-              <p>
-                OS-managed capability snapshot; later authority work may still
-                require interaction or fail.
-              </p>
-            </article>
-            <article class="panel fact-card">
-              <span class="panel-code">BACKUP</span>
-              <h3>Backup {sentenceCase(status.backupState)}</h3>
-              <p>
-                Last completed{" "}
-                <UserTime value={status.lastBackupAt} fallback="never" />
-              </p>
-            </article>
-          </div>
+
+          <section
+            class="operator-status-section"
+            aria-labelledby="system-operational-title"
+            data-testid="system-status-operational"
+          >
+            <h3 id="system-operational-title">Operational state</h3>
+            <dl class="operator-status-grid">
+              <div>
+                <dt>Process</dt>
+                <dd>
+                  <strong>{sentenceCase(status.processState)}</strong>
+                  <span>{status.ready ? "Ready" : "Not ready"}</span>
+                  <span>
+                    Started <UserTime value={status.startedAt} />
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Storage</dt>
+                <dd>
+                  <strong>{sentenceCase(status.sqliteState)}</strong>
+                  <span>
+                    Mutation admission {status.latched ? "closed" : "open"}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Credential storage</dt>
+                <dd>
+                  <strong>{sentenceCase(status.keyring)}</strong>
+                  <span>OS-managed keyring capability</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Backup</dt>
+                <dd>
+                  <strong>{sentenceCase(status.backupState)}</strong>
+                  <span>
+                    Last completed{" "}
+                    <UserTime value={status.lastBackupAt} fallback="never" />
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <details
+            class="operator-status-details"
+            data-testid="system-status-details"
+          >
+            <summary>Technical details</summary>
+            <dl class="technical-details-grid">
+              <div>
+                <dt>Schema</dt>
+                <dd>{status.schemaVersion}</dd>
+              </div>
+              <div>
+                <dt>Revision</dt>
+                <dd>{status.revision}</dd>
+              </div>
+              <div>
+                <dt>Modern protocol</dt>
+                <dd>{status.modernProtocol}</dd>
+              </div>
+              <div>
+                <dt>Legacy protocol</dt>
+                <dd>{status.legacyProtocol}</dd>
+              </div>
+              <div>
+                <dt>Agent authentication</dt>
+                <dd>{sentenceCase(status.agentAuth)}</dd>
+              </div>
+            </dl>
+          </details>
         </div>
       ) : (
         <StateNotice state="loading" title="Loading system status" />

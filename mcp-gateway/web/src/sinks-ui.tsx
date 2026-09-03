@@ -14,6 +14,53 @@ function clearSelection(): void {
   if (selection !== null) selection.removeAllRanges();
 }
 
+export function CopyableValue({
+  value,
+  label,
+  testID,
+}: {
+  value: string;
+  label: string;
+  testID?: string;
+}) {
+  const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const generation = useRef(0);
+  useEffect(() => {
+    generation.current += 1;
+    setStatus("idle");
+  }, [value]);
+
+  const copy = async () => {
+    const current = ++generation.current;
+    const result = await copyToClipboard(value, (candidate) =>
+      navigator.clipboard.writeText(candidate),
+    );
+    if (generation.current === current) setStatus(result);
+  };
+
+  return (
+    <div class="copyable-value">
+      <code data-testid={testID}>{value}</code>
+      <button
+        class="text-button"
+        type="button"
+        aria-label={`Copy ${label}`}
+        onClick={() => void copy()}
+      >
+        Copy
+      </button>
+      <span class="copyable-value-status" role="status" aria-live="polite">
+        {status === "copied" && `${sentenceLabel(label)} copied.`}
+        {status === "failed" && `Could not copy ${label}.`}
+      </span>
+    </div>
+  );
+}
+
+function sentenceLabel(value: string): string {
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
 export function WriteOnlyField({
   value,
   id,

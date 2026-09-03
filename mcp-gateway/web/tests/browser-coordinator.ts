@@ -2012,6 +2012,7 @@ async function runServerManagementCanary(
       },
     },
   };
+  server.runtime.dispatch = { in_use: 4, limit: 4, saturated: true };
   await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) =>
     route.fulfill({
       status: 200,
@@ -2081,16 +2082,40 @@ async function runServerManagementCanary(
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=status`;
   }, serverID);
-  const statusCards = page.locator(
-    '[data-testid="server-status-cards"] > .fact-card',
-  );
-  await statusCards.first().waitFor();
+  const serverStatus = page.locator('[data-testid="server-status-view"]');
+  await serverStatus
+    .locator('[data-testid="server-status-operational"]')
+    .waitFor();
   if (
-    (await statusCards.count()) !== 4 ||
-    (await statusCards.locator(".fact-card").count()) !== 0 ||
-    (await page.locator(".subnav a").first().textContent())?.trim() !== "Status"
+    (await page.locator(".subnav a").first().textContent())?.trim() !==
+      "Status" ||
+    (await serverStatus
+      .locator('[data-testid="server-status-issues"]')
+      .count()) !== 1 ||
+    (await serverStatus
+      .locator('[data-testid="server-status-operational"]')
+      .count()) !== 1 ||
+    (await serverStatus
+      .locator('[data-testid="server-status-details"]')
+      .count()) !== 1 ||
+    (await page.locator('[data-testid="server-id"]').textContent()) !==
+      serverID ||
+    (await page.getByRole("button", { name: "Copy server ID" }).count()) !==
+      1 ||
+    !((await serverStatus.textContent()) ?? "").includes(
+      "Dispatch capacity is saturated",
+    )
   )
-    fail("server status did not use four sibling cards with Status first");
+    fail("server status did not use the shared operator hierarchy");
+  await page.getByRole("button", { name: "Copy server ID" }).click();
+  await page.waitForFunction(() => {
+    const status = document.querySelector(
+      ".copyable-value-status",
+    )?.textContent;
+    return (
+      status === "Server ID copied." || status === "Could not copy server ID."
+    );
+  });
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=settings`;
   }, serverID);
@@ -6801,14 +6826,8 @@ async function runSystemStatus(
   });
   await page.locator('[data-testid="system-view"]').waitFor();
   await page
-    .waitForFunction(
-      () =>
-        document
-          .querySelector('[data-testid="system-status-panel"]')
-          ?.textContent?.includes("Schema 10") === true,
-      undefined,
-      { timeout: 5000 },
-    )
+    .locator('[data-testid="system-status-operational"]')
+    .waitFor({ timeout: 5000 })
     .catch(() => fail("System fixture did not publish initial status"));
   if (
     !((await page.locator("body").textContent()) ?? "").includes(
@@ -6837,21 +6856,37 @@ async function runSystemStatus(
   for (const phrase of [
     "Overall health",
     "Degraded",
-    "Issues requiring attention",
+    "Needs attention",
+    "Gateway is not ready",
     "Storage mutations are unavailable",
     "Credential storage is unavailable",
+    "1 resource limit is saturated",
+    "Operational state",
+    "Technical details",
+    "2026-07-28",
+    "Principal credentials",
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
-  if (body.includes("Resource summary"))
-    fail("System status retained the duplicate resource summary");
   const statusPanel = page.locator('[data-testid="system-status-panel"]');
   if (
-    (await statusPanel.getAttribute("class"))?.split(/\s+/).includes("panel") ||
-    (await statusPanel.locator(".fact-grid > .panel.fact-card").count()) !==
-      4 ||
-    (await statusPanel.locator(".fact-card .fact-card").count()) !== 0
+    !(await statusPanel.getAttribute("class"))
+      ?.split(/\s+/)
+      .includes("panel") ||
+    (await statusPanel
+      .locator('[data-testid="system-status-summary"]')
+      .count()) !== 1 ||
+    (await statusPanel
+      .locator('[data-testid="system-status-issues"]')
+      .count()) !== 1 ||
+    (await statusPanel
+      .locator('[data-testid="system-status-operational"]')
+      .count()) !== 1 ||
+    (await statusPanel
+      .locator('[data-testid="system-status-details"]')
+      .count()) !== 1 ||
+    body.includes("SYSTEM-01")
   )
-    fail("System status did not render four sibling operational cards");
+    fail("System status did not use the shared operator hierarchy");
   if (body.includes("Stopped recovery"))
     fail("System retained the documentation-only recovery tab");
   const processStart = page.locator('time[datetime="2026-08-28T00:00:00Z"]');
@@ -6885,7 +6920,11 @@ async function runSystemStatus(
         ?.getAttribute("data-panel-status") === "current",
   );
   body = (await page.locator("body").textContent()) ?? "";
-  if (body.includes("Data stale") || !body.includes("Schema 10"))
+  if (
+    body.includes("Data stale") ||
+    !body.includes("Technical details") ||
+    !body.includes("2026-07-28")
+  )
     fail("System refresh flashed stale text or discarded current status");
   holdStatus = false;
   releaseStatus?.();
@@ -8233,8 +8272,11 @@ async function runServerDisconnectDelete(
   let tombstone =
     (await page.locator('[data-testid="server-status-view"]').textContent()) ??
     "";
-  if (!tombstone.includes("View status"))
-    fail("deleted server overview omitted its status action");
+  if (
+    !tombstone.includes("This server is retained as historical evidence.") ||
+    tombstone.includes("View status")
+  )
+    fail("deleted server status did not explain its historical state");
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=status`;
   }, serverID);
@@ -9410,6 +9452,12 @@ async function runServerCatalogReads(
     (await page.getByLabel("Name or ID", { exact: true }).count()) !== 1 ||
     (await page.getByLabel("Namespace", { exact: true }).count()) !== 1 ||
     (await page.getByLabel("Status", { exact: true }).count()) !== 1 ||
+    (await page
+      .getByLabel("Status", { exact: true })
+      .locator(
+        'option[value="Authentication unavailable"], option[value="Capacity saturated"]',
+      )
+      .count()) !== 2 ||
     (await page.getByRole("button", { name: "Reset" }).count()) !== 1
   )
     fail("server inventory omitted field-specific filters");
