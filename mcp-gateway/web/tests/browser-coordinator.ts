@@ -1956,11 +1956,11 @@ async function runOverviewInvocationSystemCanary(
         .querySelector('[data-testid="system-status-panel"]')
         ?.getAttribute("data-panel-status") === "current",
   );
+  body = (await page.locator("body").textContent()) ?? "";
   if (
     (await page.locator('[data-testid="system-limit-row"]').count()) !== 0 ||
-    !((await page.locator("body").textContent()) ?? "").includes(
-      "Resource summary",
-    )
+    !body.includes("Gateway status") ||
+    (await page.getByRole("link", { name: "Resource limits" }).count()) !== 1
   )
     fail("System status did not keep detailed limits in their destination");
 
