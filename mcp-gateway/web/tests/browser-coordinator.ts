@@ -2360,7 +2360,7 @@ async function runSystemAdministrationCanary(
     rendered += ` ${(await page.locator("body").textContent()) ?? ""}`;
   }
   for (const phrase of [
-    "Overall health",
+    "Gateway status",
     "Resource limits",
     "Admin credentials",
     "Backups",
