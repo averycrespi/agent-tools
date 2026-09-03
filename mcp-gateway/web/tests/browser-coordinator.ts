@@ -205,6 +205,14 @@ async function loadShell(
         ?.getAttribute("data-session-lifecycle") !== "bootstrapping",
   );
   if ((await page.title()) !== "MCP Gateway") fail("unexpected shell title");
+  const mastheadMark = page.locator(
+    '.wordmark > img.mark[src="/assets/favicon.svg"]',
+  );
+  if (
+    (await mastheadMark.count()) !== 1 ||
+    (await mastheadMark.getAttribute("aria-hidden")) !== "true"
+  )
+    fail("masthead did not reuse the Gateway favicon");
   const csp = (await response.allHeaders())["content-security-policy"] ?? "";
   if (
     requireProductionCSP &&

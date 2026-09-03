@@ -222,17 +222,10 @@ button.danger-action:hover,
 }
 
 .mark {
-  display: grid;
+  display: block;
   width: 28px;
   height: 28px;
   flex: 0 0 auto;
-  place-items: center;
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--accent-text);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: -0.04em;
 }
 
 .masthead-controls,

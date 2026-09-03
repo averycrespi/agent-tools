@@ -526,9 +526,12 @@ function App() {
       </div>
       <header class="masthead">
         <a class="wordmark" href="#/overview" aria-label="MCP Gateway overview">
-          <span aria-hidden="true" class="mark">
-            G
-          </span>
+          <img
+            aria-hidden="true"
+            class="mark"
+            src="/assets/favicon.svg"
+            alt=""
+          />
           <span>MCP Gateway</span>
         </a>
         <div class="masthead-controls">
