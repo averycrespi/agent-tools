@@ -6381,6 +6381,10 @@ async function runInvocations(
   );
 
   const captureCanary = `INVOCATION_CAPTURE_<script>${"C".repeat(64)}`;
+  let argumentCapture: unknown = {
+    note: captureCanary,
+    token: "[REDACTED]",
+  };
   let listReads = 0;
   let continuationReads = 0;
   let itemReads = 0;
@@ -6425,7 +6429,7 @@ async function runInvocations(
               "outcome_unknown",
               "gateway",
             ),
-            redacted_arguments: { note: captureCanary, token: "[REDACTED]" },
+            redacted_arguments: argumentCapture,
           }),
         });
       }
@@ -6752,6 +6756,9 @@ async function runInvocations(
     fail("invocation detail did not use linked resource facts");
   if (
     !body.includes(captureCanary) ||
+    !body.includes("Retained argument capture") ||
+    !body.includes("Other secrets may remain visible") ||
+    body.includes("Fixed-redacted arguments") ||
     (await page.locator("script").count()) !== 1 ||
     (await page.evaluate(
       () =>
@@ -6759,7 +6766,26 @@ async function runInvocations(
           .__invocation_capture__ === true,
     ))
   )
-    fail("invocation capture was not inert item-only content");
+    fail("invocation capture was not explained inert item-only content");
+
+  argumentCapture = "[TRUNCATED]";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page
+    .getByText(
+      "The redacted capture exceeded 8 KiB; argument content was not retained.",
+      { exact: true },
+    )
+    .waitFor();
+  if (
+    ((await page.locator("body").textContent()) ?? "").includes(captureCanary)
+  )
+    fail("truncated invocation retained prior argument content");
+
+  argumentCapture = null;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page
+    .getByText("No argument capture was retained.", { exact: true })
+    .waitFor();
 
   itemMissing = true;
   await page.locator('[data-testid="manual-refresh"]').click();

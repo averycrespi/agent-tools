@@ -748,6 +748,36 @@ function InvocationList({
     </section>
   );
 }
+function RetainedArgumentCapture({ value }: { value: unknown }) {
+  return (
+    <section
+      class="panel domain-panel"
+      aria-labelledby="invocation-argument-capture-title"
+      data-testid="invocation-argument-capture"
+    >
+      <div class="panel-heading">
+        <h2 id="invocation-argument-capture-title">
+          Retained argument capture
+        </h2>
+      </div>
+      <p>
+        Gateway redacts values only for recognized sensitive field names. Other
+        secrets may remain visible; inspect this capture only when operationally
+        necessary.
+      </p>
+      {value === null ? (
+        <p>No argument capture was retained.</p>
+      ) : value === "[TRUNCATED]" ? (
+        <p>
+          The redacted capture exceeded 8 KiB; argument content was not
+          retained.
+        </p>
+      ) : (
+        <InertJSON value={value} label="Retained invocation argument capture" />
+      )}
+    </section>
+  );
+}
 function InvocationDetail({
   snapshot,
   panel,
@@ -816,12 +846,8 @@ function InvocationDetail({
             )}
           </StateNotice>
         )}
-        <h3>Fixed-redacted arguments</h3>
-        <InertJSON
-          value={item.redactedArguments}
-          label="Fixed-redacted invocation arguments"
-        />
       </section>
+      <RetainedArgumentCapture value={item.redactedArguments} />
     </div>
   );
 }

@@ -67,7 +67,7 @@ func TestBrowserInvocations(t *testing.T) {
 	assert.Positive(t, event.Requests)
 	assert.GreaterOrEqual(t, event.ListReads, 4)
 	assert.Positive(t, event.ContinuationReads)
-	assert.Equal(t, 2, event.ItemReads)
+	assert.Equal(t, 4, event.ItemReads)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "T21 must own one Gateway lifecycle")
