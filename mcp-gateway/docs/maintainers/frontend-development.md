@@ -90,6 +90,8 @@ Human maintainers and coding agents must use a real browser to exercise each aff
 
 Use semantic snapshots to verify content, controls, and accessible state. Take and actually inspect screenshots to verify layout, hierarchy, spacing, clipping, overlap, wrapping, responsive behavior, and unintended visual regressions. Running browser tests, generating screenshots, or validating screenshot dimensions and hashes is not visual inspection by itself.
 
+Watch affected navigation, loading, refresh, polling, and mutation transitions in the browser as well as their settled screenshots. Check that tab bars, headings, controls, and established content do not flash, jump, reorder, briefly claim staleness before current state is known, or retain data from a superseded location. First load may use a loading state; during background refresh, matching prior content and dimensions should remain when safe with the prescribed stale indication. A settled screenshot cannot prove visual stability by itself.
+
 Record the states and viewports inspected in the change or agent completion report, along with any console or network failure relevant to the change. If authentication or the local runtime blocks browser verification, report that gap explicitly rather than implying the UI was inspected. Do not retain screenshots containing administrator bearers, one-time secrets, or other sensitive values.
 
 ## Manual exploratory audits
@@ -129,7 +131,11 @@ A small set of UI operations reaches most populated states without a downstream 
 4. Create a disabled, unauthenticated HTTP server with a syntactically valid non-routable endpoint such as `https://example.invalid/mcp`. This exposes the server detail tabs without initiating downstream work.
 5. Create a backup and an additional administrator credential to populate their System tables and detail panels.
 
-Exercise sign-in failure and success, sign-out, dirty-navigation protection, destructive confirmations, filters and reset, empty and populated collections, light and dark themes, and mobile navigation. Inspect at least desktop, narrow mobile, and 320px widths. For tables, document-level overflow checks are insufficient: compare interactive-control rectangles with their clipping container and confirm that truncated values can be recovered.
+Exercise sign-in failure and success, sign-out, dirty-navigation protection, destructive confirmations, filters and reset, empty and populated collections, light and dark themes, and mobile navigation. Inspect at least desktop, narrow mobile, and 320px widths.
+
+For every affected collection, inspect column priority and alignment, link prominence, row-action placement, default ordering, one-line behavior, full-value recovery, visible result counts, and the empty and populated filter states. Confirm that every active constraint is visible and clearable and that compact filter controls and responsive transformations preserve meaning. Document-level overflow checks are insufficient: compare interactive-control rectangles with their clipping container and confirm that truncated values can be recovered.
+
+Compare affected resource details with an established peer page. Verify the title and identity hierarchy, applicable status and next action or historical evidence, section order, technical metadata, action placement, and any contextual return navigation; duplicated controls or facts across tabs are defects unless each occurrence serves a distinct task. Check that display names and qualified IDs serve their distinct recognition and identity roles, state labels use consistent plain language and capitalization, timestamps use the shared localized presentation, and implementation terms appear only when operationally necessary. For creation and destructive workflows, inspect input, review, confirmation, submitting, success, rejection, and uncertain states as applicable, and confirm that primary, secondary, and destructive actions remain visually distinct and consistently placed.
 
 When Playwright CLI cannot find its configured browser channel, use the repository-pinned Playwright API from the repository root rather than installing an unpinned browser:
 
