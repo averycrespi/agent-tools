@@ -150,9 +150,26 @@ func (grant evaluationGrant) applies(serverID, upstreamName string, evaluatedAt 
 }
 
 func constraintMatches(constraint CompiledConstraint, arguments strictjson.Value) bool {
+	remainingRegexWork := mustLimit("constraint_regex_work_bytes")
 	for _, atom := range constraint.atoms {
 		actual, present := valueAtObjectPath(arguments, atom.segments)
-		if !present || !scalarValuesEqual(actual, atom.expected) {
+		if !present {
+			return false
+		}
+		switch atom.operator {
+		case ConstraintEquals:
+			if !scalarValuesEqual(actual, atom.expected) {
+				return false
+			}
+		case ConstraintRegex:
+			if actual.Type != strictjson.ValueString || int64(len(actual.String)) > remainingRegexWork {
+				return false
+			}
+			remainingRegexWork -= int64(len(actual.String))
+			if !atom.expression.MatchString(actual.String) {
+				return false
+			}
+		default:
 			return false
 		}
 	}

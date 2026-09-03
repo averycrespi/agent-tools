@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,41 @@ func TestEvaluateConstraintUsesObjectOnlyLexicalScalarEquality(t *testing.T) {
 			assert.Equal(t, test.decision, result.Decision)
 		})
 	}
+}
+
+func TestEvaluateV2RegexUsesFullStringStringOnlyConjunction(t *testing.T) {
+	tests := []struct {
+		name      string
+		arguments string
+		decision  contract.AuthorizationDecision
+	}{
+		{name: "full match", arguments: `{"region":"us","resource":"item/42"}`, decision: contract.DecisionAllow},
+		{name: "substring does not match", arguments: `{"region":"us","resource":"prefix-item/42"}`, decision: contract.DecisionBlock},
+		{name: "non-string does not match", arguments: `{"region":"us","resource":42}`, decision: contract.DecisionBlock},
+		{name: "missing does not match", arguments: `{"region":"us"}`, decision: contract.DecisionBlock},
+		{name: "equality is conjoined", arguments: `{"region":"eu","resource":"item/42"}`, decision: contract.DecisionBlock},
+	}
+	repository, _ := newRepository(t, nil)
+	principal := mustCreatePrincipal(t, repository)
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstreamName := fmt.Sprintf("regex-%d", index)
+			constraint := json.RawMessage(`{"version":2,"equals":{"/region":"us"},"regex":{"/resource":"item/[0-9]+"}}`)
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &upstreamName, Constraint: &constraint})
+			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: upstreamName, Arguments: json.RawMessage(test.arguments)})
+			require.NoError(t, err)
+			assert.Equal(t, test.decision, result.Decision)
+		})
+	}
+}
+
+func TestConstraintMatchesFailsClosedWhenRegexWorkBudgetIsExhausted(t *testing.T) {
+	constraint, err := CompileConstraint([]byte(`{"version":2,"regex":{"/first":".*","/second":".*"}}`))
+	require.NoError(t, err)
+	value := strings.Repeat("x", int(mustLimit("constraint_regex_work_bytes")/2)+1)
+	arguments, err := strictjson.ParseValue([]byte(`{"first":`+fmt.Sprintf("%q", value)+`,"second":`+fmt.Sprintf("%q", value)+`}`), strictjson.Options{MaxBytes: mustLimit("mcp_body_bytes"), MaxDepth: int(mustLimit("json_depth"))})
+	require.NoError(t, err)
+	assert.False(t, constraintMatches(constraint, arguments))
 }
 
 func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(t *testing.T) {
