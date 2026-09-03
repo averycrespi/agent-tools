@@ -16,10 +16,16 @@ export interface SessionBootstrap {
   absoluteExpiresAt: string;
 }
 
+export interface ServerConfigurationContext {
+  field: string;
+  rule: string;
+}
+
 export interface Problem {
   status: number;
   code: string;
   title: string;
+  context?: ServerConfigurationContext;
 }
 
 export interface ProtectedContext {
@@ -79,12 +85,65 @@ export function parseSessionBootstrap(
   };
 }
 
+const serverConfigurationFields = new Set([
+  "configuration",
+  "namespace",
+  "display_name",
+  "enabled",
+  "transport",
+  "transport.kind",
+  "transport.executable",
+  "transport.arguments",
+  "transport.working_directory",
+  "transport.environment",
+  "transport.secret_environment",
+  "transport.url",
+  "transport.protocol_mode",
+  "transport.authentication",
+  "transport.authentication.mode",
+  "transport.authentication.trusted_origins",
+  "transport.authentication.request_offline_access",
+  "transport.authentication.registration",
+  "transport.authentication.registration.mode",
+  "transport.authentication.registration.issuer",
+  "transport.authentication.registration.client_id",
+  "transport.authentication.registration.token_endpoint_auth_method",
+]);
+const serverConfigurationRules = new Set([
+  "invalid",
+  "required",
+  "maximum",
+  "unique",
+  "disjoint",
+  "canonical_absolute_path",
+  "canonical_url",
+  "transport_policy",
+]);
+
+function parseServerConfigurationContext(
+  value: unknown,
+): ServerConfigurationContext | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    !hasExactKeys(value, ["field", "rule"]) ||
+    !("field" in value) ||
+    typeof value.field !== "string" ||
+    !serverConfigurationFields.has(value.field) ||
+    !("rule" in value) ||
+    typeof value.rule !== "string" ||
+    !serverConfigurationRules.has(value.rule)
+  )
+    return undefined;
+  return { field: value.field, rule: value.rule };
+}
+
 export function parseProblem(value: unknown): Problem | undefined {
   if (
     typeof value !== "object" ||
     value === null ||
     Array.isArray(value) ||
-    !hasExactKeys(value, ["code", "status", "title"]) ||
     !("status" in value) ||
     !Number.isInteger(value.status) ||
     typeof value.status !== "number" ||
@@ -100,6 +159,24 @@ export function parseProblem(value: unknown): Problem | undefined {
   ) {
     return undefined;
   }
+  if (value.code === "invalid_server_configuration") {
+    if (hasExactKeys(value, ["code", "status", "title"]))
+      return { status: value.status, code: value.code, title: value.title };
+    if (!hasExactKeys(value, ["code", "context", "status", "title"]))
+      return undefined;
+    const context =
+      "context" in value
+        ? parseServerConfigurationContext(value.context)
+        : undefined;
+    if (context === undefined) return undefined;
+    return {
+      status: value.status,
+      code: value.code,
+      title: value.title,
+      context,
+    };
+  }
+  if (!hasExactKeys(value, ["code", "status", "title"])) return undefined;
   return { status: value.status, code: value.code, title: value.title };
 }
 

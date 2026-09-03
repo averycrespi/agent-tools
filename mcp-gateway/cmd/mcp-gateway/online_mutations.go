@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -18,6 +19,17 @@ import (
 
 var serverETagPattern = regexp.MustCompile(`^"server-([0-7][0-9A-HJKMNP-TV-Z]{25})-([1-9][0-9]*)"$`)
 
+type serverMutationInputError struct {
+	field contract.ServerConfigurationField
+	rule  contract.ServerConfigurationRule
+}
+
+func (failure *serverMutationInputError) Error() string { return "server mutation input is invalid" }
+
+func invalidServerMutationInput(field contract.ServerConfigurationField, rule contract.ServerConfigurationRule) error {
+	return &serverMutationInputError{field: field, rule: rule}
+}
+
 type serverMutationWire struct {
 	Server    serverWire                `json:"server"`
 	Operation *contract.ServerOperation `json:"operation"`
@@ -26,7 +38,11 @@ type serverMutationWire struct {
 func runServerCreate(command *cobra.Command, options *onlineOptions) error {
 	body, _, err := readServerMutationInput(command, options, true)
 	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("Server creation requires exactly namespace, display_name, enabled, and a closed transport object."))
+		var inputError *serverMutationInputError
+		if errors.As(err, &inputError) {
+			return writeOnlineFailure(command, options.output, controlclient.NewServerConfigurationInputError(string(inputError.field), string(inputError.rule)))
+		}
+		return writeOnlineFailure(command, options.output, controlclient.NewServerConfigurationInputError("configuration", "invalid"))
 	}
 	key := options.idempotencyKey
 	if key == "" {
@@ -204,80 +220,232 @@ func readServerMutationInput(command *cobra.Command, options *onlineOptions, cre
 		return nil, nil, err
 	}
 	var object map[string]json.RawMessage
-	if json.Unmarshal(body, &object) != nil || len(object) == 0 {
-		return nil, nil, controlclient.ErrInvalidInput
+	if json.Unmarshal(body, &object) != nil {
+		return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldConfiguration, contract.ServerConfigurationRuleInvalid)
+	}
+	if len(object) == 0 && !create {
+		return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldConfiguration, contract.ServerConfigurationRuleInvalid)
 	}
 	members := make(map[string]bool, len(object))
 	for key := range object {
 		members[key] = true
 	}
-	if create && (!members["namespace"] || !members["display_name"] || !members["enabled"] || !members["transport"] || len(object) != 4) {
-		return nil, nil, controlclient.ErrInvalidInput
+	if create {
+		for _, required := range []struct {
+			name  string
+			field contract.ServerConfigurationField
+		}{
+			{name: "namespace", field: contract.ServerConfigurationFieldNamespace},
+			{name: "display_name", field: contract.ServerConfigurationFieldDisplayName},
+			{name: "enabled", field: contract.ServerConfigurationFieldEnabled},
+			{name: "transport", field: contract.ServerConfigurationFieldTransport},
+		} {
+			if !members[required.name] {
+				return nil, nil, invalidServerMutationInput(required.field, contract.ServerConfigurationRuleRequired)
+			}
+		}
+		if len(object) != 4 {
+			return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldConfiguration, contract.ServerConfigurationRuleInvalid)
+		}
 	}
 	if value, ok := object["namespace"]; ok && !jsonString(value) {
-		return nil, nil, controlclient.ErrInvalidInput
+		return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldNamespace, contract.ServerConfigurationRuleInvalid)
 	}
 	if value, ok := object["display_name"]; ok && !jsonString(value) {
-		return nil, nil, controlclient.ErrInvalidInput
+		return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldDisplayName, contract.ServerConfigurationRuleInvalid)
 	}
 	if value, ok := object["enabled"]; ok && !jsonBoolean(value) {
-		return nil, nil, controlclient.ErrInvalidInput
+		return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldEnabled, contract.ServerConfigurationRuleInvalid)
 	}
-	if value, ok := object["transport"]; ok && !validTransport(value) {
-		return nil, nil, controlclient.ErrInvalidInput
+	if value, ok := object["transport"]; ok {
+		if err := validateServerTransportInput(value); err != nil {
+			return nil, nil, err
+		}
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(body)))
 	decoder.UseNumber()
 	var canonical any
 	if decoder.Decode(&canonical) != nil {
-		return nil, nil, controlclient.ErrInvalidInput
+		return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldConfiguration, contract.ServerConfigurationRuleInvalid)
 	}
 	canonicalBody, err := json.Marshal(canonical)
 	if err != nil {
-		return nil, nil, controlclient.ErrInvalidInput
+		return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldConfiguration, contract.ServerConfigurationRuleInvalid)
 	}
 	return canonicalBody, members, nil
 }
 
-func validTransport(raw json.RawMessage) bool {
+func validateServerTransportInput(raw json.RawMessage) error {
 	var object map[string]json.RawMessage
-	if json.Unmarshal(raw, &object) != nil || !jsonString(object["kind"]) {
-		return false
+	if json.Unmarshal(raw, &object) != nil {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
+	}
+	kindRaw, exists := object["kind"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleRequired)
+	}
+	if !jsonString(kindRaw) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleInvalid)
 	}
 	var kind string
-	_ = json.Unmarshal(object["kind"], &kind)
+	_ = json.Unmarshal(kindRaw, &kind)
 	if kind == "stdio" {
-		return exactMembers(object, "kind", "executable", "arguments", "working_directory", "environment", "secret_environment") && jsonString(object["executable"]) && jsonStringArray(object["arguments"]) && jsonString(object["working_directory"]) && jsonStringMap(object["environment"]) && jsonStringMap(object["secret_environment"])
+		return validateStdioTransportInput(object)
 	}
-	if kind != "streamable_http" || !exactMembers(object, "kind", "url", "protocol_mode", "authentication") || !jsonString(object["url"]) || !jsonString(object["protocol_mode"]) {
-		return false
+	if kind != "streamable_http" {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleInvalid)
 	}
-	return validAuthentication(object["authentication"])
+	return validateHTTPTransportInput(object)
 }
 
-func validAuthentication(raw json.RawMessage) bool {
+func validateStdioTransportInput(object map[string]json.RawMessage) error {
+	fields := []struct {
+		name  string
+		field contract.ServerConfigurationField
+		valid func(json.RawMessage) bool
+	}{
+		{name: "executable", field: contract.ServerConfigurationFieldExecutable, valid: jsonString},
+		{name: "arguments", field: contract.ServerConfigurationFieldArguments, valid: jsonStringArray},
+		{name: "working_directory", field: contract.ServerConfigurationFieldWorkingDirectory, valid: jsonString},
+		{name: "environment", field: contract.ServerConfigurationFieldEnvironment, valid: jsonStringMap},
+		{name: "secret_environment", field: contract.ServerConfigurationFieldSecretEnvironment, valid: jsonStringMap},
+	}
+	for _, field := range fields {
+		value, exists := object[field.name]
+		if !exists {
+			return invalidServerMutationInput(field.field, contract.ServerConfigurationRuleRequired)
+		}
+		if !field.valid(value) {
+			return invalidServerMutationInput(field.field, contract.ServerConfigurationRuleInvalid)
+		}
+	}
+	if !exactMembers(object, "kind", "executable", "arguments", "working_directory", "environment", "secret_environment") {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
+	}
+	return nil
+}
+
+func validateHTTPTransportInput(object map[string]json.RawMessage) error {
+	for _, field := range []struct {
+		name  string
+		field contract.ServerConfigurationField
+	}{
+		{name: "url", field: contract.ServerConfigurationFieldURL},
+		{name: "protocol_mode", field: contract.ServerConfigurationFieldProtocolMode},
+	} {
+		value, exists := object[field.name]
+		if !exists {
+			return invalidServerMutationInput(field.field, contract.ServerConfigurationRuleRequired)
+		}
+		if !jsonString(value) {
+			return invalidServerMutationInput(field.field, contract.ServerConfigurationRuleInvalid)
+		}
+	}
+	authentication, exists := object["authentication"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleRequired)
+	}
+	if !exactMembers(object, "kind", "url", "protocol_mode", "authentication") {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
+	}
+	return validateServerAuthenticationInput(authentication)
+}
+
+func validateServerAuthenticationInput(raw json.RawMessage) error {
 	var object map[string]json.RawMessage
-	if json.Unmarshal(raw, &object) != nil || !jsonString(object["mode"]) {
-		return false
+	if json.Unmarshal(raw, &object) != nil {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
+	}
+	modeRaw, exists := object["mode"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthenticationMode, contract.ServerConfigurationRuleRequired)
+	}
+	if !jsonString(modeRaw) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthenticationMode, contract.ServerConfigurationRuleInvalid)
 	}
 	var mode string
-	_ = json.Unmarshal(object["mode"], &mode)
+	_ = json.Unmarshal(modeRaw, &mode)
 	if mode == "none" || mode == "bearer" {
-		return exactMembers(object, "mode")
+		if !exactMembers(object, "mode") {
+			return invalidServerMutationInput(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
+		}
+		return nil
 	}
-	if mode != "oauth" || !exactMembers(object, "mode", "registration", "trusted_origins", "request_offline_access") || !jsonStringArray(object["trusted_origins"]) || !jsonBoolean(object["request_offline_access"]) {
-		return false
+	if mode != "oauth" {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthenticationMode, contract.ServerConfigurationRuleInvalid)
 	}
-	var registration map[string]json.RawMessage
-	if json.Unmarshal(object["registration"], &registration) != nil || !jsonString(registration["mode"]) {
-		return false
+	registration, exists := object["registration"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRegistration, contract.ServerConfigurationRuleRequired)
 	}
-	var registrationMode string
-	_ = json.Unmarshal(registration["mode"], &registrationMode)
-	if registrationMode == "dynamic" {
-		return exactMembers(registration, "mode", "issuer") && jsonNullableString(registration["issuer"])
+	trustedOrigins, exists := object["trusted_origins"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTrustedOrigins, contract.ServerConfigurationRuleRequired)
 	}
-	return registrationMode == "static" && exactMembers(registration, "mode", "issuer", "client_id", "token_endpoint_auth_method") && jsonNullableString(registration["issuer"]) && jsonString(registration["client_id"]) && jsonString(registration["token_endpoint_auth_method"])
+	if !jsonStringArray(trustedOrigins) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTrustedOrigins, contract.ServerConfigurationRuleInvalid)
+	}
+	offlineAccess, exists := object["request_offline_access"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRequestOfflineAccess, contract.ServerConfigurationRuleRequired)
+	}
+	if !jsonBoolean(offlineAccess) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRequestOfflineAccess, contract.ServerConfigurationRuleInvalid)
+	}
+	if !exactMembers(object, "mode", "registration", "trusted_origins", "request_offline_access") {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
+	}
+	return validateServerRegistrationInput(registration)
+}
+
+func validateServerRegistrationInput(raw json.RawMessage) error {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRegistration, contract.ServerConfigurationRuleInvalid)
+	}
+	modeRaw, exists := object["mode"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRegistrationMode, contract.ServerConfigurationRuleRequired)
+	}
+	if !jsonString(modeRaw) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRegistrationMode, contract.ServerConfigurationRuleInvalid)
+	}
+	var mode string
+	_ = json.Unmarshal(modeRaw, &mode)
+	issuer, exists := object["issuer"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldIssuer, contract.ServerConfigurationRuleRequired)
+	}
+	if !jsonNullableString(issuer) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldIssuer, contract.ServerConfigurationRuleInvalid)
+	}
+	if mode == "dynamic" {
+		if !exactMembers(object, "mode", "issuer") {
+			return invalidServerMutationInput(contract.ServerConfigurationFieldRegistration, contract.ServerConfigurationRuleInvalid)
+		}
+		return nil
+	}
+	if mode != "static" {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRegistrationMode, contract.ServerConfigurationRuleInvalid)
+	}
+	clientID, exists := object["client_id"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldClientID, contract.ServerConfigurationRuleRequired)
+	}
+	if !jsonString(clientID) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldClientID, contract.ServerConfigurationRuleInvalid)
+	}
+	authMethod, exists := object["token_endpoint_auth_method"]
+	if !exists {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTokenEndpointAuthMethod, contract.ServerConfigurationRuleRequired)
+	}
+	if !jsonString(authMethod) {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldTokenEndpointAuthMethod, contract.ServerConfigurationRuleInvalid)
+	}
+	if !exactMembers(object, "mode", "issuer", "client_id", "token_endpoint_auth_method") {
+		return invalidServerMutationInput(contract.ServerConfigurationFieldRegistration, contract.ServerConfigurationRuleInvalid)
+	}
+	return nil
 }
 
 func exactMembers(object map[string]json.RawMessage, names ...string) bool {
@@ -294,18 +462,18 @@ func exactMembers(object map[string]json.RawMessage, names ...string) bool {
 
 func jsonString(raw json.RawMessage) bool {
 	var value string
-	return len(raw) > 0 && json.Unmarshal(raw, &value) == nil
+	return len(raw) > 0 && string(raw) != "null" && json.Unmarshal(raw, &value) == nil
 }
 func jsonBoolean(raw json.RawMessage) bool {
 	var value bool
-	return len(raw) > 0 && json.Unmarshal(raw, &value) == nil
+	return len(raw) > 0 && string(raw) != "null" && json.Unmarshal(raw, &value) == nil
 }
 func jsonNullableString(raw json.RawMessage) bool { return string(raw) == "null" || jsonString(raw) }
 func jsonStringArray(raw json.RawMessage) bool {
 	var value []string
-	return len(raw) > 0 && json.Unmarshal(raw, &value) == nil
+	return len(raw) > 0 && string(raw) != "null" && json.Unmarshal(raw, &value) == nil
 }
 func jsonStringMap(raw json.RawMessage) bool {
 	var value map[string]string
-	return len(raw) > 0 && json.Unmarshal(raw, &value) == nil
+	return len(raw) > 0 && string(raw) != "null" && json.Unmarshal(raw, &value) == nil
 }

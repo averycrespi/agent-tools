@@ -28,7 +28,7 @@ Bearer and cookie authority cannot be combined. Cookie requests require the exac
 
 JSON parsing bounds body size and nesting and rejects invalid UTF-8, duplicate members, unknown members, and trailing input. Server creation and explicit operations use parent-authority-scoped durable idempotency; server and operation lists use snapshot cursors; server reads and mutations carry exact strong Server ETags, with required exact `If-Match` on PATCH, DELETE, and operation creation.
 
-API responses are `no-store`, problems retain the fixed safe envelope, and no response enables CORS.
+API responses are `no-store`, problems retain fixed safe envelopes, and no response enables CORS. Invalid server configuration problems carry one closed field/rule context and never reflect submitted values or internal error text.
 
 ## Browser development boundary
 
@@ -46,7 +46,7 @@ Rejected text is never rendered or diagnosed, and signed-out fallback is fixed a
 
 ### Session and read lifecycle
 
-`session.ts` validates bootstrap and problem envelopes from unknown values and owns exchange, bootstrap, logout, and monotonically increasing authentication epochs. Epoch changes abort tracked requests/streams, cancel timers and polls, clear registered protected state, discard late results, and never replay a mutation; one coalesced bootstrap settles session loss.
+`session.ts` validates bootstrap and problem envelopes from unknown values, accepts the prior context-free `invalid_server_configuration` envelope during client/Gateway version skew, and owns exchange, bootstrap, logout, and monotonically increasing authentication epochs. Epoch changes abort tracked requests/streams, cancel timers and polls, clear registered protected state, discard late results, and never replay a mutation; one coalesced bootstrap settles session loss.
 
 The masked sign-in field has no reusable credential name or value attribute, clears before awaiting exchange settlement, and never publishes the bearer or in-memory CSRF value. `view.ts` binds panel reads to that epoch plus the canonical location and a monotonic view generation, aborts and discards superseded reads, preserves only matching prior values as explicitly stale, isolates panel failures, groups equal-interval visible polling, and pauses polling while hidden.
 
@@ -60,7 +60,7 @@ System status strictly projects every process, SQLite, keyring, backup, protocol
 
 The server inventory presents identity, a synthesized plain-language status, available-tool count, and the next useful action through the shared filterable and sortable responsive collection primitive; implementation revisions and reason codes remain absent. A server is organized into Overview, Tools, Activity, Authentication, Settings, and Diagnostics: Overview presents one synthesized status, explanation, and contextual action; Activity combines human-readable operation and OAuth histories while isolating their read failures; Authentication exposes only actions possible for the configured no-auth, bearer, local-secret, or OAuth mode; Settings alone owns editing, disconnect, and deletion; and Diagnostics contains bounded internal revisions, runtime facts, tombstone timing, and retained redacted OAuth failure records.
 
-Server create/update forms require explicit connection and authentication choices, reveal only applicable fields, construct the complete secret-free transport union from structured list and key/value controls, default new HTTP servers to strict automatic protocol negotiation, warn that stdio OS-user execution is not containment, summarize permanent identity and behavioral consequences before confirmation, and preserve only live safe drafts across authoritative conflict refreshes. Every draft-bearing mutation form registers semantic dirty state with the shell: ordinary internal navigation receives an accessible discard confirmation, browser history and unload receive native protection, cancellation preserves the in-memory draft, accepted navigation clears sensitive sinks, successful submission bypasses stale warnings, and forced authentication loss remains authoritative.
+Server create/update forms require explicit connection and authentication choices, reveal only applicable fields, construct the complete secret-free transport union from structured list and key/value controls, reject noncanonical stdio paths before submission, default new HTTP servers to strict automatic protocol negotiation, warn that stdio OS-user execution is not containment, summarize permanent identity and behavioral consequences before confirmation, render the closed field/rule context for every rejected server configuration, and preserve only live safe drafts across authoritative conflict refreshes. Every draft-bearing mutation form registers semantic dirty state with the shell: ordinary internal navigation receives an accessible discard confirmation, browser history and unload receive native protection, cancellation preserves the in-memory draft, accepted navigation clears sensitive sinks, successful submission bypasses stale warnings, and forced authentication loss remains authoritative.
 
 Required controls use native required semantics, while labels mark optional fields explicitly and associate actionable field errors through the shared form primitive. HTTP endpoints, issuer identifiers, static client IDs, and trusted origins discard surrounding whitespace before validation, review, and submission so the review reflects the exact safe payload.
 
@@ -108,7 +108,7 @@ Commands validate bounded closed input before handoff, use command-scoped ETags/
 
 Omitted ordinary mutation ETags perform one validated item preflight; explicit ETags skip that convenience read and are never refreshed. Agent issue/rotate always read slot state and respectively require empty/occupied authority.
 
-Human output is the default; `--output json` and `--json` select exact JSON public-API projections. Finite successes use stdout, finite failures leave stdout empty and use stderr, startup emits one acknowledgement, clean shutdown emits no trailer, and post-start failure emits one bounded terminal problem.
+Human output is the default; `--output json` and `--json` select exact JSON public-API projections. The control client accepts the prior context-free `invalid_server_configuration` envelope during client/Gateway version skew. Finite successes use stdout, finite failures leave stdout empty and use stderr, invalid server configuration failures append the closed field/rule context in human output, startup emits one acknowledgement, clean shutdown emits no trailer, and post-start failure emits one bounded terminal problem.
 
 No command polls, refreshes a precondition after conflict, recovers a one-time value, invokes a private owner, or replays automatically. A proven refused selected loopback renders the exact `mcp-gateway serve` command, including explicit address and data-directory choices.
 

@@ -30,9 +30,9 @@ type ServerService interface {
 type OperationStateProvider func(context.Context, string) serverdomain.OperationTriggerState
 
 type rawServerCreate struct {
-	Namespace   string          `json:"namespace"`
-	DisplayName string          `json:"display_name"`
-	Enabled     *bool           `json:"enabled"`
+	Namespace   json.RawMessage `json:"namespace"`
+	DisplayName json.RawMessage `json:"display_name"`
+	Enabled     json.RawMessage `json:"enabled"`
 	Transport   json.RawMessage `json:"transport"`
 }
 
@@ -71,13 +71,33 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 	if !decodeStrictBody(writer, request, &raw) {
 		return
 	}
-	if raw.Enabled == nil {
-		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+	var namespace, displayName string
+	var enabled bool
+	for _, member := range []struct {
+		contents json.RawMessage
+		field    contract.ServerConfigurationField
+		decode   func() error
+	}{
+		{contents: raw.Namespace, field: contract.ServerConfigurationFieldNamespace, decode: func() error { return json.Unmarshal(raw.Namespace, &namespace) }},
+		{contents: raw.DisplayName, field: contract.ServerConfigurationFieldDisplayName, decode: func() error { return json.Unmarshal(raw.DisplayName, &displayName) }},
+		{contents: raw.Enabled, field: contract.ServerConfigurationFieldEnabled, decode: func() error { return json.Unmarshal(raw.Enabled, &enabled) }},
+	} {
+		if member.contents == nil {
+			writeServerConfigurationError(writer, serverdomain.NewConfigurationError(member.field, contract.ServerConfigurationRuleRequired))
+			return
+		}
+		if string(member.contents) == "null" || member.decode() != nil {
+			writeServerConfigurationError(writer, serverdomain.NewConfigurationError(member.field, contract.ServerConfigurationRuleInvalid))
+			return
+		}
+	}
+	if raw.Transport == nil {
+		writeServerConfigurationError(writer, serverdomain.NewConfigurationError(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleRequired))
 		return
 	}
 	transport, err := serverdomain.DecodeTransport(raw.Transport)
 	if err != nil {
-		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+		writeServerConfigurationError(writer, err)
 		return
 	}
 	key, ok := idempotencyKey(writer, request)
@@ -89,8 +109,8 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 		writeProblem(writer, contract.ProblemAuthenticationRequired)
 		return
 	}
-	definition := serverdomain.Definition{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: *raw.Enabled, Transport: transport}
-	canonical, _ := json.Marshal(contract.ServerCreate{Namespace: raw.Namespace, DisplayName: raw.DisplayName, Enabled: *raw.Enabled, Transport: transport})
+	definition := serverdomain.Definition{Namespace: namespace, DisplayName: displayName, Enabled: enabled, Transport: transport}
+	canonical, _ := json.Marshal(contract.ServerCreate{Namespace: namespace, DisplayName: displayName, Enabled: enabled, Transport: transport})
 	result, err := handler.servers.Create(request.Context(), serverdomain.CreateRequest{Definition: definition, Idempotency: &serverdomain.IdempotencyRequest{
 		AuthorityID: authenticated.credential.ID, Method: request.Method, Route: "/api/v1/servers", Key: key, RequestHash: sha256.Sum256(canonical),
 	}})
@@ -155,7 +175,7 @@ func (handler *Handler) patchServer(writer http.ResponseWriter, request *http.Re
 	if raw.Transport != nil {
 		transport, err := serverdomain.DecodeTransport(*raw.Transport)
 		if err != nil {
-			writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+			writeServerConfigurationError(writer, err)
 			return
 		}
 		patch.Transport = transport
@@ -431,12 +451,24 @@ func limitStatus(name string) contract.LimitStatus {
 	return contract.LimitStatus{Limit: limit.Maximum}
 }
 
+func writeServerConfigurationError(writer http.ResponseWriter, err error) {
+	context := contract.ServerConfigurationContext{Field: contract.ServerConfigurationFieldConfiguration, Rule: contract.ServerConfigurationRuleInvalid}
+	var failure *serverdomain.ConfigurationError
+	if errors.As(err, &failure) && contract.ValidServerConfigurationContext(failure.Context) {
+		context = failure.Context
+	}
+	problem, _ := contract.ProblemForCode(contract.ProblemInvalidServerConfiguration)
+	writer.Header().Set("Content-Type", contract.MediaTypeProblemJSON)
+	writer.WriteHeader(problem.Status)
+	_ = json.NewEncoder(writer).Encode(contract.ServerConfigurationProblemEnvelope{ProblemEnvelope: contract.ProblemEnvelope(problem), Context: context})
+}
+
 func writeServerError(writer http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, serverdomain.ErrNotFound):
 		writeProblem(writer, contract.ProblemNotFound)
 	case errors.Is(err, serverdomain.ErrInvalidInput):
-		writeProblem(writer, contract.ProblemInvalidServerConfiguration)
+		writeServerConfigurationError(writer, err)
 	case errors.Is(err, serverdomain.ErrIdentityUnavailable), errors.Is(err, serverdomain.ErrNamespaceUnavailable):
 		writeProblem(writer, contract.ProblemNamespaceUnavailable)
 	case errors.Is(err, serverdomain.ErrResourceLimit):

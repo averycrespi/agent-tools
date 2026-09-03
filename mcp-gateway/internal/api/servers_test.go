@@ -16,6 +16,7 @@ import (
 
 type fakeServerService struct {
 	server           serverdomain.Server
+	createError      error
 	create           serverdomain.CreateRequest
 	patch            serverdomain.Patch
 	operationRequest serverdomain.OperationRequest
@@ -26,6 +27,9 @@ type fakeServerService struct {
 
 func (service *fakeServerService) Create(_ context.Context, request serverdomain.CreateRequest) (serverdomain.CreateResult, error) {
 	service.create = request
+	if service.createError != nil {
+		return serverdomain.CreateResult{}, service.createError
+	}
 	if service.created {
 		return serverdomain.CreateResult{Server: service.server, Replayed: true}, nil
 	}
@@ -233,24 +237,85 @@ func TestServerOperationCreateReplayReadAndList(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, wrongParent.Code)
 }
 
-func TestServerCreateRequiresCompleteConfiguration(t *testing.T) {
-	tests := map[string]string{
-		"enabled":                  `{"namespace":"alpha","display_name":"Alpha","transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`,
-		"stdio arguments":          `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","working_directory":"/tmp","environment":{},"secret_environment":{}}}`,
-		"stdio environment":        `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","secret_environment":{}}}`,
-		"stdio secret environment": `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{}}}`,
-		"OAuth trusted origins":    `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic","issuer":null},"request_offline_access":false}}}`,
-		"OAuth offline access":     `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic","issuer":null},"trusted_origins":[]}}}`,
-		"dynamic OAuth issuer":     `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic"},"trusted_origins":[],"request_offline_access":false}}}`,
-		"static OAuth issuer":      `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"static","client_id":"client","token_endpoint_auth_method":"none"},"trusted_origins":[],"request_offline_access":false}}}`,
+func TestServerCreateReportsConfigurationContext(t *testing.T) {
+	service := new(fakeServerService)
+	handler := newServerTestHandler(t, service)
+	response := perform(handler, http.MethodPost, "/api/v1/servers", `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp/","environment":{},"secret_environment":{}}}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "context"})
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	assert.JSONEq(t, `{"status":400,"code":"invalid_server_configuration","title":"The server configuration is invalid.","context":{"field":"transport.working_directory","rule":"canonical_absolute_path"}}`, response.Body.String())
+	assert.False(t, service.created)
+}
+
+func TestServerCreateReportsKnownFieldTypeContext(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		field contract.ServerConfigurationField
+	}{
+		{name: "namespace", body: `{"namespace":false,"display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, field: contract.ServerConfigurationFieldNamespace},
+		{name: "display name", body: `{"namespace":"alpha","display_name":7,"enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, field: contract.ServerConfigurationFieldDisplayName},
+		{name: "enabled", body: `{"namespace":"alpha","display_name":"Alpha","enabled":"false","transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, field: contract.ServerConfigurationFieldEnabled},
+		{name: "null enabled", body: `{"namespace":"alpha","display_name":"Alpha","enabled":null,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, field: contract.ServerConfigurationFieldEnabled},
+		{name: "transport kind", body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":7}}`, field: contract.ServerConfigurationFieldTransportKind},
+		{name: "stdio arguments", body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":false,"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, field: contract.ServerConfigurationFieldArguments},
+		{name: "authentication mode", body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://example.test/mcp","protocol_mode":"auto","authentication":{"mode":7}}}`, field: contract.ServerConfigurationFieldAuthenticationMode},
+		{name: "OAuth client ID", body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://example.test/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"static","issuer":null,"client_id":false,"token_endpoint_auth_method":"none"},"trusted_origins":[],"request_offline_access":false}}}`, field: contract.ServerConfigurationFieldClientID},
 	}
-	for name, body := range tests {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := perform(newServerTestHandler(t, new(fakeServerService)), http.MethodPost, "/api/v1/servers", test.body, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "known-field"})
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			var problem contract.ServerConfigurationProblemEnvelope
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+			assert.Equal(t, test.field, problem.Context.Field)
+			assert.Equal(t, contract.ServerConfigurationRuleInvalid, problem.Context.Rule)
+		})
+	}
+}
+
+func TestServerCreateReportsRepositoryConfigurationContextWithoutReflection(t *testing.T) {
+	validBody := `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`
+	t.Run("closed context", func(t *testing.T) {
+		service := &fakeServerService{createError: serverdomain.NewConfigurationError(contract.ServerConfigurationFieldNamespace, contract.ServerConfigurationRuleInvalid)}
+		response := perform(newServerTestHandler(t, service), http.MethodPost, "/api/v1/servers", validBody, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "repository-context"})
+		require.Equal(t, http.StatusBadRequest, response.Code)
+		assert.Contains(t, response.Body.String(), `"context":{"field":"namespace","rule":"invalid"}`)
+	})
+	t.Run("invalid internal context", func(t *testing.T) {
+		const canary = "submitted-secret-canary"
+		service := &fakeServerService{createError: &serverdomain.ConfigurationError{Context: contract.ServerConfigurationContext{Field: canary, Rule: contract.ServerConfigurationRuleInvalid}}}
+		response := perform(newServerTestHandler(t, service), http.MethodPost, "/api/v1/servers", validBody, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "repository-fallback"})
+		require.Equal(t, http.StatusBadRequest, response.Code)
+		assert.NotContains(t, response.Body.String(), canary)
+		assert.Contains(t, response.Body.String(), `"context":{"field":"configuration","rule":"invalid"}`)
+	})
+}
+
+func TestServerCreateRequiresCompleteConfiguration(t *testing.T) {
+	tests := map[string]struct {
+		body  string
+		field contract.ServerConfigurationField
+	}{
+		"enabled":                  {body: `{"namespace":"alpha","display_name":"Alpha","transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, field: contract.ServerConfigurationFieldEnabled},
+		"stdio arguments":          {body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","working_directory":"/tmp","environment":{},"secret_environment":{}}}`, field: contract.ServerConfigurationFieldArguments},
+		"stdio environment":        {body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","secret_environment":{}}}`, field: contract.ServerConfigurationFieldEnvironment},
+		"stdio secret environment": {body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{}}}`, field: contract.ServerConfigurationFieldSecretEnvironment},
+		"OAuth trusted origins":    {body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic","issuer":null},"request_offline_access":false}}}`, field: contract.ServerConfigurationFieldTrustedOrigins},
+		"OAuth offline access":     {body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic","issuer":null},"trusted_origins":[]}}}`, field: contract.ServerConfigurationFieldRequestOfflineAccess},
+		"dynamic OAuth issuer":     {body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"dynamic"},"trusted_origins":[],"request_offline_access":false}}}`, field: contract.ServerConfigurationFieldIssuer},
+		"static OAuth issuer":      {body: `{"namespace":"alpha","display_name":"Alpha","enabled":false,"transport":{"kind":"streamable_http","url":"https://resource.example/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","registration":{"mode":"static","client_id":"client","token_endpoint_auth_method":"none"},"trusted_origins":[],"request_offline_access":false}}}`, field: contract.ServerConfigurationFieldIssuer},
+	}
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			service := new(fakeServerService)
 			handler := newServerTestHandler(t, service)
-			response := perform(handler, http.MethodPost, "/api/v1/servers", body, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "complete"})
-			assert.Equal(t, http.StatusBadRequest, response.Code)
-			assert.Contains(t, response.Body.String(), "invalid_server_configuration")
+			response := perform(handler, http.MethodPost, "/api/v1/servers", test.body, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "complete"})
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			var problem contract.ServerConfigurationProblemEnvelope
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+			assert.Equal(t, contract.ProblemInvalidServerConfiguration, problem.Code)
+			assert.Equal(t, test.field, problem.Context.Field)
+			assert.Equal(t, contract.ServerConfigurationRuleRequired, problem.Context.Rule)
 			assert.False(t, service.created)
 		})
 	}

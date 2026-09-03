@@ -217,26 +217,39 @@ func TestDesiredTransportValidationRejectsSecretAndRemoteBoundaryViolations(t *t
 	tests := []struct {
 		name      string
 		transport contract.Transport
+		field     contract.ServerConfigurationField
+		rule      contract.ServerConfigurationRule
 	}{
-		{name: "relative executable", transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "server", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}},
-		{name: "ambiguous secret environment", transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{"TOKEN": "not-secret"}, SecretEnvironment: map[string]string{"TOKEN": "token"}}},
-		{name: "remote plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}},
-		{name: "bearer loopback plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}},
-		{name: "URL query", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp?secret=value", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}},
-		{name: "noncanonical trusted origin", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}, TrustedOrigins: []string{"https://EXAMPLE.com"}}}},
-		{name: "trusted origin path", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}, TrustedOrigins: []string{"https://trusted.example/"}}}},
-		{name: "query-bearing issuer", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic, Issuer: stringPointer("https://issuer.example?tenant=one")}}}},
+		{name: "relative executable", transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "server", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}, field: contract.ServerConfigurationFieldExecutable, rule: contract.ServerConfigurationRuleCanonicalAbsolutePath},
+		{name: "ambiguous secret environment", transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{"TOKEN": "not-secret"}, SecretEnvironment: map[string]string{"TOKEN": "token"}}, field: contract.ServerConfigurationFieldEnvironment, rule: contract.ServerConfigurationRuleDisjoint},
+		{name: "remote plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}, field: contract.ServerConfigurationFieldURL, rule: contract.ServerConfigurationRuleTransportPolicy},
+		{name: "bearer loopback plain HTTP", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}, field: contract.ServerConfigurationFieldURL, rule: contract.ServerConfigurationRuleTransportPolicy},
+		{name: "URL query", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp?secret=value", ProtocolMode: contract.ProtocolAuto, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}, field: contract.ServerConfigurationFieldURL, rule: contract.ServerConfigurationRuleCanonicalURL},
+		{name: "noncanonical trusted origin", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}, TrustedOrigins: []string{"https://EXAMPLE.com"}}}, field: contract.ServerConfigurationFieldTrustedOrigins, rule: contract.ServerConfigurationRuleInvalid},
+		{name: "trusted origin path", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}, TrustedOrigins: []string{"https://trusted.example/"}}}, field: contract.ServerConfigurationFieldTrustedOrigins, rule: contract.ServerConfigurationRuleInvalid},
+		{name: "query-bearing issuer", transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://example.com/mcp", ProtocolMode: contract.ProtocolAuto, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic, Issuer: stringPointer("https://issuer.example?tenant=one")}, TrustedOrigins: []string{}}}, field: contract.ServerConfigurationFieldIssuer, rule: contract.ServerConfigurationRuleCanonicalURL},
 	}
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			key := "invalid-" + strconv.Itoa(index)
 			_, err := repository.Create(context.Background(), CreateRequest{Definition: Definition{Namespace: "invalid", DisplayName: "Invalid", Transport: test.transport}, Idempotency: idempotency(key, key, "")})
 			assert.ErrorIs(t, err, ErrInvalidInput)
+			var configurationError *ConfigurationError
+			require.ErrorAs(t, err, &configurationError)
+			assert.Equal(t, test.field, configurationError.Context.Field)
+			assert.Equal(t, test.rule, configurationError.Context.Rule)
 		})
 	}
 
 	_, err := repository.Create(context.Background(), CreateRequest{Definition: Definition{Namespace: "loopback", DisplayName: "Loopback", Transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "http://127.0.0.1:9000/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}}, Idempotency: idempotency("valid-loopback", "valid-loopback", "")})
 	require.NoError(t, err)
+
+	for range 100 {
+		err = validateStdioTransport(contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{"": "invalid", "TOKEN": "ordinary"}, SecretEnvironment: map[string]string{"TOKEN": "slot"}})
+		var configurationError *ConfigurationError
+		require.ErrorAs(t, err, &configurationError)
+		assert.Equal(t, contract.ServerConfigurationContext{Field: contract.ServerConfigurationFieldEnvironment, Rule: contract.ServerConfigurationRuleDisjoint}, configurationError.Context)
+	}
 }
 
 func TestZeroRegistrationFenceAndIndependentCredentialMetadata(t *testing.T) {

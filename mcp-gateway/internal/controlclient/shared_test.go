@@ -82,6 +82,18 @@ func TestControlClientSharedContract(t *testing.T) {
 		assert.Equal(t, 5, apiError.ExitCode())
 		assert.False(t, apiError.Uncertain)
 
+		legacyConfigurationError := EvaluateResponse(Response{StatusCode: 400, Header: http.Header{"Content-Type": {MediaTypeProblemJSON}}, Body: []byte(`{"status":400,"code":"invalid_server_configuration","title":"The server configuration is invalid."}`)})
+		require.Error(t, legacyConfigurationError)
+		assert.Nil(t, legacyConfigurationError.Context)
+
+		configurationError := EvaluateResponse(Response{StatusCode: 400, Header: http.Header{"Content-Type": {MediaTypeProblemJSON}}, Body: []byte(`{"status":400,"code":"invalid_server_configuration","title":"The server configuration is invalid.","context":{"field":"transport.working_directory","rule":"canonical_absolute_path"}}`)})
+		require.Error(t, configurationError)
+		require.NotNil(t, configurationError.Context)
+		assert.Equal(t, "transport.working_directory", configurationError.Context.Field)
+		var human bytes.Buffer
+		require.NoError(t, WriteFailure(&human, OutputHuman, configurationError))
+		assert.Equal(t, "The server configuration is invalid. [transport.working_directory: canonical_absolute_path]\n", human.String())
+
 		for status, exitCode := range map[int]int{400: 2, 401: 3, 403: 3, 404: 4, 409: 5, 413: 2, 415: 2, 421: 2, 428: 5, 429: 6, 503: 7} {
 			body := []byte(`{"status":` + strconv.Itoa(status) + `,"code":"code","title":"Safe."}`)
 			problem := EvaluateResponse(Response{StatusCode: status, Header: http.Header{"Content-Type": {MediaTypeProblemJSON}}, Body: body})

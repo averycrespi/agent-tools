@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -94,7 +95,7 @@ func prepareOnlineIntent(command *cobra.Command, spec onlineCommandSpec, options
 		intent.file = true
 		validated, err := validatePreparedFileIntent(command, spec, options, intent)
 		if err != nil {
-			return onlineIntent{}, controlclient.NewInputError("The command file input is invalid.")
+			return onlineIntent{}, preparedIntentError(err, "The command file input is invalid.")
 		}
 		intent.body = validated
 		return intent, nil
@@ -113,12 +114,20 @@ func prepareOnlineIntent(command *cobra.Command, spec onlineCommandSpec, options
 			intent.body = body
 			validated, err := validatePreparedFileIntent(command, spec, options, intent)
 			if err != nil {
-				return onlineIntent{}, controlclient.NewInputError("The direct command input is invalid.")
+				return onlineIntent{}, preparedIntentError(err, "The direct command input is invalid.")
 			}
 			intent.body = validated
 		}
 	}
 	return intent, nil
+}
+
+func preparedIntentError(err error, fallback string) *controlclient.OnlineError {
+	var inputError *serverMutationInputError
+	if errors.As(err, &inputError) {
+		return controlclient.NewServerConfigurationInputError(string(inputError.field), string(inputError.rule))
+	}
+	return controlclient.NewInputError(fallback)
 }
 
 func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) *controlclient.OnlineError {

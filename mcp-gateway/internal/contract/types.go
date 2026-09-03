@@ -8,6 +8,77 @@ type ProblemEnvelope struct {
 	Title  string      `json:"title"`
 }
 
+type ServerConfigurationField string
+
+type ServerConfigurationRule string
+
+const (
+	ServerConfigurationFieldConfiguration           ServerConfigurationField = "configuration"
+	ServerConfigurationFieldNamespace               ServerConfigurationField = "namespace"
+	ServerConfigurationFieldDisplayName             ServerConfigurationField = "display_name"
+	ServerConfigurationFieldEnabled                 ServerConfigurationField = "enabled"
+	ServerConfigurationFieldTransport               ServerConfigurationField = "transport"
+	ServerConfigurationFieldTransportKind           ServerConfigurationField = "transport.kind"
+	ServerConfigurationFieldExecutable              ServerConfigurationField = "transport.executable"
+	ServerConfigurationFieldArguments               ServerConfigurationField = "transport.arguments"
+	ServerConfigurationFieldWorkingDirectory        ServerConfigurationField = "transport.working_directory"
+	ServerConfigurationFieldEnvironment             ServerConfigurationField = "transport.environment"
+	ServerConfigurationFieldSecretEnvironment       ServerConfigurationField = "transport.secret_environment"
+	ServerConfigurationFieldURL                     ServerConfigurationField = "transport.url"
+	ServerConfigurationFieldProtocolMode            ServerConfigurationField = "transport.protocol_mode"
+	ServerConfigurationFieldAuthentication          ServerConfigurationField = "transport.authentication"
+	ServerConfigurationFieldAuthenticationMode      ServerConfigurationField = "transport.authentication.mode"
+	ServerConfigurationFieldTrustedOrigins          ServerConfigurationField = "transport.authentication.trusted_origins"
+	ServerConfigurationFieldRequestOfflineAccess    ServerConfigurationField = "transport.authentication.request_offline_access"
+	ServerConfigurationFieldRegistration            ServerConfigurationField = "transport.authentication.registration"
+	ServerConfigurationFieldRegistrationMode        ServerConfigurationField = "transport.authentication.registration.mode"
+	ServerConfigurationFieldIssuer                  ServerConfigurationField = "transport.authentication.registration.issuer"
+	ServerConfigurationFieldClientID                ServerConfigurationField = "transport.authentication.registration.client_id"
+	ServerConfigurationFieldTokenEndpointAuthMethod ServerConfigurationField = "transport.authentication.registration.token_endpoint_auth_method"
+
+	ServerConfigurationRuleInvalid               ServerConfigurationRule = "invalid"
+	ServerConfigurationRuleRequired              ServerConfigurationRule = "required"
+	ServerConfigurationRuleMaximum               ServerConfigurationRule = "maximum"
+	ServerConfigurationRuleUnique                ServerConfigurationRule = "unique"
+	ServerConfigurationRuleDisjoint              ServerConfigurationRule = "disjoint"
+	ServerConfigurationRuleCanonicalAbsolutePath ServerConfigurationRule = "canonical_absolute_path"
+	ServerConfigurationRuleCanonicalURL          ServerConfigurationRule = "canonical_url"
+	ServerConfigurationRuleTransportPolicy       ServerConfigurationRule = "transport_policy"
+)
+
+type ServerConfigurationContext struct {
+	Field ServerConfigurationField `json:"field"`
+	Rule  ServerConfigurationRule  `json:"rule"`
+}
+
+type ServerConfigurationProblemEnvelope struct {
+	ProblemEnvelope
+	Context ServerConfigurationContext `json:"context"`
+}
+
+func ValidServerConfigurationContext(context ServerConfigurationContext) bool {
+	switch context.Field {
+	case ServerConfigurationFieldConfiguration, ServerConfigurationFieldNamespace, ServerConfigurationFieldDisplayName,
+		ServerConfigurationFieldEnabled, ServerConfigurationFieldTransport, ServerConfigurationFieldTransportKind,
+		ServerConfigurationFieldExecutable, ServerConfigurationFieldArguments, ServerConfigurationFieldWorkingDirectory,
+		ServerConfigurationFieldEnvironment, ServerConfigurationFieldSecretEnvironment, ServerConfigurationFieldURL,
+		ServerConfigurationFieldProtocolMode, ServerConfigurationFieldAuthentication, ServerConfigurationFieldAuthenticationMode,
+		ServerConfigurationFieldTrustedOrigins, ServerConfigurationFieldRequestOfflineAccess, ServerConfigurationFieldRegistration,
+		ServerConfigurationFieldRegistrationMode, ServerConfigurationFieldIssuer, ServerConfigurationFieldClientID,
+		ServerConfigurationFieldTokenEndpointAuthMethod:
+	default:
+		return false
+	}
+	switch context.Rule {
+	case ServerConfigurationRuleInvalid, ServerConfigurationRuleRequired, ServerConfigurationRuleMaximum,
+		ServerConfigurationRuleUnique, ServerConfigurationRuleDisjoint, ServerConfigurationRuleCanonicalAbsolutePath,
+		ServerConfigurationRuleCanonicalURL, ServerConfigurationRuleTransportPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
 type AdminCredential struct {
 	ID          string           `json:"id"`
 	Fingerprint string           `json:"fingerprint"`

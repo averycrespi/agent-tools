@@ -1076,6 +1076,26 @@ async function assertSessionFoundationEpochs(): Promise<void> {
       code: "authentication_required",
       title: "Authentication is required.",
       extra: "secret",
+    }) !== undefined ||
+    parseProblem({
+      status: 400,
+      code: "invalid_server_configuration",
+      title: "The server configuration is invalid.",
+    }) === undefined ||
+    parseProblem({
+      status: 400,
+      code: "invalid_server_configuration",
+      title: "The server configuration is invalid.",
+      context: {
+        field: "transport.working_directory",
+        rule: "canonical_absolute_path",
+      },
+    })?.context?.field !== "transport.working_directory" ||
+    parseProblem({
+      status: 400,
+      code: "invalid_server_configuration",
+      title: "The server configuration is invalid.",
+      context: { field: "transport.working_directory", rule: "invented" },
     }) !== undefined
   ) {
     fail("closed session validators changed");
@@ -7072,12 +7092,16 @@ async function runServerCreateUpdate(
     createBodies.push(route.request().postData() ?? "");
     if (creates === 1) {
       await route.fulfill({
-        status: 409,
+        status: 400,
         contentType: "application/problem+json",
         body: JSON.stringify({
-          status: 409,
-          code: "namespace_unavailable",
-          title: "Namespace unavailable",
+          status: 400,
+          code: "invalid_server_configuration",
+          title: "The server configuration is invalid.",
+          context: {
+            field: "transport.working_directory",
+            rule: "canonical_absolute_path",
+          },
         }),
       });
       return;
@@ -7385,6 +7409,14 @@ async function runServerCreateUpdate(
   await page.locator("#server-namespace").fill("first-name");
   await page.locator("#server-display-name").fill("Created server");
   await page.locator("#server-executable").fill("/usr/bin/example");
+  await page.locator("#server-working-directory").fill("/srv/example/");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await page
+    .getByText(
+      'Working directory must be an absolute canonical path without a trailing slash, empty segment, ".", or ".." segment.',
+    )
+    .waitFor();
+  if (creates !== 0) fail("noncanonical stdio path submitted a create");
   await page.locator("#server-working-directory").fill("/srv/example");
   await page.getByText("Optional process settings").click();
   await page.locator('[data-testid="server-argument-add"]').click();
@@ -7443,7 +7475,13 @@ async function runServerCreateUpdate(
     fail("confirmation cancellation discarded safe draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
-  await page.getByText("Namespace unavailable").waitFor();
+  await page
+    .getByText(
+      'Working directory must be an absolute canonical path without a trailing slash, empty segment, ".", or ".." segment.',
+    )
+    .waitFor();
+  if (((await editor.textContent()) ?? "").includes("refreshed ETag"))
+    fail("create rejection showed edit-only ETag guidance");
   const firstCreate = JSON.parse(createBodies[0] ?? "null") as {
     transport?: Record<string, unknown>;
   };
@@ -11445,6 +11483,11 @@ try {
           externalRequests[0] !== expectedOAuthOpen
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
+      (input.scenario === "server-create-update" &&
+        consoleFailures.length === 1 &&
+        consoleFailures.some((value) =>
+          value.includes("server responded with a status of 400"),
+        )) ||
       (input.scenario === "principals" &&
         consoleFailures.length >= 2 &&
         consoleFailures.length <= 3 &&

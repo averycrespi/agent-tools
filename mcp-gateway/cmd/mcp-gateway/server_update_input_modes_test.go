@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,29 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCLIServerTransportInputContext(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		field contract.ServerConfigurationField
+		rule  contract.ServerConfigurationRule
+	}{
+		{name: "arguments type", input: `{"kind":"stdio","executable":"/bin/true","arguments":false,"working_directory":"/tmp","environment":{},"secret_environment":{}}`, field: contract.ServerConfigurationFieldArguments, rule: contract.ServerConfigurationRuleInvalid},
+		{name: "null arguments", input: `{"kind":"stdio","executable":"/bin/true","arguments":null,"working_directory":"/tmp","environment":{},"secret_environment":{}}`, field: contract.ServerConfigurationFieldArguments, rule: contract.ServerConfigurationRuleInvalid},
+		{name: "working directory missing", input: `{"kind":"stdio","executable":"/bin/true","arguments":[],"environment":{},"secret_environment":{}}`, field: contract.ServerConfigurationFieldWorkingDirectory, rule: contract.ServerConfigurationRuleRequired},
+		{name: "OAuth registration missing", input: `{"kind":"streamable_http","url":"https://example.test/mcp","protocol_mode":"auto","authentication":{"mode":"oauth","trusted_origins":[],"request_offline_access":false}}`, field: contract.ServerConfigurationFieldRegistration, rule: contract.ServerConfigurationRuleRequired},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateServerTransportInput(json.RawMessage(test.input))
+			var inputError *serverMutationInputError
+			require.ErrorAs(t, err, &inputError)
+			assert.Equal(t, test.field, inputError.field)
+			assert.Equal(t, test.rule, inputError.rule)
+		})
+	}
+}
 
 func TestCLIServerUpdateInputModes(t *testing.T) {
 	const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"

@@ -90,6 +90,8 @@ func runCLIServerInputMatrix(t *testing.T) {
 	unknown := runOnlineCLI(t, harness, bearerPath, false, "server", "create", "--file", unknownNestedPath, "--idempotency-key", "unknown-key", "--output", "json")
 	results = append(results, unknown)
 	assert.Equal(t, 2, unknown.ExitCode)
+	assert.Contains(t, string(unknown.Stderr), `"code":"invalid_server_configuration"`)
+	assert.Contains(t, string(unknown.Stderr), `"context":{"field":"transport","rule":"invalid"}`)
 	missing := harness.adminSnapshot(http.MethodGet, "/api/v1/servers?limit=100", nil)
 	assert.NotContains(t, string(missing.Body), "never-sent")
 

@@ -275,12 +275,18 @@ func terminalSafe(value string) string {
 	return result.String()
 }
 
+type ServerConfigurationContext struct {
+	Field string `json:"field"`
+	Rule  string `json:"rule"`
+}
+
 type OnlineError struct {
-	Status    *int   `json:"status"`
-	Code      string `json:"code"`
-	Title     string `json:"title"`
-	Exit      int    `json:"exit_code"`
-	Uncertain bool   `json:"uncertain"`
+	Status    *int                        `json:"status"`
+	Code      string                      `json:"code"`
+	Title     string                      `json:"title"`
+	Context   *ServerConfigurationContext `json:"context,omitempty"`
+	Exit      int                         `json:"exit_code"`
+	Uncertain bool                        `json:"uncertain"`
 }
 
 type Problem = OnlineError
@@ -289,9 +295,10 @@ func (failure *OnlineError) Error() string { return failure.Title }
 func (failure *OnlineError) ExitCode() int { return failure.Exit }
 
 type problemEnvelope struct {
-	Status int    `json:"status"`
-	Code   string `json:"code"`
-	Title  string `json:"title"`
+	Status  int                         `json:"status"`
+	Code    string                      `json:"code"`
+	Title   string                      `json:"title"`
+	Context *ServerConfigurationContext `json:"context,omitempty"`
 }
 
 func DecodeResponse(body []byte, destination any) error {
@@ -302,6 +309,29 @@ func DecodeResponse(body []byte, destination any) error {
 		return ErrResponseInvalid
 	}
 	return nil
+}
+
+func validServerConfigurationContext(code string, context *ServerConfigurationContext) bool {
+	if code != "invalid_server_configuration" {
+		return context == nil
+	}
+	if context == nil {
+		return true
+	}
+	fields := map[string]struct{}{
+		"configuration": {}, "namespace": {}, "display_name": {}, "enabled": {}, "transport": {}, "transport.kind": {},
+		"transport.executable": {}, "transport.arguments": {}, "transport.working_directory": {}, "transport.environment": {}, "transport.secret_environment": {},
+		"transport.url": {}, "transport.protocol_mode": {}, "transport.authentication": {}, "transport.authentication.mode": {},
+		"transport.authentication.trusted_origins": {}, "transport.authentication.request_offline_access": {}, "transport.authentication.registration": {},
+		"transport.authentication.registration.mode": {}, "transport.authentication.registration.issuer": {}, "transport.authentication.registration.client_id": {},
+		"transport.authentication.registration.token_endpoint_auth_method": {},
+	}
+	rules := map[string]struct{}{
+		"invalid": {}, "required": {}, "maximum": {}, "unique": {}, "disjoint": {}, "canonical_absolute_path": {}, "canonical_url": {}, "transport_policy": {},
+	}
+	_, fieldOK := fields[context.Field]
+	_, ruleOK := rules[context.Rule]
+	return fieldOK && ruleOK
 }
 
 func EvaluateResponse(response Response) *OnlineError {
@@ -320,11 +350,11 @@ func EvaluateResponse(response Response) *OnlineError {
 		return responseInvalid()
 	}
 	var problem problemEnvelope
-	if err := strictjson.Decode(response.Body, &problem, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth, RejectUnknownMembers: true}); err != nil || problem.Status != response.StatusCode || !validProblemCode(problem.Code) || !validProblemTitle(problem.Title) {
+	if err := strictjson.Decode(response.Body, &problem, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth, RejectUnknownMembers: true}); err != nil || problem.Status != response.StatusCode || !validProblemCode(problem.Code) || !validProblemTitle(problem.Title) || !validServerConfigurationContext(problem.Code, problem.Context) {
 		return responseInvalid()
 	}
 	status := problem.Status
-	return &OnlineError{Status: &status, Code: problem.Code, Title: problem.Title, Exit: exit}
+	return &OnlineError{Status: &status, Code: problem.Code, Title: problem.Title, Context: problem.Context, Exit: exit}
 }
 
 type RequestPhase uint8
@@ -371,6 +401,14 @@ func ClassifyRequestError(err error, phase RequestPhase) *OnlineError {
 	}
 }
 
+func NewServerConfigurationInputError(field, rule string) *OnlineError {
+	context := &ServerConfigurationContext{Field: field, Rule: rule}
+	if !validServerConfigurationContext("invalid_server_configuration", context) {
+		context = &ServerConfigurationContext{Field: "configuration", Rule: "invalid"}
+	}
+	return &OnlineError{Code: "invalid_server_configuration", Title: "The server configuration is invalid.", Context: context, Exit: 2}
+}
+
 func NewInputError(title string) *OnlineError {
 	if !validProblemTitle(title) {
 		title = "The command input is invalid."
@@ -379,7 +417,7 @@ func NewInputError(title string) *OnlineError {
 }
 
 func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error {
-	if failure == nil || failure.Exit < 2 || failure.Exit > 10 || !validProblemCode(failure.Code) || !validProblemTitle(failure.Title) {
+	if failure == nil || failure.Exit < 2 || failure.Exit > 10 || !validProblemCode(failure.Code) || !validProblemTitle(failure.Title) || !validServerConfigurationContext(failure.Code, failure.Context) {
 		return ErrInvalidInput
 	}
 	switch mode {
@@ -392,7 +430,11 @@ func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error
 		_, err = writer.Write(encoded)
 		return err
 	case OutputHuman, OutputTable:
-		_, err := io.WriteString(writer, terminalSafe(failure.Title)+"\n")
+		message := terminalSafe(failure.Title)
+		if failure.Context != nil {
+			message += " [" + failure.Context.Field + ": " + failure.Context.Rule + "]"
+		}
+		_, err := io.WriteString(writer, message+"\n")
 		return err
 	default:
 		return ErrInvalidInput

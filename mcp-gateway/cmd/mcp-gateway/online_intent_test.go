@@ -38,17 +38,20 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 		assert.Equal(t, 2, commandExitCode(err))
 		assert.Zero(t, reader.reads)
 		assert.Zero(t, requests)
-		assert.Contains(t, stderr.String(), `"code":"client_invalid_input"`)
 		return stderr.String()
 	}
 
 	root := t.TempDir()
 	malformed := filepath.Join(root, "malformed.json")
 	require.NoError(t, os.WriteFile(malformed, []byte(`{"namespace":`), 0o600))
-	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"server", "create", "--file", malformed}), "file input")
+	malformedOutput := assertRejectedBeforeAuthority(t, []string{"server", "create", "--file", malformed})
+	assert.Contains(t, malformedOutput, "file input")
+	assert.Contains(t, malformedOutput, `"code":"client_invalid_input"`)
 	semantic := filepath.Join(root, "semantic.json")
 	require.NoError(t, os.WriteFile(semantic, []byte(`{}`), 0o600))
-	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"server", "create", "--file", semantic}), "file input")
+	semanticOutput := assertRejectedBeforeAuthority(t, []string{"server", "create", "--file", semantic})
+	assert.Contains(t, semanticOutput, `"code":"invalid_server_configuration"`)
+	assert.Contains(t, semanticOutput, `"context":{"field":"namespace","rule":"required"}`)
 
 	patch := filepath.Join(root, "patch.json")
 	require.NoError(t, os.WriteFile(patch, []byte(`{"display_name":"new"}`), 0o600))

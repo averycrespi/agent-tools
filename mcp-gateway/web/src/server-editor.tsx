@@ -15,6 +15,7 @@ import {
 } from "./primitives";
 import { decodeOperation } from "./server-operation-model";
 import type { ServerView } from "./server-reads";
+import type { ServerConfigurationContext } from "./session";
 
 type JSONRecord = Record<string, unknown>;
 type TransportKind = "" | "stdio" | "streamable_http";
@@ -73,6 +74,67 @@ const namespacePattern = /^[a-z][a-z0-9_-]{0,31}$/;
 const secretSlotPattern = /^[a-z][a-z0-9_]{0,63}$/;
 const absolutePathPattern = /^\/(?:[^\0]*)$/;
 let nextItemID = 0;
+
+function isCanonicalAbsolutePath(value: string): boolean {
+  if (!absolutePathPattern.test(value)) return false;
+  if (value === "/") return true;
+  return (
+    value.endsWith("/") === false &&
+    value
+      .slice(1)
+      .split("/")
+      .every((segment) => segment !== "" && segment !== "." && segment !== "..")
+  );
+}
+
+function serverConfigurationContextMessage(
+  context: ServerConfigurationContext,
+): string {
+  const labels: Record<string, string> = {
+    configuration: "Server configuration",
+    namespace: "Namespace",
+    display_name: "Display name",
+    enabled: "Initial state",
+    transport: "Connection",
+    "transport.kind": "Connection type",
+    "transport.executable": "Executable",
+    "transport.arguments": "Arguments",
+    "transport.working_directory": "Working directory",
+    "transport.environment": "Environment",
+    "transport.secret_environment": "Secret environment bindings",
+    "transport.url": "HTTP endpoint",
+    "transport.protocol_mode": "Protocol mode",
+    "transport.authentication": "Authentication",
+    "transport.authentication.mode": "Authentication mode",
+    "transport.authentication.trusted_origins": "Trusted origins",
+    "transport.authentication.request_offline_access": "Offline access policy",
+    "transport.authentication.registration": "OAuth registration",
+    "transport.authentication.registration.mode": "OAuth registration mode",
+    "transport.authentication.registration.issuer": "OAuth issuer",
+    "transport.authentication.registration.client_id": "OAuth client ID",
+    "transport.authentication.registration.token_endpoint_auth_method":
+      "Token endpoint authentication method",
+  };
+  const label = labels[context.field] ?? "Server configuration";
+  switch (context.rule) {
+    case "required":
+      return `${label} is required.`;
+    case "maximum":
+      return `${label} exceeds its maximum size or item count.`;
+    case "unique":
+      return `${label} must not contain duplicates.`;
+    case "disjoint":
+      return `${label} conflicts with another configuration source.`;
+    case "canonical_absolute_path":
+      return `${label} must be an absolute canonical path without a trailing slash, empty segment, ".", or ".." segment.`;
+    case "canonical_url":
+      return `${label} must be a canonical URL without credentials, a query, fragment, uppercase hostname, or default port.`;
+    case "transport_policy":
+      return `${label} does not satisfy the selected transport security policy.`;
+    default:
+      return `${label} is invalid.`;
+  }
+}
 
 function itemID(prefix: string): string {
   nextItemID += 1;
@@ -149,14 +211,13 @@ function transportFromDraft(draft: Draft): unknown {
       draft.secretEnvironment,
       "Secret environment binding",
     );
-    if (
-      draft.executable.length === 0 ||
-      draft.workingDirectory.length === 0 ||
-      !absolutePathPattern.test(draft.executable) ||
-      !absolutePathPattern.test(draft.workingDirectory)
-    )
+    if (!isCanonicalAbsolutePath(draft.executable))
       throw new Error(
-        "Executable and working directory must be absolute paths.",
+        'Executable must be an absolute canonical path without a trailing slash, empty segment, ".", or ".." segment.',
+      );
+    if (!isCanonicalAbsolutePath(draft.workingDirectory))
+      throw new Error(
+        'Working directory must be an absolute canonical path without a trailing slash, empty segment, ".", or ".." segment.',
       );
     if (args.length > 64) throw new Error("At most 64 arguments are allowed.");
     if (Object.keys(environment).length > 32)
@@ -1303,7 +1364,12 @@ export function ServerEditor({
         )}
         {mutation.problem !== undefined && (
           <StateNotice state="error" title={mutation.problem.title}>
-            {mutation.requiresRefresh && (
+            {mutation.problem.context !== undefined && (
+              <p>
+                {serverConfigurationContextMessage(mutation.problem.context)}
+              </p>
+            )}
+            {mutation.requiresRefresh && !create && (
               <p>
                 A current server reload was requested. Your safe nonsecret draft
                 is preserved; review it after the refreshed ETag arrives.

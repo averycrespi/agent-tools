@@ -168,26 +168,83 @@ type dynamicRegistrationEnvelope struct {
 	Issuer json.RawMessage           `json:"issuer"`
 }
 
+type configurationMember struct {
+	name  string
+	field contract.ServerConfigurationField
+	valid func(json.RawMessage) bool
+}
+
+func configurationShapeError(contents []byte, parent contract.ServerConfigurationField, members ...configurationMember) error {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(contents, &object) != nil {
+		return NewConfigurationError(parent, contract.ServerConfigurationRuleInvalid)
+	}
+	for _, member := range members {
+		value, exists := object[member.name]
+		if !exists {
+			return NewConfigurationError(member.field, contract.ServerConfigurationRuleRequired)
+		}
+		if !member.valid(value) {
+			return NewConfigurationError(member.field, contract.ServerConfigurationRuleInvalid)
+		}
+	}
+	return NewConfigurationError(parent, contract.ServerConfigurationRuleInvalid)
+}
+
+func configurationJSONValue[T any](contents json.RawMessage) bool {
+	var value T
+	return len(contents) != 0 && string(contents) != "null" && json.Unmarshal(contents, &value) == nil
+}
+
+func configurationJSONObject(contents json.RawMessage) bool {
+	return configurationJSONValue[map[string]json.RawMessage](contents) && string(contents) != "null"
+}
+
+func configurationJSONArray(contents json.RawMessage) bool {
+	return configurationJSONValue[[]string](contents) && string(contents) != "null"
+}
+
+func configurationJSONMap(contents json.RawMessage) bool {
+	return configurationJSONValue[map[string]string](contents) && string(contents) != "null"
+}
+
+func configurationNullableString(contents json.RawMessage) bool {
+	return string(contents) == "null" || configurationJSONValue[string](contents)
+}
+
 func DecodeTransport(contents []byte) (contract.Transport, error) {
 	options := strictjson.Options{MaxBytes: mustLimit("api_json_body_bytes"), MaxDepth: int(mustLimit("json_depth"))}
 	closed := options
 	closed.RejectUnknownMembers = true
-	invalid := func(err error) (contract.Transport, error) {
-		return nil, fmt.Errorf("%w: transport: %w", ErrInvalidInput, err)
+	invalid := func(field contract.ServerConfigurationField, rule contract.ServerConfigurationRule) (contract.Transport, error) {
+		return nil, NewConfigurationError(field, rule)
 	}
 	var discriminator transportDiscriminator
 	if err := strictjson.Decode(contents, &discriminator, options); err != nil {
-		return invalid(err)
+		return nil, configurationShapeError(contents, contract.ServerConfigurationFieldTransport,
+			configurationMember{name: "kind", field: contract.ServerConfigurationFieldTransportKind, valid: configurationJSONValue[string]})
 	}
 	var transport contract.Transport
 	switch discriminator.Kind {
 	case contract.TransportStdio:
 		var raw stdioTransportEnvelope
 		if err := strictjson.Decode(contents, &raw, closed); err != nil {
-			return invalid(err)
+			return nil, configurationShapeError(contents, contract.ServerConfigurationFieldTransport,
+				configurationMember{name: "kind", field: contract.ServerConfigurationFieldTransportKind, valid: configurationJSONValue[string]},
+				configurationMember{name: "executable", field: contract.ServerConfigurationFieldExecutable, valid: configurationJSONValue[string]},
+				configurationMember{name: "arguments", field: contract.ServerConfigurationFieldArguments, valid: configurationJSONArray},
+				configurationMember{name: "working_directory", field: contract.ServerConfigurationFieldWorkingDirectory, valid: configurationJSONValue[string]},
+				configurationMember{name: "environment", field: contract.ServerConfigurationFieldEnvironment, valid: configurationJSONMap},
+				configurationMember{name: "secret_environment", field: contract.ServerConfigurationFieldSecretEnvironment, valid: configurationJSONMap})
 		}
-		if raw.Arguments == nil || raw.Environment == nil || raw.SecretEnvironment == nil {
-			return invalid(errors.New("stdio collections are required"))
+		if raw.Arguments == nil {
+			return invalid(contract.ServerConfigurationFieldArguments, contract.ServerConfigurationRuleRequired)
+		}
+		if raw.Environment == nil {
+			return invalid(contract.ServerConfigurationFieldEnvironment, contract.ServerConfigurationRuleRequired)
+		}
+		if raw.SecretEnvironment == nil {
+			return invalid(contract.ServerConfigurationFieldSecretEnvironment, contract.ServerConfigurationRuleRequired)
 		}
 		transport = contract.StdioTransport{
 			Kind:              raw.Kind,
@@ -200,18 +257,22 @@ func DecodeTransport(contents []byte) (contract.Transport, error) {
 	case contract.TransportStreamableHTTP:
 		var raw httpTransportEnvelope
 		if err := strictjson.Decode(contents, &raw, closed); err != nil {
-			return invalid(err)
+			return nil, configurationShapeError(contents, contract.ServerConfigurationFieldTransport,
+				configurationMember{name: "kind", field: contract.ServerConfigurationFieldTransportKind, valid: configurationJSONValue[string]},
+				configurationMember{name: "url", field: contract.ServerConfigurationFieldURL, valid: configurationJSONValue[string]},
+				configurationMember{name: "protocol_mode", field: contract.ServerConfigurationFieldProtocolMode, valid: configurationJSONValue[string]},
+				configurationMember{name: "authentication", field: contract.ServerConfigurationFieldAuthentication, valid: configurationJSONObject})
 		}
 		authentication, err := decodeHTTPAuthentication(raw.Authentication, options, closed)
 		if err != nil {
-			return invalid(err)
+			return nil, err
 		}
 		transport = contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication}
 	default:
-		return invalid(errors.New("unknown transport kind"))
+		return invalid(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleInvalid)
 	}
 	if err := validateTransport(transport); err != nil {
-		return invalid(err)
+		return nil, err
 	}
 	return transport, nil
 }
@@ -219,49 +280,64 @@ func DecodeTransport(contents []byte) (contract.Transport, error) {
 func decodeHTTPAuthentication(contents []byte, options, closed strictjson.Options) (contract.HTTPAuthentication, error) {
 	var discriminator authenticationDiscriminator
 	if err := strictjson.Decode(contents, &discriminator, options); err != nil {
-		return nil, err
+		return nil, configurationShapeError(contents, contract.ServerConfigurationFieldAuthentication,
+			configurationMember{name: "mode", field: contract.ServerConfigurationFieldAuthenticationMode, valid: configurationJSONValue[string]})
 	}
 	switch discriminator.Mode {
 	case contract.AuthenticationNone:
 		var value contract.NoAuthentication
 		if err := strictjson.Decode(contents, &value, closed); err != nil {
-			return nil, err
+			return nil, configurationShapeError(contents, contract.ServerConfigurationFieldAuthentication,
+				configurationMember{name: "mode", field: contract.ServerConfigurationFieldAuthenticationMode, valid: configurationJSONValue[string]})
 		}
 		return value, nil
 	case contract.AuthenticationBearer:
 		var value contract.BearerAuthentication
 		if err := strictjson.Decode(contents, &value, closed); err != nil {
-			return nil, err
+			return nil, configurationShapeError(contents, contract.ServerConfigurationFieldAuthentication,
+				configurationMember{name: "mode", field: contract.ServerConfigurationFieldAuthenticationMode, valid: configurationJSONValue[string]})
 		}
 		return value, nil
 	case contract.AuthenticationOAuth:
 		var raw oauthAuthenticationEnvelope
 		if err := strictjson.Decode(contents, &raw, closed); err != nil {
-			return nil, err
+			return nil, configurationShapeError(contents, contract.ServerConfigurationFieldAuthentication,
+				configurationMember{name: "mode", field: contract.ServerConfigurationFieldAuthenticationMode, valid: configurationJSONValue[string]},
+				configurationMember{name: "registration", field: contract.ServerConfigurationFieldRegistration, valid: configurationJSONObject},
+				configurationMember{name: "trusted_origins", field: contract.ServerConfigurationFieldTrustedOrigins, valid: configurationJSONArray},
+				configurationMember{name: "request_offline_access", field: contract.ServerConfigurationFieldRequestOfflineAccess, valid: configurationJSONValue[bool]})
 		}
 		registration, err := decodeOAuthRegistration(raw.Registration, options, closed)
 		if err != nil {
 			return nil, err
 		}
-		if raw.TrustedOrigins == nil || raw.RequestOfflineAccess == nil {
-			return nil, errors.New("OAuth policy members are required")
+		if raw.TrustedOrigins == nil {
+			return nil, NewConfigurationError(contract.ServerConfigurationFieldTrustedOrigins, contract.ServerConfigurationRuleRequired)
+		}
+		if raw.RequestOfflineAccess == nil {
+			return nil, NewConfigurationError(contract.ServerConfigurationFieldRequestOfflineAccess, contract.ServerConfigurationRuleRequired)
 		}
 		return contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: *raw.TrustedOrigins, RequestOfflineAccess: *raw.RequestOfflineAccess}, nil
 	default:
-		return nil, errors.New("unknown authentication mode")
+		return nil, NewConfigurationError(contract.ServerConfigurationFieldAuthenticationMode, contract.ServerConfigurationRuleInvalid)
 	}
 }
 
 func decodeOAuthRegistration(contents []byte, options, closed strictjson.Options) (contract.OAuthRegistration, error) {
 	var discriminator registrationDiscriminator
 	if err := strictjson.Decode(contents, &discriminator, options); err != nil {
-		return nil, err
+		return nil, configurationShapeError(contents, contract.ServerConfigurationFieldRegistration,
+			configurationMember{name: "mode", field: contract.ServerConfigurationFieldRegistrationMode, valid: configurationJSONValue[string]})
 	}
 	switch discriminator.Mode {
 	case contract.RegistrationStatic:
 		var raw staticRegistrationEnvelope
 		if err := strictjson.Decode(contents, &raw, closed); err != nil {
-			return nil, err
+			return nil, configurationShapeError(contents, contract.ServerConfigurationFieldRegistration,
+				configurationMember{name: "mode", field: contract.ServerConfigurationFieldRegistrationMode, valid: configurationJSONValue[string]},
+				configurationMember{name: "issuer", field: contract.ServerConfigurationFieldIssuer, valid: configurationNullableString},
+				configurationMember{name: "client_id", field: contract.ServerConfigurationFieldClientID, valid: configurationJSONValue[string]},
+				configurationMember{name: "token_endpoint_auth_method", field: contract.ServerConfigurationFieldTokenEndpointAuthMethod, valid: configurationJSONValue[string]})
 		}
 		issuer, err := decodeRegistrationIssuer(raw.Issuer, options)
 		if err != nil {
@@ -271,7 +347,9 @@ func decodeOAuthRegistration(contents []byte, options, closed strictjson.Options
 	case contract.RegistrationDynamic:
 		var raw dynamicRegistrationEnvelope
 		if err := strictjson.Decode(contents, &raw, closed); err != nil {
-			return nil, err
+			return nil, configurationShapeError(contents, contract.ServerConfigurationFieldRegistration,
+				configurationMember{name: "mode", field: contract.ServerConfigurationFieldRegistrationMode, valid: configurationJSONValue[string]},
+				configurationMember{name: "issuer", field: contract.ServerConfigurationFieldIssuer, valid: configurationNullableString})
 		}
 		issuer, err := decodeRegistrationIssuer(raw.Issuer, options)
 		if err != nil {
@@ -279,34 +357,34 @@ func decodeOAuthRegistration(contents []byte, options, closed strictjson.Options
 		}
 		return contract.DynamicOAuthRegistration{Mode: raw.Mode, Issuer: issuer}, nil
 	default:
-		return nil, errors.New("unknown registration mode")
+		return nil, NewConfigurationError(contract.ServerConfigurationFieldRegistrationMode, contract.ServerConfigurationRuleInvalid)
 	}
 }
 
 func decodeRegistrationIssuer(contents json.RawMessage, options strictjson.Options) (*string, error) {
 	if contents == nil {
-		return nil, errors.New("OAuth issuer member is required")
+		return nil, NewConfigurationError(contract.ServerConfigurationFieldIssuer, contract.ServerConfigurationRuleRequired)
 	}
 	var issuer *string
 	if err := strictjson.Decode(contents, &issuer, options); err != nil {
-		return nil, err
+		return nil, NewConfigurationError(contract.ServerConfigurationFieldIssuer, contract.ServerConfigurationRuleInvalid)
 	}
 	return issuer, nil
 }
 
 func validateDefinition(definition Definition) ([]byte, error) {
 	if !namespacePattern.MatchString(definition.Namespace) || definition.Namespace == "mcp_gateway" {
-		return nil, fmt.Errorf("%w: namespace", ErrInvalidInput)
+		return nil, NewConfigurationError(contract.ServerConfigurationFieldNamespace, contract.ServerConfigurationRuleInvalid)
 	}
 	if !utf8.ValidString(definition.DisplayName) || len(definition.DisplayName) < 1 || int64(len(definition.DisplayName)) > mustLimit("display_name_bytes") {
-		return nil, fmt.Errorf("%w: display name", ErrInvalidInput)
+		return nil, NewConfigurationError(contract.ServerConfigurationFieldDisplayName, contract.ServerConfigurationRuleInvalid)
 	}
 	return canonicalTransport(definition.Transport)
 }
 
 func canonicalTransport(transport contract.Transport) ([]byte, error) {
 	if transport == nil {
-		return nil, fmt.Errorf("%w: transport", ErrInvalidInput)
+		return nil, NewConfigurationError(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleRequired)
 	}
 	encoded, err := json.Marshal(transport)
 	if err != nil {
@@ -330,38 +408,52 @@ func validateTransport(transport contract.Transport) error {
 	case contract.StreamableHTTPTransport:
 		return validateHTTPTransport(value)
 	default:
-		return fmt.Errorf("unsupported transport type %T", transport)
+		return NewConfigurationError(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
 	}
 }
 
 func validateStdioTransport(transport contract.StdioTransport) error {
-	if transport.Kind != contract.TransportStdio || !validAbsolutePath(transport.Executable) || !validAbsolutePath(transport.WorkingDirectory) {
-		return errors.New("stdio path or kind is invalid")
+	if transport.Kind != contract.TransportStdio {
+		return NewConfigurationError(contract.ServerConfigurationFieldConfiguration, contract.ServerConfigurationRuleInvalid)
 	}
-	if len(transport.Arguments) > int(mustLimit("stdio_arguments")) || len(transport.Environment) > int(mustLimit("stdio_environment_entries")) || len(transport.SecretEnvironment) > int(mustLimit("stdio_secret_environment_entries")) {
-		return errors.New("stdio collection limit exceeded")
+	if !validAbsolutePath(transport.Executable) {
+		return NewConfigurationError(contract.ServerConfigurationFieldExecutable, contract.ServerConfigurationRuleCanonicalAbsolutePath)
+	}
+	if !validAbsolutePath(transport.WorkingDirectory) {
+		return NewConfigurationError(contract.ServerConfigurationFieldWorkingDirectory, contract.ServerConfigurationRuleCanonicalAbsolutePath)
+	}
+	if len(transport.Arguments) > int(mustLimit("stdio_arguments")) {
+		return NewConfigurationError(contract.ServerConfigurationFieldArguments, contract.ServerConfigurationRuleMaximum)
+	}
+	if len(transport.Environment) > int(mustLimit("stdio_environment_entries")) {
+		return NewConfigurationError(contract.ServerConfigurationFieldEnvironment, contract.ServerConfigurationRuleMaximum)
+	}
+	if len(transport.SecretEnvironment) > int(mustLimit("stdio_secret_environment_entries")) {
+		return NewConfigurationError(contract.ServerConfigurationFieldSecretEnvironment, contract.ServerConfigurationRuleMaximum)
 	}
 	totalArguments := 0
 	for _, argument := range transport.Arguments {
 		if !utf8.ValidString(argument) || strings.ContainsRune(argument, 0) || int64(len(argument)) > mustLimit("stdio_argument_bytes") {
-			return errors.New("stdio argument is invalid")
+			return NewConfigurationError(contract.ServerConfigurationFieldArguments, contract.ServerConfigurationRuleInvalid)
 		}
 		totalArguments += len(argument)
 	}
 	if int64(totalArguments) > mustLimit("stdio_arguments_bytes") {
-		return errors.New("stdio argument bytes exceeded")
+		return NewConfigurationError(contract.ServerConfigurationFieldArguments, contract.ServerConfigurationRuleMaximum)
+	}
+	for name := range transport.Environment {
+		if _, secret := transport.SecretEnvironment[name]; secret {
+			return NewConfigurationError(contract.ServerConfigurationFieldEnvironment, contract.ServerConfigurationRuleDisjoint)
+		}
 	}
 	for name, value := range transport.Environment {
 		if !validEnvironmentName(name) || !utf8.ValidString(value) || strings.ContainsRune(value, 0) || int64(len(value)) > mustLimit("stdio_environment_value_bytes") {
-			return errors.New("stdio environment is invalid")
-		}
-		if _, secret := transport.SecretEnvironment[name]; secret {
-			return errors.New("stdio environment source is ambiguous")
+			return NewConfigurationError(contract.ServerConfigurationFieldEnvironment, contract.ServerConfigurationRuleInvalid)
 		}
 	}
 	for name, slot := range transport.SecretEnvironment {
 		if !validEnvironmentName(name) || !secretSlotPattern.MatchString(slot) {
-			return errors.New("stdio secret environment is invalid")
+			return NewConfigurationError(contract.ServerConfigurationFieldSecretEnvironment, contract.ServerConfigurationRuleInvalid)
 		}
 	}
 	return nil
@@ -377,24 +469,24 @@ func validEnvironmentName(value string) bool {
 
 func validateHTTPTransport(transport contract.StreamableHTTPTransport) error {
 	if transport.Kind != contract.TransportStreamableHTTP {
-		return errors.New("HTTP transport kind is invalid")
+		return NewConfigurationError(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleInvalid)
 	}
 	if _, err := contract.ParseProtocolMode(string(transport.ProtocolMode)); err != nil {
-		return err
+		return NewConfigurationError(contract.ServerConfigurationFieldProtocolMode, contract.ServerConfigurationRuleInvalid)
 	}
 	endpoint, err := parseEndpointURL(transport.URL)
 	if err != nil {
-		return err
+		return NewConfigurationError(contract.ServerConfigurationFieldURL, contract.ServerConfigurationRuleCanonicalURL)
 	}
 	mode := authenticationMode(transport.Authentication)
 	if _, err := contract.ParseAuthenticationMode(string(mode)); err != nil {
-		return err
+		return NewConfigurationError(contract.ServerConfigurationFieldAuthenticationMode, contract.ServerConfigurationRuleInvalid)
 	}
 	if endpoint.Scheme == "http" && (mode != contract.AuthenticationNone || !isLoopbackLiteral(endpoint.Hostname())) {
-		return errors.New("plain HTTP requires unauthenticated loopback IP")
+		return NewConfigurationError(contract.ServerConfigurationFieldURL, contract.ServerConfigurationRuleTransportPolicy)
 	}
 	if mode == contract.AuthenticationOAuth && endpoint.Scheme != "https" {
-		return errors.New("OAuth requires HTTPS")
+		return NewConfigurationError(contract.ServerConfigurationFieldURL, contract.ServerConfigurationRuleTransportPolicy)
 	}
 	return validateHTTPAuthentication(transport.Authentication)
 }
@@ -416,32 +508,32 @@ func validateHTTPAuthentication(authentication contract.HTTPAuthentication) erro
 	switch value := authentication.(type) {
 	case contract.NoAuthentication:
 		if value.Mode != contract.AuthenticationNone {
-			return errors.New("authentication union mismatch")
+			return NewConfigurationError(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
 		}
 	case contract.BearerAuthentication:
 		if value.Mode != contract.AuthenticationBearer {
-			return errors.New("authentication union mismatch")
+			return NewConfigurationError(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
 		}
 	case contract.OAuthAuthentication:
 		if value.Mode != contract.AuthenticationOAuth {
-			return errors.New("authentication union mismatch")
+			return NewConfigurationError(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
 		}
 		if len(value.TrustedOrigins) > 64 {
-			return errors.New("too many trusted origins")
+			return NewConfigurationError(contract.ServerConfigurationFieldTrustedOrigins, contract.ServerConfigurationRuleMaximum)
 		}
 		seen := make(map[string]struct{}, len(value.TrustedOrigins))
 		for _, origin := range value.TrustedOrigins {
 			if _, err := remote.ParseOrigin(origin); err != nil {
-				return errors.New("trusted origin is invalid")
+				return NewConfigurationError(contract.ServerConfigurationFieldTrustedOrigins, contract.ServerConfigurationRuleInvalid)
 			}
 			if _, duplicate := seen[origin]; duplicate {
-				return errors.New("trusted origin is duplicated")
+				return NewConfigurationError(contract.ServerConfigurationFieldTrustedOrigins, contract.ServerConfigurationRuleUnique)
 			}
 			seen[origin] = struct{}{}
 		}
 		return validateRegistration(value.Registration)
 	default:
-		return errors.New("authentication union is invalid")
+		return NewConfigurationError(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
 	}
 	return nil
 }
@@ -450,25 +542,28 @@ func validateRegistration(registration contract.OAuthRegistration) error {
 	var issuer *string
 	switch value := registration.(type) {
 	case contract.StaticOAuthRegistration:
-		if value.Mode != contract.RegistrationStatic || value.ClientID == "" || !utf8.ValidString(value.ClientID) || int64(len(value.ClientID)) > mustLimit("oauth_client_id_bytes") {
-			return errors.New("static registration is invalid")
+		if value.Mode != contract.RegistrationStatic {
+			return NewConfigurationError(contract.ServerConfigurationFieldRegistration, contract.ServerConfigurationRuleInvalid)
+		}
+		if value.ClientID == "" || !utf8.ValidString(value.ClientID) || int64(len(value.ClientID)) > mustLimit("oauth_client_id_bytes") {
+			return NewConfigurationError(contract.ServerConfigurationFieldClientID, contract.ServerConfigurationRuleInvalid)
 		}
 		if _, err := contract.ParseTokenEndpointAuthMethod(string(value.TokenEndpointAuthMethod)); err != nil {
-			return err
+			return NewConfigurationError(contract.ServerConfigurationFieldTokenEndpointAuthMethod, contract.ServerConfigurationRuleInvalid)
 		}
 		issuer = value.Issuer
 	case contract.DynamicOAuthRegistration:
 		if value.Mode != contract.RegistrationDynamic {
-			return errors.New("dynamic registration is invalid")
+			return NewConfigurationError(contract.ServerConfigurationFieldRegistration, contract.ServerConfigurationRuleInvalid)
 		}
 		issuer = value.Issuer
 	default:
-		return errors.New("registration union is invalid")
+		return NewConfigurationError(contract.ServerConfigurationFieldRegistration, contract.ServerConfigurationRuleInvalid)
 	}
 	if issuer != nil {
 		parsed, err := url.Parse(*issuer)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.String() != *issuer || strings.ToLower(parsed.Hostname()) != parsed.Hostname() || parsed.Port() == "443" || int64(len(*issuer)) > mustLimit("oauth_url_bytes") {
-			return errors.New("issuer is invalid")
+			return NewConfigurationError(contract.ServerConfigurationFieldIssuer, contract.ServerConfigurationRuleCanonicalURL)
 		}
 	}
 	return nil

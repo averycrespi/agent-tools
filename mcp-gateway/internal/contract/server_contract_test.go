@@ -256,6 +256,11 @@ func TestServerResourceShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, ToolDescriptor{}, "id", "server_id", "upstream_name", "external_name", "descriptor", "fingerprint", "catalog_revision", "first_seen_at", "last_seen_at", "retired_at")
 	requireJSONKeys(t, CatalogPage{}, "catalog", "items", "next_cursor")
 	requireJSONKeys(t, ServerMutation{}, "server", "operation")
+	requireJSONKeys(t, ServerConfigurationContext{}, "field", "rule")
+	requireJSONKeys(t, ServerConfigurationProblemEnvelope{}, "status", "code", "title", "context")
+	require.True(t, ValidServerConfigurationContext(ServerConfigurationContext{Field: ServerConfigurationFieldWorkingDirectory, Rule: ServerConfigurationRuleCanonicalAbsolutePath}))
+	require.False(t, ValidServerConfigurationContext(ServerConfigurationContext{Field: "request-value", Rule: ServerConfigurationRuleInvalid}))
+	require.False(t, ValidServerConfigurationContext(ServerConfigurationContext{Field: ServerConfigurationFieldTransport, Rule: "request-value"}))
 	requireJSONKeys(t, CredentialReplacementResult{}, "server_id", "kind", "credential_revision", "operation")
 	requireJSONKeys(t, AuthFlowCreation{}, "flow", "authorization_url")
 }

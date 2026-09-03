@@ -316,6 +316,25 @@ func TestDesignDocumentsTheExecutableContract(t *testing.T) {
 		require.Contains(t, text, "`"+string(problem.Code)+"`", problem.Code)
 		require.Contains(t, text, problem.Title, problem.Code)
 	}
+	for _, field := range []ServerConfigurationField{
+		ServerConfigurationFieldConfiguration, ServerConfigurationFieldNamespace, ServerConfigurationFieldDisplayName,
+		ServerConfigurationFieldEnabled, ServerConfigurationFieldTransport, ServerConfigurationFieldTransportKind,
+		ServerConfigurationFieldExecutable, ServerConfigurationFieldArguments, ServerConfigurationFieldWorkingDirectory,
+		ServerConfigurationFieldEnvironment, ServerConfigurationFieldSecretEnvironment, ServerConfigurationFieldURL,
+		ServerConfigurationFieldProtocolMode, ServerConfigurationFieldAuthentication, ServerConfigurationFieldAuthenticationMode,
+		ServerConfigurationFieldTrustedOrigins, ServerConfigurationFieldRequestOfflineAccess, ServerConfigurationFieldRegistration,
+		ServerConfigurationFieldRegistrationMode, ServerConfigurationFieldIssuer, ServerConfigurationFieldClientID,
+		ServerConfigurationFieldTokenEndpointAuthMethod,
+	} {
+		require.Contains(t, text, "`"+string(field)+"`", field)
+	}
+	for _, rule := range []ServerConfigurationRule{
+		ServerConfigurationRuleInvalid, ServerConfigurationRuleRequired, ServerConfigurationRuleMaximum,
+		ServerConfigurationRuleUnique, ServerConfigurationRuleDisjoint, ServerConfigurationRuleCanonicalAbsolutePath,
+		ServerConfigurationRuleCanonicalURL, ServerConfigurationRuleTransportPolicy,
+	} {
+		require.Contains(t, text, "`"+string(rule)+"`", rule)
+	}
 	for _, limit := range FixedLimits() {
 		require.Contains(t, text, "`"+limit.Name+"`", limit.Name)
 		require.Contains(t, text, strconv.FormatInt(limit.Maximum, 10), limit.Name)

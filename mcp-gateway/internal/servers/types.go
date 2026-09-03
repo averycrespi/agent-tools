@@ -3,6 +3,7 @@ package servers
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -10,6 +11,20 @@ import (
 
 type Clock interface {
 	Now() time.Time
+}
+
+type ConfigurationError struct {
+	Context contract.ServerConfigurationContext
+}
+
+func (failure *ConfigurationError) Error() string {
+	return fmt.Sprintf("%s violates %s", failure.Context.Field, failure.Context.Rule)
+}
+
+func (failure *ConfigurationError) Unwrap() error { return ErrInvalidInput }
+
+func NewConfigurationError(field contract.ServerConfigurationField, rule contract.ServerConfigurationRule) error {
+	return &ConfigurationError{Context: contract.ServerConfigurationContext{Field: field, Rule: rule}}
 }
 
 type Definition struct {
