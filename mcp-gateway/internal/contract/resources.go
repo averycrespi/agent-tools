@@ -70,6 +70,7 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/grants", Method: "POST", RequestSchema: "GrantCreate", SuccessSchema: "Grant", SuccessStatuses: []int{201}},
 	{Pattern: "/api/v1/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Grant", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v1/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
+	{Pattern: "/api/v1/grant-constraints/validate", Method: "POST", RequestSchema: "GrantConstraintValidation", SuccessSchema: "GrantConstraintValidationResult", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v1/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "Page<GrantRequestSummary>", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v1/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
 	{Pattern: "/api/v1/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},

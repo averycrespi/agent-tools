@@ -363,6 +363,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
+	case path == "/api/v1/grant-constraints/validate" && handler.principals != nil && request.Method == http.MethodPost:
+		handler.validateGrantConstraint(writer, request)
 	case path == "/api/v1/grants" && handler.principals != nil:
 		handler.grantsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v1/grants/") && handler.principals != nil:

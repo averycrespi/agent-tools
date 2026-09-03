@@ -47,6 +47,7 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 | `/api/v1/principals/{id}/credential`                 | `DELETE, POST`       | admin bearer or session                           |
 | `/api/v1/grants`                                     | `GET, POST`          | admin bearer or session                           |
 | `/api/v1/grants/{id}`                                | `DELETE, GET, PATCH` | admin bearer or session                           |
+| `/api/v1/grant-constraints/validate`                 | `POST`               | admin bearer or session                           |
 | `/api/v1/grant-requests`                             | `GET`                | admin bearer or session                           |
 | `/api/v1/grant-requests/{id}`                        | `GET`                | admin bearer or session                           |
 | `/api/v1/grant-requests/{id}/approve`                | `POST`               | admin bearer or session                           |
@@ -57,6 +58,8 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. They use the sole invocation repository and introduce no mutation, replay, event, or mutable join.
+
+The non-mutating grant matcher validation mechanic is `GrantConstraintValidation` → `GrantConstraintValidationResult`. The request is exactly `{constraint}`. A well-formed request always returns `200`: valid constraints return an empty diagnostics array, while invalid constraints return one safe `GrantConstraintDiagnostic` with a JSON Pointer field and fixed message. The endpoint uses the production compiler, writes no durable state, publishes no invalidation, and grant creation and request approval still compile authoritatively in their own mutation paths.
 
 ### Safe problems
 

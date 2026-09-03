@@ -16,6 +16,10 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
+type rawGrantConstraintValidation struct {
+	Constraint json.RawMessage `json:"constraint"`
+}
+
 type rawGrantCreate struct {
 	Description  json.RawMessage `json:"description"`
 	PrincipalID  json.RawMessage `json:"principal_id"`
@@ -24,6 +28,32 @@ type rawGrantCreate struct {
 	UpstreamName json.RawMessage `json:"upstream_name"`
 	Constraint   json.RawMessage `json:"constraint"`
 	ExpiresAt    json.RawMessage `json:"expires_at"`
+}
+
+func (handler *Handler) validateGrantConstraint(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.RawQuery != "" {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	var raw rawGrantConstraintValidation
+	if !decodeStrictBody(writer, request, &raw) {
+		return
+	}
+	if raw.Constraint == nil || bytes.Equal(raw.Constraint, []byte("null")) {
+		writeProblem(writer, contract.ProblemInvalidGrant)
+		return
+	}
+	result := contract.GrantConstraintValidationResult{Valid: true, Diagnostics: []contract.GrantConstraintDiagnostic{}}
+	if _, err := authorization.CompileConstraint(raw.Constraint); err != nil {
+		diagnostic, ok := authorization.ConstraintErrorDiagnostic(err)
+		if !ok {
+			writeProblem(writer, contract.ProblemAuthorizationUnavailable)
+			return
+		}
+		result.Valid = false
+		result.Diagnostics = append(result.Diagnostics, contract.GrantConstraintDiagnostic{Field: diagnostic.Field, Message: diagnostic.Message})
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (handler *Handler) grantsCollection(writer http.ResponseWriter, request *http.Request) {

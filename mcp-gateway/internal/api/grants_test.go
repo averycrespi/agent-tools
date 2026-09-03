@@ -146,6 +146,35 @@ func TestGrantCreateRequiresAllMembersAndExactNullableShapes(t *testing.T) {
 	}
 }
 
+func TestGrantConstraintValidationUsesProductionCompilerWithoutMutation(t *testing.T) {
+	service := &fakePrincipalService{}
+	var invalidations []contract.Invalidation
+	handler := newGrantHandler(t, service, allowGrantTarget, &invalidations)
+	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
+
+	valid := perform(handler, http.MethodPost, "/api/v1/grant-constraints/validate", `{"constraint":{"version":2,"regex":{"/resource":"[a-z]+/[0-9]+"}}}`, headers)
+	require.Equal(t, http.StatusOK, valid.Code, valid.Body.String())
+	assert.JSONEq(t, `{"valid":true,"diagnostics":[]}`, valid.Body.String())
+
+	invalid := perform(handler, http.MethodPost, "/api/v1/grant-constraints/validate", `{"constraint":{"version":2,"regex":{"/resource":"["}}}`, headers)
+	require.Equal(t, http.StatusOK, invalid.Code, invalid.Body.String())
+	assert.JSONEq(t, `{"valid":false,"diagnostics":[{"field":"/regex/~1resource","message":"pattern is not valid RE2"}]}`, invalid.Body.String())
+	assert.NotContains(t, invalid.Body.String(), `\"[\"`)
+	assert.Empty(t, service.grants)
+	assert.Empty(t, invalidations)
+}
+
+func TestGrantConstraintValidationRequiresAdminAndClosedBody(t *testing.T) {
+	handler := newGrantHandler(t, &fakePrincipalService{}, allowGrantTarget, nil)
+	path := "/api/v1/grant-constraints/validate"
+	assert.Equal(t, http.StatusUnauthorized, perform(handler, http.MethodPost, path, `{"constraint":{"equals":{"/x":1}}}`, map[string]string{"Content-Type": contract.MediaTypeJSON}).Code)
+	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
+	for _, body := range []string{`{}`, `{"constraint":null}`, `{"constraint":{"equals":{"/x":1}},"extra":true}`} {
+		response := perform(handler, http.MethodPost, path, body, headers)
+		assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	}
+}
+
 func TestGrantAuthenticationSessionAndTargetValidation(t *testing.T) {
 	service := &fakePrincipalService{}
 	handler := newGrantHandler(t, service, allowGrantTarget, nil)

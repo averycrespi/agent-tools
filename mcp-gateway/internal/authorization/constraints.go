@@ -1,6 +1,7 @@
 package authorization
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"regexp/syntax"
@@ -12,6 +13,22 @@ import (
 type ConstraintType string
 
 type ConstraintOperator string
+
+type ConstraintDiagnostic struct {
+	Field   string
+	Message string
+}
+
+type constraintError struct {
+	field   string
+	message string
+}
+
+func (err constraintError) Error() string {
+	return fmt.Sprintf("%s: constraint: %s", ErrInvalidInput, err.message)
+}
+
+func (constraintError) Unwrap() error { return ErrInvalidInput }
 
 const (
 	ConstraintNull    ConstraintType = "null"
@@ -109,18 +126,19 @@ func CompileConstraint(contents []byte) (CompiledConstraint, error) {
 
 func compileEquals(value strictjson.Value) ([]constraintAtom, error) {
 	if value.Type != strictjson.ValueObject {
-		return nil, invalidConstraint("equals must be an object")
+		return nil, invalidConstraintAt("/equals", "equals must be an object")
 	}
 	atoms := make([]constraintAtom, 0, len(value.Object))
 	for _, member := range value.Object {
+		field := constraintField("equals", member.Name)
 		segments, err := compileJSONPointer(member.Name)
 		if err != nil {
-			return nil, err
+			return nil, invalidConstraintAt(field, "JSON pointer is invalid")
 		}
 		switch member.Value.Type {
 		case strictjson.ValueNull, strictjson.ValueBoolean, strictjson.ValueString, strictjson.ValueNumber:
 		default:
-			return nil, invalidConstraint("equals values must be scalar")
+			return nil, invalidConstraintAt(field, "equality value must be scalar")
 		}
 		atoms = append(atoms, constraintAtom{operator: ConstraintEquals, pointer: member.Name, segments: segments, expected: member.Value})
 	}
@@ -129,33 +147,34 @@ func compileEquals(value strictjson.Value) ([]constraintAtom, error) {
 
 func compileRegex(value strictjson.Value) ([]constraintAtom, error) {
 	if value.Type != strictjson.ValueObject {
-		return nil, invalidConstraint("regex must be an object")
+		return nil, invalidConstraintAt("/regex", "regex must be an object")
 	}
 	atoms := make([]constraintAtom, 0, len(value.Object))
 	for _, member := range value.Object {
+		field := constraintField("regex", member.Name)
 		segments, err := compileJSONPointer(member.Name)
 		if err != nil {
-			return nil, err
+			return nil, invalidConstraintAt(field, "JSON pointer is invalid")
 		}
 		if member.Value.Type != strictjson.ValueString {
-			return nil, invalidConstraint("regex values must be strings")
+			return nil, invalidConstraintAt(field, "pattern must be a string")
 		}
 		pattern := member.Value.String
 		if int64(len(pattern)) > mustLimit("constraint_regex_pattern_bytes") {
-			return nil, invalidConstraint("regex pattern is too large")
+			return nil, invalidConstraintAt(field, "pattern exceeds the byte limit")
 		}
 		anchored := `\A(?:` + pattern + `)\z`
 		parsed, parseErr := syntax.Parse(anchored, syntax.Perl)
 		if parseErr != nil {
-			return nil, invalidConstraint("regex pattern is invalid")
+			return nil, invalidConstraintAt(field, "pattern is not valid RE2")
 		}
 		program, compileErr := syntax.Compile(parsed.Simplify())
 		if compileErr != nil || int64(len(program.Inst)) > mustLimit("constraint_regex_program_instructions") {
-			return nil, invalidConstraint("regex program is too large")
+			return nil, invalidConstraintAt(field, "compiled pattern exceeds the size limit")
 		}
 		expression, compileErr := regexp.Compile(anchored)
 		if compileErr != nil {
-			return nil, invalidConstraint("regex pattern is invalid")
+			return nil, invalidConstraintAt(field, "pattern is not valid RE2")
 		}
 		atoms = append(atoms, constraintAtom{operator: ConstraintRegex, pointer: member.Name, segments: segments, expected: member.Value, expression: expression})
 	}
@@ -221,6 +240,23 @@ func compileJSONPointer(pointer string) ([]string, error) {
 	return segments, nil
 }
 
+func ConstraintErrorDiagnostic(err error) (ConstraintDiagnostic, bool) {
+	var target constraintError
+	if !errors.As(err, &target) {
+		return ConstraintDiagnostic{}, false
+	}
+	return ConstraintDiagnostic{Field: target.field, Message: target.message}, true
+}
+
+func constraintField(operator, pointer string) string {
+	token := strings.ReplaceAll(strings.ReplaceAll(pointer, "~", "~0"), "/", "~1")
+	return "/" + operator + "/" + token
+}
+
 func invalidConstraint(reason string) error {
-	return fmt.Errorf("%w: constraint: %s", ErrInvalidInput, reason)
+	return invalidConstraintAt("/", reason)
+}
+
+func invalidConstraintAt(field, reason string) error {
+	return constraintError{field: field, message: reason}
 }
