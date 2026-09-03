@@ -92,6 +92,58 @@ Use semantic snapshots to verify content, controls, and accessible state. Take a
 
 Record the states and viewports inspected in the completion report, along with any console or network failure relevant to the change. If authentication or the local runtime blocks browser verification, report that gap explicitly rather than implying the UI was inspected. Do not retain screenshots containing administrator bearers, one-time secrets, or other sensitive values.
 
+## Manual exploratory audits
+
+The browser suites create route-local mocked data and tear it down after each run; they do not provide a persistent populated demonstration installation. For a manual audit, use an isolated real Gateway and populate only the states under review. From the repository root:
+
+```bash
+AUDIT_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mcp-gateway-ui-audit.XXXXXX")
+chmod 700 "$AUDIT_ROOT"
+
+mcp-gateway initialize \
+  --data-dir "$AUDIT_ROOT/data" \
+  --secret-output "$AUDIT_ROOT/admin-bearer"
+
+mcp-gateway serve \
+  --data-dir "$AUDIT_ROOT/data" \
+  --listen 127.0.0.1:8211
+```
+
+In a second terminal:
+
+```bash
+MCP_GATEWAY_UI_LISTEN=127.0.0.1:5174 \
+MCP_GATEWAY_UI_GATEWAY=http://127.0.0.1:8211 \
+npm run ui:dev
+```
+
+Prefer `127.0.0.1` unless the audit deliberately covers alternate loopback addresses. Some local proxy configurations exempt only that address and may intercept another valid `127/8` address. Verify both listeners and their startup logs before opening the browser; the development server can load its shell while Gateway API requests fail with `502`.
+
+The administrator bearer remains in the owner-only file. Read it only at the browser handoff, never place it in an environment variable or command argument, and remove the complete temporary installation after stopping both processes. A saved Playwright storage state can reuse the authenticated browser session across route and viewport sweeps, but it is credential-bearing temporary material and requires the same cleanup.
+
+A small set of UI operations reaches most populated states without a downstream fixture:
+
+1. Create a principal. Creation also adds its Default Gateway grant.
+2. Issue its agent credential to inspect confirmation and one-time-secret behavior.
+3. Create an exact grant against Gateway self-service tools.
+4. Create a disabled, unauthenticated HTTP server with a syntactically valid non-routable endpoint such as `https://example.invalid/mcp`. This exposes the server detail tabs without initiating downstream work.
+5. Create a backup and an additional administrator credential to populate their System tables and detail panels.
+
+Exercise sign-in failure and success, sign-out, dirty-navigation protection, destructive confirmations, filters and reset, empty and populated collections, light and dark themes, and mobile navigation. Inspect at least desktop, narrow mobile, and 320px widths. For tables, document-level overflow checks are insufficient: compare interactive-control rectangles with their clipping container and confirm that truncated values can be recovered.
+
+When Playwright CLI cannot find its configured browser channel, use the repository-pinned Playwright API from the repository root rather than installing an unpinned browser:
+
+```bash
+node --input-type=module - <<'EOF'
+import { chromium } from "@playwright/test";
+const browser = await chromium.launch({ headless: true });
+// Create an isolated context, exercise the local UI, and close the browser.
+await browser.close();
+EOF
+```
+
+Full-page screenshots can reposition fixed off-screen elements, including the skip link, while assembling the image. Confirm any apparent fixed-element or focus defect with a viewport screenshot, `document.activeElement`, computed styles, and element rectangles before recording it. Mask one-time values when capturing their dialog layout, or delete the screenshot immediately.
+
 ## Focused verification
 
 Run the fast development checks directly:
