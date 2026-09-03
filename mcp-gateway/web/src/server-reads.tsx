@@ -2328,7 +2328,7 @@ export function ServerReads({
                         Technical details
                       </h3>
                       <dl class="technical-details-grid">
-                        <div>
+                        <div class="technical-details-wide">
                           <dt>Server ID</dt>
                           <dd>
                             <CopyableValue

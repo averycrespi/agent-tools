@@ -1774,6 +1774,12 @@ button.sort-button:not(:disabled):hover {
   user-select: text;
 }
 
+@media (min-width: 801px) {
+  .technical-details-wide {
+    grid-column: span 2;
+  }
+}
+
 @media (max-width: 800px) {
   button,
   .button-link,

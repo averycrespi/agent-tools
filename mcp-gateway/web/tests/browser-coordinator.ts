@@ -2110,6 +2110,9 @@ async function runServerManagementCanary(
     (await serverStatus
       .getByRole("button", { name: "Copy server ID" })
       .count()) !== 1 ||
+    (await serverStatus
+      .locator('code[data-testid="server-id"]')
+      .evaluate((element) => element.getClientRects().length)) !== 1 ||
     !((await serverStatus.textContent()) ?? "").includes(
       "Dispatch capacity is saturated",
     )
