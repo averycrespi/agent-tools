@@ -2,6 +2,99 @@ import { decodeDescriptorPage, type DescriptorView } from "./server-reads";
 import type { SessionClient } from "./session";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+type JSONRecord = Record<string, unknown>;
+
+export interface MatcherFieldSuggestion {
+  pointer: string;
+  type: "null" | "boolean" | "string" | "number";
+  description: string | null;
+  values: string[];
+  regexAvailable: boolean;
+}
+
+export interface MatcherSchemaSuggestions {
+  fields: MatcherFieldSuggestion[];
+  unsupported: boolean;
+}
+
+function object(value: unknown): JSONRecord | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JSONRecord)
+    : undefined;
+}
+
+function pointerToken(value: string): string {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+export function matcherSchemaSuggestions(
+  descriptor: unknown,
+): MatcherSchemaSuggestions {
+  const document = object(descriptor);
+  const root = object(document?.inputSchema);
+  const fields: MatcherFieldSuggestion[] = [];
+  let unsupported = root === undefined;
+  const visit = (schema: JSONRecord, segments: string[], depth: number) => {
+    if (depth > 16 || fields.length >= 256) {
+      unsupported = true;
+      return;
+    }
+    const properties = object(schema.properties);
+    if (schema.type !== "object" || properties === undefined) {
+      unsupported = true;
+      return;
+    }
+    for (const [name, value] of Object.entries(properties)) {
+      const property = object(value);
+      if (property === undefined) {
+        unsupported = true;
+        continue;
+      }
+      const path = [...segments, name];
+      if (property.type === "object") {
+        visit(property, path, depth + 1);
+        continue;
+      }
+      const type =
+        property.type === "integer" || property.type === "number"
+          ? "number"
+          : property.type === "null" ||
+              property.type === "boolean" ||
+              property.type === "string"
+            ? property.type
+            : undefined;
+      if (type === undefined) {
+        unsupported = true;
+        continue;
+      }
+      const values = Array.isArray(property.enum)
+        ? property.enum
+            .filter((item) =>
+              ["string", "number", "boolean"].includes(typeof item),
+            )
+            .map(String)
+        : [];
+      fields.push({
+        pointer: `/${path.map(pointerToken).join("/")}`,
+        type,
+        description:
+          typeof property.description === "string"
+            ? property.description
+            : null,
+        values,
+        regexAvailable: type === "string",
+      });
+    }
+    if (
+      Object.keys(schema).some((key) =>
+        ["$ref", "allOf", "anyOf", "oneOf", "patternProperties"].includes(key),
+      )
+    )
+      unsupported = true;
+  };
+  if (root !== undefined) visit(root, [], 0);
+  return { fields, unsupported };
+}
 
 export async function readMatcherDescriptors(
   session: SessionClient,

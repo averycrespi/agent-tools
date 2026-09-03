@@ -4434,7 +4434,27 @@ async function runGrantReadsCreate(
         external_name: external,
         descriptor: {
           name: upstream,
-          inputSchema: { type: "object", properties: {} },
+          inputSchema: {
+            type: "object",
+            properties: {
+              region: {
+                type: "string",
+                enum: ["us", "eu"],
+                description: "Deployment region",
+              },
+              filters: {
+                type: "object",
+                properties: {
+                  "item/name": {
+                    type: "string",
+                    description: "Exact item name",
+                  },
+                  count: { type: "integer" },
+                },
+              },
+              items: { type: "array", items: { type: "string" } },
+            },
+          },
           annotations: {
             title: null,
             readOnlyHint: false,
@@ -4874,6 +4894,39 @@ async function runGrantReadsCreate(
       { exact: true },
     )
     .waitFor();
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  if (
+    (await page
+      .locator(
+        '#constraint-pointer-options option[value="/filters/item~1name"]',
+      )
+      .count()) !== 1
+  )
+    fail("nested schema field was not suggested as an RFC 6901 pointer");
+  await page
+    .locator('[data-testid="constraint-pointer"]')
+    .fill("/filters/item~1name");
+  if (
+    (await page.locator('[data-testid="constraint-type"]').inputValue()) !==
+      "string" ||
+    !(await page
+      .locator('[data-testid="constraint-pointer"]')
+      .getAttribute("aria-describedby")) ||
+    (await page
+      .locator('#constraint-pointer-options option[value="/region"]')
+      .getAttribute("label")) !== "string · us, eu · Deployment region"
+  )
+    fail("schema suggestion did not inform matcher type, enum, and metadata");
+  await page
+    .getByText("string · regex available · Exact item name", { exact: true })
+    .waitFor();
+  await page
+    .getByText(
+      "Scalar field suggestions are available below. Other schema portions are unsupported for matcher suggestions and remain available through a custom JSON Pointer.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.getByRole("button", { name: "Remove atom" }).click();
   await page
     .locator('[data-testid="grant-server"]')
     .selectOption("00000000000000000000000000");

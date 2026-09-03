@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
-import { readMatcherDescriptors } from "./matcher-catalog";
+import {
+  matcherSchemaSuggestions,
+  readMatcherDescriptors,
+} from "./matcher-catalog";
 import { validateMatcherConstraint } from "./matcher-validation";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -289,6 +292,13 @@ function GrantCreate({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
+  const selectedDescriptor = descriptors?.find(
+    (descriptor) => descriptor.upstreamName === upstreamName,
+  );
+  const schemaSuggestions =
+    selectedDescriptor === undefined
+      ? undefined
+      : matcherSchemaSuggestions(selectedDescriptor.descriptor);
   const draftFingerprint = JSON.stringify({
     description,
     principalID,
@@ -594,118 +604,154 @@ function GrantCreate({
                 RE2 pattern. Matching is conjunctive, and number and pattern
                 spelling is preserved.
               </p>
-              {atoms.map((atom, index) => (
-                <div
-                  class="form-grid"
-                  data-testid="constraint-atom"
-                  key={index}
-                >
-                  <FormField
-                    id={`constraint-operator-${index}`}
-                    label="Operator"
+              {schemaSuggestions !== undefined && (
+                <p class="bounded-note" data-testid="matcher-schema-posture">
+                  {schemaSuggestions.unsupported
+                    ? "Scalar field suggestions are available below. Other schema portions are unsupported for matcher suggestions and remain available through a custom JSON Pointer."
+                    : "Scalar fields from the selected tool schema are available as suggestions; choosing one does not add a rule."}
+                </p>
+              )}
+              <datalist id="constraint-pointer-options">
+                {(schemaSuggestions?.fields ?? []).map((field) => (
+                  <option
+                    value={field.pointer}
+                    label={`${field.type}${field.values.length === 0 ? "" : ` · ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`}
+                    key={field.pointer}
+                  />
+                ))}
+              </datalist>
+              {atoms.map((atom, index) => {
+                const field = schemaSuggestions?.fields.find(
+                  (candidate) => candidate.pointer === atom.pointer,
+                );
+                return (
+                  <div
+                    class="form-grid"
+                    data-testid="constraint-atom"
+                    key={index}
                   >
-                    {(attributes) => (
-                      <select
-                        {...attributes}
-                        data-testid="constraint-operator"
-                        value={atom.operator}
-                        onChange={(event) =>
-                          updateAtom(index, {
-                            operator: event.currentTarget
-                              .value as Atom["operator"],
-                            type:
-                              event.currentTarget.value === "regex"
-                                ? "string"
-                                : atom.type,
-                          })
-                        }
-                      >
-                        <option value="equals">Equals</option>
-                        <option value="regex">Full-string RE2</option>
-                      </select>
-                    )}
-                  </FormField>
-                  <FormField
-                    id={`constraint-pointer-${index}`}
-                    label="JSON pointer"
-                  >
-                    {(attributes) => (
-                      <input
-                        {...attributes}
-                        data-testid="constraint-pointer"
-                        value={atom.pointer}
-                        onInput={(event) =>
-                          updateAtom(index, {
-                            pointer: event.currentTarget.value,
-                          })
-                        }
-                      />
-                    )}
-                  </FormField>
-                  {atom.operator === "equals" && (
                     <FormField
-                      id={`constraint-type-${index}`}
-                      label="Scalar type"
+                      id={`constraint-operator-${index}`}
+                      label="Operator"
                     >
                       {(attributes) => (
                         <select
                           {...attributes}
-                          data-testid="constraint-type"
-                          value={atom.type}
+                          data-testid="constraint-operator"
+                          value={atom.operator}
                           onChange={(event) =>
                             updateAtom(index, {
-                              type: event.currentTarget.value as ScalarType,
+                              operator: event.currentTarget
+                                .value as Atom["operator"],
+                              type:
+                                event.currentTarget.value === "regex"
+                                  ? "string"
+                                  : atom.type,
                             })
                           }
                         >
-                          <option value="null">null</option>
-                          <option value="boolean">boolean</option>
-                          <option value="string">string</option>
-                          <option value="number">number</option>
+                          <option value="equals">Equals</option>
+                          <option value="regex">Full-string RE2</option>
                         </select>
                       )}
                     </FormField>
-                  )}
-                  {(atom.operator === "regex" || atom.type !== "null") && (
                     <FormField
-                      id={`constraint-value-${index}`}
-                      label={
-                        atom.operator === "regex"
-                          ? "RE2 pattern"
-                          : "Scalar value"
-                      }
+                      id={`constraint-pointer-${index}`}
+                      label="JSON pointer"
                       hint={
-                        atom.operator === "regex"
-                          ? "The pattern must match the complete string value."
-                          : "The scalar is compared without coercion."
+                        field === undefined
+                          ? "Enter a custom RFC 6901 pointer or choose a schema suggestion."
+                          : `${field.type}${field.regexAvailable ? " · regex available" : " · equality only"}${field.values.length === 0 ? "" : ` · allowed: ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`
                       }
                     >
                       {(attributes) => (
                         <input
                           {...attributes}
-                          data-testid="constraint-value"
-                          value={atom.value}
-                          onInput={(event) =>
+                          data-testid="constraint-pointer"
+                          value={atom.pointer}
+                          list="constraint-pointer-options"
+                          autocomplete="off"
+                          onInput={(event) => {
+                            const pointer = event.currentTarget.value;
+                            const suggestion = schemaSuggestions?.fields.find(
+                              (candidate) => candidate.pointer === pointer,
+                            );
                             updateAtom(index, {
-                              value: event.currentTarget.value,
-                            })
-                          }
+                              pointer,
+                              ...(atom.operator === "equals" &&
+                              suggestion !== undefined
+                                ? { type: suggestion.type }
+                                : {}),
+                            });
+                          }}
                         />
                       )}
                     </FormField>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setAtoms((current) =>
-                        current.filter((_, position) => position !== index),
-                      )
-                    }
-                  >
-                    Remove atom
-                  </button>
-                </div>
-              ))}
+                    {atom.operator === "equals" && (
+                      <FormField
+                        id={`constraint-type-${index}`}
+                        label="Scalar type"
+                      >
+                        {(attributes) => (
+                          <select
+                            {...attributes}
+                            data-testid="constraint-type"
+                            value={atom.type}
+                            onChange={(event) =>
+                              updateAtom(index, {
+                                type: event.currentTarget.value as ScalarType,
+                              })
+                            }
+                          >
+                            <option value="null">null</option>
+                            <option value="boolean">boolean</option>
+                            <option value="string">string</option>
+                            <option value="number">number</option>
+                          </select>
+                        )}
+                      </FormField>
+                    )}
+                    {(atom.operator === "regex" || atom.type !== "null") && (
+                      <FormField
+                        id={`constraint-value-${index}`}
+                        label={
+                          atom.operator === "regex"
+                            ? "RE2 pattern"
+                            : "Scalar value"
+                        }
+                        hint={
+                          atom.operator === "regex"
+                            ? "The pattern must match the complete string value."
+                            : "The scalar is compared without coercion."
+                        }
+                      >
+                        {(attributes) => (
+                          <input
+                            {...attributes}
+                            data-testid="constraint-value"
+                            value={atom.value}
+                            onInput={(event) =>
+                              updateAtom(index, {
+                                value: event.currentTarget.value,
+                              })
+                            }
+                          />
+                        )}
+                      </FormField>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAtoms((current) =>
+                          current.filter((_, position) => position !== index),
+                        )
+                      }
+                    >
+                      Remove atom
+                    </button>
+                  </div>
+                );
+              })}
               <button
                 data-testid="add-constraint-atom"
                 type="button"
