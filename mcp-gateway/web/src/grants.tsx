@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import { validateMatcherConstraint } from "./matcher-validation";
 import { useUnsavedChanges } from "./navigation";
 import {
   type MutationController,
@@ -122,46 +123,6 @@ async function requestJSON(
     return { response, value: (await response.json()) as unknown };
   });
 }
-async function validateGrantConstraint(
-  session: SessionClient,
-  constraint: string,
-): Promise<string | null | undefined> {
-  return session.runProtected(async (context) => {
-    const response = await fetch("/api/v1/grant-constraints/validate", {
-      method: "POST",
-      credentials: "same-origin",
-      redirect: "error",
-      signal: context.signal,
-      headers: {
-        ...headers(context),
-        "Content-Type": "application/json",
-      },
-      body: `{"constraint":${constraint}}`,
-    });
-    if (await context.sessionLost(response)) return undefined;
-    if (
-      response.status !== 200 ||
-      response.headers.get("Content-Type") !== "application/json"
-    )
-      throw new Error("Matcher validation is unavailable.");
-    const result = record((await response.json()) as unknown, [
-      "valid",
-      "diagnostics",
-    ]);
-    if (typeof result.valid !== "boolean" || !Array.isArray(result.diagnostics))
-      throw new Error("Matcher validation returned an invalid response.");
-    if (result.valid) {
-      if (result.diagnostics.length !== 0)
-        throw new Error("Matcher validation returned an invalid response.");
-      return null;
-    }
-    if (result.diagnostics.length !== 1)
-      throw new Error("Matcher validation returned an invalid response.");
-    const diagnostic = record(result.diagnostics[0], ["field", "message"]);
-    return `${text(diagnostic.field)}: ${text(diagnostic.message)}`;
-  });
-}
-
 async function readServers(session: SessionClient): Promise<ServerView[]> {
   const items: ServerView[] = [];
   let cursor: string | null = null;
@@ -395,7 +356,7 @@ function GrantCreate({
       const constraint = constraintText(atoms);
       if (constraint !== "null") {
         setValidating(true);
-        const diagnostic = await validateGrantConstraint(session, constraint);
+        const diagnostic = await validateMatcherConstraint(session, constraint);
         if (diagnostic === undefined || currentDraft.current !== reviewedDraft)
           return;
         if (diagnostic !== null) throw new Error(diagnostic);

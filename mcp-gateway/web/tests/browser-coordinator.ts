@@ -5929,6 +5929,17 @@ async function runRequestAdjudication(
   await page
     .locator('[data-testid="approval-constraint"]')
     .fill(
+      '{"version":2,"equals":{"/mode":"safe","/attempt":1.0},"regex":{"/resource":"item-\\\\d+","/zone":"["}}',
+    );
+  await reviewApproval();
+  await page
+    .getByText("/regex/~1zone: pattern is not valid RE2", { exact: true })
+    .waitFor();
+  if ((attempts.get(ids[1]!) ?? 0) !== 0)
+    fail("invalid RE2 approval reached confirmation");
+  await page
+    .locator('[data-testid="approval-constraint"]')
+    .fill(
       '{"version":2,"equals":{"/mode":"safe","/attempt":1.0},"regex":{"/resource":"item-\\\\d+","/zone":"(local|dev)"}}',
     );
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())

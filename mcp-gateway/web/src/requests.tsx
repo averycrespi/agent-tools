@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import { validateMatcherConstraint } from "./matcher-validation";
 import type { PrincipalDirectory } from "./principals";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -478,11 +479,13 @@ function constraintRetained(
 }
 
 function RequestActions({
+  session,
   mutations,
   detail,
   onRefresh,
   onAcknowledged,
 }: {
+  session: SessionClient;
   mutations: MutationCoordinator;
   detail: RequestDetail;
   onRefresh: () => void;
@@ -514,17 +517,19 @@ function RequestActions({
     duration: submitted.durationSeconds ?? "",
     reason: "not_approved",
   });
-  useUnsavedChanges(
-    JSON.stringify({
-      description,
-      scope,
-      target,
-      constraint,
-      duration,
-      reason,
-    }) !== JSON.stringify(initialDraft.current),
-  );
+  const draftFingerprint = JSON.stringify({
+    description,
+    scope,
+    target,
+    constraint,
+    duration,
+    reason,
+  });
+  const currentDraft = useRef(draftFingerprint);
+  currentDraft.current = draftFingerprint;
+  useUnsavedChanges(draftFingerprint !== JSON.stringify(initialDraft.current));
   const [error, setError] = useState<string>();
+  const [validating, setValidating] = useState(false);
   const [blockedETag, setBlockedETag] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const actionButton = useRef<HTMLButtonElement>(null);
@@ -589,29 +594,41 @@ function RequestActions({
       futureToolsAcknowledged: scope === "server",
     };
   };
-  const review = (next: "approve" | "reject") => {
+  const review = async (next: "approve" | "reject") => {
+    const reviewedDraft = currentDraft.current;
     setError(undefined);
     try {
-      const body =
-        next === "approve"
-          ? (() => {
-              if (
-                description.length > 0 &&
-                (description.trim() !== description ||
-                  new TextEncoder().encode(description).length > 256)
-              )
-                throw new Error(
-                  "Grant description must be at most 256 bytes without surrounding whitespace.",
-                );
-              if (containsControlCharacters(description))
-                throw new Error(
-                  "Grant description cannot contain control characters.",
-                );
-              const policy = approvedPolicy();
-              const constraintToken = constraint === "" ? "null" : constraint;
-              return `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}}}`;
-            })()
-          : JSON.stringify({ reason });
+      let body: string;
+      if (next === "approve") {
+        if (
+          description.length > 0 &&
+          (description.trim() !== description ||
+            new TextEncoder().encode(description).length > 256)
+        )
+          throw new Error(
+            "Grant description must be at most 256 bytes without surrounding whitespace.",
+          );
+        if (containsControlCharacters(description))
+          throw new Error(
+            "Grant description cannot contain control characters.",
+          );
+        const policy = approvedPolicy();
+        if (constraint !== "") {
+          setValidating(true);
+          const diagnostic = await validateMatcherConstraint(
+            session,
+            constraint,
+          );
+          if (
+            diagnostic === undefined ||
+            currentDraft.current !== reviewedDraft
+          )
+            return;
+          if (diagnostic !== null) throw new Error(diagnostic);
+        }
+        const constraintToken = constraint === "" ? "null" : constraint;
+        body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}}}`;
+      } else body = JSON.stringify({ reason });
       const spec: MutationSpec<RequestDetail> = {
         route: `/api/v1/grant-requests/${detail.id}/${next}`,
         method: "POST",
@@ -629,6 +646,8 @@ function RequestActions({
       setError(
         caught instanceof Error ? caught.message : "Invalid adjudication.",
       );
+    } finally {
+      setValidating(false);
     }
   };
   const confirm = async () => {
@@ -657,6 +676,7 @@ function RequestActions({
     controller.abandon();
   };
   const disabled =
+    validating ||
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched" ||
     blockedETag === detail.etag;
@@ -816,16 +836,16 @@ function RequestActions({
           data-testid="request-approve"
           type="button"
           disabled={disabled}
-          onClick={() => review("approve")}
+          onClick={() => void review("approve")}
         >
-          Review approval
+          {validating ? "Validating matcher…" : "Review approval"}
         </button>
         <button
           data-testid="request-reject"
           class="danger-action"
           type="button"
           disabled={disabled}
-          onClick={() => review("reject")}
+          onClick={() => void review("reject")}
         >
           Review rejection
         </button>
@@ -1105,6 +1125,7 @@ export function Requests({
           )}
         </section>
         <RequestActions
+          session={session}
           mutations={mutations}
           detail={detail}
           onRefresh={onRefresh}
