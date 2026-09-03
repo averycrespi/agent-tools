@@ -5695,7 +5695,16 @@ async function runRequestAdjudication(
     ids[1]!,
     detail(
       ids[1]!,
-      policy("tool", "demo.safe", { equals: { "/mode": "safe" } }, "600"),
+      policy(
+        "tool",
+        "demo.safe",
+        {
+          version: 2,
+          equals: { "/mode": "safe" },
+          regex: { "/resource": "item-\\d+" },
+        },
+        "600",
+      ),
     ),
   );
   for (let index = 2; index <= 5; index++)
@@ -5782,10 +5791,15 @@ async function runRequestAdjudication(
     const submitted = item.requested_policy as ReturnType<typeof policy>;
     if (action === "approve") {
       approvals += 1;
-      const body = JSON.parse(route.request().postData() ?? "null") as Record<
-        string,
-        unknown
-      >;
+      const raw = route.request().postData() ?? "null";
+      if (
+        id === ids[1] &&
+        (!raw.includes('"/attempt":1.0') ||
+          !raw.includes('"/resource":"item-\\\\d+"') ||
+          !raw.includes('"/zone":"(local|dev)"'))
+      )
+        fail(`version 2 approval did not preserve matcher tokens: ${raw}`);
+      const body = JSON.parse(raw) as Record<string, unknown>;
       if (
         Object.keys(body).join(",") !== "description,approved_policy" ||
         (body.description !== null && typeof body.description !== "string")
@@ -5895,7 +5909,21 @@ async function runRequestAdjudication(
     .waitFor();
   await page
     .locator('[data-testid="approval-constraint"]')
-    .fill('{"equals":{"/mode":"safe","/region":"local"}}');
+    .fill('{"equals":{"/mode":"safe"}}');
+  await reviewApproval();
+  await page
+    .getByText(
+      "Approval cannot remove or change a submitted constraint atom.",
+      { exact: true },
+    )
+    .waitFor();
+  await page
+    .locator('[data-testid="approval-constraint"]')
+    .fill(
+      '{"version":2,"equals":{"/mode":"safe","/attempt":1.0},"regex":{"/resource":"item-\\\\d+","/zone":"(local|dev)"}}',
+    );
+  if (await page.getByText("Check adjudication", { exact: true }).isVisible())
+    fail("corrected matcher retained a stale adjudication error");
   await reviewApproval();
   await confirm();
   await page

@@ -416,6 +416,45 @@ function Evidence({
   );
 }
 
+interface MatcherShape {
+  version: 1 | 2;
+  equals: JSONRecord;
+  regex: JSONRecord;
+}
+
+function matcherShape(value: unknown): MatcherShape {
+  const constraint = scalarObject(value) as JSONRecord;
+  const keys = Object.keys(constraint);
+  const version =
+    keys.length === 1 && keys[0] === "equals"
+      ? 1
+      : constraint.version === 2 &&
+          keys.every((key) => ["version", "equals", "regex"].includes(key)) &&
+          (constraint.equals !== undefined || constraint.regex !== undefined)
+        ? 2
+        : undefined;
+  if (version === undefined) throw new Error("invalid constraint");
+  const equals =
+    constraint.equals === undefined
+      ? {}
+      : (scalarObject(constraint.equals) as JSONRecord);
+  const regex =
+    constraint.regex === undefined
+      ? {}
+      : (scalarObject(constraint.regex) as JSONRecord);
+  const atoms = Object.keys(equals).length + Object.keys(regex).length;
+  if (
+    atoms < 1 ||
+    atoms > 16 ||
+    Object.values(equals).some(
+      (item) => typeof item === "object" && item !== null,
+    ) ||
+    Object.values(regex).some((item) => typeof item !== "string")
+  )
+    throw new Error("invalid constraint");
+  return { version, equals, regex };
+}
+
 function constraintRetained(
   submitted: unknown | null,
   approved: unknown | null,
@@ -423,14 +462,15 @@ function constraintRetained(
   if (submitted === null) return true;
   if (approved === null) return false;
   try {
-    const left = record(submitted, ["equals"]);
-    const right = record(approved, ["equals"]);
-    const submittedEquals = scalarObject(left.equals) as JSONRecord;
-    const approvedEquals = scalarObject(right.equals) as JSONRecord;
-    return Object.entries(submittedEquals).every(
-      ([pointer, value]) =>
-        Object.hasOwn(approvedEquals, pointer) &&
-        JSON.stringify(approvedEquals[pointer]) === JSON.stringify(value),
+    const left = matcherShape(submitted);
+    const right = matcherShape(approved);
+    if (left.version === 2 && right.version !== 2) return false;
+    return (["equals", "regex"] as const).every((operator) =>
+      Object.entries(left[operator]).every(
+        ([pointer, value]) =>
+          Object.hasOwn(right[operator], pointer) &&
+          JSON.stringify(right[operator][pointer]) === JSON.stringify(value),
+      ),
     );
   } catch {
     return false;
@@ -516,10 +556,10 @@ function RequestActions({
     if (constraint !== "") {
       try {
         parsedConstraint = JSON.parse(constraint) as unknown;
+        matcherShape(parsedConstraint);
       } catch {
-        throw new Error("Constraint must be valid JSON.");
+        throw new Error("Constraint must use the supported matcher shape.");
       }
-      scalarObject(parsedConstraint);
     }
     if (scope === "server" && parsedConstraint !== null)
       throw new Error("Server approval cannot include a constraint.");
@@ -568,16 +608,8 @@ function RequestActions({
                   "Grant description cannot contain control characters.",
                 );
               const policy = approvedPolicy();
-              return JSON.stringify({
-                description: description === "" ? null : description,
-                approved_policy: {
-                  scope: policy.scope,
-                  target: policy.target,
-                  constraint: policy.constraint,
-                  duration_seconds: policy.durationSeconds,
-                  future_tools_acknowledged: policy.futureToolsAcknowledged,
-                },
-              });
+              const constraintToken = constraint === "" ? "null" : constraint;
+              return `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}}}`;
             })()
           : JSON.stringify({ reason });
       const spec: MutationSpec<RequestDetail> = {
@@ -706,8 +738,8 @@ function RequestActions({
       {scope === "tool" && (
         <FormField
           id="approval-constraint"
-          label="Approved equality constraint JSON"
-          hint="Submitted atoms must remain exact; additional atoms narrow the policy."
+          label="Approved matcher constraint JSON"
+          hint="Submitted equality and regex atoms must remain exact; additional atoms narrow the policy."
           optional
         >
           {(attributes) => (
@@ -716,7 +748,10 @@ function RequestActions({
               data-testid="approval-constraint"
               value={constraint}
               disabled={disabled}
-              onInput={(event) => setConstraint(event.currentTarget.value)}
+              onInput={(event) => {
+                setError(undefined);
+                setConstraint(event.currentTarget.value);
+              }}
             />
           )}
         </FormField>
