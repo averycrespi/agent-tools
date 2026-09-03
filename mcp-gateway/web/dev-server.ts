@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -154,8 +154,22 @@ export async function runDevelopmentServer(
       },
     });
     const activeVite = vite;
+    const favicon = await readFile(
+      resolve(import.meta.dirname, "public/favicon.svg"),
+    );
     installUpgradeAdmission(server);
     server.on("request", (incoming, response) => {
+      if (incoming.method === "GET" && incoming.url === "/assets/favicon.svg") {
+        response.writeHead(200, {
+          "Cache-Control": "no-store",
+          "Content-Length": String(favicon.byteLength),
+          "Content-Type": "image/svg+xml",
+          "Referrer-Policy": "no-referrer",
+          "X-Content-Type-Options": "nosniff",
+        });
+        response.end(favicon);
+        return;
+      }
       void handleDevelopmentRequest(incoming, response, config).then(
         (handled) => {
           if (!handled) activeVite.middlewares(incoming, response);

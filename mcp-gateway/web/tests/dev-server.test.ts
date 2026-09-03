@@ -327,6 +327,20 @@ test("source server serves authored modules and owns HMR without workspace outpu
     });
     assert.equal(sourceResponse.status, 200);
     assert.match(await sourceResponse.text(), /import \"\/src\/styles\.css\"/);
+
+    const faviconResponse = await fetch(
+      `${frontendOrigin}/assets/favicon.svg`,
+      { signal: AbortSignal.timeout(5_000) },
+    );
+    assert.equal(faviconResponse.status, 200);
+    assert.equal(faviconResponse.headers.get("content-type"), "image/svg+xml");
+    assert.equal(faviconResponse.headers.get("cache-control"), "no-store");
+    assert.deepEqual(
+      Buffer.from(await faviconResponse.arrayBuffer()),
+      await readFile(
+        resolve(repositoryRoot, "mcp-gateway/web/public/favicon.svg"),
+      ),
+    );
     await waitForHmr(frontendOrigin, token);
     assert.doesNotMatch(process.output(), /GET \/|\/src\/main\.tsx/);
 
