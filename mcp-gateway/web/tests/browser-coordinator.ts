@@ -4837,10 +4837,19 @@ async function runGrantReadsCreate(
     .locator('[data-testid="constraint-pointer"]')
     .nth(4)
     .fill("/resource");
+  await page.locator('[data-testid="constraint-value"]').nth(3).fill("[");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  await page
+    .getByText("/regex/~1resource: pattern is not valid RE2", { exact: true })
+    .waitFor();
+  if (creates !== 1) fail("invalid RE2 grant matcher reached confirmation");
   await page
     .locator('[data-testid="constraint-value"]')
     .nth(3)
     .fill("item-\\d+");
+  await page
+    .getByText("/regex/~1resource: pattern is not valid RE2", { exact: true })
+    .waitFor({ state: "hidden" });
   if (
     (await page.locator('[data-testid="grant-expiry"]').inputValue()) !==
     "2030-01-01T00:00:00Z"

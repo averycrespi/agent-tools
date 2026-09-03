@@ -122,6 +122,46 @@ async function requestJSON(
     return { response, value: (await response.json()) as unknown };
   });
 }
+async function validateGrantConstraint(
+  session: SessionClient,
+  constraint: string,
+): Promise<string | null | undefined> {
+  return session.runProtected(async (context) => {
+    const response = await fetch("/api/v1/grant-constraints/validate", {
+      method: "POST",
+      credentials: "same-origin",
+      redirect: "error",
+      signal: context.signal,
+      headers: {
+        ...headers(context),
+        "Content-Type": "application/json",
+      },
+      body: `{"constraint":${constraint}}`,
+    });
+    if (await context.sessionLost(response)) return undefined;
+    if (
+      response.status !== 200 ||
+      response.headers.get("Content-Type") !== "application/json"
+    )
+      throw new Error("Matcher validation is unavailable.");
+    const result = record((await response.json()) as unknown, [
+      "valid",
+      "diagnostics",
+    ]);
+    if (typeof result.valid !== "boolean" || !Array.isArray(result.diagnostics))
+      throw new Error("Matcher validation returned an invalid response.");
+    if (result.valid) {
+      if (result.diagnostics.length !== 0)
+        throw new Error("Matcher validation returned an invalid response.");
+      return null;
+    }
+    if (result.diagnostics.length !== 1)
+      throw new Error("Matcher validation returned an invalid response.");
+    const diagnostic = record(result.diagnostics[0], ["field", "message"]);
+    return `${text(diagnostic.field)}: ${text(diagnostic.message)}`;
+  });
+}
+
 async function readServers(session: SessionClient): Promise<ServerView[]> {
   const items: ServerView[] = [];
   let cursor: string | null = null;
@@ -236,11 +276,13 @@ function previewConstraint(atoms: readonly Atom[]): unknown {
 }
 
 function GrantCreate({
+  session,
   mutations,
   query,
   principals,
   servers,
 }: {
+  session: SessionClient;
   mutations: MutationCoordinator;
   query: Readonly<Record<string, string>>;
   principals: readonly Principal[];
@@ -271,6 +313,7 @@ function GrantCreate({
   const [expiresAt, setExpiresAt] = useState("");
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [error, setError] = useState<string>();
+  const [validating, setValidating] = useState(false);
   const submitButton = useRef<HTMLButtonElement>(null);
   const [controller] = useState<MutationController<Grant>>(() =>
     mutations.create<Grant>(),
@@ -278,17 +321,20 @@ function GrantCreate({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
+  const draftFingerprint = JSON.stringify({
+    description,
+    principalID,
+    effect,
+    serverID,
+    scope,
+    upstreamName,
+    expiresAt,
+    atoms,
+  });
+  const currentDraft = useRef(draftFingerprint);
+  currentDraft.current = draftFingerprint;
   const navigate = useUnsavedChanges(
-    JSON.stringify({
-      description,
-      principalID,
-      effect,
-      serverID,
-      scope,
-      upstreamName,
-      expiresAt,
-      atoms,
-    }) !== JSON.stringify(initialDraft.current),
+    draftFingerprint !== JSON.stringify(initialDraft.current),
   );
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
@@ -300,7 +346,8 @@ function GrantCreate({
       ),
     );
   };
-  const review = () => {
+  const review = async () => {
+    const reviewedDraft = currentDraft.current;
     setError(undefined);
     try {
       if (
@@ -346,6 +393,13 @@ function GrantCreate({
       )
         throw new Error("Expiry must be a future canonical UTC timestamp.");
       const constraint = constraintText(atoms);
+      if (constraint !== "null") {
+        setValidating(true);
+        const diagnostic = await validateGrantConstraint(session, constraint);
+        if (diagnostic === undefined || currentDraft.current !== reviewedDraft)
+          return;
+        if (diagnostic !== null) throw new Error(diagnostic);
+      }
       const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
       const spec: MutationSpec<Grant> = {
         route: "/api/v1/grants",
@@ -361,9 +415,12 @@ function GrantCreate({
       controller.confirm();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Invalid grant.");
+    } finally {
+      setValidating(false);
     }
   };
   const disabled =
+    validating ||
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched";
   return (
@@ -382,7 +439,7 @@ function GrantCreate({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            review();
+            void review();
           }}
         >
           <FormField
@@ -678,9 +735,11 @@ function GrantCreate({
             type="submit"
             disabled={disabled}
           >
-            {mutation.state === "submitting"
-              ? "Creating…"
-              : "Review and create"}
+            {validating
+              ? "Validating matcher…"
+              : mutation.state === "submitting"
+                ? "Creating…"
+                : "Review and create"}
           </button>
         </form>
         <ConfirmationDialog
@@ -1275,6 +1334,7 @@ export function Grants({
       return <StateNotice state="loading" title="Loading grant options" />;
     return (
       <GrantCreate
+        session={session}
         mutations={mutations}
         query={resolved.location.query}
         principals={principals}
