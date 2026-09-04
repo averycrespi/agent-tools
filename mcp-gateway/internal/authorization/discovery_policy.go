@@ -44,7 +44,7 @@ func (repository *Repository) LoadDiscoveryPolicy(ctx context.Context, lease *Le
 			return err
 		}
 		view.AuthorizationRevision = revision
-		grants, err := loadStructuralGrants(ctx, transaction, lease.binding.PrincipalID, evaluatedAt)
+		grants, err := repository.loadStructuralGrants(ctx, transaction, lease.binding.PrincipalID, revision, evaluatedAt)
 		if err != nil {
 			return err
 		}
@@ -60,7 +60,7 @@ func (repository *Repository) LoadDiscoveryPolicy(ctx context.Context, lease *Le
 	return view, nil
 }
 
-func loadStructuralGrants(ctx context.Context, transaction *sql.Tx, principalID string, evaluatedAt time.Time) ([]StructuralGrant, error) {
+func (repository *Repository) loadStructuralGrants(ctx context.Context, transaction *sql.Tx, principalID, revision string, evaluatedAt time.Time) ([]StructuralGrant, error) {
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT id, principal_id, effect, server_id, upstream_name,
 		       constraint_json, expires_at, created_at
@@ -79,7 +79,9 @@ func loadStructuralGrants(ctx context.Context, transaction *sql.Tx, principalID 
 			return nil, ErrAuthorizationUnavailable
 		}
 		count++
-		grant, loadErr := loadEvaluationGrant(rows)
+		grant, loadErr := loadEvaluationGrant(rows, func(source string) (CompiledConstraint, error) {
+			return repository.compileConstraint(revision, source)
+		})
 		if loadErr != nil {
 			return nil, ErrAuthorizationUnavailable
 		}

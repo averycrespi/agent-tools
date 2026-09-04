@@ -16,6 +16,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCompiledConstraintCacheReusesOnlyExactRevisionBytes(t *testing.T) {
+	repository, _ := newRepository(t, nil)
+	source := `{"version":2,"regex":{"/resource":"item/[0-9]+"}}`
+
+	first, err := repository.compileConstraint("7", source)
+	require.NoError(t, err)
+	second, err := repository.compileConstraint("7", source)
+	require.NoError(t, err)
+	require.Len(t, first.atoms, 1)
+	require.Len(t, second.atoms, 1)
+	assert.Same(t, first.atoms[0].expression, second.atoms[0].expression)
+
+	differentBytes, err := repository.compileConstraint("7", `{"version":2,"regex":{"/resource":"item/[0-9]{1,}"}}`)
+	require.NoError(t, err)
+	assert.NotSame(t, first.atoms[0].expression, differentBytes.atoms[0].expression)
+
+	differentRevision, err := repository.compileConstraint("8", source)
+	require.NoError(t, err)
+	assert.NotSame(t, first.atoms[0].expression, differentRevision.atoms[0].expression)
+
+	_, err = repository.compileConstraint("7", source)
+	require.NoError(t, err)
+	currentRevision, err := repository.compileConstraint("8", source)
+	require.NoError(t, err)
+	assert.Same(t, differentRevision.atoms[0].expression, currentRevision.atoms[0].expression)
+}
+
 func TestEvaluateEnforcesDenyAllowBlockAndSmallestEvidence(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)

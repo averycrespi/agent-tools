@@ -25,13 +25,14 @@ func (repository *Repository) Evaluate(ctx context.Context, request EvaluationRe
 	var result contract.AuthorizationResult
 	err = repository.view(ctx, func(transaction *sql.Tx) error {
 		var evaluateErr error
-		result, evaluateErr = evaluateTx(ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt)
+		result, evaluateErr = evaluateTx(repository, ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt)
 		return evaluateErr
 	})
 	return result, err
 }
 
 func evaluateTx(
+	repository *Repository,
 	ctx context.Context,
 	transaction *sql.Tx,
 	principalID string,
@@ -67,7 +68,9 @@ func evaluateTx(
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
 		count++
-		grant, loadErr := loadEvaluationGrant(rows)
+		grant, loadErr := loadEvaluationGrant(rows, func(source string) (CompiledConstraint, error) {
+			return repository.compileConstraint(revision, source)
+		})
 		if loadErr != nil {
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
@@ -111,7 +114,7 @@ type evaluationGrant struct {
 	expiresAt    *time.Time
 }
 
-func loadEvaluationGrant(scanner grantScanner) (evaluationGrant, error) {
+func loadEvaluationGrant(scanner grantScanner, compile func(string) (CompiledConstraint, error)) (evaluationGrant, error) {
 	var (
 		grant                          evaluationGrant
 		principalID, effect, createdAt string
@@ -130,7 +133,7 @@ func loadEvaluationGrant(scanner grantScanner) (evaluationGrant, error) {
 		return evaluationGrant{}, ErrAuthorizationUnavailable
 	}
 	if constraintJSON.Valid {
-		compiled, err := CompileConstraint([]byte(constraintJSON.String))
+		compiled, err := compile(constraintJSON.String)
 		if err != nil {
 			return evaluationGrant{}, ErrAuthorizationUnavailable
 		}

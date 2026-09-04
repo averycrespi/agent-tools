@@ -28,6 +28,10 @@ func (repository *Repository) HasActiveDenyConflictTx(
 	if repository.store.Latched() {
 		return false, ErrStorageUnavailable
 	}
+	revision, err := authorizationRevisionTx(ctx, transaction)
+	if err != nil {
+		return false, err
+	}
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT id, principal_id, effect, server_id, upstream_name,
 		       constraint_json, expires_at, created_at
@@ -47,7 +51,9 @@ func (repository *Repository) HasActiveDenyConflictTx(
 			return false, ErrAuthorizationUnavailable
 		}
 		count++
-		grant, loadErr := loadEvaluationGrant(rows)
+		grant, loadErr := loadEvaluationGrant(rows, func(source string) (CompiledConstraint, error) {
+			return repository.compileConstraint(revision, source)
+		})
 		if loadErr != nil || grant.effect != contract.GrantDeny {
 			return false, ErrAuthorizationUnavailable
 		}

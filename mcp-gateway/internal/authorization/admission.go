@@ -69,6 +69,7 @@ func (admission *Admission) VerifyResolvedTx(
 	}
 	evaluatedAt := admission.repository.clock.Now().UTC()
 	result, err := evaluateTx(
+		admission.repository,
 		ctx,
 		transaction,
 		admission.lease.binding.PrincipalID,
