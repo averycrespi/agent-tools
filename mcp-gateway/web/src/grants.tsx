@@ -297,8 +297,7 @@ function GrantCreate({
     if (selectedDescriptorSummary === undefined) return () => request.abort();
     void readMatcherDescriptor(
       session,
-      serverID,
-      selectedDescriptorSummary.id,
+      selectedDescriptorSummary,
       request.signal,
     )
       .then((item) => {
@@ -702,8 +701,10 @@ function GrantCreate({
                       ? "Not applicable to server-wide authority"
                       : catalogError
                         ? "Unavailable — literal manual name"
-                        : selectedDescriptorSummary === undefined
-                          ? "No current descriptor — literal manual name"
+                        : selectedDescriptorSummary === undefined ||
+                            selectedDescriptor === undefined ||
+                            descriptorError
+                          ? "No verified current descriptor — literal manual name"
                           : `Current durable descriptor · catalog revision ${selectedDescriptorSummary.catalogRevision}`}
                   </dd>
                 </div>

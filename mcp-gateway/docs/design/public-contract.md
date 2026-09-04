@@ -59,7 +59,7 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. They use the sole invocation repository and introduce no mutation, replay, event, or mutable join.
 
-The non-mutating grant matcher validation mechanic is `GrantConstraintValidation` → `GrantConstraintValidationResult`. The request is exactly `{constraint}`. A well-formed request always returns `200`: valid constraints return an empty diagnostics array, while invalid constraints return one safe `GrantConstraintDiagnostic` with a JSON Pointer field and fixed message. The endpoint uses the production compiler, writes no durable state, publishes no invalidation, and grant creation and request approval still compile authoritatively in their own mutation paths.
+The non-mutating grant matcher validation mechanic is `GrantConstraintValidation` → `GrantConstraintValidationResult`. The request is exactly `{constraint}`, where `constraint` must be a non-null object; missing, null, or non-object members are malformed requests. A well-formed request always returns `200`: valid constraints return an empty diagnostics array, while compiler-invalid constraint objects return one safe `GrantConstraintDiagnostic` with a JSON Pointer field and fixed message. The endpoint uses the production compiler, writes no durable state, publishes no invalidation, and grant creation and request approval still compile authoritatively in their own mutation paths.
 
 ### Safe problems
 
@@ -258,27 +258,27 @@ Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `m
 
 Administrator rotation uses `AdminAuthority` exactly `{revision}`; its revision is the maximum administrator credential revision and advances on every create, revoke, reset, or completed rotation. `AdminCredentialRotationCompletion` is exactly `{replacement_id}` and returns `AdminCredentialRotationResult` exactly `{old_credential,new_credential}` plus the resulting authority ETag. Conditional create compares the supplied authority revision before mutation. Completion rechecks that the named old credential is active, the replacement is active and non-expiring, and the authority revision is unchanged, then revokes only the named old credential in one transaction.
 
-| Method and pattern                                   | Closed request schema      | Success schema/status                         | Cursor | Idempotency | Exact `If-Match` | Response ETag |
-| ---------------------------------------------------- | -------------------------- | --------------------------------------------- | ------ | ----------- | ---------------- | ------------- |
-| `GET /api/v1/servers`                                | `ServerListQuery`          | `Page<Server>` / 200                          | yes    | no          | no               | no            |
-| `POST /api/v1/servers`                               | `ServerCreate`             | `ServerMutation` / 201 or replay 200          | no     | yes         | no               | yes           |
-| `GET /api/v1/servers/{id}`                           | none                       | `Server` / 200                                | no     | no          | no               | yes           |
-| `PATCH /api/v1/servers/{id}`                         | `ServerPatch`              | `ServerMutation` / 200                        | no     | no          | yes              | yes           |
-| `DELETE /api/v1/servers/{id}`                        | `EmptyObject`              | `ServerMutation` / 202 or replay 200          | no     | no          | yes              | yes           |
-| `GET /api/v1/servers/{id}/operations`                | `ServerOperationListQuery` | `Page<ServerOperation>` / 200                 | yes    | no          | no               | no            |
-| `POST /api/v1/servers/{id}/operations`               | `ServerOperationCreate`    | `ServerOperationMutation` / 202 or replay 200 | no     | yes         | yes              | no            |
-| `GET /api/v1/servers/{id}/operations/{operation_id}` | none                       | `ServerOperation` / 200                       | no     | no          | no               | no            |
-| `POST /api/v1/servers/{id}/credential-replacements`  | `CredentialReplacement`    | `CredentialReplacementResult` / 202           | no     | no          | yes              | no            |
-| `GET /api/v1/servers/{id}/auth-flows`                | `ServerAuthFlowListQuery`  | `Page<ServerAuthFlow>` / 200                  | yes    | no          | no               | no            |
-| `POST /api/v1/servers/{id}/auth-flows`               | `EmptyObject`              | `AuthFlowCreation` / 201                      | no     | no          | yes              | no            |
-| `GET /api/v1/servers/{id}/auth-flows/{flow_id}`      | none                       | `ServerAuthFlow` / 200                        | no     | no          | no               | no            |
-| `DELETE /api/v1/servers/{id}/auth-flows/{flow_id}`   | `EmptyObject`              | empty / 204                                   | no     | no          | no               | no            |
-| `GET /api/v1/catalog`                                | `CatalogListQuery`         | `CatalogPage` / 200                           | yes    | no          | no               | no            |
-| `GET /api/v1/servers/{id}/descriptors`               | `DescriptorListQuery`      | `Page<ToolDescriptor>` or summary page / 200  | yes    | no          | no               | no            |
-| `GET /api/v1/servers/{id}/descriptors/{tool_id}`     | none                       | `ToolDescriptor` / 200                        | no     | no          | no               | no            |
-| `GET /oauth/callback`                                | `OAuthCallbackQuery`       | fixed `OAuthCallbackHTML` / 200, 400, or 503  | no     | no          | no               | no            |
+| Method and pattern                                   | Closed request schema      | Success schema/status                                     | Cursor | Idempotency | Exact `If-Match` | Response ETag |
+| ---------------------------------------------------- | -------------------------- | --------------------------------------------------------- | ------ | ----------- | ---------------- | ------------- |
+| `GET /api/v1/servers`                                | `ServerListQuery`          | `Page<Server>` / 200                                      | yes    | no          | no               | no            |
+| `POST /api/v1/servers`                               | `ServerCreate`             | `ServerMutation` / 201 or replay 200                      | no     | yes         | no               | yes           |
+| `GET /api/v1/servers/{id}`                           | none                       | `Server` / 200                                            | no     | no          | no               | yes           |
+| `PATCH /api/v1/servers/{id}`                         | `ServerPatch`              | `ServerMutation` / 200                                    | no     | no          | yes              | yes           |
+| `DELETE /api/v1/servers/{id}`                        | `EmptyObject`              | `ServerMutation` / 202 or replay 200                      | no     | no          | yes              | yes           |
+| `GET /api/v1/servers/{id}/operations`                | `ServerOperationListQuery` | `Page<ServerOperation>` / 200                             | yes    | no          | no               | no            |
+| `POST /api/v1/servers/{id}/operations`               | `ServerOperationCreate`    | `ServerOperationMutation` / 202 or replay 200             | no     | yes         | yes              | no            |
+| `GET /api/v1/servers/{id}/operations/{operation_id}` | none                       | `ServerOperation` / 200                                   | no     | no          | no               | no            |
+| `POST /api/v1/servers/{id}/credential-replacements`  | `CredentialReplacement`    | `CredentialReplacementResult` / 202                       | no     | no          | yes              | no            |
+| `GET /api/v1/servers/{id}/auth-flows`                | `ServerAuthFlowListQuery`  | `Page<ServerAuthFlow>` / 200                              | yes    | no          | no               | no            |
+| `POST /api/v1/servers/{id}/auth-flows`               | `EmptyObject`              | `AuthFlowCreation` / 201                                  | no     | no          | yes              | no            |
+| `GET /api/v1/servers/{id}/auth-flows/{flow_id}`      | none                       | `ServerAuthFlow` / 200                                    | no     | no          | no               | no            |
+| `DELETE /api/v1/servers/{id}/auth-flows/{flow_id}`   | `EmptyObject`              | empty / 204                                               | no     | no          | no               | no            |
+| `GET /api/v1/catalog`                                | `CatalogListQuery`         | `CatalogPage` / 200                                       | yes    | no          | no               | no            |
+| `GET /api/v1/servers/{id}/descriptors`               | `DescriptorListQuery`      | `Page<ToolDescriptor>\|Page<ToolDescriptorSummary>` / 200 | yes    | no          | no               | no            |
+| `GET /api/v1/servers/{id}/descriptors/{tool_id}`     | none                       | `ToolDescriptor` / 200                                    | no     | no          | no               | no            |
+| `GET /oauth/callback`                                | `OAuthCallbackQuery`       | fixed `OAuthCallbackHTML` / 200, 400, or 503              | no     | no          | no               | no            |
 
-In the executable mechanics tables, `None` means no query or request body and `Empty` means an empty response body. A page is exactly `{items,next_cursor}`. List query schemas permit only their declared cursor and limit members; grant lists additionally permit `principal_id` and `server_id`, and descriptor lists permit `retired`.
+The executable descriptor-collection success schema is `Page<ToolDescriptor>|Page<ToolDescriptorSummary>`; the selected representation determines which closed item shape is returned. In the executable mechanics tables, `None` means no query or request body and `Empty` means an empty response body. A page is exactly `{items,next_cursor}`. List query schemas permit only their declared cursor and limit members; grant lists additionally permit `principal_id` and `server_id`, and descriptor lists permit `retired` plus the sole optional alternate representation `representation=summary`.
 
 `ServerCreate` is exactly `{namespace,display_name,enabled,transport}`; a nonempty `ServerPatch` permits only `display_name`, `enabled`, and complete `transport`. `ServerMutation` is exactly `{server,operation}`. `ServerOperationCreate` accepts only `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`; other operation kinds are internally generated.
 

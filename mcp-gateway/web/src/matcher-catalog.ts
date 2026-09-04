@@ -159,7 +159,11 @@ function decodeSummaryPage(value: unknown): {
     page === undefined ||
     Object.keys(page).sort().join(",") !== "items,next_cursor" ||
     !Array.isArray(page.items) ||
-    (page.next_cursor !== null && typeof page.next_cursor !== "string")
+    page.items.length > 100 ||
+    (page.next_cursor !== null &&
+      (typeof page.next_cursor !== "string" ||
+        page.next_cursor === "" ||
+        new TextEncoder().encode(page.next_cursor).length > 2048))
   )
     throw new Error("invalid response");
   return {
@@ -205,6 +209,7 @@ export async function readMatcherDescriptors(
     const items: MatcherDescriptorSummary[] = [];
     let cursor: string | null = null;
     let restarted = false;
+    const seenCursors = new Set<string>();
     for (;;) {
       const query = new URLSearchParams({
         limit: "100",
@@ -228,6 +233,7 @@ export async function readMatcherDescriptors(
       if (response.status === 409 && cursor !== null && !restarted) {
         items.length = 0;
         cursor = null;
+        seenCursors.clear();
         restarted = true;
         continue;
       }
@@ -237,8 +243,15 @@ export async function readMatcherDescriptors(
       )
         throw new Error("Catalog tools are unavailable.");
       const page = decodeSummaryPage((await response.json()) as unknown);
+      if (page.items.some((item) => item.serverID !== serverID))
+        throw new Error("Catalog pagination returned the wrong server.");
+      if (items.length + page.items.length > 256)
+        throw new Error("Catalog tools exceed the supported limit.");
       items.push(...page.items);
       if (page.nextCursor === null) return items;
+      if (seenCursors.has(page.nextCursor) || items.length >= 256)
+        throw new Error("Catalog pagination is invalid.");
+      seenCursors.add(page.nextCursor);
       cursor = page.nextCursor;
     }
   });
@@ -246,15 +259,14 @@ export async function readMatcherDescriptors(
 
 export async function readMatcherDescriptor(
   session: SessionClient,
-  serverID: string,
-  descriptorID: string,
+  summary: MatcherDescriptorSummary,
   signal?: AbortSignal,
 ): Promise<DescriptorView | undefined> {
-  if (!gatewayID.test(serverID) || !gatewayID.test(descriptorID))
+  if (!gatewayID.test(summary.serverID) || !gatewayID.test(summary.id))
     return undefined;
   return session.runProtected(async (context) => {
     const response = await fetch(
-      `/api/v1/servers/${serverID}/descriptors/${descriptorID}`,
+      `/api/v1/servers/${summary.serverID}/descriptors/${summary.id}`,
       {
         credentials: "same-origin",
         redirect: "error",
@@ -271,6 +283,16 @@ export async function readMatcherDescriptor(
       response.headers.get("Content-Type") !== "application/json"
     )
       throw new Error("The selected tool schema is unavailable.");
-    return decodeDescriptorResource((await response.json()) as unknown);
+    const descriptor = decodeDescriptorResource(
+      (await response.json()) as unknown,
+    );
+    if (
+      descriptor.id !== summary.id ||
+      descriptor.serverID !== summary.serverID ||
+      descriptor.upstreamName !== summary.upstreamName ||
+      descriptor.retiredAt !== null
+    )
+      throw new Error("The selected tool schema is no longer current.");
+    return descriptor;
   });
 }

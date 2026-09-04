@@ -66,7 +66,7 @@ func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerAuthFlow", SuccessStatuses: []int{200}},
 		{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
 		{Pattern: "/api/v1/catalog", Method: "GET", RequestSchema: "CatalogListQuery", SuccessSchema: "CatalogPage", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery", SuccessSchema: "Page<ToolDescriptor>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery", SuccessSchema: "Page<ToolDescriptor>|Page<ToolDescriptorSummary>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ToolDescriptor", SuccessStatuses: []int{200}},
 		{Pattern: "/oauth/callback", Method: "GET", RequestSchema: "OAuthCallbackQuery", SuccessSchema: "OAuthCallbackHTML", SuccessStatuses: []int{200, 400, 503}},
 	}
@@ -254,6 +254,7 @@ func TestServerResourceShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, ServerAuthFlow{}, "id", "server_id", "flow_state", "target_desired_revision", "registration_revision", "created_at", "expires_at", "finished_at", "reason", "diagnostic")
 	requireJSONKeys(t, OAuthDiagnostic{}, "correlation_id", "stage", "reason", "http_status")
 	requireJSONKeys(t, ToolDescriptor{}, "id", "server_id", "upstream_name", "external_name", "descriptor", "fingerprint", "catalog_revision", "first_seen_at", "last_seen_at", "retired_at")
+	requireJSONKeys(t, ToolDescriptorSummary{}, "id", "server_id", "upstream_name", "external_name", "catalog_revision")
 	requireJSONKeys(t, CatalogPage{}, "catalog", "items", "next_cursor")
 	requireJSONKeys(t, ServerMutation{}, "server", "operation")
 	requireJSONKeys(t, ServerConfigurationContext{}, "field", "rule")

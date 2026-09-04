@@ -57,7 +57,7 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerAuthFlow", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
 	{Pattern: "/api/v1/catalog", Method: "GET", RequestSchema: "CatalogListQuery", SuccessSchema: "CatalogPage", SuccessStatuses: []int{200}, Cursor: true},
-	{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery", SuccessSchema: "Page<ToolDescriptor>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery", SuccessSchema: "Page<ToolDescriptor>|Page<ToolDescriptorSummary>", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ToolDescriptor", SuccessStatuses: []int{200}},
 	{Pattern: "/oauth/callback", Method: "GET", RequestSchema: "OAuthCallbackQuery", SuccessSchema: "OAuthCallbackHTML", SuccessStatuses: []int{200, 400, 503}},
 	{Pattern: "/api/v1/principals", Method: "GET", RequestSchema: "PrincipalListQuery", SuccessSchema: "Page<Principal>", SuccessStatuses: []int{200}, Cursor: true},

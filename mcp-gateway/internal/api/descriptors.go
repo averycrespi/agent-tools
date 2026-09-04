@@ -110,11 +110,14 @@ func parseDescriptorQuery(query url.Values) (int, contract.DescriptorRetiredFilt
 		}
 		cursor = &decoded
 	}
-	representation := query.Get("representation")
-	if representation != "" && representation != "summary" {
-		return 0, "", nil, false, contract.ProblemMalformedRequest
+	summary := false
+	if representation, present := query["representation"]; present {
+		if len(representation) != 1 || representation[0] != "summary" {
+			return 0, "", nil, false, contract.ProblemMalformedRequest
+		}
+		summary = true
 	}
-	return limit, retired, cursor, representation == "summary", ""
+	return limit, retired, cursor, summary, ""
 }
 
 func encodeDescriptorCursor(cursor catalog.DescriptorCursor) string {

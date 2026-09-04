@@ -683,8 +683,7 @@ function RequestActions({
       return () => request.abort();
     void readMatcherDescriptor(
       session,
-      detail.resolvedServerID,
-      selectedApprovalDescriptorSummary.id,
+      selectedApprovalDescriptorSummary,
       request.signal,
     )
       .then((item) => {
@@ -1166,8 +1165,10 @@ function RequestActions({
                       : narrowsServerToTool
                         ? approvalCatalogError
                           ? "Unavailable — literal manual name"
-                          : selectedApprovalDescriptorSummary === undefined
-                            ? "No current descriptor — literal manual name"
+                          : selectedApprovalDescriptorSummary === undefined ||
+                              selectedApprovalDescriptor === undefined ||
+                              approvalDescriptorError
+                            ? "No verified current descriptor — literal manual name"
                             : `Current durable descriptor · catalog revision ${selectedApprovalDescriptorSummary.catalogRevision}`
                         : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
                   </dd>

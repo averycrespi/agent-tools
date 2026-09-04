@@ -78,6 +78,7 @@ func TestDescriptorRequestValidationAndSafeErrors(t *testing.T) {
 		"/api/v1/servers/" + testID + "/descriptors?retired=bad",
 		"/api/v1/servers/" + testID + "/descriptors?retired=include&retired=only",
 		"/api/v1/servers/" + testID + "/descriptors?representation=full",
+		"/api/v1/servers/" + testID + "/descriptors?representation=",
 		"/api/v1/servers/" + testID + "/descriptors?representation=summary&representation=summary",
 	} {
 		response := perform(handler, http.MethodGet, target, "", map[string]string{"Authorization": "Bearer " + testBearer})
