@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import { matcherSchemaSuggestions } from "./matcher-catalog";
+import { MatcherAtomEditor, matcherConstraintText } from "./matcher-editor";
+import type { MatcherAtom } from "./matcher-editor";
 import { validateMatcherConstraint } from "./matcher-validation";
 import type { PrincipalDirectory } from "./principals";
 import { useUnsavedChanges } from "./navigation";
@@ -597,14 +600,14 @@ function RequestActions({
   const [description, setDescription] = useState(defaultDescription);
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
-  const [additionalConstraint, setAdditionalConstraint] = useState("");
+  const [additionalAtoms, setAdditionalAtoms] = useState<MatcherAtom[]>([]);
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
   const initialDraft = useRef({
     description: defaultDescription,
     scope: submitted.scope,
     target: submitted.target,
-    additionalConstraint: "",
+    additionalAtoms: [] as MatcherAtom[],
     duration: submitted.durationSeconds ?? "",
     reason: "not_approved",
   });
@@ -612,7 +615,7 @@ function RequestActions({
     description,
     scope,
     target,
-    additionalConstraint,
+    additionalAtoms,
     duration,
     reason,
   });
@@ -636,6 +639,17 @@ function RequestActions({
     if (etag === null) throw new Error("invalid response");
     return decodeRequestDetail(value, etag, requestedConstraintSource(source));
   };
+  const approvalSuggestions =
+    detail.currentTarget.descriptor === null
+      ? undefined
+      : matcherSchemaSuggestions(detail.currentTarget.descriptor);
+  const additionalConstraintSource = () =>
+    additionalAtoms.length === 0
+      ? ""
+      : matcherConstraintText(
+          additionalAtoms,
+          detail.submittedConstraintSource !== null,
+        );
   const approvedPolicy = (): Policy => {
     if (
       submitted.scope === "tool" &&
@@ -653,7 +667,7 @@ function RequestActions({
     try {
       constraintSource = mergeConstraintSource(
         detail.submittedConstraintSource,
-        additionalConstraint,
+        additionalConstraintSource(),
       );
     } catch (caught) {
       if (caught instanceof Error && caught.message.startsWith("Additional "))
@@ -692,7 +706,7 @@ function RequestActions({
     try {
       return mergeConstraintSource(
         detail.submittedConstraintSource,
-        additionalConstraint,
+        additionalConstraintSource(),
       );
     } catch {
       return "";
@@ -720,7 +734,7 @@ function RequestActions({
         const policy = approvedPolicy();
         const constraintSource = mergeConstraintSource(
           detail.submittedConstraintSource,
-          additionalConstraint,
+          additionalConstraintSource(),
         );
         if (constraintSource !== "") {
           setValidating(true);
@@ -769,7 +783,7 @@ function RequestActions({
         description,
         scope,
         target,
-        additionalConstraint,
+        additionalAtoms,
         duration,
         reason,
       };
@@ -841,7 +855,7 @@ function RequestActions({
               setScope(next);
               if (next === "server") {
                 setTarget(submitted.target);
-                setAdditionalConstraint("");
+                setAdditionalAtoms([]);
               }
             }}
           >
@@ -884,29 +898,28 @@ function RequestActions({
               )}
             </FormField>
           )}
-          <FormField
-            id="approval-additional-constraint"
-            label="Additional matcher atoms"
-            hint={
-              detail.submittedConstraintSource === null
-                ? "Optional complete matcher constraint. It becomes the approved constraint."
-                : "Optional version 2 matcher containing only new operator and pointer pairs. It is conjoined with the locked submitted atoms."
-            }
-            optional
-          >
-            {(attributes) => (
-              <textarea
-                {...attributes}
-                data-testid="approval-additional-constraint"
-                value={additionalConstraint}
-                disabled={disabled}
-                onInput={(event) => {
-                  setError(undefined);
-                  setAdditionalConstraint(event.currentTarget.value);
-                }}
-              />
-            )}
-          </FormField>
+          <div aria-labelledby="approval-additional-matchers-title">
+            <h3 id="approval-additional-matchers-title">
+              Additional matcher atoms
+              <span class="optional-label"> (optional)</span>
+            </h3>
+            <p class="field-hint">
+              New atoms are conjoined with the locked submitted policy.
+              Additions use the same equality and full-string RE2 controls as
+              grant creation.
+            </p>
+            <MatcherAtomEditor
+              idPrefix="approval-additional"
+              testPrefix="approval-additional"
+              atoms={additionalAtoms}
+              suggestions={approvalSuggestions}
+              disabled={disabled}
+              onChange={(next) => {
+                setError(undefined);
+                setAdditionalAtoms(next);
+              }}
+            />
+          </div>
         </>
       )}
       <FormField

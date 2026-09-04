@@ -4,6 +4,12 @@ import {
   matcherSchemaSuggestions,
   readMatcherDescriptors,
 } from "./matcher-catalog";
+import {
+  MatcherAtomEditor,
+  matcherConstraintText,
+  validMatcherPointer,
+} from "./matcher-editor";
+import type { MatcherAtom as Atom } from "./matcher-editor";
 import { validateMatcherConstraint } from "./matcher-validation";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -32,11 +38,9 @@ import { UserTime } from "./time";
 import type { ViewSnapshot } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
-const jsonNumber = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 type JSONRecord = Record<string, unknown>;
 type Effect = "allow" | "deny";
 type GrantState = "active" | "expired";
-type ScalarType = "null" | "boolean" | "string" | "number";
 interface Grant {
   id: string;
   description: string | null;
@@ -49,12 +53,6 @@ interface Grant {
   expiresAt: string | null;
   state: GrantState;
   createdAt: string;
-}
-interface Atom {
-  operator: "equals" | "regex";
-  pointer: string;
-  type: ScalarType;
-  value: string;
 }
 function record(value: unknown, keys: readonly string[]): JSONRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -187,62 +185,6 @@ async function decodeMutation(response: Response): Promise<Grant> {
     throw new Error("invalid response");
   return decodeGrant((await response.json()) as unknown);
 }
-function validPointer(pointer: string): boolean {
-  return (
-    pointer.startsWith("/") &&
-    new TextEncoder().encode(pointer).length <= 256 &&
-    !/~(?:[^01]|$)/.test(pointer)
-  );
-}
-function constraintText(atoms: readonly Atom[]): string {
-  if (atoms.length === 0) return "null";
-  const members = (operator: Atom["operator"]) =>
-    atoms
-      .filter((atom) => atom.operator === operator)
-      .map((atom) => {
-        let value: string;
-        if (operator === "regex") value = JSON.stringify(atom.value);
-        else if (atom.type === "null") value = "null";
-        else if (atom.type === "boolean") {
-          if (atom.value !== "true" && atom.value !== "false")
-            throw new Error("Boolean values must be true or false.");
-          value = atom.value;
-        } else if (atom.type === "number") {
-          if (!jsonNumber.test(atom.value))
-            throw new Error("Number values must use valid JSON number syntax.");
-          value = atom.value;
-        } else value = JSON.stringify(atom.value);
-        return `${JSON.stringify(atom.pointer)}:${value}`;
-      });
-  const equalities = members("equals");
-  const expressions = members("regex");
-  if (expressions.length === 0) return `{"equals":{${equalities.join(",")}}}`;
-  const equalsMember =
-    equalities.length === 0 ? "" : `,"equals":{${equalities.join(",")}}`;
-  return `{"version":2${equalsMember},"regex":{${expressions.join(",")}}}`;
-}
-function previewConstraint(atoms: readonly Atom[]): unknown {
-  if (atoms.length === 0) return null;
-  const equals: Record<string, unknown> = {};
-  const regex: Record<string, string> = {};
-  for (const atom of atoms) {
-    if (atom.operator === "regex") regex[atom.pointer] = atom.value;
-    else
-      equals[atom.pointer] =
-        atom.type === "null"
-          ? null
-          : atom.type === "boolean"
-            ? atom.value === "true"
-            : atom.value;
-  }
-  return Object.keys(regex).length === 0
-    ? { equals }
-    : {
-        version: 2,
-        ...(Object.keys(equals).length === 0 ? {} : { equals }),
-        regex,
-      };
-}
 
 function GrantCreate({
   session,
@@ -302,7 +244,7 @@ function GrantCreate({
       : matcherSchemaSuggestions(selectedDescriptor.descriptor);
   const reviewPolicy = (() => {
     try {
-      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
     } catch {
       return "Complete the policy to review its serialized form.";
     }
@@ -343,14 +285,6 @@ function GrantCreate({
       current = false;
     };
   }, [scope, serverID, session]);
-  const updateAtom = (index: number, patch: Partial<Atom>) => {
-    setError(undefined);
-    setAtoms((current) =>
-      current.map((atom, position) =>
-        position === index ? { ...atom, ...patch } : atom,
-      ),
-    );
-  };
   const review = async () => {
     const reviewedDraft = currentDraft.current;
     setError(undefined);
@@ -375,7 +309,7 @@ function GrantCreate({
         throw new Error("Server-wide grants cannot have argument constraints.");
       if (atoms.length > 16)
         throw new Error("At most 16 matcher atoms are allowed.");
-      if (atoms.some((atom) => !validPointer(atom.pointer)))
+      if (atoms.some((atom) => !validMatcherPointer(atom.pointer)))
         throw new Error("Each atom requires a valid RFC 6901 JSON pointer.");
       if (
         new Set(atoms.map((atom) => `${atom.operator}:${atom.pointer}`))
@@ -397,7 +331,7 @@ function GrantCreate({
           Date.parse(expiresAt) <= Date.now())
       )
         throw new Error("Expiry must be a future canonical UTC timestamp.");
-      const constraint = constraintText(atoms);
+      const constraint = matcherConstraintText(atoms);
       if (constraint !== "null") {
         setValidating(true);
         const diagnostic = await validateMatcherConstraint(session, constraint);
@@ -619,168 +553,16 @@ function GrantCreate({
                     : "Scalar fields from the selected tool schema are available as suggestions; choosing one does not add a rule."}
                 </p>
               )}
-              <datalist id="constraint-pointer-options">
-                {(schemaSuggestions?.fields ?? []).map((field) => (
-                  <option
-                    value={field.pointer}
-                    label={`${field.type}${field.values.length === 0 ? "" : ` · ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`}
-                    key={field.pointer}
-                  />
-                ))}
-              </datalist>
-              {atoms.map((atom, index) => {
-                const field = schemaSuggestions?.fields.find(
-                  (candidate) => candidate.pointer === atom.pointer,
-                );
-                return (
-                  <div
-                    class="form-grid"
-                    data-testid="constraint-atom"
-                    key={index}
-                  >
-                    <FormField
-                      id={`constraint-operator-${index}`}
-                      label="Operator"
-                    >
-                      {(attributes) => (
-                        <select
-                          {...attributes}
-                          data-testid="constraint-operator"
-                          value={atom.operator}
-                          onChange={(event) =>
-                            updateAtom(index, {
-                              operator: event.currentTarget
-                                .value as Atom["operator"],
-                              type:
-                                event.currentTarget.value === "regex"
-                                  ? "string"
-                                  : atom.type,
-                            })
-                          }
-                        >
-                          <option value="equals">Equals</option>
-                          <option value="regex">Full-string RE2</option>
-                        </select>
-                      )}
-                    </FormField>
-                    <FormField
-                      id={`constraint-pointer-${index}`}
-                      label="JSON pointer"
-                      hint={
-                        field === undefined
-                          ? "Enter a custom RFC 6901 pointer or choose a schema suggestion."
-                          : `${field.type}${field.regexAvailable ? " · regex available" : " · equality only"}${field.values.length === 0 ? "" : ` · allowed: ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`
-                      }
-                    >
-                      {(attributes) => (
-                        <input
-                          {...attributes}
-                          data-testid="constraint-pointer"
-                          value={atom.pointer}
-                          list="constraint-pointer-options"
-                          autocomplete="off"
-                          onInput={(event) => {
-                            const pointer = event.currentTarget.value;
-                            const suggestion = schemaSuggestions?.fields.find(
-                              (candidate) => candidate.pointer === pointer,
-                            );
-                            updateAtom(index, {
-                              pointer,
-                              ...(atom.operator === "equals" &&
-                              suggestion !== undefined
-                                ? { type: suggestion.type }
-                                : {}),
-                            });
-                          }}
-                        />
-                      )}
-                    </FormField>
-                    {atom.operator === "equals" && (
-                      <FormField
-                        id={`constraint-type-${index}`}
-                        label="Scalar type"
-                      >
-                        {(attributes) => (
-                          <select
-                            {...attributes}
-                            data-testid="constraint-type"
-                            value={atom.type}
-                            onChange={(event) =>
-                              updateAtom(index, {
-                                type: event.currentTarget.value as ScalarType,
-                              })
-                            }
-                          >
-                            <option value="null">null</option>
-                            <option value="boolean">boolean</option>
-                            <option value="string">string</option>
-                            <option value="number">number</option>
-                          </select>
-                        )}
-                      </FormField>
-                    )}
-                    {(atom.operator === "regex" || atom.type !== "null") && (
-                      <FormField
-                        id={`constraint-value-${index}`}
-                        label={
-                          atom.operator === "regex"
-                            ? "RE2 pattern"
-                            : "Scalar value"
-                        }
-                        hint={
-                          atom.operator === "regex"
-                            ? "The pattern must match the complete string value."
-                            : "The scalar is compared without coercion."
-                        }
-                      >
-                        {(attributes) => (
-                          <input
-                            {...attributes}
-                            data-testid="constraint-value"
-                            value={atom.value}
-                            onInput={(event) =>
-                              updateAtom(index, {
-                                value: event.currentTarget.value,
-                              })
-                            }
-                          />
-                        )}
-                      </FormField>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAtoms((current) =>
-                          current.filter((_, position) => position !== index),
-                        )
-                      }
-                    >
-                      Remove atom
-                    </button>
-                  </div>
-                );
-              })}
-              <button
-                data-testid="add-constraint-atom"
-                type="button"
-                disabled={atoms.length >= 16}
-                onClick={() =>
-                  setAtoms((current) => [
-                    ...current,
-                    {
-                      operator: "equals",
-                      pointer: "/",
-                      type: "string",
-                      value: "",
-                    },
-                  ])
-                }
-              >
-                Add matcher
-              </button>
-              <InertJSON
-                value={previewConstraint(atoms)}
-                label="Constraint preview"
+              <MatcherAtomEditor
+                idPrefix="constraint"
+                testPrefix="constraint"
+                addTestID="add-constraint-atom"
+                atoms={atoms}
+                suggestions={schemaSuggestions}
+                onChange={(next) => {
+                  setError(undefined);
+                  setAtoms(next);
+                }}
               />
             </section>
           )}

@@ -6069,9 +6069,11 @@ async function runRequestAdjudication(
     .fill("Access to demo.safe");
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
   await page.locator('[data-testid="approval-target"]').fill("demo.safe");
+  await page.locator('[data-testid="approval-additional-add"]').click();
   await page
-    .locator('[data-testid="approval-additional-constraint"]')
-    .fill('{"equals":{"/mode":"safe"}}');
+    .locator('[data-testid="approval-additional-pointer"]')
+    .fill("/mode");
+  await page.locator('[data-testid="approval-additional-value"]').fill("safe");
   await page.locator('[data-testid="approval-duration"]').fill("600");
   await reviewApproval();
   await confirm();
@@ -6107,15 +6109,21 @@ async function runRequestAdjudication(
     .getByText("A temporary request cannot become permanent.", { exact: true })
     .waitFor();
   await page.locator('[data-testid="approval-duration"]').fill("300");
-  const additionalConstraint = page.locator(
-    '[data-testid="approval-additional-constraint"]',
+  await page.locator('[data-testid="approval-additional-add"]').click();
+  const additionalPointers = page.locator(
+    '[data-testid="approval-additional-pointer"]',
   );
-  await additionalConstraint.fill('{"equals":{"/extra":1}}');
-  await reviewApproval();
-  await page
-    .getByText("Additional matcher atoms must use version 2.", { exact: true })
-    .waitFor();
-  await additionalConstraint.fill('{"version":2,"equals":{"/mode":"other"}}');
+  const additionalOperators = page.locator(
+    '[data-testid="approval-additional-operator"]',
+  );
+  const additionalTypes = page.locator(
+    '[data-testid="approval-additional-type"]',
+  );
+  const additionalValues = page.locator(
+    '[data-testid="approval-additional-value"]',
+  );
+  await additionalPointers.first().fill("/mode");
+  await additionalValues.first().fill("other");
   await reviewApproval();
   await page
     .getByText(
@@ -6123,18 +6131,20 @@ async function runRequestAdjudication(
       { exact: true },
     )
     .waitFor();
-  await additionalConstraint.fill(
-    '{"version":2,"equals":{"/extra":1.0},"regex":{"/zone":"["}}',
-  );
+  await additionalPointers.first().fill("/extra");
+  await additionalTypes.first().selectOption("number");
+  await additionalValues.first().fill("1.0");
+  await page.locator('[data-testid="approval-additional-add"]').click();
+  await additionalOperators.nth(1).selectOption("regex");
+  await additionalPointers.nth(1).fill("/zone");
+  await additionalValues.nth(1).fill("[");
   await reviewApproval();
   await page
     .getByText("/regex/~1zone: pattern is not valid RE2", { exact: true })
     .waitFor();
   if ((attempts.get(ids[1]!) ?? 0) !== 0)
     fail("invalid RE2 approval reached confirmation");
-  await additionalConstraint.fill(
-    '{"version":2,"equals":{"/extra":1.0},"regex":{"/zone":"(local|dev)"}}',
-  );
+  await additionalValues.nth(1).fill("(local|dev)");
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");
   await reviewApproval();
