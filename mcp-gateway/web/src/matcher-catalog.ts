@@ -70,12 +70,15 @@ export function matcherSchemaSuggestions(
         "minProperties",
         "maxProperties",
       ]) ||
-      (schema.additionalProperties !== undefined &&
-        schema.additionalProperties !== false)
+      schema.additionalProperties !== false
     )
       unsupported = true;
     if (schema.type !== "object" || properties === undefined) return;
     for (const [name, value] of Object.entries(properties)) {
+      if (fields.length >= 256) {
+        unsupported = true;
+        break;
+      }
       const property = object(value);
       if (property === undefined) {
         unsupported = true;
@@ -140,7 +143,7 @@ export async function readMatcherDescriptors(
     let cursor: string | null = null;
     let restarted = false;
     for (;;) {
-      const query = new URLSearchParams({ limit: "100" });
+      const query = new URLSearchParams({ limit: "100", retired: "exclude" });
       if (cursor !== null) query.set("cursor", cursor);
       const response = await fetch(
         `/api/v1/servers/${serverID}/descriptors?${query}`,

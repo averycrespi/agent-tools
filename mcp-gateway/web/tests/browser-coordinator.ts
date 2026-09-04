@@ -4474,7 +4474,10 @@ async function runGrantReadsCreate(
       if (
         route.request().method() !== "GET" ||
         query.get("limit") !== "100" ||
-        [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+        query.get("retired") !== "exclude" ||
+        [...query.keys()].some(
+          (key) => key !== "limit" && key !== "retired" && key !== "cursor",
+        )
       )
         fail("grant descriptor traversal changed shape");
       const descriptor = (id: string, upstream: string, external: string) => ({
@@ -4507,6 +4510,12 @@ async function runGrantReadsCreate(
                 type: "string",
                 oneOf: [{ const: "one" }, { const: "two" }],
               },
+              ...Object.fromEntries(
+                Array.from({ length: 300 }, (_, index) => [
+                  `wide-${index}`,
+                  { type: "string" },
+                ]),
+              ),
             },
           },
           annotations: {
@@ -4958,6 +4967,10 @@ async function runGrantReadsCreate(
     )
     .waitFor();
   await page.locator('[data-testid="add-constraint-atom"]').click();
+  if (
+    (await page.locator("#constraint-pointer-options option").count()) !== 256
+  )
+    fail("schema suggestions exceeded the bounded field count");
   if (
     (await page
       .locator(

@@ -257,7 +257,7 @@ func grantRequestTable(requests []contract.GrantRequestSummary, target *contract
 				targetState += "/" + string(*target.DurableState)
 			}
 		}
-		rows = append(rows, []string{request.ID, request.PrincipalID, string(request.State), request.Revision, string(request.RequestedPolicy.Scope), request.RequestedPolicy.Target, constraint, approvedGrant, reason, targetState, request.UpdatedAt})
+		rows = append(rows, []string{request.ID, request.PrincipalID, string(request.State), request.Revision, string(policy.Scope), policy.Target, constraint, approvedGrant, reason, targetState, request.UpdatedAt})
 	}
 	return controlclient.Table{Headers: []string{"ID", "PRINCIPAL", "STATE", "REVISION", "SCOPE", "TARGET", "CONSTRAINT", "GRANT", "REASON", "CURRENT_TARGET", "UPDATED"}, Rows: rows}
 }

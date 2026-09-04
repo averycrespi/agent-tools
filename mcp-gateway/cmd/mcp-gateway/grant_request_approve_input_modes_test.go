@@ -16,12 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGrantRequestTableSummarizesApprovedConstraint(t *testing.T) {
+func TestGrantRequestTableSummarizesCompleteApprovedPolicy(t *testing.T) {
 	raw := json.RawMessage(`{"version":2,"equals":{"/attempt":1e0},"regex":{"/resource":"item-\\d+"}}`)
-	policy := contract.Policy{Constraint: &raw}
-	table := grantRequestTable([]contract.GrantRequestSummary{{RequestedPolicy: contract.Policy{}, ApprovedPolicy: &policy}}, nil)
-	require.Equal(t, "CONSTRAINT", table.Headers[6])
-	assert.Equal(t, "v2 equals (1), regex (1)", table.Rows[0][6])
+	requested := contract.Policy{Scope: contract.PolicyServer, Target: "server"}
+	approved := contract.Policy{Scope: contract.PolicyTool, Target: "tool", Constraint: &raw}
+	table := grantRequestTable([]contract.GrantRequestSummary{{RequestedPolicy: requested, ApprovedPolicy: &approved}}, nil)
+	require.Equal(t, []string{"SCOPE", "TARGET", "CONSTRAINT"}, table.Headers[4:7])
+	assert.Equal(t, []string{"tool", "tool", "v2 equals (1), regex (1)"}, table.Rows[0][4:7])
 }
 
 func TestCLIGrantRequestApproveInputModes(t *testing.T) {
