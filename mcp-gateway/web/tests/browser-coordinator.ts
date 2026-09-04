@@ -4848,7 +4848,16 @@ async function runGrantReadsCreate(
   if (
     !grantReview.includes("New access") ||
     !grantReview.includes("Reporting server") ||
-    !grantReview.includes("immutable")
+    !grantReview.includes(principalID) ||
+    !grantReview.includes(serverID) ||
+    !grantReview.includes("Every matcher atom is required (AND)") ||
+    !grantReview.includes("matching DENY takes precedence") ||
+    !grantReview.includes(
+      "Unconstrained access matches every argument object",
+    ) ||
+    !(
+      await page.locator('[data-testid="grant-review-policy"]').inputValue()
+    ).includes('"constraint":null')
   )
     fail("grant creation review omitted submitted values");
   await page.locator('[data-testid="grant-create-confirm-submit"]').click();
@@ -5027,8 +5036,18 @@ async function runGrantReadsCreate(
   const matcherReview =
     (await page.locator("#grant-create-confirm-consequence").textContent()) ??
     "";
-  if (!matcherReview.includes("4 equality · 1 regex"))
-    fail("grant review omitted matcher operator counts");
+  if (
+    !matcherReview.includes("4 equality · 1 regex") ||
+    !matcherReview.includes(principalID) ||
+    !matcherReview.includes(serverID) ||
+    !matcherReview.includes("literal.tool") ||
+    !matcherReview.includes("Unavailable — literal manual name") ||
+    !matcherReview.includes("Every matcher atom is required (AND)") ||
+    !(
+      await page.locator('[data-testid="grant-review-policy"]').inputValue()
+    ).includes('"/resource":"item-\\\\d+"')
+  )
+    fail("grant review omitted complete matcher policy disclosure");
   await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.locator('[data-testid="grant-detail"]').waitFor();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
@@ -6113,6 +6132,21 @@ async function runRequestAdjudication(
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");
   await reviewApproval();
+  const approvalReview = await page
+    .locator("#request-adjudication-confirm-consequence")
+    .innerText();
+  if (
+    !approvalReview.includes(principalID) ||
+    !approvalReview.includes(serverID) ||
+    !approvalReview.includes("demo.safe") ||
+    !approvalReview.includes("current / current") ||
+    !approvalReview.includes("Every matcher atom is required (AND)") ||
+    !approvalReview.includes("matching DENY takes precedence") ||
+    !(
+      await page.locator('[data-testid="approval-review-policy"]').inputValue()
+    ).includes('"/attempt":1.0')
+  )
+    fail("approval review omitted complete matcher policy disclosure");
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })

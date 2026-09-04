@@ -284,6 +284,7 @@ function GrantCreate({
   const [expiresAt, setExpiresAt] = useState("");
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [error, setError] = useState<string>();
+  const [confirming, setConfirming] = useState(false);
   const [validating, setValidating] = useState(false);
   const submitButton = useRef<HTMLButtonElement>(null);
   const [controller] = useState<MutationController<Grant>>(() =>
@@ -299,6 +300,13 @@ function GrantCreate({
     selectedDescriptor === undefined
       ? undefined
       : matcherSchemaSuggestions(selectedDescriptor.descriptor);
+  const reviewPolicy = (() => {
+    try {
+      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+    } catch {
+      return "Complete the policy to review its serialized form.";
+    }
+  })();
   const draftFingerprint = JSON.stringify({
     description,
     principalID,
@@ -409,7 +417,7 @@ function GrantCreate({
         decode: decodeMutation,
       };
       controller.begin(spec);
-      controller.confirm();
+      setConfirming(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Invalid grant.");
     } finally {
@@ -808,14 +816,21 @@ function GrantCreate({
         </form>
         <ConfirmationDialog
           id="grant-create-confirm"
-          open={mutation.state === "confirming"}
+          open={confirming}
           title="Review grant"
           consequence={
             <div class="review-stack">
               <p>
-                This creates one immutable authorization policy. Review every
-                value before continuing.
+                This creates one immutable authorization policy. Every matcher
+                atom is required (AND), and any matching DENY takes precedence
+                over ALLOW.
               </p>
+              {atoms.length === 0 && (
+                <StateNotice
+                  state="warning"
+                  title="Unconstrained access matches every argument object"
+                />
+              )}
               <dl class="fact-grid">
                 <div>
                   <dt>Description</dt>
@@ -826,7 +841,8 @@ function GrantCreate({
                   <dd>
                     {principals.find(
                       (principal) => principal.id === principalID,
-                    )?.displayName ?? principalID}
+                    )?.displayName ?? "Unknown principal"}{" "}
+                    · {principalID}
                   </dd>
                 </div>
                 <div>
@@ -834,11 +850,24 @@ function GrantCreate({
                   <dd>{effect === "allow" ? "Allow" : "Deny"}</dd>
                 </div>
                 <div>
-                  <dt>Target</dt>
+                  <dt>Server and literal tool</dt>
                   <dd>
                     {servers.find((server) => server.id === serverID)
-                      ?.displayName ?? serverID}
+                      ?.displayName ?? "Gateway self-service tools"}{" "}
+                    · {serverID}
                     {scope === "tool" ? ` · ${upstreamName}` : " · All tools"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Catalog posture</dt>
+                  <dd>
+                    {scope === "server"
+                      ? "Not applicable to server-wide authority"
+                      : catalogError
+                        ? "Unavailable — literal manual name"
+                        : selectedDescriptor === undefined
+                          ? "No current descriptor — literal manual name"
+                          : `Current durable descriptor · catalog revision ${selectedDescriptor.catalogRevision}`}
                   </dd>
                 </div>
                 <div>
@@ -854,17 +883,31 @@ function GrantCreate({
                   </dd>
                 </div>
               </dl>
+              <div>
+                <strong>Read-only serialized policy</strong>
+                <textarea
+                  class="inert-json"
+                  data-testid="grant-review-policy"
+                  readOnly
+                  rows={8}
+                  value={reviewPolicy}
+                />
+              </div>
             </div>
           }
           confirmLabel="Create grant"
           returnFocus={submitButton}
-          onCancel={() => controller.abandon()}
-          onConfirm={() =>
+          onCancel={() => {
+            setConfirming(false);
+            controller.abandon();
+          }}
+          onConfirm={() => {
+            setConfirming(false);
             void controller.submit().then((outcome) => {
               if (outcome.kind === "acknowledged")
                 navigate(`#/grants/${outcome.value.id}`, true);
-            })
-          }
+            });
+          }}
         />
       </section>
     </div>

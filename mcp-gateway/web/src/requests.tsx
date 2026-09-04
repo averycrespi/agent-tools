@@ -594,6 +594,7 @@ function RequestActions({
       futureToolsAcknowledged: scope === "server",
     };
   };
+  const reviewBody = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(scope)},"target":${JSON.stringify(target)},"constraint":${constraint === "" ? "null" : constraint},"duration_seconds":${duration === "" ? "null" : JSON.stringify(duration)},"future_tools_acknowledged":${String(scope === "server")}}}`;
   const review = async (next: "approve" | "reject") => {
     const reviewedDraft = currentDraft.current;
     setError(undefined);
@@ -857,11 +858,57 @@ function RequestActions({
           mode === "approve" ? "Approve narrowed policy?" : "Reject request?"
         }
         consequence={
-          <p>
-            {mode === "approve"
-              ? "Approval atomically closes the request and creates one ALLOW grant; it does not execute a call."
-              : `Rejection atomically closes the request with reason ${reason}; it creates no grant.`}
-          </p>
+          mode === "approve" ? (
+            <div class="review-stack">
+              <p>
+                Approval atomically closes the request and creates one ALLOW
+                grant; it does not execute a call. Every matcher atom is
+                required (AND), and any matching DENY takes precedence.
+              </p>
+              {constraint === "" && (
+                <StateNotice
+                  state="warning"
+                  title="Unconstrained access matches every argument object"
+                />
+              )}
+              <dl class="fact-grid">
+                <div>
+                  <dt>Principal</dt>
+                  <dd>{detail.principalID}</dd>
+                </div>
+                <div>
+                  <dt>Server</dt>
+                  <dd>{detail.resolvedServerID}</dd>
+                </div>
+                <div>
+                  <dt>Literal tool name</dt>
+                  <dd>{scope === "tool" ? target : "All server tools"}</dd>
+                </div>
+                <div>
+                  <dt>Catalog posture</dt>
+                  <dd>
+                    {detail.currentTarget.activeState ?? "unavailable"} /{" "}
+                    {detail.currentTarget.durableState ?? "absent"}
+                  </dd>
+                </div>
+              </dl>
+              <div>
+                <strong>Read-only serialized policy</strong>
+                <textarea
+                  class="inert-json"
+                  data-testid="approval-review-policy"
+                  readOnly
+                  rows={8}
+                  value={reviewBody}
+                />
+              </div>
+            </div>
+          ) : (
+            <p>
+              Rejection atomically closes the request with reason {reason}; it
+              creates no grant.
+            </p>
+          )
         }
         confirmLabel={mode === "approve" ? "Approve request" : "Reject request"}
         destructive={mode === "reject"}
