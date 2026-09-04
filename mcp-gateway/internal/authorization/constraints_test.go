@@ -52,6 +52,7 @@ func TestCompileConstraintRejectsInvalidV2ShapesAndRegex(t *testing.T) {
 		`{"version":2,"other":{"/x":1}}`,
 		`{"version":2,"regex":{"/x":1}}`,
 		`{"version":2,"regex":{"/x":"["}}`,
+		`{"version":2,"regex":{"/x":"x)\\z|foo(?:"}}`,
 		`{"version":2,"regex":{"/x":` + fmt.Sprintf("%q", oversizedPattern) + `}}`,
 		`{"version":2,"regex":{"/x":` + fmt.Sprintf("%q", oversizedProgram) + `}}`,
 	} {

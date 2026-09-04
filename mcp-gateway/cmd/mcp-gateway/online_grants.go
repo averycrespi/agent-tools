@@ -166,6 +166,9 @@ func validGrantRegex(raw json.RawMessage) int {
 		if !validGrantPointer(pointer) || json.Unmarshal(rawPattern, &pattern) != nil || !patternLimit.Allows(int64(len(pattern))) {
 			return -1
 		}
+		if _, err := syntax.Parse(pattern, syntax.Perl); err != nil {
+			return -1
+		}
 		parsed, err := syntax.Parse(`\A(?:`+pattern+`)\z`, syntax.Perl)
 		if err != nil {
 			return -1

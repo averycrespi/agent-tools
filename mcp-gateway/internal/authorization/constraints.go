@@ -163,6 +163,9 @@ func compileRegex(value strictjson.Value) ([]constraintAtom, error) {
 		if int64(len(pattern)) > mustLimit("constraint_regex_pattern_bytes") {
 			return nil, invalidConstraintAt(field, "pattern exceeds the byte limit")
 		}
+		if _, parseErr := syntax.Parse(pattern, syntax.Perl); parseErr != nil {
+			return nil, invalidConstraintAt(field, "pattern is not valid RE2")
+		}
 		anchored := `\A(?:` + pattern + `)\z`
 		parsed, parseErr := syntax.Parse(anchored, syntax.Perl)
 		if parseErr != nil {
