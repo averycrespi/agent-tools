@@ -78,7 +78,25 @@ mcp-gateway grant create --file PATH
 
 Every grant has a stable ID and may have a non-unique human-readable description. The description is display metadata: update or clear it with `grant update GRANT_ID --description TEXT` (an empty value clears it) and an automatic or explicit exact ETag. A description-only patch advances the grant's metadata revision without advancing policy revision or cancelling leases. The direct create form creates an ordinary unconstrained grant and may add `--description`, `--upstream-name`, or `--expires-at`. Use the mutually exclusive strict file form for a constraint; it supplies the complete closed shape, including explicit nullable `description`, `upstream_name`, `constraint`, and `expires_at` members. Grants are immutable for identity and policy; each remains an `ALLOW` or `DENY` row even when its optional description changes. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
 
-Untagged constraints use the permanent v1 equality form `{"equals":{"/object/path":value}}`. V2 uses the closed `{"version":2,"equals":{...},"regex":{...}}` form with at least one and at most 16 total atoms. Equality retains exact scalar and lexical-number tokens; regex uses bounded full-string Go RE2 matching against strings only. Both versions use object-only RFC 6901 traversal. Constraints apply only to exact-tool grants. Gateway does not coerce values, traverse arrays, interpret schemas as policy, or treat overlapping paths as equivalent. The browser can search the selected server's current durable descriptors while leaving the upstream name editable for future or unavailable tools; this catalog assistance never becomes grant authority, and failure degrades to explicit manual entry. Selecting a current descriptor also suggests unambiguous nested scalar schema fields as escaped pointers with type, enum, description, and regex-availability context. Unsupported schema constructs are disclosed, custom pointers remain available, and no suggestion silently creates a rule.
+Untagged constraints use the permanent v1 equality form `{"equals":{"/object/path":value}}`. V2 uses the closed `{"version":2,"equals":{...},"regex":{...}}` form with at least one and at most 16 total atoms. For example, a strict exact-tool grant file can combine equality and regex while retaining lexical tokens:
+
+```json
+{
+  "description": "Bounded report access",
+  "principal_id": "PRINCIPAL_ID",
+  "effect": "allow",
+  "server_id": "SERVER_ID",
+  "upstream_name": "reports.read",
+  "constraint": {
+    "version": 2,
+    "equals": { "/attempt": 1, "/filters/region": "us" },
+    "regex": { "/resource": "item-\\d+" }
+  },
+  "expires_at": null
+}
+```
+
+Equality retains exact scalar and lexical-number tokens; regex uses bounded full-string Go RE2 matching against strings only. Both versions use object-only RFC 6901 traversal. Constraints apply only to exact-tool grants. Gateway does not coerce values, traverse arrays, interpret schemas as policy, or treat overlapping paths as equivalent. The browser can search the selected server's current durable descriptors while leaving the upstream name editable for future or unavailable tools; this catalog assistance never becomes grant authority, and failure degrades to explicit manual entry. Selecting a current descriptor also suggests unambiguous nested scalar schema fields as escaped pointers with type, enum, description, and regex-availability context. Unsupported schema constructs are disclosed, custom pointers remain available, and no suggestion silently creates a rule.
 
 Expired grants remain readable and count toward capacity until deleted. The **Default Gateway access** grant is also an ordinary capacity-owning row. Discovery is deliberately broader than execution for constrained policy; only exact call admission evaluates the unchanged argument object.
 
@@ -120,7 +138,26 @@ mcp-gateway grant-request approve REQUEST_ID \
 mcp-gateway grant-request approve REQUEST_ID --etag ETAG --file PATH --yes
 ```
 
-Approval rechecks current denial and target facts, then atomically commits one ordinary `ALLOW` and the approved transition. The approved grant ID is historical evidence only after commit; later grant deletion does not rewrite request history.
+The strict approval file contains the complete closed approval body; an additive v2 narrowing looks like:
+
+```json
+{
+  "description": "Approved report access",
+  "approved_policy": {
+    "scope": "tool",
+    "target": "reports.read",
+    "constraint": {
+      "version": 2,
+      "equals": { "/attempt": 1, "/filters/region": "us" },
+      "regex": { "/resource": "item-\\d+" }
+    },
+    "duration_seconds": "900",
+    "future_tools_acknowledged": false
+  }
+}
+```
+
+Copy every submitted atom byte-for-byte into the approval constraint before adding atoms; changing a numeric spelling or regex pattern is not retention. Approval rechecks current denial and target facts, then atomically commits one ordinary `ALLOW` and the approved transition. The approved grant ID is historical evidence only after commit; later grant deletion does not rewrite request history.
 
 Reject with one closed reason—`not_approved`, `existing_access`, `scope_too_broad`, or `policy_conflict`:
 
