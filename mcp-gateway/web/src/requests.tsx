@@ -523,26 +523,53 @@ function matcherShape(value: unknown): MatcherShape {
   return { version, equals, regex };
 }
 
-function constraintRetained(
-  submitted: unknown | null,
-  approved: unknown | null,
-): boolean {
-  if (submitted === null) return true;
-  if (approved === null) return false;
+function objectMembers(source: string | undefined): string {
+  if (source === undefined) return "";
+  const trimmed = source.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}"))
+    throw new Error("invalid constraint");
+  return trimmed.slice(1, -1).trim();
+}
+function mergeConstraintSource(
+  submittedSource: string | null,
+  additionalSource: string,
+): string {
+  if (additionalSource === "") return submittedSource ?? "";
+  let additionalValue: unknown;
   try {
-    const left = matcherShape(submitted);
-    const right = matcherShape(approved);
-    if (left.version === 2 && right.version !== 2) return false;
-    return (["equals", "regex"] as const).every((operator) =>
-      Object.entries(left[operator]).every(
-        ([pointer, value]) =>
-          Object.hasOwn(right[operator], pointer) &&
-          JSON.stringify(right[operator][pointer]) === JSON.stringify(value),
-      ),
-    );
+    additionalValue = JSON.parse(additionalSource) as unknown;
   } catch {
-    return false;
+    throw new Error("Additional matcher atoms must be valid JSON.");
   }
+  const additional = matcherShape(additionalValue);
+  if (submittedSource === null) return additionalSource;
+  if (additional.version !== 2)
+    throw new Error("Additional matcher atoms must use version 2.");
+  const submitted = matcherShape(JSON.parse(submittedSource) as unknown);
+  for (const operator of ["equals", "regex"] as const) {
+    if (
+      Object.keys(additional[operator]).some((pointer) =>
+        Object.hasOwn(submitted[operator], pointer),
+      )
+    )
+      throw new Error(
+        "Additional matcher atoms cannot replace a submitted operator and pointer.",
+      );
+  }
+  const maps = (["equals", "regex"] as const)
+    .map((operator) => {
+      const members = [
+        objectMembers(jsonMemberSource(submittedSource, operator)),
+        objectMembers(jsonMemberSource(additionalSource, operator)),
+      ].filter((value) => value !== "");
+      return members.length === 0
+        ? ""
+        : `${JSON.stringify(operator)}:{${members.join(",")}}`;
+    })
+    .filter((value) => value !== "");
+  const merged = `{"version":2,${maps.join(",")}}`;
+  matcherShape(JSON.parse(merged) as unknown);
+  return merged;
 }
 
 function RequestActions({
@@ -570,16 +597,14 @@ function RequestActions({
   const [description, setDescription] = useState(defaultDescription);
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
-  const [constraint, setConstraint] = useState(
-    detail.submittedConstraintSource ?? "",
-  );
+  const [additionalConstraint, setAdditionalConstraint] = useState("");
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
   const initialDraft = useRef({
     description: defaultDescription,
     scope: submitted.scope,
     target: submitted.target,
-    constraint: detail.submittedConstraintSource ?? "",
+    additionalConstraint: "",
     duration: submitted.durationSeconds ?? "",
     reason: "not_approved",
   });
@@ -587,7 +612,7 @@ function RequestActions({
     description,
     scope,
     target,
-    constraint,
+    additionalConstraint,
     duration,
     reason,
   });
@@ -624,21 +649,23 @@ function RequestActions({
     )
       throw new Error("A server approval cannot broaden to another target.");
     if (target.length === 0) throw new Error("Approval target is required.");
-    let parsedConstraint: unknown | null = null;
-    if (constraint !== "") {
-      try {
-        parsedConstraint = JSON.parse(constraint) as unknown;
-        matcherShape(parsedConstraint);
-      } catch {
-        throw new Error("Constraint must use the supported matcher shape.");
-      }
+    let constraintSource: string;
+    try {
+      constraintSource = mergeConstraintSource(
+        detail.submittedConstraintSource,
+        additionalConstraint,
+      );
+    } catch (caught) {
+      if (caught instanceof Error && caught.message.startsWith("Additional "))
+        throw caught;
+      throw new Error("Constraint must use the supported matcher shape.");
     }
+    const parsedConstraint =
+      constraintSource === ""
+        ? null
+        : (JSON.parse(constraintSource) as unknown);
     if (scope === "server" && parsedConstraint !== null)
       throw new Error("Server approval cannot include a constraint.");
-    if (!constraintRetained(submitted.constraint, parsedConstraint))
-      throw new Error(
-        "Approval cannot remove or change a submitted constraint atom.",
-      );
     if (duration !== "") {
       if (!/^(?:[1-9][0-9]*)$/.test(duration))
         throw new Error("Duration must be canonical seconds.");
@@ -661,7 +688,17 @@ function RequestActions({
       futureToolsAcknowledged: scope === "server",
     };
   };
-  const reviewBody = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(scope)},"target":${JSON.stringify(target)},"constraint":${constraint === "" ? "null" : constraint},"duration_seconds":${duration === "" ? "null" : JSON.stringify(duration)},"future_tools_acknowledged":${String(scope === "server")}}}`;
+  const reviewedConstraint = (() => {
+    try {
+      return mergeConstraintSource(
+        detail.submittedConstraintSource,
+        additionalConstraint,
+      );
+    } catch {
+      return "";
+    }
+  })();
+  const reviewBody = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(scope)},"target":${JSON.stringify(target)},"constraint":${reviewedConstraint === "" ? "null" : reviewedConstraint},"duration_seconds":${duration === "" ? "null" : JSON.stringify(duration)},"future_tools_acknowledged":${String(scope === "server")}}}`;
   const review = async (next: "approve" | "reject") => {
     const reviewedDraft = currentDraft.current;
     setError(undefined);
@@ -681,11 +718,15 @@ function RequestActions({
             "Grant description cannot contain control characters.",
           );
         const policy = approvedPolicy();
-        if (constraint !== "") {
+        const constraintSource = mergeConstraintSource(
+          detail.submittedConstraintSource,
+          additionalConstraint,
+        );
+        if (constraintSource !== "") {
           setValidating(true);
           const diagnostic = await validateMatcherConstraint(
             session,
-            constraint,
+            constraintSource,
           );
           if (
             diagnostic === undefined ||
@@ -694,7 +735,8 @@ function RequestActions({
             return;
           if (diagnostic !== null) throw new Error(diagnostic);
         }
-        const constraintToken = constraint === "" ? "null" : constraint;
+        const constraintToken =
+          constraintSource === "" ? "null" : constraintSource;
         body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}}}`;
       } else body = JSON.stringify({ reason });
       const spec: MutationSpec<RequestDetail> = {
@@ -727,7 +769,7 @@ function RequestActions({
         description,
         scope,
         target,
-        constraint,
+        additionalConstraint,
         duration,
         reason,
       };
@@ -799,7 +841,7 @@ function RequestActions({
               setScope(next);
               if (next === "server") {
                 setTarget(submitted.target);
-                setConstraint("");
+                setAdditionalConstraint("");
               }
             }}
           >
@@ -824,25 +866,48 @@ function RequestActions({
         )}
       </FormField>
       {scope === "tool" && (
-        <FormField
-          id="approval-constraint"
-          label="Approved matcher constraint JSON"
-          hint="Submitted equality and regex atoms must remain exact; additional atoms narrow the policy."
-          optional
-        >
-          {(attributes) => (
-            <textarea
-              {...attributes}
-              data-testid="approval-constraint"
-              value={constraint}
-              disabled={disabled}
-              onInput={(event) => {
-                setError(undefined);
-                setConstraint(event.currentTarget.value);
-              }}
-            />
+        <>
+          {detail.submittedConstraintSource !== null && (
+            <FormField
+              id="approval-submitted-constraint"
+              label="Submitted matcher atoms — locked"
+              hint="These exact operator, pointer, and value tokens are retained automatically."
+            >
+              {(attributes) => (
+                <textarea
+                  {...attributes}
+                  data-testid="approval-submitted-constraint"
+                  value={detail.submittedConstraintSource ?? ""}
+                  readOnly
+                  rows={6}
+                />
+              )}
+            </FormField>
           )}
-        </FormField>
+          <FormField
+            id="approval-additional-constraint"
+            label="Additional matcher atoms"
+            hint={
+              detail.submittedConstraintSource === null
+                ? "Optional complete matcher constraint. It becomes the approved constraint."
+                : "Optional version 2 matcher containing only new operator and pointer pairs. It is conjoined with the locked submitted atoms."
+            }
+            optional
+          >
+            {(attributes) => (
+              <textarea
+                {...attributes}
+                data-testid="approval-additional-constraint"
+                value={additionalConstraint}
+                disabled={disabled}
+                onInput={(event) => {
+                  setError(undefined);
+                  setAdditionalConstraint(event.currentTarget.value);
+                }}
+              />
+            )}
+          </FormField>
+        </>
       )}
       <FormField
         id="approval-duration"
@@ -932,7 +997,7 @@ function RequestActions({
                 grant; it does not execute a call. Every matcher atom is
                 required (AND), and any matching DENY takes precedence.
               </p>
-              {constraint === "" && (
+              {reviewedConstraint === "" && (
                 <StateNotice
                   state="warning"
                   title="Unconstrained access matches every argument object"

@@ -5995,6 +5995,7 @@ async function runRequestAdjudication(
         id === ids[1] &&
         (!raw.includes('"/attempt":1.0') ||
           !raw.includes('"/resource":"item-\\\\d+"') ||
+          !raw.includes('"/extra":1.0') ||
           !raw.includes('"/zone":"(local|dev)"'))
       )
         fail(`version 2 approval did not preserve matcher tokens: ${raw}`);
@@ -6069,7 +6070,7 @@ async function runRequestAdjudication(
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
   await page.locator('[data-testid="approval-target"]').fill("demo.safe");
   await page
-    .locator('[data-testid="approval-constraint"]')
+    .locator('[data-testid="approval-additional-constraint"]')
     .fill('{"equals":{"/mode":"safe"}}');
   await page.locator('[data-testid="approval-duration"]').fill("600");
   await reviewApproval();
@@ -6085,12 +6086,14 @@ async function runRequestAdjudication(
   }
 
   await navigate(ids[1]!);
+  const submittedConstraint = page.locator(
+    '[data-testid="approval-submitted-constraint"]',
+  );
   if (
-    !(
-      await page.locator('[data-testid="approval-constraint"]').inputValue()
-    ).includes('"/attempt":1.0')
+    (await submittedConstraint.isEditable()) ||
+    !(await submittedConstraint.inputValue()).includes('"/attempt":1.0')
   )
-    fail("approval editor normalized a submitted numeric token");
+    fail("approval editor did not lock exact submitted matcher tokens");
   await page.locator('[data-testid="approval-duration"]').fill("601");
   await reviewApproval();
   await page
@@ -6104,40 +6107,34 @@ async function runRequestAdjudication(
     .getByText("A temporary request cannot become permanent.", { exact: true })
     .waitFor();
   await page.locator('[data-testid="approval-duration"]').fill("300");
-  await page.locator('[data-testid="approval-constraint"]').fill("");
+  const additionalConstraint = page.locator(
+    '[data-testid="approval-additional-constraint"]',
+  );
+  await additionalConstraint.fill('{"equals":{"/extra":1}}');
+  await reviewApproval();
+  await page
+    .getByText("Additional matcher atoms must use version 2.", { exact: true })
+    .waitFor();
+  await additionalConstraint.fill('{"version":2,"equals":{"/mode":"other"}}');
   await reviewApproval();
   await page
     .getByText(
-      "Approval cannot remove or change a submitted constraint atom.",
+      "Additional matcher atoms cannot replace a submitted operator and pointer.",
       { exact: true },
     )
     .waitFor();
-  await page
-    .locator('[data-testid="approval-constraint"]')
-    .fill('{"equals":{"/mode":"safe"}}');
-  await reviewApproval();
-  await page
-    .getByText(
-      "Approval cannot remove or change a submitted constraint atom.",
-      { exact: true },
-    )
-    .waitFor();
-  await page
-    .locator('[data-testid="approval-constraint"]')
-    .fill(
-      '{"version":2,"equals":{"/mode":"safe","/attempt":1.0},"regex":{"/resource":"item-\\\\d+","/zone":"["}}',
-    );
+  await additionalConstraint.fill(
+    '{"version":2,"equals":{"/extra":1.0},"regex":{"/zone":"["}}',
+  );
   await reviewApproval();
   await page
     .getByText("/regex/~1zone: pattern is not valid RE2", { exact: true })
     .waitFor();
   if ((attempts.get(ids[1]!) ?? 0) !== 0)
     fail("invalid RE2 approval reached confirmation");
-  await page
-    .locator('[data-testid="approval-constraint"]')
-    .fill(
-      '{"version":2,"equals":{"/mode":"safe","/attempt":1.0},"regex":{"/resource":"item-\\\\d+","/zone":"(local|dev)"}}',
-    );
+  await additionalConstraint.fill(
+    '{"version":2,"equals":{"/extra":1.0},"regex":{"/zone":"(local|dev)"}}',
+  );
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");
   await reviewApproval();
