@@ -5032,6 +5032,16 @@ async function runGrantReadsCreate(
     "2030-01-01T00:00:00Z"
   )
     fail("grant constraint edits discarded the expiry draft");
+  const constraintPreview =
+    (await page
+      .getByLabel("Constraint preview", { exact: true })
+      .textContent()) ?? "";
+  if (
+    !constraintPreview.includes('"/a~1b/0":1.0') ||
+    constraintPreview.includes('"/a~1b/0":"1.0"') ||
+    !constraintPreview.includes('"/resource":"item-\\\\d+"')
+  )
+    fail("grant preview did not preserve typed matcher tokens");
   await page.locator('[data-testid="grant-create-submit"]').click();
   const matcherReview =
     (await page.locator("#grant-create-confirm-consequence").textContent()) ??
@@ -6145,6 +6155,16 @@ async function runRequestAdjudication(
   if ((attempts.get(ids[1]!) ?? 0) !== 0)
     fail("invalid RE2 approval reached confirmation");
   await additionalValues.nth(1).fill("(local|dev)");
+  const additionalPreview =
+    (await page
+      .getByLabel("Constraint preview", { exact: true })
+      .textContent()) ?? "";
+  if (
+    !additionalPreview.includes('"version":2') ||
+    !additionalPreview.includes('"/extra":1.0') ||
+    additionalPreview.includes('"/extra":"1.0"')
+  )
+    fail("approval preview did not preserve typed additive matcher tokens");
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");
   await reviewApproval();

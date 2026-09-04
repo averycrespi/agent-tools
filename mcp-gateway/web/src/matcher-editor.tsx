@@ -1,5 +1,5 @@
 import type { MatcherSchemaSuggestions } from "./matcher-catalog";
-import { FormField, InertJSON } from "./primitives";
+import { FormField } from "./primitives";
 
 const jsonNumber = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 export type MatcherScalarType = "null" | "boolean" | "string" | "number";
@@ -50,35 +50,13 @@ export function matcherConstraintText(
   return `{"version":2${equalsMember},"regex":{${expressions.join(",")}}}`;
 }
 
-function preview(atoms: readonly MatcherAtom[]): unknown {
-  if (atoms.length === 0) return null;
-  const equals: Record<string, unknown> = {};
-  const regex: Record<string, string> = {};
-  for (const atom of atoms) {
-    if (atom.operator === "regex") regex[atom.pointer] = atom.value;
-    else
-      equals[atom.pointer] =
-        atom.type === "null"
-          ? null
-          : atom.type === "boolean"
-            ? atom.value === "true"
-            : atom.value;
-  }
-  return Object.keys(regex).length === 0
-    ? { equals }
-    : {
-        version: 2,
-        ...(Object.keys(equals).length === 0 ? {} : { equals }),
-        regex,
-      };
-}
-
 export function MatcherAtomEditor({
   idPrefix,
   testPrefix,
   addTestID,
   atoms,
   suggestions,
+  forceVersion2 = false,
   disabled = false,
   onChange,
 }: {
@@ -87,6 +65,7 @@ export function MatcherAtomEditor({
   addTestID?: string;
   atoms: readonly MatcherAtom[];
   suggestions?: MatcherSchemaSuggestions | undefined;
+  forceVersion2?: boolean;
   disabled?: boolean;
   onChange: (atoms: MatcherAtom[]) => void;
 }) {
@@ -97,6 +76,14 @@ export function MatcherAtomEditor({
       ),
     );
   const pointerOptions = `${idPrefix}-pointer-options`;
+  let preview = "null";
+  try {
+    if (atoms.length !== 0)
+      preview = matcherConstraintText(atoms, forceVersion2);
+  } catch {
+    preview =
+      "Complete each matcher value to preview the serialized constraint.";
+  }
   return (
     <>
       <datalist id={pointerOptions}>
@@ -241,7 +228,9 @@ export function MatcherAtomEditor({
       >
         Add matcher
       </button>
-      <InertJSON value={preview(atoms)} label="Constraint preview" />
+      <pre class="inert-json" aria-label="Constraint preview" tabindex={0}>
+        <code>{preview}</code>
+      </pre>
     </>
   );
 }

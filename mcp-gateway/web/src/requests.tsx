@@ -913,6 +913,7 @@ function RequestActions({
               testPrefix="approval-additional"
               atoms={additionalAtoms}
               suggestions={approvalSuggestions}
+              forceVersion2={detail.submittedConstraintSource !== null}
               disabled={disabled}
               onChange={(next) => {
                 setError(undefined);
