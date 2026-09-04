@@ -184,6 +184,10 @@ func TestGatewayHarnessObservesGovernedCallsWithoutRetainingPayloads(t *testing.
 	issued := harness.IssueCredential(principal)
 	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: catalog.ServerID, UpstreamName: pointerTo("alpha")})
 
+	catalogBarrier := catalog.Fixture.Arm("tools/list")
+	refresh := createServerOperation(t, harness, catalog.ServerID, catalog.ETag, string(contract.OperationRefreshCatalog), "call-harness-refresh")
+	awaitFixtureSignal(t, catalogBarrier.entered, "catalog refresh barrier was not entered")
+
 	const argumentCanary = "e2e-call-argument-canary"
 	catalog.Fixture.SetCallOutcome(fixtureCallSuccess)
 	modern := harness.ModernCall(issued.Bearer, json.RawMessage(`"modern-call"`), "call-harness.alpha", json.RawMessage(`{"value":"`+argumentCanary+`"}`))
@@ -203,6 +207,9 @@ func TestGatewayHarnessObservesGovernedCallsWithoutRetainingPayloads(t *testing.
 	require.NoError(t, json.Unmarshal(legacy.Body, &legacyError))
 	assert.Equal(t, contract.AgentCallJSONRPCErrorCode, legacyError.Error.Code)
 	assert.Equal(t, contract.DownstreamFailure, legacyError.Error.Data.Code)
+
+	catalogBarrier.Release()
+	harness.WaitOperation(catalog.ServerID, refresh.ID, contract.OperationSucceeded)
 
 	result := harness.Stop(syscall.SIGTERM)
 	observations := harness.AuditObservations()
