@@ -37,6 +37,8 @@ type Clock interface {
 	Now() time.Time
 }
 
+const maxCompiledConstraintCacheWeight = 8 * 1024 * 1024
+
 type Repository struct {
 	store     *storage.Store
 	clock     Clock
@@ -46,6 +48,7 @@ type Repository struct {
 	constraintCache struct {
 		sync.Mutex
 		revision string
+		weight   int64
 		entries  map[string]CompiledConstraint
 	}
 }
@@ -64,31 +67,28 @@ func New(store *storage.Store, clock Clock, entropy io.Reader) (*Repository, err
 
 func (repository *Repository) compileConstraint(revision, source string) (CompiledConstraint, error) {
 	repository.constraintCache.Lock()
-	if repository.constraintCache.revision == revision {
-		if compiled, present := repository.constraintCache.entries[source]; present {
-			repository.constraintCache.Unlock()
-			return compiled, nil
-		}
-	}
-	repository.constraintCache.Unlock()
-
-	compiled, err := CompileConstraint([]byte(source))
-	if err != nil {
-		return CompiledConstraint{}, err
-	}
-	repository.constraintCache.Lock()
 	defer repository.constraintCache.Unlock()
 	if repository.constraintCache.revision != revision {
 		cachedRevision, _ := strconv.ParseInt(repository.constraintCache.revision, 10, 64)
 		incomingRevision, _ := strconv.ParseInt(revision, 10, 64)
 		if cachedRevision > incomingRevision {
-			return compiled, nil
+			return CompileConstraint([]byte(source))
 		}
 		repository.constraintCache.revision = revision
+		repository.constraintCache.weight = 0
 		repository.constraintCache.entries = make(map[string]CompiledConstraint)
 	}
-	if int64(len(repository.constraintCache.entries)) < mustLimit("grants") {
+	if compiled, present := repository.constraintCache.entries[source]; present {
+		return compiled, nil
+	}
+	compiled, err := CompileConstraint([]byte(source))
+	if err != nil {
+		return CompiledConstraint{}, err
+	}
+	weight := compiled.cacheWeight()
+	if repository.constraintCache.weight+weight <= maxCompiledConstraintCacheWeight {
 		repository.constraintCache.entries[source] = compiled
+		repository.constraintCache.weight += weight
 	}
 	return compiled, nil
 }

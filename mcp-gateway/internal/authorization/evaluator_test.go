@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +42,42 @@ func TestCompiledConstraintCacheReusesOnlyExactRevisionBytes(t *testing.T) {
 	currentRevision, err := repository.compileConstraint("8", source)
 	require.NoError(t, err)
 	assert.Same(t, differentRevision.atoms[0].expression, currentRevision.atoms[0].expression)
+}
+
+func TestCompiledConstraintCacheBoundsWeightAndDeduplicatesConcurrentMisses(t *testing.T) {
+	repository, _ := newRepository(t, nil)
+	const source = `{"version":2,"regex":{"/resource":"a{1000}"}}`
+	const workers = 16
+	expressions := make(chan any, workers)
+	var group sync.WaitGroup
+	for range workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			compiled, err := repository.compileConstraint("7", source)
+			require.NoError(t, err)
+			expressions <- compiled.atoms[0].expression
+		}()
+	}
+	group.Wait()
+	close(expressions)
+	var first any
+	for expression := range expressions {
+		if first == nil {
+			first = expression
+			continue
+		}
+		assert.Same(t, first, expression)
+	}
+
+	for count := 1; count <= 150; count++ {
+		_, err := repository.compileConstraint("7", fmt.Sprintf(`{"version":2,"regex":{"/resource":"a{1000}b{%d}"}}`, count))
+		require.NoError(t, err)
+	}
+	repository.constraintCache.Lock()
+	defer repository.constraintCache.Unlock()
+	assert.LessOrEqual(t, repository.constraintCache.weight, int64(maxCompiledConstraintCacheWeight))
+	assert.Less(t, len(repository.constraintCache.entries), 151)
 }
 
 func TestEvaluateEnforcesDenyAllowBlockAndSmallestEvidence(t *testing.T) {
@@ -163,6 +200,24 @@ func TestEvaluateV2RegexUsesFullStringStringOnlyConjunction(t *testing.T) {
 			assert.Equal(t, test.decision, result.Decision)
 		})
 	}
+}
+
+func TestConstraintMatchesChargesEmptyAndProgramComplexity(t *testing.T) {
+	constraint, err := CompileConstraint([]byte(`{"version":2,"regex":{"/value":"a{100}"}}`))
+	require.NoError(t, err)
+	emptyArguments, err := strictjson.ParseValue([]byte(`{"value":""}`), strictjson.Options{MaxBytes: mustLimit("mcp_body_bytes"), MaxDepth: int(mustLimit("json_depth"))})
+	require.NoError(t, err)
+	remaining := int64(0)
+	matched, err := constraintMatches(constraint, emptyArguments, &remaining)
+	assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
+	assert.False(t, matched)
+
+	arguments, err := strictjson.ParseValue([]byte(`{"value":"`+strings.Repeat("a", 100)+`"}`), strictjson.Options{MaxBytes: mustLimit("mcp_body_bytes"), MaxDepth: int(mustLimit("json_depth"))})
+	require.NoError(t, err)
+	remaining = int64(len(arguments.Object[0].Value.String))
+	matched, err = constraintMatches(constraint, arguments, &remaining)
+	assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
+	assert.False(t, matched)
 }
 
 func TestConstraintMatchesFailsClosedWhenRegexWorkBudgetIsExhausted(t *testing.T) {

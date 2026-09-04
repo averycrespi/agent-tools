@@ -175,10 +175,14 @@ func constraintMatches(constraint CompiledConstraint, arguments strictjson.Value
 			if actual.Type != strictjson.ValueString {
 				return false, nil
 			}
-			if int64(len(actual.String)) > *remainingRegexWork {
+			inputUnits := int64(len(actual.String))
+			if inputUnits == 0 {
+				inputUnits = 1
+			}
+			if atom.regexInstructions < 1 || inputUnits > *remainingRegexWork/atom.regexInstructions {
 				return false, ErrAuthorizationUnavailable
 			}
-			*remainingRegexWork -= int64(len(actual.String))
+			*remainingRegexWork -= inputUnits * atom.regexInstructions
 			if !atom.expression.MatchString(actual.String) {
 				return false, nil
 			}
