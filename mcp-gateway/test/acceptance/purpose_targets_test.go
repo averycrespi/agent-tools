@@ -21,6 +21,7 @@ func TestPurposeNamedLeafTargetDryRuns(t *testing.T) {
 		"test-security":                     {"-count=1", "-tags=security", "TestReleaseReportSecretSinkBoundaries", "./test/security/...", "./test/acceptance"},
 		"test-stress":                       {"TestConcurrentSemanticDeduplicationStress", "TestApprovalCancellationPolicyLinearizationStress", "TestSyntheticSnapshotPaginationStress", "TestLostLocalMutationResponseDeduplicatesExplicitRetryStress", "TestLocalInvocationDrainCleanupStress"},
 		"test-keyring-native":               {"./test/keyring-native.sh"},
+		"test-serve-temporary":              {"./test/serve-temporary.sh"},
 		"test-browser-workflows":            {"TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch", "SessionLifecycleCanary", "VisualAccessibilityPrivacyCanary", "Coordinator", "-tags=e2e,browser"},
 		"test-browser-privacy":              {"TestBrowserSecretStoragePrivacy"},
 		"test-browser-visual":               {"TestBrowserVisualResponsiveMatrix"},
@@ -53,7 +54,9 @@ func TestPurposeNamedDeveloperAggregatesAreDisjoint(t *testing.T) {
 
 	unit := purposeTargetDryRunLines(t, root, "test-unit")
 	integration := purposeTargetDryRunLines(t, root, "test-integration")
-	assert.Equal(t, append(append([]string(nil), unit...), integration...), purposeTargetDryRunLines(t, root, "test"))
+	serveTemporary := purposeTargetDryRunLines(t, root, "test-serve-temporary")
+	wantTest := append(append(append([]string(nil), unit...), integration...), serveTemporary...)
+	assert.Equal(t, wantTest, purposeTargetDryRunLines(t, root, "test"))
 
 	var browser []string
 	for _, target := range []string{"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"} {
