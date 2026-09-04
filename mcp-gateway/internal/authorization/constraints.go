@@ -3,6 +3,7 @@ package authorization
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"regexp"
 	"regexp/syntax"
 	"strings"
@@ -87,7 +88,7 @@ func CompileConstraint(contents []byte) (CompiledConstraint, error) {
 			member := &value.Object[index]
 			switch member.Name {
 			case "version":
-				if member.Value.Type != strictjson.ValueNumber || member.Value.Number != "2" {
+				if member.Value.Type != strictjson.ValueNumber || !jsonNumberEquals(member.Value.Number, 2) {
 					return CompiledConstraint{}, invalidConstraint("version must be 2")
 				}
 				sawVersion = true
@@ -271,6 +272,11 @@ func ConstraintErrorDiagnostic(err error) (ConstraintDiagnostic, bool) {
 func constraintField(operator, pointer string) string {
 	token := strings.ReplaceAll(strings.ReplaceAll(pointer, "~", "~0"), "/", "~1")
 	return "/" + operator + "/" + token
+}
+
+func jsonNumberEquals(value string, expected int64) bool {
+	parsed, ok := new(big.Rat).SetString(value)
+	return ok && parsed.Cmp(big.NewRat(expected, 1)) == 0
 }
 
 func invalidConstraint(reason string) error {

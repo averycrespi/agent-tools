@@ -41,6 +41,16 @@ func TestCompileConstraintAcceptsV2EqualityAndRegexAtoms(t *testing.T) {
 	assert.Equal(t, string(contents), string(compiled.JSON()))
 }
 
+func TestCompileConstraintAcceptsJSONSchemaEquivalentV2Numbers(t *testing.T) {
+	for _, version := range []string{"2.0", "2e0", "20e-1"} {
+		contents := []byte(`{"version":` + version + `,"equals":{"/x":true}}`)
+		compiled, err := CompileConstraint(contents)
+		require.NoError(t, err, version)
+		assert.Equal(t, 2, compiled.Version())
+		assert.Equal(t, string(contents), string(compiled.JSON()))
+	}
+}
+
 func TestCompileConstraintRejectsInvalidV2ShapesAndRegex(t *testing.T) {
 	oversizedPattern := strings.Repeat("a", int(mustLimit("constraint_regex_pattern_bytes"))+1)
 	oversizedProgram := strings.Repeat("a{1000}", 5)

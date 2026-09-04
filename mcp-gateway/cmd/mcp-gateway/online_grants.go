@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"regexp"
 	"regexp/syntax"
@@ -128,7 +129,7 @@ func parseGrantConstraint(raw json.RawMessage) (grantConstraintShape, bool) {
 		shape.equalities = validGrantEquals(outer["equals"])
 	} else {
 		shape.version = 2
-		if len(outer) < 2 || len(outer) > 3 || string(outer["version"]) != "2" || (outer["equals"] == nil && outer["regex"] == nil) {
+		if len(outer) < 2 || len(outer) > 3 || !grantJSONNumberEquals(outer["version"], 2) || (outer["equals"] == nil && outer["regex"] == nil) {
 			return grantConstraintShape{}, false
 		}
 		for member := range outer {
@@ -149,6 +150,11 @@ func parseGrantConstraint(raw json.RawMessage) (grantConstraintShape, bool) {
 		return grantConstraintShape{}, false
 	}
 	return shape, true
+}
+
+func grantJSONNumberEquals(raw json.RawMessage, expected int64) bool {
+	parsed, ok := new(big.Rat).SetString(strings.TrimSpace(string(raw)))
+	return ok && parsed.Cmp(big.NewRat(expected, 1)) == 0
 }
 
 func validGrantEquals(raw json.RawMessage) int {
