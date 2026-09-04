@@ -145,6 +145,16 @@ func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.
 	second, err := repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredInclude, page.Next, 2)
 	require.NoError(t, err)
 	assert.Len(t, second.Items, 1)
+	for _, invalid := range []DescriptorCursor{
+		{ServerID: server.ID, Retired: contract.DescriptorRetiredInclude, CatalogRevision: "1", Upper: page.Next.Upper, After: page.Next.After},
+		{ServerID: server.ID, Retired: contract.DescriptorRetiredInclude, CatalogRevision: "1", Upper: page.Next.Upper, AfterID: page.Next.AfterID},
+		{ServerID: server.ID, Retired: contract.DescriptorRetiredInclude, CatalogRevision: "1", Upper: page.Next.Upper, After: page.Next.After, AfterID: "invalid"},
+	} {
+		_, err = repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredInclude, &invalid, 2)
+		assert.ErrorIs(t, err, servers.ErrStaleCursor)
+		_, err = repository.ListDescriptorSummaries(context.Background(), server.ID, contract.DescriptorRetiredInclude, &invalid, 2)
+		assert.ErrorIs(t, err, servers.ErrStaleCursor)
+	}
 
 	clock.now = clock.now.Add(time.Minute)
 	_, err = repository.Commit(context.Background(), catalogFence(server.ID, "1"), candidateFor(t, server.ID, "sample", "two"))

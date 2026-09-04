@@ -6110,7 +6110,7 @@ async function runRequestAdjudication(
             {
               id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
               server_id: serverID,
-              upstream_name: "demo.safe",
+              upstream_name: "safe",
               external_name: "demo.safe",
               catalog_revision: "1",
             },
@@ -6129,10 +6129,10 @@ async function runRequestAdjudication(
         body: JSON.stringify({
           id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
           server_id: serverID,
-          upstream_name: "demo.safe",
+          upstream_name: "safe",
           external_name: "demo.safe",
           descriptor: {
-            name: "demo.safe",
+            name: "safe",
             inputSchema: {
               type: "object",
               additionalProperties: false,
@@ -6246,6 +6246,8 @@ async function runRequestAdjudication(
       )
         fail("approval body changed shape");
       const approved = body.approved_policy as ReturnType<typeof policy>;
+      if (id === ids[0] && approved.target !== "demo.safe")
+        fail("server-to-tool approval did not preserve the external target");
       states.set(id, detail(id, submitted, "approved", approved));
     } else {
       rejections += 1;

@@ -705,7 +705,7 @@ function GrantCreate({
                             selectedDescriptor === undefined ||
                             descriptorError
                           ? "No verified current descriptor — literal manual name"
-                          : `Current durable descriptor · catalog revision ${selectedDescriptorSummary.catalogRevision}`}
+                          : `Current durable descriptor · catalog revision ${selectedDescriptor.catalogRevision}`}
                   </dd>
                 </div>
                 <div>

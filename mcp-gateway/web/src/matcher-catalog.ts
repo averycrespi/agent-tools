@@ -163,7 +163,7 @@ function decodeSummaryPage(value: unknown): {
     (page.next_cursor !== null &&
       (typeof page.next_cursor !== "string" ||
         page.next_cursor === "" ||
-        new TextEncoder().encode(page.next_cursor).length > 2048))
+        new TextEncoder().encode(page.next_cursor).length > 512))
   )
     throw new Error("invalid response");
   return {
@@ -290,6 +290,7 @@ export async function readMatcherDescriptor(
       descriptor.id !== summary.id ||
       descriptor.serverID !== summary.serverID ||
       descriptor.upstreamName !== summary.upstreamName ||
+      descriptor.externalName !== summary.externalName ||
       descriptor.retiredAt !== null
     )
       throw new Error("The selected tool schema is no longer current.");

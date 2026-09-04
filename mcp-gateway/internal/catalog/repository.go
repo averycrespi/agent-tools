@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
+
+var descriptorCursorID = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 type Clock interface {
 	Now() time.Time
@@ -382,7 +385,7 @@ func (repository *Repository) ListDescriptors(ctx context.Context, serverID stri
 				return err
 			}
 		} else {
-			if cursor.ServerID != serverID || cursor.Retired != retired || cursor.CatalogRevision != revision || cursor.Upper < 0 || cursor.After < 0 || cursor.After > cursor.Upper {
+			if cursor.ServerID != serverID || cursor.Retired != retired || cursor.CatalogRevision != revision || !validDescriptorCursorPosition(cursor) {
 				return servers.ErrStaleCursor
 			}
 			upper, after, afterID = cursor.Upper, cursor.After, cursor.AfterID
@@ -447,7 +450,7 @@ func (repository *Repository) ListDescriptorSummaries(ctx context.Context, serve
 				return err
 			}
 		} else {
-			if cursor.ServerID != serverID || cursor.Retired != retired || cursor.CatalogRevision != revision || cursor.Upper < 0 || cursor.After < 0 || cursor.After > cursor.Upper {
+			if cursor.ServerID != serverID || cursor.Retired != retired || cursor.CatalogRevision != revision || !validDescriptorCursorPosition(cursor) {
 				return servers.ErrStaleCursor
 			}
 			upper, after, afterID = cursor.Upper, cursor.After, cursor.AfterID
@@ -493,6 +496,12 @@ func (repository *Repository) ListDescriptorSummaries(ctx context.Context, serve
 		return nil
 	})
 	return page, mapStoreError(err)
+}
+
+func validDescriptorCursorPosition(cursor *DescriptorCursor) bool {
+	return cursor.Upper >= 0 && cursor.After >= 0 && cursor.After <= cursor.Upper &&
+		(cursor.After == 0) == (cursor.AfterID == "") &&
+		(cursor.AfterID == "" || descriptorCursorID.MatchString(cursor.AfterID))
 }
 
 func validateCommitFence(ctx context.Context, transaction *sql.Tx, fence CommitFence) error {

@@ -673,7 +673,7 @@ function RequestActions({
     return decodeRequestDetail(value, etag, requestedConstraintSource(source));
   };
   const selectedApprovalDescriptorSummary = approvalDescriptors?.find(
-    (descriptor) => descriptor.upstreamName === target,
+    (descriptor) => descriptor.externalName === target,
   );
   useEffect(() => {
     const request = new AbortController();
@@ -966,8 +966,8 @@ function RequestActions({
           <datalist id="approval-tool-options">
             {(approvalDescriptors ?? []).map((descriptor) => (
               <option
-                value={descriptor.upstreamName}
-                label={descriptor.externalName}
+                value={descriptor.externalName}
+                label={descriptor.upstreamName}
                 key={descriptor.id}
               />
             ))}
@@ -1169,7 +1169,7 @@ function RequestActions({
                               selectedApprovalDescriptor === undefined ||
                               approvalDescriptorError
                             ? "No verified current descriptor — literal manual name"
-                            : `Current durable descriptor · catalog revision ${selectedApprovalDescriptorSummary.catalogRevision}`
+                            : `Current durable descriptor · catalog revision ${selectedApprovalDescriptor.catalogRevision}`
                         : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
                   </dd>
                 </div>

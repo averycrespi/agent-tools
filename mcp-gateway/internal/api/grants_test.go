@@ -169,10 +169,13 @@ func TestGrantConstraintValidationRequiresAdminAndClosedBody(t *testing.T) {
 	path := "/api/v1/grant-constraints/validate"
 	assert.Equal(t, http.StatusUnauthorized, perform(handler, http.MethodPost, path, `{"constraint":{"equals":{"/x":1}}}`, map[string]string{"Content-Type": contract.MediaTypeJSON}).Code)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	for _, body := range []string{`{}`, `{"constraint":null}`, `{"constraint":{"equals":{"/x":1}},"extra":true}`} {
+	for _, body := range []string{`{}`, `{"constraint":null}`, `{"constraint":1}`, `{"constraint":[]}`, `{"constraint":"value"}`} {
 		response := perform(handler, http.MethodPost, path, body, headers)
 		assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+		assert.Contains(t, response.Body.String(), `"code":"malformed_request"`)
 	}
+	extra := perform(handler, http.MethodPost, path, `{"constraint":{"equals":{"/x":1}},"extra":true}`, headers)
+	assert.Equal(t, http.StatusBadRequest, extra.Code, extra.Body.String())
 }
 
 func TestGrantAuthenticationSessionAndTargetValidation(t *testing.T) {

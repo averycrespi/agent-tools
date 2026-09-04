@@ -39,8 +39,9 @@ func (handler *Handler) validateGrantConstraint(writer http.ResponseWriter, requ
 	if !decodeStrictBody(writer, request, &raw) {
 		return
 	}
-	if raw.Constraint == nil || bytes.Equal(raw.Constraint, []byte("null")) {
-		writeProblem(writer, contract.ProblemInvalidGrant)
+	constraint := bytes.TrimSpace(raw.Constraint)
+	if len(constraint) == 0 || bytes.Equal(constraint, []byte("null")) || constraint[0] != '{' {
+		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
 	result := contract.GrantConstraintValidationResult{Valid: true, Diagnostics: []contract.GrantConstraintDiagnostic{}}
