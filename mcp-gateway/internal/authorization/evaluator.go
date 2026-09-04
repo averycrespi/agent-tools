@@ -53,9 +53,10 @@ func evaluateTx(
 		SELECT id, principal_id, effect, server_id, upstream_name,
 		       constraint_json, expires_at, created_at
 		FROM grants
-		WHERE principal_id = ?
+		WHERE principal_id = ? AND server_id = ?
+		  AND (upstream_name IS NULL OR upstream_name = ?)
 		ORDER BY id
-		LIMIT ?`, principalID, mustLimit("grants")+1)
+		LIMIT ?`, principalID, serverID, upstreamName, mustLimit("grants")+1)
 	if err != nil {
 		return contract.AuthorizationResult{}, fmt.Errorf("%w: read grants for evaluation: %w", ErrStorageUnavailable, err)
 	}

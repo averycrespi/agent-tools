@@ -171,6 +171,8 @@ func validGrantRegex(raw json.RawMessage) int {
 	}
 	patternLimit, _ := contract.FixedLimitByName("constraint_regex_pattern_bytes")
 	programLimit, _ := contract.FixedLimitByName("constraint_regex_program_instructions")
+	totalProgramLimit, _ := contract.FixedLimitByName("constraint_regex_total_program_instructions")
+	totalInstructions := int64(0)
 	for pointer, rawPattern := range expressions {
 		var pattern string
 		if !validGrantPointer(pointer) || json.Unmarshal(rawPattern, &pattern) != nil || !patternLimit.Allows(int64(len(pattern))) {
@@ -185,6 +187,10 @@ func validGrantRegex(raw json.RawMessage) int {
 		}
 		program, err := syntax.Compile(parsed.Simplify())
 		if err != nil || !programLimit.Allows(int64(len(program.Inst))) {
+			return -1
+		}
+		totalInstructions += int64(len(program.Inst))
+		if !totalProgramLimit.Allows(totalInstructions) {
 			return -1
 		}
 	}

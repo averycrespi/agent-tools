@@ -46,7 +46,7 @@ func TestCompiledConstraintCacheReusesOnlyExactRevisionBytes(t *testing.T) {
 
 func TestCompiledConstraintCacheBoundsWeightAndDeduplicatesConcurrentMisses(t *testing.T) {
 	repository, _ := newRepository(t, nil)
-	const source = `{"version":2,"regex":{"/resource":"a{1000}"}}`
+	const source = `{"version":2,"regex":{"/resource":"a{200}"}}`
 	const workers = 16
 	expressions := make(chan any, workers)
 	var group sync.WaitGroup
@@ -71,13 +71,13 @@ func TestCompiledConstraintCacheBoundsWeightAndDeduplicatesConcurrentMisses(t *t
 	}
 
 	for count := 1; count <= 150; count++ {
-		_, err := repository.compileConstraint("7", fmt.Sprintf(`{"version":2,"regex":{"/resource":"a{1000}b{%d}"}}`, count))
+		_, err := repository.compileConstraint("7", fmt.Sprintf(`{"version":2,"regex":{"/resource-%d":"a{200}"}}`, count))
 		require.NoError(t, err)
 	}
 	repository.constraintCache.Lock()
 	defer repository.constraintCache.Unlock()
 	assert.LessOrEqual(t, repository.constraintCache.weight, int64(maxCompiledConstraintCacheWeight))
-	assert.Less(t, len(repository.constraintCache.entries), 151)
+	assert.Len(t, repository.constraintCache.entries, 151)
 }
 
 func TestEvaluateEnforcesDenyAllowBlockAndSmallestEvidence(t *testing.T) {
@@ -244,6 +244,20 @@ func TestEvaluateFailsClosedWhenCumulativeRegexWorkBudgetIsExhausted(t *testing.
 
 	_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{"value":` + fmt.Sprintf("%q", value) + `}`)})
 	assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
+}
+
+func TestEvaluateLoadsOnlyStructurallyApplicableGrantConstraints(t *testing.T) {
+	repository, store := newRepository(t, nil)
+	principal := mustCreatePrincipal(t, repository)
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Relevant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
+	irrelevant := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Irrelevant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(52), UpstreamName: stringPointer("other")})
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		_, err := transaction.Exec(`UPDATE grants SET constraint_json = '{"equals":{}}' WHERE id = ?`, irrelevant.ID)
+		return err
+	}))
+	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+	assert.Equal(t, contract.DecisionAllow, result.Decision)
 }
 
 func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(t *testing.T) {

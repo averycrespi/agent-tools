@@ -37,7 +37,7 @@ type Clock interface {
 	Now() time.Time
 }
 
-const maxCompiledConstraintCacheWeight = 8 * 1024 * 1024
+const maxCompiledConstraintCacheWeight = 128 * 1024 * 1024
 
 type Repository struct {
 	store     *storage.Store

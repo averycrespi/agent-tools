@@ -151,6 +151,7 @@ func compileRegex(value strictjson.Value) ([]constraintAtom, error) {
 		return nil, invalidConstraintAt("/regex", "regex must be an object")
 	}
 	atoms := make([]constraintAtom, 0, len(value.Object))
+	totalInstructions := int64(0)
 	for _, member := range value.Object {
 		field := constraintField("regex", member.Name)
 		segments, err := compileJSONPointer(member.Name)
@@ -175,6 +176,10 @@ func compileRegex(value strictjson.Value) ([]constraintAtom, error) {
 		program, compileErr := syntax.Compile(parsed.Simplify())
 		if compileErr != nil || int64(len(program.Inst)) > mustLimit("constraint_regex_program_instructions") {
 			return nil, invalidConstraintAt(field, "compiled pattern exceeds the size limit")
+		}
+		totalInstructions += int64(len(program.Inst))
+		if totalInstructions > mustLimit("constraint_regex_total_program_instructions") {
+			return nil, invalidConstraintAt("/regex", "compiled patterns exceed the total size limit")
 		}
 		expression, compileErr := regexp.Compile(anchored)
 		if compileErr != nil {

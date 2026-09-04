@@ -104,6 +104,7 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 		{Name: "constraint_pointer_bytes", Maximum: 256},
 		{Name: "constraint_regex_pattern_bytes", Maximum: 1024},
 		{Name: "constraint_regex_program_instructions", Maximum: 4096},
+		{Name: "constraint_regex_total_program_instructions", Maximum: 256},
 		{Name: "constraint_regex_work_bytes", Maximum: 1048576},
 		{Name: "grant_description_bytes", Maximum: 256},
 	}

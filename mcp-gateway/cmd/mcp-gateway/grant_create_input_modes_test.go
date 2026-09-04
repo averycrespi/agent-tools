@@ -49,6 +49,7 @@ func TestCLIGrantConstraintValidationMatchesProductionCompiler(t *testing.T) {
 		json.RawMessage(`{"version":3,"equals":{"/x":1}}`),
 		json.RawMessage(`{"version":2,"regex":{"/x":"["}}`),
 		json.RawMessage(`{"version":2,"regex":{"/x":"x)\\z|foo(?:"}}`),
+		json.RawMessage(`{"version":2,"regex":{"/x":"a{200}","/y":"b{200}"}}`),
 		json.RawMessage(`{"version":2,"equals":null,"regex":{"/x":"x"}}`),
 		json.RawMessage(`{"version":2,"equals":{"/x":1},"regex":null}`),
 		json.RawMessage(`{"version":2,"regex":{"/x":1}}`),

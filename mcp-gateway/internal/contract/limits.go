@@ -146,6 +146,7 @@ var fixedLimits = []FixedLimit{
 	{Name: "constraint_pointer_bytes", Maximum: 256},
 	{Name: "constraint_regex_pattern_bytes", Maximum: 1024},
 	{Name: "constraint_regex_program_instructions", Maximum: 4096},
+	{Name: "constraint_regex_total_program_instructions", Maximum: 256},
 	{Name: "constraint_regex_work_bytes", Maximum: 1024 * 1024},
 	{Name: "invocation_audit_rows", Maximum: 65536},
 	{Name: "invocation_argument_capture_bytes", Maximum: 8192},
