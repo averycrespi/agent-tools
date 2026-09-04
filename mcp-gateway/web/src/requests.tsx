@@ -70,6 +70,7 @@ interface TargetComparison {
   descriptor: unknown | null;
 }
 export interface RequestDetail extends RequestSummary {
+  submittedConstraintSource: string | null;
   resolvedServerID: string;
   resolvedUpstreamName: string | null;
   submittedEvidence: DescriptorEvidence | null;
@@ -229,6 +230,7 @@ function decodeTarget(value: unknown): TargetComparison {
 export function decodeRequestDetail(
   value: unknown,
   etag: string,
+  submittedConstraintSource?: string | null,
 ): RequestDetail {
   const keys = [
     ...summaryKeys,
@@ -245,6 +247,12 @@ export function decodeRequestDetail(
   const resolvedUpstreamName = nullableText(item.resolved_upstream_name);
   return {
     ...summary,
+    submittedConstraintSource:
+      submittedConstraintSource === undefined
+        ? summary.requestedPolicy.constraint === null
+          ? null
+          : JSON.stringify(summary.requestedPolicy.constraint)
+        : submittedConstraintSource,
     resolvedServerID: id(item.resolved_server_id),
     resolvedUpstreamName,
     submittedEvidence:
@@ -262,10 +270,64 @@ export function decodeRequestDetail(
 function requestHeaders(context: ProtectedContext): HeadersInit {
   return { Accept: "application/json", "X-CSRF-Token": context.csrfToken };
 }
+function jsonStringEnd(source: string, start: number): number {
+  if (source[start] !== '"') throw new Error("invalid response");
+  for (let index = start + 1; index < source.length; index++) {
+    if (source[index] === "\\") index += 1;
+    else if (source[index] === '"') return index + 1;
+  }
+  throw new Error("invalid response");
+}
+function jsonValueEnd(source: string, start: number): number {
+  if (source[start] === '"') return jsonStringEnd(source, start);
+  if (source[start] === "{" || source[start] === "[") {
+    const close = source[start] === "{" ? "}" : "]";
+    let depth = 1;
+    for (let index = start + 1; index < source.length; index++) {
+      if (source[index] === '"') index = jsonStringEnd(source, index) - 1;
+      else if (source[index] === source[start]) depth += 1;
+      else if (source[index] === close && --depth === 0) return index + 1;
+    }
+    throw new Error("invalid response");
+  }
+  let index = start;
+  while (index < source.length && !/[\s,}\]]/.test(source[index] ?? ""))
+    index += 1;
+  return index;
+}
+function jsonMemberSource(source: string, key: string): string | undefined {
+  let index = 0;
+  while (/\s/.test(source[index] ?? "")) index += 1;
+  if (source[index++] !== "{") throw new Error("invalid response");
+  for (;;) {
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    if (source[index] === "}") return undefined;
+    const keyEnd = jsonStringEnd(source, index);
+    const member = JSON.parse(source.slice(index, keyEnd)) as unknown;
+    index = keyEnd;
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    if (source[index++] !== ":") throw new Error("invalid response");
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    const valueStart = index;
+    index = jsonValueEnd(source, valueStart);
+    if (member === key) return source.slice(valueStart, index);
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    if (source[index] === ",") index += 1;
+    else if (source[index] === "}") return undefined;
+    else throw new Error("invalid response");
+  }
+}
+function requestedConstraintSource(source: string): string | null {
+  const policy = jsonMemberSource(source, "requested_policy");
+  if (policy === undefined) throw new Error("invalid response");
+  const constraint = jsonMemberSource(policy, "constraint");
+  if (constraint === undefined) throw new Error("invalid response");
+  return constraint === "null" ? null : constraint;
+}
 async function requestJSON(
   session: SessionClient,
   route: string,
-): Promise<{ response: Response; value: unknown } | undefined> {
+): Promise<{ response: Response; value: unknown; source: string } | undefined> {
   return session.runProtected(async (context) => {
     const response = await fetch(route, {
       credentials: "same-origin",
@@ -277,7 +339,8 @@ async function requestJSON(
     const type = response.headers.get("Content-Type");
     if (type !== "application/json" && type !== "application/problem+json")
       throw new Error("Request data is unavailable.");
-    return { response, value: (await response.json()) as unknown };
+    const source = await response.text();
+    return { response, value: JSON.parse(source) as unknown, source };
   });
 }
 interface RequestPage {
@@ -337,7 +400,11 @@ async function readRequest(
       `"grant-request-${requestID}-${(result.value as JSONRecord).revision}"`
   )
     throw new Error("The current request revision is unavailable.");
-  return decodeRequestDetail(result.value, etag);
+  return decodeRequestDetail(
+    result.value,
+    etag,
+    requestedConstraintSource(result.source),
+  );
 }
 function policyFacts(policy: Policy) {
   return (
@@ -504,7 +571,7 @@ function RequestActions({
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
   const [constraint, setConstraint] = useState(
-    submitted.constraint === null ? "" : JSON.stringify(submitted.constraint),
+    detail.submittedConstraintSource ?? "",
   );
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
@@ -512,8 +579,7 @@ function RequestActions({
     description: defaultDescription,
     scope: submitted.scope,
     target: submitted.target,
-    constraint:
-      submitted.constraint === null ? "" : JSON.stringify(submitted.constraint),
+    constraint: detail.submittedConstraintSource ?? "",
     duration: submitted.durationSeconds ?? "",
     reason: "not_approved",
   });
@@ -539,10 +605,11 @@ function RequestActions({
   const decodeMutation = async (response: Response) => {
     if (response.headers.get("Content-Type") !== "application/json")
       throw new Error("invalid response");
-    const value = (await response.json()) as unknown;
+    const source = await response.text();
+    const value = JSON.parse(source) as unknown;
     const etag = response.headers.get("ETag");
     if (etag === null) throw new Error("invalid response");
-    return decodeRequestDetail(value, etag);
+    return decodeRequestDetail(value, etag, requestedConstraintSource(source));
   };
   const approvedPolicy = (): Policy => {
     if (

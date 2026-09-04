@@ -5896,7 +5896,7 @@ async function runRequestAdjudication(
         "demo.safe",
         {
           version: 2,
-          equals: { "/mode": "safe" },
+          equals: { "/mode": "safe", "/attempt": 1 },
           regex: { "/resource": "item-\\d+" },
         },
         "600",
@@ -5928,7 +5928,10 @@ async function runRequestAdjudication(
         status: 200,
         contentType: "application/json",
         headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
-        body: JSON.stringify(item),
+        body:
+          id === ids[1]
+            ? JSON.stringify(item).replace('"/attempt":1', '"/attempt":1.0')
+            : JSON.stringify(item),
       });
       return;
     }
@@ -6082,6 +6085,12 @@ async function runRequestAdjudication(
   }
 
   await navigate(ids[1]!);
+  if (
+    !(
+      await page.locator('[data-testid="approval-constraint"]').inputValue()
+    ).includes('"/attempt":1.0')
+  )
+    fail("approval editor normalized a submitted numeric token");
   await page.locator('[data-testid="approval-duration"]').fill("601");
   await reviewApproval();
   await page
