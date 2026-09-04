@@ -60,6 +60,7 @@ func evaluateTx(
 	}
 	defer func() { _ = rows.Close() }()
 	var smallestAllow, smallestDeny string
+	remainingRegexWork := mustLimit("constraint_regex_work_bytes")
 	count := int64(0)
 	for rows.Next() {
 		if count >= mustLimit("grants") {
@@ -70,7 +71,11 @@ func evaluateTx(
 		if loadErr != nil {
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
-		if !grant.applies(serverID, upstreamName, evaluatedAt, arguments) {
+		applies, appliesErr := grant.applies(serverID, upstreamName, evaluatedAt, arguments, &remainingRegexWork)
+		if appliesErr != nil {
+			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
+		}
+		if !applies {
 			continue
 		}
 		switch grant.effect {
@@ -141,39 +146,44 @@ func loadEvaluationGrant(scanner grantScanner) (evaluationGrant, error) {
 	return grant, nil
 }
 
-func (grant evaluationGrant) applies(serverID, upstreamName string, evaluatedAt time.Time, arguments strictjson.Value) bool {
+func (grant evaluationGrant) applies(serverID, upstreamName string, evaluatedAt time.Time, arguments strictjson.Value, remainingRegexWork *int64) (bool, error) {
 	if grant.serverID != serverID || grant.expiresAt != nil && !grant.expiresAt.After(evaluatedAt) ||
 		grant.upstreamName.Valid && grant.upstreamName.String != upstreamName {
-		return false
+		return false, nil
 	}
-	return grant.constraint == nil || constraintMatches(*grant.constraint, arguments)
+	if grant.constraint == nil {
+		return true, nil
+	}
+	return constraintMatches(*grant.constraint, arguments, remainingRegexWork)
 }
 
-func constraintMatches(constraint CompiledConstraint, arguments strictjson.Value) bool {
-	remainingRegexWork := mustLimit("constraint_regex_work_bytes")
+func constraintMatches(constraint CompiledConstraint, arguments strictjson.Value, remainingRegexWork *int64) (bool, error) {
 	for _, atom := range constraint.atoms {
 		actual, present := valueAtObjectPath(arguments, atom.segments)
 		if !present {
-			return false
+			return false, nil
 		}
 		switch atom.operator {
 		case ConstraintEquals:
 			if !scalarValuesEqual(actual, atom.expected) {
-				return false
+				return false, nil
 			}
 		case ConstraintRegex:
-			if actual.Type != strictjson.ValueString || int64(len(actual.String)) > remainingRegexWork {
-				return false
+			if actual.Type != strictjson.ValueString {
+				return false, nil
 			}
-			remainingRegexWork -= int64(len(actual.String))
+			if int64(len(actual.String)) > *remainingRegexWork {
+				return false, ErrAuthorizationUnavailable
+			}
+			*remainingRegexWork -= int64(len(actual.String))
 			if !atom.expression.MatchString(actual.String) {
-				return false
+				return false, nil
 			}
 		default:
-			return false
+			return false, ErrAuthorizationUnavailable
 		}
 	}
-	return true
+	return true, nil
 }
 
 func valueAtObjectPath(root strictjson.Value, segments []string) (strictjson.Value, bool) {

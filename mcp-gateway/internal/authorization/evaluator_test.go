@@ -144,7 +144,24 @@ func TestConstraintMatchesFailsClosedWhenRegexWorkBudgetIsExhausted(t *testing.T
 	value := strings.Repeat("x", int(mustLimit("constraint_regex_work_bytes")/2)+1)
 	arguments, err := strictjson.ParseValue([]byte(`{"first":`+fmt.Sprintf("%q", value)+`,"second":`+fmt.Sprintf("%q", value)+`}`), strictjson.Options{MaxBytes: mustLimit("mcp_body_bytes"), MaxDepth: int(mustLimit("json_depth"))})
 	require.NoError(t, err)
-	assert.False(t, constraintMatches(constraint, arguments))
+	remainingRegexWork := mustLimit("constraint_regex_work_bytes")
+	matched, err := constraintMatches(constraint, arguments, &remainingRegexWork)
+	assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
+	assert.False(t, matched)
+}
+
+func TestEvaluateFailsClosedWhenCumulativeRegexWorkBudgetIsExhausted(t *testing.T) {
+	repository, _ := newRepository(t, nil)
+	principal := mustCreatePrincipal(t, repository)
+	value := strings.Repeat("x", int(mustLimit("constraint_regex_work_bytes")/2)+1)
+	firstConstraint := json.RawMessage(`{"version":2,"regex":{"/value":"y+"}}`)
+	secondConstraint := json.RawMessage(`{"version":2,"regex":{"/value":".*"}}`)
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &firstConstraint})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &secondConstraint})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
+
+	_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{"value":` + fmt.Sprintf("%q", value) + `}`)})
+	assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
 }
 
 func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(t *testing.T) {
@@ -207,7 +224,8 @@ func FuzzConstraintMatchesObjectOnly(f *testing.F) {
 		if err != nil || arguments.Type != strictjson.ValueObject {
 			return
 		}
-		_ = constraintMatches(constraint, arguments)
+		remainingRegexWork := mustLimit("constraint_regex_work_bytes")
+		_, _ = constraintMatches(constraint, arguments, &remainingRegexWork)
 	})
 }
 
