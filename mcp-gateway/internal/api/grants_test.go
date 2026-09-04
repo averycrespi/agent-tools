@@ -172,6 +172,11 @@ func TestGrantConstraintValidationUsesProductionCompilerWithoutMutation(t *testi
 	require.Equal(t, http.StatusOK, invalid.Code, invalid.Body.String())
 	assert.JSONEq(t, `{"valid":false,"diagnostics":[{"field":"/regex/~1resource","message":"pattern is not valid RE2"}]}`, invalid.Body.String())
 	assert.NotContains(t, invalid.Body.String(), `\"[\"`)
+
+	invalidRoot := perform(handler, http.MethodPost, "/api/v1/grant-constraints/validate", `{"constraint":{"version":3,"equals":{"/x":true}}}`, headers)
+	require.Equal(t, http.StatusOK, invalidRoot.Code, invalidRoot.Body.String())
+	assert.JSONEq(t, `{"valid":false,"diagnostics":[{"field":"","message":"version must be 2"}]}`, invalidRoot.Body.String())
+
 	assert.Empty(t, service.grants)
 	assert.Empty(t, invalidations)
 }

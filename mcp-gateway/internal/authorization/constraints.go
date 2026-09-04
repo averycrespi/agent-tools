@@ -280,7 +280,7 @@ func jsonNumberEquals(value string, expected int64) bool {
 }
 
 func invalidConstraint(reason string) error {
-	return invalidConstraintAt("/", reason)
+	return invalidConstraintAt("", reason)
 }
 
 func invalidConstraintAt(field, reason string) error {
