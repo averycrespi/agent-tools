@@ -713,6 +713,22 @@ function RequestActions({
     }
   })();
   const reviewBody = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(scope)},"target":${JSON.stringify(target)},"constraint":${reviewedConstraint === "" ? "null" : reviewedConstraint},"duration_seconds":${duration === "" ? "null" : JSON.stringify(duration)},"future_tools_acknowledged":${String(scope === "server")}}}`;
+  const reviewedMatcherSummary = (() => {
+    if (reviewedConstraint === "") return "None";
+    try {
+      const constraint = JSON.parse(reviewedConstraint) as Record<
+        string,
+        unknown
+      >;
+      const count = (value: unknown) =>
+        value !== null && typeof value === "object" && !Array.isArray(value)
+          ? Object.keys(value).length
+          : 0;
+      return `v${constraint.version === 2 ? 2 : 1} · ${count(constraint.equals)} equality · ${count(constraint.regex)} regex`;
+    } catch {
+      return "Unavailable";
+    }
+  })();
   const review = async (next: "approve" | "reject") => {
     const reviewedDraft = currentDraft.current;
     setError(undefined);
@@ -1029,6 +1045,10 @@ function RequestActions({
               )}
               <dl class="fact-grid">
                 <div>
+                  <dt>Description</dt>
+                  <dd>{description === "" ? "None" : description}</dd>
+                </div>
+                <div>
                   <dt>Principal</dt>
                   <dd>{detail.principalID}</dd>
                 </div>
@@ -1047,6 +1067,16 @@ function RequestActions({
                       ? "Not applicable to server-wide authority"
                       : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
                   </dd>
+                </div>
+                <div>
+                  <dt>Approved duration</dt>
+                  <dd>
+                    {duration === "" ? "Permanent" : `${duration} seconds`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Constraint</dt>
+                  <dd>{reviewedMatcherSummary}</dd>
                 </div>
               </dl>
               <div>

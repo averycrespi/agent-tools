@@ -6253,13 +6253,18 @@ async function runRequestAdjudication(
     !approvalReview.includes(serverID) ||
     !approvalReview.includes("demo.safe") ||
     !approvalReview.includes("current / current") ||
+    !approvalReview.includes("DescriptionNone") ||
+    !approvalReview.includes("Approved duration300 seconds") ||
+    !approvalReview.includes("Constraintv2 · 3 equality · 2 regex") ||
     !approvalReview.includes("Every matcher atom is required (AND)") ||
     !approvalReview.includes("matching DENY takes precedence") ||
     !(
       await page.locator('[data-testid="approval-review-policy"]').inputValue()
     ).includes('"/attempt":1.0')
   )
-    fail("approval review omitted complete matcher policy disclosure");
+    fail(
+      `approval review omitted complete matcher policy disclosure: ${approvalReview}`,
+    );
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })
