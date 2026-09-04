@@ -27,6 +27,25 @@ function pointerToken(value: string): string {
   return value.replaceAll("~", "~0").replaceAll("/", "~1");
 }
 
+const schemaMetadata = new Set([
+  "$id",
+  "$schema",
+  "default",
+  "deprecated",
+  "description",
+  "examples",
+  "readOnly",
+  "title",
+  "writeOnly",
+]);
+function hasUnsupportedKeywords(
+  schema: JSONRecord,
+  supported: readonly string[],
+): boolean {
+  const allowed = new Set([...schemaMetadata, ...supported]);
+  return Object.keys(schema).some((key) => !allowed.has(key));
+}
+
 export function matcherSchemaSuggestions(
   descriptor: unknown,
 ): MatcherSchemaSuggestions {
@@ -40,10 +59,22 @@ export function matcherSchemaSuggestions(
       return;
     }
     const properties = object(schema.properties);
-    if (schema.type !== "object" || properties === undefined) {
+    if (
+      schema.type !== "object" ||
+      properties === undefined ||
+      hasUnsupportedKeywords(schema, [
+        "type",
+        "properties",
+        "required",
+        "additionalProperties",
+        "minProperties",
+        "maxProperties",
+      ]) ||
+      (schema.additionalProperties !== undefined &&
+        schema.additionalProperties !== false)
+    )
       unsupported = true;
-      return;
-    }
+    if (schema.type !== "object" || properties === undefined) return;
     for (const [name, value] of Object.entries(properties)) {
       const property = object(value);
       if (property === undefined) {
@@ -55,6 +86,8 @@ export function matcherSchemaSuggestions(
         visit(property, path, depth + 1);
         continue;
       }
+      if (hasUnsupportedKeywords(property, ["type", "enum"]))
+        unsupported = true;
       const type =
         property.type === "integer" || property.type === "number"
           ? "number"
@@ -67,13 +100,19 @@ export function matcherSchemaSuggestions(
         unsupported = true;
         continue;
       }
-      const values = Array.isArray(property.enum)
-        ? property.enum
-            .filter((item) =>
-              ["string", "number", "boolean"].includes(typeof item),
-            )
-            .map(String)
-        : [];
+      if (property.enum !== undefined && !Array.isArray(property.enum))
+        unsupported = true;
+      const enumValues = Array.isArray(property.enum) ? property.enum : [];
+      const values = enumValues
+        .filter((item) =>
+          type === "null"
+            ? item === null
+            : type === "number"
+              ? typeof item === "number"
+              : typeof item === type,
+        )
+        .map((item) => (item === null ? "null" : String(item)));
+      if (values.length !== enumValues.length) unsupported = true;
       fields.push({
         pointer: `/${path.map(pointerToken).join("/")}`,
         type,
@@ -85,12 +124,6 @@ export function matcherSchemaSuggestions(
         regexAvailable: type === "string",
       });
     }
-    if (
-      Object.keys(schema).some((key) =>
-        ["$ref", "allOf", "anyOf", "oneOf", "patternProperties"].includes(key),
-      )
-    )
-      unsupported = true;
   };
   if (root !== undefined) visit(root, [], 0);
   return { fields, unsupported };

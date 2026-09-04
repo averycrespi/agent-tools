@@ -4436,6 +4436,7 @@ async function runGrantReadsCreate(
           name: upstream,
           inputSchema: {
             type: "object",
+            additionalProperties: { type: "string" },
             properties: {
               region: {
                 type: "string",
@@ -4452,7 +4453,10 @@ async function runGrantReadsCreate(
                   count: { type: "integer" },
                 },
               },
-              items: { type: "array", items: { type: "string" } },
+              conditional: {
+                type: "string",
+                oneOf: [{ const: "one" }, { const: "two" }],
+              },
             },
           },
           annotations: {
@@ -6113,6 +6117,12 @@ async function runRequestAdjudication(
   }
 
   await navigate(ids[1]!);
+  await page
+    .getByText(
+      "Scalar field suggestions are available where unambiguous. Other current schema portions are unsupported for matcher suggestions; custom JSON Pointers remain available.",
+      { exact: true },
+    )
+    .waitFor();
   const submittedConstraint = page.locator(
     '[data-testid="approval-submitted-constraint"]',
   );
@@ -6224,6 +6234,9 @@ async function runRequestAdjudication(
   await navigate(ids[9]!);
   await page.locator('[data-testid="approval-duration"]').fill("60");
   await reviewApproval();
+  await page
+    .getByText("Not applicable to server-wide authority", { exact: true })
+    .waitFor();
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })

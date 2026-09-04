@@ -908,6 +908,16 @@ function RequestActions({
               Additions use the same equality and full-string RE2 controls as
               grant creation.
             </p>
+            {approvalSuggestions?.unsupported && (
+              <p
+                class="bounded-note"
+                data-testid="approval-matcher-schema-posture"
+              >
+                Scalar field suggestions are available where unambiguous. Other
+                current schema portions are unsupported for matcher suggestions;
+                custom JSON Pointers remain available.
+              </p>
+            )}
             <MatcherAtomEditor
               idPrefix="approval-additional"
               testPrefix="approval-additional"
@@ -1033,8 +1043,9 @@ function RequestActions({
                 <div>
                   <dt>Catalog posture</dt>
                   <dd>
-                    {detail.currentTarget.activeState ?? "unavailable"} /{" "}
-                    {detail.currentTarget.durableState ?? "absent"}
+                    {scope === "server"
+                      ? "Not applicable to server-wide authority"
+                      : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
                   </dd>
                 </div>
               </dl>
