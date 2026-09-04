@@ -26,34 +26,37 @@ func (handler *Handler) descriptorsCollection(writer http.ResponseWriter, reques
 		writeProblem(writer, problem)
 		return
 	}
+	if summary {
+		page, err := handler.catalog.ListDescriptorSummaries(request.Context(), serverID, retired, cursor, limit)
+		if err != nil {
+			writeServerError(writer, err)
+			return
+		}
+		items := make([]contract.ToolDescriptorSummary, 0, len(page.Items))
+		for _, item := range page.Items {
+			items = append(items, item.Resource)
+		}
+		writeJSON(writer, http.StatusOK, contract.Collection[contract.ToolDescriptorSummary]{Items: items, NextCursor: encodedDescriptorCursor(page.Next)})
+		return
+	}
 	page, err := handler.catalog.ListDescriptors(request.Context(), serverID, retired, cursor, limit)
 	if err != nil {
 		writeServerError(writer, err)
-		return
-	}
-	var next *string
-	if page.Next != nil {
-		value := encodeDescriptorCursor(*page.Next)
-		next = &value
-	}
-	if summary {
-		items := make([]contract.ToolDescriptorSummary, 0, len(page.Items))
-		for _, item := range page.Items {
-			resource := item.Resource
-			items = append(items, contract.ToolDescriptorSummary{
-				ID: resource.ID, ServerID: resource.ServerID,
-				UpstreamName: resource.UpstreamName, ExternalName: resource.ExternalName,
-				CatalogRevision: resource.CatalogRevision,
-			})
-		}
-		writeJSON(writer, http.StatusOK, contract.Collection[contract.ToolDescriptorSummary]{Items: items, NextCursor: next})
 		return
 	}
 	items := make([]contract.ToolDescriptor, 0, len(page.Items))
 	for _, item := range page.Items {
 		items = append(items, item.Resource)
 	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.ToolDescriptor]{Items: items, NextCursor: next})
+	writeJSON(writer, http.StatusOK, contract.Collection[contract.ToolDescriptor]{Items: items, NextCursor: encodedDescriptorCursor(page.Next)})
+}
+
+func encodedDescriptorCursor(cursor *catalog.DescriptorCursor) *string {
+	if cursor == nil {
+		return nil
+	}
+	value := encodeDescriptorCursor(*cursor)
+	return &value
 }
 
 func (handler *Handler) descriptorMember(writer http.ResponseWriter, request *http.Request, serverID, toolID string) {

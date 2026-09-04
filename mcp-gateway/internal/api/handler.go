@@ -64,6 +64,7 @@ type CatalogService interface {
 	Status(context.Context, string) (catalog.DurableStatus, error)
 	GetDescriptor(context.Context, string, string) (contract.ToolDescriptor, error)
 	ListDescriptors(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorPage, error)
+	ListDescriptorSummaries(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorSummaryPage, error)
 }
 
 type ActiveCatalogService interface {

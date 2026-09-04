@@ -15,15 +15,17 @@ import (
 )
 
 type fakeCatalogService struct {
-	status catalog.DurableStatus
-	page   catalog.DescriptorPage
-	item   contract.ToolDescriptor
-	err    error
-	filter contract.DescriptorRetiredFilter
-	cursor *catalog.DescriptorCursor
-	limit  int
-	server string
-	toolID string
+	status       catalog.DurableStatus
+	page         catalog.DescriptorPage
+	item         contract.ToolDescriptor
+	err          error
+	filter       contract.DescriptorRetiredFilter
+	cursor       *catalog.DescriptorCursor
+	limit        int
+	server       string
+	toolID       string
+	fullCalls    int
+	summaryCalls int
 }
 
 func (service *fakeCatalogService) Status(context.Context, string) (catalog.DurableStatus, error) {
@@ -35,7 +37,25 @@ func (service *fakeCatalogService) GetDescriptor(_ context.Context, serverID, to
 }
 func (service *fakeCatalogService) ListDescriptors(_ context.Context, serverID string, filter contract.DescriptorRetiredFilter, cursor *catalog.DescriptorCursor, limit int) (catalog.DescriptorPage, error) {
 	service.server, service.filter, service.cursor, service.limit = serverID, filter, cursor, limit
+	service.fullCalls++
 	return service.page, service.err
+}
+func (service *fakeCatalogService) ListDescriptorSummaries(_ context.Context, serverID string, filter contract.DescriptorRetiredFilter, cursor *catalog.DescriptorCursor, limit int) (catalog.DescriptorSummaryPage, error) {
+	service.server, service.filter, service.cursor, service.limit = serverID, filter, cursor, limit
+	service.summaryCalls++
+	page := catalog.DescriptorSummaryPage{Next: service.page.Next}
+	for _, item := range service.page.Items {
+		resource := item.Resource
+		page.Items = append(page.Items, catalog.DescriptorSummaryRecord{
+			InsertionSequence: item.InsertionSequence,
+			Resource: contract.ToolDescriptorSummary{
+				ID: resource.ID, ServerID: resource.ServerID,
+				UpstreamName: resource.UpstreamName, ExternalName: resource.ExternalName,
+				CatalogRevision: resource.CatalogRevision,
+			},
+		})
+	}
+	return page, service.err
 }
 
 func TestDescriptorListAndMemberResources(t *testing.T) {
@@ -55,6 +75,8 @@ func TestDescriptorListAndMemberResources(t *testing.T) {
 	assert.Contains(t, summary.Body.String(), `"upstream_name":"echo"`)
 	assert.NotContains(t, summary.Body.String(), `"descriptor"`)
 	assert.NotContains(t, summary.Body.String(), `"fingerprint"`)
+	assert.Equal(t, 1, service.fullCalls)
+	assert.Equal(t, 1, service.summaryCalls)
 
 	cursor := encodeDescriptorCursor(next)
 	second := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors?limit=2&retired=only&cursor="+cursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
