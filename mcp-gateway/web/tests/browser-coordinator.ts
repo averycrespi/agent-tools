@@ -4310,6 +4310,56 @@ async function runPrincipalCredentials(
   );
 }
 
+async function assertMatcherAuthoringAccessibility(
+  page: Page,
+  workflow: string,
+): Promise<void> {
+  const axe = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+    .analyze();
+  const blocking = axe.violations.filter(
+    (violation) =>
+      violation.impact === "serious" || violation.impact === "critical",
+  );
+  if (blocking.length !== 0)
+    fail(
+      `${workflow} matcher accessibility findings: ${blocking
+        .map((violation) => violation.id)
+        .join(",")}`,
+    );
+  for (const viewport of [
+    { width: 320, height: 800 },
+    { width: 720, height: 450 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const layout = await page.evaluate(() => ({
+      client: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+      unlabeled: [
+        ...document.querySelectorAll<
+          HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+        >(
+          'input[data-testid*="constraint"]:not([type="hidden"]), select[data-testid*="constraint"], textarea[data-testid*="constraint"]',
+        ),
+      ]
+        .filter(
+          (control) =>
+            control.getAttribute("aria-label") === null &&
+            (control.id === "" ||
+              document.querySelector(
+                `label[for="${CSS.escape(control.id)}"]`,
+              ) === null),
+        )
+        .map((control) => `${control.tagName}:${control.id}`),
+    }));
+    if (layout.scroll > layout.client || layout.unlabeled.length !== 0)
+      fail(
+        `${workflow} matcher reflow/label failure: ${JSON.stringify(layout)}`,
+      );
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
+
 async function runGrantReadsCreate(
   browserVersion: string,
   context: BrowserContext,
@@ -5061,6 +5111,7 @@ async function runGrantReadsCreate(
     !constraintPreview.includes('"/resource":"item-\\\\d+"')
   )
     fail("grant preview did not preserve typed matcher tokens");
+  await assertMatcherAuthoringAccessibility(page, "grant creation");
   await page.locator('[data-testid="grant-create-submit"]').click();
   const matcherReview =
     (await page.locator("#grant-create-confirm-consequence").textContent()) ??
@@ -6190,6 +6241,7 @@ async function runRequestAdjudication(
     additionalPreview.includes('"/extra":"1.0"')
   )
     fail("approval preview did not preserve typed additive matcher tokens");
+  await assertMatcherAuthoringAccessibility(page, "request approval");
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");
   await reviewApproval();
