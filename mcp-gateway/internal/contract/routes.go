@@ -55,6 +55,7 @@ var routes = []Route{
 	{Pattern: "/api/v1/principals/{id}/credential", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/grants/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/grant-constraints/validate", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/grant-requests", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/grant-requests/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/grant-requests/{id}/approve", Methods: []string{"POST"}, Authority: AuthorityAdmin},

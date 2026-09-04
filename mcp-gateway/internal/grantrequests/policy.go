@@ -14,7 +14,10 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
-const DedupeVersion int64 = 1
+const (
+	DedupeVersionV1 int64 = 1
+	DedupeVersionV2 int64 = 2
+)
 
 const maximumDedupeBytes = 16384
 
@@ -131,8 +134,16 @@ func CanonicalDedupeIdentity(policy CompiledPolicy, target ResolvedTarget) (Dedu
 	if !validResolvedTarget(policy, target) {
 		return DedupeIdentity{}, ErrInvalidPolicy
 	}
+	version := DedupeVersionV1
+	if policy.constraint != nil && policy.constraint.Version() == 2 {
+		version = DedupeVersionV2
+	}
 	var output bytes.Buffer
-	output.WriteString("MGWGRQ1\x00")
+	if version == DedupeVersionV1 {
+		output.WriteString("MGWGRQ1\x00")
+	} else {
+		output.WriteString("MGWGRQ2\x00")
+	}
 	writeBytes(&output, []byte(target.ServerID))
 	if target.UpstreamName == nil {
 		output.WriteByte(0)
@@ -145,29 +156,28 @@ func CanonicalDedupeIdentity(policy CompiledPolicy, target ResolvedTarget) (Dedu
 	} else {
 		output.WriteByte(1)
 		atoms := policy.constraint.Atoms()
-		sort.Slice(atoms, func(left, right int) bool { return atoms[left].Pointer < atoms[right].Pointer })
+		sort.Slice(atoms, func(left, right int) bool {
+			if atoms[left].Operator != atoms[right].Operator {
+				return atoms[left].Operator < atoms[right].Operator
+			}
+			return atoms[left].Pointer < atoms[right].Pointer
+		})
 		output.WriteString(strconv.Itoa(len(atoms)))
 		output.WriteByte(':')
 		for _, atom := range atoms {
-			writeBytes(&output, []byte(atom.Pointer))
-			switch atom.Type {
-			case authorization.ConstraintNull:
-				output.WriteByte(0)
-			case authorization.ConstraintBoolean:
-				output.WriteByte(1)
-				if atom.Boolean {
-					output.WriteByte(1)
-				} else {
+			if version == DedupeVersionV2 {
+				switch atom.Operator {
+				case authorization.ConstraintEquals:
 					output.WriteByte(0)
+				case authorization.ConstraintRegex:
+					output.WriteByte(1)
+				default:
+					return DedupeIdentity{}, ErrInvalidPolicy
 				}
-			case authorization.ConstraintString:
-				output.WriteByte(2)
-				writeBytes(&output, []byte(atom.String))
-			case authorization.ConstraintNumber:
-				output.WriteByte(3)
-				writeBytes(&output, []byte(atom.Number))
-			default:
-				return DedupeIdentity{}, ErrInvalidPolicy
+			}
+			writeBytes(&output, []byte(atom.Pointer))
+			if err := writeDedupeAtom(&output, atom); err != nil {
+				return DedupeIdentity{}, err
 			}
 		}
 	}
@@ -186,7 +196,30 @@ func CanonicalDedupeIdentity(policy CompiledPolicy, target ResolvedTarget) (Dedu
 	if output.Len() > maximumDedupeBytes {
 		return DedupeIdentity{}, ErrInvalidPolicy
 	}
-	return DedupeIdentity{Version: DedupeVersion, Bytes: append([]byte(nil), output.Bytes()...)}, nil
+	return DedupeIdentity{Version: version, Bytes: append([]byte(nil), output.Bytes()...)}, nil
+}
+
+func writeDedupeAtom(output *bytes.Buffer, atom authorization.ConstraintAtom) error {
+	switch atom.Type {
+	case authorization.ConstraintNull:
+		output.WriteByte(0)
+	case authorization.ConstraintBoolean:
+		output.WriteByte(1)
+		if atom.Boolean {
+			output.WriteByte(1)
+		} else {
+			output.WriteByte(0)
+		}
+	case authorization.ConstraintString:
+		output.WriteByte(2)
+		writeBytes(output, []byte(atom.String))
+	case authorization.ConstraintNumber:
+		output.WriteByte(3)
+		writeBytes(output, []byte(atom.Number))
+	default:
+		return ErrInvalidPolicy
+	}
+	return nil
 }
 
 func ValidateNarrowing(submitted CompiledPolicy, submittedTarget ResolvedTarget, approved CompiledPolicy, approvedTarget ResolvedTarget) error {
@@ -237,7 +270,7 @@ func constraintRetained(submitted, approved *authorization.CompiledConstraint) b
 	if submitted == nil {
 		return true
 	}
-	if approved == nil {
+	if approved == nil || submitted.Version() == 2 && approved.Version() == 1 {
 		return false
 	}
 	approvedAtoms := make(map[authorization.ConstraintAtom]struct{}, len(approved.Atoms()))

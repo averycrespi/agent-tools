@@ -59,6 +59,7 @@ func TestPolicyValidationAndDurationConversion(t *testing.T) {
 	}{
 		{name: "permanent server", policy: policy(contract.PolicyServer, "sample", nil, nil, true), valid: true},
 		{name: "minimum tool", policy: policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/x":1}}`), stringPointer("60"), false), valid: true},
+		{name: "v2 tool", policy: policy(contract.PolicyTool, "sample.echo", constraint(`{"version":2,"regex":{"/x":"[a-z]+"}}`), nil, false), valid: true},
 		{name: "maximum tool", policy: policy(contract.PolicyTool, "sample.echo", nil, stringPointer("2592000"), false), valid: true},
 		{name: "server constraint", policy: policy(contract.PolicyServer, "sample", constraint(`{"equals":{"/x":1}}`), nil, true)},
 		{name: "server acknowledgement", policy: policy(contract.PolicyServer, "sample", nil, nil, false)},
@@ -132,6 +133,29 @@ func TestCanonicalDedupePreservesLexicalIdentityAndNormalizesAtomOrder(t *testin
 	assert.NotEqual(t, leftIdentity.Bytes, serverTarget.Bytes)
 }
 
+func TestCanonicalDedupeUsesV2ForV2ConstraintsAndSeparatesOperators(t *testing.T) {
+	target := ResolvedTarget{ServerID: "01J60000000000000000000040", UpstreamName: stringPointer("echo")}
+	v1 := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/x":"same"}}`), nil, false))
+	v2Equals := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"version":2,"equals":{"/x":"same"}}`), nil, false))
+	v2Regex := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"version":2,"regex":{"/x":"same"}}`), nil, false))
+	v2BothReordered := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"regex":{"/x":"same"},"equals":{"/x":"same"},"version":2}`), nil, false))
+	v2Both := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"version":2,"equals":{"/x":"same"},"regex":{"/x":"same"}}`), nil, false))
+
+	v1Identity, err := CanonicalDedupeIdentity(v1, target)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), v1Identity.Version)
+	identities := make([]DedupeIdentity, 0, 4)
+	for _, compiled := range []CompiledPolicy{v2Equals, v2Regex, v2BothReordered, v2Both} {
+		identity, identityErr := CanonicalDedupeIdentity(compiled, target)
+		require.NoError(t, identityErr)
+		assert.Equal(t, int64(2), identity.Version)
+		identities = append(identities, identity)
+	}
+	assert.NotEqual(t, v1Identity.Bytes, identities[0].Bytes)
+	assert.NotEqual(t, identities[0].Bytes, identities[1].Bytes)
+	assert.Equal(t, identities[2].Bytes, identities[3].Bytes)
+}
+
 func TestPolicyNarrowingMatrix(t *testing.T) {
 	server := ResolvedTarget{ServerID: "01J60000000000000000000040"}
 	tool := ResolvedTarget{ServerID: server.ServerID, UpstreamName: stringPointer("echo")}
@@ -141,6 +165,10 @@ func TestPolicyNarrowingMatrix(t *testing.T) {
 	moreConstraint := constraint(`{"equals":{"/z":true,"/y":"a","/x":1}}`)
 	missingConstraint := constraint(`{"equals":{"/x":1}}`)
 	lexicalChange := constraint(`{"equals":{"/x":1.0,"/y":"a"}}`)
+	v2Equals := constraint(`{"version":2,"equals":{"/x":1,"/y":"a"}}`)
+	v2Regex := constraint(`{"version":2,"regex":{"/name":"[a-z]+"}}`)
+	v2RegexAndEquals := constraint(`{"version":2,"equals":{"/x":1,"/y":"a"},"regex":{"/name":"[a-z]+"}}`)
+	v2ChangedRegex := constraint(`{"version":2,"equals":{"/x":1,"/y":"a"},"regex":{"/name":"[a-z].*"}}`)
 
 	tests := []struct {
 		name      string
@@ -160,6 +188,10 @@ func TestPolicyNarrowingMatrix(t *testing.T) {
 		{name: "retains and adds atoms", submitted: policy(contract.PolicyTool, "sample.echo", baseConstraint, nil, false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", moreConstraint, nil, false), appTarget: tool, valid: true},
 		{name: "drops atom", submitted: policy(contract.PolicyTool, "sample.echo", baseConstraint, nil, false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", missingConstraint, nil, false), appTarget: tool},
 		{name: "changes lexical number", submitted: policy(contract.PolicyTool, "sample.echo", baseConstraint, nil, false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", lexicalChange, nil, false), appTarget: tool},
+		{name: "v1 to v2 retains equalities", submitted: policy(contract.PolicyTool, "sample.echo", baseConstraint, nil, false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", v2RegexAndEquals, nil, false), appTarget: tool, valid: true},
+		{name: "v2 to v1 rejected", submitted: policy(contract.PolicyTool, "sample.echo", v2Equals, nil, false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", baseConstraint, nil, false), appTarget: tool},
+		{name: "v2 retains regex and adds equality", submitted: policy(contract.PolicyTool, "sample.echo", v2Regex, nil, false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", v2RegexAndEquals, nil, false), appTarget: tool, valid: true},
+		{name: "regex implication is not inferred", submitted: policy(contract.PolicyTool, "sample.echo", v2Regex, nil, false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", v2ChangedRegex, nil, false), appTarget: tool},
 		{name: "temporary shortens", submitted: policy(contract.PolicyTool, "sample.echo", nil, stringPointer("61"), false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", nil, stringPointer("60"), false), appTarget: tool, valid: true},
 		{name: "temporary lengthens", submitted: policy(contract.PolicyTool, "sample.echo", nil, stringPointer("60"), false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", nil, stringPointer("61"), false), appTarget: tool},
 		{name: "temporary becomes permanent", submitted: policy(contract.PolicyTool, "sample.echo", nil, stringPointer("60"), false), subTarget: tool, approved: policy(contract.PolicyTool, "sample.echo", nil, nil, false), appTarget: tool},

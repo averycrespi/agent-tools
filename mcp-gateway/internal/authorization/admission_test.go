@@ -192,7 +192,7 @@ func TestAdmissionAddsNoInvocationPersistenceOrCapabilityUse(t *testing.T) {
 	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO invocation", "internal/catalog", "internal/downstream", "AcquireRoute", "AcquireCapability", "Dispatch", "Execute"} {
 		assert.NotContains(t, string(source), forbidden)
 	}
-	assert.Equal(t, 13, storage.CurrentSchema)
+	assert.Equal(t, 14, storage.CurrentSchema)
 }
 
 func verifyLostResolvedBinding(t *testing.T, repository *Repository, store *storage.Store, lease *Lease) error {

@@ -75,7 +75,7 @@ func TestSelfServiceHandlersReturnFixedSummariesAndExactStructuredResults(t *tes
 	}{
 		{name: "identity", summary: contract.SummaryIdentityReturned, result: service.handleGetIdentity(context.Background(), subject, handlerArguments(`{}`)), want: contract.GetIdentityResult{Identity: identity}},
 		{name: "grants", summary: contract.SummaryGrantsReturned, result: service.handleListGrants(context.Background(), subject, handlerArguments(`{"cursor":null}`)), want: contract.ListGrantsResult{Outcome: contract.CursorOK, Items: []contract.AgentGrant{grant}}},
-		{name: "create", summary: contract.SummaryGrantRequestProcessed, result: service.handleCreateGrantRequest(context.Background(), subject, handlerArguments(`{"policy":{"scope":"tool","target":"sample.echo","constraint":{"equals":{"/value":1e0}},"duration_seconds":null,"future_tools_acknowledged":false}}`)), want: requests.create},
+		{name: "create", summary: contract.SummaryGrantRequestProcessed, result: service.handleCreateGrantRequest(context.Background(), subject, handlerArguments(`{"policy":{"scope":"tool","target":"sample.echo","constraint":{"version":2,"equals":{"/value":1e0},"regex":{"/resource":"[a-z]+/[0-9]+"}},"duration_seconds":null,"future_tools_acknowledged":false}}`)), want: requests.create},
 		{name: "get", summary: contract.SummaryGrantRequestReturned, result: service.handleGetGrantRequest(context.Background(), subject, handlerArguments(`{"id":"`+request.ID+`"}`)), want: contract.GetGrantRequestResult{Outcome: contract.RequestFound, Request: &request}},
 		{name: "list requests", summary: contract.SummaryGrantRequestsReturned, result: service.handleListGrantRequests(context.Background(), subject, handlerArguments(`{"cursor":null,"state":null}`)), want: contract.ListGrantRequestsResult{Outcome: contract.CursorOK, Items: []contract.AgentGrantRequest{request}}},
 		{name: "cancel", summary: contract.SummaryGrantRequestCancellationProcessed, result: service.handleCancelGrantRequest(context.Background(), subject, handlerArguments(`{"id":"`+request.ID+`"}`)), want: requests.cancel},
@@ -94,6 +94,7 @@ func TestSelfServiceHandlersReturnFixedSummariesAndExactStructuredResults(t *tes
 	assert.Equal(t, subject.PrincipalID(), requests.principalID)
 	require.NotNil(t, requests.createdPolicy.Constraint)
 	assert.Contains(t, string(*requests.createdPolicy.Constraint), "1e0", "lexical constraint numbers must survive decoding")
+	assert.Contains(t, string(*requests.createdPolicy.Constraint), `"[a-z]+/[0-9]+"`, "regex pattern bytes must survive decoding")
 }
 
 func TestSelfServiceCursorOutcomesAndStorageCertaintyAreClosed(t *testing.T) {

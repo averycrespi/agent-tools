@@ -4310,6 +4310,56 @@ async function runPrincipalCredentials(
   );
 }
 
+async function assertMatcherAuthoringAccessibility(
+  page: Page,
+  workflow: string,
+): Promise<void> {
+  const axe = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+    .analyze();
+  const blocking = axe.violations.filter(
+    (violation) =>
+      violation.impact === "serious" || violation.impact === "critical",
+  );
+  if (blocking.length !== 0)
+    fail(
+      `${workflow} matcher accessibility findings: ${blocking
+        .map((violation) => violation.id)
+        .join(",")}`,
+    );
+  for (const viewport of [
+    { width: 320, height: 800 },
+    { width: 720, height: 450 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const layout = await page.evaluate(() => ({
+      client: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+      unlabeled: [
+        ...document.querySelectorAll<
+          HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+        >(
+          'input[data-testid*="constraint"]:not([type="hidden"]), select[data-testid*="constraint"], textarea[data-testid*="constraint"]',
+        ),
+      ]
+        .filter(
+          (control) =>
+            control.getAttribute("aria-label") === null &&
+            (control.id === "" ||
+              document.querySelector(
+                `label[for="${CSS.escape(control.id)}"]`,
+              ) === null),
+        )
+        .map((control) => `${control.tagName}:${control.id}`),
+    }));
+    if (layout.scroll > layout.client || layout.unlabeled.length !== 0)
+      fail(
+        `${workflow} matcher reflow/label failure: ${JSON.stringify(layout)}`,
+      );
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
+
 async function runGrantReadsCreate(
   browserVersion: string,
   context: BrowserContext,
@@ -4361,6 +4411,7 @@ async function runGrantReadsCreate(
   let attempts = 0;
   let creates = 0;
   let descriptionPatches = 0;
+  let descriptorRequests = 0;
 
   await page.route("**/api/v1/principals?*", async (route) => {
     await route.fulfill({
@@ -4403,6 +4454,188 @@ async function runGrantReadsCreate(
       }),
     });
   });
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors?*`,
+    async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      descriptorRequests += 1;
+      if (descriptorRequests > 2) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 503,
+            code: "storage_unavailable",
+            title: "Catalog tools are unavailable.",
+          }),
+        });
+        return;
+      }
+      if (
+        route.request().method() !== "GET" ||
+        query.get("limit") !== "100" ||
+        query.get("retired") !== "exclude" ||
+        query.get("representation") !== "summary" ||
+        [...query.keys()].some(
+          (key) =>
+            key !== "limit" &&
+            key !== "retired" &&
+            key !== "representation" &&
+            key !== "cursor",
+        )
+      )
+        fail("grant descriptor traversal changed shape");
+      const descriptor = (id: string, upstream: string, external: string) => ({
+        id,
+        server_id: serverID,
+        upstream_name: upstream,
+        external_name: external,
+        descriptor: {
+          name: upstream,
+          inputSchema: {
+            type: "object",
+            additionalProperties: { type: "string" },
+            properties: {
+              ["x".repeat(300)]: { type: "string" },
+              region: {
+                type: "string",
+                enum: ["us", "eu"],
+                description: "Deployment region",
+              },
+              filters: {
+                type: "object",
+                properties: {
+                  "item/name": {
+                    type: "string",
+                    description: "Exact item name",
+                  },
+                  count: { type: "integer" },
+                },
+              },
+              conditional: {
+                type: "string",
+                oneOf: [{ const: "one" }, { const: "two" }],
+              },
+              ...Object.fromEntries(
+                Array.from({ length: 300 }, (_, index) => [
+                  `wide-${index}`,
+                  { type: "string" },
+                ]),
+              ),
+            },
+          },
+          annotations: {
+            title: null,
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+          },
+        },
+        fingerprint: `fingerprint-${upstream}`,
+        catalog_revision: "1",
+        first_seen_at: "2026-08-28T12:00:00Z",
+        last_seen_at: "2026-08-28T12:00:00Z",
+        retired_at: null,
+      });
+      const summary = (item: ReturnType<typeof descriptor>) => ({
+        id: item.id,
+        server_id: item.server_id,
+        upstream_name: item.upstream_name,
+        external_name: item.external_name,
+        catalog_revision: item.catalog_revision,
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          query.get("cursor") === "descriptor-next"
+            ? {
+                items: [
+                  summary(
+                    descriptor(
+                      "01ARZ3NDEKTSV4RRFFQ69G5FC1",
+                      "literal.tool",
+                      "Literal tool",
+                    ),
+                  ),
+                ],
+                next_cursor: null,
+              }
+            : {
+                items: [
+                  summary(
+                    descriptor(
+                      "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+                      "other.tool",
+                      "Other tool",
+                    ),
+                  ),
+                ],
+                next_cursor: "descriptor-next",
+              },
+        ),
+      });
+    },
+  );
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC1`,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FC1",
+          server_id: serverID,
+          upstream_name: "literal.tool",
+          external_name: "Literal tool",
+          descriptor: {
+            name: "literal.tool",
+            inputSchema: {
+              type: "object",
+              additionalProperties: { type: "string" },
+              properties: {
+                ["x".repeat(300)]: { type: "string" },
+                region: {
+                  type: "string",
+                  enum: ["us", "eu"],
+                  description: "Deployment region",
+                },
+                filters: {
+                  type: "object",
+                  properties: {
+                    "item/name": {
+                      type: "string",
+                      description: "Exact item name",
+                    },
+                    count: { type: "integer" },
+                  },
+                },
+                ...Object.fromEntries(
+                  Array.from({ length: 300 }, (_, index) => [
+                    `wide-${index}`,
+                    { type: "string" },
+                  ]),
+                ),
+              },
+            },
+            annotations: {
+              title: null,
+              readOnlyHint: false,
+              destructiveHint: false,
+              idempotentHint: false,
+              openWorldHint: false,
+            },
+          },
+          fingerprint: "fingerprint-literal.tool",
+          catalog_revision: "1",
+          first_seen_at: "2026-08-28T12:00:00Z",
+          last_seen_at: "2026-08-28T12:00:00Z",
+          retired_at: null,
+        }),
+      });
+    },
+  );
 
   await page.route("**/api/v1/grants?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
@@ -4538,10 +4771,12 @@ async function runGrantReadsCreate(
       body.effect !== "deny" ||
       body.upstream_name !== "literal.tool" ||
       body.expires_at !== "2030-01-01T00:00:00Z" ||
+      !raw.includes('"version":2') ||
       !raw.includes('"/a~1b/0":1.0') ||
       !raw.includes('"/empty/":null') ||
       !raw.includes('"/flag":true') ||
-      !raw.includes('"/name":"literal"')
+      !raw.includes('"/name":"literal"') ||
+      !raw.includes('"/resource":"item-\\\\d+"')
     )
       fail(`exact-tool lexical constraint changed shape: ${raw}`);
     const item = grant(
@@ -4751,7 +4986,16 @@ async function runGrantReadsCreate(
   if (
     !grantReview.includes("New access") ||
     !grantReview.includes("Reporting server") ||
-    !grantReview.includes("immutable")
+    !grantReview.includes(principalID) ||
+    !grantReview.includes(serverID) ||
+    !grantReview.includes("Every matcher atom is required (AND)") ||
+    !grantReview.includes("matching DENY takes precedence") ||
+    !grantReview.includes(
+      "Unconstrained access matches every argument object",
+    ) ||
+    !(
+      await page.locator('[data-testid="grant-review-policy"]').inputValue()
+    ).includes('"constraint":null')
   )
     fail("grant creation review omitted submitted values");
   await page.locator('[data-testid="grant-create-confirm-submit"]').click();
@@ -4771,7 +5015,92 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="grant-description"]').fill("New access");
   await page.locator('[data-testid="grant-effect"]').selectOption("deny");
   await page.locator('[data-testid="grant-scope"]').selectOption("tool");
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll(
+        '#grant-tool-options option[value="literal.tool"]',
+      ).length === 1,
+  );
+  if (
+    (await page
+      .locator('[data-testid="grant-upstream"]')
+      .getAttribute("list")) !== "grant-tool-options"
+  )
+    fail("grant tool entry is not catalog-searchable and editable");
+  await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
+  await page
+    .getByText(
+      "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported.",
+      { exact: true },
+    )
+    .waitFor();
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page
+    .getByText(
+      "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  const suggestedPointers = await page
+    .locator("#constraint-pointer-options option")
+    .evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    );
+  if (
+    suggestedPointers.length !== 256 ||
+    suggestedPointers.some(
+      (pointer) => new TextEncoder().encode(pointer).length > 256,
+    )
+  )
+    fail("schema suggestions exceeded field or pointer bounds");
+  if (
+    (await page
+      .locator(
+        '#constraint-pointer-options option[value="/filters/item~1name"]',
+      )
+      .count()) !== 1
+  )
+    fail("nested schema field was not suggested as an RFC 6901 pointer");
+  await page
+    .locator('[data-testid="constraint-pointer"]')
+    .fill("/filters/item~1name");
+  if (
+    (await page.locator('[data-testid="constraint-type"]').inputValue()) !==
+      "string" ||
+    !(await page
+      .locator('[data-testid="constraint-pointer"]')
+      .getAttribute("aria-describedby")) ||
+    (await page
+      .locator('#constraint-pointer-options option[value="/region"]')
+      .getAttribute("label")) !== "string · us, eu · Deployment region"
+  )
+    fail("schema suggestion did not inform matcher type, enum, and metadata");
+  await page
+    .getByText("string · regex available · Exact item name", { exact: true })
+    .waitFor();
+  await page
+    .getByText(
+      "Scalar field suggestions are available below. Other schema portions are unsupported for matcher suggestions and remain available through a custom JSON Pointer.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.getByRole("button", { name: "Remove atom" }).click();
+  await page
+    .locator('[data-testid="grant-server"]')
+    .selectOption("00000000000000000000000000");
+  await page.locator('[data-testid="grant-server"]').selectOption(serverID);
+  await page
+    .getByText(
+      "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority.",
+      { exact: true },
+    )
+    .waitFor();
+  if (
+    (await page.locator('[data-testid="grant-upstream"]').inputValue()) !==
+    "literal.tool"
+  )
+    fail("catalog failure discarded the literal tool draft");
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
@@ -4792,9 +5121,18 @@ async function runGrantReadsCreate(
   )
     fail("grant expiry input did not retain its draft value");
   await page.locator('[data-testid="add-constraint-atom"]').click();
-  await page.locator('[data-testid="constraint-pointer"]').fill("bad");
   await page.locator('[data-testid="constraint-type"]').selectOption("number");
   await page.locator('[data-testid="constraint-value"]').fill("1.0");
+  await page.locator('[data-testid="constraint-version"]').selectOption("2");
+  if (
+    !(
+      (await page
+        .getByLabel("Constraint preview", { exact: true })
+        .textContent()) ?? ""
+    ).includes('{"version":2,"equals":{"/":1.0}')
+  )
+    fail("grant editor could not author equality-only v2");
+  await page.locator('[data-testid="constraint-pointer"]').fill("bad");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
     .getByText("Each atom requires a valid RFC 6901 JSON pointer.", {
@@ -4826,12 +5164,66 @@ async function runGrantReadsCreate(
     .nth(3)
     .selectOption("string");
   await page.locator('[data-testid="constraint-value"]').nth(2).fill("literal");
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  await page.locator('[data-testid="constraint-version"]').selectOption("1");
+  await page
+    .locator('[data-testid="constraint-operator"]')
+    .nth(4)
+    .selectOption("regex");
+  if (
+    (await page.locator('[data-testid="constraint-version"]').inputValue()) !==
+    "2"
+  )
+    fail("regex atom did not force matcher v2");
+  await page
+    .locator('[data-testid="constraint-pointer"]')
+    .nth(4)
+    .fill("/resource");
+  await page.locator('[data-testid="constraint-value"]').nth(3).fill("[");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  await page
+    .getByText("/regex/~1resource: pattern is not valid RE2", { exact: true })
+    .waitFor();
+  if (creates !== 1) fail("invalid RE2 grant matcher reached confirmation");
+  await page
+    .locator('[data-testid="constraint-value"]')
+    .nth(3)
+    .fill("item-\\d+");
+  await page
+    .getByText("/regex/~1resource: pattern is not valid RE2", { exact: true })
+    .waitFor({ state: "hidden" });
   if (
     (await page.locator('[data-testid="grant-expiry"]').inputValue()) !==
     "2030-01-01T00:00:00Z"
   )
     fail("grant constraint edits discarded the expiry draft");
+  const constraintPreview =
+    (await page
+      .getByLabel("Constraint preview", { exact: true })
+      .textContent()) ?? "";
+  if (
+    !constraintPreview.includes('"/a~1b/0":1.0') ||
+    constraintPreview.includes('"/a~1b/0":"1.0"') ||
+    !constraintPreview.includes('"/resource":"item-\\\\d+"')
+  )
+    fail("grant preview did not preserve typed matcher tokens");
+  await assertMatcherAuthoringAccessibility(page, "grant creation");
   await page.locator('[data-testid="grant-create-submit"]').click();
+  const matcherReview =
+    (await page.locator("#grant-create-confirm-consequence").textContent()) ??
+    "";
+  if (
+    !matcherReview.includes("4 equality · 1 regex") ||
+    !matcherReview.includes(principalID) ||
+    !matcherReview.includes(serverID) ||
+    !matcherReview.includes("literal.tool") ||
+    !matcherReview.includes("Unavailable — literal manual name") ||
+    !matcherReview.includes("Every matcher atom is required (AND)") ||
+    !(
+      await page.locator('[data-testid="grant-review-policy"]').inputValue()
+    ).includes('"/resource":"item-\\\\d+"')
+  )
+    fail("grant review omitted complete matcher policy disclosure");
   await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.locator('[data-testid="grant-detail"]').waitFor();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
@@ -5675,7 +6067,16 @@ async function runRequestAdjudication(
     ids[1]!,
     detail(
       ids[1]!,
-      policy("tool", "demo.safe", { equals: { "/mode": "safe" } }, "600"),
+      policy(
+        "tool",
+        "demo.safe",
+        {
+          version: 2,
+          equals: { "/mode": "safe", "/attempt": 1 },
+          regex: { "/resource": "item[<>&]-\\d+" },
+        },
+        "600",
+      ),
     ),
   );
   for (let index = 2; index <= 5; index++)
@@ -5691,6 +6092,70 @@ async function runRequestAdjudication(
   let rejections = 0;
   const attempts = new Map<string, number>();
 
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors?*`,
+    async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      if (
+        query.get("limit") !== "100" ||
+        query.get("retired") !== "exclude" ||
+        query.get("representation") !== "summary"
+      )
+        fail("approval descriptor traversal changed shape");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+              server_id: serverID,
+              upstream_name: "safe",
+              external_name: "demo.safe",
+              catalog_revision: "1",
+            },
+          ],
+          next_cursor: null,
+        }),
+      });
+    },
+  );
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+          server_id: serverID,
+          upstream_name: "safe",
+          external_name: "demo.safe",
+          descriptor: {
+            name: "safe",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: { mode: { type: "string" } },
+            },
+            annotations: {
+              title: null,
+              readOnlyHint: false,
+              destructiveHint: false,
+              idempotentHint: false,
+              openWorldHint: false,
+            },
+          },
+          fingerprint: "fingerprint-demo-safe",
+          catalog_revision: "1",
+          first_seen_at: "2026-08-28T12:00:00Z",
+          last_seen_at: "2026-08-28T12:00:00Z",
+          retired_at: null,
+        }),
+      });
+    },
+  );
+
   await page.route("**/api/v1/grant-requests/**", async (route) => {
     const parts = new URL(route.request().url()).pathname.split("/");
     const action = parts.at(-1)!;
@@ -5703,7 +6168,10 @@ async function runRequestAdjudication(
         status: 200,
         contentType: "application/json",
         headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
-        body: JSON.stringify(item),
+        body:
+          id === ids[1]
+            ? JSON.stringify(item).replace('"/attempt":1', '"/attempt":1.0')
+            : JSON.stringify(item),
       });
       return;
     }
@@ -5762,16 +6230,27 @@ async function runRequestAdjudication(
     const submitted = item.requested_policy as ReturnType<typeof policy>;
     if (action === "approve") {
       approvals += 1;
-      const body = JSON.parse(route.request().postData() ?? "null") as Record<
-        string,
-        unknown
-      >;
+      const raw = route.request().postData() ?? "null";
+      if (
+        id === ids[1] &&
+        (!raw.includes('"/attempt":1.0') ||
+          !raw.includes('"/resource":"item[<>&]-\\\\d+"') ||
+          raw.includes("\\u003c") ||
+          raw.includes("\\u003e") ||
+          raw.includes("\\u0026") ||
+          !raw.includes('"/extra":1.0') ||
+          !raw.includes('"/zone":"(local|dev)"'))
+      )
+        fail(`version 2 approval did not preserve matcher tokens: ${raw}`);
+      const body = JSON.parse(raw) as Record<string, unknown>;
       if (
         Object.keys(body).join(",") !== "description,approved_policy" ||
         (body.description !== null && typeof body.description !== "string")
       )
         fail("approval body changed shape");
       const approved = body.approved_policy as ReturnType<typeof policy>;
+      if (id === ids[0] && approved.target !== "demo.safe")
+        fail("server-to-tool approval did not preserve the external target");
       states.set(id, detail(id, submitted, "approved", approved));
     } else {
       rejections += 1;
@@ -5836,10 +6315,26 @@ async function runRequestAdjudication(
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
   await page.locator('[data-testid="approval-target"]').fill("demo.safe");
   await page
-    .locator('[data-testid="approval-constraint"]')
-    .fill('{"equals":{"/mode":"safe"}}');
+    .getByText(
+      "Current durable descriptor selected. Its schema assists narrowing but is not grant authority.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.locator('[data-testid="approval-additional-add"]').click();
+  await page
+    .locator('[data-testid="approval-additional-pointer"]')
+    .fill("/mode");
+  await page.locator('[data-testid="approval-additional-value"]').fill("safe");
   await page.locator('[data-testid="approval-duration"]').fill("600");
   await reviewApproval();
+  if (
+    !(
+      await page
+        .locator("#request-adjudication-confirm-consequence")
+        .innerText()
+    ).includes("Current durable descriptor · catalog revision 1")
+  )
+    fail("server-to-tool approval review used stale catalog posture");
   await confirm();
   try {
     await page
@@ -5852,6 +6347,20 @@ async function runRequestAdjudication(
   }
 
   await navigate(ids[1]!);
+  await page
+    .getByText(
+      "Scalar field suggestions are available where unambiguous. Other current schema portions are unsupported for matcher suggestions; custom JSON Pointers remain available.",
+      { exact: true },
+    )
+    .waitFor();
+  const submittedConstraint = page.locator(
+    '[data-testid="approval-submitted-constraint"]',
+  );
+  if (
+    (await submittedConstraint.isEditable()) ||
+    !(await submittedConstraint.inputValue()).includes('"/attempt":1.0')
+  )
+    fail("approval editor did not lock exact submitted matcher tokens");
   await page.locator('[data-testid="approval-duration"]').fill("601");
   await reviewApproval();
   await page
@@ -5865,18 +6374,76 @@ async function runRequestAdjudication(
     .getByText("A temporary request cannot become permanent.", { exact: true })
     .waitFor();
   await page.locator('[data-testid="approval-duration"]').fill("300");
-  await page.locator('[data-testid="approval-constraint"]').fill("");
+  await page.locator('[data-testid="approval-additional-add"]').click();
+  const additionalPointers = page.locator(
+    '[data-testid="approval-additional-pointer"]',
+  );
+  const additionalOperators = page.locator(
+    '[data-testid="approval-additional-operator"]',
+  );
+  const additionalTypes = page.locator(
+    '[data-testid="approval-additional-type"]',
+  );
+  const additionalValues = page.locator(
+    '[data-testid="approval-additional-value"]',
+  );
+  await additionalPointers.first().fill("/mode");
+  await additionalValues.first().fill("other");
   await reviewApproval();
   await page
     .getByText(
-      "Approval cannot remove or change a submitted constraint atom.",
+      "Additional matcher atoms cannot replace a submitted operator and pointer.",
       { exact: true },
     )
     .waitFor();
-  await page
-    .locator('[data-testid="approval-constraint"]')
-    .fill('{"equals":{"/mode":"safe","/region":"local"}}');
+  await additionalPointers.first().fill("/extra");
+  await additionalTypes.first().selectOption("number");
+  await additionalValues.first().fill("1.0");
+  await page.locator('[data-testid="approval-additional-add"]').click();
+  await additionalOperators.nth(1).selectOption("regex");
+  await additionalPointers.nth(1).fill("/zone");
+  await additionalValues.nth(1).fill("[");
   await reviewApproval();
+  await page
+    .getByText("/regex/~1zone: pattern is not valid RE2", { exact: true })
+    .waitFor();
+  if ((attempts.get(ids[1]!) ?? 0) !== 0)
+    fail("invalid RE2 approval reached confirmation");
+  await additionalValues.nth(1).fill("(local|dev)");
+  const additionalPreview =
+    (await page
+      .getByLabel("Constraint preview", { exact: true })
+      .textContent()) ?? "";
+  if (
+    !additionalPreview.includes('"version":2') ||
+    !additionalPreview.includes('"/extra":1.0') ||
+    additionalPreview.includes('"/extra":"1.0"')
+  )
+    fail("approval preview did not preserve typed additive matcher tokens");
+  await assertMatcherAuthoringAccessibility(page, "request approval");
+  if (await page.getByText("Check adjudication", { exact: true }).isVisible())
+    fail("corrected matcher retained a stale adjudication error");
+  await reviewApproval();
+  const approvalReview = await page
+    .locator("#request-adjudication-confirm-consequence")
+    .innerText();
+  if (
+    !approvalReview.includes(principalID) ||
+    !approvalReview.includes(serverID) ||
+    !approvalReview.includes("demo.safe") ||
+    !approvalReview.includes("current / current") ||
+    !approvalReview.includes("DescriptionNone") ||
+    !approvalReview.includes("Approved duration300 seconds") ||
+    !approvalReview.includes("Constraintv2 · 3 equality · 2 regex") ||
+    !approvalReview.includes("Every matcher atom is required (AND)") ||
+    !approvalReview.includes("matching DENY takes precedence") ||
+    !(
+      await page.locator('[data-testid="approval-review-policy"]').inputValue()
+    ).includes('"/attempt":1.0')
+  )
+    fail(
+      `approval review omitted complete matcher policy disclosure: ${approvalReview}`,
+    );
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })
@@ -5903,6 +6470,9 @@ async function runRequestAdjudication(
   await navigate(ids[9]!);
   await page.locator('[data-testid="approval-duration"]').fill("60");
   await reviewApproval();
+  await page
+    .getByText("Not applicable to server-wide authority", { exact: true })
+    .waitFor();
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })
@@ -11710,9 +12280,9 @@ try {
           value.includes("server responded with a status of 412"),
         )) ||
       (input.scenario === "grant-reads-create" &&
-        consoleFailures.length >= 2 &&
-        consoleFailures.length <= 3 &&
-        [400, 409].every((status) =>
+        consoleFailures.length >= 3 &&
+        consoleFailures.length <= 4 &&
+        [400, 409, 503].every((status) =>
           consoleFailures.some((value) =>
             value.includes(`server responded with a status of ${status}`),
           ),

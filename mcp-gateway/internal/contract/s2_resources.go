@@ -188,6 +188,14 @@ type ToolDescriptor struct {
 	RetiredAt       *string                  `json:"retired_at"`
 }
 
+type ToolDescriptorSummary struct {
+	ID              string `json:"id"`
+	ServerID        string `json:"server_id"`
+	UpstreamName    string `json:"upstream_name"`
+	ExternalName    string `json:"external_name"`
+	CatalogRevision string `json:"catalog_revision"`
+}
+
 type CatalogToolDescriptor struct {
 	ToolDescriptor
 	ServerDisplayName  string             `json:"server_display_name"`

@@ -16,6 +16,10 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
+type rawGrantConstraintValidation struct {
+	Constraint json.RawMessage `json:"constraint"`
+}
+
 type rawGrantCreate struct {
 	Description  json.RawMessage `json:"description"`
 	PrincipalID  json.RawMessage `json:"principal_id"`
@@ -24,6 +28,33 @@ type rawGrantCreate struct {
 	UpstreamName json.RawMessage `json:"upstream_name"`
 	Constraint   json.RawMessage `json:"constraint"`
 	ExpiresAt    json.RawMessage `json:"expires_at"`
+}
+
+func (handler *Handler) validateGrantConstraint(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.RawQuery != "" {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	var raw rawGrantConstraintValidation
+	if !decodeStrictBody(writer, request, &raw) {
+		return
+	}
+	constraint := bytes.TrimSpace(raw.Constraint)
+	if len(constraint) == 0 || bytes.Equal(constraint, []byte("null")) || constraint[0] != '{' {
+		writeProblem(writer, contract.ProblemMalformedRequest)
+		return
+	}
+	result := contract.GrantConstraintValidationResult{Valid: true, Diagnostics: []contract.GrantConstraintDiagnostic{}}
+	if _, err := authorization.CompileConstraint(raw.Constraint); err != nil {
+		diagnostic, ok := authorization.ConstraintErrorDiagnostic(err)
+		if !ok {
+			writeProblem(writer, contract.ProblemAuthorizationUnavailable)
+			return
+		}
+		result.Valid = false
+		result.Diagnostics = append(result.Diagnostics, contract.GrantConstraintDiagnostic{Field: diagnostic.Field, Message: diagnostic.Message})
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (handler *Handler) grantsCollection(writer http.ResponseWriter, request *http.Request) {
@@ -50,7 +81,7 @@ func (handler *Handler) grantMember(writer http.ResponseWriter, request *http.Re
 			return
 		}
 		writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
-		writeJSON(writer, http.StatusOK, grant)
+		writeJSONUnescaped(writer, http.StatusOK, grant)
 	case http.MethodPatch:
 		handler.patchGrant(writer, request, grantID)
 	case http.MethodDelete:
@@ -105,7 +136,7 @@ func (handler *Handler) patchGrant(writer http.ResponseWriter, request *http.Req
 	}
 	writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
 	handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
-	writeJSON(writer, http.StatusOK, grant)
+	writeJSONUnescaped(writer, http.StatusOK, grant)
 }
 
 func grantPrecondition(writer http.ResponseWriter, request *http.Request, grantID string) (string, bool) {
@@ -160,7 +191,7 @@ func (handler *Handler) createGrant(writer http.ResponseWriter, request *http.Re
 	}
 	handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
 	writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
-	writeJSON(writer, http.StatusCreated, grant)
+	writeJSONUnescaped(writer, http.StatusCreated, grant)
 }
 
 func decodeGrantCreate(writer http.ResponseWriter, raw rawGrantCreate) (authorization.CreateGrantRequest, bool) {
@@ -236,7 +267,7 @@ func (handler *Handler) listGrants(writer http.ResponseWriter, request *http.Req
 		value := encodePrincipalCursor(*page.Next)
 		next = &value
 	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.Grant]{Items: page.Items, NextCursor: next})
+	writeJSONUnescaped(writer, http.StatusOK, contract.Collection[contract.Grant]{Items: page.Items, NextCursor: next})
 }
 
 func parseGrantQuery(rawQuery string) (int, authorization.GrantFilter, *authorization.SnapshotCursor, contract.ProblemCode) {

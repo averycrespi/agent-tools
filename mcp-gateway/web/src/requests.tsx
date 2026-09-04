@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
+import {
+  matcherSchemaSuggestions,
+  readMatcherDescriptor,
+  readMatcherDescriptors,
+  type MatcherDescriptorSummary,
+  type MatcherSchemaSuggestions,
+} from "./matcher-catalog";
+import type { DescriptorView } from "./server-reads";
+import { MatcherAtomEditor, matcherConstraintText } from "./matcher-editor";
+import type { MatcherAtom } from "./matcher-editor";
+import { validateMatcherConstraint } from "./matcher-validation";
 import type { PrincipalDirectory } from "./principals";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -69,6 +80,7 @@ interface TargetComparison {
   descriptor: unknown | null;
 }
 export interface RequestDetail extends RequestSummary {
+  submittedConstraintSource: string | null;
   resolvedServerID: string;
   resolvedUpstreamName: string | null;
   submittedEvidence: DescriptorEvidence | null;
@@ -228,6 +240,7 @@ function decodeTarget(value: unknown): TargetComparison {
 export function decodeRequestDetail(
   value: unknown,
   etag: string,
+  submittedConstraintSource?: string | null,
 ): RequestDetail {
   const keys = [
     ...summaryKeys,
@@ -244,6 +257,12 @@ export function decodeRequestDetail(
   const resolvedUpstreamName = nullableText(item.resolved_upstream_name);
   return {
     ...summary,
+    submittedConstraintSource:
+      submittedConstraintSource === undefined
+        ? summary.requestedPolicy.constraint === null
+          ? null
+          : JSON.stringify(summary.requestedPolicy.constraint)
+        : submittedConstraintSource,
     resolvedServerID: id(item.resolved_server_id),
     resolvedUpstreamName,
     submittedEvidence:
@@ -261,10 +280,64 @@ export function decodeRequestDetail(
 function requestHeaders(context: ProtectedContext): HeadersInit {
   return { Accept: "application/json", "X-CSRF-Token": context.csrfToken };
 }
+function jsonStringEnd(source: string, start: number): number {
+  if (source[start] !== '"') throw new Error("invalid response");
+  for (let index = start + 1; index < source.length; index++) {
+    if (source[index] === "\\") index += 1;
+    else if (source[index] === '"') return index + 1;
+  }
+  throw new Error("invalid response");
+}
+function jsonValueEnd(source: string, start: number): number {
+  if (source[start] === '"') return jsonStringEnd(source, start);
+  if (source[start] === "{" || source[start] === "[") {
+    const close = source[start] === "{" ? "}" : "]";
+    let depth = 1;
+    for (let index = start + 1; index < source.length; index++) {
+      if (source[index] === '"') index = jsonStringEnd(source, index) - 1;
+      else if (source[index] === source[start]) depth += 1;
+      else if (source[index] === close && --depth === 0) return index + 1;
+    }
+    throw new Error("invalid response");
+  }
+  let index = start;
+  while (index < source.length && !/[\s,}\]]/.test(source[index] ?? ""))
+    index += 1;
+  return index;
+}
+function jsonMemberSource(source: string, key: string): string | undefined {
+  let index = 0;
+  while (/\s/.test(source[index] ?? "")) index += 1;
+  if (source[index++] !== "{") throw new Error("invalid response");
+  for (;;) {
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    if (source[index] === "}") return undefined;
+    const keyEnd = jsonStringEnd(source, index);
+    const member = JSON.parse(source.slice(index, keyEnd)) as unknown;
+    index = keyEnd;
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    if (source[index++] !== ":") throw new Error("invalid response");
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    const valueStart = index;
+    index = jsonValueEnd(source, valueStart);
+    if (member === key) return source.slice(valueStart, index);
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    if (source[index] === ",") index += 1;
+    else if (source[index] === "}") return undefined;
+    else throw new Error("invalid response");
+  }
+}
+function requestedConstraintSource(source: string): string | null {
+  const policy = jsonMemberSource(source, "requested_policy");
+  if (policy === undefined) throw new Error("invalid response");
+  const constraint = jsonMemberSource(policy, "constraint");
+  if (constraint === undefined) throw new Error("invalid response");
+  return constraint === "null" ? null : constraint;
+}
 async function requestJSON(
   session: SessionClient,
   route: string,
-): Promise<{ response: Response; value: unknown } | undefined> {
+): Promise<{ response: Response; value: unknown; source: string } | undefined> {
   return session.runProtected(async (context) => {
     const response = await fetch(route, {
       credentials: "same-origin",
@@ -276,7 +349,8 @@ async function requestJSON(
     const type = response.headers.get("Content-Type");
     if (type !== "application/json" && type !== "application/problem+json")
       throw new Error("Request data is unavailable.");
-    return { response, value: (await response.json()) as unknown };
+    const source = await response.text();
+    return { response, value: JSON.parse(source) as unknown, source };
   });
 }
 interface RequestPage {
@@ -336,7 +410,11 @@ async function readRequest(
       `"grant-request-${requestID}-${(result.value as JSONRecord).revision}"`
   )
     throw new Error("The current request revision is unavailable.");
-  return decodeRequestDetail(result.value, etag);
+  return decodeRequestDetail(
+    result.value,
+    etag,
+    requestedConstraintSource(result.source),
+  );
 }
 function policyFacts(policy: Policy) {
   return (
@@ -416,33 +494,102 @@ function Evidence({
   );
 }
 
-function constraintRetained(
-  submitted: unknown | null,
-  approved: unknown | null,
-): boolean {
-  if (submitted === null) return true;
-  if (approved === null) return false;
+interface MatcherShape {
+  version: 1 | 2;
+  equals: JSONRecord;
+  regex: JSONRecord;
+}
+
+function matcherShape(value: unknown): MatcherShape {
+  const constraint = scalarObject(value) as JSONRecord;
+  const keys = Object.keys(constraint);
+  const version =
+    keys.length === 1 && keys[0] === "equals"
+      ? 1
+      : constraint.version === 2 &&
+          keys.every((key) => ["version", "equals", "regex"].includes(key)) &&
+          (constraint.equals !== undefined || constraint.regex !== undefined)
+        ? 2
+        : undefined;
+  if (version === undefined) throw new Error("invalid constraint");
+  const equals =
+    constraint.equals === undefined
+      ? {}
+      : (scalarObject(constraint.equals) as JSONRecord);
+  const regex =
+    constraint.regex === undefined
+      ? {}
+      : (scalarObject(constraint.regex) as JSONRecord);
+  const atoms = Object.keys(equals).length + Object.keys(regex).length;
+  if (
+    atoms < 1 ||
+    atoms > 16 ||
+    Object.values(equals).some(
+      (item) => typeof item === "object" && item !== null,
+    ) ||
+    Object.values(regex).some((item) => typeof item !== "string")
+  )
+    throw new Error("invalid constraint");
+  return { version, equals, regex };
+}
+
+function objectMembers(source: string | undefined): string {
+  if (source === undefined) return "";
+  const trimmed = source.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}"))
+    throw new Error("invalid constraint");
+  return trimmed.slice(1, -1).trim();
+}
+function mergeConstraintSource(
+  submittedSource: string | null,
+  additionalSource: string,
+): string {
+  if (additionalSource === "") return submittedSource ?? "";
+  let additionalValue: unknown;
   try {
-    const left = record(submitted, ["equals"]);
-    const right = record(approved, ["equals"]);
-    const submittedEquals = scalarObject(left.equals) as JSONRecord;
-    const approvedEquals = scalarObject(right.equals) as JSONRecord;
-    return Object.entries(submittedEquals).every(
-      ([pointer, value]) =>
-        Object.hasOwn(approvedEquals, pointer) &&
-        JSON.stringify(approvedEquals[pointer]) === JSON.stringify(value),
-    );
+    additionalValue = JSON.parse(additionalSource) as unknown;
   } catch {
-    return false;
+    throw new Error("Additional matcher atoms must be valid JSON.");
   }
+  const additional = matcherShape(additionalValue);
+  if (submittedSource === null) return additionalSource;
+  if (additional.version !== 2)
+    throw new Error("Additional matcher atoms must use version 2.");
+  const submitted = matcherShape(JSON.parse(submittedSource) as unknown);
+  for (const operator of ["equals", "regex"] as const) {
+    if (
+      Object.keys(additional[operator]).some((pointer) =>
+        Object.hasOwn(submitted[operator], pointer),
+      )
+    )
+      throw new Error(
+        "Additional matcher atoms cannot replace a submitted operator and pointer.",
+      );
+  }
+  const maps = (["equals", "regex"] as const)
+    .map((operator) => {
+      const members = [
+        objectMembers(jsonMemberSource(submittedSource, operator)),
+        objectMembers(jsonMemberSource(additionalSource, operator)),
+      ].filter((value) => value !== "");
+      return members.length === 0
+        ? ""
+        : `${JSON.stringify(operator)}:{${members.join(",")}}`;
+    })
+    .filter((value) => value !== "");
+  const merged = `{"version":2,${maps.join(",")}}`;
+  matcherShape(JSON.parse(merged) as unknown);
+  return merged;
 }
 
 function RequestActions({
+  session,
   mutations,
   detail,
   onRefresh,
   onAcknowledged,
 }: {
+  session: SessionClient;
   mutations: MutationCoordinator;
   detail: RequestDetail;
   onRefresh: () => void;
@@ -460,45 +607,114 @@ function RequestActions({
   const [description, setDescription] = useState(defaultDescription);
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
-  const [constraint, setConstraint] = useState(
-    submitted.constraint === null ? "" : JSON.stringify(submitted.constraint),
-  );
+  const [approvalDescriptors, setApprovalDescriptors] =
+    useState<MatcherDescriptorSummary[]>();
+  const [selectedApprovalDescriptor, setSelectedApprovalDescriptor] =
+    useState<DescriptorView>();
+  const [approvalCatalogError, setApprovalCatalogError] = useState(false);
+  const [approvalDescriptorError, setApprovalDescriptorError] = useState(false);
+  const [additionalAtoms, setAdditionalAtoms] = useState<MatcherAtom[]>([]);
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
   const initialDraft = useRef({
     description: defaultDescription,
     scope: submitted.scope,
     target: submitted.target,
-    constraint:
-      submitted.constraint === null ? "" : JSON.stringify(submitted.constraint),
+    additionalAtoms: [] as MatcherAtom[],
     duration: submitted.durationSeconds ?? "",
     reason: "not_approved",
   });
-  useUnsavedChanges(
-    JSON.stringify({
-      description,
-      scope,
-      target,
-      constraint,
-      duration,
-      reason,
-    }) !== JSON.stringify(initialDraft.current),
-  );
+  const draftFingerprint = JSON.stringify({
+    description,
+    scope,
+    target,
+    additionalAtoms,
+    duration,
+    reason,
+  });
+  const currentDraft = useRef(draftFingerprint);
+  currentDraft.current = draftFingerprint;
+  useUnsavedChanges(draftFingerprint !== JSON.stringify(initialDraft.current));
   const [error, setError] = useState<string>();
+  const [validating, setValidating] = useState(false);
   const [blockedETag, setBlockedETag] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const actionButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
+  const narrowsServerToTool = submitted.scope === "server" && scope === "tool";
+  useEffect(() => {
+    const request = new AbortController();
+    setApprovalCatalogError(false);
+    setApprovalDescriptors(undefined);
+    if (!narrowsServerToTool) return () => request.abort();
+    void readMatcherDescriptors(
+      session,
+      detail.resolvedServerID,
+      request.signal,
+    )
+      .then((items) => {
+        if (!request.signal.aborted && items !== undefined)
+          setApprovalDescriptors(items);
+      })
+      .catch(() => {
+        if (!request.signal.aborted) setApprovalCatalogError(true);
+      });
+    return () => request.abort();
+  }, [detail.resolvedServerID, narrowsServerToTool, session]);
 
   const decodeMutation = async (response: Response) => {
     if (response.headers.get("Content-Type") !== "application/json")
       throw new Error("invalid response");
-    const value = (await response.json()) as unknown;
+    const source = await response.text();
+    const value = JSON.parse(source) as unknown;
     const etag = response.headers.get("ETag");
     if (etag === null) throw new Error("invalid response");
-    return decodeRequestDetail(value, etag);
+    return decodeRequestDetail(value, etag, requestedConstraintSource(source));
   };
+  const selectedApprovalDescriptorSummary = approvalDescriptors?.find(
+    (descriptor) => descriptor.externalName === target,
+  );
+  useEffect(() => {
+    const request = new AbortController();
+    setApprovalDescriptorError(false);
+    setSelectedApprovalDescriptor(undefined);
+    if (!narrowsServerToTool || selectedApprovalDescriptorSummary === undefined)
+      return () => request.abort();
+    void readMatcherDescriptor(
+      session,
+      selectedApprovalDescriptorSummary,
+      request.signal,
+    )
+      .then((item) => {
+        if (!request.signal.aborted && item !== undefined)
+          setSelectedApprovalDescriptor(item);
+      })
+      .catch(() => {
+        if (!request.signal.aborted) setApprovalDescriptorError(true);
+      });
+    return () => request.abort();
+  }, [
+    detail.resolvedServerID,
+    narrowsServerToTool,
+    selectedApprovalDescriptorSummary?.id,
+    session,
+  ]);
+  const approvalSuggestions: MatcherSchemaSuggestions | undefined =
+    narrowsServerToTool
+      ? selectedApprovalDescriptor === undefined
+        ? undefined
+        : matcherSchemaSuggestions(selectedApprovalDescriptor.descriptor)
+      : detail.currentTarget.descriptor === null
+        ? undefined
+        : matcherSchemaSuggestions(detail.currentTarget.descriptor);
+  const additionalConstraintSource = () =>
+    additionalAtoms.length === 0
+      ? ""
+      : matcherConstraintText(
+          additionalAtoms,
+          detail.submittedConstraintSource !== null,
+        );
   const approvedPolicy = (): Policy => {
     if (
       submitted.scope === "tool" &&
@@ -512,21 +728,23 @@ function RequestActions({
     )
       throw new Error("A server approval cannot broaden to another target.");
     if (target.length === 0) throw new Error("Approval target is required.");
-    let parsedConstraint: unknown | null = null;
-    if (constraint !== "") {
-      try {
-        parsedConstraint = JSON.parse(constraint) as unknown;
-      } catch {
-        throw new Error("Constraint must be valid JSON.");
-      }
-      scalarObject(parsedConstraint);
+    let constraintSource: string;
+    try {
+      constraintSource = mergeConstraintSource(
+        detail.submittedConstraintSource,
+        additionalConstraintSource(),
+      );
+    } catch (caught) {
+      if (caught instanceof Error && caught.message.startsWith("Additional "))
+        throw caught;
+      throw new Error("Constraint must use the supported matcher shape.");
     }
+    const parsedConstraint =
+      constraintSource === ""
+        ? null
+        : (JSON.parse(constraintSource) as unknown);
     if (scope === "server" && parsedConstraint !== null)
       throw new Error("Server approval cannot include a constraint.");
-    if (!constraintRetained(submitted.constraint, parsedConstraint))
-      throw new Error(
-        "Approval cannot remove or change a submitted constraint atom.",
-      );
     if (duration !== "") {
       if (!/^(?:[1-9][0-9]*)$/.test(duration))
         throw new Error("Duration must be canonical seconds.");
@@ -549,37 +767,73 @@ function RequestActions({
       futureToolsAcknowledged: scope === "server",
     };
   };
-  const review = (next: "approve" | "reject") => {
+  const reviewedConstraint = (() => {
+    try {
+      return mergeConstraintSource(
+        detail.submittedConstraintSource,
+        additionalConstraintSource(),
+      );
+    } catch {
+      return "";
+    }
+  })();
+  const reviewBody = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(scope)},"target":${JSON.stringify(target)},"constraint":${reviewedConstraint === "" ? "null" : reviewedConstraint},"duration_seconds":${duration === "" ? "null" : JSON.stringify(duration)},"future_tools_acknowledged":${String(scope === "server")}}}`;
+  const reviewedMatcherSummary = (() => {
+    if (reviewedConstraint === "") return "None";
+    try {
+      const constraint = JSON.parse(reviewedConstraint) as Record<
+        string,
+        unknown
+      >;
+      const count = (value: unknown) =>
+        value !== null && typeof value === "object" && !Array.isArray(value)
+          ? Object.keys(value).length
+          : 0;
+      return `v${constraint.version === 2 ? 2 : 1} · ${count(constraint.equals)} equality · ${count(constraint.regex)} regex`;
+    } catch {
+      return "Unavailable";
+    }
+  })();
+  const review = async (next: "approve" | "reject") => {
+    const reviewedDraft = currentDraft.current;
     setError(undefined);
     try {
-      const body =
-        next === "approve"
-          ? (() => {
-              if (
-                description.length > 0 &&
-                (description.trim() !== description ||
-                  new TextEncoder().encode(description).length > 256)
-              )
-                throw new Error(
-                  "Grant description must be at most 256 bytes without surrounding whitespace.",
-                );
-              if (containsControlCharacters(description))
-                throw new Error(
-                  "Grant description cannot contain control characters.",
-                );
-              const policy = approvedPolicy();
-              return JSON.stringify({
-                description: description === "" ? null : description,
-                approved_policy: {
-                  scope: policy.scope,
-                  target: policy.target,
-                  constraint: policy.constraint,
-                  duration_seconds: policy.durationSeconds,
-                  future_tools_acknowledged: policy.futureToolsAcknowledged,
-                },
-              });
-            })()
-          : JSON.stringify({ reason });
+      let body: string;
+      if (next === "approve") {
+        if (
+          description.length > 0 &&
+          (description.trim() !== description ||
+            new TextEncoder().encode(description).length > 256)
+        )
+          throw new Error(
+            "Grant description must be at most 256 bytes without surrounding whitespace.",
+          );
+        if (containsControlCharacters(description))
+          throw new Error(
+            "Grant description cannot contain control characters.",
+          );
+        const policy = approvedPolicy();
+        const constraintSource = mergeConstraintSource(
+          detail.submittedConstraintSource,
+          additionalConstraintSource(),
+        );
+        if (constraintSource !== "") {
+          setValidating(true);
+          const diagnostic = await validateMatcherConstraint(
+            session,
+            constraintSource,
+          );
+          if (
+            diagnostic === undefined ||
+            currentDraft.current !== reviewedDraft
+          )
+            return;
+          if (diagnostic !== null) throw new Error(diagnostic);
+        }
+        const constraintToken =
+          constraintSource === "" ? "null" : constraintSource;
+        body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}}}`;
+      } else body = JSON.stringify({ reason });
       const spec: MutationSpec<RequestDetail> = {
         route: `/api/v1/grant-requests/${detail.id}/${next}`,
         method: "POST",
@@ -597,6 +851,8 @@ function RequestActions({
       setError(
         caught instanceof Error ? caught.message : "Invalid adjudication.",
       );
+    } finally {
+      setValidating(false);
     }
   };
   const confirm = async () => {
@@ -608,7 +864,7 @@ function RequestActions({
         description,
         scope,
         target,
-        constraint,
+        additionalAtoms,
         duration,
         reason,
       };
@@ -625,6 +881,7 @@ function RequestActions({
     controller.abandon();
   };
   const disabled =
+    validating ||
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched" ||
     blockedETag === detail.etag;
@@ -679,7 +936,7 @@ function RequestActions({
               setScope(next);
               if (next === "server") {
                 setTarget(submitted.target);
-                setConstraint("");
+                setAdditionalAtoms([]);
               }
             }}
           >
@@ -694,6 +951,7 @@ function RequestActions({
             {...attributes}
             data-testid="approval-target"
             value={target}
+            list={narrowsServerToTool ? "approval-tool-options" : undefined}
             disabled={
               submitted.scope === "tool" ||
               (scope === "server" && submitted.scope === "server") ||
@@ -703,23 +961,90 @@ function RequestActions({
           />
         )}
       </FormField>
+      {narrowsServerToTool && (
+        <>
+          <datalist id="approval-tool-options">
+            {(approvalDescriptors ?? []).map((descriptor) => (
+              <option
+                value={descriptor.externalName}
+                label={descriptor.upstreamName}
+                key={descriptor.id}
+              />
+            ))}
+          </datalist>
+          <p
+            class="bounded-note"
+            role="status"
+            aria-live="polite"
+            data-testid="approval-tool-posture"
+          >
+            {approvalCatalogError
+              ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before approval."
+              : approvalDescriptors === undefined
+                ? "Loading current durable tools…"
+                : selectedApprovalDescriptorSummary === undefined
+                  ? "No current descriptor matches this literal name. Manual approval remains available."
+                  : approvalDescriptorError
+                    ? "Current descriptor selected, but its schema is unavailable. Manual matcher entry remains available."
+                    : selectedApprovalDescriptor === undefined
+                      ? "Loading the selected tool schema…"
+                      : "Current durable descriptor selected. Its schema assists narrowing but is not grant authority."}
+          </p>
+        </>
+      )}
       {scope === "tool" && (
-        <FormField
-          id="approval-constraint"
-          label="Approved equality constraint JSON"
-          hint="Submitted atoms must remain exact; additional atoms narrow the policy."
-          optional
-        >
-          {(attributes) => (
-            <textarea
-              {...attributes}
-              data-testid="approval-constraint"
-              value={constraint}
-              disabled={disabled}
-              onInput={(event) => setConstraint(event.currentTarget.value)}
-            />
+        <>
+          {detail.submittedConstraintSource !== null && (
+            <FormField
+              id="approval-submitted-constraint"
+              label="Submitted matcher atoms — locked"
+              hint="These exact operator, pointer, and value tokens are retained automatically."
+            >
+              {(attributes) => (
+                <textarea
+                  {...attributes}
+                  data-testid="approval-submitted-constraint"
+                  value={detail.submittedConstraintSource ?? ""}
+                  readOnly
+                  rows={6}
+                />
+              )}
+            </FormField>
           )}
-        </FormField>
+          <div aria-labelledby="approval-additional-matchers-title">
+            <h3 id="approval-additional-matchers-title">
+              Additional matcher atoms
+              <span class="optional-label"> (optional)</span>
+            </h3>
+            <p class="field-hint">
+              New atoms are conjoined with the locked submitted policy.
+              Additions use the same equality and full-string RE2 controls as
+              grant creation.
+            </p>
+            {approvalSuggestions?.unsupported && (
+              <p
+                class="bounded-note"
+                data-testid="approval-matcher-schema-posture"
+              >
+                Scalar field suggestions are available where unambiguous. Other
+                current schema portions are unsupported for matcher suggestions;
+                custom JSON Pointers remain available.
+              </p>
+            )}
+            <MatcherAtomEditor
+              idPrefix="approval-additional"
+              testPrefix="approval-additional"
+              atoms={additionalAtoms}
+              suggestions={approvalSuggestions}
+              forceVersion2={detail.submittedConstraintSource !== null}
+              disabled={disabled}
+              onChange={(next) => {
+                setError(undefined);
+                setAdditionalAtoms(next);
+              }}
+            />
+          </div>
+        </>
       )}
       <FormField
         id="approval-duration"
@@ -781,16 +1106,16 @@ function RequestActions({
           data-testid="request-approve"
           type="button"
           disabled={disabled}
-          onClick={() => review("approve")}
+          onClick={() => void review("approve")}
         >
-          Review approval
+          {validating ? "Validating matcher…" : "Review approval"}
         </button>
         <button
           data-testid="request-reject"
           class="danger-action"
           type="button"
           disabled={disabled}
-          onClick={() => review("reject")}
+          onClick={() => void review("reject")}
         >
           Review rejection
         </button>
@@ -802,11 +1127,80 @@ function RequestActions({
           mode === "approve" ? "Approve narrowed policy?" : "Reject request?"
         }
         consequence={
-          <p>
-            {mode === "approve"
-              ? "Approval atomically closes the request and creates one ALLOW grant; it does not execute a call."
-              : `Rejection atomically closes the request with reason ${reason}; it creates no grant.`}
-          </p>
+          mode === "approve" ? (
+            <div class="review-stack">
+              <p>
+                Approval atomically closes the request and creates one ALLOW
+                grant; it does not execute a call. Every matcher atom is
+                required (AND), and any matching DENY takes precedence.
+              </p>
+              {reviewedConstraint === "" && (
+                <StateNotice
+                  state="warning"
+                  title="Unconstrained access matches every argument object"
+                />
+              )}
+              <dl class="fact-grid">
+                <div>
+                  <dt>Description</dt>
+                  <dd>{description === "" ? "None" : description}</dd>
+                </div>
+                <div>
+                  <dt>Principal</dt>
+                  <dd>{detail.principalID}</dd>
+                </div>
+                <div>
+                  <dt>Server</dt>
+                  <dd>{detail.resolvedServerID}</dd>
+                </div>
+                <div>
+                  <dt>Literal tool name</dt>
+                  <dd>{scope === "tool" ? target : "All server tools"}</dd>
+                </div>
+                <div>
+                  <dt>Catalog posture</dt>
+                  <dd>
+                    {scope === "server"
+                      ? "Not applicable to server-wide authority"
+                      : narrowsServerToTool
+                        ? approvalCatalogError
+                          ? "Unavailable — literal manual name"
+                          : selectedApprovalDescriptorSummary === undefined ||
+                              selectedApprovalDescriptor === undefined ||
+                              approvalDescriptorError
+                            ? "No verified current descriptor — literal manual name"
+                            : `Current durable descriptor · catalog revision ${selectedApprovalDescriptor.catalogRevision}`
+                        : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Approved duration</dt>
+                  <dd>
+                    {duration === "" ? "Permanent" : `${duration} seconds`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Constraint</dt>
+                  <dd>{reviewedMatcherSummary}</dd>
+                </div>
+              </dl>
+              <div>
+                <strong>Read-only serialized policy</strong>
+                <textarea
+                  class="inert-json"
+                  data-testid="approval-review-policy"
+                  readOnly
+                  rows={8}
+                  value={reviewBody}
+                />
+              </div>
+            </div>
+          ) : (
+            <p>
+              Rejection atomically closes the request with reason {reason}; it
+              creates no grant.
+            </p>
+          )
         }
         confirmLabel={mode === "approve" ? "Approve request" : "Reject request"}
         destructive={mode === "reject"}
@@ -1070,6 +1464,7 @@ export function Requests({
           )}
         </section>
         <RequestActions
+          session={session}
           mutations={mutations}
           detail={detail}
           onRefresh={onRefresh}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
+
+var descriptorCursorID = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 type Clock interface {
 	Now() time.Time
@@ -53,6 +56,16 @@ type DescriptorRecord struct {
 
 type DescriptorPage struct {
 	Items []DescriptorRecord
+	Next  *DescriptorCursor
+}
+
+type DescriptorSummaryRecord struct {
+	InsertionSequence int64
+	Resource          contract.ToolDescriptorSummary
+}
+
+type DescriptorSummaryPage struct {
+	Items []DescriptorSummaryRecord
 	Next  *DescriptorCursor
 }
 
@@ -372,7 +385,7 @@ func (repository *Repository) ListDescriptors(ctx context.Context, serverID stri
 				return err
 			}
 		} else {
-			if cursor.ServerID != serverID || cursor.Retired != retired || cursor.CatalogRevision != revision || cursor.Upper < 0 || cursor.After < 0 || cursor.After > cursor.Upper {
+			if cursor.ServerID != serverID || cursor.Retired != retired || cursor.CatalogRevision != revision || !validDescriptorCursorPosition(cursor) {
 				return servers.ErrStaleCursor
 			}
 			upper, after, afterID = cursor.Upper, cursor.After, cursor.AfterID
@@ -413,6 +426,82 @@ func (repository *Repository) ListDescriptors(ctx context.Context, serverID stri
 		return nil
 	})
 	return page, mapStoreError(err)
+}
+
+func (repository *Repository) ListDescriptorSummaries(ctx context.Context, serverID string, retired contract.DescriptorRetiredFilter, cursor *DescriptorCursor, limit int) (DescriptorSummaryPage, error) {
+	if _, err := contract.ParseDescriptorRetiredFilter(string(retired)); err != nil || limit < 1 || int64(limit) > fixedLimit("s2_list_page") {
+		return DescriptorSummaryPage{}, servers.ErrInvalidInput
+	}
+	var page DescriptorSummaryPage
+	err := repository.store.View(ctx, func(transaction *sql.Tx) error {
+		status, err := statusTx(ctx, transaction, serverID)
+		if err != nil {
+			return err
+		}
+		revision := "0"
+		if status.Revision != nil {
+			revision = *status.Revision
+		}
+		upper, after, afterID := int64(0), int64(0), ""
+		if cursor == nil {
+			if err := transaction.QueryRowContext(ctx, `
+				SELECT coalesce(max(insertion_sequence), 0)
+				FROM durable_tool_identities WHERE server_id = ?`, serverID).Scan(&upper); err != nil {
+				return err
+			}
+		} else {
+			if cursor.ServerID != serverID || cursor.Retired != retired || cursor.CatalogRevision != revision || !validDescriptorCursorPosition(cursor) {
+				return servers.ErrStaleCursor
+			}
+			upper, after, afterID = cursor.Upper, cursor.After, cursor.AfterID
+		}
+		predicate := ""
+		switch retired {
+		case contract.DescriptorRetiredExclude:
+			predicate = " AND descriptor.retired_at IS NULL"
+		case contract.DescriptorRetiredOnly:
+			predicate = " AND descriptor.retired_at IS NOT NULL"
+		}
+		rows, err := transaction.QueryContext(ctx, `
+			SELECT identity.insertion_sequence, identity.id, identity.server_id,
+			       identity.upstream_name, identity.external_name,
+			       descriptor.catalog_revision
+			FROM durable_tool_identities AS identity
+			JOIN tool_descriptors AS descriptor ON descriptor.tool_id = identity.id
+			WHERE identity.server_id = ? AND identity.insertion_sequence <= ?
+			  AND (identity.insertion_sequence > ? OR (identity.insertion_sequence = ? AND identity.id > ?))`+predicate+`
+			ORDER BY identity.insertion_sequence, identity.id LIMIT ?`, serverID, upper, after, after, afterID, limit+1)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		items := make([]DescriptorSummaryRecord, 0, limit+1)
+		for rows.Next() {
+			var record DescriptorSummaryRecord
+			resource := &record.Resource
+			if err := rows.Scan(&record.InsertionSequence, &resource.ID, &resource.ServerID, &resource.UpstreamName, &resource.ExternalName, &resource.CatalogRevision); err != nil {
+				return err
+			}
+			items = append(items, record)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(items) > limit {
+			last := items[limit-1]
+			page.Next = &DescriptorCursor{ServerID: serverID, Retired: retired, CatalogRevision: revision, Upper: upper, After: last.InsertionSequence, AfterID: last.Resource.ID}
+			items = items[:limit]
+		}
+		page.Items = items
+		return nil
+	})
+	return page, mapStoreError(err)
+}
+
+func validDescriptorCursorPosition(cursor *DescriptorCursor) bool {
+	return cursor.Upper >= 0 && cursor.After >= 0 && cursor.After <= cursor.Upper &&
+		(cursor.After == 0) == (cursor.AfterID == "") &&
+		(cursor.AfterID == "" || descriptorCursorID.MatchString(cursor.AfterID))
 }
 
 func validateCommitFence(ctx context.Context, transaction *sql.Tx, fence CommitFence) error {

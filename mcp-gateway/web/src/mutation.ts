@@ -90,6 +90,9 @@ const mutationRoute = /^\/api\/v1\/[A-Za-z0-9_/-]{1,512}$/;
 const credentialReplacementRoute = new RegExp(
   `^/api/v1/servers/${gatewayID}/credential-replacements$`,
 );
+const matcherApprovalRoute = new RegExp(
+  `^/api/v1/grant-requests/${gatewayID}/approve$`,
+);
 const maximumBodyBytes = 1024 * 1024;
 
 function randomKey(): string {
@@ -107,11 +110,13 @@ function isCanonicalJSON(value: string): boolean {
   }
 }
 
-function isGrantCreateJSON(spec: MutationSpec<unknown>): boolean {
+function isTokenPreservingMatcherMutationJSON(
+  spec: MutationSpec<unknown>,
+): boolean {
   if (
-    spec.route !== "/api/v1/grants" ||
     spec.method !== "POST" ||
-    spec.body === null
+    spec.body === null ||
+    (spec.route !== "/api/v1/grants" && !matcherApprovalRoute.test(spec.route))
   )
     return false;
   try {
@@ -135,7 +140,8 @@ function validateSpec<T>(spec: MutationSpec<T>): void {
     !mutationRoute.test(spec.route) ||
     (spec.body !== null &&
       (new TextEncoder().encode(spec.body).byteLength > maximumBodyBytes ||
-        (!isCanonicalJSON(spec.body) && !isGrantCreateJSON(spec)))) ||
+        (!isCanonicalJSON(spec.body) &&
+          !isTokenPreservingMatcherMutationJSON(spec)))) ||
     spec.requiresPrecondition !== requiresPrecondition ||
     requiresPrecondition !== (spec.precondition !== null) ||
     (spec.precondition !== null && !strongETag.test(spec.precondition)) ||

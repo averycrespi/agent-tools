@@ -57,7 +57,7 @@ func runCLIGrantInputMatrix(t *testing.T) {
 	got := runOnlineCLI(t, harness, bearerPath, true, "grant", "get", grant.ID)
 	results = append(results, listed, got)
 	assert.Contains(t, string(listed.Stdout), grant.ID)
-	assert.Contains(t, string(got.Stdout), "scalar equals")
+	assert.Contains(t, string(got.Stdout), "v1 equals (2)")
 
 	refused := runOnlineCLI(t, harness, bearerPath, false, "grant", "delete", grant.ID, "--output", "json")
 	results = append(results, refused)

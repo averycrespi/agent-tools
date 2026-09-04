@@ -21,9 +21,22 @@ func (handler *Handler) descriptorsCollection(writer http.ResponseWriter, reques
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	limit, retired, cursor, problem := parseDescriptorQuery(request.URL.Query())
+	limit, retired, cursor, summary, problem := parseDescriptorQuery(request.URL.Query())
 	if problem != "" {
 		writeProblem(writer, problem)
+		return
+	}
+	if summary {
+		page, err := handler.catalog.ListDescriptorSummaries(request.Context(), serverID, retired, cursor, limit)
+		if err != nil {
+			writeServerError(writer, err)
+			return
+		}
+		items := make([]contract.ToolDescriptorSummary, 0, len(page.Items))
+		for _, item := range page.Items {
+			items = append(items, item.Resource)
+		}
+		writeJSON(writer, http.StatusOK, contract.Collection[contract.ToolDescriptorSummary]{Items: items, NextCursor: encodedDescriptorCursor(page.Next)})
 		return
 	}
 	page, err := handler.catalog.ListDescriptors(request.Context(), serverID, retired, cursor, limit)
@@ -35,12 +48,15 @@ func (handler *Handler) descriptorsCollection(writer http.ResponseWriter, reques
 	for _, item := range page.Items {
 		items = append(items, item.Resource)
 	}
-	var next *string
-	if page.Next != nil {
-		value := encodeDescriptorCursor(*page.Next)
-		next = &value
+	writeJSON(writer, http.StatusOK, contract.Collection[contract.ToolDescriptor]{Items: items, NextCursor: encodedDescriptorCursor(page.Next)})
+}
+
+func encodedDescriptorCursor(cursor *catalog.DescriptorCursor) *string {
+	if cursor == nil {
+		return nil
 	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.ToolDescriptor]{Items: items, NextCursor: next})
+	value := encodeDescriptorCursor(*cursor)
+	return &value
 }
 
 func (handler *Handler) descriptorMember(writer http.ResponseWriter, request *http.Request, serverID, toolID string) {
@@ -60,44 +76,51 @@ func (handler *Handler) descriptorMember(writer http.ResponseWriter, request *ht
 	writeJSON(writer, http.StatusOK, resource)
 }
 
-func parseDescriptorQuery(query url.Values) (int, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, contract.ProblemCode) {
+func parseDescriptorQuery(query url.Values) (int, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, bool, contract.ProblemCode) {
 	for key, values := range query {
-		if (key != "cursor" && key != "limit" && key != "retired") || len(values) != 1 {
-			return 0, "", nil, contract.ProblemMalformedRequest
+		if (key != "cursor" && key != "limit" && key != "retired" && key != "representation") || len(values) != 1 {
+			return 0, "", nil, false, contract.ProblemMalformedRequest
 		}
 	}
 	limit := contract.S2ListPageDefault
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
 		if err != nil || value < 1 || value > limitValue("s2_list_page") {
-			return 0, "", nil, contract.ProblemMalformedRequest
+			return 0, "", nil, false, contract.ProblemMalformedRequest
 		}
 		limit = value
 	}
 	retired := contract.DescriptorRetiredInclude
 	if text, present := query["retired"]; present {
 		if len(text) != 1 {
-			return 0, "", nil, contract.ProblemMalformedRequest
+			return 0, "", nil, false, contract.ProblemMalformedRequest
 		}
 		parsed, err := contract.ParseDescriptorRetiredFilter(text[0])
 		if err != nil {
-			return 0, "", nil, contract.ProblemMalformedRequest
+			return 0, "", nil, false, contract.ProblemMalformedRequest
 		}
 		retired = parsed
 	}
 	var cursor *catalog.DescriptorCursor
 	if text := query.Get("cursor"); text != "" {
 		if len(text) > limitValue("cursor_bytes") {
-			return 0, "", nil, contract.ProblemInvalidCursor
+			return 0, "", nil, false, contract.ProblemInvalidCursor
 		}
 		contents, err := base64.RawURLEncoding.DecodeString(text)
 		var decoded catalog.DescriptorCursor
 		if err != nil || strictjson.Decode(contents, &decoded, strictjson.Options{MaxBytes: int64(limitValue("cursor_bytes")), MaxDepth: 8, RejectUnknownMembers: true}) != nil {
-			return 0, "", nil, contract.ProblemInvalidCursor
+			return 0, "", nil, false, contract.ProblemInvalidCursor
 		}
 		cursor = &decoded
 	}
-	return limit, retired, cursor, ""
+	summary := false
+	if representation, present := query["representation"]; present {
+		if len(representation) != 1 || representation[0] != "summary" {
+			return 0, "", nil, false, contract.ProblemMalformedRequest
+		}
+		summary = true
+	}
+	return limit, retired, cursor, summary, ""
 }
 
 func encodeDescriptorCursor(cursor catalog.DescriptorCursor) string {

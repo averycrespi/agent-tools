@@ -28,6 +28,52 @@ func TestCompileConstraintPreservesPointersScalarsAndNumberTokens(t *testing.T) 
 	assert.Equal(t, string(contents), string(compiled.JSON()))
 }
 
+func TestCompileConstraintAcceptsV2EqualityAndRegexAtoms(t *testing.T) {
+	contents := []byte(`{"version":2,"equals":{"/region":"us","/attempt":1.0},"regex":{"/resource":"[a-z]+/[0-9]+"}}`)
+	compiled, err := CompileConstraint(contents)
+	require.NoError(t, err)
+	assert.Equal(t, 2, compiled.Version())
+	assert.Equal(t, []ConstraintAtom{
+		{Operator: ConstraintEquals, Pointer: "/region", Type: ConstraintString, String: "us"},
+		{Operator: ConstraintEquals, Pointer: "/attempt", Type: ConstraintNumber, Number: "1.0"},
+		{Operator: ConstraintRegex, Pointer: "/resource", Type: ConstraintString, String: "[a-z]+/[0-9]+"},
+	}, compiled.Atoms())
+	assert.Equal(t, string(contents), string(compiled.JSON()))
+}
+
+func TestCompileConstraintAcceptsJSONSchemaEquivalentV2Numbers(t *testing.T) {
+	for _, version := range []string{"2.0", "2e0", "20e-1"} {
+		contents := []byte(`{"version":` + version + `,"equals":{"/x":true}}`)
+		compiled, err := CompileConstraint(contents)
+		require.NoError(t, err, version)
+		assert.Equal(t, 2, compiled.Version())
+		assert.Equal(t, string(contents), string(compiled.JSON()))
+	}
+}
+
+func TestCompileConstraintRejectsInvalidV2ShapesAndRegex(t *testing.T) {
+	oversizedPattern := strings.Repeat("a", int(mustLimit("constraint_regex_pattern_bytes"))+1)
+	oversizedProgram := strings.Repeat("a{1000}", 5)
+	for _, input := range []string{
+		`{"version":1,"equals":{"/x":1}}`,
+		`{"version":3,"equals":{"/x":1}}`,
+		`{"version":2}`,
+		`{"version":2,"equals":{},"regex":{}}`,
+		`{"version":2,"other":{"/x":1}}`,
+		`{"version":2,"regex":{"/x":1}}`,
+		`{"version":2,"regex":{"/x":"["}}`,
+		`{"version":2,"regex":{"/x":"x)\\z|foo(?:"}}`,
+		`{"version":2,"regex":{"/x":` + fmt.Sprintf("%q", oversizedPattern) + `}}`,
+		`{"version":2,"regex":{"/x":` + fmt.Sprintf("%q", oversizedProgram) + `}}`,
+		`{"version":2,"regex":{"/x":"a{200}","/y":"b{200}"}}`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			_, err := CompileConstraint([]byte(input))
+			assert.ErrorIs(t, err, ErrInvalidInput)
+		})
+	}
+}
+
 func TestCompileConstraintAcceptsEscapedMemberNames(t *testing.T) {
 	compiled, err := CompileConstraint([]byte(`{"equ\u0061ls":{"/\u0078":1}}`))
 	require.NoError(t, err)

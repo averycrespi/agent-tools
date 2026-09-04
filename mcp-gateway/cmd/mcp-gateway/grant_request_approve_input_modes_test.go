@@ -16,6 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGrantRequestTableSummarizesCompleteApprovedPolicy(t *testing.T) {
+	raw := json.RawMessage(`{"version":2,"equals":{"/attempt":1e0},"regex":{"/resource":"item-\\d+"}}`)
+	requested := contract.Policy{Scope: contract.PolicyServer, Target: "server"}
+	approved := contract.Policy{Scope: contract.PolicyTool, Target: "tool", Constraint: &raw}
+	table := grantRequestTable([]contract.GrantRequestSummary{{RequestedPolicy: requested, ApprovedPolicy: &approved}}, nil)
+	require.Equal(t, []string{"SCOPE", "TARGET", "CONSTRAINT"}, table.Headers[4:7])
+	assert.Equal(t, []string{"tool", "tool", "v2 equals (1), regex (1)"}, table.Rows[0][4:7])
+}
+
 func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 	const resourceID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	requests := make(chan []byte, 6)
@@ -79,12 +88,15 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"description":"Approved access","approved_policy":{"scope":"server","target":"`+resourceID+`","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, string(<-requests))
 
-	constrainedBody := `{"description":"Approved access","approved_policy":{"scope":"tool","target":"example_tool","constraint":{"equals":{"/region":"us"}},"duration_seconds":"900","future_tools_acknowledged":false}}`
+	constrainedBody := `{"description":"Approved access","approved_policy":{"scope":"tool","target":"example_tool","constraint":{"version":2,"equals":{"/attempt":1e0},"regex":{"/resource":"item-\\d+"}},"duration_seconds":"900","future_tools_acknowledged":false}}`
 	constrainedFile := filepath.Join(dir, "constrained.json")
 	require.NoError(t, os.WriteFile(constrainedFile, []byte(constrainedBody), 0o600))
 	output, err = execute(append(approveArgs, "--file", constrainedFile, "--yes")...)
 	require.NoError(t, err, "%s", output)
-	assert.JSONEq(t, constrainedBody, string(<-requests))
+	constrainedRequest := string(<-requests)
+	assert.JSONEq(t, constrainedBody, constrainedRequest)
+	assert.Contains(t, constrainedRequest, `1e0`)
+	assert.Contains(t, constrainedRequest, `"item-\\d+"`)
 
 	incompleteFile := filepath.Join(dir, "incomplete.json")
 	require.NoError(t, os.WriteFile(incompleteFile, []byte(`{"approved_policy":{"scope":"tool"}}`), 0o600))

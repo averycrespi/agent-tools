@@ -165,6 +165,20 @@ type Grant struct {
 	CreatedAt    string           `json:"created_at"`
 }
 
+type GrantConstraintValidation struct {
+	Constraint json.RawMessage `json:"constraint"`
+}
+
+type GrantConstraintDiagnostic struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type GrantConstraintValidationResult struct {
+	Valid       bool                        `json:"valid"`
+	Diagnostics []GrantConstraintDiagnostic `json:"diagnostics"`
+}
+
 type AuthorizationResult struct {
 	Decision              AuthorizationDecision `json:"decision"`
 	AuthorizationRevision string                `json:"authorization_revision"`

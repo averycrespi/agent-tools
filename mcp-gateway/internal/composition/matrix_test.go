@@ -205,6 +205,9 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 	}
 
 	require.NoError(t, built.Start(context.Background()))
+	startupContext, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelStartup()
+	require.True(t, built.manager.Wait(startupContext), "initial reconciliation wave did not complete")
 	for _, server := range serversByKind {
 		server := server
 		require.Eventually(t, func() bool {

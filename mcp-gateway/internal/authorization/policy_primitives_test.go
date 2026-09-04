@@ -17,10 +17,10 @@ func TestConstraintAtomsPreserveDecodedScalarsAndLexicalNumbers(t *testing.T) {
 	require.NoError(t, err)
 	atoms := compiled.Atoms()
 	require.Len(t, atoms, 4)
-	assert.Equal(t, ConstraintAtom{Pointer: "/n", Type: ConstraintNumber, Number: "1.0"}, atoms[0])
-	assert.Equal(t, ConstraintAtom{Pointer: "/s", Type: ConstraintString, String: "a"}, atoms[1])
-	assert.Equal(t, ConstraintAtom{Pointer: "/b", Type: ConstraintBoolean, Boolean: true}, atoms[2])
-	assert.Equal(t, ConstraintAtom{Pointer: "/z", Type: ConstraintNull}, atoms[3])
+	assert.Equal(t, ConstraintAtom{Operator: ConstraintEquals, Pointer: "/n", Type: ConstraintNumber, Number: "1.0"}, atoms[0])
+	assert.Equal(t, ConstraintAtom{Operator: ConstraintEquals, Pointer: "/s", Type: ConstraintString, String: "a"}, atoms[1])
+	assert.Equal(t, ConstraintAtom{Operator: ConstraintEquals, Pointer: "/b", Type: ConstraintBoolean, Boolean: true}, atoms[2])
+	assert.Equal(t, ConstraintAtom{Operator: ConstraintEquals, Pointer: "/z", Type: ConstraintNull}, atoms[3])
 	atoms[0].Pointer = "changed"
 	assert.Equal(t, "/n", compiled.Atoms()[0].Pointer)
 }

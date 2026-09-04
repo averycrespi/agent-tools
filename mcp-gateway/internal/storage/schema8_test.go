@@ -67,7 +67,7 @@ func TestVerifyBackupRejectsSchemaNewerThanCurrent(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	raw := openRaw(t, ownership.Layout().Database)
-	_, err = raw.Exec(`PRAGMA user_version = 14`)
+	_, err = raw.Exec(`PRAGMA user_version = 15`)
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 

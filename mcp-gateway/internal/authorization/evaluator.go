@@ -25,13 +25,14 @@ func (repository *Repository) Evaluate(ctx context.Context, request EvaluationRe
 	var result contract.AuthorizationResult
 	err = repository.view(ctx, func(transaction *sql.Tx) error {
 		var evaluateErr error
-		result, evaluateErr = evaluateTx(ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt)
+		result, evaluateErr = evaluateTx(repository, ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt)
 		return evaluateErr
 	})
 	return result, err
 }
 
 func evaluateTx(
+	repository *Repository,
 	ctx context.Context,
 	transaction *sql.Tx,
 	principalID string,
@@ -52,25 +53,33 @@ func evaluateTx(
 		SELECT id, principal_id, effect, server_id, upstream_name,
 		       constraint_json, expires_at, created_at
 		FROM grants
-		WHERE principal_id = ?
+		WHERE principal_id = ? AND server_id = ?
+		  AND (upstream_name IS NULL OR upstream_name = ?)
 		ORDER BY id
-		LIMIT ?`, principalID, mustLimit("grants")+1)
+		LIMIT ?`, principalID, serverID, upstreamName, mustLimit("grants")+1)
 	if err != nil {
 		return contract.AuthorizationResult{}, fmt.Errorf("%w: read grants for evaluation: %w", ErrStorageUnavailable, err)
 	}
 	defer func() { _ = rows.Close() }()
 	var smallestAllow, smallestDeny string
+	remainingRegexWork := mustLimit("constraint_regex_work_bytes")
 	count := int64(0)
 	for rows.Next() {
 		if count >= mustLimit("grants") {
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
 		count++
-		grant, loadErr := loadEvaluationGrant(rows)
+		grant, loadErr := loadEvaluationGrant(rows, func(source string) (CompiledConstraint, error) {
+			return repository.compileConstraint(revision, source)
+		})
 		if loadErr != nil {
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
-		if !grant.applies(serverID, upstreamName, evaluatedAt, arguments) {
+		applies, appliesErr := grant.applies(serverID, upstreamName, evaluatedAt, arguments, &remainingRegexWork)
+		if appliesErr != nil {
+			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
+		}
+		if !applies {
 			continue
 		}
 		switch grant.effect {
@@ -106,7 +115,7 @@ type evaluationGrant struct {
 	expiresAt    *time.Time
 }
 
-func loadEvaluationGrant(scanner grantScanner) (evaluationGrant, error) {
+func loadEvaluationGrant(scanner grantScanner, compile func(string) (CompiledConstraint, error)) (evaluationGrant, error) {
 	var (
 		grant                          evaluationGrant
 		principalID, effect, createdAt string
@@ -125,7 +134,7 @@ func loadEvaluationGrant(scanner grantScanner) (evaluationGrant, error) {
 		return evaluationGrant{}, ErrAuthorizationUnavailable
 	}
 	if constraintJSON.Valid {
-		compiled, err := CompileConstraint([]byte(constraintJSON.String))
+		compiled, err := compile(constraintJSON.String)
 		if err != nil {
 			return evaluationGrant{}, ErrAuthorizationUnavailable
 		}
@@ -141,22 +150,48 @@ func loadEvaluationGrant(scanner grantScanner) (evaluationGrant, error) {
 	return grant, nil
 }
 
-func (grant evaluationGrant) applies(serverID, upstreamName string, evaluatedAt time.Time, arguments strictjson.Value) bool {
+func (grant evaluationGrant) applies(serverID, upstreamName string, evaluatedAt time.Time, arguments strictjson.Value, remainingRegexWork *int64) (bool, error) {
 	if grant.serverID != serverID || grant.expiresAt != nil && !grant.expiresAt.After(evaluatedAt) ||
 		grant.upstreamName.Valid && grant.upstreamName.String != upstreamName {
-		return false
+		return false, nil
 	}
-	return grant.constraint == nil || constraintMatches(*grant.constraint, arguments)
+	if grant.constraint == nil {
+		return true, nil
+	}
+	return constraintMatches(*grant.constraint, arguments, remainingRegexWork)
 }
 
-func constraintMatches(constraint CompiledConstraint, arguments strictjson.Value) bool {
+func constraintMatches(constraint CompiledConstraint, arguments strictjson.Value, remainingRegexWork *int64) (bool, error) {
 	for _, atom := range constraint.atoms {
 		actual, present := valueAtObjectPath(arguments, atom.segments)
-		if !present || !scalarValuesEqual(actual, atom.expected) {
-			return false
+		if !present {
+			return false, nil
+		}
+		switch atom.operator {
+		case ConstraintEquals:
+			if !scalarValuesEqual(actual, atom.expected) {
+				return false, nil
+			}
+		case ConstraintRegex:
+			if actual.Type != strictjson.ValueString {
+				return false, nil
+			}
+			inputUnits := int64(len(actual.String))
+			if inputUnits == 0 {
+				inputUnits = 1
+			}
+			if atom.regexInstructions < 1 || inputUnits > *remainingRegexWork/atom.regexInstructions {
+				return false, ErrAuthorizationUnavailable
+			}
+			*remainingRegexWork -= inputUnits * atom.regexInstructions
+			if !atom.expression.MatchString(actual.String) {
+				return false, nil
+			}
+		default:
+			return false, ErrAuthorizationUnavailable
 		}
 	}
-	return true
+	return true, nil
 }
 
 func valueAtObjectPath(root strictjson.Value, segments []string) (strictjson.Value, bool) {

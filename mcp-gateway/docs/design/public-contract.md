@@ -47,6 +47,7 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 | `/api/v1/principals/{id}/credential`                 | `DELETE, POST`       | admin bearer or session                           |
 | `/api/v1/grants`                                     | `GET, POST`          | admin bearer or session                           |
 | `/api/v1/grants/{id}`                                | `DELETE, GET, PATCH` | admin bearer or session                           |
+| `/api/v1/grant-constraints/validate`                 | `POST`               | admin bearer or session                           |
 | `/api/v1/grant-requests`                             | `GET`                | admin bearer or session                           |
 | `/api/v1/grant-requests/{id}`                        | `GET`                | admin bearer or session                           |
 | `/api/v1/grant-requests/{id}/approve`                | `POST`               | admin bearer or session                           |
@@ -57,6 +58,8 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. They use the sole invocation repository and introduce no mutation, replay, event, or mutable join.
+
+The non-mutating grant matcher validation mechanic is `GrantConstraintValidation` → `GrantConstraintValidationResult`. The request is exactly `{constraint}`, where `constraint` must be a non-null object; missing, null, or non-object members are malformed requests. A well-formed request always returns `200`: valid constraints return an empty diagnostics array, while compiler-invalid constraint objects return one safe `GrantConstraintDiagnostic` with a JSON Pointer field and fixed message. The endpoint uses the production compiler, writes no durable state, publishes no invalidation, and grant creation and request approval still compile authoritatively in their own mutation paths.
 
 ### Safe problems
 
@@ -113,114 +116,118 @@ Problems normally have exactly `status`, `code`, and `title`. The `invalid_serve
 
 Every maximum accepts N and rejects N+1. Values below zero are invalid. These are compiled boundaries, not configuration.
 
-| Contract name                           |    Maximum |
-| --------------------------------------- | ---------: |
-| `request_target_bytes`                  |       8192 |
-| `request_header_bytes`                  |      32768 |
-| `request_header_count`                  |        100 |
-| `request_header_value_bytes`            |       8192 |
-| `api_json_body_bytes`                   |    1048576 |
-| `mcp_body_bytes`                        |    4194304 |
-| `json_depth`                            |         64 |
-| `http_regular`                          |        128 |
-| `http_control_auth`                     |         32 |
-| `http_admin`                            |         16 |
-| `http_health`                           |          8 |
-| `mcp_work`                              |         32 |
-| `mcp_streams`                           |         32 |
-| `admin_sessions`                        |        128 |
-| `legacy_sessions`                       |        128 |
-| `event_streams`                         |         16 |
-| `event_buffered_invalidations`          |         16 |
-| `backup_work`                           |          1 |
-| `backup_records`                        |         64 |
-| `admin_credentials`                     |        128 |
-| `admin_list_page`                       |        100 |
-| `backup_list_page`                      |        100 |
-| `database_bytes`                        | 1073741824 |
-| `idempotency_key_bytes`                 |        128 |
-| `idempotency_records`                   |       1024 |
-| `opaque_id_bytes`                       |         26 |
-| `cursor_bytes`                          |        512 |
-| `sse_frame_bytes`                       |        512 |
-| `keyring_secret_bytes`                  |     262144 |
-| `keyring_chunk_bytes`                   |       3000 |
-| `keyring_candidates`                    |         64 |
-| `keyring_work`                          |          1 |
-| `namespace_bytes`                       |         32 |
-| `display_name_bytes`                    |        256 |
-| `stdio_arguments`                       |         64 |
-| `stdio_environment_entries`             |         32 |
-| `stdio_secret_environment_entries`      |         16 |
-| `stdio_path_bytes`                      |       4096 |
-| `stdio_argument_bytes`                  |       4096 |
-| `stdio_arguments_bytes`                 |      32768 |
-| `stdio_environment_name_bytes`          |       4096 |
-| `stdio_environment_value_bytes`         |       4096 |
-| `secret_slot_name_bytes`                |         64 |
-| `resource_url_bytes`                    |       8192 |
-| `server_identities`                     |       1024 |
-| `servers`                               |         64 |
-| `enabled_servers`                       |         32 |
-| `downstream_runtimes`                   |         32 |
-| `server_reconciliations`                |          4 |
-| `per_server_reconciliation`             |          1 |
-| `catalog_traversals`                    |          4 |
-| `oauth_flows`                           |         16 |
-| `per_server_oauth_flows`                |          1 |
-| `oauth_callback_work`                   |          8 |
-| `terminal_operations`                   |         64 |
-| `terminal_auth_flows`                   |         16 |
-| `s2_list_page`                          |        100 |
-| `active_tools_per_server`               |        256 |
-| `active_tools`                          |       2048 |
-| `durable_tool_identities_per_server`    |        512 |
-| `durable_tool_identities`               |       4096 |
-| `tools_list_pages`                      |         32 |
-| `tools_list_page_bytes`                 |    4194304 |
-| `tool_descriptor_bytes`                 |     131072 |
-| `tool_schema_bytes`                     |      98304 |
-| `tool_name_bytes`                       |        128 |
-| `external_tool_name_bytes`              |        128 |
-| `tool_title_bytes`                      |       1024 |
-| `tool_description_bytes`                |      16384 |
-| `downstream_mcp_body_bytes`             |    4194304 |
-| `downstream_sse_event_bytes`            |    4194304 |
-| `downstream_legacy_session_id_bytes`    |        512 |
-| `oauth_metadata_body_bytes`             |    1048576 |
-| `oauth_json_depth`                      |         64 |
-| `oauth_response_body_bytes`             |     262144 |
-| `oauth_url_bytes`                       |       8192 |
-| `oauth_query_bytes`                     |       8192 |
-| `oauth_client_id_bytes`                 |       8192 |
-| `oauth_client_secret_bytes`             |       8192 |
-| `oauth_scope_count`                     |         64 |
-| `oauth_scope_token_bytes`               |        256 |
-| `oauth_scope_bytes`                     |       8192 |
-| `stdio_protocol_frame_bytes`            |    4194304 |
-| `stdio_stderr_bytes`                    |      65536 |
-| `stdio_output_rate_bytes_per_second`    |    8388608 |
-| `stdio_output_burst_bytes`              |    8388608 |
-| `downstream_dispatch`                   |         32 |
-| `per_server_downstream_dispatch`        |          4 |
-| `s2_idempotency_records`                |       1024 |
-| `principals`                            |        128 |
-| `grants`                                |       4096 |
-| `grant_description_bytes`               |        256 |
-| `constraint_atoms`                      |         16 |
-| `constraint_bytes`                      |       8192 |
-| `constraint_pointer_bytes`              |        256 |
-| `invocation_audit_rows`                 |      65536 |
-| `invocation_argument_capture_bytes`     |       8192 |
-| `discoverable_tools`                    |       2054 |
-| `grant_requests`                        |       4096 |
-| `pending_grant_requests_per_principal`  |        128 |
-| `grant_request_evidence_bytes`          |  268435456 |
-| `grant_request_descriptor_bytes`        |     131072 |
-| `grant_request_evidence_snapshot_bytes` |     135168 |
-| `grant_request_duration_seconds`        |    2592000 |
-| `grant_request_target_bytes`            |        128 |
-| `agent_self_service_list_page`          |        100 |
+| Contract name                                 |    Maximum |
+| --------------------------------------------- | ---------: |
+| `request_target_bytes`                        |       8192 |
+| `request_header_bytes`                        |      32768 |
+| `request_header_count`                        |        100 |
+| `request_header_value_bytes`                  |       8192 |
+| `api_json_body_bytes`                         |    1048576 |
+| `mcp_body_bytes`                              |    4194304 |
+| `json_depth`                                  |         64 |
+| `http_regular`                                |        128 |
+| `http_control_auth`                           |         32 |
+| `http_admin`                                  |         16 |
+| `http_health`                                 |          8 |
+| `mcp_work`                                    |         32 |
+| `mcp_streams`                                 |         32 |
+| `admin_sessions`                              |        128 |
+| `legacy_sessions`                             |        128 |
+| `event_streams`                               |         16 |
+| `event_buffered_invalidations`                |         16 |
+| `backup_work`                                 |          1 |
+| `backup_records`                              |         64 |
+| `admin_credentials`                           |        128 |
+| `admin_list_page`                             |        100 |
+| `backup_list_page`                            |        100 |
+| `database_bytes`                              | 1073741824 |
+| `idempotency_key_bytes`                       |        128 |
+| `idempotency_records`                         |       1024 |
+| `opaque_id_bytes`                             |         26 |
+| `cursor_bytes`                                |        512 |
+| `sse_frame_bytes`                             |        512 |
+| `keyring_secret_bytes`                        |     262144 |
+| `keyring_chunk_bytes`                         |       3000 |
+| `keyring_candidates`                          |         64 |
+| `keyring_work`                                |          1 |
+| `namespace_bytes`                             |         32 |
+| `display_name_bytes`                          |        256 |
+| `stdio_arguments`                             |         64 |
+| `stdio_environment_entries`                   |         32 |
+| `stdio_secret_environment_entries`            |         16 |
+| `stdio_path_bytes`                            |       4096 |
+| `stdio_argument_bytes`                        |       4096 |
+| `stdio_arguments_bytes`                       |      32768 |
+| `stdio_environment_name_bytes`                |       4096 |
+| `stdio_environment_value_bytes`               |       4096 |
+| `secret_slot_name_bytes`                      |         64 |
+| `resource_url_bytes`                          |       8192 |
+| `server_identities`                           |       1024 |
+| `servers`                                     |         64 |
+| `enabled_servers`                             |         32 |
+| `downstream_runtimes`                         |         32 |
+| `server_reconciliations`                      |          4 |
+| `per_server_reconciliation`                   |          1 |
+| `catalog_traversals`                          |          4 |
+| `oauth_flows`                                 |         16 |
+| `per_server_oauth_flows`                      |          1 |
+| `oauth_callback_work`                         |          8 |
+| `terminal_operations`                         |         64 |
+| `terminal_auth_flows`                         |         16 |
+| `s2_list_page`                                |        100 |
+| `active_tools_per_server`                     |        256 |
+| `active_tools`                                |       2048 |
+| `durable_tool_identities_per_server`          |        512 |
+| `durable_tool_identities`                     |       4096 |
+| `tools_list_pages`                            |         32 |
+| `tools_list_page_bytes`                       |    4194304 |
+| `tool_descriptor_bytes`                       |     131072 |
+| `tool_schema_bytes`                           |      98304 |
+| `tool_name_bytes`                             |        128 |
+| `external_tool_name_bytes`                    |        128 |
+| `tool_title_bytes`                            |       1024 |
+| `tool_description_bytes`                      |      16384 |
+| `downstream_mcp_body_bytes`                   |    4194304 |
+| `downstream_sse_event_bytes`                  |    4194304 |
+| `downstream_legacy_session_id_bytes`          |        512 |
+| `oauth_metadata_body_bytes`                   |    1048576 |
+| `oauth_json_depth`                            |         64 |
+| `oauth_response_body_bytes`                   |     262144 |
+| `oauth_url_bytes`                             |       8192 |
+| `oauth_query_bytes`                           |       8192 |
+| `oauth_client_id_bytes`                       |       8192 |
+| `oauth_client_secret_bytes`                   |       8192 |
+| `oauth_scope_count`                           |         64 |
+| `oauth_scope_token_bytes`                     |        256 |
+| `oauth_scope_bytes`                           |       8192 |
+| `stdio_protocol_frame_bytes`                  |    4194304 |
+| `stdio_stderr_bytes`                          |      65536 |
+| `stdio_output_rate_bytes_per_second`          |    8388608 |
+| `stdio_output_burst_bytes`                    |    8388608 |
+| `downstream_dispatch`                         |         32 |
+| `per_server_downstream_dispatch`              |          4 |
+| `s2_idempotency_records`                      |       1024 |
+| `principals`                                  |        128 |
+| `grants`                                      |       4096 |
+| `grant_description_bytes`                     |        256 |
+| `constraint_atoms`                            |         16 |
+| `constraint_bytes`                            |       8192 |
+| `constraint_pointer_bytes`                    |        256 |
+| `constraint_regex_pattern_bytes`              |       1024 |
+| `constraint_regex_program_instructions`       |       4096 |
+| `constraint_regex_total_program_instructions` |        256 |
+| `constraint_regex_work_bytes`                 |    1048576 |
+| `invocation_audit_rows`                       |      65536 |
+| `invocation_argument_capture_bytes`           |       8192 |
+| `discoverable_tools`                          |       2054 |
+| `grant_requests`                              |       4096 |
+| `pending_grant_requests_per_principal`        |        128 |
+| `grant_request_evidence_bytes`                |  268435456 |
+| `grant_request_descriptor_bytes`              |     131072 |
+| `grant_request_evidence_snapshot_bytes`       |     135168 |
+| `grant_request_duration_seconds`              |    2592000 |
+| `grant_request_target_bytes`                  |        128 |
+| `agent_self_service_list_page`                |        100 |
 
 Credential, backup, server/catalog, and principal/grant collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. Downstream HTTP reuses the public-boundary `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
 
@@ -252,27 +259,27 @@ Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `m
 
 Administrator rotation uses `AdminAuthority` exactly `{revision}`; its revision is the maximum administrator credential revision and advances on every create, revoke, reset, or completed rotation. `AdminCredentialRotationCompletion` is exactly `{replacement_id}` and returns `AdminCredentialRotationResult` exactly `{old_credential,new_credential}` plus the resulting authority ETag. Conditional create compares the supplied authority revision before mutation. Completion rechecks that the named old credential is active, the replacement is active and non-expiring, and the authority revision is unchanged, then revokes only the named old credential in one transaction.
 
-| Method and pattern                                   | Closed request schema      | Success schema/status                         | Cursor | Idempotency | Exact `If-Match` | Response ETag |
-| ---------------------------------------------------- | -------------------------- | --------------------------------------------- | ------ | ----------- | ---------------- | ------------- |
-| `GET /api/v1/servers`                                | `ServerListQuery`          | `Page<Server>` / 200                          | yes    | no          | no               | no            |
-| `POST /api/v1/servers`                               | `ServerCreate`             | `ServerMutation` / 201 or replay 200          | no     | yes         | no               | yes           |
-| `GET /api/v1/servers/{id}`                           | none                       | `Server` / 200                                | no     | no          | no               | yes           |
-| `PATCH /api/v1/servers/{id}`                         | `ServerPatch`              | `ServerMutation` / 200                        | no     | no          | yes              | yes           |
-| `DELETE /api/v1/servers/{id}`                        | `EmptyObject`              | `ServerMutation` / 202 or replay 200          | no     | no          | yes              | yes           |
-| `GET /api/v1/servers/{id}/operations`                | `ServerOperationListQuery` | `Page<ServerOperation>` / 200                 | yes    | no          | no               | no            |
-| `POST /api/v1/servers/{id}/operations`               | `ServerOperationCreate`    | `ServerOperationMutation` / 202 or replay 200 | no     | yes         | yes              | no            |
-| `GET /api/v1/servers/{id}/operations/{operation_id}` | none                       | `ServerOperation` / 200                       | no     | no          | no               | no            |
-| `POST /api/v1/servers/{id}/credential-replacements`  | `CredentialReplacement`    | `CredentialReplacementResult` / 202           | no     | no          | yes              | no            |
-| `GET /api/v1/servers/{id}/auth-flows`                | `ServerAuthFlowListQuery`  | `Page<ServerAuthFlow>` / 200                  | yes    | no          | no               | no            |
-| `POST /api/v1/servers/{id}/auth-flows`               | `EmptyObject`              | `AuthFlowCreation` / 201                      | no     | no          | yes              | no            |
-| `GET /api/v1/servers/{id}/auth-flows/{flow_id}`      | none                       | `ServerAuthFlow` / 200                        | no     | no          | no               | no            |
-| `DELETE /api/v1/servers/{id}/auth-flows/{flow_id}`   | `EmptyObject`              | empty / 204                                   | no     | no          | no               | no            |
-| `GET /api/v1/catalog`                                | `CatalogListQuery`         | `CatalogPage` / 200                           | yes    | no          | no               | no            |
-| `GET /api/v1/servers/{id}/descriptors`               | `DescriptorListQuery`      | `Page<ToolDescriptor>` / 200                  | yes    | no          | no               | no            |
-| `GET /api/v1/servers/{id}/descriptors/{tool_id}`     | none                       | `ToolDescriptor` / 200                        | no     | no          | no               | no            |
-| `GET /oauth/callback`                                | `OAuthCallbackQuery`       | fixed `OAuthCallbackHTML` / 200, 400, or 503  | no     | no          | no               | no            |
+| Method and pattern                                   | Closed request schema      | Success schema/status                                     | Cursor | Idempotency | Exact `If-Match` | Response ETag |
+| ---------------------------------------------------- | -------------------------- | --------------------------------------------------------- | ------ | ----------- | ---------------- | ------------- |
+| `GET /api/v1/servers`                                | `ServerListQuery`          | `Page<Server>` / 200                                      | yes    | no          | no               | no            |
+| `POST /api/v1/servers`                               | `ServerCreate`             | `ServerMutation` / 201 or replay 200                      | no     | yes         | no               | yes           |
+| `GET /api/v1/servers/{id}`                           | none                       | `Server` / 200                                            | no     | no          | no               | yes           |
+| `PATCH /api/v1/servers/{id}`                         | `ServerPatch`              | `ServerMutation` / 200                                    | no     | no          | yes              | yes           |
+| `DELETE /api/v1/servers/{id}`                        | `EmptyObject`              | `ServerMutation` / 202 or replay 200                      | no     | no          | yes              | yes           |
+| `GET /api/v1/servers/{id}/operations`                | `ServerOperationListQuery` | `Page<ServerOperation>` / 200                             | yes    | no          | no               | no            |
+| `POST /api/v1/servers/{id}/operations`               | `ServerOperationCreate`    | `ServerOperationMutation` / 202 or replay 200             | no     | yes         | yes              | no            |
+| `GET /api/v1/servers/{id}/operations/{operation_id}` | none                       | `ServerOperation` / 200                                   | no     | no          | no               | no            |
+| `POST /api/v1/servers/{id}/credential-replacements`  | `CredentialReplacement`    | `CredentialReplacementResult` / 202                       | no     | no          | yes              | no            |
+| `GET /api/v1/servers/{id}/auth-flows`                | `ServerAuthFlowListQuery`  | `Page<ServerAuthFlow>` / 200                              | yes    | no          | no               | no            |
+| `POST /api/v1/servers/{id}/auth-flows`               | `EmptyObject`              | `AuthFlowCreation` / 201                                  | no     | no          | yes              | no            |
+| `GET /api/v1/servers/{id}/auth-flows/{flow_id}`      | none                       | `ServerAuthFlow` / 200                                    | no     | no          | no               | no            |
+| `DELETE /api/v1/servers/{id}/auth-flows/{flow_id}`   | `EmptyObject`              | empty / 204                                               | no     | no          | no               | no            |
+| `GET /api/v1/catalog`                                | `CatalogListQuery`         | `CatalogPage` / 200                                       | yes    | no          | no               | no            |
+| `GET /api/v1/servers/{id}/descriptors`               | `DescriptorListQuery`      | `Page<ToolDescriptor>\|Page<ToolDescriptorSummary>` / 200 | yes    | no          | no               | no            |
+| `GET /api/v1/servers/{id}/descriptors/{tool_id}`     | none                       | `ToolDescriptor` / 200                                    | no     | no          | no               | no            |
+| `GET /oauth/callback`                                | `OAuthCallbackQuery`       | fixed `OAuthCallbackHTML` / 200, 400, or 503              | no     | no          | no               | no            |
 
-In the executable mechanics tables, `None` means no query or request body and `Empty` means an empty response body. A page is exactly `{items,next_cursor}`. List query schemas permit only their declared cursor and limit members; grant lists additionally permit `principal_id` and `server_id`, and descriptor lists permit `retired`.
+The executable descriptor-collection success schema is `Page<ToolDescriptor>|Page<ToolDescriptorSummary>`; the selected representation determines which closed item shape is returned. In the executable mechanics tables, `None` means no query or request body and `Empty` means an empty response body. A page is exactly `{items,next_cursor}`. List query schemas permit only their declared cursor and limit members; grant lists additionally permit `principal_id` and `server_id`, and descriptor lists permit `retired` plus the sole optional alternate representation `representation=summary`.
 
 `ServerCreate` is exactly `{namespace,display_name,enabled,transport}`; a nonempty `ServerPatch` permits only `display_name`, `enabled`, and complete `transport`. `ServerMutation` is exactly `{server,operation}`. `ServerOperationCreate` accepts only `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`; other operation kinds are internally generated.
 
@@ -286,7 +293,7 @@ Server idempotency is scoped to parent admin credential, method, route, key, can
 
 The sanitized transport union is closed to stdio `{kind,executable,arguments,working_directory,environment,secret_environment}` and Streamable HTTP `{kind,url,protocol_mode,authentication}`. HTTP authentication is exactly `{mode:none}`, `{mode:bearer}`, or OAuth `{mode,registration,trusted_origins,request_offline_access}`. Registration is static `{mode,issuer,client_id,token_endpoint_auth_method}` or dynamic `{mode,issuer}`. Credential replacement is static `{kind,expected_revision,values}` or OAuth client `{kind,expected_revision,client_secret}`.
 
-`ServerOperation` is exactly `{id,server_id,kind,target_desired_revision,target_credential_revisions,state,reason,created_at,started_at,finished_at}`. `ServerAuthFlow` is exactly `{id,server_id,flow_state,target_desired_revision,registration_revision,created_at,expires_at,finished_at,reason,diagnostic}`. Its diagnostic is null or exactly `{correlation_id,stage,reason,http_status}` with correlation ID equal to the flow ID, a closed diagnostic stage, the same stable public reason as the failed flow, and a null or bounded HTTP status. `ToolDescriptor` is exactly `{id,server_id,upstream_name,external_name,descriptor,fingerprint,catalog_revision,first_seen_at,last_seen_at,retired_at}`. `CatalogToolDescriptor` contains those exact fields plus snapshot-consistent `server_display_name` and `server_catalog_state`. `CatalogPage` is exactly `{catalog,items,next_cursor}`, where catalog is exactly `{active_state,active_generation,changed_at,issue_count}` and items are `CatalogToolDescriptor` resources. `CredentialReplacementResult` is exactly `{server_id,kind,credential_revision,operation}` and `AuthFlowCreation` is exactly `{flow,authorization_url}`.
+`ServerOperation` is exactly `{id,server_id,kind,target_desired_revision,target_credential_revisions,state,reason,created_at,started_at,finished_at}`. `ServerAuthFlow` is exactly `{id,server_id,flow_state,target_desired_revision,registration_revision,created_at,expires_at,finished_at,reason,diagnostic}`. Its diagnostic is null or exactly `{correlation_id,stage,reason,http_status}` with correlation ID equal to the flow ID, a closed diagnostic stage, the same stable public reason as the failed flow, and a null or bounded HTTP status. `ToolDescriptor` is exactly `{id,server_id,upstream_name,external_name,descriptor,fingerprint,catalog_revision,first_seen_at,last_seen_at,retired_at}`. Descriptor collection queries accept only the ordinary pagination and retired-state fields plus optional `representation=summary`; that representation returns items exactly `{id,server_id,upstream_name,external_name,catalog_revision}` so searchable selectors do not transfer descriptor schemas before selection, while omission returns full `ToolDescriptor` resources. `CatalogToolDescriptor` contains those exact fields plus snapshot-consistent `server_display_name` and `server_catalog_state`. `CatalogPage` is exactly `{catalog,items,next_cursor}`, where catalog is exactly `{active_state,active_generation,changed_at,issue_count}` and items are `CatalogToolDescriptor` resources. `CredentialReplacementResult` is exactly `{server_id,kind,credential_revision,operation}` and `AuthFlowCreation` is exactly `{flow,authorization_url}`.
 
 | Vocabulary                 | Closed values                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

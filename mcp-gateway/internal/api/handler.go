@@ -64,6 +64,7 @@ type CatalogService interface {
 	Status(context.Context, string) (catalog.DurableStatus, error)
 	GetDescriptor(context.Context, string, string) (contract.ToolDescriptor, error)
 	ListDescriptors(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorPage, error)
+	ListDescriptorSummaries(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorSummaryPage, error)
 }
 
 type ActiveCatalogService interface {
@@ -363,6 +364,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
+	case path == "/api/v1/grant-constraints/validate" && handler.principals != nil && request.Method == http.MethodPost:
+		handler.validateGrantConstraint(writer, request)
 	case path == "/api/v1/grants" && handler.principals != nil:
 		handler.grantsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v1/grants/") && handler.principals != nil:
@@ -1051,6 +1054,14 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	writer.Header().Set("Content-Type", contract.MediaTypeJSON)
 	writer.WriteHeader(status)
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+func writeJSONUnescaped(writer http.ResponseWriter, status int, value any) {
+	writer.Header().Set("Content-Type", contract.MediaTypeJSON)
+	writer.WriteHeader(status)
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(value)
 }
 
 func limitValue(name string) int {

@@ -134,7 +134,7 @@ func TestLookupDurableDescriptorTxReturnsCurrentAndRetiredEvidenceFacts(t *testi
 }
 
 func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.T) {
-	repository, serverRepository, clock, _ := newCatalogRepository(t)
+	repository, serverRepository, clock, store := newCatalogRepository(t)
 	server := createCatalogServer(t, serverRepository, "sample")
 	_, err := repository.Commit(context.Background(), catalogFence(server.ID, "0"), candidateFor(t, server.ID, "sample", "one", "two", "three"))
 	require.NoError(t, err)
@@ -145,6 +145,16 @@ func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.
 	second, err := repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredInclude, page.Next, 2)
 	require.NoError(t, err)
 	assert.Len(t, second.Items, 1)
+	for _, invalid := range []DescriptorCursor{
+		{ServerID: server.ID, Retired: contract.DescriptorRetiredInclude, CatalogRevision: "1", Upper: page.Next.Upper, After: page.Next.After},
+		{ServerID: server.ID, Retired: contract.DescriptorRetiredInclude, CatalogRevision: "1", Upper: page.Next.Upper, AfterID: page.Next.AfterID},
+		{ServerID: server.ID, Retired: contract.DescriptorRetiredInclude, CatalogRevision: "1", Upper: page.Next.Upper, After: page.Next.After, AfterID: "invalid"},
+	} {
+		_, err = repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredInclude, &invalid, 2)
+		assert.ErrorIs(t, err, servers.ErrStaleCursor)
+		_, err = repository.ListDescriptorSummaries(context.Background(), server.ID, contract.DescriptorRetiredInclude, &invalid, 2)
+		assert.ErrorIs(t, err, servers.ErrStaleCursor)
+	}
 
 	clock.now = clock.now.Add(time.Minute)
 	_, err = repository.Commit(context.Background(), catalogFence(server.ID, "1"), candidateFor(t, server.ID, "sample", "two"))
@@ -157,6 +167,20 @@ func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.
 	retired, err := repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredOnly, nil, 10)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"one", "three"}, descriptorNames(retired.Items))
+
+	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		if _, err := transaction.Exec(`PRAGMA ignore_check_constraints = ON`); err != nil {
+			return err
+		}
+		_, err := transaction.Exec(`UPDATE tool_descriptors SET descriptor_json = 'not-json' WHERE tool_id = ?`, active.Items[0].Resource.ID)
+		return err
+	}))
+	summaries, err := repository.ListDescriptorSummaries(context.Background(), server.ID, contract.DescriptorRetiredExclude, nil, 10)
+	require.NoError(t, err)
+	require.Len(t, summaries.Items, 1)
+	assert.Equal(t, "two", summaries.Items[0].Resource.UpstreamName)
+	_, err = repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredExclude, nil, 10)
+	assert.ErrorIs(t, err, servers.ErrStorageUnavailable)
 }
 
 func TestRepositoryStaleAndCapacityFailurePreservePriorSnapshot(t *testing.T) {

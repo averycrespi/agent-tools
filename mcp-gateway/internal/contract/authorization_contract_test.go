@@ -17,6 +17,7 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/principals/{id}/credential", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v1/grants/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v1/grant-constraints/validate", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
 	s3RouteStart := -1
@@ -37,6 +38,7 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		"/api/v1/principals/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential": "/api/v1/principals/{id}/credential",
 		"/api/v1/grants":                                           "/api/v1/grants",
 		"/api/v1/grants/01ARZ3NDEKTSV4RRFFQ69G5FAV":                "/api/v1/grants/{id}",
+		"/api/v1/grant-constraints/validate":                       "/api/v1/grant-constraints/validate",
 	} {
 		route, ok := RouteForPath(path)
 		require.True(t, ok, path)
@@ -58,6 +60,7 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/grants", Method: "POST", RequestSchema: "GrantCreate", SuccessSchema: "Grant", SuccessStatuses: []int{201}},
 		{Pattern: "/api/v1/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Grant", SuccessStatuses: []int{200}},
 		{Pattern: "/api/v1/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
+		{Pattern: "/api/v1/grant-constraints/validate", Method: "POST", RequestSchema: "GrantConstraintValidation", SuccessSchema: "GrantConstraintValidationResult", SuccessStatuses: []int{200}},
 	}
 	mechanics := ResourceMechanics()
 	s3MechanicStart := -1
@@ -99,6 +102,10 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 		{Name: "constraint_atoms", Maximum: 16},
 		{Name: "constraint_bytes", Maximum: 8192},
 		{Name: "constraint_pointer_bytes", Maximum: 256},
+		{Name: "constraint_regex_pattern_bytes", Maximum: 1024},
+		{Name: "constraint_regex_program_instructions", Maximum: 4096},
+		{Name: "constraint_regex_total_program_instructions", Maximum: 256},
+		{Name: "constraint_regex_work_bytes", Maximum: 1048576},
 		{Name: "grant_description_bytes", Maximum: 256},
 	}
 	for _, expected := range expectedLimits {
@@ -164,6 +171,9 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	requireJSONKeys(t, PrincipalCreation{Principal: principal, DefaultGrant: grant}, "principal", "default_grant")
 	requireJSONKeys(t, AgentCredentialCreation{Principal: principal, Bearer: "one-time"}, "principal", "bearer")
 	requireJSONKeys(t, grant, "id", "description", "revision", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "state", "created_at")
+	requireJSONKeys(t, GrantConstraintValidation{Constraint: constraint}, "constraint")
+	requireJSONKeys(t, GrantConstraintDiagnostic{Field: "/regex/~1name", Message: "pattern is not valid RE2"}, "field", "message")
+	requireJSONKeys(t, GrantConstraintValidationResult{Valid: false, Diagnostics: []GrantConstraintDiagnostic{}}, "valid", "diagnostics")
 	requireJSONKeys(t, AuthorizationResult{Decision: DecisionAllow, AuthorizationRevision: "1", EvaluatedAt: "2026-08-25T00:00:00Z", GrantID: &grantID}, "decision", "authorization_revision", "evaluated_at", "grant_id")
 
 	grantETag := GrantETag("01ARZ3NDEKTSV4RRFFQ69G5FAV", "7")
