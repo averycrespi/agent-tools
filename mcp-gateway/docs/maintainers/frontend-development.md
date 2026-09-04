@@ -31,6 +31,24 @@ npm run ui:dev
 
 Wait for its `ready` line, then open `http://127.0.0.1:5173`. Gateway remains independently owned: the development command neither starts nor restarts it.
 
+## Use a disposable feature-branch Gateway
+
+To test the current checkout without reading or changing the default Gateway installation, start the repository-maintained temporary runner from the repository root:
+
+```bash
+make -C mcp-gateway serve-temporary
+```
+
+The runner builds the checkout with the existing `e2e` in-memory keyring, initializes the binary under a fresh owner-only temporary root, and serves on `127.0.0.1:8211`. It prints the temporary administrator bearer path for browser sign-in. In another terminal, point the frontend development server at that Gateway:
+
+```bash
+MCP_GATEWAY_UI_GATEWAY=http://127.0.0.1:8211 npm run ui:dev
+```
+
+Use `make -C mcp-gateway serve-temporary TEMPORARY_LISTEN=127.0.0.1:PORT` when that authority is occupied, and set `MCP_GATEWAY_UI_GATEWAY` to the matching origin. Press `Ctrl-C` in the Gateway terminal to stop it and remove its binary, data directory, administrator bearer, and in-memory keyring.
+
+This path is for isolated feature development. Because keyring values are process-local, it does not test the native operating-system keyring or credential persistence across Gateway restarts. Use ordinary builds and the release-verification owners when those behaviors are under review.
+
 ## Startup selectors
 
 The command reads exactly two optional environment selectors:
