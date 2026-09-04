@@ -207,6 +207,7 @@ function GrantCreate({
     scope: "server" as "server" | "tool",
     upstreamName: "",
     expiresAt: "",
+    matcherVersion: 1 as 1 | 2,
     atoms: [] as Atom[],
   });
   const [description, setDescription] = useState(
@@ -224,6 +225,7 @@ function GrantCreate({
   const [descriptors, setDescriptors] = useState<DescriptorView[]>();
   const [catalogError, setCatalogError] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
+  const [matcherVersion, setMatcherVersion] = useState<1 | 2>(1);
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
@@ -244,7 +246,7 @@ function GrantCreate({
       : matcherSchemaSuggestions(selectedDescriptor.descriptor);
   const reviewPolicy = (() => {
     try {
-      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms, matcherVersion === 2)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
     } catch {
       return "Complete the policy to review its serialized form.";
     }
@@ -257,6 +259,7 @@ function GrantCreate({
     scope,
     upstreamName,
     expiresAt,
+    matcherVersion,
     atoms,
   });
   const currentDraft = useRef(draftFingerprint);
@@ -331,7 +334,7 @@ function GrantCreate({
           Date.parse(expiresAt) <= Date.now())
       )
         throw new Error("Expiry must be a future canonical UTC timestamp.");
-      const constraint = matcherConstraintText(atoms);
+      const constraint = matcherConstraintText(atoms, matcherVersion === 2);
       if (constraint !== "null") {
         setValidating(true);
         const diagnostic = await validateMatcherConstraint(session, constraint);
@@ -553,14 +556,43 @@ function GrantCreate({
                     : "Scalar fields from the selected tool schema are available as suggestions; choosing one does not add a rule."}
                 </p>
               )}
+              <FormField
+                id="constraint-version"
+                label="Matcher version"
+                hint="V1 is permanent equality-only syntax. Choose v2 for equality-only v2 identity; regex atoms always require v2."
+              >
+                {(attributes) => (
+                  <select
+                    {...attributes}
+                    data-testid="constraint-version"
+                    value={matcherVersion}
+                    onChange={(event) =>
+                      setMatcherVersion(
+                        Number(event.currentTarget.value) as 1 | 2,
+                      )
+                    }
+                  >
+                    <option
+                      value="1"
+                      disabled={atoms.some((atom) => atom.operator === "regex")}
+                    >
+                      V1 · equality
+                    </option>
+                    <option value="2">V2 · equality and full-string RE2</option>
+                  </select>
+                )}
+              </FormField>
               <MatcherAtomEditor
                 idPrefix="constraint"
                 testPrefix="constraint"
                 addTestID="add-constraint-atom"
                 atoms={atoms}
                 suggestions={schemaSuggestions}
+                forceVersion2={matcherVersion === 2}
                 onChange={(next) => {
                   setError(undefined);
+                  if (next.some((atom) => atom.operator === "regex"))
+                    setMatcherVersion(2);
                   setAtoms(next);
                 }}
               />
@@ -661,7 +693,7 @@ function GrantCreate({
                   <dd>
                     {atoms.length === 0
                       ? "None"
-                      : `${atoms.filter((atom) => atom.operator === "equals").length} equality · ${atoms.filter((atom) => atom.operator === "regex").length} regex`}
+                      : `v${matcherVersion} · ${atoms.filter((atom) => atom.operator === "equals").length} equality · ${atoms.filter((atom) => atom.operator === "regex").length} regex`}
                   </dd>
                 </div>
               </dl>

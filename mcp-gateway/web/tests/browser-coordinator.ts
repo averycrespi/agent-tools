@@ -4971,9 +4971,18 @@ async function runGrantReadsCreate(
   )
     fail("grant expiry input did not retain its draft value");
   await page.locator('[data-testid="add-constraint-atom"]').click();
-  await page.locator('[data-testid="constraint-pointer"]').fill("bad");
   await page.locator('[data-testid="constraint-type"]').selectOption("number");
   await page.locator('[data-testid="constraint-value"]').fill("1.0");
+  await page.locator('[data-testid="constraint-version"]').selectOption("2");
+  if (
+    !(
+      (await page
+        .getByLabel("Constraint preview", { exact: true })
+        .textContent()) ?? ""
+    ).includes('{"version":2,"equals":{"/":1.0}')
+  )
+    fail("grant editor could not author equality-only v2");
+  await page.locator('[data-testid="constraint-pointer"]').fill("bad");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
     .getByText("Each atom requires a valid RFC 6901 JSON pointer.", {
@@ -5006,10 +5015,16 @@ async function runGrantReadsCreate(
     .selectOption("string");
   await page.locator('[data-testid="constraint-value"]').nth(2).fill("literal");
   await page.locator('[data-testid="add-constraint-atom"]').click();
+  await page.locator('[data-testid="constraint-version"]').selectOption("1");
   await page
     .locator('[data-testid="constraint-operator"]')
     .nth(4)
     .selectOption("regex");
+  if (
+    (await page.locator('[data-testid="constraint-version"]').inputValue()) !==
+    "2"
+  )
+    fail("regex atom did not force matcher v2");
   await page
     .locator('[data-testid="constraint-pointer"]')
     .nth(4)
