@@ -143,7 +143,7 @@ func parseGrantConstraint(raw json.RawMessage) (grantConstraintShape, bool) {
 
 func validGrantEquals(raw json.RawMessage) int {
 	var equals map[string]json.RawMessage
-	if json.Unmarshal(raw, &equals) != nil {
+	if json.Unmarshal(raw, &equals) != nil || equals == nil {
 		return -1
 	}
 	for pointer, scalar := range equals {
@@ -156,7 +156,7 @@ func validGrantEquals(raw json.RawMessage) int {
 
 func validGrantRegex(raw json.RawMessage) int {
 	var expressions map[string]json.RawMessage
-	if json.Unmarshal(raw, &expressions) != nil {
+	if json.Unmarshal(raw, &expressions) != nil || expressions == nil {
 		return -1
 	}
 	patternLimit, _ := contract.FixedLimitByName("constraint_regex_pattern_bytes")
