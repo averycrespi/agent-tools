@@ -470,6 +470,9 @@ function decodeDescriptor(
       }
     : decoded;
 }
+export function decodeDescriptorResource(value: unknown): DescriptorView {
+  return decodeDescriptor(value);
+}
 export function decodeDescriptorPage(value: unknown): Page<DescriptorView> {
   const page = record(value, ["items", "next_cursor"]);
   return {

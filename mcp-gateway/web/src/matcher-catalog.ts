@@ -1,4 +1,4 @@
-import { decodeDescriptorPage, type DescriptorView } from "./server-reads";
+import { decodeDescriptorResource, type DescriptorView } from "./server-reads";
 import type { SessionClient } from "./session";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
@@ -137,29 +137,87 @@ export function matcherSchemaSuggestions(
   return { fields, unsupported };
 }
 
+export interface MatcherDescriptorSummary {
+  id: string;
+  serverID: string;
+  upstreamName: string;
+  externalName: string;
+  catalogRevision: string;
+}
+
+function text(value: unknown): string {
+  if (typeof value !== "string") throw new Error("invalid response");
+  return value;
+}
+
+function decodeSummaryPage(value: unknown): {
+  items: MatcherDescriptorSummary[];
+  nextCursor: string | null;
+} {
+  const page = object(value);
+  if (
+    page === undefined ||
+    Object.keys(page).sort().join(",") !== "items,next_cursor" ||
+    !Array.isArray(page.items) ||
+    (page.next_cursor !== null && typeof page.next_cursor !== "string")
+  )
+    throw new Error("invalid response");
+  return {
+    items: page.items.map((value) => {
+      const item = object(value);
+      if (
+        item === undefined ||
+        Object.keys(item).sort().join(",") !==
+          "catalog_revision,external_name,id,server_id,upstream_name"
+      )
+        throw new Error("invalid response");
+      const id = text(item.id);
+      const serverID = text(item.server_id);
+      if (!gatewayID.test(id) || !gatewayID.test(serverID))
+        throw new Error("invalid response");
+      return {
+        id,
+        serverID,
+        upstreamName: text(item.upstream_name),
+        externalName: text(item.external_name),
+        catalogRevision: text(item.catalog_revision),
+      };
+    }),
+    nextCursor: page.next_cursor,
+  };
+}
+
+function requestSignal(
+  context: AbortSignal,
+  signal?: AbortSignal,
+): AbortSignal {
+  return signal === undefined ? context : AbortSignal.any([context, signal]);
+}
+
 export async function readMatcherDescriptors(
   session: SessionClient,
   serverID: string,
   signal?: AbortSignal,
-): Promise<DescriptorView[] | undefined> {
+): Promise<MatcherDescriptorSummary[] | undefined> {
   if (!gatewayID.test(serverID) || serverID === "00000000000000000000000000")
     return [];
   return session.runProtected(async (context) => {
-    const items: DescriptorView[] = [];
+    const items: MatcherDescriptorSummary[] = [];
     let cursor: string | null = null;
     let restarted = false;
     for (;;) {
-      const query = new URLSearchParams({ limit: "100", retired: "exclude" });
+      const query = new URLSearchParams({
+        limit: "100",
+        retired: "exclude",
+        representation: "summary",
+      });
       if (cursor !== null) query.set("cursor", cursor);
       const response = await fetch(
         `/api/v1/servers/${serverID}/descriptors?${query}`,
         {
           credentials: "same-origin",
           redirect: "error",
-          signal:
-            signal === undefined
-              ? context.signal
-              : AbortSignal.any([context.signal, signal]),
+          signal: requestSignal(context.signal, signal),
           headers: {
             Accept: "application/json",
             "X-CSRF-Token": context.csrfToken,
@@ -178,10 +236,41 @@ export async function readMatcherDescriptors(
         response.headers.get("Content-Type") !== "application/json"
       )
         throw new Error("Catalog tools are unavailable.");
-      const page = decodeDescriptorPage((await response.json()) as unknown);
-      items.push(...page.items.filter((item) => item.retiredAt === null));
+      const page = decodeSummaryPage((await response.json()) as unknown);
+      items.push(...page.items);
       if (page.nextCursor === null) return items;
       cursor = page.nextCursor;
     }
+  });
+}
+
+export async function readMatcherDescriptor(
+  session: SessionClient,
+  serverID: string,
+  descriptorID: string,
+  signal?: AbortSignal,
+): Promise<DescriptorView | undefined> {
+  if (!gatewayID.test(serverID) || !gatewayID.test(descriptorID))
+    return undefined;
+  return session.runProtected(async (context) => {
+    const response = await fetch(
+      `/api/v1/servers/${serverID}/descriptors/${descriptorID}`,
+      {
+        credentials: "same-origin",
+        redirect: "error",
+        signal: requestSignal(context.signal, signal),
+        headers: {
+          Accept: "application/json",
+          "X-CSRF-Token": context.csrfToken,
+        },
+      },
+    );
+    if (await context.sessionLost(response)) return undefined;
+    if (
+      !response.ok ||
+      response.headers.get("Content-Type") !== "application/json"
+    )
+      throw new Error("The selected tool schema is unavailable.");
+    return decodeDescriptorResource((await response.json()) as unknown);
   });
 }

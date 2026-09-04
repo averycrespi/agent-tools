@@ -50,6 +50,12 @@ func TestDescriptorListAndMemberResources(t *testing.T) {
 	assert.Equal(t, contract.DescriptorRetiredInclude, service.filter)
 	assert.Equal(t, 1, service.limit)
 
+	summary := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors?limit=1&representation=summary", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	require.Equal(t, http.StatusOK, summary.Code, summary.Body.String())
+	assert.Contains(t, summary.Body.String(), `"upstream_name":"echo"`)
+	assert.NotContains(t, summary.Body.String(), `"descriptor"`)
+	assert.NotContains(t, summary.Body.String(), `"fingerprint"`)
+
 	cursor := encodeDescriptorCursor(next)
 	second := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors?limit=2&retired=only&cursor="+cursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
@@ -71,6 +77,8 @@ func TestDescriptorRequestValidationAndSafeErrors(t *testing.T) {
 		"/api/v1/servers/" + testID + "/descriptors?limit=0",
 		"/api/v1/servers/" + testID + "/descriptors?retired=bad",
 		"/api/v1/servers/" + testID + "/descriptors?retired=include&retired=only",
+		"/api/v1/servers/" + testID + "/descriptors?representation=full",
+		"/api/v1/servers/" + testID + "/descriptors?representation=summary&representation=summary",
 	} {
 		response := perform(handler, http.MethodGet, target, "", map[string]string{"Authorization": "Bearer " + testBearer})
 		assert.Equal(t, http.StatusBadRequest, response.Code, target)

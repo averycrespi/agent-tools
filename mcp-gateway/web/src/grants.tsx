@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
 import {
   matcherSchemaSuggestions,
+  readMatcherDescriptor,
   readMatcherDescriptors,
+  type MatcherDescriptorSummary,
 } from "./matcher-catalog";
 import {
   MatcherAtomEditor,
@@ -222,8 +224,11 @@ function GrantCreate({
     initialDraft.current.scope,
   );
   const [upstreamName, setUpstreamName] = useState("");
-  const [descriptors, setDescriptors] = useState<DescriptorView[]>();
+  const [descriptors, setDescriptors] = useState<MatcherDescriptorSummary[]>();
+  const [selectedDescriptor, setSelectedDescriptor] =
+    useState<DescriptorView>();
   const [catalogError, setCatalogError] = useState(false);
+  const [descriptorError, setDescriptorError] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
   const [matcherVersion, setMatcherVersion] = useState<1 | 2>(1);
   const [atoms, setAtoms] = useState<Atom[]>([]);
@@ -237,7 +242,7 @@ function GrantCreate({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
-  const selectedDescriptor = descriptors?.find(
+  const selectedDescriptorSummary = descriptors?.find(
     (descriptor) => descriptor.upstreamName === upstreamName,
   );
   const schemaSuggestions =
@@ -285,6 +290,26 @@ function GrantCreate({
       });
     return () => request.abort();
   }, [scope, serverID, session]);
+  useEffect(() => {
+    const request = new AbortController();
+    setDescriptorError(false);
+    setSelectedDescriptor(undefined);
+    if (selectedDescriptorSummary === undefined) return () => request.abort();
+    void readMatcherDescriptor(
+      session,
+      serverID,
+      selectedDescriptorSummary.id,
+      request.signal,
+    )
+      .then((item) => {
+        if (!request.signal.aborted && item !== undefined)
+          setSelectedDescriptor(item);
+      })
+      .catch(() => {
+        if (!request.signal.aborted) setDescriptorError(true);
+      });
+    return () => request.abort();
+  }, [selectedDescriptorSummary?.id, serverID, session]);
   const review = async () => {
     const reviewedDraft = currentDraft.current;
     setError(undefined);
@@ -513,12 +538,13 @@ function GrantCreate({
                   ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority."
                   : descriptors === undefined
                     ? "Loading current durable tools…"
-                    : descriptors.some(
-                          (descriptor) =>
-                            descriptor.upstreamName === upstreamName,
-                        )
-                      ? "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority."
-                      : "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported."}
+                    : selectedDescriptorSummary === undefined
+                      ? "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported."
+                      : descriptorError
+                        ? "Current descriptor selected, but its schema is unavailable. Manual matcher entry remains available."
+                        : selectedDescriptor === undefined
+                          ? "Loading the selected tool schema…"
+                          : "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority."}
               </p>
             </div>
           )}
@@ -676,9 +702,9 @@ function GrantCreate({
                       ? "Not applicable to server-wide authority"
                       : catalogError
                         ? "Unavailable — literal manual name"
-                        : selectedDescriptor === undefined
+                        : selectedDescriptorSummary === undefined
                           ? "No current descriptor — literal manual name"
-                          : `Current durable descriptor · catalog revision ${selectedDescriptor.catalogRevision}`}
+                          : `Current durable descriptor · catalog revision ${selectedDescriptorSummary.catalogRevision}`}
                   </dd>
                 </div>
                 <div>

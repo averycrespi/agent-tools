@@ -4475,8 +4475,13 @@ async function runGrantReadsCreate(
         route.request().method() !== "GET" ||
         query.get("limit") !== "100" ||
         query.get("retired") !== "exclude" ||
+        query.get("representation") !== "summary" ||
         [...query.keys()].some(
-          (key) => key !== "limit" && key !== "retired" && key !== "cursor",
+          (key) =>
+            key !== "limit" &&
+            key !== "retired" &&
+            key !== "representation" &&
+            key !== "cursor",
         )
       )
         fail("grant descriptor traversal changed shape");
@@ -4533,6 +4538,13 @@ async function runGrantReadsCreate(
         last_seen_at: "2026-08-28T12:00:00Z",
         retired_at: null,
       });
+      const summary = (item: ReturnType<typeof descriptor>) => ({
+        id: item.id,
+        server_id: item.server_id,
+        upstream_name: item.upstream_name,
+        external_name: item.external_name,
+        catalog_revision: item.catalog_revision,
+      });
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -4540,25 +4552,87 @@ async function runGrantReadsCreate(
           query.get("cursor") === "descriptor-next"
             ? {
                 items: [
-                  descriptor(
-                    "01ARZ3NDEKTSV4RRFFQ69G5FC1",
-                    "literal.tool",
-                    "Literal tool",
+                  summary(
+                    descriptor(
+                      "01ARZ3NDEKTSV4RRFFQ69G5FC1",
+                      "literal.tool",
+                      "Literal tool",
+                    ),
                   ),
                 ],
                 next_cursor: null,
               }
             : {
                 items: [
-                  descriptor(
-                    "01ARZ3NDEKTSV4RRFFQ69G5FC0",
-                    "other.tool",
-                    "Other tool",
+                  summary(
+                    descriptor(
+                      "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+                      "other.tool",
+                      "Other tool",
+                    ),
                   ),
                 ],
                 next_cursor: "descriptor-next",
               },
         ),
+      });
+    },
+  );
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC1`,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FC1",
+          server_id: serverID,
+          upstream_name: "literal.tool",
+          external_name: "Literal tool",
+          descriptor: {
+            name: "literal.tool",
+            inputSchema: {
+              type: "object",
+              additionalProperties: { type: "string" },
+              properties: {
+                ["x".repeat(300)]: { type: "string" },
+                region: {
+                  type: "string",
+                  enum: ["us", "eu"],
+                  description: "Deployment region",
+                },
+                filters: {
+                  type: "object",
+                  properties: {
+                    "item/name": {
+                      type: "string",
+                      description: "Exact item name",
+                    },
+                    count: { type: "integer" },
+                  },
+                },
+                ...Object.fromEntries(
+                  Array.from({ length: 300 }, (_, index) => [
+                    `wide-${index}`,
+                    { type: "string" },
+                  ]),
+                ),
+              },
+            },
+            annotations: {
+              title: null,
+              readOnlyHint: false,
+              destructiveHint: false,
+              idempotentHint: false,
+              openWorldHint: false,
+            },
+          },
+          fingerprint: "fingerprint-literal.tool",
+          catalog_revision: "1",
+          first_seen_at: "2026-08-28T12:00:00Z",
+          last_seen_at: "2026-08-28T12:00:00Z",
+          retired_at: null,
+        }),
       });
     },
   );
@@ -6022,7 +6096,11 @@ async function runRequestAdjudication(
     `**/api/v1/servers/${serverID}/descriptors?*`,
     async (route) => {
       const query = new URL(route.request().url()).searchParams;
-      if (query.get("limit") !== "100" || query.get("retired") !== "exclude")
+      if (
+        query.get("limit") !== "100" ||
+        query.get("retired") !== "exclude" ||
+        query.get("representation") !== "summary"
+      )
         fail("approval descriptor traversal changed shape");
       await route.fulfill({
         status: 200,
@@ -6034,29 +6112,45 @@ async function runRequestAdjudication(
               server_id: serverID,
               upstream_name: "demo.safe",
               external_name: "demo.safe",
-              descriptor: {
-                name: "demo.safe",
-                inputSchema: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: { mode: { type: "string" } },
-                },
-                annotations: {
-                  title: null,
-                  readOnlyHint: false,
-                  destructiveHint: false,
-                  idempotentHint: false,
-                  openWorldHint: false,
-                },
-              },
-              fingerprint: "fingerprint-demo-safe",
               catalog_revision: "1",
-              first_seen_at: "2026-08-28T12:00:00Z",
-              last_seen_at: "2026-08-28T12:00:00Z",
-              retired_at: null,
             },
           ],
           next_cursor: null,
+        }),
+      });
+    },
+  );
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+          server_id: serverID,
+          upstream_name: "demo.safe",
+          external_name: "demo.safe",
+          descriptor: {
+            name: "demo.safe",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: { mode: { type: "string" } },
+            },
+            annotations: {
+              title: null,
+              readOnlyHint: false,
+              destructiveHint: false,
+              idempotentHint: false,
+              openWorldHint: false,
+            },
+          },
+          fingerprint: "fingerprint-demo-safe",
+          catalog_revision: "1",
+          first_seen_at: "2026-08-28T12:00:00Z",
+          last_seen_at: "2026-08-28T12:00:00Z",
+          retired_at: null,
         }),
       });
     },

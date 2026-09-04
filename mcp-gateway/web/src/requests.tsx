@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
 import {
   matcherSchemaSuggestions,
+  readMatcherDescriptor,
   readMatcherDescriptors,
+  type MatcherDescriptorSummary,
   type MatcherSchemaSuggestions,
 } from "./matcher-catalog";
 import type { DescriptorView } from "./server-reads";
@@ -606,8 +608,11 @@ function RequestActions({
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
   const [approvalDescriptors, setApprovalDescriptors] =
-    useState<DescriptorView[]>();
+    useState<MatcherDescriptorSummary[]>();
+  const [selectedApprovalDescriptor, setSelectedApprovalDescriptor] =
+    useState<DescriptorView>();
   const [approvalCatalogError, setApprovalCatalogError] = useState(false);
+  const [approvalDescriptorError, setApprovalDescriptorError] = useState(false);
   const [additionalAtoms, setAdditionalAtoms] = useState<MatcherAtom[]>([]);
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
@@ -667,9 +672,35 @@ function RequestActions({
     if (etag === null) throw new Error("invalid response");
     return decodeRequestDetail(value, etag, requestedConstraintSource(source));
   };
-  const selectedApprovalDescriptor = approvalDescriptors?.find(
+  const selectedApprovalDescriptorSummary = approvalDescriptors?.find(
     (descriptor) => descriptor.upstreamName === target,
   );
+  useEffect(() => {
+    const request = new AbortController();
+    setApprovalDescriptorError(false);
+    setSelectedApprovalDescriptor(undefined);
+    if (!narrowsServerToTool || selectedApprovalDescriptorSummary === undefined)
+      return () => request.abort();
+    void readMatcherDescriptor(
+      session,
+      detail.resolvedServerID,
+      selectedApprovalDescriptorSummary.id,
+      request.signal,
+    )
+      .then((item) => {
+        if (!request.signal.aborted && item !== undefined)
+          setSelectedApprovalDescriptor(item);
+      })
+      .catch(() => {
+        if (!request.signal.aborted) setApprovalDescriptorError(true);
+      });
+    return () => request.abort();
+  }, [
+    detail.resolvedServerID,
+    narrowsServerToTool,
+    selectedApprovalDescriptorSummary?.id,
+    session,
+  ]);
   const approvalSuggestions: MatcherSchemaSuggestions | undefined =
     narrowsServerToTool
       ? selectedApprovalDescriptor === undefined
@@ -952,9 +983,13 @@ function RequestActions({
               ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before approval."
               : approvalDescriptors === undefined
                 ? "Loading current durable tools…"
-                : selectedApprovalDescriptor === undefined
+                : selectedApprovalDescriptorSummary === undefined
                   ? "No current descriptor matches this literal name. Manual approval remains available."
-                  : "Current durable descriptor selected. Its schema assists narrowing but is not grant authority."}
+                  : approvalDescriptorError
+                    ? "Current descriptor selected, but its schema is unavailable. Manual matcher entry remains available."
+                    : selectedApprovalDescriptor === undefined
+                      ? "Loading the selected tool schema…"
+                      : "Current durable descriptor selected. Its schema assists narrowing but is not grant authority."}
           </p>
         </>
       )}
@@ -1131,9 +1166,9 @@ function RequestActions({
                       : narrowsServerToTool
                         ? approvalCatalogError
                           ? "Unavailable — literal manual name"
-                          : selectedApprovalDescriptor === undefined
+                          : selectedApprovalDescriptorSummary === undefined
                             ? "No current descriptor — literal manual name"
-                            : `Current durable descriptor · catalog revision ${selectedApprovalDescriptor.catalogRevision}`
+                            : `Current durable descriptor · catalog revision ${selectedApprovalDescriptorSummary.catalogRevision}`
                         : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
                   </dd>
                 </div>
