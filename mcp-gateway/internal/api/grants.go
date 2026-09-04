@@ -81,7 +81,7 @@ func (handler *Handler) grantMember(writer http.ResponseWriter, request *http.Re
 			return
 		}
 		writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
-		writeJSON(writer, http.StatusOK, grant)
+		writeJSONUnescaped(writer, http.StatusOK, grant)
 	case http.MethodPatch:
 		handler.patchGrant(writer, request, grantID)
 	case http.MethodDelete:
@@ -136,7 +136,7 @@ func (handler *Handler) patchGrant(writer http.ResponseWriter, request *http.Req
 	}
 	writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
 	handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
-	writeJSON(writer, http.StatusOK, grant)
+	writeJSONUnescaped(writer, http.StatusOK, grant)
 }
 
 func grantPrecondition(writer http.ResponseWriter, request *http.Request, grantID string) (string, bool) {
@@ -191,7 +191,7 @@ func (handler *Handler) createGrant(writer http.ResponseWriter, request *http.Re
 	}
 	handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
 	writer.Header().Set("ETag", contract.GrantETag(grant.ID, grant.Revision))
-	writeJSON(writer, http.StatusCreated, grant)
+	writeJSONUnescaped(writer, http.StatusCreated, grant)
 }
 
 func decodeGrantCreate(writer http.ResponseWriter, raw rawGrantCreate) (authorization.CreateGrantRequest, bool) {
@@ -267,7 +267,7 @@ func (handler *Handler) listGrants(writer http.ResponseWriter, request *http.Req
 		value := encodePrincipalCursor(*page.Next)
 		next = &value
 	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.Grant]{Items: page.Items, NextCursor: next})
+	writeJSONUnescaped(writer, http.StatusOK, contract.Collection[contract.Grant]{Items: page.Items, NextCursor: next})
 }
 
 func parseGrantQuery(rawQuery string) (int, authorization.GrantFilter, *authorization.SnapshotCursor, contract.ProblemCode) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
@@ -144,6 +145,17 @@ func TestGrantCreateRequiresAllMembersAndExactNullableShapes(t *testing.T) {
 			assert.Contains(t, result.Body.String(), test.code)
 		})
 	}
+}
+
+func TestGrantJSONPreservesRawConstraintTokens(t *testing.T) {
+	response := httptest.NewRecorder()
+	writeJSONUnescaped(response, http.StatusOK, struct {
+		Constraint json.RawMessage `json:"constraint"`
+	}{Constraint: json.RawMessage(`{"version":2,"regex":{"/value":"[<>&]+"}}`)})
+	assert.Contains(t, response.Body.String(), `"/value":"[<>&]+"`)
+	assert.NotContains(t, response.Body.String(), `\\u003c`)
+	assert.NotContains(t, response.Body.String(), `\\u003e`)
+	assert.NotContains(t, response.Body.String(), `\\u0026`)
 }
 
 func TestGrantConstraintValidationUsesProductionCompilerWithoutMutation(t *testing.T) {

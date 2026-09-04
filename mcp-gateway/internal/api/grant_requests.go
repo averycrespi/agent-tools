@@ -60,7 +60,7 @@ func (handler *Handler) grantRequestsCollection(writer http.ResponseWriter, requ
 		value := encodeGrantRequestCursor(*page.Next)
 		next = &value
 	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.GrantRequestSummary]{Items: page.Items, NextCursor: next})
+	writeJSONUnescaped(writer, http.StatusOK, contract.Collection[contract.GrantRequestSummary]{Items: page.Items, NextCursor: next})
 }
 
 func (handler *Handler) grantRequestMember(writer http.ResponseWriter, request *http.Request, requestID string, action string) {
@@ -139,7 +139,7 @@ func (handler *Handler) grantRequestMember(writer http.ResponseWriter, request *
 
 func writeGrantRequest(writer http.ResponseWriter, request contract.GrantRequest) {
 	writer.Header().Set("ETag", contract.GrantRequestETag(request.ID, request.Revision))
-	writeJSON(writer, http.StatusOK, request)
+	writeJSONUnescaped(writer, http.StatusOK, request)
 }
 
 func parseGrantRequestQuery(rawQuery string) (int, grantrequests.AdminFilter, *grantrequests.AdminCursor, contract.ProblemCode) {

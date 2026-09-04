@@ -18,6 +18,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMarshalGrantJSONPreservesRawConstraintTokens(t *testing.T) {
+	constraint := json.RawMessage(`{"version":2,"regex":{"/value":"[<>&]+"}}`)
+	encoded, err := marshalGrantJSON(struct {
+		Constraint json.RawMessage `json:"constraint"`
+	}{Constraint: constraint})
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"/value":"[<>&]+"`)
+	assert.NotContains(t, string(encoded), `\\u003c`)
+	assert.NotContains(t, string(encoded), `\\u003e`)
+	assert.NotContains(t, string(encoded), `\\u0026`)
+}
+
 func TestGrantConstraintSummaryDistinguishesVersionsAndOperators(t *testing.T) {
 	v1 := json.RawMessage(`{"equals":{"/region":"us","/attempt":1e0}}`)
 	v2 := json.RawMessage(`{"version":2,"equals":{"/attempt":1e0},"regex":{"/resource":"item-\\d+"}}`)

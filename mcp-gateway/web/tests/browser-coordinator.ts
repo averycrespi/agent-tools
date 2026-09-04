@@ -6073,7 +6073,7 @@ async function runRequestAdjudication(
         {
           version: 2,
           equals: { "/mode": "safe", "/attempt": 1 },
-          regex: { "/resource": "item-\\d+" },
+          regex: { "/resource": "item[<>&]-\\d+" },
         },
         "600",
       ),
@@ -6234,7 +6234,10 @@ async function runRequestAdjudication(
       if (
         id === ids[1] &&
         (!raw.includes('"/attempt":1.0') ||
-          !raw.includes('"/resource":"item-\\\\d+"') ||
+          !raw.includes('"/resource":"item[<>&]-\\\\d+"') ||
+          raw.includes("\\u003c") ||
+          raw.includes("\\u003e") ||
+          raw.includes("\\u0026") ||
           !raw.includes('"/extra":1.0') ||
           !raw.includes('"/zone":"(local|dev)"'))
       )

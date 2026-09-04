@@ -90,7 +90,17 @@ func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byt
 			return nil, controlclient.ErrInvalidInput
 		}
 	}
-	return json.Marshal(object)
+	return marshalGrantJSON(object)
+}
+
+func marshalGrantJSON(value any) ([]byte, error) {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), nil
 }
 
 type grantConstraintShape struct {

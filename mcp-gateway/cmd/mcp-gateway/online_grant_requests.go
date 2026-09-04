@@ -133,7 +133,7 @@ func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([
 	if (policy.Scope == contract.PolicyTool && policy.FutureToolsAcknowledged) || (policy.Scope == contract.PolicyServer && (!policy.FutureToolsAcknowledged || policy.Constraint != nil)) {
 		return nil, contract.Policy{}, controlclient.ErrInvalidInput
 	}
-	canonical, err := json.Marshal(contract.GrantRequestApproval{Description: description, ApprovedPolicy: policy})
+	canonical, err := marshalGrantJSON(contract.GrantRequestApproval{Description: description, ApprovedPolicy: policy})
 	return canonical, policy, err
 }
 

@@ -1056,6 +1056,14 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(writer).Encode(value)
 }
 
+func writeJSONUnescaped(writer http.ResponseWriter, status int, value any) {
+	writer.Header().Set("Content-Type", contract.MediaTypeJSON)
+	writer.WriteHeader(status)
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(value)
+}
+
 func limitValue(name string) int {
 	value, ok := contract.FixedLimitByName(name)
 	if !ok {
