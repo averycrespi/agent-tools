@@ -4491,6 +4491,7 @@ async function runGrantReadsCreate(
             type: "object",
             additionalProperties: { type: "string" },
             properties: {
+              ["x".repeat(300)]: { type: "string" },
               region: {
                 type: "string",
                 enum: ["us", "eu"],
@@ -4967,10 +4968,18 @@ async function runGrantReadsCreate(
     )
     .waitFor();
   await page.locator('[data-testid="add-constraint-atom"]').click();
+  const suggestedPointers = await page
+    .locator("#constraint-pointer-options option")
+    .evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    );
   if (
-    (await page.locator("#constraint-pointer-options option").count()) !== 256
+    suggestedPointers.length !== 256 ||
+    suggestedPointers.some(
+      (pointer) => new TextEncoder().encode(pointer).length > 256,
+    )
   )
-    fail("schema suggestions exceeded the bounded field count");
+    fail("schema suggestions exceeded field or pointer bounds");
   if (
     (await page
       .locator(
@@ -6009,6 +6018,50 @@ async function runRequestAdjudication(
   let rejections = 0;
   const attempts = new Map<string, number>();
 
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors?*`,
+    async (route) => {
+      const query = new URL(route.request().url()).searchParams;
+      if (query.get("limit") !== "100" || query.get("retired") !== "exclude")
+        fail("approval descriptor traversal changed shape");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+              server_id: serverID,
+              upstream_name: "demo.safe",
+              external_name: "demo.safe",
+              descriptor: {
+                name: "demo.safe",
+                inputSchema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: { mode: { type: "string" } },
+                },
+                annotations: {
+                  title: null,
+                  readOnlyHint: false,
+                  destructiveHint: false,
+                  idempotentHint: false,
+                  openWorldHint: false,
+                },
+              },
+              fingerprint: "fingerprint-demo-safe",
+              catalog_revision: "1",
+              first_seen_at: "2026-08-28T12:00:00Z",
+              last_seen_at: "2026-08-28T12:00:00Z",
+              retired_at: null,
+            },
+          ],
+          next_cursor: null,
+        }),
+      });
+    },
+  );
+
   await page.route("**/api/v1/grant-requests/**", async (route) => {
     const parts = new URL(route.request().url()).pathname.split("/");
     const action = parts.at(-1)!;
@@ -6162,6 +6215,12 @@ async function runRequestAdjudication(
     .fill("Access to demo.safe");
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
   await page.locator('[data-testid="approval-target"]').fill("demo.safe");
+  await page
+    .getByText(
+      "Current durable descriptor selected. Its schema assists narrowing but is not grant authority.",
+      { exact: true },
+    )
+    .waitFor();
   await page.locator('[data-testid="approval-additional-add"]').click();
   await page
     .locator('[data-testid="approval-additional-pointer"]')
@@ -6169,6 +6228,14 @@ async function runRequestAdjudication(
   await page.locator('[data-testid="approval-additional-value"]').fill("safe");
   await page.locator('[data-testid="approval-duration"]').fill("600");
   await reviewApproval();
+  if (
+    !(
+      await page
+        .locator("#request-adjudication-confirm-consequence")
+        .innerText()
+    ).includes("Current durable descriptor · catalog revision 1")
+  )
+    fail("server-to-tool approval review used stale catalog posture");
   await confirm();
   try {
     await page

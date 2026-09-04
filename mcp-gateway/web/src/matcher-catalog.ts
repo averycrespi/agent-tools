@@ -116,8 +116,13 @@ export function matcherSchemaSuggestions(
         )
         .map((item) => (item === null ? "null" : String(item)));
       if (values.length !== enumValues.length) unsupported = true;
+      const pointer = `/${path.map(pointerToken).join("/")}`;
+      if (new TextEncoder().encode(pointer).length > 256) {
+        unsupported = true;
+        continue;
+      }
       fields.push({
-        pointer: `/${path.map(pointerToken).join("/")}`,
+        pointer,
         type,
         description:
           typeof property.description === "string"
@@ -135,6 +140,7 @@ export function matcherSchemaSuggestions(
 export async function readMatcherDescriptors(
   session: SessionClient,
   serverID: string,
+  signal?: AbortSignal,
 ): Promise<DescriptorView[] | undefined> {
   if (!gatewayID.test(serverID) || serverID === "00000000000000000000000000")
     return [];
@@ -150,7 +156,10 @@ export async function readMatcherDescriptors(
         {
           credentials: "same-origin",
           redirect: "error",
-          signal: context.signal,
+          signal:
+            signal === undefined
+              ? context.signal
+              : AbortSignal.any([context.signal, signal]),
           headers: {
             Accept: "application/json",
             "X-CSRF-Token": context.csrfToken,

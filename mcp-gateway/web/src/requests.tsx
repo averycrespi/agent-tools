@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
-import { matcherSchemaSuggestions } from "./matcher-catalog";
+import {
+  matcherSchemaSuggestions,
+  readMatcherDescriptors,
+  type MatcherSchemaSuggestions,
+} from "./matcher-catalog";
+import type { DescriptorView } from "./server-reads";
 import { MatcherAtomEditor, matcherConstraintText } from "./matcher-editor";
 import type { MatcherAtom } from "./matcher-editor";
 import { validateMatcherConstraint } from "./matcher-validation";
@@ -600,6 +605,9 @@ function RequestActions({
   const [description, setDescription] = useState(defaultDescription);
   const [scope, setScope] = useState<Scope>(submitted.scope);
   const [target, setTarget] = useState(submitted.target);
+  const [approvalDescriptors, setApprovalDescriptors] =
+    useState<DescriptorView[]>();
+  const [approvalCatalogError, setApprovalCatalogError] = useState(false);
   const [additionalAtoms, setAdditionalAtoms] = useState<MatcherAtom[]>([]);
   const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
   const [reason, setReason] = useState("not_approved");
@@ -629,6 +637,26 @@ function RequestActions({
   const actionButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
+  const narrowsServerToTool = submitted.scope === "server" && scope === "tool";
+  useEffect(() => {
+    const request = new AbortController();
+    setApprovalCatalogError(false);
+    setApprovalDescriptors(undefined);
+    if (!narrowsServerToTool) return () => request.abort();
+    void readMatcherDescriptors(
+      session,
+      detail.resolvedServerID,
+      request.signal,
+    )
+      .then((items) => {
+        if (!request.signal.aborted && items !== undefined)
+          setApprovalDescriptors(items);
+      })
+      .catch(() => {
+        if (!request.signal.aborted) setApprovalCatalogError(true);
+      });
+    return () => request.abort();
+  }, [detail.resolvedServerID, narrowsServerToTool, session]);
 
   const decodeMutation = async (response: Response) => {
     if (response.headers.get("Content-Type") !== "application/json")
@@ -639,10 +667,17 @@ function RequestActions({
     if (etag === null) throw new Error("invalid response");
     return decodeRequestDetail(value, etag, requestedConstraintSource(source));
   };
-  const approvalSuggestions =
-    detail.currentTarget.descriptor === null
-      ? undefined
-      : matcherSchemaSuggestions(detail.currentTarget.descriptor);
+  const selectedApprovalDescriptor = approvalDescriptors?.find(
+    (descriptor) => descriptor.upstreamName === target,
+  );
+  const approvalSuggestions: MatcherSchemaSuggestions | undefined =
+    narrowsServerToTool
+      ? selectedApprovalDescriptor === undefined
+        ? undefined
+        : matcherSchemaSuggestions(selectedApprovalDescriptor.descriptor)
+      : detail.currentTarget.descriptor === null
+        ? undefined
+        : matcherSchemaSuggestions(detail.currentTarget.descriptor);
   const additionalConstraintSource = () =>
     additionalAtoms.length === 0
       ? ""
@@ -886,6 +921,7 @@ function RequestActions({
             {...attributes}
             data-testid="approval-target"
             value={target}
+            list={narrowsServerToTool ? "approval-tool-options" : undefined}
             disabled={
               submitted.scope === "tool" ||
               (scope === "server" && submitted.scope === "server") ||
@@ -895,6 +931,33 @@ function RequestActions({
           />
         )}
       </FormField>
+      {narrowsServerToTool && (
+        <>
+          <datalist id="approval-tool-options">
+            {(approvalDescriptors ?? []).map((descriptor) => (
+              <option
+                value={descriptor.upstreamName}
+                label={descriptor.externalName}
+                key={descriptor.id}
+              />
+            ))}
+          </datalist>
+          <p
+            class="bounded-note"
+            role="status"
+            aria-live="polite"
+            data-testid="approval-tool-posture"
+          >
+            {approvalCatalogError
+              ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before approval."
+              : approvalDescriptors === undefined
+                ? "Loading current durable tools…"
+                : selectedApprovalDescriptor === undefined
+                  ? "No current descriptor matches this literal name. Manual approval remains available."
+                  : "Current durable descriptor selected. Its schema assists narrowing but is not grant authority."}
+          </p>
+        </>
+      )}
       {scope === "tool" && (
         <>
           {detail.submittedConstraintSource !== null && (
@@ -1065,7 +1128,13 @@ function RequestActions({
                   <dd>
                     {scope === "server"
                       ? "Not applicable to server-wide authority"
-                      : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
+                      : narrowsServerToTool
+                        ? approvalCatalogError
+                          ? "Unavailable — literal manual name"
+                          : selectedApprovalDescriptor === undefined
+                            ? "No current descriptor — literal manual name"
+                            : `Current durable descriptor · catalog revision ${selectedApprovalDescriptor.catalogRevision}`
+                        : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
                   </dd>
                 </div>
                 <div>

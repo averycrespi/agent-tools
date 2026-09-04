@@ -270,23 +270,20 @@ function GrantCreate({
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
-    let current = true;
+    const request = new AbortController();
     setCatalogError(false);
     setDescriptors(undefined);
     if (scope !== "tool" || !gatewayID.test(serverID))
-      return () => {
-        current = false;
-      };
-    void readMatcherDescriptors(session, serverID)
+      return () => request.abort();
+    void readMatcherDescriptors(session, serverID, request.signal)
       .then((items) => {
-        if (current && items !== undefined) setDescriptors(items);
+        if (!request.signal.aborted && items !== undefined)
+          setDescriptors(items);
       })
       .catch(() => {
-        if (current) setCatalogError(true);
+        if (!request.signal.aborted) setCatalogError(true);
       });
-    return () => {
-      current = false;
-    };
+    return () => request.abort();
   }, [scope, serverID, session]);
   const review = async () => {
     const reviewedDraft = currentDraft.current;
