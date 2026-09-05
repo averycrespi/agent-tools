@@ -121,7 +121,7 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 		if revisionErr := advanceAuthorizationRevisionTx(ctx, transaction); revisionErr != nil {
 			return revisionErr
 		}
-		_, grant, scanErr := scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), now)
+		_, grant, scanErr := repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), now)
 		if scanErr != nil {
 			return scanErr
 		}

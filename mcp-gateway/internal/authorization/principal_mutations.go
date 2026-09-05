@@ -66,7 +66,7 @@ func (repository *Repository) CreatePrincipal(ctx context.Context, request Creat
 		if err != nil {
 			return err
 		}
-		_, grant, err := scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), now)
+		_, grant, err := repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), now)
 		if err != nil {
 			return err
 		}

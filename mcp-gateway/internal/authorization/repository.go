@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -37,20 +36,14 @@ type Clock interface {
 	Now() time.Time
 }
 
-const maxCompiledConstraintCacheWeight = 128 * 1024 * 1024
-
 type Repository struct {
-	store     *storage.Store
-	clock     Clock
-	entropy   io.Reader
-	authority *authorityRegistry
+	store              *storage.Store
+	clock              Clock
+	entropy            io.Reader
+	authority          *authorityRegistry
+	constraintCompiler func([]byte) (CompiledConstraint, error)
 
-	constraintCache struct {
-		sync.Mutex
-		revision string
-		weight   int64
-		entries  map[string]CompiledConstraint
-	}
+	constraintCache compiledConstraintCache
 }
 
 type SyntheticIdentity struct {
@@ -65,32 +58,15 @@ func New(store *storage.Store, clock Clock, entropy io.Reader) (*Repository, err
 	return &Repository{store: store, clock: clock, entropy: entropy, authority: newAuthorityRegistry(store)}, nil
 }
 
-func (repository *Repository) compileConstraint(revision, source string) (CompiledConstraint, error) {
-	repository.constraintCache.Lock()
-	defer repository.constraintCache.Unlock()
-	if repository.constraintCache.revision != revision {
-		cachedRevision, _ := strconv.ParseInt(repository.constraintCache.revision, 10, 64)
-		incomingRevision, _ := strconv.ParseInt(revision, 10, 64)
-		if cachedRevision > incomingRevision {
-			return CompileConstraint([]byte(source))
-		}
-		repository.constraintCache.revision = revision
-		repository.constraintCache.weight = 0
-		repository.constraintCache.entries = make(map[string]CompiledConstraint)
+func (repository *Repository) compileSource(source string) (CompiledConstraint, error) {
+	if repository.constraintCompiler != nil {
+		return repository.constraintCompiler([]byte(source))
 	}
-	if compiled, present := repository.constraintCache.entries[source]; present {
-		return compiled, nil
-	}
-	compiled, err := CompileConstraint([]byte(source))
-	if err != nil {
-		return CompiledConstraint{}, err
-	}
-	weight := compiled.cacheWeight()
-	if repository.constraintCache.weight+weight <= maxCompiledConstraintCacheWeight {
-		repository.constraintCache.entries[source] = compiled
-		repository.constraintCache.weight += weight
-	}
-	return compiled, nil
+	return CompileConstraint([]byte(source))
+}
+
+func (repository *Repository) compileReadConstraint(source string) (CompiledConstraint, error) {
+	return repository.compileConstraint("", source)
 }
 
 func (repository *Repository) SyntheticIdentity(ctx context.Context) (SyntheticIdentity, error) {

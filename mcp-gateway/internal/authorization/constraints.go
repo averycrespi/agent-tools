@@ -63,6 +63,7 @@ type constraintAtom struct {
 	expected          strictjson.Value
 	expression        *regexp.Regexp
 	regexInstructions int64
+	regexRunes        int64
 }
 
 func CompileConstraint(contents []byte) (CompiledConstraint, error) {
@@ -186,18 +187,22 @@ func compileRegex(value strictjson.Value) ([]constraintAtom, error) {
 		if compileErr != nil {
 			return nil, invalidConstraintAt(field, "pattern is not valid RE2")
 		}
+		var runeCount int64
+		for _, instruction := range program.Inst {
+			runeCount += int64(len(instruction.Rune))
+		}
 		atoms = append(atoms, constraintAtom{
 			operator: ConstraintRegex, pointer: member.Name, segments: segments,
-			expected: member.Value, expression: expression, regexInstructions: int64(len(program.Inst)),
+			expected: member.Value, expression: expression, regexInstructions: int64(len(program.Inst)), regexRunes: runeCount,
 		})
 	}
 	return atoms, nil
 }
 
 func (constraint CompiledConstraint) cacheWeight() int64 {
-	weight := int64(len(constraint.raw) + len(constraint.atoms)*512)
+	weight := int64(len(constraint.raw)*64 + len(constraint.atoms)*512)
 	for _, atom := range constraint.atoms {
-		weight += atom.regexInstructions * 64
+		weight += atom.regexInstructions*64 + atom.regexRunes*4
 	}
 	return weight
 }
