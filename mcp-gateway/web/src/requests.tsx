@@ -544,7 +544,13 @@ function mergeConstraintSource(
   submittedSource: string | null,
   additionalSource: string,
 ): string {
-  if (additionalSource === "") return submittedSource ?? "";
+  if (additionalSource === "") {
+    if (submittedSource === null) return "";
+    const submitted = matcherShape(JSON.parse(submittedSource) as unknown);
+    return submitted.version === 2
+      ? submittedSource
+      : `{"version":2,"equals":${jsonMemberSource(submittedSource, "equals")}}`;
+  }
   let additionalValue: unknown;
   try {
     additionalValue = JSON.parse(additionalSource) as unknown;
@@ -697,24 +703,22 @@ function RequestActions({
   }, [
     detail.resolvedServerID,
     narrowsServerToTool,
-    selectedApprovalDescriptorSummary?.id,
+    selectedApprovalDescriptorSummary,
     session,
   ]);
   const approvalSuggestions: MatcherSchemaSuggestions | undefined =
     narrowsServerToTool
-      ? selectedApprovalDescriptor === undefined
+      ? selectedApprovalDescriptor === undefined ||
+        selectedApprovalDescriptor.serverID !== detail.resolvedServerID ||
+        selectedApprovalDescriptor.externalName !== target ||
+        selectedApprovalDescriptor.id !== selectedApprovalDescriptorSummary?.id
         ? undefined
         : matcherSchemaSuggestions(selectedApprovalDescriptor.descriptor)
       : detail.currentTarget.descriptor === null
         ? undefined
         : matcherSchemaSuggestions(detail.currentTarget.descriptor);
   const additionalConstraintSource = () =>
-    additionalAtoms.length === 0
-      ? ""
-      : matcherConstraintText(
-          additionalAtoms,
-          detail.submittedConstraintSource !== null,
-        );
+    additionalAtoms.length === 0 ? "" : matcherConstraintText(additionalAtoms);
   const approvedPolicy = (): Policy => {
     if (
       submitted.scope === "tool" &&
@@ -983,12 +987,12 @@ function RequestActions({
               : approvalDescriptors === undefined
                 ? "Loading current durable tools…"
                 : selectedApprovalDescriptorSummary === undefined
-                  ? "No current descriptor matches this literal name. Manual approval remains available."
+                  ? "Unknown — not found in the current catalog. Manual approval remains available."
                   : approvalDescriptorError
-                    ? "Current descriptor selected, but its schema is unavailable. Manual matcher entry remains available."
+                    ? "Known tool — schema unavailable. Manual constraint entry remains available."
                     : selectedApprovalDescriptor === undefined
-                      ? "Loading the selected tool schema…"
-                      : "Current durable descriptor selected. Its schema assists narrowing but is not grant authority."}
+                      ? "Known tool — loading schema…"
+                      : "Known — found in the current catalog. Its schema assists narrowing but is not grant authority."}
           </p>
         </>
       )}
@@ -1013,7 +1017,7 @@ function RequestActions({
           )}
           <div aria-labelledby="approval-additional-matchers-title">
             <h3 id="approval-additional-matchers-title">
-              Additional matcher atoms
+              Additional constraints — All must match
               <span class="optional-label"> (optional)</span>
             </h3>
             <p class="field-hint">
@@ -1036,7 +1040,16 @@ function RequestActions({
               testPrefix="approval-additional"
               atoms={additionalAtoms}
               suggestions={approvalSuggestions}
-              forceVersion2={detail.submittedConstraintSource !== null}
+              schemaState={
+                narrowsServerToTool &&
+                !approvalCatalogError &&
+                (approvalDescriptors === undefined ||
+                  (selectedApprovalDescriptorSummary !== undefined &&
+                    !approvalDescriptorError &&
+                    approvalSuggestions === undefined))
+                  ? "loading"
+                  : "unavailable"
+              }
               disabled={disabled}
               onChange={(next) => {
                 setError(undefined);
@@ -1187,7 +1200,7 @@ function RequestActions({
               <div>
                 <strong>Read-only serialized policy</strong>
                 <textarea
-                  class="inert-json"
+                  class="inert-json matcher-policy-review"
                   data-testid="approval-review-policy"
                   readOnly
                   rows={8}
