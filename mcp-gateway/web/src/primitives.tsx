@@ -1,5 +1,11 @@
 import type { ComponentChildren, RefObject } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 import { parseFragment, serializeLocation } from "./location";
 
 export function containsControlCharacters(value: string): boolean {
@@ -494,6 +500,150 @@ export function BinaryToggle({
         </span>
       )}
     </span>
+  );
+}
+
+export function SuggestionInput({
+  attributes,
+  label,
+  value,
+  options,
+  disabled = false,
+  placeholder,
+  testID,
+  onChange,
+}: {
+  attributes: FieldControlAttributes;
+  label: string;
+  value: string;
+  options: readonly { value: string; detail?: string }[];
+  disabled?: boolean;
+  placeholder?: string;
+  testID: string;
+  onChange: (value: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState<string>();
+  const visible = options.filter((option) =>
+    option.value.toLowerCase().includes(value.toLowerCase()),
+  );
+  const activeIndex = visible.findIndex((option) => option.value === active);
+  const expanded = open && !disabled;
+  const listID = `${attributes.id}-options`;
+  const close = () => {
+    setOpen(false);
+    setActive(undefined);
+  };
+  const choose = (next: string) => {
+    onChange(next);
+    input.current?.focus();
+    close();
+  };
+  useLayoutEffect(() => {
+    if (expanded && activeIndex >= 0)
+      list.current?.children[activeIndex]?.scrollIntoView({ block: "nearest" });
+  }, [expanded, activeIndex, active]);
+  return (
+    <div
+      class="suggestion-input"
+      onFocusOut={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          close();
+      }}
+    >
+      <input
+        {...attributes}
+        ref={input}
+        data-testid={testID}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={expanded}
+        aria-controls={expanded ? listID : undefined}
+        aria-activedescendant={
+          expanded && activeIndex >= 0 ? `${listID}-${activeIndex}` : undefined
+        }
+        autocomplete="off"
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onFocus={() => setOpen(true)}
+        onInput={(event) => {
+          onChange(event.currentTarget.value);
+          setActive(undefined);
+          setOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.isComposing) return;
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
+            const index =
+              !expanded || activeIndex < 0
+                ? event.key === "ArrowDown"
+                  ? 0
+                  : visible.length - 1
+                : (activeIndex +
+                    (event.key === "ArrowDown" ? 1 : -1) +
+                    visible.length) %
+                  visible.length;
+            setActive(visible[index]?.value);
+          } else if (expanded && event.key === "Enter") {
+            event.preventDefault();
+            if (activeIndex >= 0) choose(visible[activeIndex]!.value);
+            else close();
+          } else if (expanded && event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+          } else if (event.key === "Tab") close();
+        }}
+      />
+      <button
+        class="suggestion-toggle"
+        type="button"
+        tabindex={-1}
+        aria-label={`Show suggestions for ${label}`}
+        aria-expanded={expanded}
+        aria-controls={expanded ? listID : undefined}
+        disabled={disabled}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          input.current?.focus();
+          setActive(undefined);
+          setOpen(!expanded);
+        }}
+      >
+        <span aria-hidden="true">▾</span>
+      </button>
+      {expanded && (
+        <div class="suggestion-panel" data-empty={visible.length === 0}>
+          <ul
+            id={listID}
+            ref={list}
+            role="listbox"
+            aria-label={`${label} suggestions`}
+          >
+            {visible.map((option, index) => (
+              <li
+                id={`${listID}-${index}`}
+                key={option.value}
+                role="option"
+                aria-selected={index === activeIndex}
+                data-value={option.value}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => choose(option.value)}
+              >
+                <span>{option.value}</span>
+                {option.detail && <small>{option.detail}</small>}
+              </li>
+            ))}
+          </ul>
+          {visible.length === 0 && <p>No suggestions. Enter a custom value.</p>}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -1,5 +1,26 @@
 import type { MatcherSchemaSuggestions } from "./matcher-catalog";
-import { FormField } from "./primitives";
+import { FormField, SuggestionInput } from "./primitives";
+
+export function MatcherRecognition({
+  status,
+  testID,
+}: {
+  status: string;
+  testID: string;
+}) {
+  return (
+    <span
+      class="matcher-status"
+      data-recognition={status.toLowerCase()}
+      data-testid={testID}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {status}
+    </span>
+  );
+}
 
 const jsonNumber = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 export type MatcherScalarType = "null" | "boolean" | "string" | "number";
@@ -72,58 +93,44 @@ export function MatcherAtomEditor({
         position === index ? { ...atom, ...patch } : atom,
       ),
     );
-  const pointerOptions = `${idPrefix}-pointer-options`;
-  let preview = "null";
-  try {
-    preview = matcherConstraintText(atoms);
-  } catch {
-    preview =
-      "Complete each matcher value to preview the serialized constraint.";
-  }
+  const helpID = `${idPrefix}-operator-help`;
+  const pointerOptions = (suggestions?.fields ?? []).map((field) => ({
+    value: field.pointer,
+    detail: `${field.type}${field.values.length === 0 ? "" : ` · ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`,
+  }));
   return (
     <div class="matcher-editor">
-      <p class="field-hint">
-        All constraints must match. Schema guidance supplies defaults, not
-        restrictions.
-      </p>
-      <datalist id={pointerOptions}>
-        {(suggestions?.fields ?? []).map((field) => (
-          <option
-            value={field.pointer}
-            label={`${field.type}${field.values.length === 0 ? "" : ` · ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`}
-            key={field.pointer}
-          />
-        ))}
-      </datalist>
+      <details class="matcher-help">
+        <summary>Operator help</summary>
+        <p id={helpID} class="field-hint">
+          EQUALS compares the selected scalar type exactly. MATCHES requires
+          String: full-string Go RE2, no coercion. Schema suggestions are
+          defaults, not restrictions.
+        </p>
+      </details>
       {atoms.map((atom, index) => {
         const field = suggestions?.fields.find(
           (candidate) => candidate.pointer === atom.pointer,
         );
         const regex = atom.operator === "regex";
         const status =
-          suggestions === undefined
-            ? schemaState === "loading"
-              ? "Loading…"
-              : "Unavailable"
-            : field === undefined
-              ? "Unknown"
-              : "Known";
-        const guidance = `${
-          field === undefined
-            ? "Enter a custom RFC 6901 pointer or choose a schema suggestion."
-            : `${field.type}${field.description === null ? "" : ` · ${field.description}`}.`
-        }${
-          regex
-            ? " MATCHES requires String: full-string Go RE2, no coercion."
-            : " EQUALS compares the selected scalar type without coercion."
-        }${
+          atom.pointer === ""
+            ? "Choose field"
+            : suggestions === undefined
+              ? schemaState === "loading"
+                ? "Loading…"
+                : "Unavailable"
+              : field === undefined
+                ? "Unknown"
+                : "Known";
+        const guidance =
           field !== undefined && field.type !== (regex ? "string" : atom.type)
             ? regex
-              ? ` Schema suggests ${field.type}; only string runtime values can match.`
-              : ` Schema suggests ${field.type}; your ${atom.type} type is retained.`
-            : ""
-        }`;
+              ? `Schema suggests ${field.type}; only string runtime values can match. No coercion.`
+              : `Schema suggests ${field.type}; your ${atom.type} type is retained.`
+            : "";
         const hintID = `${idPrefix}-guidance-${index}`;
+        const describedBy = guidance ? `${helpID} ${hintID}` : helpID;
         const valuesID = `${idPrefix}-values-${index}`;
         const values = !regex && field?.type === atom.type ? field.values : [];
         return (
@@ -134,16 +141,18 @@ export function MatcherAtomEditor({
           >
             <FormField id={`${idPrefix}-pointer-${index}`} label="JSON pointer">
               {(attributes) => (
-                <input
-                  {...attributes}
-                  aria-describedby={hintID}
-                  data-testid={`${testPrefix}-pointer`}
+                <SuggestionInput
+                  attributes={{
+                    ...attributes,
+                    "aria-describedby": describedBy,
+                  }}
+                  label={`JSON pointer ${index + 1}`}
+                  testID={`${testPrefix}-pointer`}
                   value={atom.pointer}
-                  list={pointerOptions}
-                  autocomplete="off"
+                  options={pointerOptions}
+                  placeholder="/repository"
                   disabled={disabled}
-                  onInput={(event) => {
-                    const pointer = event.currentTarget.value;
+                  onChange={(pointer) => {
                     const suggestion = suggestions?.fields.find(
                       (candidate) => candidate.pointer === pointer,
                     );
@@ -159,18 +168,15 @@ export function MatcherAtomEditor({
                 />
               )}
             </FormField>
-            <span
-              class="matcher-status"
-              data-testid={`${testPrefix}-status`}
-              aria-label={`Path recognition: ${status}`}
-            >
-              {status}
-            </span>
+            <MatcherRecognition
+              status={status}
+              testID={`${testPrefix}-status`}
+            />
             <FormField id={`${idPrefix}-operator-${index}`} label="Operator">
               {(attributes) => (
                 <select
                   {...attributes}
-                  aria-describedby={hintID}
+                  aria-describedby={describedBy}
                   data-testid={`${testPrefix}-operator`}
                   value={atom.operator}
                   disabled={disabled}
@@ -191,7 +197,7 @@ export function MatcherAtomEditor({
               {(attributes) => (
                 <select
                   {...attributes}
-                  aria-describedby={hintID}
+                  aria-describedby={describedBy}
                   data-testid={`${testPrefix}-type`}
                   value={regex ? "string" : atom.type}
                   disabled={disabled || regex}
@@ -217,7 +223,7 @@ export function MatcherAtomEditor({
                 !regex && atom.type === "boolean" ? (
                   <select
                     {...attributes}
-                    aria-describedby={hintID}
+                    aria-describedby={describedBy}
                     data-testid={`${testPrefix}-value`}
                     value={atom.value}
                     disabled={disabled}
@@ -232,14 +238,14 @@ export function MatcherAtomEditor({
                 ) : !regex && atom.type === "null" ? (
                   <input
                     {...attributes}
-                    aria-describedby={hintID}
+                    aria-describedby={describedBy}
                     value="null"
                     disabled
                   />
                 ) : (
                   <input
                     {...attributes}
-                    aria-describedby={hintID}
+                    aria-describedby={describedBy}
                     data-testid={`${testPrefix}-value`}
                     value={atom.value}
                     list={valuesID}
@@ -268,9 +274,11 @@ export function MatcherAtomEditor({
             >
               Remove
             </button>
-            <p id={hintID} class="field-hint matcher-guidance">
-              {guidance}
-            </p>
+            {guidance && (
+              <p id={hintID} class="field-hint matcher-guidance" role="status">
+                {guidance}
+              </p>
+            )}
           </div>
         );
       })}
@@ -281,18 +289,12 @@ export function MatcherAtomEditor({
         onClick={() =>
           onChange([
             ...atoms,
-            { operator: "equals", pointer: "/", type: "string", value: "" },
+            { operator: "equals", pointer: "", type: "string", value: "" },
           ])
         }
       >
         Add constraint
       </button>
-      <details class="matcher-disclosure">
-        <summary>Read-only serialized constraint · v2</summary>
-        <pre class="inert-json" aria-label="Constraint preview" tabindex={0}>
-          <code>{preview}</code>
-        </pre>
-      </details>
     </div>
   );
 }
