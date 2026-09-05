@@ -1,12 +1,35 @@
 import type { MatcherSchemaSuggestions } from "./matcher-catalog";
-import { FormField } from "./primitives";
+import { FormField, SuggestionInput } from "./primitives";
+
+export function MatcherRecognition({
+  status,
+  testID,
+}: {
+  status: string;
+  testID: string;
+}) {
+  return (
+    <span
+      class="matcher-status"
+      data-recognition={status.toLowerCase()}
+      data-testid={testID}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {status}
+    </span>
+  );
+}
 
 const jsonNumber = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 export type MatcherScalarType = "null" | "boolean" | "string" | "number";
 export interface MatcherAtom {
   operator: "equals" | "regex";
   pointer: string;
+  // Retain the equality type while MATCHES displays String.
   type: MatcherScalarType;
+  explicitType?: boolean;
   value: string;
 }
 
@@ -18,10 +41,7 @@ export function validMatcherPointer(pointer: string): boolean {
   );
 }
 
-export function matcherConstraintText(
-  atoms: readonly MatcherAtom[],
-  forceVersion2 = false,
-): string {
+export function matcherConstraintText(atoms: readonly MatcherAtom[]): string {
   if (atoms.length === 0) return "null";
   const members = (operator: MatcherAtom["operator"]) =>
     atoms
@@ -43,8 +63,6 @@ export function matcherConstraintText(
       });
   const equalities = members("equals");
   const expressions = members("regex");
-  if (expressions.length === 0 && !forceVersion2)
-    return `{"equals":{${equalities.join(",")}}}`;
   const equalsMember =
     equalities.length === 0 ? "" : `,"equals":{${equalities.join(",")}}`;
   return `{"version":2${equalsMember},"regex":{${expressions.join(",")}}}`;
@@ -56,7 +74,7 @@ export function MatcherAtomEditor({
   addTestID,
   atoms,
   suggestions,
-  forceVersion2 = false,
+  schemaState = "unavailable",
   disabled = false,
   onChange,
 }: {
@@ -65,7 +83,7 @@ export function MatcherAtomEditor({
   addTestID?: string;
   atoms: readonly MatcherAtom[];
   suggestions?: MatcherSchemaSuggestions | undefined;
-  forceVersion2?: boolean;
+  schemaState?: "loading" | "unavailable";
   disabled?: boolean;
   onChange: (atoms: MatcherAtom[]) => void;
 }) {
@@ -75,80 +93,65 @@ export function MatcherAtomEditor({
         position === index ? { ...atom, ...patch } : atom,
       ),
     );
-  const pointerOptions = `${idPrefix}-pointer-options`;
-  let preview = "null";
-  try {
-    if (atoms.length !== 0)
-      preview = matcherConstraintText(atoms, forceVersion2);
-  } catch {
-    preview =
-      "Complete each matcher value to preview the serialized constraint.";
-  }
+  const pointerOptions = (suggestions?.fields ?? []).map((field) => ({
+    value: field.pointer,
+    detail: `${field.type}${field.values.length === 0 ? "" : ` · ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`,
+  }));
   return (
-    <>
-      <datalist id={pointerOptions}>
-        {(suggestions?.fields ?? []).map((field) => (
-          <option
-            value={field.pointer}
-            label={`${field.type}${field.values.length === 0 ? "" : ` · ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`}
-            key={field.pointer}
-          />
-        ))}
-      </datalist>
+    <div class="matcher-editor">
       {atoms.map((atom, index) => {
         const field = suggestions?.fields.find(
           (candidate) => candidate.pointer === atom.pointer,
         );
+        const regex = atom.operator === "regex";
+        const status =
+          atom.pointer === ""
+            ? "Choose field"
+            : suggestions === undefined
+              ? schemaState === "loading"
+                ? "Loading…"
+                : "Unavailable"
+              : field === undefined
+                ? "Unknown"
+                : "Known";
+        const guidance =
+          field !== undefined && field.type !== (regex ? "string" : atom.type)
+            ? regex
+              ? `Schema suggests ${field.type}; only string runtime values can match. No coercion.`
+              : `Schema suggests ${field.type}; your ${atom.type} type is retained.`
+            : "";
+        const hintID = `${idPrefix}-guidance-${index}`;
+        const describedBy = guidance ? hintID : undefined;
+        const valuesID = `${idPrefix}-values-${index}`;
+        const values = !regex && field?.type === atom.type ? field.values : [];
         return (
-          <div class="form-grid" data-testid={`${testPrefix}-atom`} key={index}>
-            <FormField id={`${idPrefix}-operator-${index}`} label="Operator">
+          <div
+            class="matcher-row"
+            data-testid={`${testPrefix}-atom`}
+            key={index}
+          >
+            <FormField id={`${idPrefix}-pointer-${index}`} label="JSON pointer">
               {(attributes) => (
-                <select
-                  {...attributes}
-                  data-testid={`${testPrefix}-operator`}
-                  value={atom.operator}
-                  disabled={disabled}
-                  onChange={(event) =>
-                    update(index, {
-                      operator: event.currentTarget
-                        .value as MatcherAtom["operator"],
-                      type:
-                        event.currentTarget.value === "regex"
-                          ? "string"
-                          : atom.type,
-                    })
-                  }
-                >
-                  <option value="equals">Equals</option>
-                  <option value="regex">Full-string RE2</option>
-                </select>
-              )}
-            </FormField>
-            <FormField
-              id={`${idPrefix}-pointer-${index}`}
-              label="JSON pointer"
-              hint={
-                field === undefined
-                  ? "Enter a custom RFC 6901 pointer or choose a schema suggestion."
-                  : `${field.type}${field.regexAvailable ? " · regex available" : " · equality only"}${field.values.length === 0 ? "" : ` · allowed: ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`
-              }
-            >
-              {(attributes) => (
-                <input
-                  {...attributes}
-                  data-testid={`${testPrefix}-pointer`}
+                <SuggestionInput
+                  attributes={{
+                    ...attributes,
+                    ...(describedBy ? { "aria-describedby": describedBy } : {}),
+                  }}
+                  label={`JSON pointer ${index + 1}`}
+                  testID={`${testPrefix}-pointer`}
                   value={atom.pointer}
-                  list={pointerOptions}
-                  autocomplete="off"
+                  options={pointerOptions}
+                  placeholder="/repository"
                   disabled={disabled}
-                  onInput={(event) => {
-                    const pointer = event.currentTarget.value;
+                  onChange={(pointer) => {
                     const suggestion = suggestions?.fields.find(
                       (candidate) => candidate.pointer === pointer,
                     );
                     update(index, {
                       pointer,
-                      ...(atom.operator === "equals" && suggestion !== undefined
+                      ...(!atom.explicitType &&
+                      atom.value === "" &&
+                      suggestion !== undefined
                         ? { type: suggestion.type }
                         : {}),
                     });
@@ -156,62 +159,117 @@ export function MatcherAtomEditor({
                 />
               )}
             </FormField>
-            {atom.operator === "equals" && (
-              <FormField id={`${idPrefix}-type-${index}`} label="Scalar type">
-                {(attributes) => (
+            <MatcherRecognition
+              status={status}
+              testID={`${testPrefix}-status`}
+            />
+            <FormField id={`${idPrefix}-operator-${index}`} label="Operator">
+              {(attributes) => (
+                <select
+                  {...attributes}
+                  aria-describedby={describedBy}
+                  data-testid={`${testPrefix}-operator`}
+                  value={atom.operator}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    update(index, {
+                      operator: event.currentTarget
+                        .value as MatcherAtom["operator"],
+                      value: "",
+                    })
+                  }
+                >
+                  <option value="equals">EQUALS</option>
+                  <option value="regex">MATCHES</option>
+                </select>
+              )}
+            </FormField>
+            <FormField id={`${idPrefix}-type-${index}`} label="Scalar type">
+              {(attributes) => (
+                <select
+                  {...attributes}
+                  aria-describedby={describedBy}
+                  data-testid={`${testPrefix}-type`}
+                  value={regex ? "string" : atom.type}
+                  disabled={disabled || regex}
+                  onChange={(event) =>
+                    update(index, {
+                      type: event.currentTarget.value as MatcherScalarType,
+                      explicitType: true,
+                    })
+                  }
+                >
+                  <option value="null">Null</option>
+                  <option value="boolean">Boolean</option>
+                  <option value="string">String</option>
+                  <option value="number">Number</option>
+                </select>
+              )}
+            </FormField>
+            <FormField
+              id={`${idPrefix}-value-${index}`}
+              label={regex ? "RE2 pattern" : "Scalar value"}
+            >
+              {(attributes) =>
+                !regex && atom.type === "boolean" ? (
                   <select
                     {...attributes}
-                    data-testid={`${testPrefix}-type`}
-                    value={atom.type}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      update(index, {
-                        type: event.currentTarget.value as MatcherScalarType,
-                      })
-                    }
-                  >
-                    <option value="null">null</option>
-                    <option value="boolean">boolean</option>
-                    <option value="string">string</option>
-                    <option value="number">number</option>
-                  </select>
-                )}
-              </FormField>
-            )}
-            {(atom.operator === "regex" || atom.type !== "null") && (
-              <FormField
-                id={`${idPrefix}-value-${index}`}
-                label={
-                  atom.operator === "regex" ? "RE2 pattern" : "Scalar value"
-                }
-                hint={
-                  atom.operator === "regex"
-                    ? "The pattern must match the complete string value."
-                    : "The scalar is compared without coercion."
-                }
-              >
-                {(attributes) => (
-                  <input
-                    {...attributes}
+                    aria-describedby={describedBy}
                     data-testid={`${testPrefix}-value`}
                     value={atom.value}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      update(index, { value: event.currentTarget.value })
+                    }
+                  >
+                    <option value="">Choose a boolean</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : !regex && atom.type === "null" ? (
+                  <input
+                    {...attributes}
+                    aria-describedby={describedBy}
+                    value="null"
+                    disabled
+                  />
+                ) : (
+                  <input
+                    {...attributes}
+                    aria-describedby={describedBy}
+                    data-testid={`${testPrefix}-value`}
+                    value={atom.value}
+                    list={valuesID}
+                    autocomplete="off"
                     disabled={disabled}
                     onInput={(event) =>
                       update(index, { value: event.currentTarget.value })
                     }
                   />
-                )}
-              </FormField>
-            )}
+                )
+              }
+            </FormField>
+            <datalist id={valuesID}>
+              {values.map((value) => (
+                <option value={value} key={value} />
+              ))}
+            </datalist>
             <button
+              class="matcher-remove"
               type="button"
+              aria-label={`Remove constraint ${index + 1}`}
               disabled={disabled}
               onClick={() =>
                 onChange(atoms.filter((_, position) => position !== index))
               }
             >
-              Remove atom
+              Remove
             </button>
+            {guidance && (
+              <p id={hintID} class="field-hint matcher-guidance" role="status">
+                {guidance}
+              </p>
+            )}
           </div>
         );
       })}
@@ -222,15 +280,12 @@ export function MatcherAtomEditor({
         onClick={() =>
           onChange([
             ...atoms,
-            { operator: "equals", pointer: "/", type: "string", value: "" },
+            { operator: "equals", pointer: "", type: "string", value: "" },
           ])
         }
       >
-        Add matcher
+        Add constraint
       </button>
-      <pre class="inert-json" aria-label="Constraint preview" tabindex={0}>
-        <code>{preview}</code>
-      </pre>
-    </>
+    </div>
   );
 }

@@ -4309,6 +4309,27 @@ async function assertMatcherAuthoringAccessibility(
   page: Page,
   workflow: string,
 ): Promise<void> {
+  if (
+    (await page.getByText("Operator help", { exact: true }).count()) !== 0 ||
+    (await page.locator(".matcher-editor details").count()) !== 0 ||
+    (await page
+      .getByText(/EQUALS compares the selected scalar type exactly/)
+      .count()) !== 0
+  )
+    fail(`${workflow} retained the removed operator help disclosure`);
+  const missingDescriptions = await page
+    .locator(".matcher-editor [aria-describedby]")
+    .evaluateAll((controls) =>
+      controls.flatMap((control) =>
+        (control.getAttribute("aria-describedby") ?? "")
+          .split(/\s+/)
+          .filter((id) => id && document.getElementById(id) === null),
+      ),
+    );
+  if (missingDescriptions.length !== 0)
+    fail(
+      `${workflow} has missing descriptions: ${missingDescriptions.join(",")}`,
+    );
   const axe = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
@@ -5009,38 +5030,92 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="grant-create-view"]').waitFor();
   await page.locator('[data-testid="grant-description"]').fill("New access");
   await page.locator('[data-testid="grant-effect"]').selectOption("deny");
+  await page.locator('[data-testid="grant-server"]').selectOption("");
   await page.locator('[data-testid="grant-scope"]').selectOption("tool");
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll(
-        '#grant-tool-options option[value="literal.tool"]',
-      ).length === 1,
-  );
-  if (
-    (await page
-      .locator('[data-testid="grant-upstream"]')
-      .getAttribute("list")) !== "grant-tool-options"
-  )
-    fail("grant tool entry is not catalog-searchable and editable");
-  await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
   await page
-    .getByText(
-      "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported.",
-      { exact: true },
-    )
-    .waitFor();
-  await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
-  await page
-    .getByText(
-      "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority.",
-      { exact: true },
-    )
-    .waitFor();
+    .getByText("Select a server", { exact: true })
+    .waitFor({ timeout: 3000 });
   await page.locator('[data-testid="add-constraint-atom"]').click();
+  if (
+    (await page.locator('[data-testid="constraint-status"]').innerText()) !==
+      "Choose field" ||
+    (await page.locator('[data-testid="constraint-pointer"]').inputValue()) !==
+      "" ||
+    descriptorRequests !== 0
+  )
+    fail("empty path was not neutral before server selection");
+  await page.locator('[data-testid="constraint-pointer"]').fill("/");
+  if (
+    (await page.locator('[data-testid="constraint-status"]').innerText()) !==
+    "Unavailable"
+  )
+    fail("missing server reported a catalog/schema load that never started");
+  await page
+    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .click();
+  await page.locator('[data-testid="grant-server"]').selectOption(serverID);
+  const toolInput = page.getByRole("combobox", {
+    name: "Tool name",
+    exact: true,
+  });
+  const toolBadge = page.locator('[data-testid="grant-tool-recognition"]');
+  await page.getByText("Choose a tool", { exact: true }).waitFor();
+  await toolInput.focus();
+  await page
+    .getByRole("option", { name: "literal.tool", exact: true })
+    .waitFor();
+  const toolOptions = await page.getByRole("listbox").innerText();
+  if (toolOptions.includes(`server-${serverID.slice(-2).toLowerCase()}.`))
+    fail("tool suggestions duplicated the displayed namespace");
+  await toolInput.fill("future.tool");
+  await toolInput.press("Escape");
+  if (
+    (await toolInput.inputValue()) !== "future.tool" ||
+    (await toolBadge.innerText()) !== "Unknown"
+  )
+    fail("manual tool name was restricted or not recognized as unknown");
+  const unknownBadge = await toolBadge.evaluate((node) => ({
+    color: getComputedStyle(node).color,
+    width: node.getBoundingClientRect().width,
+  }));
+  await toolInput.fill("literal");
+  await toolInput.press("ArrowDown");
+  await toolInput.press("Enter");
+  if (
+    (await toolInput.inputValue()) !== "literal.tool" ||
+    (await toolInput.getAttribute("aria-expanded")) !== "false"
+  )
+    fail(
+      "tool keyboard selection did not commit the literal name and close suggestions",
+    );
+  const knownBadge = await toolBadge.evaluate((node) => ({
+    color: getComputedStyle(node).color,
+    width: node.getBoundingClientRect().width,
+  }));
+  if (
+    (await toolBadge.innerText()) !== "Known" ||
+    unknownBadge.color === knownBadge.color ||
+    unknownBadge.width !== knownBadge.width
+  )
+    fail("recognition badges lacked distinct colours or shifted layout");
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  const emptyPointer = page.locator('[data-testid="constraint-pointer"]');
+  if (
+    (await emptyPointer.inputValue()) !== "" ||
+    (await page.locator('[data-testid="constraint-status"]').innerText()) !==
+      "Choose field"
+  )
+    fail("new constraint used a real pointer or reported unknown before input");
+  await emptyPointer.focus();
+  await page
+    .getByRole("option")
+    .filter({ hasText: "/filters/item~1name" })
+    .waitFor();
   const suggestedPointers = await page
-    .locator("#constraint-pointer-options option")
+    .getByRole("listbox")
+    .getByRole("option")
     .evaluateAll((options) =>
-      options.map((option) => (option as HTMLOptionElement).value),
+      options.map((option) => option.getAttribute("data-value")!),
     );
   if (
     suggestedPointers.length !== 256 ||
@@ -5052,50 +5127,275 @@ async function runGrantReadsCreate(
   if (
     (await page
       .locator(
-        '#constraint-pointer-options option[value="/filters/item~1name"]',
+        '#constraint-pointer-0-options [data-value="/filters/item~1name"]',
       )
       .count()) !== 1
   )
     fail("nested schema field was not suggested as an RFC 6901 pointer");
-  await page
-    .locator('[data-testid="constraint-pointer"]')
-    .fill("/filters/item~1name");
+  if (
+    !(
+      await page
+        .locator('#constraint-pointer-0-options [data-value="/region"]')
+        .innerText()
+    ).includes("string · us, eu · Deployment region")
+  )
+    fail("suggestions omitted scalar type, enum or description");
+  await assertMatcherAuthoringAccessibility(page, "open pointer suggestions");
+  const keyboardPointer = page.locator('[data-testid="constraint-pointer"]');
+  await keyboardPointer.press("ArrowUp");
+  const activeOption = await keyboardPointer.getAttribute(
+    "aria-activedescendant",
+  );
+  if (
+    !activeOption ||
+    !(await page.locator(`#${activeOption}`).evaluate((node) => {
+      const bounds = node.getBoundingClientRect();
+      const panel = node.closest(".suggestion-panel")!.getBoundingClientRect();
+      return bounds.top >= panel.top && bounds.bottom <= panel.bottom;
+    }))
+  )
+    fail("keyboard navigation did not scroll the active suggestion into view");
+  await keyboardPointer.press("Escape");
+  if (
+    (await keyboardPointer.inputValue()) !== "" ||
+    (await keyboardPointer.getAttribute("aria-expanded")) !== "false"
+  )
+    fail("Escape committed an active suggestion or left the popup open");
+  await keyboardPointer.fill("/filters/it");
+  await keyboardPointer.press("ArrowDown");
+  await keyboardPointer.press("Tab");
+  if (
+    (await keyboardPointer.inputValue()) !== "/filters/it" ||
+    (await keyboardPointer.getAttribute("aria-expanded")) !== "false" ||
+    !(await page
+      .locator('[data-testid="constraint-operator"]')
+      .evaluate((node) => document.activeElement === node))
+  )
+    fail("Tab implicitly selected a suggestion or retained the popup");
+  await keyboardPointer.focus();
+  await keyboardPointer.press("ArrowDown");
+  await keyboardPointer.press("Enter");
+  if ((await keyboardPointer.inputValue()) !== "/filters/item~1name")
+    fail(
+      "pointer autocomplete did not select the suggested path with ArrowDown/Enter",
+    );
   if (
     (await page.locator('[data-testid="constraint-type"]').inputValue()) !==
       "string" ||
-    !(await page
-      .locator('[data-testid="constraint-pointer"]')
-      .getAttribute("aria-describedby")) ||
     (await page
-      .locator('#constraint-pointer-options option[value="/region"]')
-      .getAttribute("label")) !== "string · us, eu · Deployment region"
+      .locator('[data-testid="constraint-pointer"]')
+      .getAttribute("aria-describedby")) !== null ||
+    (await page.locator(".matcher-guidance").count()) !== 0
   )
     fail("schema suggestion did not inform matcher type, enum, and metadata");
   await page
-    .getByText("string · regex available · Exact item name", { exact: true })
-    .waitFor();
-  await page
     .getByText(
-      "Scalar field suggestions are available below. Other schema portions are unsupported for matcher suggestions and remain available through a custom JSON Pointer.",
+      "Some schema fields cannot be suggested. Custom pointers are still available.",
       { exact: true },
     )
     .waitFor();
-  await page.getByRole("button", { name: "Remove atom" }).click();
+  const suggestionToggle = page.getByRole("button", {
+    name: "Show suggestions for JSON pointer 1",
+    exact: true,
+  });
+  await suggestionToggle.click();
+  await page.getByRole("listbox").waitFor();
+  await suggestionToggle.click();
+  if ((await page.getByRole("listbox").count()) !== 0)
+    fail("dropdown toggle did not close suggestions");
+  const pointer = page.locator('[data-testid="constraint-pointer"]');
+  const scalarType = page.locator('[data-testid="constraint-type"]');
+  const scalarValue = page.locator('[data-testid="constraint-value"]');
+  const operator = page.locator('[data-testid="constraint-operator"]');
+  if (
+    (await page.locator('[data-testid="grant-namespace"]').innerText()) !==
+    `server-${serverID.slice(-2).toLowerCase()} .`
+  )
+    fail("literal tool editor omitted namespace separator");
+  await pointer.focus();
+  await pointer.press("ControlOrMeta+A");
+  await pointer.pressSequentially("/filters/co");
+  await pointer.press("ArrowDown");
+  await pointer.press("Enter");
+  if ((await pointer.inputValue()) !== "/filters/count")
+    fail("pointer keyboard selection did not apply the suggested number path");
+  await pointer.press("Tab");
+  if ((await scalarType.inputValue()) !== "number")
+    fail("known integer path did not default to Number");
+  await pointer.focus();
+  await page.getByRole("listbox").waitFor();
+  await scalarValue.fill("1.00e+2");
+  if ((await page.getByRole("listbox").count()) !== 0)
+    fail("moving focus outside a combobox left stale suggestions open");
+  await operator.selectOption("regex");
+  if (
+    (await scalarType.inputValue()) !== "string" ||
+    !(await scalarType.isDisabled()) ||
+    (await scalarValue.inputValue()) !== ""
+  )
+    fail("MATCHES did not lock String and clear the equality token");
+  const regexWarning = page.getByText(
+    /Schema suggests number; only string runtime values can match/,
+  );
+  await regexWarning.waitFor();
+  const warningID = await regexWarning.getAttribute("id");
+  if (!warningID) fail("contextual regex warning has no description ID");
+  for (const control of [pointer, operator, scalarType, scalarValue]) {
+    const descriptions = (
+      await control.getAttribute("aria-describedby")
+    )?.split(/\s+/);
+    if (!descriptions?.includes(warningID))
+      fail("contextual regex warning is not associated with its control");
+  }
+  await scalarValue.fill("item[<>&]-\\d+");
+  await operator.selectOption("equals");
+  if (
+    (await scalarType.inputValue()) !== "number" ||
+    (await scalarType.isDisabled()) ||
+    (await scalarValue.inputValue()) !== ""
+  )
+    fail("EQUALS did not restore Number and clear the pattern");
+  await pointer.fill("/reg");
+  await page.getByRole("listbox").locator('[data-value="/region"]').click();
+  if (
+    (await pointer.inputValue()) !== "/region" ||
+    (await pointer.getAttribute("aria-expanded")) !== "false"
+  )
+    fail("pointer click did not select the field and close its suggestions");
+  if (
+    (await scalarType.inputValue()) !== "string" ||
+    (await page.locator('#constraint-values-0 option[value="eu"]').count()) !==
+      1
+  )
+    fail("enum suggestions did not follow the schema type");
+  await scalarValue.fill("outside-enum");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  const enumOverrideReview = await page
+    .locator('[data-testid="grant-review-policy"]')
+    .inputValue();
+  if (
+    !enumOverrideReview.includes('"version":2') ||
+    !enumOverrideReview.includes('"/region":"outside-enum"')
+  )
+    fail("equality-only review restricted enum overrides or omitted v2");
+  await page.locator('[data-testid="grant-create-confirm-cancel"]').click();
+  await scalarType.selectOption("number");
+  await scalarValue.fill("1.00e+2");
+  await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
+  await page.getByText("Unavailable", { exact: true }).waitFor();
+  if (
+    (await scalarValue.inputValue()) !== "1.00e+2" ||
+    (await scalarType.inputValue()) !== "number"
+  )
+    fail("tool change rewrote the draft");
+  await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page
+    .getByText(/Schema suggests string; your number type is retained/)
+    .waitFor();
+  await pointer.fill("/filters/item~1name");
+  if ((await scalarType.inputValue()) !== "number")
+    fail("path selection overwrote an explicit type");
+  await pointer.fill("/manual/" + "long-field-".repeat(20));
+  await pointer.press("Escape");
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.locator(".matcher-editor").scrollIntoViewIfNeeded();
+  if ((await pointer.inputValue()) !== "/manual/" + "long-field-".repeat(20))
+    fail("narrow manual pointer lost its full value");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await pointer.fill("/filters/item~1name");
+  let releaseOther = () => {};
+  const otherResponse = new Promise<void>((resolve) => {
+    releaseOther = resolve;
+  });
+  let finishOther = () => {};
+  const otherFinished = new Promise<void>((resolve) => {
+    finishOther = resolve;
+  });
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
+    async (route) => {
+      await otherResponse;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+          server_id: serverID,
+          upstream_name: "other.tool",
+          external_name: "Other tool",
+          descriptor: {
+            name: "other.tool",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: { late: { type: "boolean" } },
+            },
+            annotations: {
+              title: null,
+              readOnlyHint: false,
+              destructiveHint: false,
+              idempotentHint: false,
+              openWorldHint: false,
+            },
+          },
+          fingerprint: "other",
+          catalog_revision: "1",
+          first_seen_at: "2026-08-28T12:00:00Z",
+          last_seen_at: "2026-08-28T12:00:00Z",
+          retired_at: null,
+        }),
+      });
+      finishOther();
+    },
+  );
+  await Promise.all([
+    page.waitForRequest(`**/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`),
+    page.locator('[data-testid="grant-upstream"]').fill("other.tool"),
+  ]);
+  await page.getByText("Loading schema…", { exact: true }).waitFor();
+  await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page
+    .getByText(/Schema suggests string; your number type is retained/)
+    .waitFor();
+  releaseOther();
+  await otherFinished;
+  await pointer.fill("");
+  if (
+    (await page
+      .locator('#constraint-pointer-0-options [data-value="/late"]')
+      .count()) !== 0 ||
+    (await page
+      .locator(
+        '#constraint-pointer-0-options [data-value="/filters/item~1name"]',
+      )
+      .count()) !== 1 ||
+    (await scalarValue.inputValue()) !== "1.00e+2"
+  )
+    fail("late previous-tool schema replaced current guidance or values");
+  await pointer.fill("/filters/item~1name");
   await page
     .locator('[data-testid="grant-server"]')
     .selectOption("00000000000000000000000000");
   await page.locator('[data-testid="grant-server"]').selectOption(serverID);
   await page
-    .getByText(
-      "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority.",
-      { exact: true },
-    )
+    .getByText("Catalog unavailable. Manual entry is still available.", {
+      exact: true,
+    })
     .waitFor();
   if (
     (await page.locator('[data-testid="grant-upstream"]').inputValue()) !==
     "literal.tool"
   )
     fail("catalog failure discarded the literal tool draft");
+  if (
+    (await scalarValue.inputValue()) !== "1.00e+2" ||
+    (await scalarType.inputValue()) !== "number" ||
+    (await pointer.inputValue()) !== "/filters/item~1name"
+  )
+    fail("server switch or unavailable catalog rewrote constraint rows");
+  await page
+    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .click();
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
@@ -5118,15 +5418,24 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="add-constraint-atom"]').click();
   await page.locator('[data-testid="constraint-type"]').selectOption("number");
   await page.locator('[data-testid="constraint-value"]').fill("1.0");
-  await page.locator('[data-testid="constraint-version"]').selectOption("2");
+  if ((await page.locator('[data-testid="constraint-version"]').count()) !== 0)
+    fail("web authoring retained the version selector");
   if (
-    !(
-      (await page
-        .getByLabel("Constraint preview", { exact: true })
-        .textContent()) ?? ""
-    ).includes('{"version":2,"equals":{"/":1.0}')
+    (await page.getByLabel("Constraint preview", { exact: true }).count()) !== 0
   )
-    fail("grant editor could not author equality-only v2");
+    fail("grant form retained redundant editing serialization");
+  if (
+    !(await page
+      .locator('[data-testid="grant-expiry"]')
+      .evaluate((node) =>
+        Boolean(
+          document
+            .querySelector(".matcher-editor")!
+            .compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ))
+  )
+    fail("expiry was not placed after constraints");
   await page.locator('[data-testid="constraint-pointer"]').fill("bad");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
@@ -5151,7 +5460,10 @@ async function runGrantReadsCreate(
     .locator('[data-testid="constraint-type"]')
     .nth(2)
     .selectOption("boolean");
-  await page.locator('[data-testid="constraint-value"]').nth(1).fill("true");
+  await page
+    .locator('[data-testid="constraint-value"]')
+    .nth(1)
+    .selectOption("true");
   await page.locator('[data-testid="add-constraint-atom"]').click();
   await page.locator('[data-testid="constraint-pointer"]').nth(3).fill("/name");
   await page
@@ -5160,16 +5472,14 @@ async function runGrantReadsCreate(
     .selectOption("string");
   await page.locator('[data-testid="constraint-value"]').nth(2).fill("literal");
   await page.locator('[data-testid="add-constraint-atom"]').click();
-  await page.locator('[data-testid="constraint-version"]').selectOption("1");
   await page
     .locator('[data-testid="constraint-operator"]')
     .nth(4)
     .selectOption("regex");
   if (
-    (await page.locator('[data-testid="constraint-version"]').inputValue()) !==
-    "2"
+    !(await page.locator('[data-testid="constraint-type"]').nth(4).isDisabled())
   )
-    fail("regex atom did not force matcher v2");
+    fail("regex type was not visibly locked");
   await page
     .locator('[data-testid="constraint-pointer"]')
     .nth(4)
@@ -5192,18 +5502,21 @@ async function runGrantReadsCreate(
     "2030-01-01T00:00:00Z"
   )
     fail("grant constraint edits discarded the expiry draft");
-  const constraintPreview =
-    (await page
-      .getByLabel("Constraint preview", { exact: true })
-      .textContent()) ?? "";
-  if (
-    !constraintPreview.includes('"/a~1b/0":1.0') ||
-    constraintPreview.includes('"/a~1b/0":"1.0"') ||
-    !constraintPreview.includes('"/resource":"item-\\\\d+"')
-  )
-    fail("grant preview did not preserve typed matcher tokens");
   await assertMatcherAuthoringAccessibility(page, "grant creation");
   await page.locator('[data-testid="grant-create-submit"]').click();
+  await page
+    .locator('[data-testid="grant-create-confirm-submit"]')
+    .waitFor({ state: "visible" });
+  if (
+    !(await page
+      .locator('[data-testid="grant-review-policy"]')
+      .evaluate(
+        (element) =>
+          element.getBoundingClientRect().width >=
+          element.parentElement!.getBoundingClientRect().width - 1,
+      ))
+  )
+    fail("grant review policy disclosure collapsed beside its label");
   const matcherReview =
     (await page.locator("#grant-create-confirm-consequence").textContent()) ??
     "";
@@ -6005,7 +6318,7 @@ async function runRequestAdjudication(
   const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
   const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
   const ids = Array.from(
-    { length: 10 },
+    { length: 11 },
     (_, index) => `01ARZ3NDEKTSV4RRFFQ69J${String(index).padStart(4, "0")}`,
   );
   const policy = (
@@ -6083,6 +6396,18 @@ async function runRequestAdjudication(
   states.set(ids[7]!, detail(ids[7]!, policy("tool", "demo.safe", null, null)));
   states.set(ids[8]!, detail(ids[8]!, policy("tool", "demo.safe", null, null)));
   states.set(ids[9]!, detail(ids[9]!, policy("server", "demo", null, null)));
+  states.set(
+    ids[10]!,
+    detail(
+      ids[10]!,
+      policy(
+        "tool",
+        "demo.safe",
+        { equals: { "/attempt": 1, "/literal": "<>&" } },
+        null,
+      ),
+    ),
+  );
   let approvals = 0;
   let rejections = 0;
   const attempts = new Map<string, number>();
@@ -6164,7 +6489,7 @@ async function runRequestAdjudication(
         contentType: "application/json",
         headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
         body:
-          id === ids[1]
+          id === ids[1] || id === ids[10]
             ? JSON.stringify(item).replace('"/attempt":1', '"/attempt":1.0')
             : JSON.stringify(item),
       });
@@ -6244,8 +6569,21 @@ async function runRequestAdjudication(
       )
         fail("approval body changed shape");
       const approved = body.approved_policy as ReturnType<typeof policy>;
-      if (id === ids[0] && approved.target !== "demo.safe")
-        fail("server-to-tool approval did not preserve the external target");
+      if (
+        id === ids[0] &&
+        (approved.target !== "demo.safe" ||
+          (approved.constraint as Record<string, unknown>).version !== 2)
+      )
+        fail(
+          "server-to-tool equality approval did not preserve the external target and v2",
+        );
+      if (
+        id === ids[10] &&
+        (!raw.includes('"version":2') ||
+          !raw.includes('"/attempt":1.0') ||
+          !raw.includes('"/literal":"<>&"'))
+      )
+        fail("v1 approval without additions did not retain exact atoms in v2");
       states.set(id, detail(id, submitted, "approved", approved));
     } else {
       rejections += 1;
@@ -6308,17 +6646,28 @@ async function runRequestAdjudication(
     .locator('[data-testid="approval-description"]')
     .fill("Access to demo.safe");
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
-  await page.locator('[data-testid="approval-target"]').fill("demo.safe");
-  await page
-    .getByText(
-      "Current durable descriptor selected. Its schema assists narrowing but is not grant authority.",
-      { exact: true },
-    )
-    .waitFor();
+  const approvalTarget = page.getByRole("combobox", {
+    name: "Approved target",
+    exact: true,
+  });
+  await approvalTarget.fill("demo.sa");
+  await page.getByRole("listbox").locator('[data-value="demo.safe"]').waitFor();
+  await approvalTarget.press("ArrowDown");
+  await approvalTarget.press("Enter");
+  if ((await approvalTarget.inputValue()) !== "demo.safe")
+    fail("approval target autocomplete did not select the exact target");
+  await page.getByText("Known", { exact: true }).waitFor();
   await page.locator('[data-testid="approval-additional-add"]').click();
-  await page
-    .locator('[data-testid="approval-additional-pointer"]')
-    .fill("/mode");
+  const approvalPointer = page.locator(
+    '[data-testid="approval-additional-pointer"]',
+  );
+  await approvalPointer.focus();
+  await page.getByRole("listbox").locator('[data-value="/mode"]').waitFor();
+  await approvalPointer.fill("/mo");
+  await approvalPointer.press("ArrowDown");
+  await approvalPointer.press("Enter");
+  if ((await approvalPointer.inputValue()) !== "/mode")
+    fail("approval pointer autocomplete did not select the field");
   await page.locator('[data-testid="approval-additional-value"]').fill("safe");
   await page.locator('[data-testid="approval-duration"]').fill("600");
   await reviewApproval();
@@ -6344,7 +6693,7 @@ async function runRequestAdjudication(
   await navigate(ids[1]!);
   await page
     .getByText(
-      "Scalar field suggestions are available where unambiguous. Other current schema portions are unsupported for matcher suggestions; custom JSON Pointers remain available.",
+      "Some schema fields cannot be suggested. Custom pointers are still available.",
       { exact: true },
     )
     .waitFor();
@@ -6405,16 +6754,10 @@ async function runRequestAdjudication(
   if ((attempts.get(ids[1]!) ?? 0) !== 0)
     fail("invalid RE2 approval reached confirmation");
   await additionalValues.nth(1).fill("(local|dev)");
-  const additionalPreview =
-    (await page
-      .getByLabel("Constraint preview", { exact: true })
-      .textContent()) ?? "";
   if (
-    !additionalPreview.includes('"version":2') ||
-    !additionalPreview.includes('"/extra":1.0') ||
-    additionalPreview.includes('"/extra":"1.0"')
+    (await page.getByLabel("Constraint preview", { exact: true }).count()) !== 0
   )
-    fail("approval preview did not preserve typed additive matcher tokens");
+    fail("approval form retained redundant editing serialization");
   await assertMatcherAuthoringAccessibility(page, "request approval");
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");
@@ -6439,6 +6782,37 @@ async function runRequestAdjudication(
     fail(
       `approval review omitted complete matcher policy disclosure: ${approvalReview}`,
     );
+  await confirm();
+  await page
+    .getByText("Request adjudication is closed", { exact: true })
+    .waitFor();
+
+  await navigate(ids[10]!);
+  const lockedV1 = await page
+    .locator('[data-testid="approval-submitted-constraint"]')
+    .inputValue();
+  if (lockedV1.includes('"version"') || !lockedV1.includes('"/attempt":1.0'))
+    fail("existing v1 request was rewritten before approval");
+  await reviewApproval();
+  if (
+    !(
+      await page.locator('[data-testid="approval-review-policy"]').inputValue()
+    ).includes('"version":2')
+  )
+    fail("v1 equality-only approval review did not disclose v2");
+  await page
+    .locator('[data-testid="request-adjudication-confirm-submit"]')
+    .waitFor({ state: "visible" });
+  if (
+    !(await page
+      .locator('[data-testid="approval-review-policy"]')
+      .evaluate(
+        (element) =>
+          element.getBoundingClientRect().width >=
+          element.parentElement!.getBoundingClientRect().width - 1,
+      ))
+  )
+    fail("approval review policy disclosure collapsed beside its label");
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })

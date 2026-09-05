@@ -8,6 +8,7 @@ import {
 } from "./matcher-catalog";
 import {
   MatcherAtomEditor,
+  MatcherRecognition,
   matcherConstraintText,
   validMatcherPointer,
 } from "./matcher-editor";
@@ -28,6 +29,7 @@ import {
   InertJSON,
   StateNotice,
   StatusLabel,
+  SuggestionInput,
 } from "./primitives";
 import { readPrincipals, type Principal } from "./principals";
 import {
@@ -209,7 +211,6 @@ function GrantCreate({
     scope: "server" as "server" | "tool",
     upstreamName: "",
     expiresAt: "",
-    matcherVersion: 1 as 1 | 2,
     atoms: [] as Atom[],
   });
   const [description, setDescription] = useState(
@@ -230,7 +231,6 @@ function GrantCreate({
   const [catalogError, setCatalogError] = useState(false);
   const [descriptorError, setDescriptorError] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
-  const [matcherVersion, setMatcherVersion] = useState<1 | 2>(1);
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
@@ -243,15 +243,42 @@ function GrantCreate({
     controller.snapshot(),
   );
   const selectedDescriptorSummary = descriptors?.find(
-    (descriptor) => descriptor.upstreamName === upstreamName,
+    (descriptor) =>
+      descriptor.serverID === serverID &&
+      descriptor.upstreamName === upstreamName,
   );
   const schemaSuggestions =
-    selectedDescriptor === undefined
+    selectedDescriptor === undefined ||
+    selectedDescriptor.serverID !== serverID ||
+    selectedDescriptor.upstreamName !== upstreamName ||
+    selectedDescriptor.id !== selectedDescriptorSummary?.id
       ? undefined
       : matcherSchemaSuggestions(selectedDescriptor.descriptor);
+  const toolStatus = !gatewayID.test(serverID)
+    ? "Select a server"
+    : upstreamName === ""
+      ? "Choose a tool"
+      : catalogError
+        ? "Unavailable"
+        : descriptors === undefined
+          ? "Loading…"
+          : selectedDescriptorSummary === undefined
+            ? "Unknown"
+            : "Known";
+  const toolNotice = !gatewayID.test(serverID)
+    ? null
+    : catalogError
+      ? "Catalog unavailable. Manual entry is still available."
+      : selectedDescriptorSummary === undefined
+        ? null
+        : descriptorError
+          ? "Schema unavailable. Manual constraints are still available."
+          : schemaSuggestions === undefined
+            ? "Loading schema…"
+            : null;
   const reviewPolicy = (() => {
     try {
-      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms, matcherVersion === 2)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
     } catch {
       return "Complete the policy to review its serialized form.";
     }
@@ -264,7 +291,6 @@ function GrantCreate({
     scope,
     upstreamName,
     expiresAt,
-    matcherVersion,
     atoms,
   });
   const currentDraft = useRef(draftFingerprint);
@@ -308,7 +334,7 @@ function GrantCreate({
         if (!request.signal.aborted) setDescriptorError(true);
       });
     return () => request.abort();
-  }, [selectedDescriptorSummary?.id, serverID, session]);
+  }, [selectedDescriptorSummary, serverID, session]);
   const review = async () => {
     const reviewedDraft = currentDraft.current;
     setError(undefined);
@@ -355,7 +381,7 @@ function GrantCreate({
           Date.parse(expiresAt) <= Date.now())
       )
         throw new Error("Expiry must be a future canonical UTC timestamp.");
-      const constraint = matcherConstraintText(atoms, matcherVersion === 2);
+      const constraint = matcherConstraintText(atoms);
       if (constraint !== "null") {
         setValidating(true);
         const diagnostic = await validateMatcherConstraint(session, constraint);
@@ -500,52 +526,86 @@ function GrantCreate({
             <div>
               <FormField
                 id="grant-upstream"
-                label="Exact upstream tool name"
-                hint="Search current durable tools or enter a literal future tool name. Only the exact name is stored."
+                label="Tool name"
+                hint="Choose a tool or enter an exact name."
                 required
               >
                 {(attributes) => (
-                  <input
-                    {...attributes}
-                    data-testid="grant-upstream"
-                    value={upstreamName}
-                    list="grant-tool-options"
-                    autocomplete="off"
-                    onInput={(event) =>
-                      setUpstreamName(event.currentTarget.value)
-                    }
-                    required
-                  />
+                  <div class="matcher-tool-input">
+                    <span data-testid="grant-namespace">
+                      {servers.find((server) => server.id === serverID)
+                        ?.namespace ??
+                        (serverID === "00000000000000000000000000"
+                          ? "mcp_gateway"
+                          : "Choose a server")}{" "}
+                      .
+                    </span>
+                    <SuggestionInput
+                      attributes={attributes}
+                      label="Tool name"
+                      testID="grant-upstream"
+                      value={upstreamName}
+                      options={(descriptors ?? [])
+                        .filter(
+                          (descriptor) => descriptor.serverID === serverID,
+                        )
+                        .map((descriptor) => ({
+                          value: descriptor.upstreamName,
+                        }))}
+                      onChange={setUpstreamName}
+                    />
+                    <MatcherRecognition
+                      status={toolStatus}
+                      testID="grant-tool-recognition"
+                    />
+                  </div>
                 )}
               </FormField>
-              <datalist id="grant-tool-options">
-                {(descriptors ?? []).map((descriptor) => (
-                  <option
-                    value={descriptor.upstreamName}
-                    label={descriptor.externalName}
-                    key={descriptor.id}
-                  />
-                ))}
-              </datalist>
-              <p
-                class="bounded-note"
-                role="status"
-                aria-live="polite"
-                data-testid="grant-tool-posture"
-              >
-                {catalogError
-                  ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority."
-                  : descriptors === undefined
-                    ? "Loading current durable tools…"
-                    : selectedDescriptorSummary === undefined
-                      ? "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported."
-                      : descriptorError
-                        ? "Current descriptor selected, but its schema is unavailable. Manual matcher entry remains available."
-                        : selectedDescriptor === undefined
-                          ? "Loading the selected tool schema…"
-                          : "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority."}
-              </p>
+              {toolNotice && (
+                <p
+                  class="bounded-note"
+                  role="status"
+                  data-testid="grant-tool-posture"
+                >
+                  {toolNotice}
+                </p>
+              )}
             </div>
+          )}
+          {scope === "tool" && (
+            <section class="subpanel" aria-labelledby="constraint-title">
+              <h3 id="constraint-title">Constraints — All must match</h3>
+              <p class="field-hint">
+                Choose suggested fields or enter custom JSON pointers.
+              </p>
+              {schemaSuggestions?.unsupported && (
+                <p class="bounded-note" data-testid="matcher-schema-posture">
+                  Some schema fields cannot be suggested. Custom pointers are
+                  still available.
+                </p>
+              )}
+              <MatcherAtomEditor
+                idPrefix="constraint"
+                testPrefix="constraint"
+                addTestID="add-constraint-atom"
+                atoms={atoms}
+                suggestions={schemaSuggestions}
+                schemaState={
+                  gatewayID.test(serverID) &&
+                  !catalogError &&
+                  (descriptors === undefined ||
+                    (selectedDescriptorSummary !== undefined &&
+                      !descriptorError &&
+                      schemaSuggestions === undefined))
+                    ? "loading"
+                    : "unavailable"
+                }
+                onChange={(next) => {
+                  setError(undefined);
+                  setAtoms(next);
+                }}
+              />
+            </section>
           )}
           <FormField
             id="grant-expiry"
@@ -563,63 +623,6 @@ function GrantCreate({
               />
             )}
           </FormField>
-          {scope === "tool" && (
-            <section class="subpanel" aria-labelledby="constraint-title">
-              <h3 id="constraint-title">Argument matchers</h3>
-              <p>
-                Match a JSON pointer against an exact scalar or a full-string
-                RE2 pattern. Matching is conjunctive, and number and pattern
-                spelling is preserved.
-              </p>
-              {schemaSuggestions !== undefined && (
-                <p class="bounded-note" data-testid="matcher-schema-posture">
-                  {schemaSuggestions.unsupported
-                    ? "Scalar field suggestions are available below. Other schema portions are unsupported for matcher suggestions and remain available through a custom JSON Pointer."
-                    : "Scalar fields from the selected tool schema are available as suggestions; choosing one does not add a rule."}
-                </p>
-              )}
-              <FormField
-                id="constraint-version"
-                label="Matcher version"
-                hint="V1 is permanent equality-only syntax. Choose v2 for equality-only v2 identity; regex atoms always require v2."
-              >
-                {(attributes) => (
-                  <select
-                    {...attributes}
-                    data-testid="constraint-version"
-                    value={matcherVersion}
-                    onChange={(event) =>
-                      setMatcherVersion(
-                        Number(event.currentTarget.value) as 1 | 2,
-                      )
-                    }
-                  >
-                    <option
-                      value="1"
-                      disabled={atoms.some((atom) => atom.operator === "regex")}
-                    >
-                      V1 · equality
-                    </option>
-                    <option value="2">V2 · equality and full-string RE2</option>
-                  </select>
-                )}
-              </FormField>
-              <MatcherAtomEditor
-                idPrefix="constraint"
-                testPrefix="constraint"
-                addTestID="add-constraint-atom"
-                atoms={atoms}
-                suggestions={schemaSuggestions}
-                forceVersion2={matcherVersion === 2}
-                onChange={(next) => {
-                  setError(undefined);
-                  if (next.some((atom) => atom.operator === "regex"))
-                    setMatcherVersion(2);
-                  setAtoms(next);
-                }}
-              />
-            </section>
-          )}
           {error !== undefined && (
             <StateNotice state="error" title="Check grant configuration">
               <p>{error}</p>
@@ -717,14 +720,14 @@ function GrantCreate({
                   <dd>
                     {atoms.length === 0
                       ? "None"
-                      : `v${matcherVersion} · ${atoms.filter((atom) => atom.operator === "equals").length} equality · ${atoms.filter((atom) => atom.operator === "regex").length} regex`}
+                      : `v2 · ${atoms.filter((atom) => atom.operator === "equals").length} equality · ${atoms.filter((atom) => atom.operator === "regex").length} regex`}
                   </dd>
                 </div>
               </dl>
               <div>
                 <strong>Read-only serialized policy</strong>
                 <textarea
-                  class="inert-json"
+                  class="inert-json matcher-policy-review"
                   data-testid="grant-review-policy"
                   readOnly
                   rows={8}

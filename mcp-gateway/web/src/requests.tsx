@@ -8,7 +8,11 @@ import {
   type MatcherSchemaSuggestions,
 } from "./matcher-catalog";
 import type { DescriptorView } from "./server-reads";
-import { MatcherAtomEditor, matcherConstraintText } from "./matcher-editor";
+import {
+  MatcherAtomEditor,
+  MatcherRecognition,
+  matcherConstraintText,
+} from "./matcher-editor";
 import type { MatcherAtom } from "./matcher-editor";
 import { validateMatcherConstraint } from "./matcher-validation";
 import type { PrincipalDirectory } from "./principals";
@@ -29,6 +33,7 @@ import {
   sentenceCase,
   StateNotice,
   StatusLabel,
+  SuggestionInput,
 } from "./primitives";
 import type { ProtectedContext, SessionClient } from "./session";
 import { UserTime } from "./time";
@@ -544,7 +549,13 @@ function mergeConstraintSource(
   submittedSource: string | null,
   additionalSource: string,
 ): string {
-  if (additionalSource === "") return submittedSource ?? "";
+  if (additionalSource === "") {
+    if (submittedSource === null) return "";
+    const submitted = matcherShape(JSON.parse(submittedSource) as unknown);
+    return submitted.version === 2
+      ? submittedSource
+      : `{"version":2,"equals":${jsonMemberSource(submittedSource, "equals")}}`;
+  }
   let additionalValue: unknown;
   try {
     additionalValue = JSON.parse(additionalSource) as unknown;
@@ -697,24 +708,41 @@ function RequestActions({
   }, [
     detail.resolvedServerID,
     narrowsServerToTool,
-    selectedApprovalDescriptorSummary?.id,
+    selectedApprovalDescriptorSummary,
     session,
   ]);
   const approvalSuggestions: MatcherSchemaSuggestions | undefined =
     narrowsServerToTool
-      ? selectedApprovalDescriptor === undefined
+      ? selectedApprovalDescriptor === undefined ||
+        selectedApprovalDescriptor.serverID !== detail.resolvedServerID ||
+        selectedApprovalDescriptor.externalName !== target ||
+        selectedApprovalDescriptor.id !== selectedApprovalDescriptorSummary?.id
         ? undefined
         : matcherSchemaSuggestions(selectedApprovalDescriptor.descriptor)
       : detail.currentTarget.descriptor === null
         ? undefined
         : matcherSchemaSuggestions(detail.currentTarget.descriptor);
+  const approvalToolStatus =
+    target === ""
+      ? "Choose a tool"
+      : approvalCatalogError
+        ? "Unavailable"
+        : approvalDescriptors === undefined
+          ? "Loading…"
+          : selectedApprovalDescriptorSummary === undefined
+            ? "Unknown"
+            : "Known";
+  const approvalToolNotice = approvalCatalogError
+    ? "Catalog unavailable. Manual entry is still available."
+    : selectedApprovalDescriptorSummary === undefined
+      ? null
+      : approvalDescriptorError
+        ? "Schema unavailable. Manual constraints are still available."
+        : approvalSuggestions === undefined
+          ? "Loading schema…"
+          : null;
   const additionalConstraintSource = () =>
-    additionalAtoms.length === 0
-      ? ""
-      : matcherConstraintText(
-          additionalAtoms,
-          detail.submittedConstraintSource !== null,
-        );
+    additionalAtoms.length === 0 ? "" : matcherConstraintText(additionalAtoms);
   const approvedPolicy = (): Policy => {
     if (
       submitted.scope === "tool" &&
@@ -946,51 +974,46 @@ function RequestActions({
         )}
       </FormField>
       <FormField id="approval-target" label="Approved target">
-        {(attributes) => (
-          <input
-            {...attributes}
-            data-testid="approval-target"
-            value={target}
-            list={narrowsServerToTool ? "approval-tool-options" : undefined}
-            disabled={
-              submitted.scope === "tool" ||
-              (scope === "server" && submitted.scope === "server") ||
-              disabled
-            }
-            onInput={(event) => setTarget(event.currentTarget.value)}
-          />
-        )}
-      </FormField>
-      {narrowsServerToTool && (
-        <>
-          <datalist id="approval-tool-options">
-            {(approvalDescriptors ?? []).map((descriptor) => (
-              <option
-                value={descriptor.externalName}
-                label={descriptor.upstreamName}
-                key={descriptor.id}
+        {(attributes) =>
+          narrowsServerToTool ? (
+            <div class="matcher-tool-input">
+              <SuggestionInput
+                attributes={attributes}
+                label="Approved target"
+                testID="approval-target"
+                value={target}
+                options={(approvalDescriptors ?? [])
+                  .filter(
+                    (descriptor) =>
+                      descriptor.serverID === detail.resolvedServerID,
+                  )
+                  .map((descriptor) => ({ value: descriptor.externalName }))}
+                disabled={disabled}
+                onChange={setTarget}
               />
-            ))}
-          </datalist>
-          <p
-            class="bounded-note"
-            role="status"
-            aria-live="polite"
-            data-testid="approval-tool-posture"
-          >
-            {approvalCatalogError
-              ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before approval."
-              : approvalDescriptors === undefined
-                ? "Loading current durable tools…"
-                : selectedApprovalDescriptorSummary === undefined
-                  ? "No current descriptor matches this literal name. Manual approval remains available."
-                  : approvalDescriptorError
-                    ? "Current descriptor selected, but its schema is unavailable. Manual matcher entry remains available."
-                    : selectedApprovalDescriptor === undefined
-                      ? "Loading the selected tool schema…"
-                      : "Current durable descriptor selected. Its schema assists narrowing but is not grant authority."}
-          </p>
-        </>
+              <MatcherRecognition
+                status={approvalToolStatus}
+                testID="approval-tool-recognition"
+              />
+            </div>
+          ) : (
+            <input
+              {...attributes}
+              data-testid="approval-target"
+              value={target}
+              disabled
+            />
+          )
+        }
+      </FormField>
+      {narrowsServerToTool && approvalToolNotice && (
+        <p
+          class="bounded-note"
+          role="status"
+          data-testid="approval-tool-posture"
+        >
+          {approvalToolNotice}
+        </p>
       )}
       {scope === "tool" && (
         <>
@@ -1013,22 +1036,19 @@ function RequestActions({
           )}
           <div aria-labelledby="approval-additional-matchers-title">
             <h3 id="approval-additional-matchers-title">
-              Additional matcher atoms
+              Additional constraints — All must match
               <span class="optional-label"> (optional)</span>
             </h3>
             <p class="field-hint">
-              New atoms are conjoined with the locked submitted policy.
-              Additions use the same equality and full-string RE2 controls as
-              grant creation.
+              Add rules without changing the submitted policy.
             </p>
             {approvalSuggestions?.unsupported && (
               <p
                 class="bounded-note"
                 data-testid="approval-matcher-schema-posture"
               >
-                Scalar field suggestions are available where unambiguous. Other
-                current schema portions are unsupported for matcher suggestions;
-                custom JSON Pointers remain available.
+                Some schema fields cannot be suggested. Custom pointers are
+                still available.
               </p>
             )}
             <MatcherAtomEditor
@@ -1036,7 +1056,16 @@ function RequestActions({
               testPrefix="approval-additional"
               atoms={additionalAtoms}
               suggestions={approvalSuggestions}
-              forceVersion2={detail.submittedConstraintSource !== null}
+              schemaState={
+                narrowsServerToTool &&
+                !approvalCatalogError &&
+                (approvalDescriptors === undefined ||
+                  (selectedApprovalDescriptorSummary !== undefined &&
+                    !approvalDescriptorError &&
+                    approvalSuggestions === undefined))
+                  ? "loading"
+                  : "unavailable"
+              }
               disabled={disabled}
               onChange={(next) => {
                 setError(undefined);
@@ -1187,7 +1216,7 @@ function RequestActions({
               <div>
                 <strong>Read-only serialized policy</strong>
                 <textarea
-                  class="inert-json"
+                  class="inert-json matcher-policy-review"
                   data-testid="approval-review-policy"
                   readOnly
                   rows={8}
