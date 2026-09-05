@@ -93,21 +93,12 @@ export function MatcherAtomEditor({
         position === index ? { ...atom, ...patch } : atom,
       ),
     );
-  const helpID = `${idPrefix}-operator-help`;
   const pointerOptions = (suggestions?.fields ?? []).map((field) => ({
     value: field.pointer,
     detail: `${field.type}${field.values.length === 0 ? "" : ` · ${field.values.join(", ")}`}${field.description === null ? "" : ` · ${field.description}`}`,
   }));
   return (
     <div class="matcher-editor">
-      <details class="matcher-help">
-        <summary>Operator help</summary>
-        <p id={helpID} class="field-hint">
-          EQUALS compares the selected scalar type exactly. MATCHES requires
-          String: full-string Go RE2, no coercion. Schema suggestions are
-          defaults, not restrictions.
-        </p>
-      </details>
       {atoms.map((atom, index) => {
         const field = suggestions?.fields.find(
           (candidate) => candidate.pointer === atom.pointer,
@@ -130,7 +121,7 @@ export function MatcherAtomEditor({
               : `Schema suggests ${field.type}; your ${atom.type} type is retained.`
             : "";
         const hintID = `${idPrefix}-guidance-${index}`;
-        const describedBy = guidance ? `${helpID} ${hintID}` : helpID;
+        const describedBy = guidance ? hintID : undefined;
         const valuesID = `${idPrefix}-values-${index}`;
         const values = !regex && field?.type === atom.type ? field.values : [];
         return (
@@ -144,7 +135,7 @@ export function MatcherAtomEditor({
                 <SuggestionInput
                   attributes={{
                     ...attributes,
-                    "aria-describedby": describedBy,
+                    ...(describedBy ? { "aria-describedby": describedBy } : {}),
                   }}
                   label={`JSON pointer ${index + 1}`}
                   testID={`${testPrefix}-pointer`}
