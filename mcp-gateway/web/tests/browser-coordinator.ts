@@ -1889,12 +1889,7 @@ async function runOverviewInvocationSystemCanary(
   );
   await page.locator('[data-testid="overview-grid"]').waitFor();
   await page.waitForFunction(() =>
-    [
-      "overview-status",
-      "overview-servers",
-      "overview-requests",
-      "overview-invocations",
-    ].every(
+    ["overview-status", "overview-servers", "overview-requests"].every(
       (id) =>
         document
           .querySelector(`[data-testid="${id}"]`)
@@ -1903,11 +1898,11 @@ async function runOverviewInvocationSystemCanary(
   );
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Operational posture",
-    "Active tools",
-    "Configured servers",
-    "Pending requests",
-    "Recent invocations",
+    "Operational conditions",
+    "active catalog tools",
+    "configured servers",
+    "Waiting for a decision",
+    "Invocation history",
   ])
     if (!body.includes(phrase))
       fail(`Overview workflow canary omitted ${phrase}`);
@@ -6518,10 +6513,22 @@ async function runOverview(
 ): Promise<void> {
   await waitForLifecycle(page, "signed_out");
   let invocationReads = 0;
-  let serverMode: "complete" | "stale" | "partial" = "complete";
+  let serverMode:
+    | "complete"
+    | "stale"
+    | "partial"
+    | "quiet"
+    | "empty"
+    | "error" = "complete";
+  let statusMode: "abnormal" | "quiet" | "error" = "abnormal";
+  let requestMode: "populated" | "quiet" | "error" = "populated";
   let staleRestarted = false;
-  let heldStatus = false;
+  let heldStatus = true;
   let releaseHeldStatus: (() => void) | undefined;
+  let heldStatusPromise = new Promise<void>((resolve) => {
+    releaseHeldStatus = resolve;
+  });
+  let heldStatusReads = 0;
 
   await page.route("**/api/v1/system-status", async (route) => {
     if (
@@ -6531,11 +6538,34 @@ async function runOverview(
       fail("Overview status request changed shape");
     const late = heldStatus;
     if (late) {
-      await new Promise<void>((resolve) => {
-        releaseHeldStatus = resolve;
+      heldStatusReads += 1;
+      await heldStatusPromise;
+    }
+    if (statusMode === "error") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
       });
+      return;
     }
     const status = overviewStatusFixture();
+    if (statusMode === "quiet") {
+      status.process.state = "ready";
+      status.process.ready = true;
+      status.sqlite.state = "ready";
+      status.sqlite.latched = false;
+      status.keyring.capability = "ready";
+      for (const limit of Object.values(status.limits)) {
+        limit.in_use = 0;
+        limit.saturated = false;
+      }
+      status.limits.servers = { in_use: 79, limit: 100, saturated: false };
+    }
     if (late) status.process.state = "draining";
     await route.fulfill({
       status: 200,
@@ -6552,6 +6582,38 @@ async function runOverview(
     )
       fail("Overview server request changed shape");
     const cursor = query.get("cursor");
+    if (serverMode === "error") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
+    if (serverMode === "quiet" || serverMode === "empty") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items:
+            serverMode === "empty"
+              ? []
+              : [
+                  overviewServer(
+                    "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+                    "Quiet server",
+                    "active",
+                  ),
+                ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
     if (serverMode === "complete") {
       await route.fulfill({
         status: 200,
@@ -6568,6 +6630,19 @@ async function runOverview(
               "Needs operator attention",
               "degraded",
             ),
+            ...Array.from({ length: 7 }, (_, index) => {
+              const server = overviewServer(
+                `01ARZ3NDEKTSV4RRFFQ69G5FB${index}`,
+                index === 0
+                  ? `literal-<script>${"S".repeat(180)}`
+                  : `Affected server ${index + 2}`,
+                "active",
+              );
+              if (index === 0)
+                server.credential_state = "reauthentication_required";
+              else server.catalog.active_state = "unavailable";
+              return server;
+            }),
             {
               ...overviewServer(
                 "01ARZ3NDEKTSV4RRFFQ69G5FAB",
@@ -6669,12 +6744,38 @@ async function runOverview(
       [...query.keys()].some((key) => key !== "limit" && key !== "state")
     )
       fail("Overview request queue read changed shape");
+    if (requestMode === "error") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        items: [overviewRequestFixture()],
-        next_cursor: "more-pending",
+        items:
+          requestMode === "quiet"
+            ? []
+            : Array.from({ length: 5 }, (_, index) => ({
+                ...overviewRequestFixture(),
+                id: `01ARZ3NDEKTSV4RRFFQ69G5FC${index}`,
+                created_at: `2026-08-${[28, 26, 29, 25, 27][index]}T00:00:00Z`,
+                requested_policy: {
+                  ...overviewRequestFixture().requested_policy,
+                  target:
+                    index === 0
+                      ? `requested-${"T".repeat(180)}`
+                      : `target-${index}`,
+                },
+              })),
+        next_cursor: requestMode === "quiet" ? null : "more-pending",
       }),
     });
   });
@@ -6723,60 +6824,161 @@ async function runOverview(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="overview-grid"]').waitFor();
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll('[data-testid="overview-server-row"]')
-        .length === 1,
-  );
-  const body = (await page.locator("body").textContent()) ?? "";
+  let overviewPhase = "initial";
+  const overview = page.locator('[data-testid="overview-grid"]');
+  const source = (id: string) => page.locator(`[data-testid="overview-${id}"]`);
+  const sourceText = async (id: string) =>
+    (await source(id).textContent()) ?? "";
+  const assertCurrent = async (id: string) => {
+    await page
+      .waitForFunction(
+        (id) =>
+          document
+            .querySelector(`[data-testid="overview-${id}"]`)
+            ?.getAttribute("data-panel-status") === "current",
+        id,
+      )
+      .catch(async () =>
+        fail(
+          `Overview ${id} did not become current after ${overviewPhase} (status=${await source(id).getAttribute("data-panel-status")})`,
+        ),
+      );
+  };
+  const capture = async (state: string) => {
+    overviewPhase = state;
+    for (const theme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const clipped = await overview.evaluate((root) => {
+          const width = document.documentElement.clientWidth;
+          const headerBoxes = [
+            ...document.querySelectorAll(
+              ".masthead button, .masthead select, .freshness-control > .status-label",
+            ),
+          ]
+            .map((element) => element.getBoundingClientRect())
+            .filter((box) => box.width > 0);
+          return (
+            headerBoxes.some(
+              (box, index) =>
+                box.left < 0 ||
+                box.right > width ||
+                headerBoxes
+                  .slice(index + 1)
+                  .some(
+                    (other) =>
+                      box.left < other.right &&
+                      box.right > other.left &&
+                      box.top < other.bottom &&
+                      box.bottom > other.top,
+                  ),
+            ) ||
+            document.documentElement.scrollWidth > width ||
+            [...root.querySelectorAll("a")].some((link) => {
+              const box = link.getBoundingClientRect();
+              return (
+                box.left < 0 ||
+                box.right > width ||
+                link.scrollWidth > link.clientWidth + 1
+              );
+            })
+          );
+        });
+        if (clipped)
+          fail(`Overview ${state}/${theme}/${width} clipped content or links`);
+        const screenshot = await page.screenshot({ fullPage: true });
+        if (screenshot.length === 0) fail(`Overview ${state} screenshot empty`);
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.emulateMedia({ colorScheme: "light" });
+  };
+  await assertCurrent("servers");
+  await assertCurrent("requests");
+  if (
+    (await source("status").getAttribute("data-panel-status")) !== "loading" ||
+    !(await sourceText("status")).includes("Loading current data")
+  )
+    fail("System loading blocked independent reads or claimed success");
+  await capture("loading");
+  heldStatus = false;
+  releaseHeldStatus?.();
+  await assertCurrent("status");
+  const body = (await overview.textContent()) ?? "";
   for (const text of [
-    "Use the documented stopped-process recovery procedure",
-    "Storage mutation is closed",
-    "Keyring Unavailable",
-    "Capacity saturated",
-    "80% capacity pressure",
+    "not ready",
+    "storage mutation is closed",
+    "Keyring unavailable",
+    "Capacity saturated; additional work may be rejected.",
+    "80% capacity pressure; headroom for additional work is limited.",
+    "64 / 64",
+    "858993460 / 1073741824",
     "Needs operator attention",
     "Overview agent",
-    "count incomplete",
-    "Missing terminal evidence",
+    "5 shown; more need attention",
+    "5 shown; more pending",
+    "9 configured servers",
+    "8 active catalog tools",
   ]) {
-    if (!body.includes(text)) fail(`overview omitted ${text}`);
+    if (!body.includes(text)) fail(`Overview omitted ${text}`);
   }
-  const serverAttentionText =
-    (await page.locator('[data-testid="overview-servers"]').textContent()) ??
-    "";
+  for (const text of [
+    "POSTURE-01",
+    "SERVERS-01",
+    "REQUESTS-01",
+    "AUDIT-01",
+    "Recent invocations",
+    "Missing terminal evidence",
+    "Deleted server history",
+    "stopped-process recovery",
+    "Affected server 6",
+  ])
+    if (body.includes(text)) fail(`Overview retained ${text}`);
   if (
-    serverAttentionText.includes("literal-<script>") ||
-    serverAttentionText.includes("Deleted server history")
+    (await overview
+      .locator(".panel-code, .fact-card, .compact-record-fields, button")
+      .count()) !== 0
   )
-    fail("overview server attention included healthy or deleted servers");
-  if (body.includes("Inspect System for stopped recovery guidance"))
-    fail("overview pointed to removed recovery UI");
+    fail(
+      "Overview retained ornamental inventory, diagnostics or inline mutations",
+    );
+  const serverLinks = await source("servers")
+    .locator("li a")
+    .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
   if (
-    !(
-      await page
-        .locator('[data-testid="overview-servers"] h3')
-        .allTextContents()
-    ).some((text) => /\d+ active tools?/.test(text)) ||
-    !(
-      await page
-        .locator('[data-testid="overview-servers"] h3')
-        .allTextContents()
-    ).some((text) => /\d+ configured servers?/.test(text))
+    serverLinks.join("|") !==
+    ["FA1", "FB0", "FB1", "FB2", "FB3"]
+      .map((suffix) => `#/servers/01ARZ3NDEKTSV4RRFFQ69G5${suffix}?tab=status`)
+      .join("|")
   )
-    fail("overview counts were not self-describing");
-  const invocationFieldLabels = await page
-    .locator('[data-testid="overview-invocations"] .compact-record-fields dt')
-    .allTextContents();
-  if (invocationFieldLabels.join("|") !== "Status|Outcome|Admitted")
-    fail("overview invocation fields were not structured");
+    fail("Server preview changed eligibility, order or five-item bound");
+  const reasons = await source("servers").locator("li p").allTextContents();
   if (
-    (await page.locator("script").count()) !== 1 ||
-    (
-      await page.locator('[data-testid="overview-invocations"]').textContent()
-    )?.includes("redacted_arguments")
+    reasons.join("|") !==
+    "Runtime degraded|Credentials reauthentication required|Active catalog unavailable|Active catalog unavailable|Active catalog unavailable"
   )
-    fail("overview rendered active or private content");
+    fail("Server reasons were not specific observed states");
+  const requestLinks = await source("requests")
+    .locator("li a")
+    .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
+  if (
+    requestLinks.join("|") !==
+    Array.from(
+      { length: 5 },
+      (_, index) => `#/requests/01ARZ3NDEKTSV4RRFFQ69G5FC${index}`,
+    ).join("|")
+  )
+    fail(
+      "Request preview re-sorted queue timestamps or lost bounds/review links",
+    );
+  if (
+    (await source("requests").locator("time").count()) !== 5 ||
+    !(await sourceText("requests")).includes("Waiting about")
+  )
+    fail("Request waiting time missing");
+  if ((await page.locator("script").count()) !== 1)
+    fail("Overview rendered active content");
   if (
     (await page
       .locator('[data-testid="gateway-shell"]')
@@ -6787,44 +6989,32 @@ async function runOverview(
     "#/system",
     "#/system?tab=resource-limits",
     "#/servers",
-    "#/servers/01ARZ3NDEKTSV4RRFFQ69G5FA1?tab=status",
-    "#/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "#/catalog",
     "#/requests?filter_state=pending",
-    "#/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAX",
     "#/invocations",
-  ]) {
-    if (
-      (await page
-        .locator(`[data-testid="overview-grid"] a[href="${href}"]`)
-        .count()) !== 1
-    )
-      fail(`overview omitted route ${href}`);
-  }
-
-  const beforePoll = invocationReads;
+  ])
+    if ((await overview.locator(`nav a[href="${href}"]`).count()) !== 1)
+      fail(`Overview omitted exploration route ${href}`);
+  await source("servers").locator("li a").first().focus();
+  await page.keyboard.press("Tab");
+  if (
+    !(await source("servers")
+      .locator("li a")
+      .nth(1)
+      .evaluate((link) => link === document.activeElement))
+  )
+    fail("Server links not keyboard reachable in queue order");
+  const accessibility = await new AxeBuilder({ page })
+    .include('[data-testid="overview-grid"]')
+    .analyze();
+  if (accessibility.violations.length > 0)
+    fail(
+      `Overview accessibility violations: ${accessibility.violations.map((item) => item.id).join(",")}`,
+    );
+  await capture("attention");
   await page.waitForTimeout(5100);
-  if (invocationReads !== beforePoll + 1)
-    fail("overview polling was not five-second bounded");
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
-  const hiddenReads = invocationReads;
-  await page.waitForTimeout(5100);
-  if (invocationReads !== hiddenReads) fail("overview polled while hidden");
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "visible",
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
-  await page.waitForTimeout(5100);
-  if (invocationReads !== hiddenReads + 1)
-    fail("overview polling did not resume after visibility returned");
+  if (invocationReads !== 0)
+    fail("Overview performed invocation reads or polling");
 
   serverMode = "stale";
   staleRestarted = false;
@@ -6847,13 +7037,141 @@ async function runOverview(
   await page.waitForFunction(() =>
     document
       .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("count incomplete"),
+      ?.textContent?.includes("counts incomplete"),
   );
+  if (
+    !(await sourceText("servers")).includes(
+      "additional affected servers may exist",
+    ) ||
+    !(await sourceText("servers")).includes("loaded; counts incomplete")
+  )
+    fail("Partial traversal implied an exhaustive count");
+  await capture("partial");
 
+  statusMode = "quiet";
+  serverMode = "quiet";
+  requestMode = "quiet";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-testid="overview-servers"]')
+      ?.textContent?.includes("No servers flagged"),
+  );
+  await assertCurrent("status");
+  await assertCurrent("requests");
+  const quiet = (await overview.textContent()) ?? "";
+  for (const text of [
+    "Process ready",
+    "SQLite ready · not latched",
+    "Keyring ready",
+    "No servers flagged for attention in the current read",
+    "No pending access requests in the current read",
+    "1 configured server",
+    "1 active catalog tool",
+  ])
+    if (!quiet.includes(text)) fail(`Quiet Overview omitted ${text}`);
+  if (
+    quiet.includes("capacity pressure") ||
+    quiet.includes("saturated") ||
+    quiet.includes("healthy") ||
+    quiet.length > 650
+  )
+    fail("Quiet Overview was not short or evidence-bounded");
+  if (
+    (await page
+      .locator('[data-testid="gateway-shell"]')
+      .getAttribute("data-mutation-availability")) === "storage_latched"
+  )
+    fail("Fresh unlatched read did not reopen admission");
+  await capture("quiet");
+
+  serverMode = "empty";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-testid="overview-servers"]')
+      ?.textContent?.includes("No servers configured"),
+  );
+  if (
+    !(await sourceText("servers")).includes(
+      "0 configured servers · 0 active catalog tools",
+    )
+  )
+    fail("Empty inventory counts misleading");
+  await capture("empty");
+
+  for (const failed of ["status", "servers", "requests"] as const) {
+    statusMode = failed === "status" ? "error" : "quiet";
+    serverMode = failed === "servers" ? "error" : "quiet";
+    requestMode = failed === "requests" ? "error" : "quiet";
+    await page.locator('[data-testid="manual-refresh"]').click();
+    await page.waitForFunction(
+      (id) =>
+        document
+          .querySelector(`[data-testid="overview-${id}"]`)
+          ?.getAttribute("data-panel-status") === "error",
+      failed,
+    );
+    if (
+      !(await sourceText(failed)).includes(
+        "Refresh failed. Showing the last read; current state is unknown.",
+      )
+    )
+      fail(`Isolated ${failed} error omitted evidence boundary`);
+    if ((await sourceText(failed)).includes("in the current read"))
+      fail(`Isolated ${failed} error retained current reassurance`);
+    for (const other of ["status", "servers", "requests"].filter(
+      (id) => id !== failed,
+    ))
+      await assertCurrent(other);
+    await capture(`error-${failed}`);
+  }
+  statusMode = "quiet";
+  serverMode = "quiet";
+  requestMode = "quiet";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  for (const id of ["status", "servers", "requests"]) await assertCurrent(id);
+  await page.route("**/api/v1/events", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: ": ended stream\n\n",
+    }),
+  );
+  await page.reload();
+  await page.waitForFunction(() =>
+    ["status", "servers", "requests"].every((id) =>
+      document
+        .querySelector(`[data-testid="overview-${id}"]`)
+        ?.textContent?.includes(
+          "Data stale. Showing the last read; current state is unknown.",
+        ),
+    ),
+  );
+  for (const id of ["status", "servers", "requests"]) {
+    if (
+      !(await sourceText(id)).includes(
+        "Data stale. Showing the last read; current state is unknown.",
+      ) ||
+      (await sourceText(id)).includes("in the current read")
+    )
+      fail(`Stale ${id} claimed current reassurance`);
+  }
+  await capture("stale");
+  await page.unroute("**/api/v1/events");
+  await page.reload();
+  for (const id of ["status", "servers", "requests"]) await assertCurrent(id);
+  if (invocationReads !== 0)
+    fail("Overview invocation reads resumed on visibility or refresh");
+
+  heldStatusPromise = new Promise<void>((resolve) => {
+    releaseHeldStatus = resolve;
+  });
+  const previousHeldReads = heldStatusReads;
   heldStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();
   await eventually(
-    () => releaseHeldStatus !== undefined,
+    () => heldStatusReads > previousHeldReads,
     "held overview refresh did not start",
   );
   if (
@@ -6865,7 +7183,7 @@ async function runOverview(
     fail("overview refresh flashed stale feedback");
   heldStatus = false;
   await page.locator('[data-testid="manual-refresh"]').click();
-  releaseHeldStatus?.();
+  (releaseHeldStatus as (() => void) | undefined)?.();
   await page.waitForFunction(
     () =>
       document
@@ -6888,6 +7206,24 @@ async function runOverview(
     )
   )
     fail("overview long content overflowed the document");
+  requestMode = "error";
+  await page.reload();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="overview-requests"]')
+        ?.getAttribute("data-panel-status") === "error",
+  );
+  await assertCurrent("status");
+  await assertCurrent("servers");
+  if (
+    !(await sourceText("requests")).includes("Read unavailable") ||
+    (await sourceText("requests")).includes("No pending")
+  )
+    fail("Unavailable initial queue appeared empty-success");
+  await capture("unavailable");
+  if (invocationReads !== 0)
+    fail("Overview invocation reads returned after reload");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "overview_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), invocation_reads: invocationReads })}\n`,
