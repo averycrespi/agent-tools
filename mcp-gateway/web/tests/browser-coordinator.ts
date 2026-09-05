@@ -4314,6 +4314,27 @@ async function assertMatcherAuthoringAccessibility(
   page: Page,
   workflow: string,
 ): Promise<void> {
+  if (
+    (await page.getByText("Operator help", { exact: true }).count()) !== 0 ||
+    (await page.locator(".matcher-editor details").count()) !== 0 ||
+    (await page
+      .getByText(/EQUALS compares the selected scalar type exactly/)
+      .count()) !== 0
+  )
+    fail(`${workflow} retained the removed operator help disclosure`);
+  const missingDescriptions = await page
+    .locator(".matcher-editor [aria-describedby]")
+    .evaluateAll((controls) =>
+      controls.flatMap((control) =>
+        (control.getAttribute("aria-describedby") ?? "")
+          .split(/\s+/)
+          .filter((id) => id && document.getElementById(id) === null),
+      ),
+    );
+  if (missingDescriptions.length !== 0)
+    fail(
+      `${workflow} has missing descriptions: ${missingDescriptions.join(",")}`,
+    );
   const axe = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
@@ -5166,9 +5187,9 @@ async function runGrantReadsCreate(
   if (
     (await page.locator('[data-testid="constraint-type"]').inputValue()) !==
       "string" ||
-    !(await page
+    (await page
       .locator('[data-testid="constraint-pointer"]')
-      .getAttribute("aria-describedby")) ||
+      .getAttribute("aria-describedby")) !== null ||
     (await page.locator(".matcher-guidance").count()) !== 0
   )
     fail("schema suggestion did not inform matcher type, enum, and metadata");
@@ -5187,12 +5208,6 @@ async function runGrantReadsCreate(
   await suggestionToggle.click();
   if ((await page.getByRole("listbox").count()) !== 0)
     fail("dropdown toggle did not close suggestions");
-  const operatorHelp = page.locator(".matcher-help summary");
-  await operatorHelp.focus();
-  await operatorHelp.press("Enter");
-  if (!(await page.locator("#constraint-operator-help").isVisible()))
-    fail("operator help was not keyboard accessible");
-  await operatorHelp.press("Enter");
   const pointer = page.locator('[data-testid="constraint-pointer"]');
   const scalarType = page.locator('[data-testid="constraint-type"]');
   const scalarValue = page.locator('[data-testid="constraint-value"]');
@@ -5224,9 +5239,19 @@ async function runGrantReadsCreate(
     (await scalarValue.inputValue()) !== ""
   )
     fail("MATCHES did not lock String and clear the equality token");
-  await page
-    .getByText(/Schema suggests number; only string runtime values can match/)
-    .waitFor();
+  const regexWarning = page.getByText(
+    /Schema suggests number; only string runtime values can match/,
+  );
+  await regexWarning.waitFor();
+  const warningID = await regexWarning.getAttribute("id");
+  if (!warningID) fail("contextual regex warning has no description ID");
+  for (const control of [pointer, operator, scalarType, scalarValue]) {
+    const descriptions = (
+      await control.getAttribute("aria-describedby")
+    )?.split(/\s+/);
+    if (!descriptions?.includes(warningID))
+      fail("contextual regex warning is not associated with its control");
+  }
   await scalarValue.fill("item[<>&]-\\d+");
   await operator.selectOption("equals");
   if (

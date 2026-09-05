@@ -617,12 +617,6 @@ p {
   width: 100%;
 }
 
-.matcher-help summary {
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 13px;
-}
-
 .matcher-tool-input {
   display: flex;
   align-items: center;
