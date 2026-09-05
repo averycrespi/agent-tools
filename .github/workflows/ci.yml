@@ -5,15 +5,36 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Select affected tools
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tools: ${{ steps.select.outputs.tools }}
+      integration: ${{ steps.select.outputs.integration }}
+      e2e: ${{ steps.select.outputs.e2e }}
+      gateway: ${{ steps.select.outputs.gateway }}
+      sandbox: ${{ steps.select.outputs.sandbox }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: make test-ci
+      - id: select
+        run: python3 -B .github/scripts/ci.py select
+
   quality:
     name: Quality
     runs-on: ubuntu-latest
@@ -30,25 +51,44 @@ jobs:
           cache: npm
       - run: npm ci
       - run: make fmt-check
-      - run: make lint
 
   unit-tests:
-    name: Unit tests (Linux)
+    name: Go checks (${{ matrix.tool }}, Linux)
+    needs: changes
+    if: needs.changes.outputs.tools != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJSON(needs.changes.outputs.tools) }}
+    env:
+      TOOL: ${{ matrix.tool }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.work
-          cache-dependency-path: "**/go.sum"
+          cache-dependency-path: ${{ matrix.tool }}/go.sum
       - uses: actions/setup-node@v4
+        if: matrix.tool == 'mcp-gateway'
         with:
           node-version: 24
-      - run: make test
+      - name: Lint
+        run: make -C "$TOOL" lint
+      - name: Unit tests
+        if: ${{ !cancelled() }}
+        run: |
+          if [ "$TOOL" = mcp-gateway ]; then
+            make -C "$TOOL" test-unit
+          else
+            make -C "$TOOL" test
+          fi
 
   sandbox-manager-macos:
     name: Sandbox Manager tests (macOS)
+    needs: changes
+    if: needs.changes.outputs.sandbox == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -56,35 +96,53 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.work
-          cache-dependency-path: "**/go.sum"
+          cache-dependency-path: sandbox-manager/go.sum
       - run: make -C sandbox-manager test
 
   integration-tests:
-    name: Integration tests
+    name: Integration tests (${{ matrix.tool }})
+    needs: changes
+    if: needs.changes.outputs.integration != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJSON(needs.changes.outputs.integration) }}
+    env:
+      TOOL: ${{ matrix.tool }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.work
-          cache-dependency-path: "**/go.sum"
-      - run: make test-integration
+          cache-dependency-path: ${{ matrix.tool }}/go.sum
+      - run: make -C "$TOOL" test-integration
 
   e2e-tests:
-    name: End-to-end tests
+    name: End-to-end tests (${{ matrix.tool }})
+    needs: changes
+    if: needs.changes.outputs.e2e != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJSON(needs.changes.outputs.e2e) }}
+    env:
+      TOOL: ${{ matrix.tool }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.work
-          cache-dependency-path: "**/go.sum"
-      - run: make test-e2e
+          cache-dependency-path: ${{ matrix.tool }}/go.sum
+      - run: make -C "$TOOL" test-e2e
 
-  vulnerability-scan:
-    name: Vulnerability scan
+  gateway-temporary:
+    name: Gateway temporary runner
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -92,5 +150,49 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.work
-          cache-dependency-path: "**/go.sum"
-      - run: make vulncheck
+          cache-dependency-path: mcp-gateway/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: make -C mcp-gateway test-serve-temporary
+
+  vulnerability-scan:
+    name: Vulnerability scan (${{ matrix.tool }})
+    needs: changes
+    if: needs.changes.outputs.tools != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJSON(needs.changes.outputs.tools) }}
+    env:
+      TOOL: ${{ matrix.tool }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.work
+          cache-dependency-path: ${{ matrix.tool }}/go.sum
+      - run: go -C "$TOOL" tool govulncheck ./...
+
+  required:
+    name: Required
+    if: ${{ always() }}
+    needs:
+      - changes
+      - quality
+      - unit-tests
+      - sandbox-manager-macos
+      - integration-tests
+      - e2e-tests
+      - gateway-temporary
+      - vulnerability-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify selected checks
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 -B .github/scripts/ci.py gate

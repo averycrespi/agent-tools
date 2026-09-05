@@ -22,7 +22,8 @@ Each Go tool has its own `CLAUDE.md` with tool-specific instructions.
 npm install                 # install Husky/Prettier deps and Git hooks
 make install                # install all Go tool binaries
 make build                  # build all Go tools
-make check                  # check formatting, lint, and run unit tests
+make check                  # check CI selection, formatting, lint, and tests
+make test-ci                # Python 3 CI classifier and required-gate tests
 make test-integration       # run integration suites for tools that provide them
 make test-e2e               # run end-to-end suites for tools that provide them
 make vulncheck              # run blocking govulncheck scans for all Go tools
@@ -42,7 +43,9 @@ For the two-process live-reload workflow, follow the [MCP Gateway frontend devel
 
 Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. `check-other-tools` deliberately excludes `mcp-gateway` because Gateway release acceptance is a separate owner; do not compose both under another aggregate. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 
-GitHub Actions runs formatting and lint checks, Linux unit, integration, and end-to-end tests, a macOS `sandbox-manager` unit-test job, and a blocking vulnerability scan. Keep `.github/workflows/ci.yml` aligned with the root Makefile targets so the same checks can be reproduced locally.
+GitHub Actions selects affected tools on PRs and runs the full tool set on `main`, manual runs, and a weekly schedule. Go lint/unit, integration, E2E, and blocking vulnerability checks are tool-scoped; Gateway's temporary-runner leaf and sandbox-manager's macOS unit tests have separate jobs. Formatting and CI classifier/gate tests always run. The stable `Required` gate permits only expected skips. See README's CI section for path invalidation and branch-protection migration.
+
+Keep `.github/workflows/ci.yml` and `.github/scripts/ci.py` aligned with root Makefile targets. CI reads `TOOLS`, `INTEGRATION_TOOLS`, and `E2E_TOOLS` as literal lists; update the inventory assertion in `.github/scripts/ci_test.py` when the tool set changes. Run `make test-ci` (Python 3, no third-party packages) when changing CI. Do not invoke Gateway's `test` aggregate alongside its integration leaf.
 
 ## Service Layout
 

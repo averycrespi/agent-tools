@@ -23,7 +23,7 @@ The public verification interface is organized by evidence purpose:
 - Browser workflow, privacy, visual, accessibility, and cross-browser leaves each have one owner; `test-browser` is their developer-facing aggregate.
 - Frontend typecheck, deterministic generated assets, supply-chain guards, and vulnerability audit remain separate explicit owners.
 
-`test` aggregates `test-unit` and `test-integration` only. It is a developer convenience, not a release leaf. `test-browser` is also an aggregate.
+`test` aggregates `test-unit`, `test-integration`, and `test-serve-temporary`. It is a developer convenience, not a release leaf. `test-browser` is also an aggregate.
 
 `accept` invokes disjoint leaves directly and never invokes `test`, `test-browser`, `audit`, or another aggregate that would repeat evidence. The complete nonbrowser E2E suite runs once. Only the five named stress scenarios repeat; migration, retention, protocol, browser, and real-binary matrices remain count one. Transitive ownership keeps generated-asset verification from running under multiple names.
 
@@ -41,6 +41,8 @@ Run `make help` for exact target spelling and required variables. Do not preserv
 | Scheduling sensitivity    | `test-stress` only; never repeat unrelated packages                                                             |
 | Platform capability       | `test-keyring-native` with explicit typed classification                                                        |
 | Release candidate         | external qualification followed by one clean `accept` run                                                       |
+
+Repository CI runs Gateway's unit, integration, E2E, and temporary-runner leaves in separate jobs when Gateway is affected; `main`, manual, and scheduled runs select every tool. The stable required gate and conservative path-selection policy are described in the [repository CI guide](../../../README.md#ci). This development profile does not replace browser, native, security, or other final-acceptance owners.
 
 Pull requests may run individual leaves in separate jobs, but the final acceptance profile remains the authority for exact multiplicity and report composition. Do not wrap leaf jobs in an aggregate that causes the same package or browser workflow to execute twice.
 
