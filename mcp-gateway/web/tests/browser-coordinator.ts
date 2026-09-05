@@ -1902,16 +1902,13 @@ async function runOverviewInvocationSystemCanary(
     "active catalog tools",
     "configured servers",
     "Waiting for a decision",
-    "Invocation history",
   ])
     if (!body.includes(phrase))
       fail(`Overview workflow canary omitted ${phrase}`);
   if (body.includes("redacted_arguments"))
     fail("Overview workflow canary exposed invocation capture");
 
-  await page.evaluate(() => {
-    window.location.hash = "#/invocations";
-  });
+  await page.locator('#primary-navigation a[href="#/invocations"]').click();
   await page.locator('[data-testid="invocations-view"]').waitFor();
   await page.waitForFunction(
     () =>
@@ -7220,6 +7217,8 @@ async function runOverview(
   };
   const capture = async (state: string) => {
     overviewPhase = state;
+    if ((await overview.locator("nav").count()) !== 0)
+      fail(`Overview ${state} retained redundant destination navigation`);
     for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme });
       for (const width of [1440, 390, 320]) {
@@ -7361,14 +7360,28 @@ async function runOverview(
     fail("Overview did not close mutation admission for latched storage");
   for (const href of [
     "#/system",
-    "#/system?tab=resource-limits",
     "#/servers",
     "#/catalog",
-    "#/requests?filter_state=pending",
+    "#/requests",
     "#/invocations",
   ])
-    if ((await overview.locator(`nav a[href="${href}"]`).count()) !== 1)
-      fail(`Overview omitted exploration route ${href}`);
+    if (
+      (await page.locator(`#primary-navigation a[href="${href}"]`).count()) !==
+      1
+    )
+      fail(`Primary navigation omitted destination ${href}`);
+  for (const [name, href] of [
+    ["Inspect System", "#/system"],
+    ["Inspect storage status", "#/system"],
+    ["Inspect keyring status", "#/system"],
+    ["Inspect resource limits", "#/system?tab=resource-limits"],
+  ] as const)
+    if (
+      (await source("status")
+        .getByRole("link", { name, exact: true })
+        .getAttribute("href")) !== href
+    )
+      fail(`Overview omitted contextual condition link ${name}`);
   await source("servers").locator("li a").first().focus();
   await page.keyboard.press("Tab");
   if (

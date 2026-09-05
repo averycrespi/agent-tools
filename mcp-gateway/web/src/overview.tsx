@@ -884,14 +884,6 @@ export function Overview({
           </>
         )}
       </Panel>
-      <nav class="overview-explore" aria-label="Explore Gateway">
-        <a href="#/system">System</a>
-        <a href="#/system?tab=resource-limits">Resource limits</a>
-        <a href="#/servers">Servers</a>
-        <a href="#/catalog">Catalog</a>
-        <a href="#/requests?filter_state=pending">All pending requests</a>
-        <a href="#/invocations">Invocation history</a>
-      </nav>
     </div>
   );
 }

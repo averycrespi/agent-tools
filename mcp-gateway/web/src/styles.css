@@ -1037,8 +1037,7 @@ p {
   gap: 9px;
 }
 
-.overview-facts,
-.overview-explore {
+.overview-facts {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 24px;
@@ -1104,17 +1103,6 @@ p {
 
 .overview-decisions a {
   font-weight: 400;
-}
-
-.overview-explore {
-  padding-top: 14px;
-  font-size: 13px;
-}
-
-.overview-explore a {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
 }
 
 .record-list,
