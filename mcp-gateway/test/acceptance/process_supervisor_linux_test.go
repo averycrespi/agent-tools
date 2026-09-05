@@ -24,6 +24,7 @@ func TestReleaseExecutorCancellationReapsNestedProcessGroup(t *testing.T) {
 	pidPath := t.TempDir() + "/nested.pid"
 	t.Setenv("MCP_GATEWAY_ACCEPTANCE_EXECUTOR_FIXTURE", pidPath)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	result := make(chan error, 1)
 	go func() {
 		_, runErr := (OSExecutor{}).Run(ctx, t.TempDir(), Command{
@@ -34,11 +35,12 @@ func TestReleaseExecutorCancellationReapsNestedProcessGroup(t *testing.T) {
 
 	pid := waitForFixturePID(t, pidPath)
 	cancel()
-	require.ErrorIs(t, <-result, context.Canceled)
+	runErr := <-result
+	require.ErrorIs(t, runErr, context.Canceled)
 	require.Eventually(t, func() bool {
 		err := syscall.Kill(pid, 0)
 		return errors.Is(err, syscall.ESRCH)
-	}, 5*time.Second, 10*time.Millisecond)
+	}, 5*time.Second, 10*time.Millisecond, "nested PID %d survived cancellation: %v; ledger survivors: %v", pid, runErr, ledger.Survivors())
 	require.Empty(t, ledger.Survivors())
 }
 
@@ -68,8 +70,18 @@ func TestReleaseExecutorNestedFixture(t *testing.T) {
 	}
 	runner, err := testutil.NewBinaryRunner(time.Minute, 1024)
 	require.NoError(t, err)
-	process, err := runner.Start(context.Background(), "sh", "-c", "trap '' TERM; echo $$ > \"$MCP_GATEWAY_ACCEPTANCE_EXECUTOR_FIXTURE\"; while :; do :; done")
+	process, err := runner.Start(context.Background(), "sh", "-c", "trap '' TERM; printf ready; while :; do :; done")
 	require.NoError(t, err)
+	defer func() { require.NoError(t, process.Stop()) }()
+	select {
+	case <-process.StdoutReady():
+	case <-time.After(2 * time.Second):
+		t.Fatal("nested fixture did not install its TERM trap")
+	}
+	pid, err := process.PID()
+	require.NoError(t, err)
+	// Publish only after Start registers cleanup ownership and the shell installs its trap.
+	require.NoError(t, os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), 0o600))
 	_, _ = process.Wait()
 }
 
