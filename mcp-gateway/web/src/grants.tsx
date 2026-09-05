@@ -8,6 +8,7 @@ import {
 } from "./matcher-catalog";
 import {
   MatcherAtomEditor,
+  MatcherRecognition,
   matcherConstraintText,
   validMatcherPointer,
 } from "./matcher-editor";
@@ -28,6 +29,7 @@ import {
   InertJSON,
   StateNotice,
   StatusLabel,
+  SuggestionInput,
 } from "./primitives";
 import { readPrincipals, type Principal } from "./principals";
 import {
@@ -252,6 +254,28 @@ function GrantCreate({
     selectedDescriptor.id !== selectedDescriptorSummary?.id
       ? undefined
       : matcherSchemaSuggestions(selectedDescriptor.descriptor);
+  const toolStatus = !gatewayID.test(serverID)
+    ? "Select a server"
+    : upstreamName === ""
+      ? "Choose a tool"
+      : catalogError
+        ? "Unavailable"
+        : descriptors === undefined
+          ? "Loading…"
+          : selectedDescriptorSummary === undefined
+            ? "Unknown"
+            : "Known";
+  const toolNotice = !gatewayID.test(serverID)
+    ? null
+    : catalogError
+      ? "Catalog unavailable. Manual entry is still available."
+      : selectedDescriptorSummary === undefined
+        ? null
+        : descriptorError
+          ? "Schema unavailable. Manual constraints are still available."
+          : schemaSuggestions === undefined
+            ? "Loading schema…"
+            : null;
   const reviewPolicy = (() => {
     try {
       return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
@@ -502,8 +526,8 @@ function GrantCreate({
             <div>
               <FormField
                 id="grant-upstream"
-                label="Exact upstream tool name"
-                hint="Search current durable tools or enter a literal future tool name. Only the exact name is stored."
+                label="Tool name"
+                hint="Choose a tool or enter an exact name."
                 required
               >
                 {(attributes) => (
@@ -516,94 +540,48 @@ function GrantCreate({
                           : "Choose a server")}{" "}
                       .
                     </span>
-                    <input
-                      {...attributes}
-                      data-testid="grant-upstream"
+                    <SuggestionInput
+                      attributes={attributes}
+                      label="Tool name"
+                      testID="grant-upstream"
                       value={upstreamName}
-                      list="grant-tool-options"
-                      autocomplete="off"
-                      onInput={(event) =>
-                        setUpstreamName(event.currentTarget.value)
-                      }
-                      required
+                      options={(descriptors ?? [])
+                        .filter(
+                          (descriptor) => descriptor.serverID === serverID,
+                        )
+                        .map((descriptor) => ({
+                          value: descriptor.upstreamName,
+                        }))}
+                      onChange={setUpstreamName}
                     />
-                    <span
-                      class="matcher-tool-status"
-                      data-testid="grant-tool-recognition"
-                    >
-                      {!gatewayID.test(serverID)
-                        ? "Select a server"
-                        : catalogError
-                          ? "Unavailable"
-                          : descriptors === undefined
-                            ? "Loading…"
-                            : selectedDescriptorSummary === undefined
-                              ? "Unknown"
-                              : "Known"}
-                    </span>
+                    <MatcherRecognition
+                      status={toolStatus}
+                      testID="grant-tool-recognition"
+                    />
                   </div>
                 )}
               </FormField>
-              <datalist id="grant-tool-options">
-                {(descriptors ?? []).map((descriptor) => (
-                  <option
-                    value={descriptor.upstreamName}
-                    label={descriptor.externalName}
-                    key={descriptor.id}
-                  />
-                ))}
-              </datalist>
-              <p
-                class="bounded-note"
-                role="status"
-                aria-live="polite"
-                data-testid="grant-tool-posture"
-              >
-                {!gatewayID.test(serverID)
-                  ? "Choose a server for catalog guidance. Manual constraint entry remains available."
-                  : catalogError
-                    ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority."
-                    : descriptors === undefined
-                      ? "Loading current durable tools…"
-                      : selectedDescriptorSummary === undefined
-                        ? "Unknown — not found in the current catalog. Future tool names remain supported."
-                        : descriptorError
-                          ? "Known tool — schema unavailable. Manual constraint entry remains available."
-                          : selectedDescriptor === undefined
-                            ? "Known tool — loading schema…"
-                            : "Known — found in the current catalog. Schema guidance is not grant authority."}
-              </p>
+              {toolNotice && (
+                <p
+                  class="bounded-note"
+                  role="status"
+                  data-testid="grant-tool-posture"
+                >
+                  {toolNotice}
+                </p>
+              )}
             </div>
           )}
-          <FormField
-            id="grant-expiry"
-            label="Expiry"
-            hint="Leave blank for permanent; otherwise use a future canonical UTC RFC3339 timestamp."
-            optional
-          >
-            {(attributes) => (
-              <input
-                {...attributes}
-                data-testid="grant-expiry"
-                value={expiresAt}
-                placeholder="2030-01-01T00:00:00Z"
-                onInput={(event) => setExpiresAt(event.currentTarget.value)}
-              />
-            )}
-          </FormField>
           {scope === "tool" && (
             <section class="subpanel" aria-labelledby="constraint-title">
               <h3 id="constraint-title">Constraints — All must match</h3>
-              <p>
-                Match a JSON pointer against an exact scalar or a full-string
-                RE2 pattern. Matching is conjunctive, and number and pattern
-                spelling is preserved.
+              <p class="field-hint">
+                Choose suggested fields or enter custom JSON pointers.
               </p>
-              {schemaSuggestions !== undefined && (
+              {schemaSuggestions?.unsupported && (
                 <p class="bounded-note" data-testid="matcher-schema-posture">
-                  {schemaSuggestions.unsupported
-                    ? "Scalar field suggestions are available below. Other schema portions are unsupported for matcher suggestions and remain available through a custom JSON Pointer."
-                    : "Scalar fields from the selected tool schema are available as suggestions; choosing one does not add a rule."}
+                  Some schema fields cannot be suggested. Custom pointers are
+                  still available.
                 </p>
               )}
               <MatcherAtomEditor
@@ -629,6 +607,22 @@ function GrantCreate({
               />
             </section>
           )}
+          <FormField
+            id="grant-expiry"
+            label="Expiry"
+            hint="Leave blank for permanent; otherwise use a future canonical UTC RFC3339 timestamp."
+            optional
+          >
+            {(attributes) => (
+              <input
+                {...attributes}
+                data-testid="grant-expiry"
+                value={expiresAt}
+                placeholder="2030-01-01T00:00:00Z"
+                onInput={(event) => setExpiresAt(event.currentTarget.value)}
+              />
+            )}
+          </FormField>
           {error !== undefined && (
             <StateNotice state="error" title="Check grant configuration">
               <p>{error}</p>

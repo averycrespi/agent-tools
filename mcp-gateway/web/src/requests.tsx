@@ -8,7 +8,11 @@ import {
   type MatcherSchemaSuggestions,
 } from "./matcher-catalog";
 import type { DescriptorView } from "./server-reads";
-import { MatcherAtomEditor, matcherConstraintText } from "./matcher-editor";
+import {
+  MatcherAtomEditor,
+  MatcherRecognition,
+  matcherConstraintText,
+} from "./matcher-editor";
 import type { MatcherAtom } from "./matcher-editor";
 import { validateMatcherConstraint } from "./matcher-validation";
 import type { PrincipalDirectory } from "./principals";
@@ -29,6 +33,7 @@ import {
   sentenceCase,
   StateNotice,
   StatusLabel,
+  SuggestionInput,
 } from "./primitives";
 import type { ProtectedContext, SessionClient } from "./session";
 import { UserTime } from "./time";
@@ -717,6 +722,25 @@ function RequestActions({
       : detail.currentTarget.descriptor === null
         ? undefined
         : matcherSchemaSuggestions(detail.currentTarget.descriptor);
+  const approvalToolStatus =
+    target === ""
+      ? "Choose a tool"
+      : approvalCatalogError
+        ? "Unavailable"
+        : approvalDescriptors === undefined
+          ? "Loading…"
+          : selectedApprovalDescriptorSummary === undefined
+            ? "Unknown"
+            : "Known";
+  const approvalToolNotice = approvalCatalogError
+    ? "Catalog unavailable. Manual entry is still available."
+    : selectedApprovalDescriptorSummary === undefined
+      ? null
+      : approvalDescriptorError
+        ? "Schema unavailable. Manual constraints are still available."
+        : approvalSuggestions === undefined
+          ? "Loading schema…"
+          : null;
   const additionalConstraintSource = () =>
     additionalAtoms.length === 0 ? "" : matcherConstraintText(additionalAtoms);
   const approvedPolicy = (): Policy => {
@@ -950,51 +974,46 @@ function RequestActions({
         )}
       </FormField>
       <FormField id="approval-target" label="Approved target">
-        {(attributes) => (
-          <input
-            {...attributes}
-            data-testid="approval-target"
-            value={target}
-            list={narrowsServerToTool ? "approval-tool-options" : undefined}
-            disabled={
-              submitted.scope === "tool" ||
-              (scope === "server" && submitted.scope === "server") ||
-              disabled
-            }
-            onInput={(event) => setTarget(event.currentTarget.value)}
-          />
-        )}
-      </FormField>
-      {narrowsServerToTool && (
-        <>
-          <datalist id="approval-tool-options">
-            {(approvalDescriptors ?? []).map((descriptor) => (
-              <option
-                value={descriptor.externalName}
-                label={descriptor.upstreamName}
-                key={descriptor.id}
+        {(attributes) =>
+          narrowsServerToTool ? (
+            <div class="matcher-tool-input">
+              <SuggestionInput
+                attributes={attributes}
+                label="Approved target"
+                testID="approval-target"
+                value={target}
+                options={(approvalDescriptors ?? [])
+                  .filter(
+                    (descriptor) =>
+                      descriptor.serverID === detail.resolvedServerID,
+                  )
+                  .map((descriptor) => ({ value: descriptor.externalName }))}
+                disabled={disabled}
+                onChange={setTarget}
               />
-            ))}
-          </datalist>
-          <p
-            class="bounded-note"
-            role="status"
-            aria-live="polite"
-            data-testid="approval-tool-posture"
-          >
-            {approvalCatalogError
-              ? "Catalog tools are unavailable. Manual entry remains available; verify the literal name before approval."
-              : approvalDescriptors === undefined
-                ? "Loading current durable tools…"
-                : selectedApprovalDescriptorSummary === undefined
-                  ? "Unknown — not found in the current catalog. Manual approval remains available."
-                  : approvalDescriptorError
-                    ? "Known tool — schema unavailable. Manual constraint entry remains available."
-                    : selectedApprovalDescriptor === undefined
-                      ? "Known tool — loading schema…"
-                      : "Known — found in the current catalog. Its schema assists narrowing but is not grant authority."}
-          </p>
-        </>
+              <MatcherRecognition
+                status={approvalToolStatus}
+                testID="approval-tool-recognition"
+              />
+            </div>
+          ) : (
+            <input
+              {...attributes}
+              data-testid="approval-target"
+              value={target}
+              disabled
+            />
+          )
+        }
+      </FormField>
+      {narrowsServerToTool && approvalToolNotice && (
+        <p
+          class="bounded-note"
+          role="status"
+          data-testid="approval-tool-posture"
+        >
+          {approvalToolNotice}
+        </p>
       )}
       {scope === "tool" && (
         <>
@@ -1021,18 +1040,15 @@ function RequestActions({
               <span class="optional-label"> (optional)</span>
             </h3>
             <p class="field-hint">
-              New atoms are conjoined with the locked submitted policy.
-              Additions use the same equality and full-string RE2 controls as
-              grant creation.
+              Add rules without changing the submitted policy.
             </p>
             {approvalSuggestions?.unsupported && (
               <p
                 class="bounded-note"
                 data-testid="approval-matcher-schema-posture"
               >
-                Scalar field suggestions are available where unambiguous. Other
-                current schema portions are unsupported for matcher suggestions;
-                custom JSON Pointers remain available.
+                Some schema fields cannot be suggested. Custom pointers are
+                still available.
               </p>
             )}
             <MatcherAtomEditor

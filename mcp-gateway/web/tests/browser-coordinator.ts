@@ -5022,45 +5022,84 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="add-constraint-atom"]').click();
   if (
     (await page.locator('[data-testid="constraint-status"]').innerText()) !==
-      "Unavailable" ||
+      "Choose field" ||
+    (await page.locator('[data-testid="constraint-pointer"]').inputValue()) !==
+      "" ||
     descriptorRequests !== 0
+  )
+    fail("empty path was not neutral before server selection");
+  await page.locator('[data-testid="constraint-pointer"]').fill("/");
+  if (
+    (await page.locator('[data-testid="constraint-status"]').innerText()) !==
+    "Unavailable"
   )
     fail("missing server reported a catalog/schema load that never started");
   await page
     .getByRole("button", { name: "Remove constraint 1", exact: true })
     .click();
   await page.locator('[data-testid="grant-server"]').selectOption(serverID);
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll(
-        '#grant-tool-options option[value="literal.tool"]',
-      ).length === 1,
-  );
+  const toolInput = page.getByRole("combobox", {
+    name: "Tool name",
+    exact: true,
+  });
+  const toolBadge = page.locator('[data-testid="grant-tool-recognition"]');
+  await page.getByText("Choose a tool", { exact: true }).waitFor();
+  await toolInput.focus();
+  await page
+    .getByRole("option", { name: "literal.tool", exact: true })
+    .waitFor();
+  const toolOptions = await page.getByRole("listbox").innerText();
+  if (toolOptions.includes(`server-${serverID.slice(-2).toLowerCase()}.`))
+    fail("tool suggestions duplicated the displayed namespace");
+  await toolInput.fill("future.tool");
+  await toolInput.press("Escape");
   if (
-    (await page
-      .locator('[data-testid="grant-upstream"]')
-      .getAttribute("list")) !== "grant-tool-options"
+    (await toolInput.inputValue()) !== "future.tool" ||
+    (await toolBadge.innerText()) !== "Unknown"
   )
-    fail("grant tool entry is not catalog-searchable and editable");
-  await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
-  await page
-    .getByText(
-      "Unknown — not found in the current catalog. Future tool names remain supported.",
-      { exact: true },
-    )
-    .waitFor();
-  await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
-  await page
-    .getByText(
-      "Known — found in the current catalog. Schema guidance is not grant authority.",
-      { exact: true },
-    )
-    .waitFor();
+    fail("manual tool name was restricted or not recognized as unknown");
+  const unknownBadge = await toolBadge.evaluate((node) => ({
+    color: getComputedStyle(node).color,
+    width: node.getBoundingClientRect().width,
+  }));
+  await toolInput.fill("literal");
+  await toolInput.press("ArrowDown");
+  await toolInput.press("Enter");
+  if (
+    (await toolInput.inputValue()) !== "literal.tool" ||
+    (await toolInput.getAttribute("aria-expanded")) !== "false"
+  )
+    fail(
+      "tool keyboard selection did not commit the literal name and close suggestions",
+    );
+  const knownBadge = await toolBadge.evaluate((node) => ({
+    color: getComputedStyle(node).color,
+    width: node.getBoundingClientRect().width,
+  }));
+  if (
+    (await toolBadge.innerText()) !== "Known" ||
+    unknownBadge.color === knownBadge.color ||
+    unknownBadge.width !== knownBadge.width
+  )
+    fail("recognition badges lacked distinct colours or shifted layout");
   await page.locator('[data-testid="add-constraint-atom"]').click();
+  const emptyPointer = page.locator('[data-testid="constraint-pointer"]');
+  if (
+    (await emptyPointer.inputValue()) !== "" ||
+    (await page.locator('[data-testid="constraint-status"]').innerText()) !==
+      "Choose field"
+  )
+    fail("new constraint used a real pointer or reported unknown before input");
+  await emptyPointer.focus();
+  await page
+    .getByRole("option")
+    .filter({ hasText: "/filters/item~1name" })
+    .waitFor();
   const suggestedPointers = await page
-    .locator("#constraint-pointer-options option")
+    .getByRole("listbox")
+    .getByRole("option")
     .evaluateAll((options) =>
-      options.map((option) => (option as HTMLOptionElement).value),
+      options.map((option) => option.getAttribute("data-value")!),
     );
   if (
     suggestedPointers.length !== 256 ||
@@ -5072,37 +5111,88 @@ async function runGrantReadsCreate(
   if (
     (await page
       .locator(
-        '#constraint-pointer-options option[value="/filters/item~1name"]',
+        '#constraint-pointer-0-options [data-value="/filters/item~1name"]',
       )
       .count()) !== 1
   )
     fail("nested schema field was not suggested as an RFC 6901 pointer");
-  await page
-    .locator('[data-testid="constraint-pointer"]')
-    .fill("/filters/item~1name");
+  if (
+    !(
+      await page
+        .locator('#constraint-pointer-0-options [data-value="/region"]')
+        .innerText()
+    ).includes("string · us, eu · Deployment region")
+  )
+    fail("suggestions omitted scalar type, enum or description");
+  await assertMatcherAuthoringAccessibility(page, "open pointer suggestions");
+  const keyboardPointer = page.locator('[data-testid="constraint-pointer"]');
+  await keyboardPointer.press("ArrowUp");
+  const activeOption = await keyboardPointer.getAttribute(
+    "aria-activedescendant",
+  );
+  if (
+    !activeOption ||
+    !(await page.locator(`#${activeOption}`).evaluate((node) => {
+      const bounds = node.getBoundingClientRect();
+      const panel = node.closest(".suggestion-panel")!.getBoundingClientRect();
+      return bounds.top >= panel.top && bounds.bottom <= panel.bottom;
+    }))
+  )
+    fail("keyboard navigation did not scroll the active suggestion into view");
+  await keyboardPointer.press("Escape");
+  if (
+    (await keyboardPointer.inputValue()) !== "" ||
+    (await keyboardPointer.getAttribute("aria-expanded")) !== "false"
+  )
+    fail("Escape committed an active suggestion or left the popup open");
+  await keyboardPointer.fill("/filters/it");
+  await keyboardPointer.press("ArrowDown");
+  await keyboardPointer.press("Tab");
+  if (
+    (await keyboardPointer.inputValue()) !== "/filters/it" ||
+    (await keyboardPointer.getAttribute("aria-expanded")) !== "false" ||
+    !(await page
+      .locator('[data-testid="constraint-operator"]')
+      .evaluate((node) => document.activeElement === node))
+  )
+    fail("Tab implicitly selected a suggestion or retained the popup");
+  await keyboardPointer.focus();
+  await keyboardPointer.press("ArrowDown");
+  await keyboardPointer.press("Enter");
+  if ((await keyboardPointer.inputValue()) !== "/filters/item~1name")
+    fail(
+      "pointer autocomplete did not select the suggested path with ArrowDown/Enter",
+    );
   if (
     (await page.locator('[data-testid="constraint-type"]').inputValue()) !==
       "string" ||
     !(await page
       .locator('[data-testid="constraint-pointer"]')
       .getAttribute("aria-describedby")) ||
-    (await page
-      .locator('#constraint-pointer-options option[value="/region"]')
-      .getAttribute("label")) !== "string · us, eu · Deployment region"
+    (await page.locator(".matcher-guidance").count()) !== 0
   )
     fail("schema suggestion did not inform matcher type, enum, and metadata");
   await page
     .getByText(
-      "string · Exact item name. EQUALS compares the selected scalar type without coercion.",
+      "Some schema fields cannot be suggested. Custom pointers are still available.",
       { exact: true },
     )
     .waitFor();
-  await page
-    .getByText(
-      "Scalar field suggestions are available below. Other schema portions are unsupported for matcher suggestions and remain available through a custom JSON Pointer.",
-      { exact: true },
-    )
-    .waitFor();
+  const suggestionToggle = page.getByRole("button", {
+    name: "Show suggestions for JSON pointer 1",
+    exact: true,
+  });
+  await suggestionToggle.click();
+  await page.getByRole("listbox").waitFor();
+  await suggestionToggle.click();
+  if ((await page.getByRole("listbox").count()) !== 0)
+    fail("dropdown toggle did not close suggestions");
+  const operatorHelp = page.locator(".matcher-help summary");
+  await operatorHelp.focus();
+  await operatorHelp.press("Enter");
+  if (!(await page.locator("#constraint-operator-help").isVisible()))
+    fail("operator help was not keyboard accessible");
+  await operatorHelp.press("Enter");
   const pointer = page.locator('[data-testid="constraint-pointer"]');
   const scalarType = page.locator('[data-testid="constraint-type"]');
   const scalarValue = page.locator('[data-testid="constraint-value"]');
@@ -5114,11 +5204,19 @@ async function runGrantReadsCreate(
     fail("literal tool editor omitted namespace separator");
   await pointer.focus();
   await pointer.press("ControlOrMeta+A");
-  await pointer.pressSequentially("/filters/count");
+  await pointer.pressSequentially("/filters/co");
+  await pointer.press("ArrowDown");
+  await pointer.press("Enter");
+  if ((await pointer.inputValue()) !== "/filters/count")
+    fail("pointer keyboard selection did not apply the suggested number path");
   await pointer.press("Tab");
   if ((await scalarType.inputValue()) !== "number")
     fail("known integer path did not default to Number");
+  await pointer.focus();
+  await page.getByRole("listbox").waitFor();
   await scalarValue.fill("1.00e+2");
+  if ((await page.getByRole("listbox").count()) !== 0)
+    fail("moving focus outside a combobox left stale suggestions open");
   await operator.selectOption("regex");
   if (
     (await scalarType.inputValue()) !== "string" ||
@@ -5137,7 +5235,13 @@ async function runGrantReadsCreate(
     (await scalarValue.inputValue()) !== ""
   )
     fail("EQUALS did not restore Number and clear the pattern");
-  await pointer.fill("/region");
+  await pointer.fill("/reg");
+  await page.getByRole("listbox").locator('[data-value="/region"]').click();
+  if (
+    (await pointer.inputValue()) !== "/region" ||
+    (await pointer.getAttribute("aria-expanded")) !== "false"
+  )
+    fail("pointer click did not select the field and close its suggestions");
   if (
     (await scalarType.inputValue()) !== "string" ||
     (await page.locator('#constraint-values-0 option[value="eu"]').count()) !==
@@ -5172,6 +5276,7 @@ async function runGrantReadsCreate(
   if ((await scalarType.inputValue()) !== "number")
     fail("path selection overwrote an explicit type");
   await pointer.fill("/manual/" + "long-field-".repeat(20));
+  await pointer.press("Escape");
   await page.setViewportSize({ width: 320, height: 800 });
   await page.locator(".matcher-editor").scrollIntoViewIfNeeded();
   if ((await pointer.inputValue()) !== "/manual/" + "long-field-".repeat(20))
@@ -5227,31 +5332,35 @@ async function runGrantReadsCreate(
     page.waitForRequest(`**/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`),
     page.locator('[data-testid="grant-upstream"]').fill("other.tool"),
   ]);
-  await page
-    .getByText("Known tool — loading schema…", { exact: true })
-    .waitFor();
+  await page.getByText("Loading schema…", { exact: true }).waitFor();
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
   await page
     .getByText(/Schema suggests string; your number type is retained/)
     .waitFor();
   releaseOther();
   await otherFinished;
+  await pointer.fill("");
   if (
     (await page
-      .locator('#constraint-pointer-options option[value="/late"]')
+      .locator('#constraint-pointer-0-options [data-value="/late"]')
       .count()) !== 0 ||
+    (await page
+      .locator(
+        '#constraint-pointer-0-options [data-value="/filters/item~1name"]',
+      )
+      .count()) !== 1 ||
     (await scalarValue.inputValue()) !== "1.00e+2"
   )
     fail("late previous-tool schema replaced current guidance or values");
+  await pointer.fill("/filters/item~1name");
   await page
     .locator('[data-testid="grant-server"]')
     .selectOption("00000000000000000000000000");
   await page.locator('[data-testid="grant-server"]').selectOption(serverID);
   await page
-    .getByText(
-      "Catalog tools are unavailable. Manual entry remains available; verify the literal name before creating authority.",
-      { exact: true },
-    )
+    .getByText("Catalog unavailable. Manual entry is still available.", {
+      exact: true,
+    })
     .waitFor();
   if (
     (await page.locator('[data-testid="grant-upstream"]').inputValue()) !==
@@ -5292,13 +5401,21 @@ async function runGrantReadsCreate(
   if ((await page.locator('[data-testid="constraint-version"]').count()) !== 0)
     fail("web authoring retained the version selector");
   if (
-    !(
-      (await page
-        .getByLabel("Constraint preview", { exact: true })
-        .textContent()) ?? ""
-    ).includes('{"version":2,"equals":{"/":1.0}')
+    (await page.getByLabel("Constraint preview", { exact: true }).count()) !== 0
   )
-    fail("grant editor could not author equality-only v2");
+    fail("grant form retained redundant editing serialization");
+  if (
+    !(await page
+      .locator('[data-testid="grant-expiry"]')
+      .evaluate((node) =>
+        Boolean(
+          document
+            .querySelector(".matcher-editor")!
+            .compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ))
+  )
+    fail("expiry was not placed after constraints");
   await page.locator('[data-testid="constraint-pointer"]').fill("bad");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
@@ -5365,16 +5482,6 @@ async function runGrantReadsCreate(
     "2030-01-01T00:00:00Z"
   )
     fail("grant constraint edits discarded the expiry draft");
-  const constraintPreview =
-    (await page
-      .getByLabel("Constraint preview", { exact: true })
-      .textContent()) ?? "";
-  if (
-    !constraintPreview.includes('"/a~1b/0":1.0') ||
-    constraintPreview.includes('"/a~1b/0":"1.0"') ||
-    !constraintPreview.includes('"/resource":"item-\\\\d+"')
-  )
-    fail("grant preview did not preserve typed matcher tokens");
   await assertMatcherAuthoringAccessibility(page, "grant creation");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
@@ -6519,17 +6626,28 @@ async function runRequestAdjudication(
     .locator('[data-testid="approval-description"]')
     .fill("Access to demo.safe");
   await page.locator('[data-testid="approval-scope"]').selectOption("tool");
-  await page.locator('[data-testid="approval-target"]').fill("demo.safe");
-  await page
-    .getByText(
-      "Known — found in the current catalog. Its schema assists narrowing but is not grant authority.",
-      { exact: true },
-    )
-    .waitFor();
+  const approvalTarget = page.getByRole("combobox", {
+    name: "Approved target",
+    exact: true,
+  });
+  await approvalTarget.fill("demo.sa");
+  await page.getByRole("listbox").locator('[data-value="demo.safe"]').waitFor();
+  await approvalTarget.press("ArrowDown");
+  await approvalTarget.press("Enter");
+  if ((await approvalTarget.inputValue()) !== "demo.safe")
+    fail("approval target autocomplete did not select the exact target");
+  await page.getByText("Known", { exact: true }).waitFor();
   await page.locator('[data-testid="approval-additional-add"]').click();
-  await page
-    .locator('[data-testid="approval-additional-pointer"]')
-    .fill("/mode");
+  const approvalPointer = page.locator(
+    '[data-testid="approval-additional-pointer"]',
+  );
+  await approvalPointer.focus();
+  await page.getByRole("listbox").locator('[data-value="/mode"]').waitFor();
+  await approvalPointer.fill("/mo");
+  await approvalPointer.press("ArrowDown");
+  await approvalPointer.press("Enter");
+  if ((await approvalPointer.inputValue()) !== "/mode")
+    fail("approval pointer autocomplete did not select the field");
   await page.locator('[data-testid="approval-additional-value"]').fill("safe");
   await page.locator('[data-testid="approval-duration"]').fill("600");
   await reviewApproval();
@@ -6555,7 +6673,7 @@ async function runRequestAdjudication(
   await navigate(ids[1]!);
   await page
     .getByText(
-      "Scalar field suggestions are available where unambiguous. Other current schema portions are unsupported for matcher suggestions; custom JSON Pointers remain available.",
+      "Some schema fields cannot be suggested. Custom pointers are still available.",
       { exact: true },
     )
     .waitFor();
@@ -6616,16 +6734,10 @@ async function runRequestAdjudication(
   if ((attempts.get(ids[1]!) ?? 0) !== 0)
     fail("invalid RE2 approval reached confirmation");
   await additionalValues.nth(1).fill("(local|dev)");
-  const additionalPreview =
-    (await page
-      .getByLabel("Constraint preview", { exact: true })
-      .textContent()) ?? "";
   if (
-    !additionalPreview.includes('"version":2') ||
-    !additionalPreview.includes('"/extra":1.0') ||
-    additionalPreview.includes('"/extra":"1.0"')
+    (await page.getByLabel("Constraint preview", { exact: true }).count()) !== 0
   )
-    fail("approval preview did not preserve typed additive matcher tokens");
+    fail("approval form retained redundant editing serialization");
   await assertMatcherAuthoringAccessibility(page, "request approval");
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");

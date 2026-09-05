@@ -557,7 +557,7 @@ p {
 .matcher-row {
   display: grid;
   grid-template-columns:
-    minmax(160px, 2fr) 78px minmax(110px, 1fr) minmax(100px, 1fr)
+    minmax(160px, 2fr) 90px minmax(110px, 1fr) minmax(100px, 1fr)
     minmax(130px, 1.5fr) auto;
   align-items: end;
   gap: 8px;
@@ -571,10 +571,28 @@ p {
 }
 
 .matcher-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   align-self: end;
-  padding: 11px 0;
+  flex: 0 0 90px;
+  width: 90px;
+  min-height: 38px;
+  padding: 4px;
+  border-radius: 4px;
   color: var(--muted);
+  background: var(--surface-subtle);
   font-size: 12px;
+}
+
+.matcher-status[data-recognition="known"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.matcher-status[data-recognition="unknown"] {
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 
 .matcher-row .matcher-remove {
@@ -590,8 +608,7 @@ p {
   overflow-wrap: anywhere;
 }
 
-.matcher-editor > button,
-.matcher-disclosure {
+.matcher-editor > button {
   margin-top: 16px;
 }
 
@@ -600,7 +617,7 @@ p {
   width: 100%;
 }
 
-.matcher-disclosure summary {
+.matcher-help summary {
   color: var(--muted);
   cursor: pointer;
   font-size: 13px;
@@ -613,19 +630,88 @@ p {
   min-width: 0;
 }
 
-.matcher-tool-input span {
+.matcher-tool-input > [data-testid="grant-namespace"] {
   overflow-wrap: anywhere;
   font-family: var(--mono);
 }
 
-.matcher-tool-input .matcher-tool-status {
-  font-family: inherit;
-  font-size: 12px;
-}
-
-.matcher-tool-input input {
+.suggestion-input {
+  position: relative;
   min-width: 0;
   flex: 1;
+}
+
+.suggestion-input input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 34px;
+}
+
+.suggestion-input .suggestion-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 30px;
+  min-height: 38px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.suggestion-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px #0002;
+  overflow-wrap: anywhere;
+}
+
+.suggestion-panel[data-empty="true"] {
+  pointer-events: none;
+}
+
+.suggestion-panel ul {
+  max-height: 224px;
+  overflow-y: auto;
+  list-style: none;
+  padding: 4px;
+  margin: 0;
+}
+
+.suggestion-panel li {
+  padding: 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.suggestion-panel li:hover,
+.suggestion-panel li[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+
+.suggestion-panel li > span {
+  font-family: var(--mono);
+}
+
+.suggestion-panel small {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.suggestion-panel p {
+  padding: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 @container (max-width: 760px) {
@@ -649,7 +735,7 @@ p {
     flex-wrap: wrap;
   }
 
-  .matcher-tool-input input {
+  .matcher-tool-input .suggestion-input {
     flex-basis: 100%;
   }
 }
