@@ -160,14 +160,16 @@ func (harness *gatewayHarness) AuditCheckpoint() int64 {
 func (harness *gatewayHarness) WaitAuditAfter(sequence int64) []auditObservation {
 	harness.t.Helper()
 	var delta []auditObservation
-	require.Eventually(harness.t, func() bool {
+	require.EventuallyWithT(harness.t, func(collect *assert.CollectT) {
 		delta = delta[:0]
+		var latest int64
 		for _, observation := range harness.LiveAuditObservations() {
+			latest = observation.Sequence
 			if observation.Sequence > sequence {
 				delta = append(delta, observation)
 			}
 		}
-		return len(delta) > 0
+		assert.NotEmpty(collect, delta, "no audit after checkpoint %d; latest sequence %d", sequence, latest)
 	}, 3*time.Second, 10*time.Millisecond)
 	return delta
 }
@@ -317,10 +319,18 @@ func TestE2EHarness(t *testing.T) {
 	afterRestart := harness.GetGrantRequest(beforeRestart.ID)
 	assert.Equal(t, beforeRestart.GrantRequestSummary, afterRestart.Resource.GrantRequestSummary)
 
+	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
+		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+	})
 	lossCheckpoint := harness.AuditCheckpoint()
 	lost := harness.ModernCallDiscardResponse(issued.Bearer, json.RawMessage(`"lost-read"`), "mcp_gateway.get_identity", json.RawMessage(`{}`))
+	select {
+	case err := <-lost:
+		require.NoError(t, err, "discarded-response call failed")
+	case <-time.After(3 * time.Second):
+		t.Fatal("discarded-response call did not finish")
+	}
 	require.Len(t, harness.WaitAuditAfter(lossCheckpoint), 1)
-	require.NoError(t, <-lost)
 
 	result := harness.Stop(syscall.SIGTERM)
 	connection, err = net.DialTimeout("tcp", harness.authority, 50*time.Millisecond)

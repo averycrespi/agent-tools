@@ -89,12 +89,17 @@ func TestGatewayBinaryDisconnectDisableDeleteAndIsolation(t *testing.T) {
 	deleteEvents := filepath.Join(deleteDirectory, "events.jsonl")
 	deleted := createStdioServer(t, harness, executable, "delete-modern", filepath.Join(deleteDirectory, "marker"), deleteEvents)
 	harness.WaitOperation(deleted.Server.ID, deleted.Operation.ID, contract.OperationSucceeded)
+	waitForStdioServer(t, harness, deleted.Server.ID, func(server stdioServerView) bool {
+		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+	})
 	deleteStarts := fixtureEvents(waitForFixtureEvents(t, deleteEvents, func(events []stdioFixtureEvent) bool { return countFixtureEvents(events, "start", "") == 1 }), "start", "")
-	var tombstone replacementMutation
-	response := harness.AdminJSON(http.MethodDelete, "/api/v1/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": contract.ServerETag(deleted.Server.ID, "1")}, &tombstone)
-	require.Equal(t, http.StatusAccepted, response.StatusCode)
+	var deleteResponse json.RawMessage
+	response := harness.AdminJSON(http.MethodDelete, "/api/v1/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": contract.ServerETag(deleted.Server.ID, "1")}, &deleteResponse)
+	require.Equal(t, http.StatusAccepted, response.StatusCode, string(deleteResponse))
 	tombstoneETag := response.Header.Get("ETag")
 	require.NoError(t, response.Body.Close())
+	var tombstone replacementMutation
+	require.NoError(t, json.Unmarshal(deleteResponse, &tombstone))
 	require.NotNil(t, tombstone.Operation)
 	assert.Equal(t, contract.OperationDelete, tombstone.Operation.Kind)
 	harness.WaitOperation(deleted.Server.ID, tombstone.Operation.ID, contract.OperationSucceeded)
