@@ -62,9 +62,9 @@ func TestBrowserRequestAdjudication(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 3, event.Approvals)
+	assert.Equal(t, 4, event.Approvals)
 	assert.Equal(t, 4, event.Rejections)
-	assert.Equal(t, 10, event.Destinations)
+	assert.Equal(t, 11, event.Destinations)
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "request adjudication scenario must own one Gateway lifecycle")
 }

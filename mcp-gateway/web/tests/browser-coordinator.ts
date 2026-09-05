@@ -5014,7 +5014,22 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="grant-create-view"]').waitFor();
   await page.locator('[data-testid="grant-description"]').fill("New access");
   await page.locator('[data-testid="grant-effect"]').selectOption("deny");
+  await page.locator('[data-testid="grant-server"]').selectOption("");
   await page.locator('[data-testid="grant-scope"]').selectOption("tool");
+  await page
+    .getByText("Select a server", { exact: true })
+    .waitFor({ timeout: 3000 });
+  await page.locator('[data-testid="add-constraint-atom"]').click();
+  if (
+    (await page.locator('[data-testid="constraint-status"]').innerText()) !==
+      "Unavailable" ||
+    descriptorRequests !== 0
+  )
+    fail("missing server reported a catalog/schema load that never started");
+  await page
+    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .click();
+  await page.locator('[data-testid="grant-server"]').selectOption(serverID);
   await page.waitForFunction(
     () =>
       document.querySelectorAll(
@@ -5030,14 +5045,14 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
   await page
     .getByText(
-      "No current descriptor matches this literal name. Future, absent, or unavailable tools remain supported.",
+      "Unknown — not found in the current catalog. Future tool names remain supported.",
       { exact: true },
     )
     .waitFor();
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
   await page
     .getByText(
-      "Current durable descriptor selected. The descriptor assists authoring but is not stored as grant authority.",
+      "Known — found in the current catalog. Schema guidance is not grant authority.",
       { exact: true },
     )
     .waitFor();
@@ -5077,7 +5092,10 @@ async function runGrantReadsCreate(
   )
     fail("schema suggestion did not inform matcher type, enum, and metadata");
   await page
-    .getByText("string · regex available · Exact item name", { exact: true })
+    .getByText(
+      "string · Exact item name. EQUALS compares the selected scalar type without coercion.",
+      { exact: true },
+    )
     .waitFor();
   await page
     .getByText(
@@ -5085,7 +5103,146 @@ async function runGrantReadsCreate(
       { exact: true },
     )
     .waitFor();
-  await page.getByRole("button", { name: "Remove atom" }).click();
+  const pointer = page.locator('[data-testid="constraint-pointer"]');
+  const scalarType = page.locator('[data-testid="constraint-type"]');
+  const scalarValue = page.locator('[data-testid="constraint-value"]');
+  const operator = page.locator('[data-testid="constraint-operator"]');
+  if (
+    (await page.locator('[data-testid="grant-namespace"]').innerText()) !==
+    `server-${serverID.slice(-2).toLowerCase()} .`
+  )
+    fail("literal tool editor omitted namespace separator");
+  await pointer.focus();
+  await pointer.press("ControlOrMeta+A");
+  await pointer.pressSequentially("/filters/count");
+  await pointer.press("Tab");
+  if ((await scalarType.inputValue()) !== "number")
+    fail("known integer path did not default to Number");
+  await scalarValue.fill("1.00e+2");
+  await operator.selectOption("regex");
+  if (
+    (await scalarType.inputValue()) !== "string" ||
+    !(await scalarType.isDisabled()) ||
+    (await scalarValue.inputValue()) !== ""
+  )
+    fail("MATCHES did not lock String and clear the equality token");
+  await page
+    .getByText(/Schema suggests number; only string runtime values can match/)
+    .waitFor();
+  await scalarValue.fill("item[<>&]-\\d+");
+  await operator.selectOption("equals");
+  if (
+    (await scalarType.inputValue()) !== "number" ||
+    (await scalarType.isDisabled()) ||
+    (await scalarValue.inputValue()) !== ""
+  )
+    fail("EQUALS did not restore Number and clear the pattern");
+  await pointer.fill("/region");
+  if (
+    (await scalarType.inputValue()) !== "string" ||
+    (await page.locator('#constraint-values-0 option[value="eu"]').count()) !==
+      1
+  )
+    fail("enum suggestions did not follow the schema type");
+  await scalarValue.fill("outside-enum");
+  await page.locator('[data-testid="grant-create-submit"]').click();
+  const enumOverrideReview = await page
+    .locator('[data-testid="grant-review-policy"]')
+    .inputValue();
+  if (
+    !enumOverrideReview.includes('"version":2') ||
+    !enumOverrideReview.includes('"/region":"outside-enum"')
+  )
+    fail("equality-only review restricted enum overrides or omitted v2");
+  await page.locator('[data-testid="grant-create-confirm-cancel"]').click();
+  await scalarType.selectOption("number");
+  await scalarValue.fill("1.00e+2");
+  await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
+  await page.getByText("Unavailable", { exact: true }).waitFor();
+  if (
+    (await scalarValue.inputValue()) !== "1.00e+2" ||
+    (await scalarType.inputValue()) !== "number"
+  )
+    fail("tool change rewrote the draft");
+  await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page
+    .getByText(/Schema suggests string; your number type is retained/)
+    .waitFor();
+  await pointer.fill("/filters/item~1name");
+  if ((await scalarType.inputValue()) !== "number")
+    fail("path selection overwrote an explicit type");
+  await pointer.fill("/manual/" + "long-field-".repeat(20));
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.locator(".matcher-editor").scrollIntoViewIfNeeded();
+  if ((await pointer.inputValue()) !== "/manual/" + "long-field-".repeat(20))
+    fail("narrow manual pointer lost its full value");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await pointer.fill("/filters/item~1name");
+  let releaseOther = () => {};
+  const otherResponse = new Promise<void>((resolve) => {
+    releaseOther = resolve;
+  });
+  let finishOther = () => {};
+  const otherFinished = new Promise<void>((resolve) => {
+    finishOther = resolve;
+  });
+  await page.route(
+    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
+    async (route) => {
+      await otherResponse;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+          server_id: serverID,
+          upstream_name: "other.tool",
+          external_name: "Other tool",
+          descriptor: {
+            name: "other.tool",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              properties: { late: { type: "boolean" } },
+            },
+            annotations: {
+              title: null,
+              readOnlyHint: false,
+              destructiveHint: false,
+              idempotentHint: false,
+              openWorldHint: false,
+            },
+          },
+          fingerprint: "other",
+          catalog_revision: "1",
+          first_seen_at: "2026-08-28T12:00:00Z",
+          last_seen_at: "2026-08-28T12:00:00Z",
+          retired_at: null,
+        }),
+      });
+      finishOther();
+    },
+  );
+  await Promise.all([
+    page.waitForRequest(`**/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`),
+    page.locator('[data-testid="grant-upstream"]').fill("other.tool"),
+  ]);
+  await page
+    .getByText("Known tool — loading schema…", { exact: true })
+    .waitFor();
+  await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
+  await page
+    .getByText(/Schema suggests string; your number type is retained/)
+    .waitFor();
+  releaseOther();
+  await otherFinished;
+  if (
+    (await page
+      .locator('#constraint-pointer-options option[value="/late"]')
+      .count()) !== 0 ||
+    (await scalarValue.inputValue()) !== "1.00e+2"
+  )
+    fail("late previous-tool schema replaced current guidance or values");
   await page
     .locator('[data-testid="grant-server"]')
     .selectOption("00000000000000000000000000");
@@ -5101,6 +5258,15 @@ async function runGrantReadsCreate(
     "literal.tool"
   )
     fail("catalog failure discarded the literal tool draft");
+  if (
+    (await scalarValue.inputValue()) !== "1.00e+2" ||
+    (await scalarType.inputValue()) !== "number" ||
+    (await pointer.inputValue()) !== "/filters/item~1name"
+  )
+    fail("server switch or unavailable catalog rewrote constraint rows");
+  await page
+    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .click();
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
@@ -5123,7 +5289,8 @@ async function runGrantReadsCreate(
   await page.locator('[data-testid="add-constraint-atom"]').click();
   await page.locator('[data-testid="constraint-type"]').selectOption("number");
   await page.locator('[data-testid="constraint-value"]').fill("1.0");
-  await page.locator('[data-testid="constraint-version"]').selectOption("2");
+  if ((await page.locator('[data-testid="constraint-version"]').count()) !== 0)
+    fail("web authoring retained the version selector");
   if (
     !(
       (await page
@@ -5156,7 +5323,10 @@ async function runGrantReadsCreate(
     .locator('[data-testid="constraint-type"]')
     .nth(2)
     .selectOption("boolean");
-  await page.locator('[data-testid="constraint-value"]').nth(1).fill("true");
+  await page
+    .locator('[data-testid="constraint-value"]')
+    .nth(1)
+    .selectOption("true");
   await page.locator('[data-testid="add-constraint-atom"]').click();
   await page.locator('[data-testid="constraint-pointer"]').nth(3).fill("/name");
   await page
@@ -5165,16 +5335,14 @@ async function runGrantReadsCreate(
     .selectOption("string");
   await page.locator('[data-testid="constraint-value"]').nth(2).fill("literal");
   await page.locator('[data-testid="add-constraint-atom"]').click();
-  await page.locator('[data-testid="constraint-version"]').selectOption("1");
   await page
     .locator('[data-testid="constraint-operator"]')
     .nth(4)
     .selectOption("regex");
   if (
-    (await page.locator('[data-testid="constraint-version"]').inputValue()) !==
-    "2"
+    !(await page.locator('[data-testid="constraint-type"]').nth(4).isDisabled())
   )
-    fail("regex atom did not force matcher v2");
+    fail("regex type was not visibly locked");
   await page
     .locator('[data-testid="constraint-pointer"]')
     .nth(4)
@@ -5209,6 +5377,19 @@ async function runGrantReadsCreate(
     fail("grant preview did not preserve typed matcher tokens");
   await assertMatcherAuthoringAccessibility(page, "grant creation");
   await page.locator('[data-testid="grant-create-submit"]').click();
+  await page
+    .locator('[data-testid="grant-create-confirm-submit"]')
+    .waitFor({ state: "visible" });
+  if (
+    !(await page
+      .locator('[data-testid="grant-review-policy"]')
+      .evaluate(
+        (element) =>
+          element.getBoundingClientRect().width >=
+          element.parentElement!.getBoundingClientRect().width - 1,
+      ))
+  )
+    fail("grant review policy disclosure collapsed beside its label");
   const matcherReview =
     (await page.locator("#grant-create-confirm-consequence").textContent()) ??
     "";
@@ -6010,7 +6191,7 @@ async function runRequestAdjudication(
   const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
   const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
   const ids = Array.from(
-    { length: 10 },
+    { length: 11 },
     (_, index) => `01ARZ3NDEKTSV4RRFFQ69J${String(index).padStart(4, "0")}`,
   );
   const policy = (
@@ -6088,6 +6269,18 @@ async function runRequestAdjudication(
   states.set(ids[7]!, detail(ids[7]!, policy("tool", "demo.safe", null, null)));
   states.set(ids[8]!, detail(ids[8]!, policy("tool", "demo.safe", null, null)));
   states.set(ids[9]!, detail(ids[9]!, policy("server", "demo", null, null)));
+  states.set(
+    ids[10]!,
+    detail(
+      ids[10]!,
+      policy(
+        "tool",
+        "demo.safe",
+        { equals: { "/attempt": 1, "/literal": "<>&" } },
+        null,
+      ),
+    ),
+  );
   let approvals = 0;
   let rejections = 0;
   const attempts = new Map<string, number>();
@@ -6169,7 +6362,7 @@ async function runRequestAdjudication(
         contentType: "application/json",
         headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
         body:
-          id === ids[1]
+          id === ids[1] || id === ids[10]
             ? JSON.stringify(item).replace('"/attempt":1', '"/attempt":1.0')
             : JSON.stringify(item),
       });
@@ -6249,8 +6442,21 @@ async function runRequestAdjudication(
       )
         fail("approval body changed shape");
       const approved = body.approved_policy as ReturnType<typeof policy>;
-      if (id === ids[0] && approved.target !== "demo.safe")
-        fail("server-to-tool approval did not preserve the external target");
+      if (
+        id === ids[0] &&
+        (approved.target !== "demo.safe" ||
+          (approved.constraint as Record<string, unknown>).version !== 2)
+      )
+        fail(
+          "server-to-tool equality approval did not preserve the external target and v2",
+        );
+      if (
+        id === ids[10] &&
+        (!raw.includes('"version":2') ||
+          !raw.includes('"/attempt":1.0') ||
+          !raw.includes('"/literal":"<>&"'))
+      )
+        fail("v1 approval without additions did not retain exact atoms in v2");
       states.set(id, detail(id, submitted, "approved", approved));
     } else {
       rejections += 1;
@@ -6316,7 +6522,7 @@ async function runRequestAdjudication(
   await page.locator('[data-testid="approval-target"]').fill("demo.safe");
   await page
     .getByText(
-      "Current durable descriptor selected. Its schema assists narrowing but is not grant authority.",
+      "Known — found in the current catalog. Its schema assists narrowing but is not grant authority.",
       { exact: true },
     )
     .waitFor();
@@ -6444,6 +6650,37 @@ async function runRequestAdjudication(
     fail(
       `approval review omitted complete matcher policy disclosure: ${approvalReview}`,
     );
+  await confirm();
+  await page
+    .getByText("Request adjudication is closed", { exact: true })
+    .waitFor();
+
+  await navigate(ids[10]!);
+  const lockedV1 = await page
+    .locator('[data-testid="approval-submitted-constraint"]')
+    .inputValue();
+  if (lockedV1.includes('"version"') || !lockedV1.includes('"/attempt":1.0'))
+    fail("existing v1 request was rewritten before approval");
+  await reviewApproval();
+  if (
+    !(
+      await page.locator('[data-testid="approval-review-policy"]').inputValue()
+    ).includes('"version":2')
+  )
+    fail("v1 equality-only approval review did not disclose v2");
+  await page
+    .locator('[data-testid="request-adjudication-confirm-submit"]')
+    .waitFor({ state: "visible" });
+  if (
+    !(await page
+      .locator('[data-testid="approval-review-policy"]')
+      .evaluate(
+        (element) =>
+          element.getBoundingClientRect().width >=
+          element.parentElement!.getBoundingClientRect().width - 1,
+      ))
+  )
+    fail("approval review policy disclosure collapsed beside its label");
   await confirm();
   await page
     .getByText("Request adjudication is closed", { exact: true })
