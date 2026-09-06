@@ -54,6 +54,8 @@ Shared tests use mutex-safe fake time and finite deterministic entropy, real own
 
 The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, owns an identity-revalidated process group, applies bounded TERM/KILL/reap cleanup when its context expires, and can signal a bounded started process for lifecycle tests. The single E2E harness and acceptance executor inherit that ownership through an outer cleanup ledger and fail on surviving processes, listeners, or temporary roots. Component-specific fault hooks, protocol fixtures, and barriers remain with their owning packages.
 
+The retention E2E owner seeds the real 65,536-row boundary with one set-based transaction, then exercises real Gateway startup, one call, eviction, backup, events, shutdown, and private-artifact scanning. Its stopped artifact observation uses a read-only connection and the existing 65,537-row overflow bound rather than reconstructing storage authority a second time. Artifact observation is not startup/integrity evidence: production initialization, startup validation, and the dedicated integrity/migration/fault owners remain unchanged.
+
 ## Freeze the candidate
 
 Before producing release evidence:
