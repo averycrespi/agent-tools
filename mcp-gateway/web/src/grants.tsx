@@ -39,7 +39,11 @@ import {
 } from "./server-reads";
 import type { ProtectedContext, SessionClient } from "./session";
 import { UserTime } from "./time";
-import type { ViewSnapshot } from "./view";
+import {
+  readCollectionPage,
+  useCollectionPage,
+  type ViewSnapshot,
+} from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 type JSONRecord = Record<string, unknown>;
@@ -1212,12 +1216,12 @@ export function Grants({
   const segments = resolved.location.segments;
   const create = segments[1] === "new";
   const grantID = segments.length === 2 && !create ? segments[1] : undefined;
-  const [items, setItems] = useState<Grant[]>();
   const [detail, setDetail] = useState<Grant>();
   const [principals, setPrincipals] = useState<Principal[]>();
   const [servers, setServers] = useState<ServerView[]>();
   const [error, setError] = useState<string>();
   useEffect(() => {
+    if (!create && grantID === undefined) return;
     let current = true;
     void Promise.all([readPrincipals(session), readServers(session)])
       .then(([nextPrincipals, nextServers]) => {
@@ -1240,7 +1244,7 @@ export function Grants({
   useEffect(() => {
     let current = true;
     setError(undefined);
-    if (create)
+    if (create || grantID === undefined)
       return () => {
         current = false;
       };
@@ -1249,20 +1253,6 @@ export function Grants({
       void readGrant(session, grantID)
         .then((value) => {
           if (current && value !== undefined) setDetail(value);
-        })
-        .catch((caught: unknown) => {
-          if (current)
-            setError(
-              caught instanceof Error
-                ? caught.message
-                : "Grant data is unavailable.",
-            );
-        });
-    } else {
-      setItems(undefined);
-      void readGrants(session)
-        .then((value) => {
-          if (current) setItems(value);
         })
         .catch((caught: unknown) => {
           if (current)
@@ -1290,7 +1280,7 @@ export function Grants({
       />
     );
   }
-  if (error !== undefined)
+  if (grantID !== undefined && error !== undefined)
     return (
       <StateNotice state="error" title="Grant data unavailable">
         <p>{error}</p>
@@ -1403,13 +1393,72 @@ export function Grants({
       </div>
     );
   }
-  if (items === undefined || principals === undefined || servers === undefined)
-    return <StateNotice state="loading" title="Loading grants" />;
+  return <GrantCollection session={session} resolved={resolved} view={view} />;
+}
+
+interface GrantTableRow extends Grant {
+  principalDisplayName: string;
+  serverDisplayName: string;
+}
+
+function GrantCollection({
+  session,
+  resolved,
+  view,
+}: {
+  session: SessionClient;
+  resolved: ResolvedLocation;
+  view: ViewSnapshot;
+}) {
+  const navigate = useUnsavedChanges(false);
+  const { items, controls } = useCollectionPage<GrantTableRow>(
+    session,
+    resolved,
+    view,
+    (query, cursor, signal) => {
+      const params = new URLSearchParams({
+        limit: "50",
+        representation: "table",
+      });
+      for (const key of [
+        "identity",
+        "principal",
+        "target",
+        "effect",
+        "state",
+      ]) {
+        const value = query[`filter_${key}`];
+        if (value !== undefined) params.set(key, value);
+      }
+      if (query.sort !== undefined) params.set("sort", query.sort);
+      if (query.direction !== undefined)
+        params.set("direction", query.direction);
+      if (cursor !== null) params.set("cursor", cursor);
+      return readCollectionPage(
+        session,
+        `/api/v1/grants?${params}`,
+        (value) => {
+          const item = record(value, [
+            "grant",
+            "principal_display_name",
+            "server_display_name",
+          ]);
+          return {
+            ...decodeGrant(item.grant),
+            principalDisplayName: text(item.principal_display_name),
+            serverDisplayName: text(item.server_display_name),
+          };
+        },
+        signal,
+      );
+    },
+    navigate,
+  );
   const principalNames = new Map(
-    principals.map((principal) => [principal.id, principal.displayName]),
+    items.map((grant) => [grant.principalID, grant.principalDisplayName]),
   );
   const serverNames = new Map(
-    servers.map((server) => [server.id, server.displayName]),
+    items.map((grant) => [grant.serverID, grant.serverDisplayName]),
   );
   return (
     <div class="domain-view" data-testid="grants-view">
@@ -1423,131 +1472,129 @@ export function Grants({
         </a>
       </div>
       <section class="panel domain-panel" aria-labelledby="page-title">
-        {items.length === 0 ? (
-          <StateNotice state="empty" title="No grants match" />
-        ) : (
-          <CollectionTable
-            caption="Grant policy records"
-            items={items}
-            rowKey={(grant) => grant.id}
-            rowTestID="grant-row"
-            filters={[
-              {
-                key: "identity",
-                label: "Description or ID",
-                type: "text",
-                value: (grant) => grant.description ?? "",
-                literalValues: (grant) => [grant.id],
-              },
-              {
-                key: "principal",
-                label: "Principal",
-                type: "text",
-                value: (grant) => principalNames.get(grant.principalID) ?? "",
-                literalValues: (grant) => [grant.principalID],
-              },
-              {
-                key: "target",
-                label: "Target",
-                type: "text",
-                value: (grant) =>
-                  `${serverNames.get(grant.serverID) ?? "Gateway self-service tools"} ${grant.upstreamName ?? "Entire server"}`,
-                literalValues: (grant) => [grant.serverID],
-              },
-              {
-                key: "effect",
-                label: "Effect",
-                type: "select",
-                value: (grant) => grant.effect,
-                options: [
-                  { value: "allow", label: "Allow" },
-                  { value: "deny", label: "Deny" },
-                ],
-              },
-              {
-                key: "state",
-                label: "State",
-                type: "select",
-                value: (grant) => grant.state,
-                options: [
-                  { value: "active", label: "Active" },
-                  { value: "expired", label: "Expired" },
-                ],
-              },
-            ]}
-            columns={[
-              {
-                key: "id",
-                label: "ID",
-                sortValue: (grant) => grant.id,
-                render: (grant) => (
-                  <a href={`#/grants/${grant.id}`}>{grant.id}</a>
-                ),
-              },
-              {
-                key: "description",
-                label: "Description",
-                sortValue: (grant) => grant.description ?? "",
-                render: (grant) =>
-                  grant.description === null
-                    ? "—"
-                    : grant.description.length > 64
-                      ? `${grant.description.slice(0, 61)}…`
-                      : grant.description,
-              },
-              {
-                key: "principal",
-                label: "Principal",
-                sortValue: (grant) =>
-                  principalNames.get(grant.principalID) ?? grant.principalID,
-                render: (grant) => (
-                  <a href={`#/principals/${grant.principalID}`}>
-                    {principalNames.get(grant.principalID) ??
-                      `Principal ${grant.principalID}`}
+        <CollectionTable
+          caption="Grant policy records"
+          remote={controls}
+          emptyTitle="No grants"
+          items={items}
+          rowKey={(grant) => grant.id}
+          rowTestID="grant-row"
+          filters={[
+            {
+              key: "identity",
+              label: "Description or ID",
+              type: "text",
+              value: (grant) => grant.description ?? "",
+              literalValues: (grant) => [grant.id],
+            },
+            {
+              key: "principal",
+              label: "Principal",
+              type: "text",
+              value: (grant) => principalNames.get(grant.principalID) ?? "",
+              literalValues: (grant) => [grant.principalID],
+            },
+            {
+              key: "target",
+              label: "Target",
+              type: "text",
+              value: (grant) =>
+                `${serverNames.get(grant.serverID) ?? "Gateway self-service tools"} ${grant.upstreamName ?? "Entire server"}`,
+              literalValues: (grant) => [grant.serverID],
+            },
+            {
+              key: "effect",
+              label: "Effect",
+              type: "select",
+              value: (grant) => grant.effect,
+              options: [
+                { value: "allow", label: "Allow" },
+                { value: "deny", label: "Deny" },
+              ],
+            },
+            {
+              key: "state",
+              label: "State",
+              type: "select",
+              value: (grant) => grant.state,
+              options: [
+                { value: "active", label: "Active" },
+                { value: "expired", label: "Expired" },
+              ],
+            },
+          ]}
+          columns={[
+            {
+              key: "id",
+              label: "ID",
+              sortValue: (grant) => grant.id,
+              render: (grant) => (
+                <a href={`#/grants/${grant.id}`}>{grant.id}</a>
+              ),
+            },
+            {
+              key: "description",
+              label: "Description",
+              sortValue: (grant) => grant.description ?? "",
+              render: (grant) =>
+                grant.description === null
+                  ? "—"
+                  : grant.description.length > 64
+                    ? `${grant.description.slice(0, 61)}…`
+                    : grant.description,
+            },
+            {
+              key: "principal",
+              label: "Principal",
+              sortValue: (grant) =>
+                principalNames.get(grant.principalID) ?? grant.principalID,
+              render: (grant) => (
+                <a href={`#/principals/${grant.principalID}`}>
+                  {principalNames.get(grant.principalID) ??
+                    `Principal ${grant.principalID}`}
+                </a>
+              ),
+            },
+            {
+              key: "target",
+              label: "Target",
+              sortValue: (grant) =>
+                serverNames.get(grant.serverID) ?? grant.serverID,
+              render: (grant) =>
+                grant.serverID === "00000000000000000000000000" ? (
+                  "Gateway self-service tools"
+                ) : (
+                  <a href={`#/servers/${grant.serverID}?tab=tools`}>
+                    {serverNames.get(grant.serverID) ??
+                      `Server ${grant.serverID}`}
+                    {grant.upstreamName === null
+                      ? " — All tools"
+                      : ` — ${grant.upstreamName}`}
                   </a>
                 ),
-              },
-              {
-                key: "target",
-                label: "Target",
-                sortValue: (grant) =>
-                  serverNames.get(grant.serverID) ?? grant.serverID,
-                render: (grant) =>
-                  grant.serverID === "00000000000000000000000000" ? (
-                    "Gateway self-service tools"
-                  ) : (
-                    <a href={`#/servers/${grant.serverID}?tab=tools`}>
-                      {serverNames.get(grant.serverID) ??
-                        `Server ${grant.serverID}`}
-                      {grant.upstreamName === null
-                        ? " — All tools"
-                        : ` — ${grant.upstreamName}`}
-                    </a>
-                  ),
-              },
-              {
-                key: "effect",
-                label: "Effect",
-                sortValue: (grant) => grant.effect,
-                render: (grant) => (
-                  <strong>{grant.effect === "allow" ? "Allow" : "Deny"}</strong>
-                ),
-              },
-              {
-                key: "state",
-                label: "Status",
-                sortValue: (grant) => grant.state,
-                render: (grant) => (
-                  <StatusLabel
-                    state={grant.state === "active" ? "current" : "warning"}
-                  >
-                    {grant.state === "active" ? "Active" : "Expired"}
-                  </StatusLabel>
-                ),
-              },
-            ]}
-          />
-        )}
+            },
+            {
+              key: "effect",
+              label: "Effect",
+              sortValue: (grant) => grant.effect,
+              render: (grant) => (
+                <strong>{grant.effect === "allow" ? "Allow" : "Deny"}</strong>
+              ),
+            },
+            {
+              key: "state",
+              label: "Status",
+              sortValue: (grant) => grant.state,
+              render: (grant) => (
+                <StatusLabel
+                  state={grant.state === "active" ? "current" : "warning"}
+                >
+                  {grant.state === "active" ? "Active" : "Expired"}
+                </StatusLabel>
+              ),
+            },
+          ]}
+        />
       </section>
     </div>
   );

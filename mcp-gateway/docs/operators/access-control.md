@@ -12,6 +12,12 @@ This guide owns operator workflows for principal lifecycle, one-time agent crede
 
 See [DESIGN](../../DESIGN.md) for the system design index and [Identity and authorization](../design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [Administrator CLI and local administration](administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `mcp-gateway serve` first; a proven refused selected address reports the exact startup command.
 
+## Browse principal and grant tables
+
+The browser shows up to 50 records per page. Use **Previous** and **Next** above the table to replace the displayed page. Column filters and sorting search the whole collection, not only the displayed rows; the count describes the current page rather than the total inventory. Grant rows include principal and target names without loading every reference record.
+
+Filters and sorting are included in the URL. Browser Back/Forward restores those settings; changing them, reloading, or opening a shared link starts at the first matching page. Page cursors remain in the current browser session only. When a cursor expires or its snapshot changes, the table returns to the first page with a notice. If that read fails, use **Refresh** explicitly; there is no retry loop. Empty inventories, no matches, loading, and failures have distinct messages, and filters remain available with no rows.
+
 ## Create and inspect principals
 
 List or inspect permanent principals before changing policy:

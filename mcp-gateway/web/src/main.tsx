@@ -127,13 +127,13 @@ const registerInvalidationTrigger = (
   });
 registerInvalidationTrigger(
   "principal-invalidation",
-  (key) => /^#\/principals(?:\/|$)/.test(key),
+  (key) => /^#\/principals(?:[/?]|$)/.test(key),
   ["authorization"],
 );
 registerInvalidationTrigger(
   "grant-invalidation",
-  (key) => /^#\/grants(?:\/|$)/.test(key),
-  ["authorization"],
+  (key) => /^#\/grants(?:[/?]|$)/.test(key),
+  ["authorization", "servers"],
 );
 registerInvalidationTrigger(
   "request-list-invalidation",
@@ -434,8 +434,8 @@ function App() {
     resolved.canonicalFragment !== "#/servers/new";
   const isPrincipalDetail =
     destination === "principals" &&
-    resolved.canonicalFragment !== "#/principals" &&
-    resolved.canonicalFragment !== "#/principals/new";
+    resolved.location.segments[1] !== undefined &&
+    resolved.location.segments[1] !== "new";
   const isInvocationDetail =
     destination === "invocations" &&
     resolved.location.segments[1] !== undefined;
@@ -719,7 +719,7 @@ function App() {
             />
           ) : destination === "grants" ? (
             <Grants
-              key={resolved.canonicalFragment}
+              key={resolved.location.segments.join("/")}
               session={sessionClient}
               mutations={mutationCoordinator}
               resolved={resolved}

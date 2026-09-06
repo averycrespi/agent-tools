@@ -1,4 +1,14 @@
-import { SessionClient, type ProtectedContext } from "./session.ts";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import {
+  parseFragment,
+  serializeLocation,
+  type ResolvedLocation,
+} from "./location.ts";
+import {
+  SessionClient,
+  parseProblem,
+  type ProtectedContext,
+} from "./session.ts";
 
 export type Freshness = "current" | "stale" | "reconnecting";
 export type PanelStatus = "loading" | "current" | "stale" | "error";
@@ -130,6 +140,262 @@ function joinSignals(
     release: () => {
       first.removeEventListener("abort", abort);
       second.removeEventListener("abort", abort);
+    },
+  };
+}
+
+export interface CollectionPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+type CollectionSort = { key: string; direction: "ascending" | "descending" };
+
+export interface CollectionControls {
+  filterValues: Record<string, string>;
+  sort: CollectionSort | undefined;
+  changeFilter: (key: string, value: string) => void;
+  changeSort: (key: string) => void;
+  resetFilters: () => void;
+  status: "loading" | "current" | "error";
+  error: string | undefined;
+  notice: string | undefined;
+  page: number;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  previous: () => void;
+  next: () => void;
+}
+
+class StaleCollectionCursor extends Error {}
+
+export async function readCollectionPage<T>(
+  session: SessionClient,
+  route: string,
+  decode: (value: unknown) => T,
+  signal: AbortSignal,
+): Promise<CollectionPage<T> | undefined> {
+  return session.runProtected(async (context) => {
+    const response = await fetch(route, {
+      credentials: "same-origin",
+      redirect: "error",
+      signal: AbortSignal.any([signal, context.signal]),
+      headers: {
+        Accept: "application/json",
+        "X-CSRF-Token": context.csrfToken,
+      },
+    });
+    if (await context.sessionLost(response)) return undefined;
+    const type = response.headers.get("Content-Type");
+    if (type !== "application/json" && type !== "application/problem+json")
+      throw new Error("Collection data is unavailable.");
+    const value: unknown = await response.json();
+    if (!response.ok) {
+      if (
+        response.status === 409 &&
+        parseProblem(value)?.code === "stale_cursor"
+      )
+        throw new StaleCollectionCursor();
+      throw new Error("Collection data is unavailable.");
+    }
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !exactKeys(value, ["items", "next_cursor"]) ||
+      !("items" in value) ||
+      !Array.isArray(value.items) ||
+      value.items.length > 50 ||
+      !("next_cursor" in value) ||
+      (value.next_cursor !== null &&
+        (typeof value.next_cursor !== "string" ||
+          value.next_cursor.length === 0 ||
+          value.next_cursor.length > 512))
+    )
+      throw new Error("Invalid collection response.");
+    return {
+      items: value.items.map(decode),
+      nextCursor: value.next_cursor as string | null,
+    };
+  });
+}
+
+export function useCollectionPage<T>(
+  session: SessionClient,
+  resolved: ResolvedLocation,
+  view: ViewSnapshot,
+  read: (
+    query: Readonly<Record<string, string>>,
+    cursor: string | null,
+    signal: AbortSignal,
+  ) => Promise<CollectionPage<T> | undefined>,
+  navigate: (fragment: string) => void,
+  initialSort?: CollectionSort,
+): { items: T[]; controls: CollectionControls } {
+  const epoch = session.snapshot().epoch;
+  const key = `${epoch}:${resolved.canonicalFragment}`;
+  const [history, setHistory] = useState<{
+    key: string;
+    cursors: (string | null)[];
+    index: number;
+    notice?: string;
+  }>({ key, cursors: [null], index: 0 });
+  const active =
+    history.key === key ? history : { key, cursors: [null], index: 0 };
+  const cursor = active.cursors[active.index] ?? null;
+  const serial = useRef(0);
+  const reader = useRef(read);
+  reader.current = read;
+  const [result, setResult] = useState<{
+    key: string;
+    cursor: string | null;
+    page?: CollectionPage<T> | undefined;
+    status: CollectionControls["status"];
+    error?: string;
+  }>({ key, cursor: null, status: "loading" });
+  const [queryError, setQueryError] = useState<string>();
+  useLayoutEffect(
+    () =>
+      session.registerProtectedState(() => {
+        serial.current += 1;
+        setHistory({ key: "", cursors: [null], index: 0 });
+        setResult({ key: "", cursor: null, status: "loading" });
+        setQueryError(undefined);
+      }),
+    [session],
+  );
+  useLayoutEffect(() => {
+    const sequence = ++serial.current;
+    const controller = new AbortController();
+    if (view.viewKey !== resolved.canonicalFragment)
+      return () => controller.abort();
+    setQueryError(undefined);
+    setHistory((previous) =>
+      previous.key === key ? previous : { key, cursors: [null], index: 0 },
+    );
+    setResult((previous) => ({
+      key,
+      cursor,
+      status: "loading",
+      page:
+        previous.key === key && previous.cursor === cursor
+          ? previous.page
+          : undefined,
+    }));
+    const current = () =>
+      serial.current === sequence &&
+      !controller.signal.aborted &&
+      session.snapshot().epoch === epoch;
+    void reader
+      .current(resolved.location.query, cursor, controller.signal)
+      .then((page) => {
+        if (current() && page !== undefined)
+          setResult({ key, cursor, page, status: "current" });
+      })
+      .catch((error: unknown) => {
+        if (!current()) return;
+        if (error instanceof StaleCollectionCursor && cursor !== null) {
+          setHistory({
+            key,
+            cursors: [null],
+            index: 0,
+            notice:
+              "The previous page expired or changed. Restarted at the first page.",
+          });
+          return;
+        }
+        setResult({
+          key,
+          cursor,
+          status: "error",
+          error: "Collection data is unavailable. Use Refresh to try again.",
+        });
+      });
+    return () => {
+      controller.abort();
+      serial.current += 1;
+    };
+  }, [session, key, cursor, view.generation, view.viewKey]);
+  const matching = result.key === key && result.cursor === cursor;
+  const status =
+    matching && view.viewKey === resolved.canonicalFragment
+      ? result.status
+      : "loading";
+  const page = matching ? result.page : undefined;
+  const query = resolved.location.query;
+  const sort: CollectionSort | undefined =
+    query.sort === undefined
+      ? initialSort
+      : {
+          key: query.sort,
+          direction:
+            query.direction === "descending" ? "descending" : "ascending",
+        };
+  const changeQuery = (next: Record<string, string>) => {
+    const fragment = serializeLocation({ ...resolved.location, query: next });
+    if (parseFragment(fragment) === undefined) {
+      setQueryError(
+        "Filters must contain at most 256 UTF-8 bytes each, no control characters, and fit the location limit.",
+      );
+      return;
+    }
+    setQueryError(undefined);
+    navigate(fragment);
+  };
+  const filterValues = Object.fromEntries(
+    Object.entries(query)
+      .filter(([name]) => name.startsWith("filter_"))
+      .map(([name, value]) => [name.slice(7), value]),
+  );
+  const ready = status === "current";
+  return {
+    items: page?.items ?? [],
+    controls: {
+      filterValues,
+      sort,
+      status,
+      error: queryError ?? (matching ? result.error : undefined),
+      notice: active.notice,
+      page: active.index + 1,
+      hasPrevious: ready && active.index > 0,
+      hasNext: ready && page?.nextCursor != null,
+      previous: () => {
+        if (ready && active.index > 0)
+          setHistory({ ...active, index: active.index - 1 });
+      },
+      next: () => {
+        if (ready && page?.nextCursor != null)
+          setHistory({
+            ...active,
+            cursors: [
+              ...active.cursors.slice(0, active.index + 1),
+              page.nextCursor,
+            ],
+            index: active.index + 1,
+          });
+      },
+      changeFilter: (name, value) => {
+        const next = { ...query };
+        if (value.trim() === "") delete next[`filter_${name}`];
+        else next[`filter_${name}`] = value;
+        changeQuery(next);
+      },
+      changeSort: (name) =>
+        changeQuery({
+          ...query,
+          sort: name,
+          direction:
+            sort?.key === name && sort.direction === "ascending"
+              ? "descending"
+              : "ascending",
+        }),
+      resetFilters: () =>
+        changeQuery(
+          Object.fromEntries(
+            Object.entries(query).filter(
+              ([name]) => !name.startsWith("filter_"),
+            ),
+          ),
+        ),
     },
   };
 }

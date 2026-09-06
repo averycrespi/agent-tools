@@ -85,6 +85,35 @@ function exactQuery(
   return true;
 }
 
+function authorizationCollectionQuery(
+  query: Record<string, string>,
+  collection: "principals" | "grants",
+): boolean {
+  const textKeys =
+    collection === "principals"
+      ? ["filter_name"]
+      : ["filter_identity", "filter_principal", "filter_target"];
+  const values: Record<string, readonly string[]> =
+    collection === "principals"
+      ? {
+          filter_state: ["active", "disabled"],
+          filter_visibility: ["requestable", "allowed-only", "all"],
+          sort: ["name", "id", "state", "visibility"],
+        }
+      : {
+          filter_effect: ["allow", "deny"],
+          filter_state: ["active", "expired"],
+          sort: ["id", "description", "principal", "target", "effect", "state"],
+        };
+  values.direction = ["ascending", "descending"];
+  if (query.direction !== undefined && query.sort === undefined) return false;
+  return Object.entries(query).every(([key, value]) =>
+    textKeys.includes(key)
+      ? isCollectionFilter(key, value)
+      : values[key]?.includes(value) === true,
+  );
+}
+
 function location(
   destination: Destination,
   segments: readonly string[],
@@ -162,7 +191,10 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     }
   }
   if (first === "principals") {
-    if (segments.length === 1 && exactQuery(query, {}))
+    if (
+      segments.length === 1 &&
+      authorizationCollectionQuery(query, "principals")
+    )
       return location("principals", segments, query);
     if (segments.length === 2 && second === "new" && noQuery)
       return location("principals", segments, query);
@@ -175,7 +207,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("principals", segments, query);
   }
   if (first === "grants") {
-    if (segments.length === 1 && exactQuery(query, {}))
+    if (segments.length === 1 && authorizationCollectionQuery(query, "grants"))
       return location("grants", segments, query);
     if (
       segments.length === 2 &&
@@ -236,6 +268,8 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
 
 const queryOrder: Readonly<Record<string, readonly string[]>> = {
   "grants/new": ["principal_id", "server_id"],
+  principals: ["sort", "direction"],
+  grants: ["sort", "direction"],
 };
 
 export function serializeLocation(value: ApplicationLocation): string {
