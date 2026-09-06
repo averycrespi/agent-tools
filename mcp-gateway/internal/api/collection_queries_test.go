@@ -109,6 +109,17 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 	get("/api/v1/grants", &legacy)
 	require.Len(t, legacy.Items, 50)
 	require.NotEmpty(t, legacy.Items[0].ID)
+	for _, collection := range []string{"principals", "grants"} {
+		for _, direction := range []string{"ascending", "descending"} {
+			t.Run(collection+"/"+direction, func(t *testing.T) {
+				path := "/api/v1/" + collection + "?direction=" + direction
+				response := perform(boundary, http.MethodGet, path, "", auth)
+				require.Equal(t, http.StatusBadRequest, response.Code)
+				response = perform(boundary, http.MethodGet, path+"&sort=id", "", auth)
+				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			})
+		}
+	}
 	for _, path := range []string{
 		"/api/v1/principals?sort=unknown", "/api/v1/principals?direction=up", "/api/v1/principals?name=a&name=b",
 		"/api/v1/principals?name=" + strings.Repeat("a", 257), "/api/v1/principals?name=%00", "/api/v1/principals?sort=name&foreign=x",

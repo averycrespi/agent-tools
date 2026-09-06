@@ -60,7 +60,7 @@ func (query CollectionQuery) Validate(collection string) bool {
 			return false
 		}
 	}
-	if query.Direction != "" && query.Direction != "ascending" && query.Direction != "descending" {
+	if query.Direction != "" && (query.Sort == "" || query.Direction != "ascending" && query.Direction != "descending") {
 		return false
 	}
 	if query.PrincipalID != "" && !validOpaqueID(query.PrincipalID) || query.ServerID != "" && !validOpaqueID(query.ServerID) {
