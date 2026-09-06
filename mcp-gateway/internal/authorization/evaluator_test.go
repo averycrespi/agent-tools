@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompiledConstraintCacheReusesOnlyExactRevisionBytes(t *testing.T) {
+func TestCompiledConstraintCacheReusesExactBytesAcrossRevisions(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	source := `{"version":2,"regex":{"/resource":"item/[0-9]+"}}`
 
@@ -35,7 +35,7 @@ func TestCompiledConstraintCacheReusesOnlyExactRevisionBytes(t *testing.T) {
 
 	differentRevision, err := repository.compileConstraint("8", source)
 	require.NoError(t, err)
-	assert.NotSame(t, first.atoms[0].expression, differentRevision.atoms[0].expression)
+	assert.Same(t, first.atoms[0].expression, differentRevision.atoms[0].expression)
 
 	_, err = repository.compileConstraint("7", source)
 	require.NoError(t, err)

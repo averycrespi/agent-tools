@@ -99,7 +99,7 @@ func (service *SelfProjectionService) ListSelfGrants(
 		}
 		grants := make([]selfGrantRow, 0, limit+1)
 		for rows.Next() {
-			grant, scanErr := scanSelfGrant(rows, subject.principalID, now)
+			grant, scanErr := service.repository.scanSelfGrant(rows, subject.principalID, now)
 			if scanErr != nil {
 				_ = rows.Close()
 				return scanErr
@@ -215,7 +215,7 @@ type selfGrantRow struct {
 	createdAt    string
 }
 
-func scanSelfGrant(scanner grantScanner, principalID string, now time.Time) (selfGrantRow, error) {
+func (repository *Repository) scanSelfGrant(scanner grantScanner, principalID string, now time.Time) (selfGrantRow, error) {
 	var (
 		row                                                  selfGrantRow
 		storedPrincipalID                                    string
@@ -245,7 +245,7 @@ func scanSelfGrant(scanner grantScanner, principalID string, now time.Time) (sel
 		if !upstreamName.Valid {
 			return selfGrantRow{}, errorsInvalidState("server-wide self grant has a constraint")
 		}
-		if _, err := CompileConstraint([]byte(constraintJSON.String)); err != nil {
+		if _, err := repository.compileReadConstraint(constraintJSON.String); err != nil {
 			return selfGrantRow{}, errorsInvalidState("self grant constraint is malformed")
 		}
 		value := json.RawMessage(append([]byte(nil), constraintJSON.String...))

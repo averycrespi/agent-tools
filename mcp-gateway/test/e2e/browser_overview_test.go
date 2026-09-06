@@ -63,7 +63,7 @@ func TestBrowserOverview(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.InvocationReads, 2)
+	assert.Zero(t, event.InvocationReads)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "T20 must own one Gateway lifecycle")

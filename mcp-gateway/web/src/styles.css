@@ -1008,11 +1008,10 @@ p {
   margin-top: 0;
 }
 
-.overview-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 24px;
+.overview {
+  max-width: 880px;
   border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
 
 .overview-panel {
@@ -1036,6 +1035,74 @@ p {
 .overview-stack {
   display: grid;
   gap: 9px;
+}
+
+.overview-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.overview-facts:empty {
+  display: none;
+}
+
+.overview-facts,
+.overview-context,
+.overview-triage-list p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.overview-evidence {
+  border-left: 3px solid var(--warning);
+  padding-left: 12px;
+}
+
+.overview-capacity {
+  border-left: 3px solid var(--warning);
+  padding: 6px 12px;
+}
+
+.overview-conditions,
+.overview-triage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.overview-conditions {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.overview-triage-list li {
+  min-width: 0;
+  padding: 10px 0;
+}
+
+.overview-triage-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.overview-triage-list p {
+  margin: 4px 0 0;
+}
+
+.overview-triage-list a {
+  display: inline-block;
+  max-width: 100%;
+  font-weight: 600;
+}
+
+.overview-requester {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.overview-decisions a {
+  font-weight: 400;
 }
 
 .record-list,
@@ -1974,7 +2041,8 @@ button.sort-button:not(:disabled):hover {
   }
 
   .shell {
-    grid-template: 52px minmax(0, 1fr) / minmax(0, 1fr);
+    --masthead-height: 52px;
+    grid-template: var(--masthead-height) minmax(0, 1fr) / minmax(0, 1fr);
   }
 
   .limits-disclosure > summary {
@@ -1997,9 +2065,9 @@ button.sort-button:not(:disabled):hover {
   .rail {
     position: fixed;
     z-index: 40;
-    inset: 52px 0 auto 0;
+    inset: var(--masthead-height) 0 auto 0;
     display: none;
-    max-height: calc(100vh - 52px);
+    max-height: calc(100vh - var(--masthead-height));
     overflow: auto;
     padding: 8px;
     border-right: 0;
@@ -2030,7 +2098,6 @@ button.sort-button:not(:disabled):hover {
 
   .form-grid,
   .collection-row.collection-pair,
-  .overview-grid,
   .fact-grid,
   .recovery-grid,
   .tool-schema-grid,
@@ -2052,10 +2119,6 @@ button.sort-button:not(:disabled):hover {
     grid-column: auto;
   }
 
-  .overview-grid {
-    gap: 0;
-  }
-
   .dialog-actions {
     align-items: stretch;
     flex-direction: column-reverse;
@@ -2067,6 +2130,24 @@ button.sort-button:not(:disabled):hover {
 }
 
 @media (max-width: 560px) {
+  .shell.authenticated:not([data-freshness="current"]) {
+    --masthead-height: 76px;
+  }
+
+  .masthead {
+    position: relative;
+  }
+
+  .shell.authenticated:not([data-freshness="current"]) .masthead {
+    padding-bottom: 24px;
+  }
+
+  .freshness-control > .status-label {
+    position: absolute;
+    bottom: 4px;
+    left: 10px;
+  }
+
   .workspace {
     padding-inline: 14px;
   }

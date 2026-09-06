@@ -81,7 +81,7 @@ func (repository *Repository) CreateGrant(
 		if err := advanceAuthorizationRevisionTx(ctx, transaction); err != nil {
 			return err
 		}
-		_, grant, err = scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), now)
+		_, grant, err = repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), now)
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func (repository *Repository) PatchGrant(ctx context.Context, grantID string, re
 	}
 	var updated contract.Grant
 	err := repository.mutateAuthorityTx(ctx, "", func(transaction *sql.Tx) error {
-		_, current, err := scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
+		_, current, err := repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
 		if err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func (repository *Repository) PatchGrant(ctx context.Context, grantID string, re
 		if changed != 1 {
 			return ErrStaleRevision
 		}
-		_, updated, err = scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
+		_, updated, err = repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
 		if err != nil {
 			return err
 		}
@@ -140,7 +140,7 @@ func (repository *Repository) DeleteGrant(ctx context.Context, grantID string) e
 		return ErrNotFound
 	}
 	err := repository.mutateAuthorityTx(ctx, "", func(transaction *sql.Tx) error {
-		if _, _, err := scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now()); err != nil {
+		if _, _, err := repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now()); err != nil {
 			return err
 		}
 		result, err := transaction.ExecContext(ctx, `DELETE FROM grants WHERE id = ?`, grantID)
