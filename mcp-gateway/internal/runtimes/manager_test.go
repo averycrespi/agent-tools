@@ -729,7 +729,11 @@ func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDri
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
 	candidate := receiveCandidate(t, driver.started)
 	driver.startResult <- activeOutcome()
-	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	// Active status is published before reconciliation completion; later triggers must not supersede fixture setup.
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeActive && status.Reconciliation.InUse == 0
+	}, time.Second, time.Millisecond)
 	return candidate
 }
 
@@ -1504,6 +1508,7 @@ func TestManagerFinalizesStatusAndHintsBeforeOperationSuccess(t *testing.T) {
 	assert.True(t, catalog.routeVisible())
 	status := manager.Status(serverID)
 	assert.Equal(t, contract.RuntimeActive, status.State)
+	assert.Equal(t, int64(1), status.Reconciliation.InUse)
 	assert.Equal(t, contract.ActiveCatalogCurrent, status.CatalogState)
 	assert.Equal(t, candidate.RuntimeID, *status.RuntimeID)
 	invalidationMu.Lock()
