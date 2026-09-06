@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -101,7 +102,12 @@ func (repository *Repository) IssueCredential(
 			return err
 		}
 		creation = contract.AgentCredentialCreation{Principal: updated, Bearer: candidate.bearer}
-		return nil
+		if principal.Credential != nil {
+			if err := audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "agent_credential", "invalidate", contract.AuditTarget{Type: "agent_credential", ID: principal.Credential.ID}); err != nil {
+				return err
+			}
+		}
+		return audit.MutationTx(ctx, transaction, repository.clock.Now(), "agent_credential", "issue", contract.AuditTarget{Type: "agent_credential", ID: candidate.id})
 	})
 	if err != nil {
 		return contract.AgentCredentialCreation{}, repository.mapMutationError(err)
@@ -153,7 +159,10 @@ func (repository *Repository) RevokeCredential(
 			return err
 		}
 		revoked, err = principalByIDTx(ctx, transaction, principalID)
-		return err
+		if err != nil {
+			return err
+		}
+		return audit.MutationTx(ctx, transaction, repository.clock.Now(), "agent_credential", "revoke", contract.AuditTarget{Type: "agent_credential", ID: principal.Credential.ID})
 	})
 	return revoked, repository.mapMutationError(err)
 }

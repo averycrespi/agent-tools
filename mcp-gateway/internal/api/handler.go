@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
@@ -44,7 +46,7 @@ type SessionService interface {
 	Exchange(context.Context, string) (admin.CreatedSession, error)
 	Bootstrap(context.Context, string) (admin.CreatedSession, error)
 	Authenticate(context.Context, string, string, string, bool) (contract.AdminCredential, error)
-	Logout(string) error
+	LogoutAuthenticated(context.Context, string) error
 	Subscribe(string) (<-chan struct{}, error)
 	Status() contract.LimitStatus
 }
@@ -89,6 +91,7 @@ type RuntimeStatus struct {
 type Options struct {
 	AuthorizationCollections AuthorizationCollectionService
 
+	InstallationID   string
 	Credentials      CredentialService
 	Sessions         SessionService
 	Backups          BackupService
@@ -102,6 +105,7 @@ type Options struct {
 	Principals       PrincipalService
 	GrantRequests    GrantRequestService
 	Invocations      InvocationReader
+	Audit            AuditReader
 	GrantTarget      authorization.CurrentGrantTargetValidator
 	AuthFlows        AuthFlowService
 	Replacements     CredentialReplacementService
@@ -109,12 +113,13 @@ type Options struct {
 	ActiveCatalog    ActiveCatalogService
 	OperationState   OperationStateProvider
 	RuntimeStatus    func(string) RuntimeStatus
-	TriggerServer    func(string, *string, bool)
+	TriggerServer    func(context.Context, string, *string, bool)
 	CatalogTraversal func(string) contract.LimitStatus
 	DispatchStatus   func(string) contract.LimitStatus
 }
 
 type Handler struct {
+	installationID   string
 	credentials      CredentialService
 	sessions         SessionService
 	backups          BackupService
@@ -129,6 +134,7 @@ type Handler struct {
 	collections      AuthorizationCollectionService
 	grantRequests    GrantRequestService
 	invocations      InvocationReader
+	audit            AuditReader
 	grantTarget      authorization.CurrentGrantTargetValidator
 	authFlows        AuthFlowService
 	replacements     CredentialReplacementService
@@ -136,7 +142,7 @@ type Handler struct {
 	activeCatalog    ActiveCatalogService
 	operationState   OperationStateProvider
 	runtimeStatus    func(string) RuntimeStatus
-	triggerServer    func(string, *string, bool)
+	triggerServer    func(context.Context, string, *string, bool)
 	catalogTraversal func(string) contract.LimitStatus
 	dispatchStatus   func(string) contract.LimitStatus
 }
@@ -185,7 +191,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, audit: options.Audit, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -250,6 +256,11 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 	default:
 		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
 	}
+	correlation, err := admin.NewID(time.Now(), rand.Reader)
+	if err != nil {
+		return ctx, boundaryError(err)
+	}
+	ctx = audit.WithOperator(ctx, contract.AuditCredential{ID: result.credential.ID, Fingerprint: result.credential.Fingerprint}, correlation)
 	return context.WithValue(ctx, authContextKey{}, result), nil
 }
 
@@ -297,6 +308,9 @@ func bootstrapAuthenticationError(code contract.ProblemCode) httpboundary.Error 
 }
 
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if _, _, _, ok := auditMutationTarget(request, handler.installationID); ok {
+		writer = &auditProblemWriter{ResponseWriter: writer, handler: handler, request: request}
+	}
 	writer.Header().Set("Cache-Control", "no-store")
 	path := request.URL.Path
 	switch {
@@ -346,6 +360,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.streamEvents(writer, request)
 	case path == "/api/v1/catalog" && handler.activeCatalog != nil:
 		handler.activeCatalogCollection(writer, request)
+	case path == "/api/v1/audit-events" && handler.audit != nil:
+		handler.auditCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v1/audit-events/") && handler.audit != nil:
+		handler.auditMember(writer, request, strings.TrimPrefix(path, "/api/v1/audit-events/"))
 	case path == "/api/v1/invocations" && handler.invocations != nil:
 		handler.invocationsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v1/invocations/") && handler.invocations != nil:
@@ -442,6 +460,7 @@ func (handler *Handler) oauthCallback(writer http.ResponseWriter, request *http.
 	if handler.callbackService != nil {
 		result = handler.callbackService.HandleCallback(request.Context(), request.URL.RawQuery)
 	}
+	request = request.WithContext(audit.WithCause(request.Context(), result.Cause))
 	status, body := http.StatusBadRequest, callbackFailedHTML
 	switch result.Outcome {
 	case oauth.CallbackSucceeded:
@@ -451,7 +470,7 @@ func (handler *Handler) oauthCallback(writer http.ResponseWriter, request *http.
 		}
 		if result.ServerID != "" {
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &result.ServerID})
-			handler.trigger(result.ServerID, nil, true)
+			handler.trigger(request.Context(), result.ServerID, nil, true)
 		}
 	case oauth.CallbackTransient:
 		status, body = http.StatusServiceUnavailable, callbackTransientHTML
@@ -461,7 +480,7 @@ func (handler *Handler) oauthCallback(writer http.ResponseWriter, request *http.
 		}
 		if result.ServerID != "" {
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &result.ServerID})
-			handler.trigger(result.ServerID, nil, true)
+			handler.trigger(request.Context(), result.ServerID, nil, true)
 		}
 	}
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -524,7 +543,7 @@ func (handler *Handler) logout(writer http.ResponseWriter, request *http.Request
 		writeProblem(writer, contract.ProblemAuthenticationRequired)
 		return
 	}
-	if err := handler.sessions.Logout(authenticated.sessionID); err != nil {
+	if err := handler.sessions.LogoutAuthenticated(request.Context(), authenticated.sessionID); err != nil {
 		writeServiceError(writer, err)
 		return
 	}
@@ -1047,6 +1066,7 @@ func writeServiceError(writer http.ResponseWriter, err error) {
 }
 
 func writeProblem(writer http.ResponseWriter, code contract.ProblemCode) {
+	code = admitProblem(writer, code)
 	problem, _ := contract.ProblemForCode(code)
 	writer.Header().Set("Content-Type", contract.MediaTypeProblemJSON)
 	writer.WriteHeader(problem.Status)

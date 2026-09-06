@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -214,7 +215,7 @@ func (coordinator *Coordinator) replaceFencedAdmitted(
 	if err := coordinator.ensureActive(epoch); err != nil {
 		return CutoverResult{}, err
 	}
-	if err := coordinator.provider.WriteGeneration(ctx, namespace, handle, secret); err != nil {
+	if err := coordinator.auditGenerationEffect(ctx, namespace, "write", func() error { return coordinator.provider.WriteGeneration(ctx, namespace, handle, secret) }); err != nil {
 		coordinator.discardFailedCandidate(ctx, namespace, handle, epoch)
 		return CutoverResult{}, err
 	}
@@ -393,7 +394,7 @@ func (coordinator *Coordinator) cleanupCandidates(ctx context.Context, namespace
 		if err := coordinator.ensureActive(epoch); err != nil {
 			return err
 		}
-		if err := coordinator.provider.DeleteGeneration(ctx, namespace, handle); err != nil {
+		if err := coordinator.auditGenerationEffect(ctx, namespace, "delete", func() error { return coordinator.provider.DeleteGeneration(ctx, namespace, handle) }); err != nil {
 			return err
 		}
 		if err := coordinator.removeCandidate(ctx, namespace, handle, epoch); err != nil {
@@ -446,7 +447,7 @@ func (coordinator *Coordinator) registerCandidate(ctx context.Context, namespace
 			VALUES (?, ?, ?, ?)`, namespace.owner, namespace.kind, string(handle), coordinator.clock.Now().UTC()); err != nil {
 			return fmt.Errorf("register keyring candidate: %w", err)
 		}
-		return nil
+		return coordinator.auditMutationTx(ctx, transaction, namespace, "stage")
 	})
 }
 
@@ -501,7 +502,7 @@ func (coordinator *Coordinator) fenceAuthority(
 			UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
 			return fmt.Errorf("increment keyring fence revision: %w", err)
 		}
-		return nil
+		return coordinator.auditMutationTx(ctx, transaction, namespace, "fence")
 	})
 }
 
@@ -547,7 +548,7 @@ func (coordinator *Coordinator) activateAuthority(
 			UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
 			return fmt.Errorf("increment keyring activation revision: %w", err)
 		}
-		return nil
+		return coordinator.auditMutationTx(ctx, transaction, namespace, "activate")
 	})
 }
 
@@ -638,6 +639,14 @@ func (coordinator *Coordinator) commitCandidate(
 				return fmt.Errorf("clear prior keyring authority fence: %w", err)
 			}
 		}
+		if err := coordinator.auditMutationTx(ctx, transaction, namespace, "commit"); err != nil {
+			return err
+		}
+		if !keepFenced {
+			if err := coordinator.auditMutationTx(ctx, transaction, namespace, "activate"); err != nil {
+				return err
+			}
+		}
 		return runCutoverHook(coordinator.hooks.beforeCommit)
 	})
 	if err != nil {
@@ -705,6 +714,9 @@ func (coordinator *Coordinator) invalidateAuthority(
 			}
 			domainRevision = published
 		}
+		if err := coordinator.auditMutationTx(ctx, transaction, namespace, "fence"); err != nil {
+			return err
+		}
 		return runCutoverHook(coordinator.hooks.beforeCommit)
 	})
 	if err != nil {
@@ -759,8 +771,32 @@ func (coordinator *Coordinator) removeCandidate(
 			DELETE FROM keyring_candidates
 			WHERE owner = ? AND kind = ? AND handle = ?`,
 			namespace.owner, namespace.kind, string(handle))
-		return err
+		if err != nil {
+			return err
+		}
+		return coordinator.auditMutationTx(ctx, transaction, namespace, "cleanup")
 	})
+}
+
+func (coordinator *Coordinator) auditMutationTx(ctx context.Context, tx *sql.Tx, namespace Namespace, action string) error {
+	return audit.MutationTx(audit.WithSystem(ctx), tx, coordinator.clock.Now(), "keyring", action, contract.AuditTarget{Type: "server", ID: namespace.owner})
+}
+
+func (coordinator *Coordinator) auditGenerationEffect(ctx context.Context, namespace Namespace, action string, effect func() error) error {
+	ctx = audit.WithSystem(ctx)
+	attempt, err := audit.NewAttempt(ctx, coordinator.clock.Now(), "keyring", action, contract.AuditTarget{Type: "server", ID: namespace.owner})
+	if err != nil {
+		return err
+	}
+	if err := audit.Append(ctx, coordinator.store, attempt); err != nil {
+		return err
+	}
+	effectErr := effect()
+	outcome := "succeeded"
+	if effectErr != nil {
+		outcome = "unknown"
+	}
+	return errors.Join(effectErr, audit.Finish(ctx, coordinator.store, attempt, coordinator.clock.Now(), outcome))
 }
 
 func (coordinator *Coordinator) discardFailedCandidate(
@@ -769,7 +805,7 @@ func (coordinator *Coordinator) discardFailedCandidate(
 	handle Handle,
 	epoch uint64,
 ) {
-	if err := coordinator.provider.DeleteGeneration(ctx, namespace, handle); err != nil {
+	if err := coordinator.auditGenerationEffect(ctx, namespace, "delete", func() error { return coordinator.provider.DeleteGeneration(ctx, namespace, handle) }); err != nil {
 		return
 	}
 	_ = coordinator.removeCandidate(ctx, namespace, handle, epoch)

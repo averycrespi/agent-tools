@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -31,13 +32,35 @@ func TestApprovalAtomicallyCreatesAllowAndApprovedRequest(t *testing.T) {
 	require.NoError(t, err)
 	fixture.invalidations = nil
 	duration := "60"
-
-	result, err := fixture.requests.Approve(context.Background(), fixture.authority, ApproveRequest{Description: stringPointer("Test grant"),
+	reader, err := audit.NewRepository(fixture.store)
+	require.NoError(t, err)
+	beforeAudit, err := reader.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "grant_request"}})
+	require.NoError(t, err)
+	assert.Empty(t, beforeAudit.Items, "submission evidence stays exclusively in Requests")
+	credential := contract.AuditCredential{ID: requestID(999), Fingerprint: "0123456789abcdef"}
+	ctx := audit.WithOperator(t.Context(), credential, credential.ID)
+	result, err := fixture.requests.Approve(ctx, fixture.authority, ApproveRequest{Description: stringPointer("Test grant"),
 		ID: created.ID, ExpectedRevision: "1", ApprovedPolicy: contract.Policy{
 			Scope: contract.PolicyTool, Target: "sample.tool", DurationSeconds: &duration,
 		},
 	})
 	require.NoError(t, err)
+	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{CorrelationID: credential.ID}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 4)
+	for _, item := range page.Items {
+		if item.Category == "grant_request" {
+			assert.Equal(t, "approve", item.Action)
+			assert.Equal(t, created.ID, item.Target.ID)
+			assert.Equal(t, &credential, item.Actor.Credential)
+			assert.Equal(t, contract.AuditOperator, item.Actor.Type)
+		} else {
+			assert.Equal(t, "grant", item.Category)
+			assert.Equal(t, result.Grant.ID, item.Target.ID)
+			assert.Equal(t, &credential, item.Initiator)
+			assert.Equal(t, contract.AuditSystem, item.Actor.Type)
+		}
+	}
 	assert.Equal(t, contract.GrantAllow, result.Grant.Effect)
 	assert.Equal(t, fixture.principal.Principal.ID, result.Grant.PrincipalID)
 	assert.Equal(t, requestID(400), result.Grant.ServerID)

@@ -19,7 +19,7 @@ func TestRequestSchemaInitializesExactFoundation(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
 
-	assert.Equal(t, 14, CurrentSchema)
+	assert.GreaterOrEqual(t, CurrentSchema, 10)
 	assertSchemaTenRequestFoundation(t, ctx, store.database)
 	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 }

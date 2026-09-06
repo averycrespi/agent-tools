@@ -18,7 +18,7 @@ func TestOAuthDiagnosticSchemaIsBoundedAndCoherent(t *testing.T) {
 	assert.Equal(t, []string{
 		"insertion_sequence", "id", "server_id", "flow_state", "target_desired_revision",
 		"registration_revision", "created_at", "expires_at", "finished_at", "reason",
-		"diagnostic_stage", "diagnostic_http_status",
+		"diagnostic_stage", "diagnostic_http_status", "audit_cause",
 	}, tableColumns(t, ctx, store.database, "server_auth_flows"))
 	var migrationName string
 	require.NoError(t, store.database.QueryRowContext(ctx, `SELECT name FROM schema_migrations WHERE version = 11`).Scan(&migrationName))

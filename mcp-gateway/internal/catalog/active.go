@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -88,6 +89,7 @@ type ActiveTool struct {
 }
 
 type activeServerSnapshot struct {
+	Cause               audit.Cause
 	ServerDisplayName   string
 	RuntimeID           string
 	RuntimeGeneration   uint64
@@ -128,7 +130,7 @@ func NewActiveRegistry(repository *Repository, clock Clock, processID string) (*
 	return registry, nil
 }
 
-func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publication) (ActiveStatus, error) {
+func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publication) (result ActiveStatus, resultErr error) {
 	if publication.RuntimeID == "" || publication.Current == nil || publication.Fence.ServerID == "" {
 		return ActiveStatus{}, servers.ErrInvalidInput
 	}
@@ -200,11 +202,31 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	if !publication.Current() {
 		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStale, servers.ErrStaleRevision)
 	}
+	attempt, err := audit.NewAttempt(audit.WithSystem(ctx), registry.clock.Now(), "catalog", "publish", contract.AuditTarget{Type: "server", ID: publication.Fence.ServerID})
+	if err != nil {
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
+	}
+	if err := audit.Append(ctx, registry.repository.store, attempt); err != nil {
+		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
+	}
+	ctx = audit.WithCorrelation(ctx, attempt.CorrelationID)
+	defer func() {
+		outcome := "succeeded"
+		if resultErr != nil {
+			outcome = "unknown"
+		}
+		if err := audit.Finish(ctx, registry.repository.store, attempt, registry.clock.Now(), outcome); err != nil {
+			registry.withdrawLocked(publication.Fence.ServerID, publication.RuntimeID, publication.RuntimeGeneration, contract.ActiveCatalogUnavailable)
+			result = ActiveStatus{}
+			resultErr = durableOnlyFailure(PublicationFailureStorage, err)
+		}
+	}()
 	oldRoutes, err := registry.routes.replace(publication, tools, revision)
 	if err != nil {
 		return ActiveStatus{}, durableOnlyFailure(PublicationFailureStorage, err)
 	}
 	snapshot := activeServerSnapshot{
+		Cause:             audit.Capture(ctx),
 		ServerDisplayName: publication.ServerDisplayName,
 		RuntimeID:         publication.RuntimeID, RuntimeGeneration: publication.RuntimeGeneration,
 		DesiredRevision: publication.Fence.ExpectedDesiredRevision, CredentialRevisions: publication.Fence.ExpectedCredentialRevisions,
@@ -243,6 +265,10 @@ func (registry *ActiveRegistry) MarkStale(serverID, runtimeID string, issueCount
 }
 
 func (registry *ActiveRegistry) MarkStaleExact(serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
+	return registry.markStale(context.Background(), serverID, runtimeID, runtimeGeneration, issueCount)
+}
+
+func (registry *ActiveRegistry) markStale(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
 	if registry.draining.Load() {
 		return false
 	}
@@ -258,11 +284,12 @@ func (registry *ActiveRegistry) MarkStaleExact(serverID, runtimeID string, runti
 	if current.State == contract.ActiveCatalogStale && current.IssueCount == issueCount {
 		return true
 	}
-	current.State = contract.ActiveCatalogStale
-	current.IssueCount = issueCount
-	registry.servers[serverID] = current
-	registry.advanceLocked()
-	return true
+	return registry.fenceWithAuditLocked(audit.InheritCause(ctx, current.Cause), serverID, "fence", func() {
+		current.State = contract.ActiveCatalogStale
+		current.IssueCount = issueCount
+		registry.servers[serverID] = current
+		registry.advanceLocked()
+	})
 }
 
 func (registry *ActiveRegistry) Withdraw(serverID, runtimeID string, state contract.ActiveCatalogState) bool {
@@ -296,22 +323,61 @@ func (registry *ActiveRegistry) FinalizeLifecycle(ctx context.Context, fence Com
 		}
 		return servers.ErrStaleRevision
 	}
-	if !registry.withdrawLocked(fence.ServerID, current.RuntimeID, current.RuntimeGeneration, activeState) {
+	changed, err := registry.withdrawAuditedLocked(ctx, fence.ServerID, current.RuntimeID, current.RuntimeGeneration, activeState)
+	if err != nil {
+		return err
+	}
+	if !changed {
 		return servers.ErrStaleRevision
 	}
 	return nil
 }
 
 func (registry *ActiveRegistry) WithdrawExact(serverID, runtimeID string, runtimeGeneration uint64, state contract.ActiveCatalogState) bool {
+	changed, err := registry.WithdrawAudited(context.Background(), serverID, runtimeID, runtimeGeneration, state)
+	return changed && err == nil
+}
+
+func (registry *ActiveRegistry) WithdrawAudited(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, state contract.ActiveCatalogState) (bool, error) {
 	if registry.draining.Load() || state != contract.ActiveCatalogAbsent && state != contract.ActiveCatalogUnavailable {
-		return false
+		return false, nil
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	if registry.draining.Load() {
-		return false
+		return false, nil
 	}
-	return registry.withdrawLocked(serverID, runtimeID, runtimeGeneration, state)
+	return registry.withdrawAuditedLocked(ctx, serverID, runtimeID, runtimeGeneration, state)
+}
+
+func (registry *ActiveRegistry) withdrawAuditedLocked(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, state contract.ActiveCatalogState) (bool, error) {
+	current, exists := registry.servers[serverID]
+	if exists {
+		if current.RuntimeID != runtimeID || runtimeGeneration != 0 && current.RuntimeGeneration != runtimeGeneration {
+			return false, nil
+		}
+		if current.State == state && len(current.Tools) == 0 && current.Revision == nil {
+			return true, nil
+		}
+		ctx = audit.InheritCause(ctx, current.Cause)
+	} else if state != contract.ActiveCatalogUnavailable || runtimeID == "" {
+		return false, nil
+	}
+	attempt, evidenceErr := audit.NewAttempt(audit.WithSystem(ctx), registry.clock.Now(), "catalog", "withdraw", contract.AuditTarget{Type: "server", ID: serverID})
+	if evidenceErr == nil {
+		evidenceErr = audit.Append(ctx, registry.repository.store, attempt)
+	}
+	// Missing evidence must not preserve unsafe routes. The caller still gets
+	// the failure and cannot treat the withdrawal as confirmed cleanup.
+	changed := registry.withdrawLocked(serverID, runtimeID, runtimeGeneration, state)
+	if evidenceErr != nil {
+		return changed, evidenceErr
+	}
+	outcome := "succeeded"
+	if !changed {
+		outcome = "failed"
+	}
+	return changed, audit.Finish(ctx, registry.repository.store, attempt, registry.clock.Now(), outcome)
 }
 
 func (registry *ActiveRegistry) MarkUnavailable(serverID, runtimeID string, issueCount int64) bool {
@@ -319,6 +385,10 @@ func (registry *ActiveRegistry) MarkUnavailable(serverID, runtimeID string, issu
 }
 
 func (registry *ActiveRegistry) MarkUnavailableExact(serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
+	return registry.markUnavailable(context.Background(), serverID, runtimeID, runtimeGeneration, issueCount)
+}
+
+func (registry *ActiveRegistry) markUnavailable(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
 	if registry.draining.Load() || runtimeID == "" || issueCount < 0 {
 		return false
 	}
@@ -334,19 +404,32 @@ func (registry *ActiveRegistry) MarkUnavailableExact(serverID, runtimeID string,
 	if current.State == contract.ActiveCatalogUnavailable && current.Revision == nil && len(current.Tools) == 0 && current.IssueCount == issueCount {
 		return true
 	}
-	oldRoutes := registry.routes.withdraw(serverID, runtimeID, runtimeGeneration)
-	current.RuntimeID = runtimeID
-	if !ok || runtimeGeneration != 0 {
-		current.RuntimeGeneration = runtimeGeneration
+	return registry.fenceWithAuditLocked(audit.InheritCause(ctx, current.Cause), serverID, "withdraw", func() {
+		oldRoutes := registry.routes.withdraw(serverID, runtimeID, runtimeGeneration)
+		current.RuntimeID = runtimeID
+		if !ok || runtimeGeneration != 0 {
+			current.RuntimeGeneration = runtimeGeneration
+		}
+		current.State = contract.ActiveCatalogUnavailable
+		current.Revision = nil
+		current.Tools = nil
+		current.IssueCount = issueCount
+		registry.servers[serverID] = current
+		registry.advanceLocked()
+		go withdrawCapabilities(context.Background(), oldRoutes)
+	})
+}
+
+func (registry *ActiveRegistry) fenceWithAuditLocked(ctx context.Context, serverID, action string, fence func()) bool {
+	attempt, err := audit.NewAttempt(audit.WithSystem(ctx), registry.clock.Now(), "catalog", action, contract.AuditTarget{Type: "server", ID: serverID})
+	if err == nil {
+		err = audit.Append(ctx, registry.repository.store, attempt)
 	}
-	current.State = contract.ActiveCatalogUnavailable
-	current.Revision = nil
-	current.Tools = nil
-	current.IssueCount = issueCount
-	registry.servers[serverID] = current
-	registry.advanceLocked()
-	go withdrawCapabilities(context.Background(), oldRoutes)
-	return true
+	fence()
+	if err != nil {
+		return false
+	}
+	return audit.Finish(ctx, registry.repository.store, attempt, registry.clock.Now(), "succeeded") == nil
 }
 
 func (registry *ActiveRegistry) Routes() *RouteRegistry { return registry.routes }

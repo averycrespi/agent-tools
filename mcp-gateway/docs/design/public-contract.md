@@ -54,12 +54,28 @@ Methods are lexicographically ordered and become the exact `Allow` value. `HEAD`
 | `/api/v1/grant-requests/{id}/reject`                 | `POST`               | admin bearer or session                           |
 | `/api/v1/invocations`                                | `GET`                | admin bearer or session                           |
 | `/api/v1/invocations/{id}`                           | `GET`                | admin bearer or session                           |
+| `/api/v1/audit-events`                               | `GET`                | admin bearer or session                           |
+| `/api/v1/audit-events/{id}`                          | `GET`                | admin bearer or session                           |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. They use the sole invocation repository and introduce no mutation, replay, event, or mutable join.
 
 The non-mutating grant matcher validation mechanic is `GrantConstraintValidation` → `GrantConstraintValidationResult`. The request is exactly `{constraint}`, where `constraint` must be a non-null object; missing, null, or non-object members are malformed requests. A well-formed request always returns `200`: valid constraints return an empty diagnostics array, while compiler-invalid constraint objects return one safe `GrantConstraintDiagnostic` with a JSON Pointer field and fixed message. The endpoint uses the production compiler, writes no durable state, publishes no invalidation, and grant creation and request approval still compile authoritatively in their own mutation paths.
+
+### Control-plane audit reads
+
+`GET /api/v1/audit-events` and `GET /api/v1/audit-events/{id}` accept administrator bearer or session authority, remain bodyless and `no-store`, and have exact `Allow` value `GET`. There are no audit mutation, replay, export, or ordinary read-access-log endpoints.
+
+`AuditListQuery` accepts only `limit` (default 50, canonical decimal 1–100), `cursor`, `generation`, `actor_type`, `credential_id`, `category`, `action`, `target_type`, `target_id`, `outcome`, `correlation_id`, `from`, and `until`. `AuditItemQuery` accepts only optional `generation`. Unknown, repeated, empty, malformed, or out-of-range members fail. Filters are conjunctive and authoritative; `credential_id` matches either the performing operator credential or a known system initiator. `from` and `until` must occur together, use fixed UTC nanosecond timestamps (`2026-09-05T00:00:00.000000000Z`), and define a nonempty half-open range of at most 366 days.
+
+`AuditPage` is exactly `{items,next_cursor,history}`. Items are `AuditSummary`: `{id,sequence,timestamp,category,action,phase,outcome,actor,initiator,correlation_id,target}`. The sequence is a positive decimal string, not a JSON number. `AuditItem` is exactly `{event,history}`; its event adds `detail`, exactly `{reason,problem}`, each null or a closed public reason/problem code. No member accepts free text, unrestricted snapshots, invocation arguments/results, raw credentials, or raw errors. An actor is exactly `{type,credential}`, with type `operator`, `system`, or `offline_maintenance`. Only an operator has a nonnull credential, exactly `{id,fingerprint}`. A nonnull initiator has that same credential shape and is permitted only on system events. Targets are exactly `{type,id}` with canonical durable IDs. No human identity is inferred. `phase` is `attempt` with `outcome=pending`, or `outcome` with one of `succeeded`, `rejected`, `failed`, and `unknown`; attempts never carry outcome detail.
+
+History is exactly `{generation,oldest_retained,pruned}`. The opaque generation is 64 lowercase hexadecimal characters. The oldest boundary is null for empty history, otherwise exactly `{id,sequence,timestamp}`. Retention keeps the newest 65,536 events, changes the oldest boundary, and sets `pruned` without changing the generation. Consumers retain and compare the generation separately from that boundary and must not combine different generations. Explicit mismatches return `409 audit_history_replaced`: The audit history generation has changed.
+
+Collection order is descending sequence. A cursor is an opaque, authenticated, filter-bound traversal with an upper sequence watermark; later appends do not enter that traversal. Any pruning since its first page makes it `409 stale_cursor`, even if the pruned records would not match the filters. A different process epoch also makes cursors stale; changed filters, invalid encoding, or failed authentication of a current-process cursor produces `400 invalid_cursor`. On a stale cursor, discard the traversal and fetch a fresh first page, then compare its generation before combining results. A changed generation requires discarding previous-history state; pruning within the same generation does not mean replacement. Item reads can pin `generation` to avoid ID reuse across incompatible histories. Cursor bytes are bounded to 2,048; canonical persisted event JSON is bounded to 2,048 bytes and is strictly revalidated before projection.
+
+The read/store backend does not itself establish producer coverage or restore continuity. Their qualification is owned by the [administrative audit coverage matrix](administrative-control-plane.md#control-plane-audit-coverage).
 
 ### Safe problems
 
@@ -97,6 +113,7 @@ Problems normally have exactly `status`, `code`, and `title`. The `invalid_serve
 |    409 | `operation_conflict`                    | The server has conflicting work.                                    |
 |    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                               |
 |    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                         |
+|    409 | `audit_history_replaced`                | The audit history generation has changed.                           |
 |    412 | `stale_revision`                        | The server revision is stale.                                       |
 |    428 | `precondition_required`                 | The current server revision is required.                            |
 |    503 | `downstream_unavailable`                | The downstream server is unavailable.                               |
@@ -228,6 +245,10 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `grant_request_duration_seconds`              |    2592000 |
 | `grant_request_target_bytes`                  |        128 |
 | `agent_self_service_list_page`                |        100 |
+| `control_audit_events`                        |      65536 |
+| `control_audit_page`                          |        100 |
+| `control_audit_event_bytes`                   |       2048 |
+| `control_audit_cursor_bytes`                  |       2048 |
 
 Credential, backup, server/catalog, and principal/grant collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. Downstream HTTP reuses the public-boundary `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
 

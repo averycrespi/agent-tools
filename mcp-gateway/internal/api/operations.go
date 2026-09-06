@@ -83,7 +83,7 @@ func (handler *Handler) createOperation(writer http.ResponseWriter, request *htt
 		status = http.StatusOK
 	} else {
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
-		handler.trigger(serverID, &result.Operation.ID, input.Kind == contract.OperationRetry)
+		handler.trigger(request.Context(), serverID, &result.Operation.ID, input.Kind == contract.OperationRetry)
 	}
 	writeJSON(writer, status, contract.ServerOperationMutation{Operation: *operationResource(&result.Operation)})
 }

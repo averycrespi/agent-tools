@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -235,7 +236,10 @@ func (repository *Repository) Commit(ctx context.Context, fence CommitFence, can
 			return fmt.Errorf("publish durable catalog status: %w", err)
 		}
 		status, err = statusTx(ctx, transaction, fence.ServerID)
-		return err
+		if err != nil {
+			return err
+		}
+		return audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "catalog", "commit", contract.AuditTarget{Type: "server", ID: fence.ServerID})
 	})
 	return status, mapStoreError(err)
 }
@@ -289,7 +293,17 @@ func (repository *Repository) setState(ctx context.Context, fence CommitFence, d
 			return err
 		}
 		status, err = statusTx(ctx, transaction, fence.ServerID)
-		return err
+		if err != nil {
+			return err
+		}
+		if current.State == state && current.IssueCount == issueCount {
+			return nil
+		}
+		action := "invalidate"
+		if state == contract.DurableCatalogRetired {
+			action = "retire"
+		}
+		return audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "catalog", action, contract.AuditTarget{Type: "server", ID: fence.ServerID})
 	})
 	return status, mapStoreError(err)
 }

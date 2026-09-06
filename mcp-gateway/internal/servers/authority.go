@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 )
@@ -129,6 +130,13 @@ func (repository *Repository) CredentialAuthorityCallback(fence CredentialFence)
 				return "", ErrStaleRevision
 			}
 			return "", fmt.Errorf("publish server credential metadata: %w", err)
+		}
+		action := "replace"
+		if update.Handle == nil {
+			action = "invalidate"
+		}
+		if err := audit.MutationTx(ctx, transaction, repository.clock.Now(), "server_credential", action, contract.AuditTarget{Type: "server", ID: fence.ServerID}); err != nil {
+			return "", err
 		}
 		return strconv.FormatInt(updated, 10), nil
 	}, nil

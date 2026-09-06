@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
@@ -77,6 +78,34 @@ func NewSessionManager(service *Service, clock Clock, entropy io.Reader) *Sessio
 }
 
 func (manager *SessionManager) Exchange(ctx context.Context, bearer string) (CreatedSession, error) {
+	parent, err := manager.service.Authenticate(ctx, bearer)
+	if err != nil {
+		return CreatedSession{}, err
+	}
+	ctx = audit.WithOperator(ctx, contract.AuditCredential{ID: parent.ID, Fingerprint: parent.Fingerprint}, "")
+	attempt, err := audit.NewAttempt(ctx, manager.clock.Now(), "admin_session", "sign_in", contract.AuditTarget{Type: "admin_credential", ID: parent.ID})
+	if err != nil {
+		return CreatedSession{}, err
+	}
+	if err := audit.Append(ctx, manager.service.store, attempt); err != nil {
+		return CreatedSession{}, err
+	}
+	session, effectErr := manager.exchange(ctx, bearer)
+	outcomeValue := "succeeded"
+	if effectErr != nil {
+		outcomeValue = "failed"
+	}
+	evidenceErr := audit.Finish(ctx, manager.service.store, attempt, manager.clock.Now(), outcomeValue)
+	if effectErr != nil || evidenceErr != nil {
+		if effectErr == nil {
+			_ = manager.Logout(session.ID)
+		}
+		return CreatedSession{}, errors.Join(effectErr, evidenceErr)
+	}
+	return session, nil
+}
+
+func (manager *SessionManager) exchange(ctx context.Context, bearer string) (CreatedSession, error) {
 	if _, err := manager.service.Authenticate(ctx, bearer); err != nil {
 		return CreatedSession{}, err
 	}
@@ -196,6 +225,38 @@ func (manager *SessionManager) Subscribe(sessionID string) (<-chan struct{}, err
 		return nil, ErrAuthenticationRequired
 	}
 	return session.done, nil
+}
+
+func (manager *SessionManager) LogoutAuthenticated(ctx context.Context, sessionID string) error {
+	manager.mu.Lock()
+	session, ok := manager.sessions[sessionID]
+	var parentID string
+	if ok {
+		parentID = session.parentID
+	}
+	manager.mu.Unlock()
+	if !ok {
+		return ErrAuthenticationRequired
+	}
+	parent, err := manager.service.Get(ctx, parentID)
+	if err != nil || parent.Status != contract.CredentialActive {
+		return ErrAuthenticationRequired
+	}
+	ctx = audit.WithOperator(ctx, contract.AuditCredential{ID: parent.ID, Fingerprint: parent.Fingerprint}, "")
+	attempt, err := audit.NewAttempt(ctx, manager.clock.Now(), "admin_session", "logout", contract.AuditTarget{Type: "admin_credential", ID: parent.ID})
+	if err != nil {
+		return err
+	}
+	if err := audit.Append(ctx, manager.service.store, attempt); err != nil {
+		return err
+	}
+	effectErr := manager.Logout(sessionID)
+	outcomeValue := "succeeded"
+	if effectErr != nil {
+		outcomeValue = "failed"
+	}
+	evidenceErr := audit.Finish(ctx, manager.service.store, attempt, manager.clock.Now(), outcomeValue)
+	return errors.Join(effectErr, evidenceErr)
 }
 
 func (manager *SessionManager) Logout(sessionID string) error {

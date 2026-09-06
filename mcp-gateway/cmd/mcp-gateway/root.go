@@ -206,6 +206,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	})
 	defer ingress.Shutdown()
 	apiHandler := api.New(api.Options{
+		InstallationID: identity.InstallationID,
+
 		Credentials:   credentials,
 		Sessions:      sessions,
 		Backups:       backupManager,
@@ -216,6 +218,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
 		Invocations:   controlAPI.Invocations,
+		Audit:         controlAPI.Audit,
 
 		AuthorizationCollections: controlAPI.AuthorizationCollections,
 
@@ -293,9 +296,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		},
 	})
 	boundary, err = httpboundary.New(httpboundary.Options{
-		Authority: authority,
-		Ready:     ready.Load,
-		Draining:  draining.Load,
+		AuthenticatedProblem: apiHandler.RecordAuthenticatedProblem,
+		Authority:            authority,
+		Ready:                ready.Load,
+		Draining:             draining.Load,
 		Authenticate: func(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
 			if authority == contract.AuthorityAgent {
 				return ingress.Authenticate(ctx, request, authority)

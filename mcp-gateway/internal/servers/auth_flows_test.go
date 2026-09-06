@@ -7,10 +7,87 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestWorkflowRecoveryRetainsDurableInitiator(t *testing.T) {
+	repository, store, ownership := newRepository(t, new(sequenceReader))
+	credential := contract.AuditCredential{ID: testInstallationID, Fingerprint: "0123456789abcdef"}
+	ctx := audit.WithOperator(t.Context(), credential, testInstallationID)
+	definition, err := repository.Create(ctx, CreateRequest{Definition: Definition{Namespace: "durable-cause", DisplayName: "durable-cause", Transport: contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://resource.example/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.OAuthAuthentication{Mode: contract.AuthenticationOAuth, Registration: contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}, TrustedOrigins: []string{}}}}, Idempotency: idempotency("durable-cause", "durable-cause", "")})
+	require.NoError(t, err)
+	server := definition.Server
+	created, err := repository.CreateAuthFlow(ctx, AuthFlowCreateRequest{ServerID: server.ID, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	operation, err := repository.CreateOperation(ctx, OperationRequest{ServerID: server.ID, Kind: contract.OperationReload})
+	require.NoError(t, err)
+	for _, table := range []string{"servers", "server_auth_flows", "server_operations"} {
+		err := store.Mutate(ctx, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `UPDATE `+table+` SET audit_cause = NULL`)
+			return err
+		})
+		require.Error(t, err)
+	}
+	require.NoError(t, store.Close())
+	reopened, err := storage.Open(t.Context(), ownership)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	recovered, err := New(reopened, &mutableClock{now: testTime}, new(sequenceReader))
+	require.NoError(t, err)
+	reconstructed, err := recovered.Get(t.Context(), server.ID)
+	require.NoError(t, err)
+	cause, err := audit.NewAttempt(audit.WithSystem(audit.WithCause(t.Context(), reconstructed.Cause)), testTime, "server", "reconcile", contract.AuditTarget{Type: "server", ID: server.ID})
+	require.NoError(t, err)
+	assert.Equal(t, &credential, cause.Initiator)
+	assert.Equal(t, testInstallationID, cause.CorrelationID)
+	require.NoError(t, recovered.InterruptAuthFlows(t.Context()))
+	require.NoError(t, recovered.InterruptNonterminal(t.Context()))
+	reader, err := audit.NewRepository(reopened)
+	require.NoError(t, err)
+	for _, target := range []string{created.Flow.ID, operation.Operation.ID} {
+		page, err := reader.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Action: "recover", TargetID: target}})
+		require.NoError(t, err)
+		require.Len(t, page.Items, 2)
+		assert.Equal(t, "unknown", page.Items[0].Outcome)
+		for _, item := range page.Items {
+			assert.Equal(t, contract.AuditSystem, item.Actor.Type)
+			assert.Equal(t, &credential, item.Initiator)
+			assert.Equal(t, testInstallationID, item.CorrelationID)
+		}
+	}
+}
+
+func TestAuthFlowAuditFailureRollsBackTransition(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	server := mustCreateOAuthServer(t, repository, "audit-flow", contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})
+	ctx := audit.WithOperator(t.Context(), contract.AuditCredential{ID: testInstallationID, Fingerprint: "0123456789abcdef"}, testInstallationID)
+	created, err := repository.CreateAuthFlow(ctx, AuthFlowCreateRequest{ServerID: server.ID, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TRIGGER reject_oauth_cancel BEFORE INSERT ON control_audit_events WHEN json_extract(NEW.event, '$.category') = 'oauth' AND json_extract(NEW.event, '$.action') = 'cancel' AND json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'injected'); END`)
+		return err
+	}))
+	_, err = repository.CancelAuthFlow(ctx, server.ID, created.Flow.ID)
+	require.Error(t, err)
+	retained, err := repository.GetAuthFlow(ctx, server.ID, created.Flow.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.AuthFlowPreparing, retained.State)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "oauth", TargetID: created.Flow.ID}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	for _, item := range page.Items {
+		assert.Equal(t, "create", item.Action)
+		assert.Equal(t, contract.AuditOperator, item.Actor.Type)
+		assert.Equal(t, testInstallationID, item.Actor.Credential.ID)
+		assert.Equal(t, testInstallationID, item.CorrelationID)
+	}
+}
 
 func TestAuthFlowCreateSupersedeAwaitCancelAndExactExpiry(t *testing.T) {
 	clock := &mutableClock{now: testTime}

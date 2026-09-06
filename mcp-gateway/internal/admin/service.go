@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -66,6 +67,7 @@ func NewService(store *storage.Store, clock Clock, entropy io.Reader) *Service {
 }
 
 func (service *Service) Initialize(ctx context.Context, sink SecretSink) (contract.AdminCredential, error) {
+	ctx = audit.WithOffline(ctx)
 	service.secretOps.Lock()
 	defer service.secretOps.Unlock()
 
@@ -80,8 +82,9 @@ func (service *Service) Initialize(ctx context.Context, sink SecretSink) (contra
 	if err != nil {
 		return contract.AdminCredential{}, err
 	}
-	if err := sink.Publish(candidate.bearer); err != nil {
-		return contract.AdminCredential{}, fmt.Errorf("%w: %w", ErrSecretPublication, err)
+	attempt, err := service.publishCandidate(ctx, sink, candidate, "initialize")
+	if err != nil {
+		return contract.AdminCredential{}, err
 	}
 	if err := service.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		var count int
@@ -96,7 +99,7 @@ func (service *Service) Initialize(ctx context.Context, sink SecretSink) (contra
 			return err
 		}
 		candidate.metadata.Revision = revision
-		return insertCredential(ctx, transaction, candidate)
+		return service.insertAuditedCredential(ctx, transaction, candidate, attempt)
 	}); err != nil {
 		return contract.AdminCredential{}, err
 	}
@@ -104,6 +107,7 @@ func (service *Service) Initialize(ctx context.Context, sink SecretSink) (contra
 }
 
 func (service *Service) Reset(ctx context.Context, sink SecretSink) (contract.AdminCredential, error) {
+	ctx = audit.WithOffline(ctx)
 	service.secretOps.Lock()
 	defer service.secretOps.Unlock()
 
@@ -118,8 +122,9 @@ func (service *Service) Reset(ctx context.Context, sink SecretSink) (contract.Ad
 	if err != nil {
 		return contract.AdminCredential{}, err
 	}
-	if err := sink.Publish(candidate.bearer); err != nil {
-		return contract.AdminCredential{}, fmt.Errorf("%w: %w", ErrSecretPublication, err)
+	attempt, err := service.publishCandidate(ctx, sink, candidate, "reset")
+	if err != nil {
+		return contract.AdminCredential{}, err
 	}
 	if err := service.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		revision, err := incrementRevision(ctx, transaction)
@@ -135,7 +140,7 @@ func (service *Service) Reset(ctx context.Context, sink SecretSink) (contract.Ad
 			return err
 		}
 		candidate.metadata.Revision = revision
-		return insertCredential(ctx, transaction, candidate)
+		return service.insertAuditedCredential(ctx, transaction, candidate, attempt)
 	}); err != nil {
 		return contract.AdminCredential{}, err
 	}
@@ -259,6 +264,33 @@ func incrementRevision(ctx context.Context, transaction *sql.Tx) (string, error)
 		return "", fmt.Errorf("increment Gateway revision: %w", err)
 	}
 	return fmt.Sprintf("%d", revision), nil
+}
+
+func (service *Service) publishCandidate(ctx context.Context, sink SecretSink, candidate credentialCandidate, action string) (contract.AuditEvent, error) {
+	attempt, err := audit.NewAttempt(ctx, service.clock.Now(), "admin_credential", action, contract.AuditTarget{Type: "admin_credential", ID: candidate.metadata.ID})
+	if err != nil {
+		return contract.AuditEvent{}, err
+	}
+	if err := audit.Append(ctx, service.store, attempt); err != nil {
+		return contract.AuditEvent{}, err
+	}
+	if err := sink.Publish(candidate.bearer); err != nil {
+		evidenceErr := audit.Finish(ctx, service.store, attempt, service.clock.Now(), "failed")
+		return contract.AuditEvent{}, errors.Join(fmt.Errorf("%w: %w", ErrSecretPublication, err), evidenceErr)
+	}
+	return attempt, nil
+}
+
+func (service *Service) insertAuditedCredential(ctx context.Context, transaction *sql.Tx, candidate credentialCandidate, attempt contract.AuditEvent) error {
+	if err := insertCredential(ctx, transaction, candidate); err != nil {
+		return err
+	}
+	outcome, err := audit.Outcome(attempt, service.clock.Now(), "succeeded")
+	if err != nil {
+		return err
+	}
+	_, err = audit.AppendTx(ctx, transaction, outcome)
+	return err
 }
 
 func insertCredential(ctx context.Context, transaction *sql.Tx, candidate credentialCandidate) error {

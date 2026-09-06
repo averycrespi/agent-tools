@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -91,7 +92,7 @@ func New(options Options) (*Manager, error) {
 	return manager, nil
 }
 
-func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey string) (contract.Backup, bool, error) {
+func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey string) (result contract.Backup, replay bool, resultErr error) {
 	if err := validateIdempotencyKey(idempotencyKey); err != nil {
 		return contract.Backup{}, false, err
 	}
@@ -126,6 +127,23 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	if err != nil {
 		return contract.Backup{}, false, fmt.Errorf("generate backup ID: %w", err)
 	}
+	attempt, err := audit.NewAttempt(ctx, manager.clock.Now(), "backup", "create", contract.AuditTarget{Type: "backup", ID: id})
+	if err != nil {
+		return contract.Backup{}, false, err
+	}
+	if err := audit.Append(ctx, manager.store, attempt); err != nil {
+		return contract.Backup{}, false, err
+	}
+	settled := false
+	defer func() {
+		outcome := "unknown"
+		if settled {
+			outcome = "succeeded"
+		}
+		if err := audit.Finish(ctx, manager.store, attempt, manager.clock.Now(), outcome); err != nil {
+			result, replay, resultErr = contract.Backup{}, false, errors.Join(resultErr, err)
+		}
+	}()
 	staging := filepath.Join(manager.layout.Backups, "."+id+".staging")
 	published := filepath.Join(manager.layout.Backups, id)
 	if err := os.Mkdir(staging, 0o700); err != nil {
@@ -190,6 +208,7 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	manager.mu.Lock()
 	manager.last = &createdAt
 	manager.mu.Unlock()
+	settled = true
 	return artifact.Backup, false, nil
 }
 
@@ -212,10 +231,24 @@ func (manager *Manager) Get(ctx context.Context, id string) (contract.Backup, er
 	return metadata.Backup, nil
 }
 
-func (manager *Manager) Delete(ctx context.Context, id string) error {
+func (manager *Manager) Delete(ctx context.Context, id string) (resultErr error) {
 	if _, err := manager.Get(ctx, id); err != nil {
 		return err
 	}
+	attempt, err := audit.NewAttempt(ctx, manager.clock.Now(), "backup", "delete", contract.AuditTarget{Type: "backup", ID: id})
+	if err != nil {
+		return err
+	}
+	if err := audit.Append(ctx, manager.store, attempt); err != nil {
+		return err
+	}
+	defer func() {
+		outcome := "unknown"
+		if resultErr == nil {
+			outcome = "succeeded"
+		}
+		resultErr = errors.Join(resultErr, audit.Finish(ctx, manager.store, attempt, manager.clock.Now(), outcome))
+	}()
 	path := filepath.Join(manager.layout.Backups, id)
 	if err := os.RemoveAll(path); err != nil {
 		return fmt.Errorf("delete backup: %w", err)

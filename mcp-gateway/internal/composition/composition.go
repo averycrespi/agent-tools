@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -62,6 +63,7 @@ type ControlAPIDependencies struct {
 
 	GrantRequests *grantrequests.AdminService
 	Invocations   *invocation.Repository
+	Audit         *audit.Repository
 }
 
 type Composition struct {
@@ -79,6 +81,7 @@ type Composition struct {
 	discoveryCursors     *discovery.CursorCodec
 	discoveryPager       *discovery.Pager
 	listTools            *discoveryListAdapter
+	auditRepository      *audit.Repository
 	invocationRepository *invocation.Repository
 	invocationPipelines  *invocation.PipelineFence
 	invocationService    *invocation.Service
@@ -144,10 +147,10 @@ func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
 	}, true
 }
 func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
-	if built == nil || !built.s5Complete() {
+	if built == nil || !built.s5Complete() || built.auditRepository == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationRepository}, true
+	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationRepository, Audit: built.auditRepository}, true
 }
 func (built *Composition) s5Complete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
@@ -168,8 +171,8 @@ func (built *Composition) RuntimeStatus(serverID string) runtimes.Status {
 func (built *Composition) OperationState(ctx context.Context, serverID string) servers.OperationTriggerState {
 	return built.manager.OperationState(ctx, serverID)
 }
-func (built *Composition) TriggerServer(serverID string, operationID *string, behavioral bool) {
-	built.manager.Trigger(serverID, operationID, behavioral)
+func (built *Composition) TriggerServer(ctx context.Context, serverID string, operationID *string, behavioral bool) {
+	built.manager.TriggerWithCause(audit.Capture(ctx), serverID, operationID, behavioral)
 }
 func (built *Composition) ReconciliationStatus() contract.LimitStatus {
 	return built.manager.AdmissionStatus()
@@ -539,6 +542,10 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	built.selfService, err = selfservice.NewService(built.authorization, built.selfProjections, built.requests, built.selfCursors)
 	if err != nil {
 		return nil, fmt.Errorf("construct selfservice_service: %w", err)
+	}
+	built.auditRepository, err = audit.NewRepository(options.Store)
+	if err != nil {
+		return nil, fmt.Errorf("construct audit repository: %w", err)
 	}
 	if err := check("invocation_repository"); err != nil {
 		return nil, err

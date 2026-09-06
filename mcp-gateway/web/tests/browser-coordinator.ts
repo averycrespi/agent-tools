@@ -3517,8 +3517,14 @@ async function runAdminCredentials(
       { exact: true },
     )
     .waitFor();
+  const logoutResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/admin-sessions/current" &&
+      response.request().method() === "DELETE",
+  );
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await logoutResponse;
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,
@@ -4297,8 +4303,14 @@ async function runPrincipalCredentials(
       { exact: true },
     )
     .waitFor();
+  const logoutResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/admin-sessions/current" &&
+      response.request().method() === "DELETE",
+  );
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await logoutResponse;
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -40,6 +41,35 @@ func TestDisconnectOAuthInvalidatesBeforeOneShotRefreshThenAccessRevocationAndCl
 	assert.Equal(t, "refresh_token", first.Get("token_type_hint"))
 	assert.Equal(t, "old-access", second.Get("token"))
 	assert.Equal(t, "access_token", second.Get("token_type_hint"))
+}
+
+func TestRevocationAuditFencesNetworkAndDoesNotClaimSettlement(t *testing.T) {
+	for _, phase := range []string{"attempt", "outcome", ""} {
+		t.Run(phase, func(t *testing.T) {
+			recorder := &effectAuditRecorder{refusePhase: phase}
+			requester := &refreshRequesterFake{status: http.StatusOK}
+			graph := refreshGraph()
+			graph.RevocationEndpoint = "https://issuer.example/revoke"
+			graph.RevocationEndpointAuthMethodsSupported = []string{"none"}
+			service, err := newDisconnectService(&disconnectRepositoryFake{auditHook: recorder.record}, &disconnectCoordinatorFake{}, refreshResolverFake{graph: graph}, requester, refreshServerID)
+			require.NoError(t, err)
+			prepared := refreshPrepared(contract.TokenEndpointAuthNone)
+			credential := contract.AuditCredential{ID: refreshServerID, Fingerprint: "0123456789abcdef"}
+			observation := service.revoke(audit.WithOperator(t.Context(), credential, credential.ID), refreshServerID, prepared.Configuration, prepared.Registration, refreshGeneration(contract.TokenEndpointAuthNone), nil)
+			if phase == "" {
+				assert.Nil(t, observation)
+			} else {
+				require.NotNil(t, observation)
+				assert.Equal(t, contract.ReasonRevocationFailed, *observation)
+			}
+			if phase == "attempt" {
+				assert.Zero(t, requester.calls)
+			} else {
+				assert.Equal(t, 2, requester.calls)
+			}
+			recorder.assertEvidence(t, "revoke", credential)
+		})
+	}
 }
 
 func TestRevocationRequestUsesExactClientAuthentication(t *testing.T) {
@@ -83,7 +113,15 @@ func TestSelectRevocationMethodDoesNotProbe(t *testing.T) {
 }
 
 type disconnectRepositoryFake struct {
+	auditHook    func(contract.AuditEvent) error
 	registration servers.OAuthRegistrationAuthority
+}
+
+func (repository *disconnectRepositoryFake) RecordOAuthEvent(_ context.Context, event contract.AuditEvent) error {
+	if repository.auditHook != nil {
+		return repository.auditHook(event)
+	}
+	return nil
 }
 
 func (repository *disconnectRepositoryFake) OAuthRegistration(context.Context, string) (servers.OAuthRegistrationAuthority, error) {

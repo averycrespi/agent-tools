@@ -259,6 +259,26 @@ var _ = mcp.NewClient
 			want:     "internal/api/bad.go: prohibited downstream-only production constructor discovery.New(",
 		},
 		{
+			name: "duplicate audit", path: "internal/api/bad.go",
+			contents: "package api\nfunc build() { _ = audit.NewRepository(nil) }\n",
+			want:     "internal/api/bad.go: prohibited duplicate audit constructor audit.NewRepository(",
+		},
+		{
+			name: "audit SQL outside owner", path: "internal/api/bad.go",
+			contents: "package api\nfunc load() { _ = `SELECT event FROM control_audit_events` }\n",
+			want:     "internal/api/bad.go: prohibited control audit SQL",
+		},
+		{
+			name: "audit SQL in producer helpers", path: "internal/audit/producer.go",
+			contents: "package audit\nfunc mutate() { _ = `DELETE FROM control_audit_events` }\n",
+			want:     "internal/audit/producer.go: prohibited control audit SQL",
+		},
+		{
+			name: "audit mutation in read owner", path: "internal/audit/reads.go",
+			contents: "package audit\nfunc mutate() { _ = `DELETE FROM control_audit_events` }\n",
+			want:     "internal/audit/reads.go: prohibited control audit SQL",
+		},
+		{
 			name: "duplicate invocation", path: "internal/api/bad.go",
 			contents: "package api\nfunc build() { _ = invocation.NewRepository(nil, nil, nil) }\n",
 			want:     "internal/api/bad.go: prohibited duplicate invocation constructor invocation.NewRepository(",
@@ -365,6 +385,8 @@ var (
 	s3SQLVerb      = regexp.MustCompile(`(?i)\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b`)
 	s3SQLStatement = regexp.MustCompile(`(?is)\b(?:SELECT\b.*\bFROM|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+(?:TABLE|INDEX|TRIGGER)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX|TRIGGER))\b.*\b(?:authorization_meta|principals|grants)\b`)
 	s3SQLTable     = regexp.MustCompile(`(?i)\b(authorization_meta|principals|grants)\b`)
+	auditSQLTable  = regexp.MustCompile(`(?i)\bcontrol_audit_(events|history)\b`)
+	auditSQLWrite  = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b`)
 	s4SQLTable     = regexp.MustCompile(`(?i)\binvocations\b`)
 	s4SQLDML       = regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+invocations\b`)
 	s4SQLJoin      = regexp.MustCompile(`(?i)\bJOIN\b`)
@@ -490,7 +512,25 @@ func productionSliceViolations(source productionSource) []string {
 	if strings.Contains(source.contents, "contract.SyntheticSelfServiceTools(") && source.path != "internal/catalog/synthetic.go" && source.path != "internal/selfservice/handlers.go" {
 		violations = append(violations, fmt.Sprintf("%s: prohibited synthetic owner contract.SyntheticSelfServiceTools(", source.path))
 	}
-	if strings.HasPrefix(source.path, "internal/audit/") || strings.HasPrefix(source.path, "internal/ui/") {
+	if strings.Contains(source.contents, "audit.NewRepository(") && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, "audit.NewRepository(") != 1) {
+		violations = append(violations, fmt.Sprintf("%s: prohibited duplicate audit constructor audit.NewRepository(", source.path))
+	}
+	ast.Inspect(source.file, func(node ast.Node) bool {
+		literal, ok := node.(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return true
+		}
+		value, err := strconv.Unquote(literal.Value)
+		if err != nil || !auditSQLTable.MatchString(value) || !s3SQLVerb.MatchString(value) {
+			return true
+		}
+		if source.path != "internal/audit/repository.go" && (source.path != "internal/audit/reads.go" || auditSQLWrite.MatchString(value)) {
+			violations = append(violations, fmt.Sprintf("%s: prohibited control audit SQL", source.path))
+		}
+		return true
+	})
+	auditOwner := source.path == "internal/audit/repository.go" || source.path == "internal/audit/reads.go" || source.path == "internal/audit/producer.go"
+	if strings.HasPrefix(source.path, "internal/audit/") && !auditOwner || strings.HasPrefix(source.path, "internal/ui/") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 package", source.path))
 	}
 	return violations

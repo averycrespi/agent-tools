@@ -160,6 +160,10 @@ var fixedLimits = []FixedLimit{
 	{Name: "grant_request_duration_seconds", Maximum: GrantRequestDurationMaximumSeconds},
 	{Name: "grant_request_target_bytes", Maximum: 128},
 	{Name: "agent_self_service_list_page", Maximum: 100},
+	{Name: "control_audit_events", Maximum: AuditRetention},
+	{Name: "control_audit_page", Maximum: AuditPageLimit},
+	{Name: "control_audit_event_bytes", Maximum: AuditDetailBytes},
+	{Name: "control_audit_cursor_bytes", Maximum: AuditCursorBytes},
 }
 
 func FixedLimits() []FixedLimit {

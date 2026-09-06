@@ -30,6 +30,7 @@ const (
 	ProblemOperationConflict                  ProblemCode = "operation_conflict"
 	ProblemOAuthFlowActive                    ProblemCode = "oauth_flow_active"
 	ProblemStaleCursor                        ProblemCode = "stale_cursor"
+	ProblemAuditHistoryReplaced               ProblemCode = "audit_history_replaced"
 	ProblemStaleRevision                      ProblemCode = "stale_revision"
 	ProblemPreconditionRequired               ProblemCode = "precondition_required"
 	ProblemDownstreamUnavailable              ProblemCode = "downstream_unavailable"
@@ -100,6 +101,7 @@ var problems = []Problem{
 	{Status: 409, Code: ProblemAdminRotationConflict, Title: "The administrator credential rotation conflicts with current state."},
 	{Status: 412, Code: ProblemStaleAdminAuthority, Title: "The administrator authority revision is stale."},
 	{Status: 428, Code: ProblemAdminAuthorityPreconditionRequired, Title: "The administrator authority revision is required."},
+	{Status: 409, Code: ProblemAuditHistoryReplaced, Title: "The audit history generation has changed."},
 }
 
 func Problems() []Problem {

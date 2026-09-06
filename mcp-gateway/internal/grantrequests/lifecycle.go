@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -132,7 +133,7 @@ func (repository *Repository) Reject(ctx context.Context, request RejectRequest)
 		if result.State != contract.RequestRejected || result.Revision != "2" || result.RejectionReason == nil || *result.RejectionReason != request.Reason {
 			return ErrInvalidState
 		}
-		return nil
+		return audit.MutationTx(ctx, transaction, repository.clock.Now(), "grant_request", "reject", contract.AuditTarget{Type: "grant_request", ID: request.ID})
 	})
 	if err != nil {
 		return contract.AgentGrantRequest{}, repository.lifecycleError(err)

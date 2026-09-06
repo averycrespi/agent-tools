@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -20,12 +21,13 @@ const (
 )
 
 type CallbackResult struct {
+	Cause    audit.Cause `json:"-"`
 	Outcome  CallbackOutcome
 	ServerID string
 	FlowID   string
 }
 
-func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string) CallbackResult {
+func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string) (result CallbackResult) {
 	stateQuery, ok := callbackValues(rawQuery, "state")
 	stateValues := stateQuery["state"]
 	if !ok || len(stateValues) != 1 || stateValues[0] == "" {
@@ -46,7 +48,8 @@ func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string)
 	if !found {
 		return CallbackResult{Outcome: CallbackInvalid}
 	}
-	result := CallbackResult{Outcome: CallbackInvalid, ServerID: bundle.serverID, FlowID: bundle.flowID}
+	workCtx = audit.WithSystem(audit.WithCause(workCtx, bundle.cause))
+	result = CallbackResult{Cause: audit.Capture(workCtx), Outcome: CallbackInvalid, ServerID: bundle.serverID, FlowID: bundle.flowID}
 	values, valid := callbackValues(rawQuery, "code", "error", "iss")
 	if !valid || !validIssuer(values["iss"], bundle) {
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, newDiagnosticFailure(ErrFlowRejected, contract.ReasonProtocolInvalid, 0))
@@ -106,6 +109,22 @@ func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string)
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, err)
 		return result
 	}
+	attempt, err := beginOAuthEffect(workCtx, service.store, service.now(), "exchange", contract.AuditTarget{Type: "auth_flow", ID: bundle.flowID})
+	if err != nil {
+		clear(body)
+		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, err)
+		result.Outcome = CallbackTransient
+		return result
+	}
+	defer func() {
+		outcome := "unknown"
+		if result.Outcome == CallbackSucceeded {
+			outcome = "succeeded"
+		}
+		if err := finishOAuthEffect(workCtx, service.store, service.now(), attempt, outcome); err != nil {
+			result.Outcome = CallbackTransient
+		}
+	}()
 	status, responseHeader, responseBody, err := service.requester.Request(
 		workCtx, bundle.graph.TokenEndpoint, bundle.graph.AllowsRestrictedEndpoint(bundle.graph.TokenEndpoint),
 		http.MethodPost, header, body, limit("oauth_response_body_bytes"),

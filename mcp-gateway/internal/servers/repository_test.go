@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
@@ -26,6 +27,61 @@ const testInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 var testTime = time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 
 func stringPointer(value string) *string { return &value }
+
+func TestDesiredServerAuditRollbackAndAttribution(t *testing.T) {
+	for _, action := range []string{"create", "update", "delete"} {
+		t.Run(action, func(t *testing.T) {
+			repository, store, _ := newRepository(t, new(sequenceReader))
+			server := mustCreateServer(t, repository, "audit-existing", false)
+			before, err := repository.ListServers(t.Context(), nil, 100)
+			require.NoError(t, err)
+			credential := contract.AuditCredential{ID: testInstallationID, Fingerprint: "0123456789abcdef"}
+			ctx := audit.WithOperator(t.Context(), credential, credential.ID)
+			mutate := func() error {
+				switch action {
+				case "create":
+					_, err := repository.Create(ctx, CreateRequest{Definition: Definition{Namespace: "audit-new", DisplayName: "New", Transport: testStdioTransport()}, Idempotency: idempotency("audit-new", "audit-new", "")})
+					return err
+				case "update":
+					name := "Renamed"
+					_, err := repository.Patch(ctx, server.ID, server.DesiredRevision, Patch{DisplayName: &name})
+					return err
+				default:
+					_, err := repository.Delete(ctx, server.ID, server.DesiredRevision)
+					return err
+				}
+			}
+			require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `CREATE TRIGGER refuse_server_audit BEFORE INSERT ON control_audit_events WHEN NEW.category = 'server' AND json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'refused audit'); END`)
+				return err
+			}))
+			require.ErrorContains(t, mutate(), "refused audit")
+			after, err := repository.ListServers(t.Context(), nil, 100)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+			reader, err := audit.NewRepository(store)
+			require.NoError(t, err)
+			query := audit.Query{Limit: 100, Filters: contract.AuditFilters{CorrelationID: credential.ID}}
+			page, err := reader.List(t.Context(), query)
+			require.NoError(t, err)
+			assert.Empty(t, page.Items)
+			require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `DROP TRIGGER refuse_server_audit`)
+				return err
+			}))
+			require.NoError(t, mutate())
+			query.Filters.Category = "server"
+			page, err = reader.List(t.Context(), query)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 2)
+			for _, event := range page.Items {
+				assert.Equal(t, action, event.Action)
+				assert.Equal(t, contract.AuditOperator, event.Actor.Type)
+				assert.Equal(t, &credential, event.Actor.Credential)
+			}
+		})
+	}
+}
 
 func TestDecodeTransportRejectsMalformedClosedUnionsAndSemantics(t *testing.T) {
 	valid := []struct {
@@ -480,6 +536,39 @@ func TestExplicitOperationClosedAdmissibility(t *testing.T) {
 	}
 }
 
+func TestReconciliationOutcomeAndOperationCommitAtomically(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	server := mustCreateServer(t, repository, "audit-operation", false)
+	ctx := t.Context()
+	operation, err := repository.CreateOperation(ctx, OperationRequest{ServerID: server.ID, Kind: contract.OperationReload})
+	require.NoError(t, err)
+	_, err = repository.TransitionOperation(ctx, operation.Operation.ID, contract.OperationRunning, nil)
+	require.NoError(t, err)
+	attempt, err := audit.NewAttempt(ctx, testTime, "server", "reconcile", contract.AuditTarget{Type: "server", ID: server.ID})
+	require.NoError(t, err)
+	require.NoError(t, repository.RecordReconciliation(ctx, attempt))
+	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TRIGGER reject_reconcile_outcome BEFORE INSERT ON control_audit_events WHEN json_extract(NEW.event, '$.category') = 'server' AND json_extract(NEW.event, '$.action') = 'reconcile' AND json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'injected'); END`)
+		return err
+	}))
+	outcome, err := audit.Outcome(attempt, testTime, "succeeded")
+	require.NoError(t, err)
+	_, err = repository.CompleteReconciliation(ctx, operation.Operation.ID, contract.OperationSucceeded, nil, outcome)
+	require.Error(t, err)
+	retained, err := repository.GetOperation(ctx, operation.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationRunning, retained.State)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "operation", Action: "finish", TargetID: operation.Operation.ID}})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+	page, err = reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "server", Action: "reconcile", TargetID: server.ID}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "pending", page.Items[0].Outcome)
+}
+
 func TestOperationTransitionsInterruptionPruningAndSnapshotStaleness(t *testing.T) {
 	repository, _, _ := newRepository(t, new(sequenceReader))
 	server := mustCreateServer(t, repository, "operations", false)
@@ -604,7 +693,10 @@ func TestIdempotentTerminalOperationReplaySurvivesHistoryPruningUntilExpiry(t *t
 	replayed, err := repository.CreateOperation(context.Background(), requests[0])
 	require.NoError(t, err)
 	assert.True(t, replayed.Replayed)
-	assert.Equal(t, results[0], replayed.Operation)
+	expected := results[0]
+	// Replays preserve response snapshots, not executable work attribution.
+	expected.Cause = audit.Cause{}
+	assert.Equal(t, expected, replayed.Operation)
 
 	clock.now = clock.now.Add(contract.IdempotencyRetention)
 	reused, err := repository.CreateOperation(context.Background(), requests[0])
@@ -652,7 +744,9 @@ func TestCreateReplayReturnsOriginalServerAfterPatchAndTombstone(t *testing.T) {
 			replayed, err := repository.Create(context.Background(), request)
 			require.NoError(t, err)
 			assert.True(t, replayed.Replayed)
-			assert.Equal(t, created.Server, replayed.Server)
+			original := created.Server
+			original.Cause = audit.Cause{}
+			assert.Equal(t, original, replayed.Server)
 			assert.Equal(t, "1", replayed.Result.DesiredRevision)
 			assert.Equal(t, contract.ServerETag(created.Server.ID, "1"), contract.ServerETag(replayed.Server.ID, replayed.Server.DesiredRevision))
 		})

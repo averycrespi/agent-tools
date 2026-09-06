@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
@@ -81,7 +82,10 @@ func (repository *Repository) CreateGrant(
 			return err
 		}
 		_, grant, err = repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), now)
-		return err
+		if err != nil {
+			return err
+		}
+		return audit.MutationTx(ctx, transaction, now, "grant", "create", contract.AuditTarget{Type: "grant", ID: grantID})
 	})
 	return grant, repository.mapMutationError(err)
 }
@@ -119,7 +123,10 @@ func (repository *Repository) PatchGrant(ctx context.Context, grantID string, re
 			return ErrStaleRevision
 		}
 		_, updated, err = repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
-		return err
+		if err != nil {
+			return err
+		}
+		return audit.MutationTx(ctx, transaction, repository.clock.Now(), "grant", "update", contract.AuditTarget{Type: "grant", ID: grantID})
 	})
 	return updated, repository.mapMutationError(err)
 }
@@ -147,7 +154,10 @@ func (repository *Repository) DeleteGrant(ctx context.Context, grantID string) e
 		if deleted != 1 {
 			return ErrNotFound
 		}
-		return advanceAuthorizationRevisionTx(ctx, transaction)
+		if err := advanceAuthorizationRevisionTx(ctx, transaction); err != nil {
+			return err
+		}
+		return audit.MutationTx(ctx, transaction, repository.clock.Now(), "grant", "delete", contract.AuditTarget{Type: "grant", ID: grantID})
 	})
 	return repository.mapMutationError(err)
 }

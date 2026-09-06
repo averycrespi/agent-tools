@@ -45,7 +45,7 @@ func TestMatcherV2SchemaFencePreservesConstraintBytes(t *testing.T) {
 	store, err := Open(ctx, ownership)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
-	assert.Equal(t, 14, CurrentSchema)
+	assert.GreaterOrEqual(t, CurrentSchema, 14)
 	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 	var migration string
 	require.NoError(t, store.database.QueryRowContext(ctx, `SELECT name FROM schema_migrations WHERE version = 14`).Scan(&migration))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -67,7 +68,7 @@ func TestVerifyBackupRejectsSchemaNewerThanCurrent(t *testing.T) {
 	require.NoError(t, store.Close())
 
 	raw := openRaw(t, ownership.Layout().Database)
-	_, err = raw.Exec(`PRAGMA user_version = 15`)
+	_, err = raw.Exec(`PRAGMA user_version = ` + strconv.Itoa(CurrentSchema+1))
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 

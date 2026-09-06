@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -18,6 +20,70 @@ import (
 )
 
 var flowTime = time.Date(2026, 8, 22, 14, 0, 0, 0, time.UTC)
+
+type effectAuditRecorder struct {
+	refusePhase string
+	events      []contract.AuditEvent
+}
+
+func (recorder *effectAuditRecorder) record(event contract.AuditEvent) error {
+	if event.Phase == recorder.refusePhase {
+		return errors.New("audit refused")
+	}
+	recorder.events = append(recorder.events, event)
+	return nil
+}
+
+func (recorder *effectAuditRecorder) assertEvidence(t *testing.T, action string, credential contract.AuditCredential) {
+	t.Helper()
+	require.Len(t, recorder.events, map[string]int{"attempt": 0, "outcome": 1, "": 2}[recorder.refusePhase])
+	for _, event := range recorder.events {
+		assert.Equal(t, action, event.Action)
+		assert.Equal(t, contract.AuditSystem, event.Actor.Type)
+		assert.Equal(t, &credential, event.Initiator)
+		assert.Equal(t, credential.ID, event.CorrelationID)
+	}
+	if recorder.refusePhase == "outcome" {
+		assert.Equal(t, "pending", recorder.events[0].Outcome)
+	}
+	if recorder.refusePhase == "" {
+		assert.Equal(t, "succeeded", recorder.events[1].Outcome)
+	}
+	encoded, err := json.Marshal(recorder.events)
+	require.NoError(t, err)
+	for _, secret := range []string{"old-access", "old-refresh", "new-access", "new-refresh", "client-secret", "https://"} {
+		assert.NotContains(t, string(encoded), secret)
+	}
+}
+
+func TestFlowPreparationAuditFencesOneTimeAuthority(t *testing.T) {
+	for _, phase := range []string{"attempt", "outcome", ""} {
+		t.Run(phase, func(t *testing.T) {
+			recorder := &effectAuditRecorder{refusePhase: phase}
+			store := &flowStoreFake{created: flowCreateResult(contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}), auditHook: recorder.record}
+			bundle := callbackBundle("", false, contract.TokenEndpointAuthNone)
+			bundle.graph.AuthorizationEndpoint = "https://issuer.example/authorize"
+			registrar := &flowRegistrarFake{registration: bundle.registration}
+			service := newFlowService(store, flowResolverFake{graph: bundle.graph}, registrar, zeroReader{}, bundle.registration.CallbackURL, func() time.Time { return flowTime })
+			credential := contract.AuditCredential{ID: refreshServerID, Fingerprint: "0123456789abcdef"}
+			result, err := service.Create(audit.WithOperator(t.Context(), credential, credential.ID), FlowRequest{ServerID: store.created.Flow.ServerID, ExpectedDesiredRevision: "1"})
+			if phase == "" {
+				require.NoError(t, err)
+				assert.NotEmpty(t, result.AuthorizationURL)
+			} else {
+				require.Error(t, err)
+				assert.Empty(t, result.AuthorizationURL)
+				assert.Empty(t, service.byState)
+			}
+			if phase == "attempt" {
+				assert.Zero(t, registrar.calls)
+			} else {
+				assert.Equal(t, 1, registrar.calls)
+			}
+			recorder.assertEvidence(t, "prepare", credential)
+		})
+	}
+}
 
 func TestForegroundFlowBuildsExactOneTimePKCEURLAndMemoryBundle(t *testing.T) {
 	entropy := make([]byte, 64)
@@ -136,8 +202,16 @@ func flowRegistration() servers.OAuthRegistrationAuthority {
 }
 
 type flowStoreFake struct {
+	auditHook    func(contract.AuditEvent) error
 	created      servers.AuthFlowCreateResult
 	transitioned servers.AuthFlow
+}
+
+func (store *flowStoreFake) RecordOAuthEvent(_ context.Context, event contract.AuditEvent) error {
+	if store.auditHook != nil {
+		return store.auditHook(event)
+	}
+	return nil
 }
 
 func (store *flowStoreFake) CreateAuthFlow(context.Context, servers.AuthFlowCreateRequest) (servers.AuthFlowCreateResult, error) {
@@ -200,11 +274,13 @@ func (resolver flowResolverFake) Discover(context.Context, Input) (Graph, error)
 }
 
 type flowRegistrarFake struct {
+	calls        int
 	registration servers.OAuthRegistrationAuthority
 	err          error
 }
 
 func (registrar *flowRegistrarFake) Register(context.Context, RegistrationRequest) (servers.OAuthRegistrationAuthority, error) {
+	registrar.calls++
 	return registrar.registration, registrar.err
 }
 

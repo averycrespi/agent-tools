@@ -33,24 +33,26 @@ func releaseAuthentication(ctx context.Context) {
 }
 
 type Options struct {
-	Authority    string
-	Ready        func() bool
-	Draining     func() bool
-	Authenticate AuthenticateFunc
-	Next         http.Handler
+	Authority            string
+	Ready                func() bool
+	Draining             func() bool
+	Authenticate         AuthenticateFunc
+	AuthenticatedProblem func(*http.Request, contract.ProblemCode) contract.ProblemCode
+	Next                 http.Handler
 }
 
 type Boundary struct {
-	authority    string
-	origin       string
-	ready        func() bool
-	draining     func() bool
-	authenticate AuthenticateFunc
-	next         http.Handler
-	regular      chan struct{}
-	control      chan struct{}
-	admin        chan struct{}
-	health       chan struct{}
+	authority            string
+	origin               string
+	ready                func() bool
+	draining             func() bool
+	authenticate         AuthenticateFunc
+	authenticatedProblem func(*http.Request, contract.ProblemCode) contract.ProblemCode
+	next                 http.Handler
+	regular              chan struct{}
+	control              chan struct{}
+	admin                chan struct{}
+	health               chan struct{}
 }
 
 type Error struct {
@@ -96,16 +98,17 @@ func New(options Options) (*Boundary, error) {
 		options.Draining = func() bool { return false }
 	}
 	return &Boundary{
-		authority:    options.Authority,
-		origin:       "http://" + options.Authority,
-		ready:        options.Ready,
-		draining:     options.Draining,
-		authenticate: options.Authenticate,
-		next:         options.Next,
-		regular:      makePermit("http_regular"),
-		control:      makePermit("http_control_auth"),
-		admin:        makePermit("http_admin"),
-		health:       makePermit("http_health"),
+		authority:            options.Authority,
+		origin:               "http://" + options.Authority,
+		ready:                options.Ready,
+		draining:             options.Draining,
+		authenticate:         options.Authenticate,
+		authenticatedProblem: options.AuthenticatedProblem,
+		next:                 options.Next,
+		regular:              makePermit("http_regular"),
+		control:              makePermit("http_control_auth"),
+		admin:                makePermit("http_admin"),
+		health:               makePermit("http_health"),
 	}, nil
 }
 
@@ -172,10 +175,11 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 			return
 		}
 		ctx = authenticated
+		request = request.WithContext(ctx)
 		defer releaseAuthentication(ctx)
 		if isAdmin(authority) {
 			if !tryAcquire(boundary.admin) {
-				writeProblem(writer, contract.ProblemResourceLimit)
+				writeProblem(writer, boundary.admitAuthenticatedProblem(request, contract.ProblemResourceLimit))
 				return
 			}
 			release(permit)
@@ -187,10 +191,21 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		}
 	}
 	if boundary.draining() && request.URL.Path != "/api/v1/system-status" {
-		writeProblem(writer, contract.ProblemShuttingDown)
+		code := contract.ProblemShuttingDown
+		if isAdmin(authority) {
+			code = boundary.admitAuthenticatedProblem(request, code)
+		}
+		writeProblem(writer, code)
 		return
 	}
 	boundary.next.ServeHTTP(writer, request.WithContext(ctx))
+}
+
+func (boundary *Boundary) admitAuthenticatedProblem(request *http.Request, code contract.ProblemCode) contract.ProblemCode {
+	if boundary.authenticatedProblem != nil {
+		return boundary.authenticatedProblem(request, code)
+	}
+	return code
 }
 
 func (boundary *Boundary) validateEarly(request *http.Request) contract.ProblemCode {
