@@ -128,6 +128,32 @@ func (repository *Repository) StoredGrantTargetExistsTx(ctx context.Context, tra
 	return identities == 1, nil
 }
 
+func (repository *Repository) GrantDisplayNamesTx(ctx context.Context, transaction *sql.Tx) (map[string]string, error) {
+	if transaction == nil {
+		return nil, ErrStorageUnavailable
+	}
+	rows, err := transaction.QueryContext(ctx, `SELECT id, display_name FROM servers LIMIT ?`, mustLimit("server_identities")+1)
+	if err != nil {
+		return nil, grantTargetStorageError(err)
+	}
+	defer func() { _ = rows.Close() }()
+	names := map[string]string{contract.SyntheticServerID: "Gateway self-service tools"}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, grantTargetStorageError(err)
+		}
+		names[id] = name
+		if int64(len(names)-1) > mustLimit("server_identities") {
+			return nil, ErrStorageUnavailable
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, grantTargetStorageError(err)
+	}
+	return names, nil
+}
+
 func grantTargetStorageError(err error) error {
 	return fmt.Errorf("%w: validate grant target: %w", ErrStorageUnavailable, err)
 }

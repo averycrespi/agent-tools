@@ -58,6 +58,8 @@ type AgentIngressDependencies struct {
 }
 
 type ControlAPIDependencies struct {
+	AuthorizationCollections *authorization.CollectionService
+
 	GrantRequests *grantrequests.AdminService
 	Invocations   *invocation.Repository
 }
@@ -66,6 +68,7 @@ type Composition struct {
 	servers              *servers.Repository
 	authorization        *authorization.Repository
 	selfProjections      *authorization.SelfProjectionService
+	collections          *authorization.CollectionService
 	catalogRepository    *catalog.Repository
 	activeCatalog        *catalog.ActiveRegistry
 	requests             *grantrequests.Repository
@@ -144,10 +147,10 @@ func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
 	if built == nil || !built.s5Complete() {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{GrantRequests: built.requestAdmin, Invocations: built.invocationRepository}, true
+	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationRepository}, true
 }
 func (built *Composition) s5Complete() bool {
-	return built.authorization != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
+	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
 		built.discovery != nil && built.listTools != nil && built.invocationRepository != nil && built.invocationService != nil && built.callTools != nil
 }
 func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
@@ -412,7 +415,7 @@ type constructorHooks struct {
 }
 
 var mandatoryConstructorStages = []string{
-	"server_repository", "authorization_repository", "catalog_repository", "process_id", "active_registry",
+	"server_repository", "authorization_repository", "authorization_collections", "catalog_repository", "process_id", "active_registry",
 	"grant_request_repository", "grant_request_validation", "grant_request_admin", "self_projection", "selfservice_cursor", "selfservice_service",
 	"invocation_repository", "invocation_validation", "invocation_pipeline", "invocation_service", "invocation_adapter",
 	"discovery_service", "discovery_cursor", "discovery_pager", "traverser", "remote_factory",
@@ -459,6 +462,13 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	built.authorization, err = authorization.New(options.Store, options.Clock, options.Entropy)
 	if err != nil {
 		return nil, fmt.Errorf("construct authorization_repository: %w", err)
+	}
+	if err := check("authorization_collections"); err != nil {
+		return nil, err
+	}
+	built.collections, err = authorization.NewCollectionService(built.authorization, built.servers)
+	if err != nil {
+		return nil, fmt.Errorf("construct authorization collections: %w", err)
 	}
 	if err := built.authorization.ValidateStartup(context.Background(), built.servers); err != nil {
 		return nil, fmt.Errorf("validate authorization startup: %w", err)

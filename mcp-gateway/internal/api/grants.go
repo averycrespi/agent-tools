@@ -252,6 +252,15 @@ func (handler *Handler) listGrants(writer http.ResponseWriter, request *http.Req
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
+	query, legacy, enabled, problem := parseAuthorizationCollectionQuery(request.URL.RawQuery, "grants")
+	if problem != "" {
+		writeProblem(writer, problem)
+		return
+	}
+	if enabled {
+		handler.queryGrants(writer, request, query, legacy)
+		return
+	}
 	limit, filter, cursor, problem := parseGrantQuery(request.URL.RawQuery)
 	if problem != "" {
 		writeProblem(writer, problem)

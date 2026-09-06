@@ -165,6 +165,12 @@ type Grant struct {
 	CreatedAt    string           `json:"created_at"`
 }
 
+type GrantTableItem struct {
+	Grant                Grant  `json:"grant"`
+	PrincipalDisplayName string `json:"principal_display_name"`
+	ServerDisplayName    string `json:"server_display_name"`
+}
+
 type GrantConstraintValidation struct {
 	Constraint json.RawMessage `json:"constraint"`
 }

@@ -122,5 +122,5 @@ func scanPrincipal(scanner principalScanner) (int64, contract.Principal, error) 
 func (repository *Repository) validCursor(cursor SnapshotCursor, collection string, filter GrantFilter) bool {
 	positionValid := cursor.After >= 0 && cursor.Upper >= 0 && cursor.After <= cursor.Upper &&
 		((cursor.After == 0 && cursor.AfterID == "") || (cursor.After > 0 && cursor.AfterID != ""))
-	return positionValid && cursor.Collection == collection && cursor.PrincipalID == filter.PrincipalID && cursor.ServerID == filter.ServerID && repository.authenticCursor(cursor)
+	return positionValid && cursor.Query == "" && cursor.Collection == collection && cursor.PrincipalID == filter.PrincipalID && cursor.ServerID == filter.ServerID && repository.authenticCursor(cursor)
 }

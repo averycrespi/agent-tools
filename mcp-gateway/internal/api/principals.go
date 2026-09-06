@@ -192,6 +192,15 @@ func (handler *Handler) listPrincipals(writer http.ResponseWriter, request *http
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
+	query, legacy, enabled, problem := parseAuthorizationCollectionQuery(request.URL.RawQuery, "principals")
+	if problem != "" {
+		writeProblem(writer, problem)
+		return
+	}
+	if enabled {
+		handler.queryPrincipals(writer, request, query, legacy)
+		return
+	}
 	limit, cursor, problem := parsePrincipalQuery(request.URL.RawQuery)
 	if problem != "" {
 		writeProblem(writer, problem)

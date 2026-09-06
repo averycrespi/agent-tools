@@ -24,6 +24,7 @@ type SnapshotCursor struct {
 	AfterID     string `json:"i"`
 	Expires     int64  `json:"e"`
 	Seal        string `json:"h"`
+	Query       string `json:"q,omitempty"`
 }
 
 type GrantFilter struct {

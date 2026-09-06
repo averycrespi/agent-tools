@@ -57,7 +57,7 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/principals/{id}", Method: "PATCH", RequestSchema: "PrincipalPatch", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 		{Pattern: "/api/v1/principals/{id}/credential", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AgentCredentialCreation", SuccessStatuses: []int{201}, Precondition: true, ETag: true},
 		{Pattern: "/api/v1/principals/{id}/credential", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-		{Pattern: "/api/v1/grants", Method: "GET", RequestSchema: "GrantListQuery", SuccessSchema: "Page<Grant>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/grants", Method: "GET", RequestSchema: "GrantListQuery", SuccessSchema: "Page<Grant>|Page<GrantTableItem>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/grants", Method: "POST", RequestSchema: "GrantCreate", SuccessSchema: "Grant", SuccessStatuses: []int{201}},
 		{Pattern: "/api/v1/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Grant", SuccessStatuses: []int{200}},
 		{Pattern: "/api/v1/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
