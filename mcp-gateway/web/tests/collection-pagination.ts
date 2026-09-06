@@ -42,13 +42,19 @@ export async function exerciseCollectionPagination(
     server_display_name: index === 127 ? "Far target" : "Near target",
   });
   let collection: "principals" | "grants" = "principals";
-  let mode: "normal" | "stale-next" | "stale-first" | "error" | "empty" =
-    "normal";
+  let mode:
+    | "normal"
+    | "stale-next"
+    | "stale-first"
+    | "error"
+    | "empty"
+    | "single" = "normal";
   const requests: {
     collection: string;
     cursor: string | null;
     query: URLSearchParams;
   }[] = [];
+  let invalidRange: Record<string, unknown> | undefined;
   let referenceLookups = 0;
   let holdNextRead = false;
   let releaseLate: (() => void) | undefined;
@@ -98,6 +104,8 @@ export async function exerciseCollectionPagination(
         body: JSON.stringify({
           items: [requested === "principals" ? principal(0) : grant(0)],
           next_cursor: null,
+          total_count: 999,
+          offset: 998,
         }),
       });
       signalLateFinished?.();
@@ -106,7 +114,9 @@ export async function exerciseCollectionPagination(
     let indices =
       mode === "empty" || search === "missing"
         ? []
-        : Array.from({ length: 128 }, (_, index) => index);
+        : mode === "single"
+          ? [0]
+          : Array.from({ length: 128 }, (_, index) => index);
     if (
       search === "needle" ||
       query.get("principal") === "needle" ||
@@ -142,6 +152,9 @@ export async function exerciseCollectionPagination(
         ),
         next_cursor:
           start + 50 < indices.length ? `${requested}-${start + 50}` : null,
+        total_count: indices.length,
+        offset: start,
+        ...invalidRange,
       }),
     });
   };
@@ -170,6 +183,9 @@ export async function exerciseCollectionPagination(
         rows.evaluateAll((rows) =>
           rows.map((row) => row.querySelector("a")?.getAttribute("href")),
         );
+      const summary = root.locator("output");
+      const range = (offset: number) =>
+        `Showing ${offset + 1}–${Math.min(offset + 50, 128)} of 128 ${selected}`;
       const previous = root.getByRole("button", {
         name: "Previous",
         exact: true,
@@ -187,30 +203,58 @@ export async function exerciseCollectionPagination(
       expect(requests.length - before).toBe(1);
       await expect(previous).toBeDisabled();
       await expect(next).toBeEnabled();
+      await expect(summary).toHaveText(range(0));
       const first = await links();
+      const layout = await root.evaluate((root) => {
+        const filters = root
+          .querySelector(".table-filters")!
+          .getBoundingClientRect();
+        const bar = root
+          .querySelector(".collection-pagination")!
+          .getBoundingClientRect();
+        const nav = root.querySelector("nav")!.getBoundingClientRect();
+        const summary = root.querySelector("output")!.getBoundingClientRect();
+        return {
+          filtersAbove: filters.bottom <= bar.top,
+          navigationLeft: Math.abs(nav.left - bar.left) < 1,
+          summaryRight: Math.abs(summary.right - bar.right) < 1,
+          centered:
+            Math.abs(
+              nav.top + nav.height / 2 - summary.top - summary.height / 2,
+            ) < 1,
+        };
+      });
+      expect(layout).toEqual({
+        filtersAbove: true,
+        navigationLeft: true,
+        summaryRight: true,
+        centered: true,
+      });
       await capture?.(page, `${selected}-populated`);
       await next.click();
-      await expect(root.locator("output")).toHaveText("Showing 50 on page 2");
+      await expect(summary).toHaveText(range(50));
       await settled(50);
       const second = await links();
       expect(second.some((id) => first.includes(id))).toBe(false);
       await next.click();
       await settled(28);
+      await expect(summary).toHaveText(range(100));
       await expect(next).toBeDisabled();
       await previous.click();
-      await expect(root.locator("output")).toHaveText("Showing 50 on page 2");
+      await expect(summary).toHaveText(range(50));
       await settled(50);
       expect(await links()).toEqual(second);
       await previous.click();
-      await expect(root.locator("output")).toHaveText("Showing 50 on page 1");
+      await expect(summary).toHaveText(range(0));
       await settled(50);
       expect(await links()).toEqual(first);
       await next.click();
-      await expect(root.locator("output")).toHaveText("Showing 50 on page 2");
+      await expect(summary).toHaveText(range(50));
       await search.fill("needle");
       await settled(1);
       await expect(rows).toContainText("Zulu needle");
       await expect(search).toBeFocused();
+      await expect(summary).toHaveText(`Showing 1–1 of 1 matching ${kind}`);
       expect(requests.at(-1)?.cursor).toBeNull();
       expect(await page.evaluate(() => window.location.hash)).toContain(
         "filter_",
@@ -226,14 +270,14 @@ export async function exerciseCollectionPagination(
       await root.getByRole("button", { name: "Reset", exact: true }).click();
       await settled(50);
       await next.click();
-      await expect(root.locator("output")).toHaveText("Showing 50 on page 2");
+      await expect(summary).toHaveText(range(50));
       await root
         .getByRole("button", {
           name: selected === "principals" ? "Name" : "Description",
           exact: true,
         })
         .click();
-      await expect(root.locator("output")).toHaveText("Showing 50 on page 1");
+      await expect(summary).toHaveText(range(0));
       await settled(50);
       expect(requests.at(-1)?.cursor).toBeNull();
       expect(requests.at(-1)?.query.get("direction")).toBe("descending");
@@ -243,7 +287,7 @@ export async function exerciseCollectionPagination(
       );
       expect(descending.slice(1)).toEqual(first.slice(0, 49));
       await next.click();
-      await expect(root.locator("output")).toHaveText("Showing 50 on page 2");
+      await expect(summary).toHaveText(range(50));
       const shared = await page.evaluate(() => window.location.hash);
       expect(shared).not.toContain("cursor");
       expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual(
@@ -266,6 +310,7 @@ export async function exerciseCollectionPagination(
       await settled(50);
       expect(requests.length - staleStart).toBe(2);
       await expect(previous).toBeDisabled();
+      await expect(summary).toHaveText(range(0));
       await capture?.(page, `${selected}-restarted`);
       mode = "stale-first";
       const firstStaleStart = requests.length;
@@ -285,17 +330,51 @@ export async function exerciseCollectionPagination(
       await expect(search).toBeVisible();
       await expect(previous).toBeDisabled();
       await expect(next).toBeDisabled();
+      await expect(summary).toHaveText("Unavailable");
       await capture?.(page, `${selected}-error`);
       mode = "empty";
       await page.locator('[data-testid="manual-refresh"]').click();
       await expect(
-        root.getByText(`No ${selected}`, { exact: true }),
+        root
+          .locator(".state-notice")
+          .getByText(`No ${selected}`, { exact: true }),
       ).toBeVisible();
+      await expect(summary).toHaveText(`No ${selected}`);
       await capture?.(page, `${selected}-empty`);
+      for (const invalid of [
+        { total_count: undefined },
+        { offset: undefined },
+        { total_count: "0" },
+        { total_count: -1 },
+        { total_count: 0.5 },
+        { total_count: Number.MAX_SAFE_INTEGER + 1 },
+        { offset: -1 },
+        { offset: 1 },
+        { total_count: 1 },
+        { next_cursor: "unexpected" },
+      ]) {
+        invalidRange = invalid;
+        const response = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === `/api/v1/${selected}`,
+        );
+        await page.locator('[data-testid="manual-refresh"]').click();
+        await response;
+        await settled(0);
+        await expect(summary).toHaveText("Unavailable");
+        await expect(root.getByRole("alert")).toBeVisible();
+        await expect(next).toBeDisabled();
+      }
+      invalidRange = undefined;
+      mode = "single";
+      await page.locator('[data-testid="manual-refresh"]').click();
+      await settled(1);
+      await expect(summary).toHaveText(`Showing 1–1 of 1 ${kind}`);
       mode = "normal";
       await search.fill("missing");
       await expect(root.getByText("No matches", { exact: true })).toBeVisible();
       await expect(search).toHaveValue("missing");
+      await expect(summary).toHaveText(`No matching ${selected}`);
       await capture?.(page, `${selected}-no-matches`);
       const started = new Promise<void>((resolve) => {
         signalLate = resolve;
@@ -309,11 +388,13 @@ export async function exerciseCollectionPagination(
         "aria-busy",
         "true",
       );
+      await expect(summary).toHaveText("Loading…");
       await capture?.(page, `${selected}-loading`);
       await search.fill("needle");
       await settled(1);
       releaseLate?.();
       await finished;
+      await expect(summary).toHaveText(`Showing 1–1 of 1 matching ${kind}`);
       await expect(rows).toContainText("Zulu needle");
       await expect(root.getByRole("alert")).toHaveCount(0);
       const selectFilter = async (
@@ -360,7 +441,7 @@ export async function exerciseCollectionPagination(
         await root.getByRole("button", { name: "Reset", exact: true }).click();
         await settled(50);
         await next.click();
-        await expect(root.locator("output")).toHaveText("Showing 50 on page 2");
+        await expect(summary).toHaveText(range(50));
         const fragment = await page.evaluate(() => window.location.hash);
         const oldStarted = new Promise<void>((resolve) => {
           signalLate = resolve;
@@ -389,6 +470,7 @@ export async function exerciseCollectionPagination(
         releaseLate?.();
         await oldFinished;
         await settled(50);
+        await expect(summary).toHaveText(range(0));
       }
       const validFragment = await page.evaluate(() => window.location.hash);
       const validRequestCount = requests.length;
@@ -398,6 +480,14 @@ export async function exerciseCollectionPagination(
         validFragment,
       );
       expect(requests.length).toBe(validRequestCount);
+      await expect(summary).toHaveText("Unavailable");
+      await expect(previous).toBeDisabled();
+      await expect(next).toBeDisabled();
+      await capture?.(page, `${selected}-invalid-filter`);
+      await search.fill("needle");
+      await settled(1);
+      await expect(root.getByRole("alert")).toHaveCount(0);
+      await expect(summary).toHaveText(`Showing 1–1 of 1 matching ${kind}`);
       expect(referenceLookups).toBe(0);
     }
   } finally {

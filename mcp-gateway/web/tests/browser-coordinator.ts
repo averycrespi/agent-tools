@@ -3653,6 +3653,13 @@ async function runPrincipals(
         items,
         next_cursor:
           !staleListRestarted && search === "" ? "principal-stale" : null,
+        ...(query.has("sort")
+          ? {
+              total_count:
+                items.length + (!staleListRestarted && search === "" ? 1 : 0),
+              offset: 0,
+            }
+          : {}),
       }),
     });
   });
@@ -4793,6 +4800,17 @@ async function runGrantReadsCreate(
           staleRestarted || query.get("identity") !== null
             ? null
             : "grant-stale",
+        ...(query.get("representation") === "table"
+          ? {
+              total_count:
+                query.get("identity") === "Reportng access"
+                  ? 1
+                  : staleRestarted
+                    ? 2
+                    : 3,
+              offset: 0,
+            }
+          : {}),
       }),
     });
   });
@@ -5798,6 +5816,14 @@ async function runGrantCorrection(
             : grant,
         ),
         next_cursor: null,
+        ...(new URL(route.request().url()).searchParams.get(
+          "representation",
+        ) === "table"
+          ? {
+              total_count: grants.size,
+              offset: 0,
+            }
+          : {}),
       }),
     });
   });

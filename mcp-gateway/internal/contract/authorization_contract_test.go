@@ -51,13 +51,13 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 	}
 
 	expectedMechanics := []ResourceMechanic{
-		{Pattern: "/api/v1/principals", Method: "GET", RequestSchema: "PrincipalListQuery", SuccessSchema: "Page<Principal>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/principals", Method: "GET", RequestSchema: "PrincipalListQuery", SuccessSchema: "Page<Principal>|QueryPage<Principal>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/principals", Method: "POST", RequestSchema: "PrincipalCreate", SuccessSchema: "PrincipalCreation", SuccessStatuses: []int{201}, ETag: true},
 		{Pattern: "/api/v1/principals/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Principal", SuccessStatuses: []int{200}, ETag: true},
 		{Pattern: "/api/v1/principals/{id}", Method: "PATCH", RequestSchema: "PrincipalPatch", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 		{Pattern: "/api/v1/principals/{id}/credential", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AgentCredentialCreation", SuccessStatuses: []int{201}, Precondition: true, ETag: true},
 		{Pattern: "/api/v1/principals/{id}/credential", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-		{Pattern: "/api/v1/grants", Method: "GET", RequestSchema: "GrantListQuery", SuccessSchema: "Page<Grant>|Page<GrantTableItem>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/grants", Method: "GET", RequestSchema: "GrantListQuery", SuccessSchema: "Page<Grant>|QueryPage<Grant>|QueryPage<GrantTableItem>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/grants", Method: "POST", RequestSchema: "GrantCreate", SuccessSchema: "Grant", SuccessStatuses: []int{201}},
 		{Pattern: "/api/v1/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Grant", SuccessStatuses: []int{200}},
 		{Pattern: "/api/v1/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
@@ -168,6 +168,11 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	grant := Grant{ID: "grant", Description: &description, Revision: "1", PrincipalID: principal.ID, Effect: GrantAllow, ServerID: SyntheticServerID, UpstreamName: nil, Constraint: &constraint, ExpiresAt: &expires, State: GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
 	grantID := grant.ID
 
+	requireJSONKeys(t, Collection[Principal]{}, "items", "next_cursor")
+	requireJSONKeys(t, Collection[Grant]{}, "items", "next_cursor")
+	requireJSONKeys(t, QueryCollection[Principal]{}, "items", "next_cursor", "total_count", "offset")
+	requireJSONKeys(t, QueryCollection[Grant]{}, "items", "next_cursor", "total_count", "offset")
+	requireJSONKeys(t, QueryCollection[GrantTableItem]{}, "items", "next_cursor", "total_count", "offset")
 	requireJSONKeys(t, credential, "id", "fingerprint", "revision", "created_at")
 	requireJSONKeys(t, principal, "id", "display_name", "state", "visibility", "revision", "credential_revision", "credential", "created_at", "updated_at")
 	requireJSONKeys(t, PrincipalCreation{Principal: principal, DefaultGrant: grant}, "principal", "default_grant")

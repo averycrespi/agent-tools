@@ -257,6 +257,7 @@ export function CollectionTable<T>({
   loadingMore = false,
   onLoadMore,
   loadMoreLabel = "Load more",
+  itemNames = { singular: "item", plural: "items" },
   remote,
 }: {
   caption: string;
@@ -271,6 +272,7 @@ export function CollectionTable<T>({
   loadingMore?: boolean;
   onLoadMore?: () => void;
   loadMoreLabel?: string;
+  itemNames?: { singular: string; plural: string };
   remote?: CollectionControls;
 }) {
   const [localFilters, setFilterValues] = useState<Record<string, string>>(() =>
@@ -337,7 +339,11 @@ export function CollectionTable<T>({
     >
       {filters.length > 0 && (
         <div
-          class="table-filters"
+          class={
+            remote === undefined
+              ? "table-filters"
+              : "table-filters collection-query-filters"
+          }
           role="group"
           aria-label={`${caption} filters`}
         >
@@ -406,20 +412,12 @@ export function CollectionTable<T>({
           >
             Reset
           </button>
-          <output class="table-filter-summary" aria-live="polite">
-            {remote === undefined ? (
-              <>
-                Showing {visible.length} of {items.length}
-                {hasMore ? " loaded" : ""}
-              </>
-            ) : remote.status === "loading" ? (
-              "Loading…"
-            ) : remote.status === "error" ? (
-              "Unavailable"
-            ) : (
-              `Showing ${visible.length} on page ${remote.page}`
-            )}
-          </output>
+          {remote === undefined && (
+            <output class="table-filter-summary" aria-live="polite">
+              Showing {visible.length} of {items.length}
+              {hasMore ? " loaded" : ""}
+            </output>
+          )}
         </div>
       )}
       {remote?.notice !== undefined && (
@@ -429,22 +427,33 @@ export function CollectionTable<T>({
         <StateNotice state="error" title={remote.error} />
       )}
       {remote !== undefined && (
-        <nav class="inline-actions" aria-label={`${caption} pagination`}>
-          <button
-            type="button"
-            disabled={!remote.hasPrevious}
-            onClick={remote.previous}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            disabled={!remote.hasNext}
-            onClick={remote.next}
-          >
-            Next
-          </button>
-        </nav>
+        <div class="collection-pagination">
+          <nav class="inline-actions" aria-label={`${caption} pagination`}>
+            <button
+              type="button"
+              disabled={!remote.hasPrevious}
+              onClick={remote.previous}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={!remote.hasNext}
+              onClick={remote.next}
+            >
+              Next
+            </button>
+          </nav>
+          <output class="table-filter-summary" aria-live="polite">
+            {remote.status === "loading"
+              ? "Loading…"
+              : remote.status === "error"
+                ? "Unavailable"
+                : remote.totalCount === 0
+                  ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
+                  : `Showing ${remote.offset + 1}–${remote.offset + visible.length} of ${remote.totalCount} ${hasActiveFilters ? "matching " : ""}${remote.totalCount === 1 ? itemNames.singular : itemNames.plural}`}
+          </output>
+        </div>
       )}
       <ComparisonTable caption={caption}>
         <thead>

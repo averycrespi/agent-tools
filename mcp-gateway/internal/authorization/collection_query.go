@@ -43,8 +43,15 @@ type CollectionService struct {
 }
 
 type GrantTablePage struct {
+	contract.CollectionRange
 	Items []contract.GrantTableItem
 	Next  *SnapshotCursor
+}
+
+type collectionSelection struct {
+	contract.CollectionRange
+	items []collectionCandidate
+	next  *SnapshotCursor
 }
 
 func NewCollectionService(repository *Repository, targets GrantDisplayNames) (*CollectionService, error) {
@@ -118,19 +125,20 @@ func (service *CollectionService) QueryPrincipals(ctx context.Context, query Col
 		if err := rows.Close(); err != nil {
 			return err
 		}
-		selected, next, err := service.selectPage(principalCollection, query, candidates, cursor, limit)
+		selected, err := service.selectPage(principalCollection, query, candidates, cursor, limit)
 		if err != nil {
 			return err
 		}
-		page.Items = make([]contract.Principal, 0, len(selected))
-		for _, candidate := range selected {
+		page.Items = make([]contract.Principal, 0, len(selected.items))
+		for _, candidate := range selected.items {
 			item, err := principalByIDTx(ctx, tx, candidate.ID)
 			if err != nil {
 				return err
 			}
 			page.Items = append(page.Items, item)
 		}
-		page.Next = next
+		page.Next = selected.next
+		page.CollectionRange = selected.CollectionRange
 		return nil
 	})
 	return page, err
@@ -185,27 +193,28 @@ func (service *CollectionService) QueryGrants(ctx context.Context, query Collect
 		if err := rows.Close(); err != nil {
 			return err
 		}
-		selected, next, err := service.selectPage(grantCollection, query, candidates, cursor, limit)
+		selected, err := service.selectPage(grantCollection, query, candidates, cursor, limit)
 		if err != nil {
 			return err
 		}
-		page.Items = make([]contract.GrantTableItem, 0, len(selected))
-		for _, candidate := range selected {
+		page.Items = make([]contract.GrantTableItem, 0, len(selected.items))
+		for _, candidate := range selected.items {
 			_, grant, err := service.repository.scanGrant(tx.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, candidate.ID), now)
 			if err != nil {
 				return err
 			}
 			page.Items = append(page.Items, contract.GrantTableItem{Grant: grant, PrincipalDisplayName: candidate.PrincipalName, ServerDisplayName: candidate.ServerName})
 		}
-		page.Next = next
+		page.Next = selected.next
+		page.CollectionRange = selected.CollectionRange
 		return nil
 	})
 	return page, err
 }
 
-func (service *CollectionService) selectPage(collection string, query CollectionQuery, candidates []collectionCandidate, cursor *SnapshotCursor, limit int) ([]collectionCandidate, *SnapshotCursor, error) {
+func (service *CollectionService) selectPage(collection string, query CollectionQuery, candidates []collectionCandidate, cursor *SnapshotCursor, limit int) (collectionSelection, error) {
 	if int64(len(candidates)) > mustLimit(collection) {
-		return nil, nil, ErrResourceLimit
+		return collectionSelection{}, ErrResourceLimit
 	}
 	// Only compact recognition metadata is scanned; policy bodies and credentials are read for the selected page.
 	contents, err := json.Marshal(struct {
@@ -214,7 +223,7 @@ func (service *CollectionService) selectPage(collection string, query Collection
 		Candidates []collectionCandidate
 	}{collection, query, candidates})
 	if err != nil {
-		return nil, nil, err
+		return collectionSelection{}, err
 	}
 	digest := sha256.Sum256(contents)
 	binding := base64.RawURLEncoding.EncodeToString(digest[:])
@@ -222,7 +231,7 @@ func (service *CollectionService) selectPage(collection string, query Collection
 	if cursor != nil {
 		position = *cursor
 		if !service.repository.authenticCursor(position) || position.Collection != collection || position.Query != binding || position.After < 0 || position.After > int64(len(candidates)) {
-			return nil, nil, ErrStaleCursor
+			return collectionSelection{}, ErrStaleCursor
 		}
 	}
 	filtered := make([]collectionCandidate, 0, len(candidates))
@@ -252,7 +261,7 @@ func (service *CollectionService) selectPage(collection string, query Collection
 	})
 	start := int(position.After)
 	if start > len(filtered) || start > 0 && filtered[start-1].ID != position.AfterID {
-		return nil, nil, ErrStaleCursor
+		return collectionSelection{}, ErrStaleCursor
 	}
 	end := min(start+limit, len(filtered))
 	var next *SnapshotCursor
@@ -263,7 +272,10 @@ func (service *CollectionService) selectPage(collection string, query Collection
 		service.repository.sealCursor(&position)
 		next = &position
 	}
-	return filtered[start:end], next, nil
+	return collectionSelection{
+		CollectionRange: contract.CollectionRange{TotalCount: len(filtered), Offset: start},
+		items:           filtered[start:end], next: next,
+	}, nil
 }
 
 func candidateMatches(item collectionCandidate, query CollectionQuery) bool {

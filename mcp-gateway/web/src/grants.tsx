@@ -1475,6 +1475,7 @@ function GrantCollection({
         <CollectionTable
           caption="Grant policy records"
           remote={controls}
+          itemNames={{ singular: "grant", plural: "grants" }}
           emptyTitle="No grants"
           items={items}
           rowKey={(grant) => grant.id}

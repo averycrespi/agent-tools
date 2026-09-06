@@ -1069,6 +1069,7 @@ function PrincipalCollection({
         <CollectionTable
           caption="Principal identities"
           remote={controls}
+          itemNames={{ singular: "principal", plural: "principals" }}
           emptyTitle="No principals"
           items={items}
           rowKey={(principal) => principal.id}

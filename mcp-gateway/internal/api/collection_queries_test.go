@@ -67,6 +67,15 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 		require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), into))
 	}
+	metadata := func(path string, total, offset int) {
+		t.Helper()
+		var body map[string]json.RawMessage
+		get(path, &body)
+		require.Len(t, body, 4)
+		require.JSONEq(t, fmt.Sprint(total), string(body["total_count"]))
+		require.JSONEq(t, fmt.Sprint(offset), string(body["offset"]))
+	}
+	metadata("/api/v1/principals?sort=name&limit=50", 128, 0)
 	var first, second, third contract.Collection[contract.Principal]
 	get("/api/v1/principals?sort=name&limit=50", &first)
 	require.Len(t, first.Items, 50)
@@ -86,6 +95,11 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 	var back contract.Collection[contract.Principal]
 	get("/api/v1/principals?sort=name&limit=50&cursor="+*first.NextCursor, &back)
 	require.Equal(t, second.Items, back.Items)
+	metadata("/api/v1/principals?sort=name&limit=50&cursor="+*first.NextCursor, 128, 50)
+	metadata("/api/v1/principals?sort=name&limit=1&cursor="+*first.NextCursor, 128, 50)
+	metadata("/api/v1/principals?sort=name&limit=50&cursor="+*second.NextCursor, 128, 100)
+	metadata("/api/v1/principals?name=faraway&state=active&visibility=all", 1, 0)
+	metadata("/api/v1/principals?name=nonexistent", 0, 0)
 	var match contract.Collection[contract.Principal]
 	get("/api/v1/principals?name=faraway&state=active&visibility=all", &match)
 	require.Len(t, match.Items, 1)
@@ -101,6 +115,12 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 	require.Len(t, g2.Items, 50)
 	require.Len(t, g3.Items, 28)
 	require.Nil(t, g3.NextCursor)
+	metadata("/api/v1/grants?representation=table&sort=principal&limit=50", 128, 0)
+	metadata("/api/v1/grants?representation=table&sort=principal&limit=50&cursor="+*grants.NextCursor, 128, 50)
+	metadata("/api/v1/grants?representation=table&sort=principal&limit=50&cursor="+*g2.NextCursor, 128, 100)
+	metadata("/api/v1/grants?representation=table&principal=faraway", 1, 0)
+	metadata("/api/v1/grants?representation=table&principal=nonexistent", 0, 0)
+	metadata("/api/v1/grants?sort=id&direction=descending", 128, 0)
 	var grantMatch contract.Collection[contract.GrantTableItem]
 	get("/api/v1/grants?representation=table&principal=faraway&identity=Default&effect=allow&state=active&target=Gateway", &grantMatch)
 	require.Len(t, grantMatch.Items, 1)
@@ -109,6 +129,13 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 	get("/api/v1/grants", &legacy)
 	require.Len(t, legacy.Items, 50)
 	require.NotEmpty(t, legacy.Items[0].ID)
+	for _, path := range []string{"/api/v1/principals", "/api/v1/grants", "/api/v1/grants?principal_id=" + last.Principal.ID} {
+		var body map[string]json.RawMessage
+		get(path, &body)
+		require.Len(t, body, 2)
+		require.Contains(t, body, "items")
+		require.Contains(t, body, "next_cursor")
+	}
 	for _, collection := range []string{"principals", "grants"} {
 		for _, direction := range []string{"ascending", "descending"} {
 			t.Run(collection+"/"+direction, func(t *testing.T) {

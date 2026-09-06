@@ -61,7 +61,7 @@ func (handler *Handler) queryPrincipals(writer http.ResponseWriter, request *htt
 		writePrincipalError(writer, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.Principal]{Items: page.Items, NextCursor: nextAuthorizationCursor(page.Next)})
+	writeJSON(writer, http.StatusOK, contract.QueryCollection[contract.Principal]{Collection: contract.Collection[contract.Principal]{Items: page.Items, NextCursor: nextAuthorizationCursor(page.Next)}, CollectionRange: page.CollectionRange})
 }
 
 func (handler *Handler) queryGrants(writer http.ResponseWriter, request *http.Request, query authorization.CollectionQuery, legacy string) {
@@ -81,14 +81,14 @@ func (handler *Handler) queryGrants(writer http.ResponseWriter, request *http.Re
 	}
 	next := nextAuthorizationCursor(page.Next)
 	if query.Representation == "table" {
-		writeJSONUnescaped(writer, http.StatusOK, contract.Collection[contract.GrantTableItem]{Items: page.Items, NextCursor: next})
+		writeJSONUnescaped(writer, http.StatusOK, contract.QueryCollection[contract.GrantTableItem]{Collection: contract.Collection[contract.GrantTableItem]{Items: page.Items, NextCursor: next}, CollectionRange: page.CollectionRange})
 		return
 	}
 	items := make([]contract.Grant, 0, len(page.Items))
 	for _, item := range page.Items {
 		items = append(items, item.Grant)
 	}
-	writeJSONUnescaped(writer, http.StatusOK, contract.Collection[contract.Grant]{Items: items, NextCursor: next})
+	writeJSONUnescaped(writer, http.StatusOK, contract.QueryCollection[contract.Grant]{Collection: contract.Collection[contract.Grant]{Items: items, NextCursor: next}, CollectionRange: page.CollectionRange})
 }
 
 func nextAuthorizationCursor(cursor *authorization.SnapshotCursor) *string {

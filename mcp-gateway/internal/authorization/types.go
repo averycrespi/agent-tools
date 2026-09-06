@@ -89,6 +89,7 @@ const (
 )
 
 type PrincipalPage struct {
+	contract.CollectionRange
 	Items []contract.Principal
 	Next  *SnapshotCursor
 }

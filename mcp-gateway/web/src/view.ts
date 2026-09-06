@@ -147,6 +147,8 @@ function joinSignals(
 export interface CollectionPage<T> {
   items: T[];
   nextCursor: string | null;
+  totalCount: number;
+  offset: number;
 }
 
 type CollectionSort = { key: string; direction: "ascending" | "descending" };
@@ -160,7 +162,8 @@ export interface CollectionControls {
   status: "loading" | "current" | "error";
   error: string | undefined;
   notice: string | undefined;
-  page: number;
+  totalCount: number;
+  offset: number;
   hasPrevious: boolean;
   hasNext: boolean;
   previous: () => void;
@@ -201,10 +204,21 @@ export async function readCollectionPage<T>(
     if (
       typeof value !== "object" ||
       value === null ||
-      !exactKeys(value, ["items", "next_cursor"]) ||
+      !exactKeys(value, ["items", "next_cursor", "total_count", "offset"]) ||
       !("items" in value) ||
       !Array.isArray(value.items) ||
       value.items.length > 50 ||
+      !("total_count" in value) ||
+      typeof value.total_count !== "number" ||
+      !Number.isSafeInteger(value.total_count) ||
+      value.total_count < 0 ||
+      !("offset" in value) ||
+      typeof value.offset !== "number" ||
+      !Number.isSafeInteger(value.offset) ||
+      value.offset < 0 ||
+      value.offset > value.total_count - value.items.length ||
+      (value.items.length === 0 &&
+        (value.total_count !== 0 || value.offset !== 0)) ||
       !("next_cursor" in value) ||
       (value.next_cursor !== null &&
         (typeof value.next_cursor !== "string" ||
@@ -212,9 +226,16 @@ export async function readCollectionPage<T>(
           value.next_cursor.length > 512))
     )
       throw new Error("Invalid collection response.");
+    if (
+      (value.next_cursor !== null) !==
+      value.offset + value.items.length < value.total_count
+    )
+      throw new Error("Invalid collection response.");
     return {
       items: value.items.map(decode),
       nextCursor: value.next_cursor as string | null,
+      totalCount: value.total_count,
+      offset: value.offset,
     };
   });
 }
@@ -317,9 +338,11 @@ export function useCollectionPage<T>(
   }, [session, key, cursor, view.generation, view.viewKey]);
   const matching = result.key === key && result.cursor === cursor;
   const status =
-    matching && view.viewKey === resolved.canonicalFragment
-      ? result.status
-      : "loading";
+    queryError !== undefined
+      ? "error"
+      : matching && view.viewKey === resolved.canonicalFragment
+        ? result.status
+        : "loading";
   const page = matching ? result.page : undefined;
   const query = resolved.location.query;
   const sort: CollectionSort | undefined =
@@ -355,7 +378,8 @@ export function useCollectionPage<T>(
       status,
       error: queryError ?? (matching ? result.error : undefined),
       notice: active.notice,
-      page: active.index + 1,
+      totalCount: page?.totalCount ?? 0,
+      offset: page?.offset ?? 0,
       hasPrevious: ready && active.index > 0,
       hasNext: ready && page?.nextCursor != null,
       previous: () => {

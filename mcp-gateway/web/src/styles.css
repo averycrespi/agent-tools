@@ -1370,6 +1370,30 @@ p {
   white-space: nowrap;
 }
 
+.collection-query-filters input {
+  flex: 1 1 160px;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.collection-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 14px 0;
+}
+
+.collection-pagination .inline-actions {
+  margin-top: 0;
+}
+
+.collection-pagination .table-filter-summary {
+  white-space: normal;
+  text-align: right;
+}
+
 .collection-table > button {
   margin-top: 10px;
 }
