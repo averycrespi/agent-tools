@@ -1,12 +1,13 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 
-from ci import classify, changed_paths, check_gate, inventory
+from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, inventory
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +42,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_shared_and_unknown_paths_select_everything(self):
         for path in ("go.work", "go.work.sum", "Makefile", "package.json", "package-lock.json",
-                     ".github/workflows/ci.yml", ".github/scripts/ci.py", ".prettierignore",
+                     ".github/workflows/ci.yml", ".github/scripts/ci.py", ".github/actions/go-cache/action.yml", ".prettierignore",
                      "README.md", "assets/tool-relationships.svg", "new-tool/main.go",
                      "mcp-gateway-lookalike/main.go"):
             with self.subTest(path=path):
@@ -134,7 +135,8 @@ class GateTests(unittest.TestCase):
             "quality": {"result": "success"},
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
-                         "vulnerability-scan": "tools", "gateway-temporary": "gateway", "sandbox-manager-macos": "sandbox"}.items():
+                         "vulnerability-scan": "tools", "gateway-temporary": "gateway", "gateway-lint": "gateway",
+                         "sandbox-manager-macos": "sandbox"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
 
@@ -171,6 +173,72 @@ class GateTests(unittest.TestCase):
         needs["changes"]["outputs"]["gateway"] = '"false"'
         with self.assertRaises(ValueError):
             check_gate(needs)
+
+
+class CacheTests(unittest.TestCase):
+    def identity(self, root=ROOT, **overrides):
+        values = dict(role="unit", tool="mcp-gateway", toolchain="go version go1.25.13 linux/arm64",
+                      platform="Linux/ARM64", run="123", attempt="1")
+        values.update(overrides)
+        return cache_identity(root, **values)
+
+    def test_partial_restores_can_save_new_material(self):
+        first = self.identity()
+        for later in (self.identity(run="124"), self.identity(attempt="2")):
+            self.assertEqual(first["prefix"], later["prefix"])
+            self.assertNotEqual(first["key"], later["key"])
+            self.assertTrue(first["key"].startswith(later["prefix"]))
+            self.assertTrue(later["key"].startswith(later["prefix"]))
+
+    def test_roles_tools_toolchains_and_platforms_are_isolated(self):
+        first = self.identity()["prefix"]
+        for override in ({"role": "lint"}, {"role": "integration"}, {"role": "e2e"},
+                         {"tool": "mcp-broker"}, {"toolchain": "go version go1.26 linux/arm64"},
+                         {"platform": "Linux/X64"}, {"platform": "macOS/ARM64"}):
+            self.assertNotEqual(first, self.identity(**override)["prefix"])
+        for override in ({"role": "unknown"}, {"tool": "unknown"}, {"run": ""}, {"attempt": "one"}):
+            with self.assertRaises(ValueError):
+                self.identity(**override)
+
+    def test_workspace_dependencies_and_linter_configuration_invalidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Makefile").write_text((ROOT / "Makefile").read_text())
+            paths = [root / "go.work", root / "mcp-gateway/go.mod", root / "mcp-gateway/go.sum",
+                     root / "mcp-broker/go.mod", root / "mcp-broker/go.sum", root / "mcp-gateway/.golangci.yml"]
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("original\n")
+            before = self.identity(root)["prefix"]
+            for path in paths:
+                path.write_text("changed\n")
+                self.assertNotEqual(before, self.identity(root)["prefix"], str(path))
+                path.write_text("original\n")
+            (root / "mcp-gateway/main.go").write_text("changed source\n")
+            self.assertEqual(before, self.identity(root)["prefix"], "build material is not correctness evidence")
+
+    def test_workflow_wires_cache_and_mandatory_independent_gateway_lint(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        required = jobs["required"].split("    runs-on:")[0]
+        dependencies = re.findall(r"^      - ([a-z0-9-]+)$", required, re.M)
+        self.assertEqual(set(dependencies), {"changes", "quality", *SUITE_JOBS})
+        roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint",
+                 "integration-tests": "integration", "e2e-tests": "e2e", "gateway-temporary": "temporary",
+                 "vulnerability-scan": "vulnerability", "sandbox-manager-macos": "macos"}
+        for job, role in roles.items():
+            self.assertEqual(jobs[job].count("uses: ./.github/actions/go-cache"), 1)
+            self.assertIn(f"role: {role}\n", jobs[job])
+        self.assertNotIn("actions/setup-go", workflow)
+        self.assertIn("if: matrix.tool != 'mcp-gateway'\n        run: make -C \"$TOOL\" lint", jobs["unit-tests"])
+        self.assertIn("if: needs.changes.outputs.gateway == 'true'", jobs["gateway-lint"])
+        self.assertIn("run: make -C mcp-gateway lint", jobs["gateway-lint"])
+        self.assertIn("needs: changes\n", jobs["gateway-lint"])
+        action = (ROOT / ".github/actions/go-cache/action.yml").read_text()
+        for fragment in ("cache: false", "ci.py cache", "uses: actions/cache@v4", "go env GOMODCACHE",
+                         "go env GOCACHE", "GOLANGCI_LINT_CACHE=", "key: ${{ steps.identity.outputs.key }}",
+                         "restore-keys: ${{ steps.identity.outputs.prefix }}"):
+            self.assertIn(fragment, action)
 
 
 if __name__ == "__main__":

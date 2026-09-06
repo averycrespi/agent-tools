@@ -1,0 +1,36 @@
+name: Role-owned Go caches
+description: Restore compatible build material and save newly filled caches per run
+inputs:
+  role:
+    description: Build and instrumentation role
+    required: true
+  tool:
+    description: Tool module or all for repository formatting
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: go.work
+        cache: false
+    - id: identity
+      shell: bash
+      env:
+        CACHE_ROLE: ${{ inputs.role }}
+        CACHE_TOOL: ${{ inputs.tool }}
+      run: python3 -B .github/scripts/ci.py cache
+    - id: paths
+      shell: bash
+      run: |
+        echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+        echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "GOLANGCI_LINT_CACHE=$RUNNER_TEMP/golangci-lint" >> "$GITHUB_ENV"
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ${{ steps.paths.outputs.modules }}
+          ${{ steps.paths.outputs.build }}
+          ${{ runner.temp }}/golangci-lint
+        key: ${{ steps.identity.outputs.key }}
+        restore-keys: ${{ steps.identity.outputs.prefix }}

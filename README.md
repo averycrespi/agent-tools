@@ -60,13 +60,15 @@ cd telegram-mcp && make install
 
 ## CI
 
-Pull requests run Go lint, unit tests, supported integration/E2E suites, and blocking Go vulnerability scans in independent tool-scoped jobs. Gateway's unit, integration, E2E, and temporary-runner leaves run separately, without repeating integration under the unit job. Sandbox Manager retains its macOS unit tests. Formatting and CI selection/gate tests always run.
+Pull requests run Go lint, unit tests, supported integration/E2E suites, and blocking Go vulnerability scans in independent tool-scoped jobs. Gateway lint runs independently of its unit, integration, E2E, and temporary-runner leaves, without repeating integration under the unit job. Both Gateway lint and correctness remain mandatory in Required. Sandbox Manager retains its macOS unit tests. Formatting and CI selection/gate tests always run.
 
 Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames. Pushes to `main`, manual runs, and the weekly scheduled run check every tool; scheduled vulnerability scans can catch new advisories without code changes.
 
 Configure branch protection to require the stable **Required** check from the **CI** workflow rather than individual matrix jobs. When migrating from the old workflow, replace the old Unit tests (Linux), Integration tests, End-to-end tests, and Vulnerability scan requirements; conditional Sandbox Manager checks should also be covered by Required. The gate rejects failed, cancelled, missing, or unexpectedly skipped checks. Repository commits do not update GitHub branch-protection settings.
 
-Run `make test-ci` to verify classification, merge-base handling, and required-gate policy locally. Tool inventories come from the root Makefile. This CI profile is development feedback, not Gateway's complete [exact-revision release acceptance](mcp-gateway/docs/maintainers/release-verification.md).
+Go module, build, and linter caches are owned by tool and execution role, with workspace/module dependencies, linter configuration, resolved toolchain, OS, and architecture in the compatibility identity. Each workflow run/attempt saves under a fresh key while restoring the latest compatible entry, so an incomplete restore can acquire and retain missing material. Build caches may span source revisions; they never replace exact-head correctness checks. Role isolation trades some cache duplication for independent writers and avoids a lint or ordinary-test cache blocking E2E material from being saved.
+
+Run `make test-ci` to verify classification, merge-base handling, required-gate policy, cache identity, and workflow wiring locally. Actual cache-hit effectiveness, runner cost, and critical-path timing require authorized CI execution; local tests do not simulate GitHub's cache service. Tool inventories come from the root Makefile. This CI profile is development feedback, not Gateway's complete [exact-revision release acceptance](mcp-gateway/docs/maintainers/release-verification.md).
 
 ## Tools
 
