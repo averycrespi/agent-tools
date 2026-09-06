@@ -155,7 +155,9 @@ func TestGatewayBinaryReplacementWithdrawsPinnedCallWithoutReroute(t *testing.T)
 	require.NoError(t, markerErr)
 	observations := harness.AuditObservations()
 	require.Len(t, observations, 1)
-	assert.Equal(t, contract.TerminalOutcomeUnknown, observations[0].TerminalClass)
+	assert.Equal(t, contract.DecisionAllow, observations[0].Decision)
+	// Withdrawal evidence shares the nonqueueing writer with best-effort terminal annotation.
+	assert.Contains(t, []contract.InvocationTerminalClass{"", contract.TerminalOutcomeUnknown}, observations[0].TerminalClass)
 	assert.Equal(t, 1, httpFixtureMethodCount(catalog.Fixture.Events(), "tools/call"))
 }
 

@@ -12,7 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/ncruces/go-sqlite3"
 	sqliteDriver "github.com/ncruces/go-sqlite3/driver"
@@ -20,7 +23,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 14
+	CurrentSchema           = 15
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -36,7 +39,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql"}
 
 type Identity struct {
 	InstallationID string
@@ -83,6 +86,7 @@ func InitializeWithFaultInjection(
 }
 
 func initializeWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, installationID string, options testOptions) (*Store, error) {
+	ctx = audit.WithOffline(ctx)
 	if !installationIDPattern.MatchString(installationID) {
 		return nil, ErrInvalidInstallationID
 	}
@@ -329,6 +333,17 @@ func (store *Store) migrateThrough(ctx context.Context, version, target int) err
 			_ = transaction.Rollback()
 			return fmt.Errorf("set schema version %d: %w", next, err)
 		}
+		if next >= 15 {
+			var installationID string
+			if err := transaction.QueryRowContext(ctx, `SELECT installation_id FROM gateway_meta WHERE singleton = 1`).Scan(&installationID); err != nil {
+				_ = transaction.Rollback()
+				return err
+			}
+			if err := audit.MutationTx(ctx, transaction, time.Now(), "storage", "migrate", contract.AuditTarget{Type: "installation", ID: installationID}); err != nil {
+				_ = transaction.Rollback()
+				return fmt.Errorf("record migration %d: %w", next, err)
+			}
+		}
 		if err := transaction.Commit(); err != nil {
 			return fmt.Errorf("commit migration %d: %w", next, err)
 		}
@@ -371,6 +386,12 @@ func (store *Store) verify(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
 	if err := store.verifyGrantRequestStructure(ctx); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
+	if err := store.verifyControlAuditStructure(ctx); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
+	if err := store.View(ctx, func(tx *sql.Tx) error { return audit.ValidateTx(ctx, tx) }); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
 	return nil

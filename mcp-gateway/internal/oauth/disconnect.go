@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
@@ -15,6 +16,7 @@ import (
 )
 
 type disconnectRepository interface {
+	oauthAuditRecorder
 	OAuthRegistration(context.Context, string) (servers.OAuthRegistrationAuthority, error)
 	CredentialAuthorityCallback(servers.CredentialFence) (keyring.AuthorityCallback, error)
 	InvalidateOAuthRegistrationForDelete(context.Context, string, string) (string, error)
@@ -120,7 +122,7 @@ func (service *DisconnectService) disconnect(ctx context.Context, operation serv
 
 	var observation *contract.PublicReason
 	if tokenLoaded {
-		reason := service.revoke(ctx, configuration, registration, tokens, clientSecret)
+		reason := service.revoke(ctx, server.ID, configuration, registration, tokens, clientSecret)
 		observation = reason
 	}
 	if operation.Kind == contract.OperationDelete && authority.RegistrationRevision != "0" {
@@ -152,7 +154,22 @@ func (service *DisconnectService) cleanupOnly(ctx context.Context, serverID stri
 	return runtimes.CredentialLifecycleOutcome{CredentialState: contract.ServerCredentialAbsent}
 }
 
-func (service *DisconnectService) revoke(ctx context.Context, configuration servers.AuthFlowOAuthConfiguration, registration servers.OAuthRegistrationAuthority, tokens TokenGeneration, clientSecret []byte) *contract.PublicReason {
+func (service *DisconnectService) revoke(ctx context.Context, serverID string, configuration servers.AuthFlowOAuthConfiguration, registration servers.OAuthRegistrationAuthority, tokens TokenGeneration, clientSecret []byte) (observation *contract.PublicReason) {
+	attempt, err := beginOAuthEffect(ctx, service.repository, time.Now(), "revoke", contract.AuditTarget{Type: "server", ID: serverID})
+	if err != nil {
+		reason := contract.ReasonRevocationFailed
+		return &reason
+	}
+	defer func() {
+		outcome := "succeeded"
+		if observation != nil {
+			outcome = "unknown"
+		}
+		if err := finishOAuthEffect(ctx, service.repository, time.Now(), attempt, outcome); err != nil {
+			reason := contract.ReasonRevocationFailed
+			observation = &reason
+		}
+	}()
 	graph, err := service.resolver.Discover(ctx, Input{Resource: registration.ResourceURL, DesiredIssuer: &registration.Issuer, TrustedOrigins: configuration.Authentication.TrustedOrigins})
 	if err != nil {
 		reason := contract.ReasonRevocationFailed
@@ -188,6 +205,7 @@ func (service *DisconnectService) revokeToken(ctx context.Context, graph Graph, 
 	if err != nil {
 		return err
 	}
+	defer clear(body)
 	status, _, _, err := service.requester.Request(ctx, graph.RevocationEndpoint, graph.AllowsRestrictedEndpoint(graph.RevocationEndpoint), header, body, limit("oauth_response_body_bytes"), nil)
 	if err != nil || status != http.StatusOK {
 		return ErrTokenRejected

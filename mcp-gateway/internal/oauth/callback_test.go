@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,12 +13,62 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCallbackAuditFencesExchangeAndPreservesInitiator(t *testing.T) {
+	for _, refusedPhase := range []string{"none", "attempt", "outcome"} {
+		t.Run(refusedPhase, func(t *testing.T) {
+			store := &callbackFlowStore{flowStoreFake: flowStoreFake{created: flowCreateResult(contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})}}
+			var evidence []contract.AuditEvent
+			store.auditHook = func(event contract.AuditEvent) error {
+				evidence = append(evidence, event)
+				if event.Phase == refusedPhase {
+					return errors.New("audit refused")
+				}
+				return nil
+			}
+			requester := &tokenRequester{status: http.StatusOK, header: http.Header{"Content-Type": []string{contract.MediaTypeJSON}}, body: []byte(`{"access_token":"audit-token-canary","token_type":"Bearer","expires_in":3600}`)}
+			secrets := new(tokenSecrets)
+			service := callbackService(store, requester, secrets)
+			bundle := callbackBundle("audit-state-canary", false, contract.TokenEndpointAuthNone)
+			credential := contract.AuditCredential{ID: bundle.serverID, Fingerprint: "0123456789abcdef"}
+			bundle.cause = audit.Capture(audit.WithSystem(audit.WithOperator(t.Context(), credential, bundle.flowID)))
+			service.byState[bundle.state] = bundle
+			result := service.HandleCallback(t.Context(), "state=audit-state-canary&code=audit-code-canary")
+			if refusedPhase == "none" {
+				assert.Equal(t, CallbackSucceeded, result.Outcome)
+			} else {
+				assert.Equal(t, CallbackTransient, result.Outcome)
+			}
+			if refusedPhase == "attempt" {
+				assert.Empty(t, requester.requests)
+				assert.Empty(t, secrets.secret)
+			} else {
+				require.Len(t, requester.requests, 1)
+				require.NotEmpty(t, secrets.secret)
+			}
+			for _, event := range evidence {
+				assert.Equal(t, contract.AuditSystem, event.Actor.Type)
+				assert.Equal(t, &credential, event.Initiator)
+				assert.Equal(t, bundle.flowID, event.CorrelationID)
+				contents, err := json.Marshal(event)
+				require.NoError(t, err)
+				for _, secret := range []string{"audit-state-canary", "audit-code-canary", "audit-token-canary", "verifier-value"} {
+					assert.NotContains(t, string(contents), secret)
+				}
+			}
+			calls := len(requester.requests)
+			assert.Equal(t, CallbackInvalid, service.HandleCallback(t.Context(), "state=audit-state-canary&code=audit-code-canary").Outcome)
+			assert.Len(t, requester.requests, calls)
+		})
+	}
+}
 
 func TestCallbackConsumesStateBeforeCodeErrorAndIssuerValidation(t *testing.T) {
 	store := &callbackFlowStore{flowStoreFake: flowStoreFake{created: flowCreateResult(contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})}}

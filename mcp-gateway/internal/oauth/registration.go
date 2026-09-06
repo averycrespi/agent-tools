@@ -35,6 +35,7 @@ type RegistrationRequest struct {
 }
 
 type registrationStore interface {
+	oauthAuditRecorder
 	PublishPublicRegistration(context.Context, servers.RegistrationFence, servers.OAuthRegistrationAuthority) (servers.OAuthRegistrationAuthority, error)
 	RegistrationAuthorityCallback(servers.RegistrationFence, servers.OAuthRegistrationAuthority) (keyring.AuthorityCallback, error)
 	OAuthRegistration(context.Context, string) (servers.OAuthRegistrationAuthority, error)
@@ -153,7 +154,7 @@ func (registrar *Registrar) Register(ctx context.Context, request RegistrationRe
 	}
 }
 
-func (registrar *Registrar) registerDynamic(ctx context.Context, request RegistrationRequest, fence servers.RegistrationFence, created time.Time) (servers.OAuthRegistrationAuthority, error) {
+func (registrar *Registrar) registerDynamic(ctx context.Context, request RegistrationRequest, fence servers.RegistrationFence, created time.Time) (publishedResult servers.OAuthRegistrationAuthority, resultErr error) {
 	method, ok := selectDynamicMethod(request.Graph.TokenEndpointAuthMethodsSupported)
 	if !ok {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationRejected
@@ -165,6 +166,20 @@ func (registrar *Registrar) registerDynamic(ctx context.Context, request Registr
 	if err != nil {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationRejected
 	}
+	attempt, err := beginOAuthEffect(ctx, registrar.store, registrar.now(), "register", contract.AuditTarget{Type: "server", ID: request.ServerID})
+	if err != nil {
+		return servers.OAuthRegistrationAuthority{}, err
+	}
+	defer func() {
+		outcome := "succeeded"
+		if resultErr != nil {
+			outcome = "unknown"
+		}
+		if err := finishOAuthEffect(ctx, registrar.store, registrar.now(), attempt, outcome); err != nil {
+			publishedResult = servers.OAuthRegistrationAuthority{}
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 	header := http.Header{"Accept": []string{contract.MediaTypeJSON}, "Content-Type": []string{contract.MediaTypeJSON}, "User-Agent": []string{""}}
 	status, responseHeader, body, err := registrar.requester.Request(ctx, request.Graph.RegistrationEndpoint, request.Graph.AllowsRestrictedEndpoint(request.Graph.RegistrationEndpoint), http.MethodPost, header, payload, limit("oauth_response_body_bytes"))
 	if err != nil {

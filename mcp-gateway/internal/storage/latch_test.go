@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/ncruces/go-sqlite3"
 	"github.com/stretchr/testify/assert"
@@ -140,6 +143,71 @@ func TestKnownRollbackDisarmsButStorageFailureLatches(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, ErrStorageLatched)
 	assert.True(t, store.Latched())
+}
+
+func readStoppedAudit(t *testing.T, root string, filters contract.AuditFilters) []contract.AuditSummary {
+	t.Helper()
+	ownership, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, ownership.Close()) }()
+	store, err := openConfigured(t.Context(), ownership.Layout(), testOptions{})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	page, err := reader.List(t.Context(), audit.Query{Limit: 100, Filters: filters})
+	require.NoError(t, err)
+	return page.Items
+}
+
+func TestOfflineVerificationAuditReflectsMarkerSettlement(t *testing.T) {
+	for _, phase := range []string{"attempt", "outcome", "success"} {
+		t.Run(phase, func(t *testing.T) {
+			ownership := newOwnership(t)
+			store, err := initializeWithOptions(t.Context(), ownership, testInstallationID, testOptions{fault: failOnce(FaultAfterCommit)})
+			require.NoError(t, err)
+			err = store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				if phase != "success" {
+					_, err := tx.ExecContext(t.Context(), fmt.Sprintf(`CREATE TRIGGER refuse_verify_audit BEFORE INSERT ON control_audit_events WHEN NEW.category = 'storage' AND NEW.action = 'verify' AND json_extract(NEW.event, '$.phase') = '%s' BEGIN SELECT RAISE(ABORT, 'refused audit'); END`, phase))
+					if err != nil {
+						return err
+					}
+				}
+				_, err := tx.ExecContext(t.Context(), `UPDATE gateway_meta SET revision = revision + 1`)
+				return err
+			})
+			require.ErrorIs(t, err, ErrStorageLatched)
+			require.NoError(t, store.Close())
+			layout := ownership.Layout()
+			require.NoError(t, ownership.Close())
+			_, err = VerifyCurrent(t.Context(), layout.Root)
+			if phase == "success" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "refused audit")
+			}
+			if phase == "attempt" {
+				assert.FileExists(t, layout.MutationMarker)
+			} else {
+				assert.NoFileExists(t, layout.MutationMarker)
+			}
+			events := readStoppedAudit(t, layout.Root, contract.AuditFilters{Category: "storage", Action: "verify"})
+			require.Len(t, events, map[string]int{"attempt": 0, "outcome": 1, "success": 2}[phase])
+			for _, event := range events {
+				assert.Equal(t, contract.AuditOffline, event.Actor.Type)
+				assert.Nil(t, event.Actor.Credential)
+				assert.Nil(t, event.Initiator)
+				assert.Equal(t, testInstallationID, event.Target.ID)
+			}
+			if phase == "outcome" {
+				assert.Equal(t, "pending", events[0].Outcome)
+			}
+			if phase == "success" {
+				assert.Equal(t, "succeeded", events[0].Outcome)
+				assert.Equal(t, events[0].CorrelationID, events[1].CorrelationID)
+			}
+		})
+	}
 }
 
 func TestVerifyCurrentClearsLatchOnlyAfterCompleteOfflineVerification(t *testing.T) {

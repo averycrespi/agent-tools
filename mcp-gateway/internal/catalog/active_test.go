@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
@@ -21,6 +22,55 @@ import (
 )
 
 const activeProcessID = "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+
+func TestCatalogEvidenceFailureNeverConfirmsActiveAuthority(t *testing.T) {
+	for _, action := range []string{"publish", "withdraw"} {
+		for _, phase := range []string{"attempt", "outcome"} {
+			t.Run(action+"_"+phase, func(t *testing.T) {
+				repository, serverRepository, clock, _ := newCatalogRepository(t)
+				server := createCatalogServer(t, serverRepository, "audit-catalog")
+				registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+				require.NoError(t, err)
+				ctx := audit.WithOperator(t.Context(), contract.AuditCredential{ID: activeProcessID, Fingerprint: "0123456789abcdef"}, activeProcessID)
+				publication := Publication{Fence: catalogFence(server.ID, "0"), RuntimeID: "runtime-1", RuntimeGeneration: 1, Candidate: candidateFor(t, server.ID, "audit-catalog", "one"), Current: func() bool { return true }}
+				if action == "withdraw" {
+					_, err := registry.Publish(ctx, publication)
+					require.NoError(t, err)
+				}
+				require.NoError(t, repository.store.Mutate(ctx, func(tx *sql.Tx) error {
+					_, err := tx.ExecContext(ctx, `CREATE TRIGGER refuse_catalog_evidence BEFORE INSERT ON control_audit_events WHEN json_extract(NEW.event, '$.category') = 'catalog' AND json_extract(NEW.event, '$.action') = '`+action+`' AND json_extract(NEW.event, '$.phase') = '`+phase+`' BEGIN SELECT RAISE(ABORT, 'injected'); END`)
+					return err
+				}))
+				if action == "publish" {
+					_, err = registry.Publish(ctx, publication)
+				} else {
+					var changed bool
+					changed, err = registry.WithdrawAudited(t.Context(), server.ID, "runtime-1", 1, contract.ActiveCatalogUnavailable)
+					assert.True(t, changed, "evidence refusal cannot keep unsafe routes live")
+				}
+				require.Error(t, err)
+				assert.NotEqual(t, contract.ActiveCatalogCurrent, registry.Status(server.ID).State)
+				active, err := registry.List(nil, 100)
+				require.NoError(t, err)
+				assert.Empty(t, active.Items)
+				reader, err := audit.NewRepository(repository.store)
+				require.NoError(t, err)
+				evidence, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "catalog", Action: action}})
+				require.NoError(t, err)
+				if phase == "attempt" {
+					assert.Empty(t, evidence.Items)
+				} else {
+					require.Len(t, evidence.Items, 1)
+					assert.Equal(t, "pending", evidence.Items[0].Outcome)
+					assert.Equal(t, contract.AuditSystem, evidence.Items[0].Actor.Type)
+					require.NotNil(t, evidence.Items[0].Initiator)
+					assert.Equal(t, activeProcessID, evidence.Items[0].Initiator.ID)
+					assert.Equal(t, activeProcessID, evidence.Items[0].CorrelationID)
+				}
+			})
+		}
+	}
+}
 
 func TestActiveRegistryPublishesDurableBeforeOneImmutableGeneration(t *testing.T) {
 	repository, serverRepository, clock, _ := newCatalogRepository(t)

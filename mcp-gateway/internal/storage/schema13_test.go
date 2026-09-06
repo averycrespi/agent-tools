@@ -43,7 +43,7 @@ func TestGrantDescriptionSchemaAllowsOptionalBoundedDescriptions(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
 
-	assert.Equal(t, 14, CurrentSchema)
+	assert.GreaterOrEqual(t, CurrentSchema, 13)
 	assert.Equal(t, expectedMigrationVersions(), mustMigrationVersions(t, store, ctx))
 	columns, err := store.database.QueryContext(ctx, `PRAGMA table_info(grants)`)
 	require.NoError(t, err)

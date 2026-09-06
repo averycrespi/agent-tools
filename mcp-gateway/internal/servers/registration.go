@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 )
@@ -103,7 +104,7 @@ func (repository *Repository) InvalidateOAuthRegistrationForDelete(ctx context.C
 			}
 			return err
 		}
-		return nil
+		return audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "oauth", "invalidate_registration", contract.AuditTarget{Type: "server", ID: serverID})
 	})
 	return formatRevision(revision), mapMutationError(err)
 }
@@ -126,7 +127,7 @@ func (repository *Repository) PublishPublicRegistration(ctx context.Context, fen
 		}
 		published = registration
 		published.Revision = updated
-		return nil
+		return audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "oauth", "publish_registration", contract.AuditTarget{Type: "server", ID: fence.ServerID})
 	})
 	return published, mapMutationError(err)
 }
@@ -170,6 +171,12 @@ func (repository *Repository) RegistrationAuthorityCallback(fence RegistrationFe
 				return "", ErrStaleRevision
 			}
 			return "", fmt.Errorf("publish OAuth client authority: %w", err)
+		}
+		if err := audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "oauth", "publish_registration", contract.AuditTarget{Type: "server", ID: fence.ServerID}); err != nil {
+			return "", err
+		}
+		if err := audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "server_credential", "replace", contract.AuditTarget{Type: "server", ID: fence.ServerID}); err != nil {
+			return "", err
 		}
 		return strconv.FormatInt(revision, 10), nil
 	}, nil

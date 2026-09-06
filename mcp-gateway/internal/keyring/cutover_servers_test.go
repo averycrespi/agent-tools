@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
@@ -149,6 +150,8 @@ func TestPostAuthorizationActivationRevalidatesRealServerCallback(t *testing.T) 
 			_, err := baseline.ReplaceFenced(ctx, namespace, []byte("old tokens"), credentialCallback(t, repository, server, "0"))
 			require.NoError(t, err)
 
+			credential := contract.AuditCredential{ID: serverTestInstallationID, Fingerprint: "0123456789abcdef"}
+			ctx = audit.WithSystem(audit.WithOperator(ctx, credential, credential.ID))
 			committed := make(chan struct{})
 			release := make(chan struct{})
 			candidate := keyring.NewCoordinatorWithAfterCommitForTest(
@@ -185,6 +188,17 @@ func TestPostAuthorizationActivationRevalidatesRealServerCallback(t *testing.T) 
 				assert.Equal(t, "2", active.Revision)
 				assert.Equal(t, "2", authority.CredentialRevisions.OAuthTokens)
 				assert.NotNil(t, authority.OAuthTokensHandle)
+				reader, err := audit.NewRepository(store)
+				require.NoError(t, err)
+				page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "server_credential", CorrelationID: credential.ID}})
+				require.NoError(t, err)
+				require.Len(t, page.Items, 2)
+				for _, event := range page.Items {
+					assert.Equal(t, "replace", event.Action)
+					assert.Equal(t, server.ID, event.Target.ID)
+					assert.Equal(t, contract.AuditSystem, event.Actor.Type)
+					assert.Equal(t, &credential, event.Initiator)
+				}
 				return
 			}
 
@@ -195,6 +209,16 @@ func TestPostAuthorizationActivationRevalidatesRealServerCallback(t *testing.T) 
 				StaticCredential: "0", OAuthClient: "0", OAuthTokens: "3",
 			}, authority.CredentialRevisions)
 			assert.Nil(t, authority.OAuthTokensHandle)
+			reader, err := audit.NewRepository(store)
+			require.NoError(t, err)
+			page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "server_credential", Action: "invalidate", CorrelationID: credential.ID}})
+			require.NoError(t, err)
+			require.Len(t, page.Items, 2)
+			for _, event := range page.Items {
+				assert.Equal(t, server.ID, event.Target.ID)
+				assert.Equal(t, contract.AuditSystem, event.Actor.Type)
+				assert.Equal(t, &credential, event.Initiator)
+			}
 			require.NoError(t, store.View(ctx, func(transaction *sql.Tx) error {
 				var fences int
 				if queryErr := transaction.QueryRowContext(ctx, `
@@ -305,6 +329,16 @@ func TestPostAuthorizationActivationAfterCommitFaultRecoversNoAuthority(t *testi
 	reopened, err := storage.Open(ctx, ownership)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, reopened.Close()) }()
+	reader, err := audit.NewRepository(reopened)
+	require.NoError(t, err)
+	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "keyring", Action: "fence", ActorType: contract.AuditOffline}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	for _, event := range page.Items {
+		assert.Equal(t, server.ID, event.Target.ID)
+		assert.Nil(t, event.Actor.Credential)
+		assert.Nil(t, event.Initiator)
+	}
 	restarted := keyring.NewCoordinator(baseline.ProviderForTest(), reopened, serverTestClock{}, new(serverTestEntropy))
 	_, _, err = restarted.ReadActive(ctx, namespace)
 	assert.ErrorIs(t, err, keyring.ErrNoAuthority)

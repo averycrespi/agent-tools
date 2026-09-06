@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
@@ -28,6 +30,80 @@ type captureSink struct{ bearer string }
 func (sink *captureSink) Publish(value string) error {
 	sink.bearer = value
 	return nil
+}
+
+func TestRestoreAuditContinuity(t *testing.T) {
+	for _, point := range []restoreFaultPoint{"", restoreFaultBeforeInstall, "after_install"} {
+		t.Run(string(point), func(t *testing.T) {
+			ctx := t.Context()
+			root := filepath.Join(t.TempDir(), "gateway")
+			ownership, err := gatewaypaths.Acquire(root)
+			require.NoError(t, err)
+			store, err := storage.Initialize(ctx, ownership, backupTestInstallationID)
+			require.NoError(t, err)
+			clock := fixedClock{value: acceptedFixtureTime}
+			_, err = admin.NewService(store, clock, bytes.NewReader(restoreTestEntropy(1, 256))).Initialize(ctx, new(captureSink))
+			require.NoError(t, err)
+			repository, err := audit.NewRepository(store)
+			require.NoError(t, err)
+			before, err := repository.List(ctx, audit.Query{Limit: 100})
+			require.NoError(t, err)
+			manager, err := New(Options{Store: store, Layout: ownership.Layout(), Clock: clock, Entropy: bytes.NewReader(restoreTestEntropy(2, 256))})
+			require.NoError(t, err)
+			artifact, _, err := manager.Create(ctx, "authority", "audit-restore")
+			require.NoError(t, err)
+			require.NoError(t, store.Close())
+			require.NoError(t, ownership.Close())
+			injected := errors.New("injected restore interruption")
+			_, err = Restore(ctx, RestoreOptions{Root: root, BackupID: artifact.ID, Sink: new(captureSink), Clock: clock,
+				Entropy: bytes.NewReader(restoreTestEntropy(3, 256)), fault: func(actual restoreFaultPoint) error {
+					if point != "" && actual == point {
+						return injected
+					}
+					return nil
+				}})
+			if point == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, injected)
+			}
+			ownership, err = gatewaypaths.AcquireForMaintenance(root)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, ownership.Close()) }()
+			store, err = storage.OpenReplacement(ctx, ownership, ownership.Layout().Database)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, store.Close()) }()
+			repository, err = audit.NewRepository(store)
+			require.NoError(t, err)
+			page, err := repository.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "backup", Action: "restore"}})
+			require.NoError(t, err)
+			assert.False(t, page.History.Pruned)
+			if point == restoreFaultBeforeInstall {
+				assert.Equal(t, before.History.Generation, page.History.Generation)
+				assert.Empty(t, page.Items)
+				return
+			}
+			assert.NotEqual(t, before.History.Generation, page.History.Generation)
+			_, err = repository.List(ctx, audit.Query{Limit: 1, Generation: before.History.Generation})
+			require.ErrorIs(t, err, audit.ErrHistoryReplaced)
+			if point == "after_install" {
+				require.Len(t, page.Items, 1)
+			} else {
+				require.Len(t, page.Items, 2)
+				assert.Equal(t, "succeeded", page.Items[0].Outcome)
+				assert.Equal(t, page.Items[0].CorrelationID, page.Items[1].CorrelationID)
+				assert.NotEqual(t, page.Items[0].ID, page.Items[1].ID)
+			}
+			attempt := page.Items[len(page.Items)-1]
+			assert.Equal(t, "pending", attempt.Outcome)
+			assert.Equal(t, contract.AuditOffline, attempt.Actor.Type)
+			assert.Nil(t, attempt.Actor.Credential)
+			assert.Nil(t, attempt.Initiator)
+			assert.Equal(t, artifact.ID, attempt.Target.ID)
+			_, err = repository.Read(ctx, attempt.ID, before.History.Generation)
+			require.ErrorIs(t, err, audit.ErrHistoryReplaced)
+		})
+	}
 }
 
 func TestRestoreReplacesCompleteGenerationAndRekeysAdminAuthority(t *testing.T) {
@@ -165,6 +241,22 @@ func TestRestoreInvalidatesAgentCredentialsAndAllowsFreshIssuance(t *testing.T) 
 	restoredPolicy, err := authority.ListGrants(ctx, authorization.GrantFilter{}, nil, 100)
 	require.NoError(t, err)
 	assert.Equal(t, policy, restoredPolicy)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	invalidations, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "agent_credential", Action: "invalidate", ActorType: contract.AuditOffline}})
+	require.NoError(t, err)
+	require.Len(t, invalidations.Items, 4)
+	restoration, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "backup", Action: "restore"}})
+	require.NoError(t, err)
+	require.Len(t, restoration.Items, 2)
+	counts := map[string]int{}
+	for _, event := range invalidations.Items {
+		counts[event.Target.ID]++
+		assert.Nil(t, event.Actor.Credential)
+		assert.Nil(t, event.Initiator)
+		assert.Equal(t, restoration.Items[0].CorrelationID, event.CorrelationID)
+	}
+	assert.Equal(t, map[string]int{issued.Principal.Credential.ID: 2, secondIssued.Principal.Credential.ID: 2}, counts)
 	fresh, err := authority.IssueCredential(ctx, restoredPrincipal.ID, restoredPrincipal.Revision)
 	require.NoError(t, err)
 	assert.NotEqual(t, backupBearer, fresh.Bearer)

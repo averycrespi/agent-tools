@@ -15,12 +15,85 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAgentCredentialAuditRollbackAndAttribution(t *testing.T) {
+	for _, action := range []string{"issue", "revoke", "invalidate"} {
+		t.Run(action, func(t *testing.T) {
+			repository, store := newRepository(t, nil)
+			principal := mustCreatePrincipal(t, repository)
+			issued, err := repository.IssueCredential(t.Context(), principal.ID, principal.Revision)
+			require.NoError(t, err)
+			before := issued.Principal
+			verifier := credentialVerifier(t, store, principal.ID)
+			credential := contract.AuditCredential{ID: id(70), Fingerprint: "0123456789abcdef"}
+			ctx := audit.WithOperator(t.Context(), credential, credential.ID)
+			mutate := func() error {
+				switch action {
+				case "issue":
+					result, err := repository.IssueCredential(ctx, principal.ID, before.Revision)
+					if err != nil {
+						assert.Empty(t, result.Bearer)
+					}
+					return err
+				case "revoke":
+					_, err := repository.RevokeCredential(ctx, principal.ID, before.Revision)
+					return err
+				default:
+					disabled := contract.PrincipalDisabled
+					_, err := repository.PatchPrincipal(ctx, principal.ID, PatchPrincipalRequest{ExpectedRevision: before.Revision, State: &disabled})
+					return err
+				}
+			}
+			require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `CREATE TRIGGER refuse_credential_audit BEFORE INSERT ON control_audit_events WHEN NEW.category = 'agent_credential' AND json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'refused audit'); END`)
+				return err
+			}))
+			require.ErrorContains(t, mutate(), "refused audit")
+			after, err := repository.GetPrincipal(t.Context(), principal.ID)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+			assert.Equal(t, verifier, credentialVerifier(t, store, principal.ID))
+			reader, err := audit.NewRepository(store)
+			require.NoError(t, err)
+			query := audit.Query{Limit: 100, Filters: contract.AuditFilters{CorrelationID: credential.ID}}
+			page, err := reader.List(t.Context(), query)
+			require.NoError(t, err)
+			assert.Empty(t, page.Items)
+			require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `DROP TRIGGER refuse_credential_audit`)
+				return err
+			}))
+			require.NoError(t, mutate())
+			page, err = reader.List(t.Context(), query)
+			require.NoError(t, err)
+			expected := 4
+			if action == "revoke" {
+				expected = 2
+			}
+			require.Len(t, page.Items, expected)
+			for _, event := range page.Items {
+				if event.Action == "invalidate" {
+					assert.Equal(t, before.Credential.ID, event.Target.ID)
+					assert.Equal(t, contract.AuditSystem, event.Actor.Type)
+					assert.Equal(t, &credential, event.Initiator)
+				} else {
+					assert.Equal(t, contract.AuditOperator, event.Actor.Type)
+					assert.Equal(t, &credential, event.Actor.Credential)
+				}
+			}
+			encoded, err := json.Marshal(page)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), issued.Bearer)
+		})
+	}
+}
 
 func TestIssueReplaceAndRevokeCurrentCredential(t *testing.T) {
 	repository, store := newRepository(t, nil)

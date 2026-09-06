@@ -114,6 +114,14 @@ Use stopped-process `mcp-gateway admin reset` only for all-authority recovery. T
 
 For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](backup-and-recovery.md).
 
+## Control-plane audit API
+
+Authenticated API clients can read `GET /api/v1/audit-events` and `GET /api/v1/audit-events/{id}`. There are no new audit-reading CLI commands or Audit browser page here. The [coverage matrix](../design/administrative-control-plane.md#control-plane-audit-coverage) identifies audited operator, system and offline actions and their regression evidence. Do not infer that an action never happened from an empty audit collection.
+
+Collection responses return summaries, a next-page cursor, and `history` with `generation`, `oldest_retained`, and `pruned`. Only the newest 65,536 events are retained. Keep the generation separately from the oldest boundary; pruning advances the boundary within one generation, while a generation mismatch means histories must not be combined. After `stale_cursor`, discard the traversal, fetch a fresh first page, and compare its generation before using earlier records. Restore assigns a fresh generation and records an offline installation attempt in the replacement database; its success outcome is appended only after installation. An interruption may leave the new generation with a pending attempt and no outcome. Pin `generation` on item reads when following a previously displayed event. `audit_history_replaced` is a conflict, not a missing-record response. Never infer rollback or replay safety from an attempt without an outcome.
+
+See the [public audit contract](../design/public-contract.md#control-plane-audit-reads) for authoritative filters, bounded time ranges, and exact response shapes. Audit stores only credential IDs/fingerprints and closed detail codes, not human identity, raw credentials, unrestricted snapshots, or invocation payloads.
+
 ## Command families
 
 Use generated help rather than copying a full command inventory into documentation:

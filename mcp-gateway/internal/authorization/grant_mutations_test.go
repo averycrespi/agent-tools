@@ -10,11 +10,71 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGrantAuditRollbackAndAttribution(t *testing.T) {
+	for _, action := range []string{"create", "update", "delete"} {
+		t.Run(action, func(t *testing.T) {
+			repository, store := newRepository(t, nil)
+			principal := mustCreatePrincipal(t, repository)
+			grant, err := repository.CreateGrant(t.Context(), CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)}, allowCurrentTarget)
+			require.NoError(t, err)
+			before, err := repository.ListGrants(t.Context(), GrantFilter{}, nil, 100)
+			require.NoError(t, err)
+			revision := authorizationRevision(t, repository)
+			credential := contract.AuditCredential{ID: id(70), Fingerprint: "0123456789abcdef"}
+			ctx := audit.WithOperator(t.Context(), credential, credential.ID)
+			mutate := func() error {
+				switch action {
+				case "create":
+					_, err := repository.CreateGrant(ctx, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51)}, allowCurrentTarget)
+					return err
+				case "update":
+					description := stringPointer("Changed")
+					_, err := repository.PatchGrant(ctx, grant.ID, PatchGrantRequest{ExpectedRevision: grant.Revision, Description: &description})
+					return err
+				default:
+					return repository.DeleteGrant(ctx, grant.ID)
+				}
+			}
+			require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `CREATE TRIGGER refuse_grant_audit BEFORE INSERT ON control_audit_events WHEN NEW.category = 'grant' AND json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'refused audit'); END`)
+				return err
+			}))
+			require.ErrorContains(t, mutate(), "refused audit")
+			after, err := repository.ListGrants(t.Context(), GrantFilter{}, nil, 100)
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+			assert.Equal(t, revision, authorizationRevision(t, repository))
+			reader, err := audit.NewRepository(store)
+			require.NoError(t, err)
+			query := audit.Query{Limit: 100, Filters: contract.AuditFilters{CorrelationID: credential.ID}}
+			page, err := reader.List(t.Context(), query)
+			require.NoError(t, err)
+			assert.Empty(t, page.Items)
+			require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `DROP TRIGGER refuse_grant_audit`)
+				return err
+			}))
+			require.NoError(t, mutate())
+			page, err = reader.List(t.Context(), query)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 2)
+			for _, event := range page.Items {
+				assert.Equal(t, action, event.Action)
+				assert.Equal(t, "grant", event.Category)
+				assert.Equal(t, contract.AuditOperator, event.Actor.Type)
+				assert.Equal(t, &credential, event.Actor.Credential)
+				assert.Nil(t, event.Initiator)
+			}
+		})
+	}
+}
 
 func TestCreateAndDeleteImmutableGrantsAdvanceAuthorizationOnce(t *testing.T) {
 	repository, _ := newRepository(t, nil)

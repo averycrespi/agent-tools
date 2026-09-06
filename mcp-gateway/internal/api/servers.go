@@ -133,7 +133,7 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &resource.ID})
 		if result.Operation != nil {
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
-			handler.trigger(resource.ID, &result.Operation.ID, true)
+			handler.trigger(request.Context(), resource.ID, &result.Operation.ID, true)
 		}
 	}
 	writeJSON(writer, status, mutation)
@@ -198,7 +198,7 @@ func (handler *Handler) patchServer(writer http.ResponseWriter, request *http.Re
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows})
 		}
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
-		handler.trigger(resource.ID, &result.Operation.ID, true)
+		handler.trigger(request.Context(), resource.ID, &result.Operation.ID, true)
 	}
 	writeJSON(writer, http.StatusOK, contract.ServerMutation{Server: resource, Operation: operationResource(result.Operation)})
 }
@@ -233,7 +233,7 @@ func (handler *Handler) deleteServer(writer http.ResponseWriter, request *http.R
 				handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows})
 			}
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &result.Operation.ID})
-			handler.trigger(resource.ID, &result.Operation.ID, true)
+			handler.trigger(request.Context(), resource.ID, &result.Operation.ID, true)
 		}
 	}
 	writeJSON(writer, status, contract.ServerMutation{Server: resource, Operation: operationResource(result.Operation)})
@@ -332,9 +332,9 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 	}, nil
 }
 
-func (handler *Handler) trigger(serverID string, operationID *string, reset bool) {
+func (handler *Handler) trigger(ctx context.Context, serverID string, operationID *string, reset bool) {
 	if handler.triggerServer != nil {
-		handler.triggerServer(serverID, operationID, reset)
+		handler.triggerServer(ctx, serverID, operationID, reset)
 	}
 }
 
@@ -452,6 +452,10 @@ func limitStatus(name string) contract.LimitStatus {
 }
 
 func writeServerConfigurationError(writer http.ResponseWriter, err error) {
+	if code := admitProblem(writer, contract.ProblemInvalidServerConfiguration); code != contract.ProblemInvalidServerConfiguration {
+		writeProblem(writer, code)
+		return
+	}
 	context := contract.ServerConfigurationContext{Field: contract.ServerConfigurationFieldConfiguration, Rule: contract.ServerConfigurationRuleInvalid}
 	var failure *serverdomain.ConfigurationError
 	if errors.As(err, &failure) && contract.ValidServerConfigurationContext(failure.Context) {

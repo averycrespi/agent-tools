@@ -132,7 +132,11 @@ func newServerTestHandler(t *testing.T, service ServerService) http.Handler {
 
 func newServerTestHandlerWithTrigger(t *testing.T, service ServerService, trigger func(string, *string, bool)) http.Handler {
 	t.Helper()
-	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Servers: service, TriggerServer: trigger})
+	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Servers: service, TriggerServer: func(_ context.Context, serverID string, operationID *string, reset bool) {
+		if trigger != nil {
+			trigger(serverID, operationID, reset)
+		}
+	}})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	require.NoError(t, err)
 	return boundary

@@ -12,6 +12,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -226,7 +227,7 @@ func TestCoordinatorPollChallengeAttachesExplicitOperationAndCompletesAfterWorkR
 	default:
 	}
 
-	coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable)
+	require.NoError(t, coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable))
 	clock.now = clock.now.Add(17 * time.Minute)
 	client.mu.Lock()
 	client.err = nil
@@ -426,7 +427,7 @@ func TestCoordinatorWithdrawnWorkMustFinishBeforeReplacementTraversal(t *testing
 	oldStarted := oldClient.started
 	go func() { oldResult <- coordinator.Refresh(context.Background(), oldCandidate) }()
 	<-oldStarted
-	coordinator.Withdraw(oldCandidate, contract.ActiveCatalogUnavailable)
+	require.NoError(t, coordinator.Withdraw(oldCandidate, contract.ActiveCatalogUnavailable))
 
 	blockedReplacement := coordinator.Refresh(context.Background(), newCandidate)
 
@@ -462,7 +463,7 @@ func TestCoordinatorHealthyFailureRetainsStaleAndWithdrawalCancelsTimer(t *testi
 	assert.Equal(t, contract.DurableCatalogStale, durable.State)
 	assert.Equal(t, int64(1), durable.IssueCount)
 
-	coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable)
+	require.NoError(t, coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable))
 	assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
 	assert.True(t, scheduler.last().stopped)
 	coordinator.Shutdown()
@@ -480,7 +481,9 @@ func TestCoordinatorWithdrawalCancelsTraversalAndPreventsLatePublication(t *test
 	result := make(chan runtimes.CatalogOutcome, 1)
 	go func() { result <- coordinator.Refresh(context.Background(), candidate) }()
 	<-client.started
-	coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable)
+	if err := coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable); err != nil {
+		require.ErrorIs(t, err, storage.ErrMutationBusy)
+	}
 	outcome := <-result
 	assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)
 	assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)

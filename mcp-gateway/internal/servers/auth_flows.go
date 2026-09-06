@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 )
@@ -17,6 +18,7 @@ const authFlowCollection = "server_auth_flows"
 var ErrOAuthFlowActive = errors.New("OAuth flow is already exchanging")
 
 type AuthFlow struct {
+	Cause                 audit.Cause `json:"-"`
 	InsertionSequence     int64
 	ID                    string
 	ServerID              string
@@ -132,6 +134,9 @@ func (repository *Repository) CreateAuthFlow(ctx context.Context, request AuthFl
 				return fmt.Errorf("supersede auth flow: %w", err)
 			}
 			for _, flow := range active {
+				if err := auditAuthFlowTx(ctx, transaction, now, flow.ID, contract.AuthFlowSuperseded, nil); err != nil {
+					return err
+				}
 				result.SupersededIDs = append(result.SupersededIDs, flow.ID)
 			}
 		}
@@ -145,12 +150,16 @@ func (repository *Repository) CreateAuthFlow(ctx context.Context, request AuthFl
 		}
 		createdAt := formatTime(now)
 		expiresAt := formatTime(now.Add(contract.OAuthFlowLifetime))
+		cause, err := audit.EncodeCause(ctx, flowID)
+		if err != nil {
+			return err
+		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO server_auth_flows (
 				id, server_id, flow_state, target_desired_revision,
-				registration_revision, created_at, expires_at, finished_at, reason
-			) VALUES (?, ?, 'preparing', ?, ?, ?, ?, NULL, NULL)`,
-			flowID, server.ID, desiredRevision, registrationRevision, createdAt, expiresAt,
+				registration_revision, created_at, expires_at, finished_at, reason, audit_cause
+			) VALUES (?, ?, 'preparing', ?, ?, ?, ?, NULL, NULL, ?)`,
+			flowID, server.ID, desiredRevision, registrationRevision, createdAt, expiresAt, cause,
 		); err != nil {
 			return fmt.Errorf("insert auth flow: %w", err)
 		}
@@ -166,7 +175,10 @@ func (repository *Repository) CreateAuthFlow(ctx context.Context, request AuthFl
 		result.Server = server
 		result.Authority = authority
 		result.Configuration = configuration
-		return err
+		if err != nil {
+			return err
+		}
+		return auditAuthFlowTx(ctx, transaction, now, flowID, contract.AuthFlowPreparing, nil)
 	})
 	return result, mapMutationError(err)
 }
@@ -242,7 +254,10 @@ func (repository *Repository) BeginAuthFlowExchange(ctx context.Context, fence O
 			return fmt.Errorf("begin OAuth token exchange: %w", err)
 		}
 		result, err = authFlowByIDTx(ctx, transaction, flow.ID)
-		return err
+		if err != nil {
+			return err
+		}
+		return auditAuthFlowTx(ctx, transaction, repository.clock.Now(), flow.ID, contract.AuthFlowExchanging, nil)
 	})
 	return result, mapMutationError(err)
 }
@@ -313,6 +328,17 @@ func (repository *Repository) OAuthTokenAuthorityCallback(fence OAuthTokenFence)
 			changed, err := result.RowsAffected()
 			if err != nil || changed != 1 {
 				return "", ErrStaleRevision
+			}
+		}
+		if update.ActivateOnly {
+			if err := auditAuthFlowTx(ctx, transaction, repository.clock.Now(), fence.FlowID, contract.AuthFlowSucceeded, nil); err != nil {
+				return "", err
+			}
+		}
+		if exactInvalidation {
+			reason := contract.ReasonOAuthRejected
+			if err := auditAuthFlowTx(ctx, transaction, repository.clock.Now(), fence.FlowID, contract.AuthFlowFailed, &reason); err != nil {
+				return "", err
 			}
 		}
 		return revision, nil
@@ -407,7 +433,10 @@ func (repository *Repository) MarkAuthFlowAwaiting(ctx context.Context, flowID, 
 			return fmt.Errorf("publish awaiting auth flow: %w", err)
 		}
 		result, err = authFlowByIDTx(ctx, transaction, flowID)
-		return err
+		if err != nil {
+			return err
+		}
+		return auditAuthFlowTx(ctx, transaction, repository.clock.Now(), flowID, contract.AuthFlowAwaitingCallback, nil)
 	})
 	return result, mapMutationError(err)
 }
@@ -444,6 +473,9 @@ func (repository *Repository) FailAuthFlow(ctx context.Context, flowID string, d
 		if err != nil {
 			return err
 		}
+		if err := auditAuthFlowTx(ctx, transaction, repository.clock.Now(), flowID, contract.AuthFlowFailed, &diagnostic.Reason); err != nil {
+			return err
+		}
 		return pruneTerminalAuthFlowsTx(ctx, transaction, flow.ServerID)
 	})
 	return result, mapMutationError(err)
@@ -478,6 +510,9 @@ func (repository *Repository) TransitionAuthFlow(ctx context.Context, flowID str
 		if err != nil {
 			return err
 		}
+		if err := auditAuthFlowTx(ctx, transaction, repository.clock.Now(), flowID, state, reason); err != nil {
+			return err
+		}
 		if authFlowTerminal(state) {
 			return pruneTerminalAuthFlowsTx(ctx, transaction, flow.ServerID)
 		}
@@ -507,6 +542,9 @@ func (repository *Repository) CancelAuthFlow(ctx context.Context, serverID, flow
 			}
 			result, err = authFlowByIDTx(ctx, transaction, flowID)
 			if err != nil {
+				return err
+			}
+			if err := auditAuthFlowTx(ctx, transaction, repository.clock.Now(), flowID, contract.AuthFlowCancelled, nil); err != nil {
 				return err
 			}
 			return pruneTerminalAuthFlowsTx(ctx, transaction, serverID)
@@ -636,6 +674,11 @@ func (repository *Repository) ExpireAuthFlows(ctx context.Context) ([]string, er
 			WHERE flow_state IN ('preparing', 'awaiting_callback') AND expires_at <= ?`, now, now); err != nil {
 			return err
 		}
+		for _, id := range expired {
+			if err := auditAuthFlowTx(ctx, transaction, repository.clock.Now(), id, contract.AuthFlowExpired, nil); err != nil {
+				return err
+			}
+		}
 		for serverID := range servers {
 			if err := pruneTerminalAuthFlowsTx(ctx, transaction, serverID); err != nil {
 				return err
@@ -649,18 +692,19 @@ func (repository *Repository) ExpireAuthFlows(ctx context.Context) ([]string, er
 func (repository *Repository) InterruptAuthFlows(ctx context.Context) error {
 	return mapMutationError(repository.store.Mutate(ctx, func(transaction *sql.Tx) error {
 		now := formatTime(repository.clock.Now())
-		rows, err := transaction.QueryContext(ctx, `SELECT DISTINCT server_id FROM server_auth_flows WHERE flow_state IN ('preparing', 'awaiting_callback', 'exchanging')`)
+		rows, err := transaction.QueryContext(ctx, `SELECT id, server_id FROM server_auth_flows WHERE flow_state IN ('preparing', 'awaiting_callback', 'exchanging')`)
 		if err != nil {
 			return err
 		}
-		var serverIDs []string
+		var serverIDs, flowIDs []string
 		for rows.Next() {
-			var serverID string
-			if err := rows.Scan(&serverID); err != nil {
+			var id, serverID string
+			if err := rows.Scan(&id, &serverID); err != nil {
 				_ = rows.Close()
 				return err
 			}
 			serverIDs = append(serverIDs, serverID)
+			flowIDs = append(flowIDs, id)
 		}
 		if err := rows.Close(); err != nil {
 			return err
@@ -669,6 +713,11 @@ func (repository *Repository) InterruptAuthFlows(ctx context.Context) error {
 			UPDATE server_auth_flows SET flow_state = 'interrupted', reason = 'interrupted', finished_at = ?
 			WHERE flow_state IN ('preparing', 'awaiting_callback', 'exchanging')`, now); err != nil {
 			return err
+		}
+		for _, id := range flowIDs {
+			if err := auditAuthFlowTx(ctx, transaction, repository.clock.Now(), id, contract.AuthFlowInterrupted, nil); err != nil {
+				return err
+			}
 		}
 		for _, serverID := range serverIDs {
 			if err := pruneTerminalAuthFlowsTx(ctx, transaction, serverID); err != nil {
@@ -689,17 +738,83 @@ func (repository *Repository) AuthFlowStatus(ctx context.Context) (contract.Limi
 }
 
 func supersedeAuthFlowsTx(ctx context.Context, transaction *sql.Tx, serverID string, now time.Time) error {
-	result, err := transaction.ExecContext(ctx, `
+	rows, err := transaction.QueryContext(ctx, `
 		UPDATE server_auth_flows SET flow_state = 'superseded', reason = 'superseded', finished_at = ?
-		WHERE server_id = ? AND flow_state IN ('preparing', 'awaiting_callback', 'exchanging')`, formatTime(now), serverID)
+		WHERE server_id = ? AND flow_state IN ('preparing', 'awaiting_callback', 'exchanging') RETURNING id`, formatTime(now), serverID)
 	if err != nil {
 		return fmt.Errorf("supersede auth flows: %w", err)
 	}
-	changed, err := result.RowsAffected()
-	if err != nil || changed == 0 {
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return err
 	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := auditAuthFlowTx(ctx, transaction, now, id, contract.AuthFlowSuperseded, nil); err != nil {
+			return err
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
 	return pruneTerminalAuthFlowsTx(ctx, transaction, serverID)
+}
+
+func (repository *Repository) RecordOAuthEvent(ctx context.Context, event contract.AuditEvent) error {
+	if event.Category != "oauth" {
+		return ErrInvalidInput
+	}
+	return audit.Append(ctx, repository.store, event)
+}
+
+func auditAuthFlowTx(ctx context.Context, tx *sql.Tx, now time.Time, id string, state contract.AuthFlowState, reason *contract.PublicReason) error {
+	flow, err := authFlowByIDTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if state == contract.AuthFlowExpired || state == contract.AuthFlowInterrupted {
+		ctx = audit.WithCause(ctx, flow.Cause)
+	} else {
+		ctx = audit.InheritCause(ctx, flow.Cause)
+	}
+	action, outcome := "", "succeeded"
+	switch state {
+	case contract.AuthFlowPreparing:
+		action = "create"
+	case contract.AuthFlowAwaitingCallback:
+		action = "await_callback"
+	case contract.AuthFlowExchanging:
+		action = "begin_exchange"
+	case contract.AuthFlowSucceeded:
+		action = "install"
+	case contract.AuthFlowFailed:
+		action, outcome = "finish", "failed"
+	case contract.AuthFlowCancelled:
+		action = "cancel"
+	case contract.AuthFlowExpired:
+		action = "expire"
+	case contract.AuthFlowSuperseded:
+		action = "supersede"
+	case contract.AuthFlowInterrupted:
+		action, outcome = "recover", "unknown"
+	default:
+		return ErrInvalidTransition
+	}
+	if state != contract.AuthFlowPreparing && state != contract.AuthFlowCancelled {
+		ctx = audit.WithSystem(ctx)
+	}
+	return audit.MutationOutcomeTx(ctx, tx, now, "oauth", action, contract.AuditTarget{Type: "auth_flow", ID: id}, outcome, contract.AuditDetail{Reason: reason})
 }
 
 func pruneTerminalAuthFlowsTx(ctx context.Context, transaction *sql.Tx, serverID string) error {
@@ -740,7 +855,7 @@ func pruneTerminalAuthFlowsTx(ctx context.Context, transaction *sql.Tx, serverID
 const authFlowSelect = `
 	SELECT insertion_sequence, id, server_id, flow_state, target_desired_revision,
 	       registration_revision, created_at, expires_at, finished_at, reason,
-	       diagnostic_stage, diagnostic_http_status
+	       diagnostic_stage, diagnostic_http_status, audit_cause
 	FROM server_auth_flows`
 
 func nullableInt(value *int) any {
@@ -760,13 +875,20 @@ func scanAuthFlow(scanner authFlowScanner) (AuthFlow, error) {
 	var flow AuthFlow
 	var desiredRevision, registrationRevision int64
 	var state string
-	var finishedAt, reason, diagnosticStage sql.NullString
+	var finishedAt, reason, diagnosticStage, cause sql.NullString
 	var diagnosticHTTPStatus sql.NullInt64
-	if err := scanner.Scan(&flow.InsertionSequence, &flow.ID, &flow.ServerID, &state, &desiredRevision, &registrationRevision, &flow.CreatedAt, &flow.ExpiresAt, &finishedAt, &reason, &diagnosticStage, &diagnosticHTTPStatus); err != nil {
+	if err := scanner.Scan(&flow.InsertionSequence, &flow.ID, &flow.ServerID, &state, &desiredRevision, &registrationRevision, &flow.CreatedAt, &flow.ExpiresAt, &finishedAt, &reason, &diagnosticStage, &diagnosticHTTPStatus, &cause); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return AuthFlow{}, ErrNotFound
 		}
 		return AuthFlow{}, err
+	}
+	if cause.Valid {
+		var err error
+		flow.Cause, err = audit.DecodeCause(cause.String)
+		if err != nil {
+			return AuthFlow{}, err
+		}
 	}
 	parsedState, err := contract.ParseAuthFlowState(state)
 	if err != nil {

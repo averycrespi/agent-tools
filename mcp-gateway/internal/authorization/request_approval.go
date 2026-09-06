@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -126,7 +127,7 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 			return scanErr
 		}
 		result = GrantRequestApprovalResult{Grant: grant, Request: approved}
-		return nil
+		return audit.MutationTx(audit.WithSystem(ctx), transaction, now, "grant", "create", contract.AuditTarget{Type: "grant", ID: grantID})
 	})
 	if err != nil {
 		return GrantRequestApprovalResult{}, repository.mapApprovalMutationError(err)

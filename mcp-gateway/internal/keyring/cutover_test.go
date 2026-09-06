@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -740,7 +741,8 @@ func TestDrainDuringCandidateDeleteCannotChangeAuthority(t *testing.T) {
 }
 
 func TestSuccessfulCutoverAdvancesRevisionAndLeavesOnlyNewGeneration(t *testing.T) {
-	ctx := context.Background()
+	credential := contract.AuditCredential{ID: testOwnerID, Fingerprint: "0123456789abcdef"}
+	ctx := audit.WithOperator(t.Context(), credential, testInstallationID)
 	store, root := newCutoverStore(t)
 	adapter := newMemoryAdapter()
 	provider, err := newProviderWithAdapter(testInstallationID, adapter)
@@ -764,6 +766,16 @@ func TestSuccessfulCutoverAdvancesRevisionAndLeavesOnlyNewGeneration(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, secondSecret, active)
 	assert.Equal(t, second, metadata)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "keyring", Action: "activate"}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 4)
+	for _, item := range page.Items {
+		assert.Equal(t, contract.AuditSystem, item.Actor.Type)
+		assert.Equal(t, &credential, item.Initiator)
+		assert.Equal(t, testInstallationID, item.CorrelationID)
+	}
 	require.NoError(t, store.BackupTo(ctx, filepath.Join(root, "authority-backup.db")))
 	for _, canary := range [][]byte{firstSecret, secondSecret} {
 		assertCanaryAbsentFromDataRoot(t, root, canary)
@@ -771,6 +783,35 @@ func TestSuccessfulCutoverAdvancesRevisionAndLeavesOnlyNewGeneration(t *testing.
 	for item := range adapter.values() {
 		assert.Contains(t, item, string(second.Handle))
 		assert.NotContains(t, item, string(first.Handle))
+	}
+}
+
+func TestKeyringAuditFailureFencesPublication(t *testing.T) {
+	for _, action := range []string{"stage", "write", "commit"} {
+		t.Run(action, func(t *testing.T) {
+			store, _ := newCutoverStore(t)
+			adapter := newMemoryAdapter()
+			provider, err := newProviderWithAdapter(testInstallationID, adapter)
+			require.NoError(t, err)
+			clock := testutil.NewFakeClock(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+			coordinator := NewCoordinator(provider, store, clock, testutil.NewFakeEntropy(uniqueEntropy(1)))
+			namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+			require.NoError(t, err)
+			require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `CREATE TRIGGER reject_keyring_audit BEFORE INSERT ON control_audit_events WHEN json_extract(NEW.event, '$.category') = 'keyring' AND json_extract(NEW.event, '$.action') = '`+action+`' BEGIN SELECT RAISE(ABORT, 'injected'); END`)
+				return err
+			}))
+			_, err = coordinator.Replace(t.Context(), namespace, []byte("audit-refusal-canary"))
+			require.Error(t, err)
+			_, _, err = coordinator.ReadActive(t.Context(), namespace)
+			require.ErrorIs(t, err, ErrNoAuthority)
+			assert.Empty(t, adapter.values())
+			reader, err := audit.NewRepository(store)
+			require.NoError(t, err)
+			page, err := reader.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "keyring", Action: "activate"}})
+			require.NoError(t, err)
+			assert.Empty(t, page.Items)
+		})
 	}
 }
 

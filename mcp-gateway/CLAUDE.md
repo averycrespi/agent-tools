@@ -76,6 +76,7 @@ internal/discovery/          Principal-specific current-tool projection and curs
 internal/grantrequests/      Durable request workflow, evidence, dedupe, and adjudication
 internal/selfservice/        Fixed admitted-subject tools and safe projections
 internal/invocation/         One-shot call service, redaction, result projection, and audit SQL
+internal/audit/              Immutable control-plane audit SQL, bounded validation, and reads
 internal/mcpingress/         Auth-first modern and legacy MCP adapters
 internal/admin/              Administrator bearer and in-memory browser sessions
 internal/api/                Strict control resources and embedded static allowlist
@@ -111,7 +112,7 @@ docs/                       Role-oriented operator, maintainer, and design docum
 ### Ownership and composition
 
 - `internal/composition` is the sole production constructor and lifecycle owner for the authorization, discovery, invocation, runtime, catalog, OAuth, and keyring graph. Root consumes narrow complete bundles; it must not create a second authenticator, repository, route consumer, or active-capability path.
-- Preserve package SQL ownership. Server SQL stays in `internal/servers`, catalog SQL in `internal/catalog`, online principal/grant SQL in `internal/authorization`, request SQL in `internal/grantrequests`, invocation SQL in `internal/invocation`, and migration DDL in `internal/storage`. Cross-owner mutations use existing supplied-transaction seams rather than nested mutation admission.
+- Preserve package SQL ownership. Server SQL stays in `internal/servers`, catalog SQL in `internal/catalog`, online principal/grant SQL in `internal/authorization`, request SQL in `internal/grantrequests`, invocation SQL in `internal/invocation`, control-plane audit SQL in `internal/audit`, and migration DDL in `internal/storage`. Cross-owner mutations use existing supplied-transaction seams rather than nested mutation admission.
 - Keep storage/keyring/network/process work outside unrelated locks and admissions. Mutations that may expose authority must arm durable intent before uncertain external work and fail closed; never add online repair or automatic replay.
 - Limits are compiled, nonqueueing, and acquired in the documented order. Preserve actual-owner occupancy rather than placeholders or summed duplicates.
 

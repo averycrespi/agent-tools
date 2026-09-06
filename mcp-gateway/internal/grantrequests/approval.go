@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -235,6 +236,9 @@ func (transition *approvalTransition) CommitGrantRequestApproval(
 	}
 	if result.State != contract.RequestApproved || result.Revision != "2" || result.ApprovedGrantID == nil || *result.ApprovedGrantID != grantID {
 		return contract.AgentGrantRequest{}, authorization.ErrInvalidState
+	}
+	if err := audit.MutationTx(ctx, transaction, approvedAt, "grant_request", "approve", contract.AuditTarget{Type: "grant_request", ID: transition.request.ID}); err != nil {
+		return contract.AgentGrantRequest{}, err
 	}
 	return result, nil
 }

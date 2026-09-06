@@ -312,7 +312,12 @@ func TestProductionCompositionDrainWaitsForConstructingCleanupAndIsIdempotent(t 
 	server := createServerWithTransport(t, built.servers, "drain-constructing", contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
 	enableCompositionServer(t, built.servers, server)
 	require.NoError(t, built.Start(context.Background()))
-	<-started
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatalf("runtime construction did not start: %+v", built.RuntimeStatus(server.ID))
+	}
 
 	first := built.Drain(context.Background())
 	second := built.Drain(context.Background())

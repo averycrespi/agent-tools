@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
@@ -41,6 +42,7 @@ type Patch struct {
 }
 
 type Server struct {
+	Cause             audit.Cause `json:"-"`
 	InsertionSequence int64
 	ID                string
 	Namespace         string
@@ -135,6 +137,7 @@ type CredentialReplacementPublication struct {
 }
 
 type Operation struct {
+	Cause                     audit.Cause `json:"-"`
 	InsertionSequence         int64
 	ID                        string
 	ServerID                  string

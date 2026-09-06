@@ -8,11 +8,40 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPrincipalAuditPreservesOperatorAndSystemInitiator(t *testing.T) {
+	repository, store := newRepository(t, nil)
+	credential := contract.AuditCredential{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Fingerprint: "0123456789abcdef"}
+	ctx := audit.WithOperator(t.Context(), credential, credential.ID)
+	created, err := repository.CreatePrincipal(ctx, CreatePrincipalRequest{DisplayName: "Agent", Visibility: contract.VisibilityRequestable})
+	require.NoError(t, err)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{CorrelationID: credential.ID}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 4)
+	for _, item := range page.Items {
+		assert.Equal(t, credential.ID, item.CorrelationID)
+		if item.Category == "principal" {
+			assert.Equal(t, created.Principal.ID, item.Target.ID)
+			assert.Equal(t, contract.AuditOperator, item.Actor.Type)
+			assert.Equal(t, &credential, item.Actor.Credential)
+			assert.Nil(t, item.Initiator)
+		} else {
+			assert.Equal(t, "grant", item.Category)
+			assert.Equal(t, created.DefaultGrant.ID, item.Target.ID)
+			assert.Equal(t, contract.AuditSystem, item.Actor.Type)
+			assert.Nil(t, item.Actor.Credential)
+			assert.Equal(t, &credential, item.Initiator)
+		}
+	}
+}
 
 func TestCreatePrincipalAtomicallyCreatesOrdinaryDefaultGrant(t *testing.T) {
 	repository, _ := newRepository(t, nil)
@@ -51,6 +80,7 @@ func TestCreatePrincipalRollsBackPrincipalGrantAndRevisionTogether(t *testing.T)
 		name    string
 		trigger string
 	}{
+		{name: "required audit failure", trigger: `CREATE TRIGGER fail_required_audit BEFORE INSERT ON control_audit_events BEGIN SELECT RAISE(ABORT, 'injected'); END`},
 		{name: "default grant failure", trigger: `CREATE TRIGGER fail_default_grant BEFORE INSERT ON grants BEGIN SELECT RAISE(ABORT, 'injected'); END`},
 		{name: "revision failure after both inserts", trigger: `CREATE TRIGGER fail_revision BEFORE UPDATE ON authorization_meta BEGIN SELECT RAISE(ABORT, 'injected'); END`},
 	} {
