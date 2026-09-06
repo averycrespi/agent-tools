@@ -311,8 +311,24 @@ func TestStdioStopForcesReapAfterExactGraceWindow(t *testing.T) {
 	runtime, err := supervisor.Start(context.Background(), fixtureDefinition(executable, "ignore-term"))
 	require.NoError(t, err)
 	assert.Equal(t, []byte(`{}`), receiveFrame(t, runtime.Frames()))
+	actualSignal := supervisor.signalGroup
+	var forcedSignals []bool
+	supervisor.signalGroup = func(process *os.Process, group int, force bool) bool {
+		forcedSignals = append(forcedSignals, force)
+		sent := actualSignal(process, group, force)
+		if sent && force {
+			// Force the schedule where reaping wins before the forced wait begins.
+			select {
+			case <-runtime.finished:
+			case <-time.After(5 * time.Second):
+				t.Error("forced process was not reaped")
+			}
+		}
+		return sent
+	}
 	assert.True(t, runtime.Stop(context.Background()))
-	assert.Equal(t, []time.Duration{3 * time.Second, 2 * time.Second}, durations)
+	assert.Equal(t, []bool{false, true}, forcedSignals)
+	assert.Equal(t, []time.Duration{3 * time.Second}, durations)
 	assert.Zero(t, supervisor.Status().InUse)
 }
 

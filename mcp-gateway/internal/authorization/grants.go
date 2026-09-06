@@ -23,7 +23,7 @@ func (repository *Repository) GetGrant(ctx context.Context, grantID string) (con
 	var grant contract.Grant
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
 		var scanErr error
-		_, grant, scanErr = scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
+		_, grant, scanErr = repository.scanGrant(transaction.QueryRowContext(ctx, grantSelect+` WHERE id = ?`, grantID), repository.clock.Now())
 		return scanErr
 	})
 	return grant, err
@@ -65,7 +65,7 @@ func (repository *Repository) ListGrants(ctx context.Context, filter GrantFilter
 		items := make([]contract.Grant, 0, limit+1)
 		sequences := make([]int64, 0, limit+1)
 		for rows.Next() {
-			sequence, grant, scanErr := scanGrant(rows, now)
+			sequence, grant, scanErr := repository.scanGrant(rows, now)
 			if scanErr != nil {
 				return scanErr
 			}
@@ -88,7 +88,7 @@ func (repository *Repository) ListGrants(ctx context.Context, filter GrantFilter
 	return page, err
 }
 
-func scanGrant(scanner grantScanner, now time.Time) (int64, contract.Grant, error) {
+func (repository *Repository) scanGrant(scanner grantScanner, now time.Time) (int64, contract.Grant, error) {
 	var (
 		sequence       int64
 		grant          contract.Grant
@@ -115,7 +115,7 @@ func scanGrant(scanner grantScanner, now time.Time) (int64, contract.Grant, erro
 		grant.UpstreamName = &value
 	}
 	if constraintJSON.Valid {
-		if _, err := CompileConstraint([]byte(constraintJSON.String)); err != nil {
+		if _, err := repository.compileReadConstraint(constraintJSON.String); err != nil {
 			return 0, contract.Grant{}, errorsInvalidState("grant constraint is malformed")
 		}
 		value := json.RawMessage(append([]byte(nil), constraintJSON.String...))
