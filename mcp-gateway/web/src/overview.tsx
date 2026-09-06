@@ -1,19 +1,9 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import {
-  decodeInvocationPage,
-  invocationTargetLabel,
-  type InvocationPageView,
-} from "./invocations";
 import { type PrincipalDirectory } from "./principals";
-import {
-  CompactRecord,
-  sentenceCase,
-  StateNotice,
-  StatusLabel,
-} from "./primitives";
+import { sentenceCase, StateNotice, StatusLabel } from "./primitives";
 import type { SessionClient } from "./session";
-import { UserTime } from "./time";
+import { formatUserTime } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -108,7 +98,6 @@ export interface OverviewSnapshot {
   status?: StatusView;
   servers?: ServerSummary;
   requests?: RequestSummary;
-  invocations?: InvocationPageView;
 }
 
 type Listener = (snapshot: OverviewSnapshot) => void;
@@ -599,20 +588,6 @@ export class OverviewController {
         this.emit();
       },
     });
-    views.registerPanel({
-      id: "overview-invocations",
-      matches,
-      invalidations: [],
-      pollMilliseconds: 5000,
-      read: async (context) =>
-        decodeInvocationPage(
-          await responseJSON(await get(context, "/api/v1/invocations?limit=5")),
-        ),
-      publish: (invocations) => {
-        this.value = { ...this.value, invocations };
-        this.emit();
-      },
-    });
     session.registerProtectedState(() => {
       this.value = {};
       setStorageLatched(false);
@@ -640,13 +615,11 @@ function capacityState(limit: LimitView): "saturated" | "pressure" | undefined {
 }
 function Panel({
   id,
-  code,
   title,
   panel,
   children,
 }: {
   id: string;
-  code: string;
   title: string;
   panel: PanelSnapshot | undefined;
   children?: ComponentChildren;
@@ -661,13 +634,18 @@ function Panel({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">{code}</span>
           <h2 id={`${id}-title`}>{title}</h2>
         </div>
         <StatusLabel state={status === "error" ? "error" : status}>
           {sentenceCase(status)}
         </StatusLabel>
       </div>
+      {panel?.hasValue === true && status !== "current" && (
+        <p class="overview-evidence" role="status">
+          {status === "error" ? "Refresh failed." : "Data stale."} Showing the
+          last read; current state is unknown.
+        </p>
+      )}
       {status === "error" && panel?.hasValue !== true ? (
         <StateNotice state="error" title="Read unavailable">
           <p>Refresh after checking Gateway availability.</p>
@@ -678,6 +656,34 @@ function Panel({
         children
       )}
     </section>
+  );
+}
+
+function attentionReason(server: ServerView): string {
+  if (server.credential !== "ready" && server.credential !== "not_required")
+    return `Credentials ${sentenceCase(server.credential).toLowerCase()}`;
+  if (server.runtime !== "active")
+    return `Runtime ${sentenceCase(server.runtime).toLowerCase()}`;
+  return `Active catalog ${sentenceCase(server.catalog).toLowerCase()}`;
+}
+
+function WaitingTime({ value }: { value: string }) {
+  const elapsed = Date.now() - new Date(value).getTime();
+  const minutes = Math.floor(elapsed / 60000);
+  const label =
+    !Number.isFinite(elapsed) || elapsed < 0
+      ? "Waiting time unavailable"
+      : minutes < 1
+        ? "Waiting less than a minute"
+        : minutes < 60
+          ? `Waiting about ${minutes} min`
+          : minutes < 1440
+            ? `Waiting about ${Math.floor(minutes / 60)} h`
+            : `Waiting about ${Math.floor(minutes / 1440)} d`;
+  return (
+    <time dateTime={value} title={`Submitted ${formatUserTime(value)}`}>
+      {label}
+    </time>
   );
 }
 
@@ -707,254 +713,177 @@ export function Overview({
     ) ?? 0;
   const serversNeedingAttention =
     snapshot.servers?.items.filter((server) => server.attention) ?? [];
+  const current = (id: string) => panel(id)?.status === "current";
+  const status = snapshot.status;
   return (
     <div class="overview" data-testid="overview-grid">
-      <div class="overview-grid">
-        <Panel
-          id="overview-status"
-          code="POSTURE-01"
-          title="Operational posture"
-          panel={panel("overview-status")}
-        >
-          {snapshot.status !== undefined && (
-            <div class="overview-stack">
-              <StatusLabel
-                state={snapshot.status.ready ? "current" : "warning"}
-              >
-                Process {sentenceCase(snapshot.status.processState)}
-              </StatusLabel>
-              {snapshot.status.latched ? (
-                <StateNotice state="error" title="Storage mutation is closed">
-                  <p>
-                    SQLite is latched. Use the documented stopped-process
-                    recovery procedure.
-                  </p>
-                </StateNotice>
-              ) : (
-                <StatusLabel state="current">
-                  SQLite {sentenceCase(snapshot.status.sqliteState)}
-                </StatusLabel>
+      <Panel
+        id="overview-status"
+        title="Operational conditions"
+        panel={panel("overview-status")}
+      >
+        {status !== undefined && (
+          <div class="overview-stack">
+            <div class="overview-facts">
+              {status.ready && <span>Process ready</span>}
+              {!status.latched && status.sqliteState === "ready" && (
+                <span>SQLite ready · not latched</span>
               )}
-              <StatusLabel
-                state={
-                  snapshot.status.keyring === "ready" ? "current" : "warning"
+              {status.keyring === "ready" && <span>Keyring ready</span>}
+            </div>
+            {!status.ready && (
+              <StateNotice
+                state="warning"
+                title={`Process ${sentenceCase(status.processState).toLowerCase()} · not ready`}
+              >
+                <p>
+                  Gateway is not ready to accept work.{" "}
+                  <a href="#/system">Inspect System</a>
+                </p>
+              </StateNotice>
+            )}
+            {(status.latched || status.sqliteState !== "ready") && (
+              <StateNotice
+                state="error"
+                title={
+                  status.latched
+                    ? "SQLite latched · storage mutation is closed"
+                    : `SQLite ${status.sqliteState}`
                 }
               >
-                Keyring {sentenceCase(snapshot.status.keyring)}
-              </StatusLabel>
-              {snapshot.status.keyring !== "ready" && (
                 <p>
-                  Keyring unavailable or interactive; later authority operations
-                  may fail or require interaction.
+                  {status.latched
+                    ? "Changes cannot be saved."
+                    : "Storage is not ready."}{" "}
+                  <a href="#/system">Inspect storage status</a>
                 </p>
-              )}
-              {pressure.map((item) => (
-                <p key={item.name}>
-                  <strong>
-                    {capacityState(item) === "saturated"
-                      ? "Capacity saturated"
-                      : "80% capacity pressure"}
-                  </strong>{" "}
-                  — {item.name}: {item.inUse} / {item.limit}
-                </p>
-              ))}
-              <div class="inline-actions">
-                <a href="#/system">View system status</a>
-                <a href="#/system?tab=resource-limits">View resource limits</a>
-              </div>
-            </div>
-          )}
-        </Panel>
-        <Panel
-          id="overview-servers"
-          code="SERVERS-01"
-          title="Servers and tools"
-          panel={panel("overview-servers")}
-        >
-          {snapshot.servers !== undefined && (
-            <>
-              <div class="fact-grid">
-                <article class="fact-card">
-                  <span class="panel-code">Active tools</span>
-                  <h3>
-                    {activeTools} active {activeTools === 1 ? "tool" : "tools"}
-                  </h3>
-                  <p>
-                    {snapshot.servers.complete
-                      ? "Available across the current active catalog."
-                      : "Shown across loaded servers; count incomplete."}
-                  </p>
-                  <a href="#/catalog">View catalog</a>
-                </article>
-                <article class="fact-card">
-                  <span class="panel-code">Configured servers</span>
-                  <h3>
-                    {configuredServers} configured{" "}
-                    {configuredServers === 1 ? "server" : "servers"}
-                  </h3>
-                  <p>
-                    {snapshot.servers.complete
-                      ? "Configured total."
-                      : "Loaded so far; count incomplete."}
-                  </p>
-                  <a href="#/servers">View servers</a>
-                </article>
-              </div>
-              {configuredServers === 0 && (
+              </StateNotice>
+            )}
+            {status.keyring !== "ready" && (
+              <StateNotice
+                state="warning"
+                title={`Keyring ${sentenceCase(status.keyring).toLowerCase()}`}
+              >
                 <p>
-                  No servers configured.{" "}
-                  <a href="#/servers/new">Create server</a>
+                  Authority operations may fail or require interaction.{" "}
+                  <a href="#/system">Inspect keyring status</a>
                 </p>
-              )}
-              {serversNeedingAttention.length > 0 && (
-                <section aria-labelledby="overview-attention-title">
-                  <h3 id="overview-attention-title">Needs attention</h3>
-                  <ul class="record-list">
-                    {serversNeedingAttention.map((item) => (
-                      <CompactRecord
-                        key={item.id}
-                        testID="overview-server-row"
-                        primaryLabel="Server"
-                        primary={
-                          <a href={`#/servers/${item.id}?tab=status`}>
-                            {item.name}
-                          </a>
-                        }
-                        fields={[
-                          {
-                            label: "Runtime",
-                            value: sentenceCase(item.runtime),
-                          },
-                          {
-                            label: "Credentials",
-                            value: sentenceCase(item.credential),
-                          },
-                          {
-                            label: "Catalog",
-                            value: sentenceCase(item.catalog),
-                          },
-                        ]}
-                      />
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </>
-          )}
-        </Panel>
-        <Panel
-          id="overview-requests"
-          code="REQUESTS-01"
-          title="Pending requests"
-          panel={panel("overview-requests")}
-        >
-          {snapshot.requests !== undefined && (
-            <>
-              <p>
-                {snapshot.requests.items.length} pending grant{" "}
-                {snapshot.requests.items.length === 1 ? "request" : "requests"}
-                {snapshot.requests.complete ? "" : " shown; count incomplete"}.
-              </p>
-              <ul class="record-list">
-                {[...snapshot.requests.items]
-                  .sort((left, right) =>
-                    right.createdAt.localeCompare(left.createdAt),
-                  )
-                  .slice(0, 5)
-                  .map((item) => (
-                    <CompactRecord
-                      key={item.id}
-                      primaryLabel="Requested target"
-                      primary={
-                        <a href={`#/requests/${item.id}`}>{item.target}</a>
-                      }
-                      fields={[
-                        {
-                          label: "Principal",
-                          value: (
-                            <a href={`#/principals/${item.principalID}`}>
-                              {principalNames.get(item.principalID) ??
-                                `Principal ${item.principalID}`}
-                            </a>
-                          ),
-                        },
-                        {
-                          label: "Submitted",
-                          value: <UserTime value={item.createdAt} />,
-                        },
-                      ]}
-                    />
-                  ))}
-              </ul>
-              <p>
-                <a href="#/requests?filter_state=pending">
-                  View all pending requests
-                </a>
-              </p>
-            </>
-          )}
-        </Panel>
-        <Panel
-          id="overview-invocations"
-          code="AUDIT-01"
-          title="Recent invocations"
-          panel={panel("overview-invocations")}
-        >
-          {snapshot.invocations !== undefined && (
-            <>
-              <p>
-                Newest retained summaries only
-                {snapshot.invocations.nextCursor !== null
-                  ? "; older retained records are not shown"
-                  : ""}
-                . Polling is not completion authority.
-              </p>
-              {snapshot.invocations.items.length === 0 ? (
-                <StateNotice state="empty" title="No recent invocations" />
-              ) : (
-                <ul class="record-list">
-                  {snapshot.invocations.items.map((item) => (
-                    <CompactRecord
-                      key={item.id}
-                      primaryLabel="Tool"
-                      primary={
-                        <a href={`#/invocations/${item.id}`}>
-                          {invocationTargetLabel(
-                            item.target,
-                            item.requestedName,
-                          )}
-                        </a>
-                      }
-                      fields={[
-                        {
-                          label: "Status",
-                          value: sentenceCase(item.basis),
-                        },
-                        {
-                          label: "Outcome",
-                          value: sentenceCase(item.outcome),
-                        },
-                        {
-                          label: "Admitted",
-                          value: <UserTime value={item.admittedAt} />,
-                        },
-                      ]}
-                      warning={
-                        item.basis === "missing_terminal"
-                          ? "Missing terminal evidence does not prove nonexecution."
-                          : undefined
-                      }
-                    />
+              </StateNotice>
+            )}
+            {pressure.length > 0 && (
+              <div class="overview-capacity">
+                <ul class="overview-conditions">
+                  {pressure.map((item) => (
+                    <li key={item.name}>
+                      <strong>{sentenceCase(item.name)}</strong>: {item.inUse} /{" "}
+                      {item.limit}
+                      {" — "}
+                      {capacityState(item) === "saturated"
+                        ? "Capacity saturated; additional work may be rejected."
+                        : "80% capacity pressure; headroom for additional work is limited."}
+                    </li>
                   ))}
                 </ul>
-              )}
-              <p>
-                <a href="#/invocations">View invocation history</a>
+                <a href="#/system?tab=resource-limits">
+                  Inspect resource limits
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+      </Panel>
+      <Panel
+        id="overview-servers"
+        title="Servers needing investigation"
+        panel={panel("overview-servers")}
+      >
+        {snapshot.servers !== undefined && (
+          <>
+            {!snapshot.servers.complete && (
+              <p class="overview-evidence">
+                Server traversal incomplete; additional affected servers may
+                exist.
               </p>
-            </>
-          )}
-        </Panel>
-      </div>
+            )}
+            {serversNeedingAttention.length === 0 ? (
+              <p>
+                {!current("overview-servers")
+                  ? "No affected servers in the last read; current state is unknown."
+                  : !snapshot.servers.complete
+                    ? "No affected servers among those loaded."
+                    : configuredServers === 0
+                      ? "No servers configured."
+                      : "No servers flagged for attention in the current read."}
+              </p>
+            ) : (
+              <ul class="overview-triage-list">
+                {serversNeedingAttention.slice(0, 5).map((item) => (
+                  <li key={item.id} data-testid="overview-server-row">
+                    <a href={`#/servers/${item.id}?tab=status`}>{item.name}</a>
+                    <p>{attentionReason(item)}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {serversNeedingAttention.length > 5 && (
+              <p>5 shown; more need attention.</p>
+            )}
+            <p class="overview-context">
+              {configuredServers} configured{" "}
+              {configuredServers === 1 ? "server" : "servers"} · {activeTools}{" "}
+              active catalog {activeTools === 1 ? "tool" : "tools"}
+              {snapshot.servers.complete ? "" : " loaded; counts incomplete"}.
+            </p>
+          </>
+        )}
+      </Panel>
+      <Panel
+        id="overview-requests"
+        title="Waiting for a decision"
+        panel={panel("overview-requests")}
+      >
+        {snapshot.requests !== undefined && (
+          <>
+            {snapshot.requests.items.length === 0 ? (
+              <p>
+                {!current("overview-requests")
+                  ? "No pending requests in the last read; current queue is unknown."
+                  : snapshot.requests.complete
+                    ? "No pending access requests in the current read."
+                    : "No pending requests loaded; queue incomplete."}
+              </p>
+            ) : (
+              <ol
+                class="overview-triage-list overview-decisions"
+                aria-label="Pending access requests, oldest first"
+              >
+                {snapshot.requests.items.slice(0, 5).map((item) => (
+                  <li key={item.id} data-testid="overview-request-row">
+                    <div class="overview-requester">
+                      {principalNames.get(item.principalID) ??
+                        `Principal ${item.principalID}`}
+                    </div>
+                    <a href={`#/requests/${item.id}`}>
+                      Review access to {item.target}
+                    </a>
+                    <p>
+                      <WaitingTime value={item.createdAt} />
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {(!snapshot.requests.complete ||
+              snapshot.requests.items.length > 5) &&
+              snapshot.requests.items.length > 0 && (
+                <p>
+                  {Math.min(5, snapshot.requests.items.length)} shown; more
+                  pending.
+                </p>
+              )}
+          </>
+        )}
+      </Panel>
     </div>
   );
 }
