@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -116,6 +117,7 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 		require.False(t, limit.Allows(limit.Maximum+1), limit.Name)
 	}
 	require.Equal(t, 50, S3ListPageDefault)
+	require.Equal(t, 5*time.Minute, AuthorizationCursorLifetime)
 	require.Equal(t, []AgentAuthMode{AgentAuthDenyAll, AgentAuthPrincipalCredentials}, AgentAuthModes())
 	require.Equal(t, AgentBearerPrefix, "mgw_agent_")
 	require.Equal(t, []InvalidationKind{

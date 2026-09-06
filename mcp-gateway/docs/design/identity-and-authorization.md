@@ -22,6 +22,8 @@ This chapter owns the behavior and invariants described below. Operational proce
 | `PATCH /api/v1/grants/{id}`                 | `GrantPatch`          | `Grant` / 200                   | no     | no          | yes              | yes           |
 | `DELETE /api/v1/grants/{id}`                | `None`                | `Empty` / 204                   | no     | no          | no               | no            |
 
+Principal and grant collection cursors are authenticated with a fresh process-local repository key and expire five minutes after the first page. Continuations do not extend that lifetime. Restart, expiry, or alteration makes the cursor stale; clients must start a new traversal rather than persist cursors. This also applies to clients omitting optional query settings; default ordering, page size, and response representations remain unchanged.
+
 The principal collection accepts only singleton nonempty `cursor` and `limit` query members, uses a collection-bound insertion-watermark cursor, and returns no ETag; create/read/PATCH use the sole composition-owned repository and exact strong principal ETags. Create accepts only required non-null display name and visibility and returns the principal plus its atomic ordinary default grant.
 
 PATCH accepts a nonempty non-null subset of display name, state, and visibility; absent, weak, wildcard, malformed, multiple, wrong-principal, or stale preconditions fail safely, and exact no-ops conflict without invalidation. Successful mutations publish one ID-free authorization invalidation after commit.

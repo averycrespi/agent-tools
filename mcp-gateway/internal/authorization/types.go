@@ -16,12 +16,14 @@ const (
 )
 
 type SnapshotCursor struct {
-	Collection  string
-	PrincipalID string
-	ServerID    string
-	Upper       int64
-	After       int64
-	AfterID     string
+	Collection  string `json:"c"`
+	PrincipalID string `json:"p,omitempty"`
+	ServerID    string `json:"s,omitempty"`
+	Upper       int64  `json:"u"`
+	After       int64  `json:"a"`
+	AfterID     string `json:"i"`
+	Expires     int64  `json:"e"`
+	Seal        string `json:"h"`
 }
 
 type GrantFilter struct {

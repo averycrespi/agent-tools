@@ -43,6 +43,7 @@ type Repository struct {
 	authority          *authorityRegistry
 	constraintCompiler func([]byte) (CompiledConstraint, error)
 
+	cursorKey       [32]byte
 	constraintCache compiledConstraintCache
 }
 
@@ -55,7 +56,11 @@ func New(store *storage.Store, clock Clock, entropy io.Reader) (*Repository, err
 	if store == nil || clock == nil || entropy == nil {
 		return nil, errors.New("authorization repository dependencies are incomplete")
 	}
-	return &Repository{store: store, clock: clock, entropy: entropy, authority: newAuthorityRegistry(store)}, nil
+	repository := &Repository{store: store, clock: clock, entropy: entropy, authority: newAuthorityRegistry(store)}
+	if _, err := io.ReadFull(entropy, repository.cursorKey[:]); err != nil {
+		return nil, fmt.Errorf("generate administrative cursor key: %w", err)
+	}
+	return repository, nil
 }
 
 func (repository *Repository) compileSource(source string) (CompiledConstraint, error) {

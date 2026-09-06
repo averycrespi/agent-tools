@@ -40,14 +40,14 @@ func (repository *Repository) ListPrincipals(ctx context.Context, cursor *Snapsh
 	}
 	var page PrincipalPage
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
-		snapshot := SnapshotCursor{Collection: principalCollection}
+		snapshot := SnapshotCursor{Collection: principalCollection, Expires: repository.clock.Now().Add(contract.AuthorizationCursorLifetime).Unix()}
 		if cursor == nil {
 			if err := transaction.QueryRowContext(ctx, `SELECT coalesce(max(insertion_sequence), 0) FROM principals`).Scan(&snapshot.Upper); err != nil {
 				return fmt.Errorf("capture principal insertion watermark: %w", err)
 			}
 		} else {
 			snapshot = *cursor
-			if !validCursor(snapshot, principalCollection, GrantFilter{}) {
+			if !repository.validCursor(snapshot, principalCollection, GrantFilter{}) {
 				return ErrStaleCursor
 			}
 		}
@@ -76,6 +76,7 @@ func (repository *Repository) ListPrincipals(ctx context.Context, cursor *Snapsh
 			next := snapshot
 			next.After = sequences[limit-1]
 			next.AfterID = items[limit-1].ID
+			repository.sealCursor(&next)
 			page.Next = &next
 			items = items[:limit]
 		}
@@ -118,8 +119,8 @@ func scanPrincipal(scanner principalScanner) (int64, contract.Principal, error) 
 	return sequence, principal, nil
 }
 
-func validCursor(cursor SnapshotCursor, collection string, filter GrantFilter) bool {
+func (repository *Repository) validCursor(cursor SnapshotCursor, collection string, filter GrantFilter) bool {
 	positionValid := cursor.After >= 0 && cursor.Upper >= 0 && cursor.After <= cursor.Upper &&
 		((cursor.After == 0 && cursor.AfterID == "") || (cursor.After > 0 && cursor.AfterID != ""))
-	return positionValid && cursor.Collection == collection && cursor.PrincipalID == filter.PrincipalID && cursor.ServerID == filter.ServerID
+	return positionValid && cursor.Collection == collection && cursor.PrincipalID == filter.PrincipalID && cursor.ServerID == filter.ServerID && repository.authenticCursor(cursor)
 }

@@ -197,12 +197,12 @@ func TestCreatePrincipalValidatesInputAndEntropyBeforeMutation(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidInput)
 	}
 
-	failedEntropy, err := New(store, &fixedClock{now: testNow}, bytes.NewReader(make([]byte, 10)))
+	failedEntropy, err := New(store, &fixedClock{now: testNow}, bytes.NewReader(make([]byte, 32+10)))
 	require.NoError(t, err)
 	_, err = failedEntropy.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Agent", Visibility: contract.VisibilityRequestable})
 	require.Error(t, err)
 
-	reservedID, err := New(store, &fixedClock{now: time.UnixMilli(0)}, bytes.NewReader(make([]byte, 20)))
+	reservedID, err := New(store, &fixedClock{now: time.UnixMilli(0)}, bytes.NewReader(make([]byte, 32+20)))
 	require.NoError(t, err)
 	_, err = reservedID.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Agent", Visibility: contract.VisibilityRequestable})
 	assert.ErrorIs(t, err, ErrIdentityUnavailable)
