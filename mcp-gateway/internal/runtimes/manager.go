@@ -8,9 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
 type Repository interface {
@@ -21,6 +23,8 @@ type Repository interface {
 	GetOperation(context.Context, string) (servers.Operation, error)
 	TransitionOperation(context.Context, string, contract.ServerOperationState, *contract.PublicReason) (servers.Operation, error)
 	InterruptNonterminal(context.Context) error
+	RecordReconciliation(context.Context, contract.AuditEvent) error
+	CompleteReconciliation(context.Context, string, contract.ServerOperationState, *contract.PublicReason, contract.AuditEvent) (servers.Operation, error)
 	NewID() (string, error)
 }
 
@@ -78,7 +82,7 @@ type CatalogCoordinator interface {
 type CatalogRefresher interface {
 	CatalogCoordinator
 	Refresh(context.Context, Candidate) CatalogOutcome
-	Withdraw(Candidate, contract.ActiveCatalogState)
+	Withdraw(Candidate, contract.ActiveCatalogState) error
 }
 
 type CatalogAbandoner interface {
@@ -150,6 +154,7 @@ type CatalogOutcome struct {
 }
 
 type Candidate struct {
+	Cause            audit.Cause
 	Server           servers.Server
 	Authority        servers.AuthorityMetadata
 	RuntimeID        string
@@ -225,6 +230,8 @@ type candidateStop struct {
 }
 
 type entry struct {
+	cause              audit.Cause
+	reconcileAttempt   *contract.AuditEvent
 	generation         uint64
 	activating         *Candidate
 	active             *Candidate
@@ -342,13 +349,14 @@ func (manager *Manager) Start(ctx context.Context) error {
 			manager.initializeInactive(server)
 			continue
 		}
-		operation, err := manager.repository.CreateOperation(ctx, servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationActivate, ExpectedDesiredRevision: server.DesiredRevision})
+		workCtx := audit.InheritCause(audit.WithSystem(ctx), server.Cause)
+		operation, err := manager.repository.CreateOperation(workCtx, servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationActivate, ExpectedDesiredRevision: server.DesiredRevision})
 		if err != nil {
 			manager.initializeFailure(server.ID, contract.ReasonConnectivity)
 			continue
 		}
 		manager.publish(contract.InvalidationServerOperations, &operation.Operation.ID)
-		manager.Trigger(server.ID, &operation.Operation.ID, true)
+		manager.TriggerWithCause(audit.Capture(workCtx), server.ID, &operation.Operation.ID, true)
 	}
 	return nil
 }
@@ -425,11 +433,18 @@ func (manager *Manager) Fence(serverID string) {
 }
 
 func (manager *Manager) Trigger(serverID string, operationID *string, resetBackoff bool) {
+	manager.mu.Lock()
+	cause := manager.entryLocked(serverID).cause
+	manager.mu.Unlock()
+	manager.TriggerWithCause(cause, serverID, operationID, resetBackoff)
+}
+
+func (manager *Manager) TriggerWithCause(cause audit.Cause, serverID string, operationID *string, resetBackoff bool) {
 	if operationID != nil {
 		operation, err := manager.repository.GetOperation(context.Background(), *operationID)
 		refresher, supported := manager.catalog.(CatalogRefresher)
 		if err == nil && supported && operation.ServerID == serverID && operation.Kind == contract.OperationRefreshCatalog {
-			manager.triggerCatalogRefresh(serverID, *operationID, refresher)
+			manager.triggerCatalogRefresh(cause, serverID, *operationID, refresher)
 			return
 		}
 	}
@@ -442,6 +457,7 @@ func (manager *Manager) Trigger(serverID string, operationID *string, resetBacko
 	current.generation++
 	manager.publisher.Fence(serverID, current.generation)
 	current.pending = true
+	current.cause = cause
 	current.operationID = cloneString(operationID)
 	if current.timer != nil {
 		current.timer.Stop()
@@ -454,7 +470,7 @@ func (manager *Manager) Trigger(serverID string, operationID *string, resetBacko
 	manager.startAvailableLocked()
 }
 
-func (manager *Manager) triggerCatalogRefresh(serverID, operationID string, refresher CatalogRefresher) {
+func (manager *Manager) triggerCatalogRefresh(cause audit.Cause, serverID, operationID string, refresher CatalogRefresher) {
 	manager.mu.Lock()
 	if manager.draining {
 		manager.mu.Unlock()
@@ -470,6 +486,8 @@ func (manager *Manager) triggerCatalogRefresh(serverID, operationID string, refr
 	}
 	candidate := *cloneCandidate(current.active)
 	candidate.OperationID = &operationID
+	candidate.Cause = cause
+	current.cause = cause
 	generation := current.generation
 	current.status.CatalogState = contract.ActiveCatalogRefreshing
 	manager.publish(contract.InvalidationServers, &serverID)
@@ -481,7 +499,7 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 	if _, err := manager.transitionCurrent(serverID, generation, operationID, contract.OperationRunning, nil); err != nil {
 		return
 	}
-	outcome := refresher.Refresh(manager.ctx, candidate)
+	outcome := refresher.Refresh(candidateContext(manager.ctx, candidate), candidate)
 	if outcome.OAuthChallenge != nil {
 		if !manager.HandleCatalogCompletion(candidate, outcome, &operationID) {
 			reason := contract.ReasonSuperseded
@@ -573,7 +591,7 @@ func (manager *Manager) catalogChallengeHandoff(candidate Candidate, challenge *
 		manager.finishCatalogChallengeFailure(candidate, operationID, contract.ReasonAuthenticationRejected)
 		return
 	}
-	refresh, err := refresher.RefreshOAuthChallenge(manager.ctx, oauthChallengeRefreshRequest(candidate, challenge))
+	refresh, err := refresher.RefreshOAuthChallenge(candidateContext(manager.ctx, candidate), oauthChallengeRefreshRequest(candidate, challenge))
 	if err != nil || refresh.OAuthTokensRevision == "" || refresh.OAuthTokensRevision == candidate.Authority.CredentialRevisions.OAuthTokens {
 		manager.finishCatalogChallengeFailure(candidate, operationID, contract.ReasonAuthenticationRejected)
 		return
@@ -604,7 +622,7 @@ func (manager *Manager) catalogChallengeHandoff(candidate Candidate, challenge *
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogUnavailable, contract.ReasonResourceLimit, true)
 		return
 	}
-	replacement := Candidate{Server: currentServer, Authority: currentAuthority, RuntimeID: freshRuntimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: candidate.DrainEpoch, OAuthReplayStage: downstream.OAuthChallengeCatalogFirstPage}
+	replacement := Candidate{Cause: candidate.Cause, Server: currentServer, Authority: currentAuthority, RuntimeID: freshRuntimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: candidate.DrainEpoch, OAuthReplayStage: downstream.OAuthChallengeCatalogFirstPage}
 	if !manager.replaceActivating(candidate, replacement) {
 		manager.stopStaleCatalogHandoff(candidate, operationID, true)
 		return
@@ -724,6 +742,7 @@ func (manager *Manager) startAvailableLocked() {
 		current.pending = false
 		manager.globalInUse++
 		generation := current.generation
+		cause := current.cause
 		operationID := cloneString(current.operationID)
 		current.operationID = nil
 		current.status.State = contract.RuntimeActivating
@@ -736,12 +755,55 @@ func (manager *Manager) startAvailableLocked() {
 		manager.workers.Add(1)
 		go func() {
 			defer manager.workers.Done()
-			manager.reconcile(serverID, generation, operationID)
+			manager.reconcile(serverID, generation, operationID, cause)
 		}()
 	}
 }
 
-func (manager *Manager) reconcile(serverID string, generation uint64, operationID *string) {
+func (manager *Manager) reconcile(serverID string, generation uint64, operationID *string, cause audit.Cause) {
+	ctx := audit.WithSystem(audit.WithCause(manager.ctx, cause))
+	server, serverErr := manager.repository.Get(ctx, serverID)
+	if operationID != nil {
+		if origin, err := manager.repository.GetOperation(ctx, *operationID); err == nil {
+			ctx = audit.InheritCause(ctx, origin.Cause)
+		}
+	} else if serverErr == nil {
+		ctx = audit.InheritCause(ctx, server.Cause)
+	}
+	attempt, err := audit.NewAttempt(ctx, time.Now(), "server", "reconcile", contract.AuditTarget{Type: "server", ID: serverID})
+	if err == nil {
+		err = manager.repository.RecordReconciliation(ctx, attempt)
+	}
+	manager.mu.Lock()
+	current := manager.entries[serverID]
+	if err != nil {
+		if current != nil && current.generation == generation {
+			current.pending = false
+			current.status.State = contract.RuntimeDegraded
+			reason := contract.ReasonConnectivity
+			current.status.Reason = &reason
+			if errors.Is(err, storage.ErrMutationBusy) && !manager.draining {
+				// Admission refusal ran no transaction or external effect; retain the same work.
+				current.cause = audit.Capture(ctx)
+				current.operationID = cloneString(operationID)
+				current.status.State = contract.RuntimeRetryWait
+				reason = contract.ReasonResourceLimit
+				manager.scheduleRetryLocked(serverID, current)
+			}
+		}
+		manager.releaseLocked(current)
+		manager.mu.Unlock()
+		return
+	}
+	if current == nil || current.generation != generation || manager.draining {
+		manager.releaseLocked(current)
+		manager.mu.Unlock()
+		return
+	}
+	ctx = audit.WithCorrelation(ctx, attempt.CorrelationID)
+	cause = audit.Capture(ctx)
+	current.cause, current.reconcileAttempt = cause, &attempt
+	manager.mu.Unlock()
 	var operation *servers.Operation
 	if operationID != nil {
 		transitioned, err := manager.transitionCurrent(serverID, generation, *operationID, contract.OperationRunning, nil)
@@ -767,8 +829,7 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonStopUnconfirmed, false)
 		return
 	}
-	server, err := manager.repository.Get(manager.ctx, serverID)
-	if err != nil {
+	if serverErr != nil {
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonConnectivity, false)
 		return
 	}
@@ -787,7 +848,7 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 		manager.mu.Lock()
 		credentialState := manager.entryLocked(serverID).status.CredentialState
 		manager.mu.Unlock()
-		credentialOutcome, handled := manager.credentials.ReconcileCredentials(manager.ctx, *operation, server, authority, credentialState)
+		credentialOutcome, handled := manager.credentials.ReconcileCredentials(ctx, *operation, server, authority, credentialState)
 		if handled {
 			state := contract.RuntimeInactive
 			durableState := contract.DurableCatalogUnavailable
@@ -829,7 +890,7 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 		manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonResourceLimit, true)
 		return
 	}
-	candidate := Candidate{Server: server, Authority: authority, RuntimeID: runtimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: manager.currentDrainEpoch()}
+	candidate := Candidate{Cause: cause, Server: server, Authority: authority, RuntimeID: runtimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: manager.currentDrainEpoch()}
 	if !manager.recordActivating(candidate) {
 		manager.finishStale(serverID, generation)
 		return
@@ -837,12 +898,16 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 	manager.activateCurrentCandidate(serverID, generation, operationID, server, authority, candidate, false, false)
 }
 
+func candidateContext(ctx context.Context, candidate Candidate) context.Context {
+	return audit.WithSystem(audit.WithCause(ctx, candidate.Cause))
+}
+
 func (manager *Manager) activateCurrentCandidate(serverID string, generation uint64, operationID *string, server servers.Server, authority servers.AuthorityMetadata, candidate Candidate, challengeConsumed, catalogHandoff bool) {
 	defer func() { manager.clearActivating(candidate) }()
 	var outcome Outcome
 	started := false
 	for {
-		authorityOutcome := manager.authority.Resolve(manager.ctx, candidate)
+		authorityOutcome := manager.authority.Resolve(candidateContext(manager.ctx, candidate), candidate)
 		outcome = Outcome{State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
 		started = false
 		if authorityOutcome.State == "" {
@@ -853,13 +918,13 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 				manager.finishStale(serverID, generation)
 				return
 			}
-			outcome = manager.driver.Reconcile(manager.ctx, candidate, authorityOutcome.Lease)
+			outcome = manager.driver.Reconcile(candidateContext(manager.ctx, candidate), candidate, authorityOutcome.Lease)
 			started = true
 			if outcome.CredentialState == "" {
 				outcome.CredentialState = authorityOutcome.CredentialState
 			}
 			if outcome.State == contract.RuntimeActive {
-				catalog := manager.catalog.Activate(manager.ctx, candidate)
+				catalog := manager.catalog.Activate(candidateContext(manager.ctx, candidate), candidate)
 				outcome.CatalogState = catalog.State
 				outcome.OAuthChallenge = catalog.OAuthChallenge
 				if outcome.CatalogState == "" {
@@ -907,7 +972,7 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 			break
 		}
 		challengeConsumed = true
-		refresh, refreshErr := refresher.RefreshOAuthChallenge(manager.ctx, oauthChallengeRefreshRequest(candidate, challenge))
+		refresh, refreshErr := refresher.RefreshOAuthChallenge(candidateContext(manager.ctx, candidate), oauthChallengeRefreshRequest(candidate, challenge))
 		if refreshErr != nil || refresh.OAuthTokensRevision == "" || refresh.OAuthTokensRevision == candidate.Authority.CredentialRevisions.OAuthTokens {
 			break
 		}
@@ -934,7 +999,7 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 			manager.finishFailure(serverID, generation, operationID, contract.RuntimeDegraded, contract.ServerCredentialUnavailable, contract.ActiveCatalogAbsent, contract.ReasonResourceLimit, true)
 			return
 		}
-		replacement := Candidate{Server: currentServer, Authority: currentAuthority, RuntimeID: freshRuntimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: candidate.DrainEpoch, OAuthReplayStage: challenge.Stage}
+		replacement := Candidate{Cause: candidate.Cause, Server: currentServer, Authority: currentAuthority, RuntimeID: freshRuntimeID, OperationID: cloneString(operationID), Generation: generation, DrainEpoch: candidate.DrainEpoch, OAuthReplayStage: challenge.Stage}
 		if !manager.replaceActivating(candidate, replacement) {
 			manager.finishStale(serverID, generation)
 			return
@@ -1033,20 +1098,22 @@ func (manager *Manager) abandonCandidate(candidate Candidate) {
 	manager.publisher.Withdraw(candidate)
 }
 
-func (manager *Manager) withdrawCandidate(candidate Candidate) {
+func (manager *Manager) withdrawCandidate(candidate Candidate) error {
+	var err error
 	if refresher, ok := manager.catalog.(CatalogRefresher); ok {
-		refresher.Withdraw(candidate, contract.ActiveCatalogUnavailable)
+		err = refresher.Withdraw(candidate, contract.ActiveCatalogUnavailable)
 	}
 	manager.publisher.Withdraw(candidate)
+	return err
 }
 
 func (manager *Manager) stopCandidate(candidate Candidate) bool {
-	manager.withdrawCandidate(candidate)
+	withdrawErr := manager.withdrawCandidate(candidate)
 	if manager.driver.Stop(context.Background(), candidate) {
-		return true
+		return withdrawErr == nil
 	}
 	owner, ok := manager.driver.(ownershipDriver)
-	return ok && !owner.Owned(candidate)
+	return ok && !owner.Owned(candidate) && withdrawErr == nil
 }
 
 func (manager *Manager) stopCatalogHandoffCandidate(candidate Candidate) bool {
@@ -1287,6 +1354,10 @@ func (manager *Manager) finishWithOperationState(serverID string, generation uin
 		current.status.RuntimeID = cloneString(&candidate.RuntimeID)
 	}
 	current.retryAttempt = 0
+	// Failure callbacks can run during publication and must see one cleanup owner.
+	if candidate != nil && current.activating != nil && current.activating.Key() == candidate.Key() {
+		current.activating = nil
+	}
 	manager.mu.Unlock()
 
 	manager.publish(contract.InvalidationCatalog, &serverID)
@@ -1295,21 +1366,23 @@ func (manager *Manager) finishWithOperationState(serverID string, generation uin
 	manager.mu.Lock()
 	current = manager.entries[serverID]
 	if current == nil || current.generation != generation || manager.draining {
-		if current != nil && candidate != nil && current.active != nil && current.active.Key() == candidate.Key() {
-			current.active = nil
-			current.status.RuntimeID = nil
+		owned := candidate != nil
+		if current != nil && candidate != nil && outcome.State == contract.RuntimeActive {
+			owned = current.active != nil && current.active.Key() == candidate.Key()
+			if owned {
+				current.active = nil
+				current.status.RuntimeID = nil
+			}
 		}
 		manager.mu.Unlock()
-		if candidate != nil {
-			if !manager.stopCandidate(*candidate) {
-				manager.rememberBlockedStop(serverID, *candidate)
-			}
+		if owned && !manager.stopCandidate(*candidate) {
+			manager.rememberBlockedStop(serverID, *candidate)
 		}
 		manager.finishStale(serverID, generation)
 		return
 	}
-	if operationID != nil {
-		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, operationState, outcome.Reason); err != nil {
+	{
+		if err := manager.completeReconciliation(*current, operationID, operationState, outcome.Reason); err != nil {
 			current.generation++
 			manager.publisher.Fence(serverID, current.generation)
 			current.active = nil
@@ -1321,7 +1394,7 @@ func (manager *Manager) finishWithOperationState(serverID string, generation uin
 			manager.releaseLocked(current)
 			manager.mu.Unlock()
 			if candidate != nil {
-				manager.withdrawCandidate(*candidate)
+				_ = manager.withdrawCandidate(*candidate)
 			}
 			manager.publish(contract.InvalidationCatalog, &serverID)
 			manager.publish(contract.InvalidationServers, &serverID)
@@ -1341,6 +1414,7 @@ func (manager *Manager) finishWithOperationState(serverID string, generation uin
 			}
 			return
 		}
+		current.reconcileAttempt = nil
 	}
 	manager.releaseLocked(current)
 	manager.mu.Unlock()
@@ -1355,12 +1429,6 @@ func (manager *Manager) finishFailure(serverID string, generation uint64, operat
 		manager.finishStale(serverID, generation)
 		return
 	}
-	if operationID != nil {
-		if _, err := manager.transitionCurrent(serverID, generation, *operationID, contract.OperationFailed, &reason); err != nil {
-			manager.finishStale(serverID, generation)
-			return
-		}
-	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	current := manager.entries[serverID]
@@ -1368,6 +1436,13 @@ func (manager *Manager) finishFailure(serverID string, generation uint64, operat
 		manager.releaseLocked(current)
 		return
 	}
+	if err := manager.completeReconciliation(*current, operationID, contract.OperationFailed, &reason); err != nil {
+		current.pending = false
+		current.status.State = contract.RuntimeDegraded
+		manager.releaseLocked(current)
+		return
+	}
+	current.reconcileAttempt = nil
 	current.status.State = state
 	current.status.Reason = &reason
 	current.status.RuntimeID = nil
@@ -1381,6 +1456,37 @@ func (manager *Manager) finishFailure(serverID string, generation uint64, operat
 	manager.publish(contract.InvalidationSystemStatus, nil)
 }
 
+// The lifecycle lock fences generation changes and failure reports through
+// the completion commit, just as it does for operation transitions.
+func (manager *Manager) completeReconciliation(current entry, operationID *string, state contract.ServerOperationState, reason *contract.PublicReason) error {
+	ctx := audit.WithSystem(audit.WithCause(context.Background(), current.cause))
+	if current.reconcileAttempt == nil {
+		if operationID == nil {
+			return nil
+		}
+		_, err := manager.repository.TransitionOperation(ctx, *operationID, state, reason)
+		return err
+	}
+	result := "failed"
+	if state == contract.OperationSucceeded {
+		result = "succeeded"
+	}
+	if reason != nil && (*reason == contract.ReasonStopUnconfirmed || *reason == contract.ReasonInterrupted) {
+		result = "unknown"
+	}
+	event, err := audit.Outcome(*current.reconcileAttempt, time.Now(), result)
+	if err != nil {
+		return err
+	}
+	event.Detail.Reason = reason
+	if operationID == nil {
+		err = manager.repository.RecordReconciliation(ctx, event)
+	} else {
+		_, err = manager.repository.CompleteReconciliation(ctx, *operationID, state, reason, event)
+	}
+	return err
+}
+
 func (manager *Manager) transitionCurrent(serverID string, generation uint64, operationID string, state contract.ServerOperationState, reason *contract.PublicReason) (servers.Operation, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -1388,7 +1494,7 @@ func (manager *Manager) transitionCurrent(serverID string, generation uint64, op
 	if current == nil || current.generation != generation || manager.draining {
 		return servers.Operation{}, servers.ErrStaleRevision
 	}
-	operation, err := manager.repository.TransitionOperation(context.Background(), operationID, state, reason)
+	operation, err := manager.repository.TransitionOperation(audit.WithSystem(audit.WithCause(context.Background(), current.cause)), operationID, state, reason)
 	if err == nil {
 		manager.publish(contract.InvalidationServerOperations, &operationID)
 		manager.publish(contract.InvalidationSystemStatus, nil)

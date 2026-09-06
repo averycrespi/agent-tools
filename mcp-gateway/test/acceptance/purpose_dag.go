@@ -101,7 +101,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addCommand("go.unit", []string{"go", "test", "-race", "-count=1", "-timeout=300s", "./..."}, []string{makefile}, nil)
 	addMake("test-integration", "go.integration")
 	integrationSelector := "^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest65536ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$"
-	integrationPackages := []string{"./internal/storage", "./internal/backup", "./internal/servers", "./internal/servercredentials", "./internal/grantrequests", "./internal/authorization", "./internal/catalog", "./internal/invocation", "./internal/composition"}
+	integrationPackages := []string{"./internal/storage", "./internal/backup", "./internal/servers", "./internal/servercredentials", "./internal/grantrequests", "./internal/authorization", "./internal/catalog", "./internal/invocation", "./internal/audit", "./internal/composition"}
 	integrationArgv := []string{"go", "test", "-race", "-count=1", "-tags=integration", "-timeout=300s", "-run", integrationSelector}
 	addCommand("go.integration", append(integrationArgv, integrationPackages...), []string{makefile}, nil)
 	addMake("test-e2e", "go.e2e.complete")

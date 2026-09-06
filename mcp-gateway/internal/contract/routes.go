@@ -64,6 +64,8 @@ var routes = []Route{
 	{Pattern: "/api/v1/invocations/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v1/admin-authority", Methods: []string{"GET"}, Authority: AuthorityAdminBearer},
 	{Pattern: "/api/v1/admin-credentials/{id}/rotation-completion", Methods: []string{"POST"}, Authority: AuthorityAdminBearer},
+	{Pattern: "/api/v1/audit-events", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v1/audit-events/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 }
 
 func Routes() []Route {

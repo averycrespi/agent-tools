@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
@@ -55,6 +56,47 @@ func TestRequestCancellationIsOwnerOnlyAndIdempotent(t *testing.T) {
 	assert.Equal(t, cancelled.Request, repeated.Request)
 	assert.Equal(t, 1, clock.calls)
 	assert.Equal(t, 1, invalidations)
+}
+
+func TestRequestRejectionAuditRollsBackAndPreservesOperator(t *testing.T) {
+	repository, store := newRequestRepository(t, requestRepositoryOptions{namespaces: &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled}}}})
+	created, err := repository.CreateOrExisting(t.Context(), CreateRequest{PrincipalID: requestID(200), Policy: contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}})
+	require.NoError(t, err)
+	before, err := repository.GetAdmin(t.Context(), created.Request.ID)
+	require.NoError(t, err)
+	credential := contract.AuditCredential{ID: requestID(700), Fingerprint: "0123456789abcdef"}
+	ctx := audit.WithOperator(t.Context(), credential, credential.ID)
+	request := RejectRequest{ID: before.ID, ExpectedRevision: before.Revision, Reason: contract.RejectionNotApproved}
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `CREATE TRIGGER refuse_rejection_audit BEFORE INSERT ON control_audit_events WHEN NEW.category = 'grant_request' AND json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'refused audit'); END`)
+		return err
+	}))
+	_, err = repository.Reject(ctx, request)
+	require.ErrorContains(t, err, "refused audit")
+	after, err := repository.GetAdmin(t.Context(), before.ID)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	query := audit.Query{Limit: 100, Filters: contract.AuditFilters{CorrelationID: credential.ID}}
+	page, err := reader.List(t.Context(), query)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `DROP TRIGGER refuse_rejection_audit`)
+		return err
+	}))
+	_, err = repository.Reject(ctx, request)
+	require.NoError(t, err)
+	page, err = reader.List(t.Context(), query)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	for _, event := range page.Items {
+		assert.Equal(t, "reject", event.Action)
+		assert.Equal(t, before.ID, event.Target.ID)
+		assert.Equal(t, contract.AuditOperator, event.Actor.Type)
+		assert.Equal(t, &credential, event.Actor.Credential)
+	}
 }
 
 func TestRejectValidatesRevisionReasonAndTerminalState(t *testing.T) {

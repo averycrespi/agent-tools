@@ -3,6 +3,8 @@ package admin
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -10,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
@@ -20,6 +24,70 @@ import (
 const testInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var testNow = time.Date(2026, 8, 22, 18, 0, 0, 0, time.UTC)
+
+func TestAdministratorAuditAttributionAndAtomicity(t *testing.T) {
+	ctx := t.Context()
+	store, _ := newStore(t)
+	service := NewService(store, testutil.NewFakeClock(testNow), testutil.NewFakeEntropy(append(bytes.Repeat([]byte{0x42}, 42), bytes.Repeat([]byte{0x43}, 42)...)))
+	sink := new(memorySink)
+	initial, err := service.Initialize(ctx, sink)
+	require.NoError(t, err)
+	repository, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	page, err := repository.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "admin_credential"}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, contract.AuditOffline, page.Items[0].Actor.Type)
+	assert.Equal(t, "initialize", page.Items[0].Action)
+	assert.Equal(t, "succeeded", page.Items[0].Outcome)
+	assert.Equal(t, "pending", page.Items[1].Outcome)
+	assert.Equal(t, page.Items[0].CorrelationID, page.Items[1].CorrelationID)
+	operator := contract.AuditCredential{ID: initial.ID, Fingerprint: initial.Fingerprint}
+	ctx = audit.WithOperator(ctx, operator, testInstallationID)
+	created, err := service.Create(ctx, nil)
+	require.NoError(t, err)
+	page, err = repository.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Action: "create"}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, &operator, page.Items[0].Actor.Credential)
+	assert.Equal(t, testInstallationID, page.Items[0].CorrelationID)
+	assert.Equal(t, created.ID, page.Items[0].Target.ID)
+	for _, summary := range page.Items {
+		item, err := repository.Read(ctx, summary.ID, page.History.Generation)
+		require.NoError(t, err)
+		contents, err := json.Marshal(item)
+		require.NoError(t, err)
+		assert.NotContains(t, string(contents), sink.value)
+		assert.NotContains(t, string(contents), created.Bearer)
+	}
+	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TRIGGER reject_audit_outcome BEFORE INSERT ON control_audit_events WHEN json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'injected'); END`)
+		return err
+	}))
+	require.Error(t, service.Revoke(ctx, created.ID))
+	_, err = service.Authenticate(ctx, created.Bearer)
+	require.NoError(t, err, "revocation must roll back when its outcome cannot commit")
+	page, err = repository.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Action: "revoke"}})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items, "the transaction's attempted fact must roll back too")
+}
+
+func TestOfflineAuditFailurePreventsSecretPublication(t *testing.T) {
+	ctx := t.Context()
+	store, _ := newStore(t)
+	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TRIGGER reject_audit BEFORE INSERT ON control_audit_events BEGIN SELECT RAISE(ABORT, 'injected'); END`)
+		return err
+	}))
+	service := NewService(store, testutil.NewFakeClock(testNow), testutil.NewFakeEntropy(bytes.Repeat([]byte{0x42}, 42)))
+	sink := new(memorySink)
+	_, err := service.Initialize(ctx, sink)
+	require.Error(t, err)
+	assert.Empty(t, sink.value)
+	items, err := service.List(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, items)
+}
 
 func TestInitializeAndResetPublishBeforeActivatingAuthority(t *testing.T) {
 	ctx := context.Background()

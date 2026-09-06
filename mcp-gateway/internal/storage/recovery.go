@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 )
 
 func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
+	ctx = audit.WithOffline(ctx)
 	ownership, err := gatewaypaths.AcquireForMaintenance(root)
 	if err != nil {
 		if errors.Is(err, gatewaypaths.ErrInUse) {
@@ -56,6 +60,26 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 		_ = store.Close()
 		return Identity{}, fmt.Errorf("%w: inspect mutation recovery action: %w", ErrStorageLatched, err)
 	}
+	attempt, err := audit.NewAttempt(ctx, time.Now(), "storage", "verify", contract.AuditTarget{Type: "installation", ID: identity.InstallationID})
+	if err != nil {
+		_ = store.Close()
+		return Identity{}, err
+	}
+	ctx = audit.WithCorrelation(ctx, attempt.CorrelationID)
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		_ = store.Close()
+		return Identity{}, err
+	}
+	if _, err := audit.AppendTx(ctx, transaction, attempt); err != nil {
+		_ = transaction.Rollback()
+		_ = store.Close()
+		return Identity{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		_ = store.Close()
+		return Identity{}, err
+	}
 	if recovery != nil {
 		switch recovery.Action {
 		case "restore_keyring_authority_fence":
@@ -84,6 +108,14 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 	if err := ownership.MarkClean(); err != nil {
 		return Identity{}, fmt.Errorf("mark verified maintenance clean: %w", err)
 	}
+	settled, err := openConfigured(ctx, layout, testOptions{})
+	if err != nil {
+		return Identity{}, err
+	}
+	evidenceErr := audit.Finish(ctx, settled, attempt, time.Now(), "succeeded")
+	if err := errors.Join(evidenceErr, settled.Close()); err != nil {
+		return Identity{}, err
+	}
 	return identity, nil
 }
 
@@ -104,6 +136,10 @@ func restoreKeyringAuthorityFence(
 	}
 	if _, err := transaction.ExecContext(ctx, `
 		UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`); err != nil {
+		_ = transaction.Rollback()
+		return err
+	}
+	if err := audit.MutationTx(ctx, transaction, time.Now(), "keyring", "fence", contract.AuditTarget{Type: "server", ID: recovery.Owner}); err != nil {
 		_ = transaction.Rollback()
 		return err
 	}
@@ -144,6 +180,12 @@ func invalidateAgentCredentialCandidate(
 			return err
 		}
 		return fmt.Errorf("agent credential recovery changed an invalid row count")
+	}
+	if changed == 1 {
+		if err := audit.MutationTx(ctx, transaction, time.Now(), "agent_credential", "invalidate", contract.AuditTarget{Type: "agent_credential", ID: recovery.CredentialID}); err != nil {
+			_ = transaction.Rollback()
+			return err
+		}
 	}
 	return transaction.Commit()
 }

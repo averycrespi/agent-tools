@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
@@ -14,6 +17,7 @@ func InvalidateStagedCredentials(ctx context.Context, staged *storage.Store, tar
 	if staged == nil || targets == nil {
 		return ErrInvalidInput
 	}
+	ctx = audit.WithOffline(ctx)
 	err := staged.Mutate(ctx, func(transaction *sql.Tx) error {
 		if err := validateAuthorityTx(ctx, transaction, targets); err != nil {
 			return err
@@ -27,6 +31,29 @@ func InvalidateStagedCredentials(ctx context.Context, staged *storage.Store, tar
 		}
 		if credentialCount < 0 || credentialCount > mustLimit("principals") || exhausted != 0 {
 			return errorsInvalidState("staged credential revisions cannot advance")
+		}
+		rows, err := transaction.QueryContext(ctx, `SELECT credential_id FROM principals WHERE credential_id IS NOT NULL ORDER BY id LIMIT ?`, mustLimit("principals")+1)
+		if err != nil {
+			return err
+		}
+		credentialIDs := make([]string, 0)
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			credentialIDs = append(credentialIDs, id)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if int64(len(credentialIDs)) != credentialCount {
+			return ErrInvalidState
 		}
 		result, err := transaction.ExecContext(ctx, `
 			UPDATE principals
@@ -61,6 +88,11 @@ func InvalidateStagedCredentials(ctx context.Context, staged *storage.Store, tar
 		}
 		if remaining != 0 {
 			return errorsInvalidState("staged credential invalidation left current authority")
+		}
+		for _, id := range credentialIDs {
+			if err := audit.MutationTx(ctx, transaction, time.Now(), "agent_credential", "invalidate", contract.AuditTarget{Type: "agent_credential", ID: id}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

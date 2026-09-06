@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +26,8 @@ type fakeRepository struct {
 	interrupted      bool
 	transitions      chan servers.Operation
 	beforeTransition func(contract.ServerOperationState) error
+	beforeAudit      func(contract.AuditEvent) error
+	audits           []contract.AuditEvent
 }
 
 func newFakeRepository(count int) *fakeRepository {
@@ -105,6 +109,29 @@ func (repository *fakeRepository) TransitionOperation(_ context.Context, id stri
 	repository.transitions <- operation
 	return operation, nil
 }
+func (repository *fakeRepository) RecordReconciliation(_ context.Context, event contract.AuditEvent) error {
+	repository.mu.Lock()
+	hook := repository.beforeAudit
+	repository.mu.Unlock()
+	if hook != nil {
+		if err := hook(event); err != nil {
+			return err
+		}
+	}
+	repository.mu.Lock()
+	repository.audits = append(repository.audits, event)
+	repository.mu.Unlock()
+	return nil
+}
+
+func (repository *fakeRepository) CompleteReconciliation(ctx context.Context, id string, state contract.ServerOperationState, reason *contract.PublicReason, event contract.AuditEvent) (servers.Operation, error) {
+	operation, err := repository.TransitionOperation(ctx, id, state, reason)
+	if err != nil {
+		return servers.Operation{}, err
+	}
+	return operation, repository.RecordReconciliation(ctx, event)
+}
+
 func (repository *fakeRepository) InterruptNonterminal(context.Context) error {
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
@@ -178,6 +205,15 @@ func (*releasedOwnershipDriver) Reconcile(context.Context, Candidate, *MaterialL
 }
 func (*releasedOwnershipDriver) Stop(context.Context, Candidate) bool { return false }
 func (driver *releasedOwnershipDriver) Owned(Candidate) bool          { return driver.owned }
+
+func TestManagerDoesNotConfirmStopWithoutWithdrawalEvidence(t *testing.T) {
+	catalog := newRefreshCatalog()
+	catalog.withdrawErr = errors.New("withdrawal evidence unavailable")
+	manager := &Manager{driver: &immediateDriver{}, publisher: newMemoryPublisher(), catalog: catalog}
+	candidate := Candidate{Server: servers.Server{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAW"}, RuntimeID: "runtime", Generation: 1}
+	assert.False(t, manager.stopCandidate(candidate))
+	assert.Equal(t, candidate, <-catalog.withdrawn)
+}
 
 func TestManagerTreatsOnlyAlreadyReleasedCandidateAsStopped(t *testing.T) {
 	candidate := Candidate{Server: servers.Server{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAW"}, RuntimeID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", Generation: 1}
@@ -438,6 +474,144 @@ func receiveCandidate(t *testing.T, channel <-chan Candidate) Candidate {
 	}
 }
 
+type auditContextDriver struct {
+	observed chan contract.AuditEvent
+	failures chan error
+}
+
+func (driver *auditContextDriver) Reconcile(ctx context.Context, candidate Candidate, _ *MaterialLease) Outcome {
+	event, err := audit.NewAttempt(ctx, time.Now(), "server", "reconcile", contract.AuditTarget{Type: "server", ID: candidate.Server.ID})
+	driver.failures <- errors.Join(err, ctx.Err())
+	driver.observed <- event
+	return activeOutcome()
+}
+func (*auditContextDriver) Stop(context.Context, Candidate) bool { return true }
+
+func TestManagerRetriesOnlyRefusedAuditAdmissionBeforeEffects(t *testing.T) {
+	repository := newFakeRepository(1)
+	refused := false
+	repository.beforeAudit = func(event contract.AuditEvent) error {
+		if event.Phase == "attempt" && !refused {
+			refused = true
+			return storage.ErrMutationBusy
+		}
+		return nil
+	}
+	driver, scheduler := newBlockingDriver(), newFakeScheduler()
+	manager, err := New(Options{Repository: repository, Driver: driver, Scheduler: scheduler})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	operation, err := repository.CreateOperation(t.Context(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationReload, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	manager.Trigger(serverID, &operation.Operation.ID, true)
+	require.Eventually(t, func() bool {
+		return manager.Status(serverID).State == contract.RuntimeRetryWait && manager.AdmissionStatus().InUse == 0
+	}, time.Second, time.Millisecond)
+	assert.Empty(t, driver.started)
+	assert.Equal(t, time.Second, scheduler.fire(t, 0))
+	candidate := receiveCandidate(t, driver.started)
+	assert.Equal(t, &operation.Operation.ID, candidate.OperationID)
+	driver.release <- activeOutcome()
+	require.Eventually(t, func() bool {
+		return manager.Status(serverID).State == contract.RuntimeActive && manager.AdmissionStatus().InUse == 0
+	}, time.Second, time.Millisecond)
+	settled, err := repository.GetOperation(t.Context(), operation.Operation.ID)
+	require.NoError(t, err)
+	assert.Equal(t, contract.OperationSucceeded, settled.State)
+	assert.Empty(t, driver.started)
+}
+
+func TestManagerAuditFailureFencesEffectsAndDoesNotReplay(t *testing.T) {
+	for _, phase := range []string{"attempt", "outcome"} {
+		t.Run(phase, func(t *testing.T) {
+			repository := newFakeRepository(1)
+			repository.beforeAudit = func(event contract.AuditEvent) error {
+				if event.Phase == phase {
+					return errors.New("injected evidence failure")
+				}
+				return nil
+			}
+			driver := newBlockingDriver()
+			manager, err := New(Options{Repository: repository, Driver: driver})
+			require.NoError(t, err)
+			defer manager.Shutdown()
+			var serverID string
+			for serverID = range repository.servers {
+				break
+			}
+			manager.Trigger(serverID, nil, false)
+			if phase == "outcome" {
+				candidate := receiveCandidate(t, driver.started)
+				driver.release <- activeOutcome()
+				cleaned := receiveCandidate(t, driver.cleaned)
+				assert.Equal(t, candidate.RuntimeID, cleaned.RuntimeID)
+				assert.False(t, manager.Current(candidate))
+			}
+			require.Eventually(t, func() bool {
+				return manager.Status(serverID).State == contract.RuntimeDegraded && manager.AdmissionStatus().InUse == 0
+			}, time.Second, time.Millisecond)
+			assert.Nil(t, manager.Status(serverID).RuntimeID)
+			select {
+			case <-driver.started:
+				t.Fatal("effect started without evidence or was replayed")
+			default:
+			}
+		})
+	}
+}
+
+func TestManagerRetainsSafeCauseWithoutRequestCancellation(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := &auditContextDriver{observed: make(chan contract.AuditEvent, 1), failures: make(chan error, 1)}
+	manager, err := New(Options{Repository: repository, Driver: driver})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	credential := contract.AuditCredential{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Fingerprint: "0123456789abcdef"}
+	ctx, cancel := context.WithCancel(audit.WithOperator(t.Context(), credential, credential.ID))
+	cause := audit.Capture(ctx)
+	cancel()
+	for id := range repository.servers {
+		manager.TriggerWithCause(cause, id, nil, false)
+	}
+	select {
+	case event := <-driver.observed:
+		require.NoError(t, <-driver.failures)
+		assert.Equal(t, contract.AuditSystem, event.Actor.Type)
+		assert.Nil(t, event.Actor.Credential)
+		assert.Equal(t, &credential, event.Initiator)
+		assert.Equal(t, credential.ID, event.CorrelationID)
+	case <-time.After(time.Second):
+		t.Fatal("causally attributed reconciliation did not start")
+	}
+}
+
+func TestManagerStartupUsesDesiredStateCause(t *testing.T) {
+	repository := newFakeRepository(1)
+	credential := contract.AuditCredential{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Fingerprint: "0123456789abcdef"}
+	for id, server := range repository.servers {
+		server.Cause = audit.Capture(audit.WithOperator(t.Context(), credential, credential.ID))
+		repository.servers[id] = server
+	}
+	driver := &auditContextDriver{observed: make(chan contract.AuditEvent, 1), failures: make(chan error, 1)}
+	manager, err := New(Options{Repository: repository, Driver: driver})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	require.NoError(t, manager.Start(t.Context()))
+	select {
+	case event := <-driver.observed:
+		require.NoError(t, <-driver.failures)
+		assert.Equal(t, contract.AuditSystem, event.Actor.Type)
+		assert.Equal(t, &credential, event.Initiator)
+		assert.Equal(t, credential.ID, event.CorrelationID)
+	case <-time.After(time.Second):
+		t.Fatal("reconstruction did not retain desired-state attribution")
+	}
+}
+
 func TestManagerCurrentRequiresExactActivatingCandidate(t *testing.T) {
 	repository := newFakeRepository(1)
 	driver := newBlockingDriver()
@@ -555,7 +729,11 @@ func establishActiveRuntime(t *testing.T, manager *Manager, driver *lifecycleDri
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
 	candidate := receiveCandidate(t, driver.started)
 	driver.startResult <- activeOutcome()
-	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	// Active status is published before reconciliation completion; later triggers must not supersede fixture setup.
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeActive && status.Reconciliation.InUse == 0
+	}, time.Second, time.Millisecond)
 	return candidate
 }
 
@@ -605,11 +783,12 @@ func (catalog *finalizationCatalog) Refresh(ctx context.Context, candidate Candi
 	return catalog.Activate(ctx, candidate)
 }
 
-func (catalog *finalizationCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) {
+func (catalog *finalizationCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) error {
 	catalog.mu.Lock()
 	catalog.routable = false
 	catalog.mu.Unlock()
 	catalog.withdrawn <- candidate
+	return nil
 }
 
 func (catalog *finalizationCatalog) routeVisible() bool {
@@ -619,6 +798,7 @@ func (catalog *finalizationCatalog) routeVisible() bool {
 }
 
 type refreshCatalog struct {
+	withdrawErr    error
 	refreshStarted chan Candidate
 	release        chan CatalogOutcome
 	withdrawn      chan Candidate
@@ -634,8 +814,9 @@ func (catalog *refreshCatalog) Refresh(_ context.Context, candidate Candidate) C
 	catalog.refreshStarted <- candidate
 	return <-catalog.release
 }
-func (catalog *refreshCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) {
+func (catalog *refreshCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) error {
 	catalog.withdrawn <- candidate
+	return catalog.withdrawErr
 }
 
 type handoffCatalog struct {
@@ -658,8 +839,9 @@ func (catalog *handoffCatalog) Refresh(_ context.Context, candidate Candidate) C
 	catalog.refreshStarted <- candidate
 	return <-catalog.refreshResult
 }
-func (catalog *handoffCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) {
+func (catalog *handoffCatalog) Withdraw(candidate Candidate, _ contract.ActiveCatalogState) error {
 	catalog.withdrawn <- candidate
+	return nil
 }
 
 func TestManagerExplicitCatalogChallengeKeepsOperationAttachedThroughFreshTraversal(t *testing.T) {
@@ -1326,6 +1508,7 @@ func TestManagerFinalizesStatusAndHintsBeforeOperationSuccess(t *testing.T) {
 	assert.True(t, catalog.routeVisible())
 	status := manager.Status(serverID)
 	assert.Equal(t, contract.RuntimeActive, status.State)
+	assert.Equal(t, int64(1), status.Reconciliation.InUse)
 	assert.Equal(t, contract.ActiveCatalogCurrent, status.CatalogState)
 	assert.Equal(t, candidate.RuntimeID, *status.RuntimeID)
 	invalidationMu.Lock()
@@ -1649,6 +1832,42 @@ func TestBlockedStopDoesNotBlockUnrelatedServerActivation(t *testing.T) {
 	driver.startResult <- activeOutcome()
 	require.Eventually(t, func() bool { return manager.Status(ids[1]).State == contract.RuntimeActive }, time.Second, time.Millisecond)
 	driver.stopResult <- true
+}
+
+func TestRuntimeFailureAfterActivationPublicationHasOneCleanupOwner(t *testing.T) {
+	repository := newFakeRepository(1)
+	driver := newLifecycleDriver()
+	for range 4 {
+		driver.stopResult <- true
+	}
+	published, release := make(chan struct{}), make(chan struct{})
+	var publishOnce, releaseOnce sync.Once
+	manager, err := New(Options{Repository: repository, Driver: driver, Scheduler: newFakeScheduler(), Invalidate: func(event contract.Invalidation) {
+		if event.Kind == contract.InvalidationCatalog {
+			publishOnce.Do(func() { close(published); <-release })
+		}
+	}})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	defer releaseOnce.Do(func() { close(release) })
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	manager.Trigger(serverID, nil, true)
+	candidate := receiveCandidate(t, driver.started)
+	driver.startResult <- activeOutcome()
+	select {
+	case <-published:
+	case <-time.After(time.Second):
+		t.Fatal("activation publication did not arrive")
+	}
+	assert.True(t, manager.RuntimeFailed(candidate, contract.ReasonProcessExited))
+	assert.False(t, manager.RuntimeFailed(candidate, contract.ReasonProcessExited))
+	releaseOnce.Do(func() { close(release) })
+	manager.workers.Wait()
+	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeRetryWait }, time.Second, time.Millisecond)
+	assert.Len(t, driver.stopping, 1)
 }
 
 func TestRuntimeFailureWithdrawsBeforeRetryAndRejectsStaleFailure(t *testing.T) {

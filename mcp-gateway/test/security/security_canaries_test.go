@@ -149,6 +149,18 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 	}
 	assert.Equal(t, []string{"AdmissionClass", "AdmittedAt", "AuthorizationDecision", "AuthorizationRevision", "CompletedAt", "CredentialFingerprint", "CredentialID", "CredentialRevision", "DescriptorFingerprint", "DescriptorRevision", "EvaluatedAt", "GrantID", "InvocationID", "PrincipalID", "RedactedArguments", "RequestedName", "Sequence", "ServerID", "TerminalClass", "ToolID", "UpstreamName"}, exportedFields(reflect.TypeOf(contract.InvocationAuditRecord{})))
 
+	assert.Equal(t, []string{"Action", "Actor", "Category", "CorrelationID", "ID", "Initiator", "Outcome", "Phase", "Sequence", "Target", "Timestamp"}, exportedFields(reflect.TypeOf(contract.AuditSummary{})))
+	assert.Equal(t, []string{"AuditSummary", "Detail"}, exportedFields(reflect.TypeOf(contract.AuditEvent{})))
+	assert.Equal(t, []string{"Problem", "Reason"}, exportedFields(reflect.TypeOf(contract.AuditDetail{})))
+	assert.Equal(t, []string{"Credential", "Type"}, exportedFields(reflect.TypeOf(contract.AuditActor{})))
+	assert.Equal(t, []string{"Fingerprint", "ID"}, exportedFields(reflect.TypeOf(contract.AuditCredential{})))
+	for _, pattern := range []string{"/api/v1/audit-events", "/api/v1/audit-events/{id}"} {
+		route, found := contract.RouteForPath(pattern)
+		require.True(t, found)
+		assert.Equal(t, contract.AuthorityAdmin, route.Authority)
+		assert.Equal(t, []string{"GET"}, route.Methods)
+	}
+
 	for _, base := range []string{"cmd", "internal"} {
 		require.NoError(t, filepath.Walk(filepath.Join(repositoryRoot(t), "mcp-gateway", base), func(path string, info os.FileInfo, walkErr error) error {
 			if walkErr != nil || info.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") || strings.Contains(path, string(filepath.Separator)+"testutil"+string(filepath.Separator)) {
@@ -158,7 +170,10 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 			if readErr != nil {
 				return readErr
 			}
-			assert.NotContains(t, string(contents), "/api/v1/audit", path)
+			if strings.Contains(string(contents), "/api/v1/audit") {
+				allowed := []string{"internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
+				assert.Contains(t, allowed, filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "mcp-gateway")+string(filepath.Separator))), path)
+			}
 			if strings.Contains(string(contents), "/api/v1/invocations") {
 				allowed := []string{"cmd/mcp-gateway/online_reads.go", "internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
 				assert.Contains(t, allowed, filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "mcp-gateway")+string(filepath.Separator))), path)

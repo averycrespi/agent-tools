@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -69,7 +70,10 @@ func (service *Service) create(ctx context.Context, expiresAt *time.Time, expect
 			return err
 		}
 		candidate.metadata.Revision = revision
-		return insertCredential(ctx, transaction, candidate)
+		if err := insertCredential(ctx, transaction, candidate); err != nil {
+			return err
+		}
+		return audit.MutationTx(ctx, transaction, service.clock.Now(), "admin_credential", "create", contract.AuditTarget{Type: "admin_credential", ID: candidate.metadata.ID})
 	}); err != nil {
 		return contract.CreatedAdminCredential{}, err
 	}
@@ -178,7 +182,7 @@ func (service *Service) CompleteRotation(ctx context.Context, oldID, replacement
 		oldRecord.metadata.Revision = revision
 		result = contract.AdminCredentialRotationResult{OldCredential: oldRecord.metadata, NewCredential: replacement.metadata}
 		revoked = true
-		return nil
+		return audit.MutationTx(ctx, transaction, service.clock.Now(), "admin_credential", "rotate", contract.AuditTarget{Type: "admin_credential", ID: oldID})
 	})
 	if err != nil {
 		return contract.AdminCredentialRotationResult{}, err
@@ -219,7 +223,7 @@ func (service *Service) Revoke(ctx context.Context, id string) error {
 			return fmt.Errorf("revoke admin credential: %w", err)
 		}
 		revoked = true
-		return nil
+		return audit.MutationTx(ctx, transaction, service.clock.Now(), "admin_credential", "revoke", contract.AuditTarget{Type: "admin_credential", ID: id})
 	})
 	if err != nil {
 		return err

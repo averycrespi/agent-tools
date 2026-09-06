@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
@@ -130,7 +131,7 @@ func (fakeSessions) Authenticate(_ context.Context, bearer, session, csrf string
 	}
 	return credential(), nil
 }
-func (fakeSessions) Logout(session string) error {
+func (fakeSessions) LogoutAuthenticated(_ context.Context, session string) error {
 	if session != "session" {
 		return admin.ErrAuthenticationRequired
 	}
@@ -282,16 +283,29 @@ func TestOAuthCallbackUsesFixedNonreflectingHTML(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			credential := contract.AuditCredential{ID: testID, Fingerprint: "0123456789abcdef"}
+			test.result.Cause = audit.Capture(audit.WithSystem(audit.WithOperator(t.Context(), credential, credential.ID)))
 			var callback OAuthCallbackService
 			if test.name != "default deny" {
 				callback = callbackFake{result: test.result}
 			}
-			handler := New(Options{OAuthCallback: callback})
+			var triggered contract.AuditEvent
+			handler := New(Options{OAuthCallback: callback, TriggerServer: func(ctx context.Context, serverID string, _ *string, _ bool) {
+				var err error
+				triggered, err = audit.NewAttempt(audit.WithSystem(ctx), time.Now(), "server", "reconcile", contract.AuditTarget{Type: "server", ID: serverID})
+				require.NoError(t, err)
+			}})
 			boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 			require.NoError(t, err)
 			response := perform(boundary, http.MethodGet, "/oauth/callback?state=canary-secret&code=also-secret&error_description=dependency-secret", "", nil)
 			require.Equal(t, test.status, response.Code, response.Body.String())
 			assert.Contains(t, response.Body.String(), test.content)
+			if test.result.ServerID != "" {
+				assert.Equal(t, &credential, triggered.Initiator)
+				assert.Equal(t, credential.ID, triggered.CorrelationID)
+			} else {
+				assert.Empty(t, triggered.ID)
+			}
 			assert.Equal(t, "text/html; charset=utf-8", response.Header().Get("Content-Type"))
 			assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 			assert.Equal(t, "default-src 'none'; frame-ancestors 'none'", response.Header().Get("Content-Security-Policy"))

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
@@ -108,12 +109,16 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 			return err
 		}
 		createdAt := formatTime(now)
+		cause, err := audit.EncodeCause(ctx, operationID)
+		if err != nil {
+			return err
+		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO server_operations (
 				id, server_id, kind, target_desired_revision,
 				target_static_credential_revision, target_oauth_client_revision,
-				target_oauth_tokens_revision, state, reason, created_at, started_at, finished_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', NULL, ?, NULL, NULL)`,
+				target_oauth_tokens_revision, state, reason, created_at, started_at, finished_at, audit_cause
+			) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', NULL, ?, NULL, NULL, ?)`,
 			operationID,
 			request.ServerID,
 			request.Kind,
@@ -121,7 +126,7 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 			staticRevision,
 			oauthClientRevision,
 			oauthTokensRevision,
-			createdAt,
+			createdAt, cause,
 		); err != nil {
 			return fmt.Errorf("insert server operation: %w", err)
 		}
@@ -129,6 +134,7 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 		if err != nil {
 			return err
 		}
+		ctx = audit.InheritCause(ctx, operation.Cause)
 		stored := IdempotencyResult{
 			Kind: "operation", ServerID: request.ServerID, OperationID: &operationID,
 			DesiredRevision: server.DesiredRevision,
@@ -139,7 +145,10 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 			}
 		}
 		result = OperationResult{Operation: operation, Result: stored}
-		return nil
+		if err := audit.MutationTx(ctx, transaction, now, "operation", string(request.Kind), contract.AuditTarget{Type: "operation", ID: operationID}); err != nil {
+			return err
+		}
+		return audit.MutationTx(audit.WithSystem(ctx), transaction, now, "operation", "schedule", contract.AuditTarget{Type: "operation", ID: operationID})
 	})
 	return result, mapMutationError(err)
 }
@@ -253,17 +262,29 @@ func insertOperationTx(
 	if err != nil {
 		return Operation{}, err
 	}
+	cause, err := audit.EncodeCause(ctx, operationID)
+	if err != nil {
+		return Operation{}, err
+	}
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO server_operations (
 			id, server_id, kind, target_desired_revision,
 			target_static_credential_revision, target_oauth_client_revision,
-			target_oauth_tokens_revision, state, reason, created_at, started_at, finished_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', NULL, ?, NULL, NULL)`,
+			target_oauth_tokens_revision, state, reason, created_at, started_at, finished_at, audit_cause
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', NULL, ?, NULL, NULL, ?)`,
 		operationID, serverID, kind, desiredRevision, staticRevision, oauthClientRevision,
-		oauthTokensRevision, formatTime(now)); err != nil {
+		oauthTokensRevision, formatTime(now), cause); err != nil {
 		return Operation{}, fmt.Errorf("insert server operation: %w", err)
 	}
-	return operationByIDTx(ctx, transaction, operationID)
+	operation, err := operationByIDTx(ctx, transaction, operationID)
+	if err != nil {
+		return Operation{}, err
+	}
+	ctx = audit.InheritCause(ctx, operation.Cause)
+	if err := audit.MutationTx(audit.WithSystem(ctx), transaction, now, "operation", "schedule", contract.AuditTarget{Type: "operation", ID: operationID}); err != nil {
+		return Operation{}, err
+	}
+	return operation, nil
 }
 
 func operationForTargetTx(ctx context.Context, transaction *sql.Tx, serverID string, kind contract.ServerOperationKind, revision string) (Operation, error) {
@@ -295,6 +316,21 @@ func (repository *Repository) TransitionOperation(
 	state contract.ServerOperationState,
 	reason *contract.PublicReason,
 ) (Operation, error) {
+	return repository.transitionOperation(ctx, operationID, state, reason, nil)
+}
+
+func (repository *Repository) RecordReconciliation(ctx context.Context, event contract.AuditEvent) error {
+	if event.Category != "server" || event.Action != "reconcile" || event.Target.Type != "server" {
+		return ErrInvalidInput
+	}
+	return audit.Append(ctx, repository.store, event)
+}
+
+func (repository *Repository) CompleteReconciliation(ctx context.Context, operationID string, state contract.ServerOperationState, reason *contract.PublicReason, event contract.AuditEvent) (Operation, error) {
+	return repository.transitionOperation(ctx, operationID, state, reason, &event)
+}
+
+func (repository *Repository) transitionOperation(ctx context.Context, operationID string, state contract.ServerOperationState, reason *contract.PublicReason, event *contract.AuditEvent) (Operation, error) {
 	if !validID(operationID) {
 		return Operation{}, ErrNotFound
 	}
@@ -338,6 +374,17 @@ func (repository *Repository) TransitionOperation(
 		if err := updateOperationIdempotencySnapshotTx(ctx, transaction, updated); err != nil {
 			return err
 		}
+		if err := auditOperationTransitionTx(ctx, transaction, updated, repository.clock.Now(), false); err != nil {
+			return err
+		}
+		if event != nil {
+			if event.Category != "server" || event.Action != "reconcile" || event.Target.Type != "server" || event.Target.ID != current.ServerID || event.Phase != "outcome" {
+				return ErrInvalidInput
+			}
+			if _, err := audit.AppendTx(ctx, transaction, *event); err != nil {
+				return err
+			}
+		}
 		if operationTerminal(state) {
 			return pruneTerminalOperationsTx(ctx, transaction, current.ServerID)
 		}
@@ -380,6 +427,9 @@ func supersedeNonterminalTx(ctx context.Context, transaction *sql.Tx, serverID s
 			return err
 		}
 		if err := updateOperationIdempotencySnapshotTx(ctx, transaction, operation); err != nil {
+			return err
+		}
+		if err := auditOperationTransitionTx(ctx, transaction, operation, now, false); err != nil {
 			return err
 		}
 	}
@@ -427,6 +477,9 @@ func (repository *Repository) InterruptNonterminal(ctx context.Context) error {
 			if err := updateOperationIdempotencySnapshotTx(ctx, transaction, operation); err != nil {
 				return err
 			}
+			if err := auditOperationTransitionTx(ctx, transaction, operation, repository.clock.Now(), true); err != nil {
+				return err
+			}
 		}
 		for _, serverID := range serverIDs {
 			if err := pruneTerminalOperationsTx(ctx, transaction, serverID); err != nil {
@@ -435,6 +488,23 @@ func (repository *Repository) InterruptNonterminal(ctx context.Context) error {
 		}
 		return nil
 	}))
+}
+
+func auditOperationTransitionTx(ctx context.Context, tx *sql.Tx, operation Operation, now time.Time, recovery bool) error {
+	ctx = audit.InheritCause(ctx, operation.Cause)
+	action, outcome := "finish", "failed"
+	switch operation.State {
+	case contract.OperationRunning:
+		action, outcome = "start", "succeeded"
+	case contract.OperationSucceeded:
+		outcome = "succeeded"
+	case contract.OperationInterrupted:
+		outcome = "unknown"
+	}
+	if recovery {
+		action = "recover"
+	}
+	return audit.MutationOutcomeTx(audit.WithSystem(ctx), tx, now, "operation", action, contract.AuditTarget{Type: "operation", ID: operation.ID}, outcome, contract.AuditDetail{Reason: operation.Reason})
 }
 
 func (repository *Repository) ListOperations(
@@ -584,7 +654,7 @@ func pruneTerminalOperationsTx(ctx context.Context, transaction *sql.Tx, serverI
 const operationSelect = `
 	SELECT insertion_sequence, id, server_id, kind, target_desired_revision,
 	       target_static_credential_revision, target_oauth_client_revision,
-	       target_oauth_tokens_revision, state, reason, created_at, started_at, finished_at
+	       target_oauth_tokens_revision, state, reason, created_at, started_at, finished_at, audit_cause
 	FROM server_operations`
 
 func operationByIDTx(ctx context.Context, transaction *sql.Tx, operationID string) (Operation, error) {
@@ -599,7 +669,7 @@ func scanOperation(row scanner) (Operation, error) {
 	var operation Operation
 	var kind, state string
 	var desiredRevision, staticRevision, oauthClientRevision, oauthTokensRevision int64
-	var reason, startedAt, finishedAt sql.NullString
+	var reason, startedAt, finishedAt, cause sql.NullString
 	if err := row.Scan(
 		&operation.InsertionSequence,
 		&operation.ID,
@@ -614,8 +684,16 @@ func scanOperation(row scanner) (Operation, error) {
 		&operation.CreatedAt,
 		&startedAt,
 		&finishedAt,
+		&cause,
 	); err != nil {
 		return Operation{}, err
+	}
+	if cause.Valid {
+		var err error
+		operation.Cause, err = audit.DecodeCause(cause.String)
+		if err != nil {
+			return Operation{}, err
+		}
 	}
 	if _, err := parseTime(operation.CreatedAt); err != nil {
 		return Operation{}, fmt.Errorf("parse operation creation time: %w", err)

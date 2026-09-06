@@ -33,7 +33,7 @@ func (sessions *bootstrapSessions) Bootstrap(_ context.Context, session string) 
 func (*bootstrapSessions) Authenticate(context.Context, string, string, string, bool) (contract.AdminCredential, error) {
 	return contract.AdminCredential{}, admin.ErrAuthenticationRequired
 }
-func (*bootstrapSessions) Logout(string) error { return nil }
+func (*bootstrapSessions) LogoutAuthenticated(context.Context, string) error { return nil }
 func (*bootstrapSessions) Subscribe(string) (<-chan struct{}, error) {
 	return nil, admin.ErrAuthenticationRequired
 }

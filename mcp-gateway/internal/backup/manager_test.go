@@ -3,6 +3,8 @@ package backup
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -43,15 +47,74 @@ func newBackupManager(t *testing.T, fault func(FaultPoint) error) (*Manager, *st
 	return manager, store, ownership
 }
 
+func TestBackupEffectAuditFencesAttemptsAndDoesNotInventOutcomes(t *testing.T) {
+	for _, action := range []string{"create", "delete"} {
+		for _, phase := range []string{"attempt", "outcome", "success"} {
+			t.Run(action+"/"+phase, func(t *testing.T) {
+				manager, store, ownership := newBackupManager(t, nil)
+				var backupID string
+				if action == "delete" {
+					created, _, err := manager.Create(t.Context(), "authority", "prepare")
+					require.NoError(t, err)
+					backupID = created.ID
+				}
+				if phase != "success" {
+					require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+						_, err := tx.ExecContext(t.Context(), fmt.Sprintf(`CREATE TRIGGER refuse_backup_audit BEFORE INSERT ON control_audit_events WHEN NEW.category = 'backup' AND NEW.action = '%s' AND json_extract(NEW.event, '$.phase') = '%s' BEGIN SELECT RAISE(ABORT, 'refused audit'); END`, action, phase))
+						return err
+					}))
+				}
+				credential := contract.AuditCredential{ID: backupTestInstallationID, Fingerprint: "0123456789abcdef"}
+				ctx := audit.WithOperator(t.Context(), credential, credential.ID)
+				var effectErr error
+				if action == "create" {
+					_, _, effectErr = manager.Create(ctx, "authority", "audited")
+				} else {
+					effectErr = manager.Delete(ctx, backupID)
+				}
+				if phase == "success" {
+					require.NoError(t, effectErr)
+				} else {
+					require.ErrorContains(t, effectErr, "refused audit")
+				}
+				files, err := os.ReadDir(ownership.Layout().Backups)
+				require.NoError(t, err)
+				expectedFiles := 0
+				if action == "create" && phase != "attempt" || action == "delete" && phase == "attempt" {
+					expectedFiles = 1
+				}
+				assert.Len(t, files, expectedFiles)
+				reader, err := audit.NewRepository(store)
+				require.NoError(t, err)
+				page, err := reader.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{CorrelationID: credential.ID}})
+				require.NoError(t, err)
+				expectedEvents := map[string]int{"attempt": 0, "outcome": 1, "success": 2}[phase]
+				require.Len(t, page.Items, expectedEvents)
+				for _, event := range page.Items {
+					assert.Equal(t, action, event.Action)
+					assert.Equal(t, contract.AuditOperator, event.Actor.Type)
+					assert.Equal(t, &credential, event.Actor.Credential)
+				}
+				if phase == "outcome" {
+					assert.Equal(t, "pending", page.Items[0].Outcome)
+				}
+				if phase == "success" {
+					assert.Equal(t, "succeeded", page.Items[0].Outcome)
+				}
+			})
+		}
+	}
+}
+
 func TestCurrentSchemaBackupCompatibility(t *testing.T) {
 	manager, _, ownership := newBackupManager(t, nil)
-	created, replay, err := manager.Create(context.Background(), "authority", "schema-fourteen")
+	created, replay, err := manager.Create(context.Background(), "authority", "schema-current")
 	require.NoError(t, err)
 	assert.False(t, replay)
-	assert.Equal(t, "14", created.SchemaVersion)
+	assert.Equal(t, strconv.Itoa(storage.CurrentSchema), created.SchemaVersion)
 	identity, err := storage.VerifyBackup(context.Background(), filepath.Join(ownership.Layout().Backups, created.ID, databaseFile))
 	require.NoError(t, err)
-	assert.Equal(t, 14, identity.SchemaVersion)
+	assert.Equal(t, storage.CurrentSchema, identity.SchemaVersion)
 }
 
 func TestCreatePublishesVerifiedOwnerOnlyGeneration(t *testing.T) {

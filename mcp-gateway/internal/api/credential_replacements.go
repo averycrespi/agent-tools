@@ -107,7 +107,7 @@ func (handler *Handler) credentialReplacements(writer http.ResponseWriter, reque
 	if publication.Operation.ID != "" {
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &serverID})
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServerOperations, ResourceID: &publication.Operation.ID})
-		handler.trigger(serverID, &publication.Operation.ID, true)
+		handler.trigger(request.Context(), serverID, &publication.Operation.ID, true)
 	}
 	if replaceErr != nil {
 		writeCredentialReplacementError(writer, replaceErr)

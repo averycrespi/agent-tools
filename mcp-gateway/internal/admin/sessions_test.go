@@ -2,16 +2,67 @@ package admin
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSessionAuditExcludesSecretsAndUnauthenticatedFailures(t *testing.T) {
+	ctx := t.Context()
+	store, _ := newStore(t)
+	clock := testutil.NewFakeClock(testNow)
+	service := NewService(store, clock, newDeterministicEntropy())
+	sink := new(memorySink)
+	parent, err := service.Initialize(ctx, sink)
+	require.NoError(t, err)
+	manager := NewSessionManager(service, clock, newSessionEntropy(4))
+	t.Cleanup(manager.Shutdown)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	_, err = manager.Exchange(ctx, "invalid-bearer")
+	require.ErrorIs(t, err, ErrAuthenticationRequired)
+	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "admin_session"}})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+	session, err := manager.Exchange(ctx, sink.value)
+	require.NoError(t, err)
+	_, err = manager.Authenticate(ctx, "", session.ID, "bad-csrf", true)
+	require.ErrorIs(t, err, ErrCSRF)
+	require.NoError(t, manager.LogoutAuthenticated(ctx, session.ID))
+	page, err = reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "admin_session"}})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 4)
+	assert.Equal(t, "logout", page.Items[0].Action)
+	assert.Equal(t, "sign_in", page.Items[2].Action)
+	for _, summary := range page.Items {
+		assert.Equal(t, contract.AuditOperator, summary.Actor.Type)
+		assert.Equal(t, parent.ID, summary.Actor.Credential.ID)
+		assert.Equal(t, parent.Fingerprint, summary.Actor.Credential.Fingerprint)
+		item, err := reader.Read(ctx, summary.ID, page.History.Generation)
+		require.NoError(t, err)
+		contents, err := json.Marshal(item)
+		require.NoError(t, err)
+		for _, secret := range []string{sink.value, session.ID, session.CSRFToken} {
+			assert.NotContains(t, string(contents), secret)
+		}
+	}
+	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TRIGGER reject_session_outcome BEFORE INSERT ON control_audit_events WHEN json_extract(NEW.event, '$.phase') = 'outcome' BEGIN SELECT RAISE(ABORT, 'injected'); END`)
+		return err
+	}))
+	_, err = manager.Exchange(ctx, sink.value)
+	require.Error(t, err)
+	assert.Zero(t, manager.Status().InUse, "undocumented session authority must not be returned or retained")
+}
 
 func TestSessionCookieCSRFIdleAndAbsoluteExpiry(t *testing.T) {
 	ctx := context.Background()
@@ -134,9 +185,15 @@ func TestSessionRegistrySupportsConcurrentHighChurn(t *testing.T) {
 	}
 	group.Wait()
 	close(errors)
+	succeeded := 0
 	for err := range errors {
-		require.NoError(t, err)
+		if err != nil {
+			require.ErrorIs(t, err, ErrMutationBusy)
+		} else {
+			succeeded++
+		}
 	}
+	assert.Positive(t, succeeded)
 	assert.Equal(t, int64(0), manager.Status().InUse)
 }
 

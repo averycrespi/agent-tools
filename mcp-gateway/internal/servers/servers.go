@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
@@ -76,6 +77,10 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 		}
 
 		createdAt := formatTime(now)
+		cause, err := audit.EncodeCause(ctx, serverID)
+		if err != nil {
+			return err
+		}
 		state := contract.DesiredServerDisabled
 		if request.Definition.Enabled {
 			state = contract.DesiredServerEnabled
@@ -88,9 +93,9 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO servers (
 				id, display_name, desired_state, desired_revision, transport_json,
-				created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, 1, ?, ?, ?, NULL)`,
-			serverID, request.Definition.DisplayName, state, string(transport), createdAt, createdAt); err != nil {
+				created_at, updated_at, deleted_at, audit_cause
+			) VALUES (?, ?, ?, 1, ?, ?, ?, NULL, ?)`,
+			serverID, request.Definition.DisplayName, state, string(transport), createdAt, createdAt, cause); err != nil {
 			return fmt.Errorf("insert server definition: %w", err)
 		}
 		for _, kind := range []contract.ServerCredentialKind{
@@ -143,7 +148,7 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 			return err
 		}
 		result = CreateResult{Server: server, Operation: operation, Result: stored}
-		return nil
+		return audit.MutationTx(ctx, transaction, now, "server", "create", contract.AuditTarget{Type: "server", ID: serverID})
 	})
 	return result, mapMutationError(err)
 }
@@ -222,12 +227,16 @@ func (repository *Repository) Patch(ctx context.Context, serverID, expectedRevis
 			transportValue = transport
 		}
 		behavioral := state != current.DesiredState || !bytes.Equal(transportValue, current.Transport)
+		cause, err := audit.EncodeCause(ctx, serverID)
+		if err != nil {
+			return err
+		}
 		now := repository.clock.Now()
 		if _, err := transaction.ExecContext(ctx, `
 			UPDATE servers SET
 				display_name = ?, desired_state = ?, desired_revision = desired_revision + 1,
-				transport_json = ?, updated_at = ?
-			WHERE id = ?`, displayName, state, string(transportValue), formatTime(now), serverID); err != nil {
+				transport_json = ?, updated_at = ?, audit_cause = ?
+			WHERE id = ?`, displayName, state, string(transportValue), formatTime(now), cause, serverID); err != nil {
 			return fmt.Errorf("patch server definition: %w", err)
 		}
 		updated, getErr := serverByIDTx(ctx, transaction, serverID)
@@ -252,7 +261,7 @@ func (repository *Repository) Patch(ctx context.Context, serverID, expectedRevis
 			}
 			result.Operation = &operation
 		}
-		return nil
+		return audit.MutationTx(ctx, transaction, now, "server", "update", contract.AuditTarget{Type: "server", ID: serverID})
 	})
 	return result, mapMutationError(err)
 }
@@ -288,10 +297,14 @@ func (repository *Repository) Delete(ctx context.Context, serverID, expectedRevi
 			return nil
 		}
 		now := formatTime(repository.clock.Now())
+		cause, err := audit.EncodeCause(ctx, serverID)
+		if err != nil {
+			return err
+		}
 		if _, err := transaction.ExecContext(ctx, `
 			UPDATE servers SET desired_state = 'deleted', desired_revision = desired_revision + 1,
-				transport_json = NULL, updated_at = ?, deleted_at = ?
-			WHERE id = ?`, now, now, serverID); err != nil {
+				transport_json = NULL, updated_at = ?, deleted_at = ?, audit_cause = ?
+			WHERE id = ?`, now, now, cause, serverID); err != nil {
 			return fmt.Errorf("tombstone server: %w", err)
 		}
 		current, getErr = serverByIDTx(ctx, transaction, serverID)
@@ -310,7 +323,7 @@ func (repository *Repository) Delete(ctx context.Context, serverID, expectedRevi
 			return operationErr
 		}
 		result = DeleteResult{Server: current, Operation: &operation}
-		return nil
+		return audit.MutationTx(ctx, transaction, nowValue, "server", "delete", contract.AuditTarget{Type: "server", ID: serverID})
 	})
 	return result, mapMutationError(err)
 }
@@ -403,7 +416,7 @@ func checkEnabledCapacity(ctx context.Context, transaction *sql.Tx) error {
 
 const serverSelect = `
 	SELECT i.insertion_sequence, s.id, i.namespace, s.display_name, s.desired_state,
-	       s.desired_revision, s.transport_json, s.created_at, s.updated_at, s.deleted_at
+	       s.desired_revision, s.transport_json, s.created_at, s.updated_at, s.deleted_at, s.audit_cause
 	FROM servers s JOIN server_identities i ON i.id = s.id`
 
 func serverByIDTx(ctx context.Context, transaction *sql.Tx, serverID string) (Server, error) {
@@ -423,7 +436,7 @@ func scanServer(row scanner) (Server, error) {
 	var state string
 	var revision int64
 	var transport sql.NullString
-	var deletedAt sql.NullString
+	var deletedAt, cause sql.NullString
 	if err := row.Scan(
 		&server.InsertionSequence,
 		&server.ID,
@@ -435,8 +448,16 @@ func scanServer(row scanner) (Server, error) {
 		&server.CreatedAt,
 		&server.UpdatedAt,
 		&deletedAt,
+		&cause,
 	); err != nil {
 		return Server{}, err
+	}
+	if cause.Valid {
+		var err error
+		server.Cause, err = audit.DecodeCause(cause.String)
+		if err != nil {
+			return Server{}, err
+		}
 	}
 	if _, err := parseTime(server.CreatedAt); err != nil {
 		return Server{}, fmt.Errorf("parse server creation time: %w", err)

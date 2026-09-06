@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
@@ -19,6 +20,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRefreshAuditFencesNetworkAndReportsUnsettledInstallation(t *testing.T) {
+	for _, phase := range []string{"attempt", "outcome", ""} {
+		t.Run(phase, func(t *testing.T) {
+			recorder := &effectAuditRecorder{refusePhase: phase}
+			operation := &refreshOperationFake{token: mustTokenBytes(t, refreshGeneration(contract.TokenEndpointAuthNone))}
+			requester := &refreshRequesterFake{status: 200, header: http.Header{"Content-Type": []string{contract.MediaTypeJSON}}, body: []byte(`{"access_token":"new-access","token_type":"Bearer","refresh_token":"new-refresh"}`)}
+			service := newRefreshService(refreshStoreFake{prepared: refreshPrepared(contract.TokenEndpointAuthNone), auditHook: recorder.record}, &refreshCoordinatorFake{operation: operation}, refreshResolverFake{graph: refreshGraph()}, requester, refreshServerID, func() time.Time { return refreshNow }, nil, nil)
+			credential := contract.AuditCredential{ID: refreshServerID, Fingerprint: "0123456789abcdef"}
+			_, err := service.Refresh(audit.WithOperator(t.Context(), credential, credential.ID), RefreshRequest{ServerID: refreshServerID})
+			if phase == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+			if phase == "attempt" {
+				assert.Zero(t, requester.calls)
+				assert.Empty(t, operation.installed)
+			} else {
+				assert.Equal(t, 1, requester.calls)
+				assert.NotEmpty(t, operation.installed)
+			}
+			recorder.assertEvidence(t, "refresh", credential)
+		})
+	}
+}
 
 func TestRefreshServiceSingleFlightUsesExactPublicFormAndDistinctRotation(t *testing.T) {
 	old := refreshGeneration(contract.TokenEndpointAuthNone)
@@ -190,7 +217,17 @@ func refreshGraph() Graph {
 	return Graph{Resource: "https://resource.example/mcp", Issuer: "https://issuer.example", TokenEndpoint: "https://issuer.example/token", TokenEndpointAuthMethodsSupported: []string{"none", "client_secret_basic", "client_secret_post"}, trustedOrigins: map[string]struct{}{}}
 }
 
-type refreshStoreFake struct{ prepared servers.OAuthRefreshContext }
+type refreshStoreFake struct {
+	prepared  servers.OAuthRefreshContext
+	auditHook func(contract.AuditEvent) error
+}
+
+func (store refreshStoreFake) RecordOAuthEvent(_ context.Context, event contract.AuditEvent) error {
+	if store.auditHook != nil {
+		return store.auditHook(event)
+	}
+	return nil
+}
 
 func (store refreshStoreFake) PrepareOAuthRefresh(context.Context, string) (servers.OAuthRefreshContext, error) {
 	return store.prepared, nil

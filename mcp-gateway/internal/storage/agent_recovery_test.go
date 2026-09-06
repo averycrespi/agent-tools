@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,6 +111,17 @@ func TestAgentCredentialStoppedRecoveryInvalidatesOnlyExactCurrentCandidate(t *t
 
 			_, err = VerifyCurrent(ctx, root)
 			require.NoError(t, err)
+			events := readStoppedAudit(t, root, contract.AuditFilters{Category: "agent_credential", Action: "invalidate"})
+			if test.name == "current" {
+				require.Len(t, events, 2)
+				for _, event := range events {
+					assert.Equal(t, contract.AuditOffline, event.Actor.Type)
+					assert.Nil(t, event.Initiator)
+					assert.Equal(t, recoveryCredentialID, event.Target.ID)
+				}
+			} else {
+				assert.Empty(t, events)
+			}
 			if !test.insertPrincipal {
 				return
 			}

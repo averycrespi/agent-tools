@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -71,7 +72,10 @@ func (repository *Repository) CreatePrincipal(ctx context.Context, request Creat
 			return err
 		}
 		creation = contract.PrincipalCreation{Principal: principal, DefaultGrant: grant}
-		return nil
+		if err := audit.MutationTx(ctx, transaction, now, "principal", "create", contract.AuditTarget{Type: "principal", ID: principalID}); err != nil {
+			return err
+		}
+		return audit.MutationTx(audit.WithSystem(ctx), transaction, now, "grant", "create", contract.AuditTarget{Type: "grant", ID: grantID})
 	})
 	return creation, repository.mapMutationError(err)
 }
@@ -138,7 +142,15 @@ func (repository *Repository) PatchPrincipal(ctx context.Context, principalID st
 			}
 		}
 		updated, err = principalByIDTx(ctx, transaction, principalID)
-		return err
+		if err != nil {
+			return err
+		}
+		if disabling && current.Credential != nil {
+			if err := audit.MutationTx(audit.WithSystem(ctx), transaction, repository.clock.Now(), "agent_credential", "invalidate", contract.AuditTarget{Type: "agent_credential", ID: current.Credential.ID}); err != nil {
+				return err
+			}
+		}
+		return audit.MutationTx(ctx, transaction, repository.clock.Now(), "principal", "update", contract.AuditTarget{Type: "principal", ID: principalID})
 	})
 	return updated, repository.mapMutationError(err)
 }

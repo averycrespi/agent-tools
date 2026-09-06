@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
@@ -32,6 +33,7 @@ type RefreshResult struct {
 }
 
 type refreshStore interface {
+	oauthAuditRecorder
 	PrepareOAuthRefresh(context.Context, string) (servers.OAuthRefreshContext, error)
 	OAuthRefreshAuthorityCallback(servers.OAuthRefreshFence) (keyring.AuthorityCallback, error)
 }
@@ -200,6 +202,7 @@ func (service *RefreshService) runRefresh(ctx context.Context, request RefreshRe
 }
 
 func (service *RefreshService) refresh(ctx context.Context, request RefreshRequest, expected *servers.OAuthRefreshFence, notify bool) (RefreshResult, error) {
+	ctx = audit.WithSystem(ctx)
 	prepared, err := service.store.PrepareOAuthRefresh(ctx, request.ServerID)
 	if err == nil && expected != nil && prepared.Fence != *expected {
 		err = servers.ErrStaleRevision
@@ -220,7 +223,7 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 		state = func(string, contract.ServerCredentialState, bool) {}
 	}
 	var result RefreshResult
-	err = service.coordinator.WithOperation(ctx, func(operation refreshOperation) error {
+	err = service.coordinator.WithOperation(ctx, func(operation refreshOperation) (effectErr error) {
 		oldBytes, active, err := operation.ReadActive(ctx, tokenNamespace)
 		if err != nil {
 			return err
@@ -257,6 +260,22 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			state(request.ServerID, contract.ServerCredentialReady, false)
 			return err
 		}
+		attempt, err := beginOAuthEffect(ctx, service.store, service.now(), "refresh", contract.AuditTarget{Type: "server", ID: request.ServerID})
+		if err != nil {
+			clear(body)
+			state(request.ServerID, contract.ServerCredentialReady, false)
+			return err
+		}
+		defer func() {
+			outcome := "succeeded"
+			if effectErr != nil {
+				outcome = "unknown"
+			}
+			if err := finishOAuthEffect(ctx, service.store, service.now(), attempt, outcome); err != nil {
+				result = RefreshResult{}
+				effectErr = errors.Join(effectErr, err)
+			}
+		}()
 		handed := false
 		status, responseHeader, responseBody, requestErr := service.requester.Request(ctx, graph.TokenEndpoint, graph.AllowsRestrictedEndpoint(graph.TokenEndpoint), header, body, limit("oauth_response_body_bytes"), func() { handed = true })
 		clear(body)

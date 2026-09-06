@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
@@ -53,6 +54,7 @@ type FlowRequest struct {
 }
 
 type flowStore interface {
+	oauthAuditRecorder
 	CreateAuthFlow(context.Context, servers.AuthFlowCreateRequest) (servers.AuthFlowCreateResult, error)
 	Authority(context.Context, string) (servers.AuthorityMetadata, error)
 	BeginAuthFlowExchange(context.Context, servers.OAuthTokenFence) (servers.AuthFlow, error)
@@ -83,6 +85,7 @@ type tokenSecretStore interface {
 }
 
 type flowBundle struct {
+	cause              audit.Cause
 	serverID           string
 	flowID             string
 	desiredRevision    string
@@ -219,7 +222,7 @@ func (service *FlowService) StageStepUp(serverID string, challengeMetadata, prio
 	return nil
 }
 
-func (service *FlowService) Create(ctx context.Context, request FlowRequest) (contract.AuthFlowCreation, error) {
+func (service *FlowService) Create(ctx context.Context, request FlowRequest) (creation contract.AuthFlowCreation, resultErr error) {
 	if service == nil || service.store == nil || service.resolver == nil || service.registrar == nil || service.entropy == nil || service.now == nil {
 		return contract.AuthFlowCreation{}, ErrFlowRejected
 	}
@@ -231,6 +234,22 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (co
 		return contract.AuthFlowCreation{}, err
 	}
 	service.removeFlowIDs(prepared.SupersededIDs)
+	ctx = audit.WithSystem(audit.InheritCause(ctx, prepared.Flow.Cause))
+	attempt, err := beginOAuthEffect(ctx, service.store, service.now(), "prepare", contract.AuditTarget{Type: "auth_flow", ID: prepared.Flow.ID})
+	if err != nil {
+		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticAuthorizationRequest)
+	}
+	defer func() {
+		outcome := "succeeded"
+		if resultErr != nil {
+			outcome = "unknown"
+		}
+		if err := finishOAuthEffect(ctx, service.store, service.now(), attempt, outcome); err != nil {
+			service.removeFlowIDs([]string{prepared.Flow.ID})
+			creation = contract.AuthFlowCreation{}
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 	configuration := prepared.Configuration
 	registrationConfig := configuration.Authentication.Registration
 	var desiredIssuer *string
@@ -278,6 +297,7 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (co
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	bundle := flowBundle{
+		cause:    audit.Capture(ctx),
 		serverID: prepared.Flow.ServerID, flowID: prepared.Flow.ID, desiredRevision: prepared.Flow.TargetDesiredRevision,
 		authority: boundAuthority, registration: registration, graph: graph, state: state, verifier: verifier,
 		requestedScopes: append([]string(nil), scopes...), issuerResponseUsed: graph.AuthorizationResponseIssuerParameterUsed,
@@ -460,6 +480,31 @@ func buildAuthorizationURL(endpoint, clientID, callback, resource, state, verifi
 		return "", ErrFlowRejected
 	}
 	return result, nil
+}
+
+type oauthAuditRecorder interface {
+	RecordOAuthEvent(context.Context, contract.AuditEvent) error
+}
+
+func beginOAuthEffect(ctx context.Context, recorder oauthAuditRecorder, now time.Time, action string, target contract.AuditTarget) (contract.AuditEvent, error) {
+	attempt, err := audit.NewAttempt(audit.WithSystem(ctx), now, "oauth", action, target)
+	if err != nil {
+		return contract.AuditEvent{}, err
+	}
+	if err := recorder.RecordOAuthEvent(ctx, attempt); err != nil {
+		return contract.AuditEvent{}, err
+	}
+	return attempt, nil
+}
+
+func finishOAuthEffect(ctx context.Context, recorder oauthAuditRecorder, now time.Time, attempt contract.AuditEvent, result string) error {
+	outcome, err := audit.Outcome(attempt, now, result)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), contract.SQLiteBusyDeadline)
+	defer cancel()
+	return recorder.RecordOAuthEvent(ctx, outcome)
 }
 
 func authFlowResource(flow servers.AuthFlow) contract.ServerAuthFlow {

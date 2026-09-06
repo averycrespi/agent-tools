@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,9 @@ import (
 	"path/filepath"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/grantrequests"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -25,6 +28,7 @@ const (
 	restoreFaultAfterRekey        restoreFaultPoint = "after_rekey"
 	restoreFaultAfterCheckpoint   restoreFaultPoint = "after_checkpoint"
 	restoreFaultBeforeInstall     restoreFaultPoint = "before_install"
+	restoreFaultAfterInstall      restoreFaultPoint = "after_install"
 )
 
 type RestoreOptions struct {
@@ -38,6 +42,7 @@ type RestoreOptions struct {
 
 // Restore validates and rekeys one complete backup generation while holding stopped-process ownership.
 func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, error) {
+	ctx = audit.WithOffline(ctx)
 	if options.Sink == nil || options.Clock == nil || options.Entropy == nil || !backupIDPattern.MatchString(options.BackupID) {
 		return storage.Identity{}, ErrInvalidArtifact
 	}
@@ -108,6 +113,14 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	if err := grantrequests.ValidateStartup(ctx, replacement, authority, targets); err != nil {
 		return storage.Identity{}, err
 	}
+	attempt, err := audit.NewAttempt(audit.WithOffline(ctx), options.Clock.Now(), "backup", "restore", contract.AuditTarget{Type: "backup", ID: options.BackupID})
+	if err != nil {
+		return storage.Identity{}, err
+	}
+	ctx = audit.WithCorrelation(audit.WithOffline(ctx), attempt.CorrelationID)
+	if err := replacement.Mutate(ctx, func(tx *sql.Tx) error { return audit.ReplaceHistoryTx(ctx, tx, attempt) }); err != nil {
+		return storage.Identity{}, err
+	}
 	if err := authorization.InvalidateStagedCredentials(ctx, replacement, targets); err != nil {
 		return storage.Identity{}, err
 	}
@@ -151,6 +164,12 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 		return storage.Identity{}, err
 	}
 	cleanup = false
+	if err := injectRestoreFault(options.fault, restoreFaultAfterInstall); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := recordInstalledRestore(ctx, ownership, options.Clock, attempt); err != nil {
+		return storage.Identity{}, err
+	}
 	if err := storage.ClearVerifiedMarker(ownership, identity.InstallationID); err != nil {
 		return storage.Identity{}, err
 	}
@@ -158,6 +177,28 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 		return storage.Identity{}, err
 	}
 	return identity, nil
+}
+
+func recordInstalledRestore(ctx context.Context, ownership *gatewaypaths.Ownership, clock admin.Clock, attempt contract.AuditEvent) error {
+	installed, err := storage.OpenReplacement(ctx, ownership, ownership.Layout().Database)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = installed.Close() }()
+	outcome, err := audit.Outcome(attempt, clock.Now(), "succeeded")
+	if err != nil {
+		return err
+	}
+	if err := installed.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := audit.AppendTx(ctx, tx, outcome)
+		return err
+	}); err != nil {
+		return err
+	}
+	if err := installed.Checkpoint(ctx); err != nil {
+		return err
+	}
+	return installed.Close()
 }
 
 func verifyReplacementDomains(

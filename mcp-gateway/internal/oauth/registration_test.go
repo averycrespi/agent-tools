@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -40,10 +41,18 @@ func (requester *registrationRequester) Request(_ context.Context, rawURL string
 }
 
 type registrationStoreFake struct {
+	auditHook func(contract.AuditEvent) error
 	published []servers.OAuthRegistrationAuthority
 	callback  keyring.AuthorityCallback
 	read      servers.OAuthRegistrationAuthority
 	err       error
+}
+
+func (store *registrationStoreFake) RecordOAuthEvent(_ context.Context, event contract.AuditEvent) error {
+	if store.auditHook != nil {
+		return store.auditHook(event)
+	}
+	return nil
 }
 
 func (store *registrationStoreFake) PublishPublicRegistration(_ context.Context, _ servers.RegistrationFence, registration servers.OAuthRegistrationAuthority) (servers.OAuthRegistrationAuthority, error) {
@@ -80,6 +89,33 @@ func (publisher *secretPublisherFake) ReplaceFenced(_ context.Context, _ keyring
 	publisher.calls++
 	publisher.secret = append([]byte(nil), secret...)
 	return keyring.CutoverResult{Revision: "1"}, publisher.err
+}
+
+func TestRegistrationAuditFencesNetworkAndReportsUnsettledPublication(t *testing.T) {
+	for _, phase := range []string{"attempt", "outcome", ""} {
+		t.Run(phase, func(t *testing.T) {
+			recorder := &effectAuditRecorder{refusePhase: phase}
+			store := &registrationStoreFake{auditHook: recorder.record}
+			requester := &registrationRequester{status: 201, header: http.Header{"Content-Type": []string{contract.MediaTypeJSON}}, body: dynamicResponseJSON("client", contract.TokenEndpointAuthNone, "", 0)}
+			registrar := newRegistrar(requester, store, &secretPublisherFake{}, refreshServerID, func() time.Time { return registrationTime }, func() bool { return true })
+			credential := contract.AuditCredential{ID: refreshServerID, Fingerprint: "0123456789abcdef"}
+			result, err := registrar.Register(audit.WithOperator(t.Context(), credential, credential.ID), registrationRequest(registrationGraph([]string{"none"}), contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic}))
+			if phase == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Empty(t, result.Revision)
+			}
+			if phase == "attempt" {
+				assert.Empty(t, requester.requests)
+				assert.Empty(t, store.published)
+			} else {
+				assert.Len(t, requester.requests, 1)
+				assert.Len(t, store.published, 1)
+			}
+			recorder.assertEvidence(t, "register", credential)
+		})
+	}
 }
 
 func TestStaticRegistrationPublishesWithoutNetworkOrSecret(t *testing.T) {
