@@ -13,6 +13,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGrantDisplayNamesUsesCallerTransaction(t *testing.T) {
+	repository, store, _ := newRepository(t, new(sequenceReader))
+	current := mustCreateServer(t, repository, "label-current", false)
+	deleted := mustCreateServer(t, repository, "label-deleted", false)
+	_, err := repository.Delete(context.Background(), deleted.ID, deleted.DesiredRevision)
+	require.NoError(t, err)
+	require.NoError(t, store.View(context.Background(), func(tx *sql.Tx) error {
+		names, err := repository.GrantDisplayNamesTx(context.Background(), tx)
+		require.NoError(t, err)
+		require.Equal(t, "Gateway self-service tools", names[contract.SyntheticServerID])
+		require.Equal(t, current.DisplayName, names[current.ID])
+		require.Equal(t, deleted.DisplayName, names[deleted.ID])
+		return nil
+	}))
+	_, err = repository.GrantDisplayNamesTx(context.Background(), nil)
+	require.ErrorIs(t, err, ErrStorageUnavailable)
+}
+
 func TestValidateGrantTargetTxDistinguishesSyntheticCurrentMissingAndDeleted(t *testing.T) {
 	repository, store, _ := newRepository(t, new(sequenceReader))
 	current := mustCreateServer(t, repository, "grant-current", false)

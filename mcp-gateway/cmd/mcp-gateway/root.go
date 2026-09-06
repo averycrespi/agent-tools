@@ -219,6 +219,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 		GrantRequests: controlAPI.GrantRequests,
 		Invocations:   controlAPI.Invocations,
 		Audit:         controlAPI.Audit,
+
+		AuthorizationCollections: controlAPI.AuthorizationCollections,
+
 		GrantTarget: func(ctx context.Context, transaction *sql.Tx, serverID string) (bool, error) {
 			_, validateErr := serverRepository.ValidateGrantTargetTx(ctx, transaction, serverID)
 			if errors.Is(validateErr, serverdomain.ErrNotFound) {

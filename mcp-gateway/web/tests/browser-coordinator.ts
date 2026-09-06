@@ -9,6 +9,7 @@ import {
   type Response as PlaywrightResponse,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { exerciseCollectionPagination } from "./collection-pagination.ts";
 import { createHash } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
@@ -807,6 +808,15 @@ async function runFragmentStorage(
     ],
     ["#/catalog", "#/catalog"],
     ["#/principals", "#/principals"],
+    [
+      "#/access/principals?filter_name=Caf%C3%A9&filter_visibility=all&filter_state=disabled&direction=descending&sort=name",
+      "#/principals?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
+    ],
+    [
+      "#/grants?filter_target=Far&filter_state=expired&filter_principal=Agent&filter_identity=Policy&filter_effect=deny&direction=ascending&sort=principal",
+      "#/grants?sort=principal&direction=ascending&filter_effect=deny&filter_identity=Policy&filter_principal=Agent&filter_state=expired&filter_target=Far",
+    ],
+    ["#/grants?sort=description", "#/grants?sort=description"],
     ["#/principals/new", "#/principals/new"],
     [`#/principals/${idA}`, `#/principals/${idA}`],
     ["#/access/principals", "#/principals"],
@@ -888,6 +898,16 @@ async function runFragmentStorage(
     `#/grants?principal_id=${idA}`,
     `#/grants?server_id=${idB}`,
     `#/access/grants?principal_id=${idA}`,
+    "#/principals?direction=ascending",
+    "#/principals?sort=unknown",
+    "#/principals?filter_unknown=value",
+    "#/principals?filter_state=expired",
+    "#/principals?filter_name=%0A",
+    `#/principals?filter_name=${encodeURIComponent("é".repeat(129))}`,
+    "#/grants?filter_effect=ALLOW",
+    "#/grants?sort=description&sort=id",
+    "#/grants?cursor=opaque",
+    "#/grants?filter_identity=%E0%A4%A",
     "#/requests?state=pending",
     `#/requests?principal_id=${idA}`,
     `#/invocations?principal_id=${idA}`,
@@ -2634,6 +2654,9 @@ async function runVisualAccessibilityPrivacyCanary(
   await page.locator('[data-testid="theme-preference"]').selectOption("dark");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
+  await page.waitForFunction(
+    () => document.documentElement.dataset.theme === "dark",
+  );
   const axe = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
@@ -3494,8 +3517,14 @@ async function runAdminCredentials(
       { exact: true },
     )
     .waitFor();
+  const logoutResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/admin-sessions/current" &&
+      response.request().method() === "DELETE",
+  );
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await logoutResponse;
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,
@@ -3506,6 +3535,26 @@ async function runAdminCredentials(
   );
   process.stdout.write(
     `${JSON.stringify({ event: "admin_credentials_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, revokes })}\n`,
+  );
+}
+
+async function waitForCollectionRows(
+  page: Page,
+  kind: "principal" | "grant",
+  count: number,
+): Promise<void> {
+  await page.waitForFunction(
+    ({ kind, count }) => {
+      const table = document.querySelector(
+        `[data-testid="${kind}s-view"] .collection-table`,
+      );
+      return (
+        table !== null &&
+        table.getAttribute("aria-busy") !== "true" &&
+        table.querySelectorAll(`[data-testid="${kind}-row"]`).length === count
+      );
+    },
+    { kind, count },
   );
 }
 
@@ -3558,7 +3607,18 @@ async function runPrincipals(
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
-      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+      [...query.keys()].some(
+        (key) =>
+          ![
+            "limit",
+            "cursor",
+            "sort",
+            "direction",
+            "name",
+            "state",
+            "visibility",
+          ].includes(key),
+      )
     )
       fail("principal list request changed shape");
     if (query.get("cursor") === "principal-stale") {
@@ -3574,24 +3634,33 @@ async function runPrincipals(
       });
       return;
     }
+    const search = query.get("name") ?? "";
+    const items = [
+      current,
+      principal(secondID, "Disabled agent", "disabled", "all", "4"),
+    ].filter((item) =>
+      search === "Build agnt"
+        ? item.id === firstID
+        : item.display_name.toLowerCase().includes(search.toLowerCase()) ||
+          item.id.includes(search),
+    );
+    items.sort((a, b) => a.display_name.localeCompare(b.display_name));
+    if (query.get("direction") === "descending") items.reverse();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(
-        query.get("cursor") === "principal-next"
+      body: JSON.stringify({
+        items,
+        next_cursor:
+          !staleListRestarted && search === "" ? "principal-stale" : null,
+        ...(query.has("sort")
           ? {
-              items: [current],
-              next_cursor: null,
+              total_count:
+                items.length + (!staleListRestarted && search === "" ? 1 : 0),
+              offset: 0,
             }
-          : {
-              items: [
-                principal(secondID, "Disabled agent", "disabled", "all", "4"),
-              ],
-              next_cursor: staleListRestarted
-                ? "principal-next"
-                : "principal-stale",
-            },
-      ),
+          : {}),
+      }),
     });
   });
   await page.route(`${baseURL}/api/v1/principals`, async (route) => {
@@ -3759,8 +3828,18 @@ async function runPrincipals(
       .getAttribute("aria-sort")) !== "ascending"
   )
     fail(`principals did not default to Name ascending: ${principalNames}`);
+  if (staleListRestarted) fail("principal list traversed without navigation");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page
+    .getByText(
+      "The previous page expired or changed. Restarted at the first page.",
+      { exact: true },
+    )
+    .waitFor();
+  await waitForCollectionRows(page, "principal", 2);
   const principalSearch = page.getByLabel("Name or ID", { exact: true });
   await principalSearch.fill("Build agnt");
+  await waitForCollectionRows(page, "principal", 1);
   if (
     (await page.locator('[data-testid="principal-row"]').count()) !== 1 ||
     !(await page.locator('[data-testid="principal-row"]').innerText()).includes(
@@ -3769,9 +3848,11 @@ async function runPrincipals(
   )
     fail("principal typo search did not match");
   await principalSearch.fill(secondID.toLowerCase());
+  await waitForCollectionRows(page, "principal", 0);
   if ((await page.locator('[data-testid="principal-row"]').count()) !== 0)
     fail("principal ID search was not literal");
   await principalSearch.fill(secondID);
+  await waitForCollectionRows(page, "principal", 1);
   if (
     (await page.locator('[data-testid="principal-row"]').count()) !== 1 ||
     !(await page.locator('[data-testid="principal-row"]').innerText()).includes(
@@ -3780,6 +3861,13 @@ async function runPrincipals(
   )
     fail("principal ID search did not match");
   await page.getByRole("button", { name: "Reset" }).click();
+  await waitForCollectionRows(page, "principal", 2);
+  await exerciseCollectionPagination(page, undefined, async () => {
+    await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+    await page.locator('[data-testid="sign-in-submit"]').click();
+    await waitForLifecycle(page, "authenticated");
+  });
+  await waitForCollectionRows(page, "principal", 2);
   for (const phrase of [
     "Permanent agent principals",
     "Compare permanent identity",
@@ -4222,8 +4310,14 @@ async function runPrincipalCredentials(
       { exact: true },
     )
     .waitFor();
+  const logoutResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/admin-sessions/current" &&
+      response.request().method() === "DELETE",
+  );
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
+  await logoutResponse;
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,
@@ -4655,7 +4749,21 @@ async function runGrantReadsCreate(
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
-      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+      [...query.keys()].some(
+        (key) =>
+          ![
+            "limit",
+            "cursor",
+            "representation",
+            "sort",
+            "direction",
+            "identity",
+            "principal",
+            "target",
+            "effect",
+            "state",
+          ].includes(key),
+      )
     )
       fail("grant list filters changed shape");
     const cursor = query.get("cursor");
@@ -4675,14 +4783,35 @@ async function runGrantReadsCreate(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(
-        cursor === "grant-next"
-          ? { items: [expired], next_cursor: null }
-          : {
-              items: [active],
-              next_cursor: staleRestarted ? "grant-next" : "grant-stale",
-            },
-      ),
+      body: JSON.stringify({
+        items: (query.get("identity") === "Reportng access"
+          ? [active]
+          : [active, expired]
+        ).map((grant) =>
+          query.get("representation") === "table"
+            ? {
+                grant,
+                principal_display_name: "Automation agent",
+                server_display_name: "Reporting server",
+              }
+            : grant,
+        ),
+        next_cursor:
+          staleRestarted || query.get("identity") !== null
+            ? null
+            : "grant-stale",
+        ...(query.get("representation") === "table"
+          ? {
+              total_count:
+                query.get("identity") === "Reportng access"
+                  ? 1
+                  : staleRestarted
+                    ? 2
+                    : 3,
+              offset: 0,
+            }
+          : {}),
+      }),
     });
   });
   await page.route("**/api/v1/grants/*", async (route) => {
@@ -4818,8 +4947,18 @@ async function runGrantReadsCreate(
     () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
+  if (staleRestarted) fail("grant list traversed without navigation");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page
+    .getByText(
+      "The previous page expired or changed. Restarted at the first page.",
+      { exact: true },
+    )
+    .waitFor();
+  await waitForCollectionRows(page, "grant", 2);
   const grantSearch = page.getByLabel("Description or ID", { exact: true });
   await grantSearch.fill("Reportng access");
+  await waitForCollectionRows(page, "grant", 1);
   if (
     (await page.locator('[data-testid="grant-row"]').count()) !== 1 ||
     !(await page.locator('[data-testid="grant-row"]').innerText()).includes(
@@ -4828,6 +4967,7 @@ async function runGrantReadsCreate(
   )
     fail("grant typo search did not match");
   await page.getByRole("button", { name: "Reset" }).click();
+  await waitForCollectionRows(page, "grant", 2);
   for (const phrase of [
     "Reporting access",
     "Restricted access",
@@ -5661,7 +5801,30 @@ async function runGrantCorrection(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ items: [...grants.values()], next_cursor: null }),
+      body: JSON.stringify({
+        items: [...grants.values()].map((grant) =>
+          new URL(route.request().url()).searchParams.get("representation") ===
+          "table"
+            ? {
+                grant,
+                principal_display_name: `Agent ${principalIDs.indexOf(grant.principal_id) + 1}`,
+                server_display_name:
+                  grant.server_id === zero
+                    ? "Gateway self-service tools"
+                    : "Correction server",
+              }
+            : grant,
+        ),
+        next_cursor: null,
+        ...(new URL(route.request().url()).searchParams.get(
+          "representation",
+        ) === "table"
+          ? {
+              total_count: grants.size,
+              offset: 0,
+            }
+          : {}),
+      }),
     });
   });
   await page.route("**/api/v1/grants/*", async (route) => {
@@ -12988,15 +13151,16 @@ try {
           value.includes("server responded with a status of 400"),
         )) ||
       (input.scenario === "principals" &&
-        consoleFailures.length >= 2 &&
-        consoleFailures.length <= 3 &&
+        consoleFailures.length === 8 &&
         consoleFailures.filter((value) =>
           value.includes("server responded with a status of 409"),
-        ).length ===
-          consoleFailures.length - 1 &&
-        consoleFailures.some((value) =>
+        ).length === 5 &&
+        consoleFailures.filter((value) =>
+          value.includes("server responded with a status of 503"),
+        ).length === 2 &&
+        consoleFailures.filter((value) =>
           value.includes("server responded with a status of 412"),
-        )) ||
+        ).length === 1) ||
       (input.scenario === "principal-credentials" &&
         consoleFailures.length === 1 &&
         consoleFailures.some((value) =>

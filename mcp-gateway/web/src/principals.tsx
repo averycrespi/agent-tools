@@ -19,7 +19,12 @@ import {
 import type { ProtectedContext, SessionClient } from "./session";
 import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
 import { UserTime } from "./time";
-import type { ViewCoordinator, ViewSnapshot } from "./view";
+import {
+  readCollectionPage,
+  useCollectionPage,
+  type ViewCoordinator,
+  type ViewSnapshot,
+} from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const decimal = /^(0|[1-9][0-9]*)$/;
@@ -899,14 +904,13 @@ export function Principals({
   const newPrincipal = segments[1] === "new";
   const principalID =
     segments.length === 2 && !newPrincipal ? segments[1] : undefined;
-  const [items, setItems] = useState<Principal[]>();
   const [detail, setDetail] = useState<PrincipalDetail>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     let current = true;
     setError(undefined);
-    if (newPrincipal)
+    if (newPrincipal || principalID === undefined)
       return () => {
         current = false;
       };
@@ -917,20 +921,6 @@ export function Principals({
       void readPrincipal(session, principalID)
         .then((value) => {
           if (current && value !== undefined) setDetail(value);
-        })
-        .catch((caught: unknown) => {
-          if (current)
-            setError(
-              caught instanceof Error
-                ? caught.message
-                : "Principal data is unavailable.",
-            );
-        });
-    } else {
-      setItems(undefined);
-      void readPrincipals(session)
-        .then((value) => {
-          if (current) setItems(value);
         })
         .catch((caught: unknown) => {
           if (current)
@@ -952,7 +942,7 @@ export function Principals({
         <PrincipalEditor mutations={mutations} onRefresh={onRefresh} />
       </div>
     );
-  if (error !== undefined)
+  if (principalID !== undefined && error !== undefined)
     return (
       <StateNotice state="error" title="Principal data unavailable">
         <p>{error}</p>
@@ -1024,8 +1014,46 @@ export function Principals({
       </div>
     );
   }
-  if (items === undefined)
-    return <StateNotice state="loading" title="Loading principals" />;
+  return (
+    <PrincipalCollection session={session} resolved={resolved} view={view} />
+  );
+}
+
+function PrincipalCollection({
+  session,
+  resolved,
+  view,
+}: {
+  session: SessionClient;
+  resolved: ResolvedLocation;
+  view: ViewSnapshot;
+}) {
+  const navigate = useUnsavedChanges(false);
+  const { items, controls } = useCollectionPage<Principal>(
+    session,
+    resolved,
+    view,
+    (query, cursor, signal) => {
+      const params = new URLSearchParams({
+        limit: "50",
+        sort: query.sort ?? "name",
+        direction: query.direction ?? "ascending",
+      });
+      for (const key of ["name", "state", "visibility"]) {
+        const value = query[`filter_${key}`];
+        if (value !== undefined) params.set(key, value);
+      }
+      if (cursor !== null) params.set("cursor", cursor);
+      return readCollectionPage(
+        session,
+        `/api/v1/principals?${params}`,
+        decodePrincipal,
+        signal,
+      );
+    },
+    navigate,
+    { key: "name", direction: "ascending" },
+  );
   return (
     <div class="domain-view" data-testid="principals-view">
       <div class="collection-toolbar">
@@ -1038,88 +1066,87 @@ export function Principals({
         </a>
       </div>
       <section class="panel domain-panel" aria-labelledby="page-title">
-        {items.length === 0 ? (
-          <StateNotice state="empty" title="No principals" />
-        ) : (
-          <CollectionTable
-            caption="Principal identities"
-            items={items}
-            rowKey={(principal) => principal.id}
-            initialSort={{ key: "name", direction: "ascending" }}
-            rowTestID="principal-row"
-            filters={[
-              {
-                key: "name",
-                label: "Name or ID",
-                type: "text",
-                value: (principal) => principal.displayName,
-                literalValues: (principal) => [principal.id],
-              },
-              {
-                key: "state",
-                label: "Status",
-                type: "select",
-                value: (principal) => principal.state,
-                options: [
-                  { value: "active", label: "Active" },
-                  { value: "disabled", label: "Disabled" },
-                ],
-              },
-              {
-                key: "visibility",
-                label: "Visibility",
-                type: "select",
-                value: (principal) => principal.visibility,
-                options: [
-                  { value: "requestable", label: "Requestable" },
-                  { value: "allowed-only", label: "Allowed only" },
-                  { value: "all", label: "All" },
-                ],
-              },
-            ]}
-            columns={[
-              {
-                key: "name",
-                label: "Name",
-                sortValue: (principal) => principal.displayName,
-                render: (principal) => (
-                  <a
-                    class="primary-table-link"
-                    href={`#/principals/${principal.id}`}
-                  >
-                    {principal.displayName}
-                  </a>
-                ),
-              },
-              {
-                key: "id",
-                label: "ID",
-                sortValue: (principal) => principal.id,
-                render: (principal) => (
-                  <a href={`#/principals/${principal.id}`}>{principal.id}</a>
-                ),
-              },
-              {
-                key: "state",
-                label: "Status",
-                sortValue: (principal) => principal.state,
-                render: (principal) => (
-                  <StatusLabel
-                    state={principal.state === "active" ? "current" : "warning"}
-                  >
-                    {principal.state === "active" ? "Active" : "Disabled"}
-                  </StatusLabel>
-                ),
-              },
-              {
-                key: "visibility",
-                label: "Visibility",
-                sortValue: (principal) => principal.visibility,
-                render: (principal) => visibilityText(principal.visibility),
-              },
-            ]}
-          />
-        )}
+        <CollectionTable
+          caption="Principal identities"
+          remote={controls}
+          itemNames={{ singular: "principal", plural: "principals" }}
+          emptyTitle="No principals"
+          items={items}
+          rowKey={(principal) => principal.id}
+          initialSort={{ key: "name", direction: "ascending" }}
+          rowTestID="principal-row"
+          filters={[
+            {
+              key: "name",
+              label: "Name or ID",
+              type: "text",
+              value: (principal) => principal.displayName,
+              literalValues: (principal) => [principal.id],
+            },
+            {
+              key: "state",
+              label: "Status",
+              type: "select",
+              value: (principal) => principal.state,
+              options: [
+                { value: "active", label: "Active" },
+                { value: "disabled", label: "Disabled" },
+              ],
+            },
+            {
+              key: "visibility",
+              label: "Visibility",
+              type: "select",
+              value: (principal) => principal.visibility,
+              options: [
+                { value: "requestable", label: "Requestable" },
+                { value: "allowed-only", label: "Allowed only" },
+                { value: "all", label: "All" },
+              ],
+            },
+          ]}
+          columns={[
+            {
+              key: "name",
+              label: "Name",
+              sortValue: (principal) => principal.displayName,
+              render: (principal) => (
+                <a
+                  class="primary-table-link"
+                  href={`#/principals/${principal.id}`}
+                >
+                  {principal.displayName}
+                </a>
+              ),
+            },
+            {
+              key: "id",
+              label: "ID",
+              sortValue: (principal) => principal.id,
+              render: (principal) => (
+                <a href={`#/principals/${principal.id}`}>{principal.id}</a>
+              ),
+            },
+            {
+              key: "state",
+              label: "Status",
+              sortValue: (principal) => principal.state,
+              render: (principal) => (
+                <StatusLabel
+                  state={principal.state === "active" ? "current" : "warning"}
+                >
+                  {principal.state === "active" ? "Active" : "Disabled"}
+                </StatusLabel>
+              ),
+            },
+            {
+              key: "visibility",
+              label: "Visibility",
+              sortValue: (principal) => principal.visibility,
+              render: (principal) => visibilityText(principal.visibility),
+            },
+          ]}
+        />
       </section>
     </div>
   );

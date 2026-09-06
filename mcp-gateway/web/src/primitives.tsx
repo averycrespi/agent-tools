@@ -7,6 +7,7 @@ import {
   useState,
 } from "preact/hooks";
 import { parseFragment, serializeLocation } from "./location";
+import type { CollectionControls } from "./view";
 
 export function containsControlCharacters(value: string): boolean {
   return /\p{Cc}/u.test(value);
@@ -256,6 +257,8 @@ export function CollectionTable<T>({
   loadingMore = false,
   onLoadMore,
   loadMoreLabel = "Load more",
+  itemNames = { singular: "item", plural: "items" },
+  remote,
 }: {
   caption: string;
   items: readonly T[];
@@ -269,17 +272,23 @@ export function CollectionTable<T>({
   loadingMore?: boolean;
   onLoadMore?: () => void;
   loadMoreLabel?: string;
+  itemNames?: { singular: string; plural: string };
+  remote?: CollectionControls;
 }) {
-  const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
+  const [localFilters, setFilterValues] = useState<Record<string, string>>(() =>
     collectionFilterValues(filters),
   );
-  const [sort, setSort] = useState(initialSort);
+  const [localSort, setSort] = useState(initialSort);
+  const filterValues = remote?.filterValues ?? localFilters;
+  const sort = remote === undefined ? localSort : remote.sort;
   useEffect(() => {
+    if (remote !== undefined) return;
     const synchronize = () => setFilterValues(collectionFilterValues(filters));
     window.addEventListener("hashchange", synchronize);
     return () => window.removeEventListener("hashchange", synchronize);
-  }, [filters]);
+  }, [filters, remote]);
   const visible = useMemo(() => {
+    if (remote !== undefined) return items;
     const filtered = items.filter((item) =>
       filters.every((filter) => {
         const selected = filterValues[filter.key]?.trim() ?? "";
@@ -306,8 +315,12 @@ export function CollectionTable<T>({
           : String(a).localeCompare(String(b));
       return sort.direction === "ascending" ? order : -order;
     });
-  }, [columns, filterValues, filters, items, sort]);
-  const changeSort = (key: string) =>
+  }, [columns, filterValues, filters, items, sort, remote]);
+  const changeSort = (key: string) => {
+    if (remote !== undefined) {
+      remote.changeSort(key);
+      return;
+    }
     setSort((current) => ({
       key,
       direction:
@@ -315,14 +328,22 @@ export function CollectionTable<T>({
           ? "descending"
           : "ascending",
     }));
+  };
   const hasActiveFilters = Object.values(filterValues).some(
     (value) => value.trim() !== "",
   );
   return (
-    <div class="collection-table">
+    <div
+      class="collection-table"
+      aria-busy={remote?.status === "loading" ? "true" : undefined}
+    >
       {filters.length > 0 && (
         <div
-          class="table-filters"
+          class={
+            remote === undefined
+              ? "table-filters"
+              : "table-filters collection-query-filters"
+          }
           role="group"
           aria-label={`${caption} filters`}
         >
@@ -337,6 +358,10 @@ export function CollectionTable<T>({
                 value={filterValues[filter.key] ?? ""}
                 onInput={(event) => {
                   const value = event.currentTarget.value;
+                  if (remote !== undefined) {
+                    remote.changeFilter(filter.key, value);
+                    return;
+                  }
                   replaceCollectionFilter(filter.key, value);
                   setFilterValues((current) => ({
                     ...current,
@@ -351,6 +376,10 @@ export function CollectionTable<T>({
                 value={filterValues[filter.key] ?? ""}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
+                  if (remote !== undefined) {
+                    remote.changeFilter(filter.key, value);
+                    return;
+                  }
                   replaceCollectionFilter(filter.key, value);
                   setFilterValues((current) => ({
                     ...current,
@@ -372,6 +401,10 @@ export function CollectionTable<T>({
             type="button"
             disabled={!hasActiveFilters}
             onClick={() => {
+              if (remote !== undefined) {
+                remote.resetFilters();
+                return;
+              }
               for (const filter of filters)
                 replaceCollectionFilter(filter.key, "");
               setFilterValues({});
@@ -379,9 +412,46 @@ export function CollectionTable<T>({
           >
             Reset
           </button>
+          {remote === undefined && (
+            <output class="table-filter-summary" aria-live="polite">
+              Showing {visible.length} of {items.length}
+              {hasMore ? " loaded" : ""}
+            </output>
+          )}
+        </div>
+      )}
+      {remote?.notice !== undefined && (
+        <StateNotice state="warning" title={remote.notice} />
+      )}
+      {remote?.error !== undefined && (
+        <StateNotice state="error" title={remote.error} />
+      )}
+      {remote !== undefined && (
+        <div class="collection-pagination">
+          <nav class="inline-actions" aria-label={`${caption} pagination`}>
+            <button
+              type="button"
+              disabled={!remote.hasPrevious}
+              onClick={remote.previous}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={!remote.hasNext}
+              onClick={remote.next}
+            >
+              Next
+            </button>
+          </nav>
           <output class="table-filter-summary" aria-live="polite">
-            Showing {visible.length} of {items.length}
-            {hasMore ? " loaded" : ""}
+            {remote.status === "loading"
+              ? "Loading…"
+              : remote.status === "error"
+                ? "Unavailable"
+                : remote.totalCount === 0
+                  ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
+                  : `Showing ${remote.offset + 1}–${remote.offset + visible.length} of ${remote.totalCount} ${hasActiveFilters ? "matching " : ""}${remote.totalCount === 1 ? itemNames.singular : itemNames.plural}`}
           </output>
         </div>
       )}
@@ -446,7 +516,23 @@ export function CollectionTable<T>({
           ))}
         </tbody>
       </ComparisonTable>
-      {visible.length === 0 && <StateNotice state="empty" title={emptyTitle} />}
+      {remote?.status === "loading" && visible.length === 0 && (
+        <StateNotice
+          state="loading"
+          title={`Loading ${caption.toLowerCase()}`}
+        />
+      )}
+      {visible.length === 0 &&
+        (remote === undefined || remote.status === "current") && (
+          <StateNotice
+            state="empty"
+            title={
+              remote !== undefined && hasActiveFilters
+                ? "No matches"
+                : emptyTitle
+            }
+          />
+        )}
       {hasMore && onLoadMore !== undefined && (
         <button type="button" disabled={loadingMore} onClick={onLoadMore}>
           {loadingMore ? "Loading…" : loadMoreLabel}

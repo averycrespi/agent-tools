@@ -137,6 +137,10 @@ jobs:
         with:
           go-version-file: go.work
           cache-dependency-path: ${{ matrix.tool }}/go.sum
+      - name: Prepare Gateway E2E build cache
+        if: matrix.tool == 'mcp-gateway'
+        timeout-minutes: 5
+        run: go -C "$TOOL" build -tags=e2e -o /dev/null ./cmd/mcp-gateway
       - run: make -C "$TOOL" test-e2e
 
   gateway-temporary:

@@ -38,14 +38,14 @@ func (repository *Repository) ListGrants(ctx context.Context, filter GrantFilter
 	}
 	var page GrantPage
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
-		snapshot := SnapshotCursor{Collection: grantCollection, PrincipalID: filter.PrincipalID, ServerID: filter.ServerID}
+		snapshot := SnapshotCursor{Collection: grantCollection, PrincipalID: filter.PrincipalID, ServerID: filter.ServerID, Expires: repository.clock.Now().Add(contract.AuthorizationCursorLifetime).Unix()}
 		if cursor == nil {
 			if err := transaction.QueryRowContext(ctx, `SELECT coalesce(max(insertion_sequence), 0) FROM grants`).Scan(&snapshot.Upper); err != nil {
 				return fmt.Errorf("capture grant insertion watermark: %w", err)
 			}
 		} else {
 			snapshot = *cursor
-			if !validCursor(snapshot, grantCollection, filter) {
+			if !repository.validCursor(snapshot, grantCollection, filter) {
 				return ErrStaleCursor
 			}
 		}
@@ -79,6 +79,7 @@ func (repository *Repository) ListGrants(ctx context.Context, filter GrantFilter
 			next := snapshot
 			next.After = sequences[limit-1]
 			next.AfterID = items[limit-1].ID
+			repository.sealCursor(&next)
 			page.Next = &next
 			items = items[:limit]
 		}

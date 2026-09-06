@@ -122,6 +122,16 @@ type Collection[T any] struct {
 	NextCursor *string `json:"next_cursor"`
 }
 
+type CollectionRange struct {
+	TotalCount int `json:"total_count"`
+	Offset     int `json:"offset"`
+}
+
+type QueryCollection[T any] struct {
+	Collection[T]
+	CollectionRange
+}
+
 type AgentCredential struct {
 	ID          string `json:"id"`
 	Fingerprint string `json:"fingerprint"`
@@ -163,6 +173,12 @@ type Grant struct {
 	ExpiresAt    *string          `json:"expires_at"`
 	State        GrantState       `json:"state"`
 	CreatedAt    string           `json:"created_at"`
+}
+
+type GrantTableItem struct {
+	Grant                Grant  `json:"grant"`
+	PrincipalDisplayName string `json:"principal_display_name"`
+	ServerDisplayName    string `json:"server_display_name"`
 }
 
 type GrantConstraintValidation struct {
