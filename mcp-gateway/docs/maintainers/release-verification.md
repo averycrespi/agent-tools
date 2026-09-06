@@ -56,6 +56,8 @@ The common real-binary runner requires a positive timeout and per-stream byte ca
 
 The retention E2E owner seeds the real 65,536-row boundary with one set-based transaction, then exercises real Gateway startup, one call, eviction, backup, events, shutdown, and private-artifact scanning. Its stopped artifact observation uses a read-only connection and the existing 65,537-row overflow bound rather than reconstructing storage authority a second time. Artifact observation is not startup/integrity evidence: production initialization, startup validation, and the dedicated integrity/migration/fault owners remain unchanged.
 
+`TestServeFirstSignalDeadlineRetainsUncleanMarker` owns the real compiled graceful-shutdown deadline, exit 7, listener closure, verified process cleanup, unclean marker, and recovery. `TestCLIServePostStartFailureOutput` in the CLI package owns human/JSON terminal-problem formatting and singular acknowledgement without waiting through that deadline again. `TestCLIServeOutputLifecycle` retains real-binary human/JSON startup and pre-start failure output; separate E2E owners retain second-signal forcing, active transport cancellation, and late-completion fencing.
+
 ## Freeze the candidate
 
 Before producing release evidence:
