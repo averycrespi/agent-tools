@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,15 @@ func (r *captureRunner) snapshot() []capturedRun {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]capturedRun(nil), r.runs...)
+}
+
+type blockingCaptureRunner struct {
+	captureRunner
+}
+
+func (r *blockingCaptureRunner) Run(ctx context.Context, handler Handler, payload []byte) RunStatus {
+	// Keep the worker occupied past its deadline until the test releases it.
+	return r.captureRunner.Run(context.WithoutCancel(ctx), handler, payload)
 }
 
 type concurrencyRunner struct {
@@ -298,19 +308,35 @@ func TestDispatcherEnforcesConcurrencyLimit(t *testing.T) {
 }
 
 func TestDispatcherDropsQueuedWorkThatExpiresBeforeStart(t *testing.T) {
-	runner := &captureRunner{started: make(chan struct{}), release: make(chan struct{})}
-	cfg := hookConfig(1)
-	d := newWithRunner(context.Background(), cfg, nil, runner)
-	d.handlers[0].Timeout = 20 * time.Millisecond
-	t.Cleanup(func() { require.NoError(t, d.Close(context.Background())) })
+	synctest.Test(t, func(t *testing.T) {
+		runner := &blockingCaptureRunner{captureRunner: captureRunner{
+			started: make(chan struct{}), release: make(chan struct{}),
+		}}
+		d := newWithRunner(context.Background(), hookConfig(1), nil, runner)
+		d.handlers[0].Timeout = 20 * time.Millisecond
+		defer func() { require.NoError(t, d.Close(context.Background())) }()
+		defer func() {
+			select {
+			case <-runner.release:
+			default:
+				close(runner.release)
+			}
+		}()
 
-	d.Observe(approvalRequest(map[string]any{"call": 1}))
-	<-runner.started
-	d.Observe(approvalRequest(map[string]any{"call": 2}))
-	time.Sleep(40 * time.Millisecond)
-	close(runner.release)
-	time.Sleep(10 * time.Millisecond)
-	require.Len(t, runner.snapshot(), 1)
+		d.Observe(approvalRequest(map[string]any{"call": 1}))
+		<-runner.started
+		d.Observe(approvalRequest(map[string]any{"call": 2}))
+		require.Equal(t, 1, len(d.queue))
+		time.Sleep(40 * time.Millisecond)
+		close(runner.release)
+		synctest.Wait()
+
+		require.Equal(t, 1, len(runner.snapshot()))
+		d.mu.Lock()
+		queuedBytes := d.queuedBytes
+		d.mu.Unlock()
+		require.Zero(t, queuedBytes)
+	})
 }
 
 func TestDispatcherLogsContainMetadataOnly(t *testing.T) {
