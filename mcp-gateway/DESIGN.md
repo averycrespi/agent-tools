@@ -40,7 +40,7 @@ If summaries disagree, the owning normative chapter controls product intent and 
 
 ## Security model
 
-- Bind only one configured numeric IPv4 loopback authority. Reject aliases, wildcard and non-loopback binds, alternate Host authorities, forwarding headers, trusted proxies, and CORS.
+- Bind only one configured numeric IPv4 loopback authority. Reject wildcard and non-loopback binds, unlisted Host authorities, forwarding headers, trusted proxies, and CORS. Explicit hostname-only `--allowed-host` entries grant reachability through trusted local forwarding, never credentials or additional browser Origin trust.
 - Own every route and method explicitly. Authenticate production MCP requests before reading or classifying their bodies.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation paths separate. Raw secrets may appear only at approved one-time sinks.
 - Treat SQLite availability and integrity as security state. Security-critical writes fail closed, uncertain durability latches storage, and recovery is stopped-process only.

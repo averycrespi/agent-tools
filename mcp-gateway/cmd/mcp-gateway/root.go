@@ -72,6 +72,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 
 func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	var dataDir, authority, output string
+	var allowedHosts []string
 	var jsonOutput bool
 	command := &cobra.Command{
 		Use:     "serve",
@@ -97,7 +98,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 				return commandFailure{}
 			}
 			phases := controlclient.NewServePhases(renderer)
-			acknowledged, err := executeServe(command, layout.Root, authority, dependencies, phases)
+			acknowledged, err := executeServe(command, layout.Root, authority, allowedHosts, dependencies, phases)
 			if err == nil {
 				return nil
 			}
@@ -110,6 +111,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	}
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
 	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
+	command.Flags().StringArrayVar(&allowedHosts, "allowed-host", nil, "additional exact ASCII DNS hostname for trusted local forwarding (repeatable; no port; does not trust browser Origins)")
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
@@ -131,7 +133,12 @@ func selectedDataDir(command *cobra.Command, local string) string {
 	return local
 }
 
-func executeServe(command *cobra.Command, dataDir, authority string, dependencies offlineDependencies, phases *controlclient.ServePhases) (bool, error) {
+func executeServe(command *cobra.Command, dataDir, authority string, allowedHosts []string, dependencies offlineDependencies, phases *controlclient.ServePhases) (bool, error) {
+	for _, host := range allowedHosts {
+		if _, ok := contract.NormalizeHostname(host); !ok {
+			return false, controlclient.NewInputError("Each --allowed-host must be an ASCII DNS hostname without a port or trailing dot.")
+		}
+	}
 	ctx := command.Context()
 	ownership, err := gatewaypaths.Acquire(dataDir)
 	if err != nil {
@@ -297,6 +304,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, dependencie
 	})
 	boundary, err = httpboundary.New(httpboundary.Options{
 		AuthenticatedProblem: apiHandler.RecordAuthenticatedProblem,
+		AllowedHosts:         allowedHosts,
 		Authority:            authority,
 		Ready:                ready.Load,
 		Draining:             draining.Load,
@@ -480,6 +488,10 @@ func serveErrorCode(err error) string {
 func serveCommandProblem(err error, acknowledged bool, dataDir string) *controlclient.Problem {
 	if acknowledged {
 		return &controlclient.Problem{Code: "serve_stopped", Title: "The Gateway stopped after startup because clean shutdown could not be confirmed. The installation remains marked unclean.", Exit: 7}
+	}
+	var inputProblem *controlclient.Problem
+	if errors.As(err, &inputProblem) {
+		return inputProblem
 	}
 	switch serveErrorCode(err) {
 	case "gateway_running":

@@ -129,7 +129,10 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 		"Zero-argument `initialize`",
 		"resolved default `<root>/admin-bearer`",
 		"there is no prompt, argv, or environment fallback",
-		"use the public canonical numeric-loopback HTTP API",
+		"use the public HTTP API at a canonical numeric-loopback or explicitly selected hostname destination",
+		"repeatable hostname-only `--allowed-host`",
+		"sole browser Origin",
+		"never recommends a hostname bind",
 		"Human output is the default",
 	} {
 		require.Contains(t, design, phrase)
