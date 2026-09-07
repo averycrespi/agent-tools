@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -23,6 +24,7 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 
 	allowedInternal := map[string]map[string]bool{
 		"internal/controlclient": {
+			"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract":   true,
 			"github.com/averycrespi/agent-tools/mcp-gateway/internal/paths":      true,
 			"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson": true,
 		},
@@ -45,7 +47,7 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 			path := filepath.Join(moduleRoot, relative, entry.Name())
 			source, err := os.ReadFile(path)
 			require.NoError(t, err)
-			parsed, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
+			parsed, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
 			require.NoError(t, err)
 			for _, imported := range parsed.Imports {
 				name, err := strconv.Unquote(imported.Path.Value)
@@ -53,6 +55,21 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 				if strings.Contains(name, "/internal/") {
 					assert.True(t, allowedInternal[relative][name], "%s imports private authority %s", entry.Name(), name)
 				}
+			}
+			if relative == "internal/controlclient" {
+				for _, imported := range parsed.Imports {
+					if strings.Trim(imported.Path.Value, "\"") == "github.com/averycrespi/agent-tools/mcp-gateway/internal/contract" {
+						assert.Nil(t, imported.Name, "contract grammar import cannot be aliased")
+					}
+				}
+				ast.Inspect(parsed, func(node ast.Node) bool {
+					if selector, ok := node.(*ast.SelectorExpr); ok {
+						if owner, ok := selector.X.(*ast.Ident); ok && owner.Name == "contract" {
+							assert.Equal(t, "NormalizeHostname", selector.Sel.Name, "controlclient may consume only the hostname grammar")
+						}
+					}
+					return true
+				})
 			}
 			if relative == "cmd/mcp-gateway" {
 				assert.NotContains(t, string(source), "http.Client{")

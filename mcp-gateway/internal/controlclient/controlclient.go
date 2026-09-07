@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
@@ -184,6 +185,9 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 }
 
 func ListenAuthority(address string) (string, error) {
+	if !addressPattern.MatchString(address) {
+		return "", ErrInvalidAddress
+	}
 	if err := validateAddress(address); err != nil {
 		return "", err
 	}
@@ -195,21 +199,26 @@ func validateAddress(address string) error {
 		return ErrInvalidAddress
 	}
 	matches := addressPattern.FindStringSubmatch(address)
-	if len(matches) != 5 {
+	host, rawPort, err := net.SplitHostPort(strings.TrimPrefix(address, "http://"))
+	if err != nil || rawPort == "" || rawPort[0] == '0' || strings.Trim(rawPort, "0123456789") != "" {
 		return ErrInvalidAddress
 	}
-	for _, raw := range matches[1:4] {
-		octet, err := strconv.Atoi(raw)
-		if err != nil || octet > 255 {
-			return ErrInvalidAddress
+	if len(matches) == 5 {
+		for _, raw := range matches[1:4] {
+			octet, err := strconv.Atoi(raw)
+			if err != nil || octet > 255 {
+				return ErrInvalidAddress
+			}
 		}
+	} else if _, ok := contract.NormalizeHostname(host); !ok || strings.ContainsAny(address, "[]") {
+		return ErrInvalidAddress
 	}
-	port, err := strconv.Atoi(matches[4])
+	port, err := strconv.Atoi(rawPort)
 	if err != nil || port < 1 || port > 65535 {
 		return ErrInvalidAddress
 	}
 	parsed, err := url.Parse(address)
-	if err != nil || parsed.String() != address || parsed.Scheme != "http" || parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+	if err != nil || parsed.String() != address || parsed.Scheme != "http" || parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(address, "#") {
 		return ErrInvalidAddress
 	}
 	return nil

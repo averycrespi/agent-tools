@@ -33,6 +33,7 @@ func releaseAuthentication(ctx context.Context) {
 }
 
 type Options struct {
+	AllowedHosts         []string
 	Authority            string
 	Ready                func() bool
 	Draining             func() bool
@@ -42,6 +43,7 @@ type Options struct {
 }
 
 type Boundary struct {
+	allowedHosts         map[string]struct{}
 	authority            string
 	origin               string
 	ready                func() bool
@@ -88,6 +90,14 @@ func New(options Options) (*Boundary, error) {
 	if err := ValidateAuthority(options.Authority); err != nil {
 		return nil, err
 	}
+	allowedHosts := make(map[string]struct{}, len(options.AllowedHosts))
+	for _, host := range options.AllowedHosts {
+		normalized, ok := contract.NormalizeHostname(host)
+		if !ok {
+			return nil, fmt.Errorf("allowed host must be an ASCII DNS hostname without a port or trailing dot")
+		}
+		allowedHosts[normalized] = struct{}{}
+	}
 	if options.Ready == nil {
 		options.Ready = func() bool { return false }
 	}
@@ -98,6 +108,7 @@ func New(options Options) (*Boundary, error) {
 		options.Draining = func() bool { return false }
 	}
 	return &Boundary{
+		allowedHosts:         allowedHosts,
 		authority:            options.Authority,
 		origin:               "http://" + options.Authority,
 		ready:                options.Ready,
@@ -216,7 +227,7 @@ func (boundary *Boundary) validateEarly(request *http.Request) contract.ProblemC
 	if len(target) > limit("request_target_bytes") || request.URL.IsAbs() || strings.HasPrefix(target, "//") {
 		return contract.ProblemMalformedRequest
 	}
-	if strings.ToLower(request.Host) != boundary.authority {
+	if !boundary.acceptsHost(request.Host) {
 		return contract.ProblemMisdirectedRequest
 	}
 	count, total := 0, 0
@@ -244,6 +255,31 @@ func (boundary *Boundary) validateEarly(request *http.Request) contract.ProblemC
 		}
 	}
 	return ""
+}
+
+func (boundary *Boundary) acceptsHost(authority string) bool {
+	if authority == boundary.authority {
+		return true
+	}
+	host := authority
+	if strings.Contains(authority, ":") {
+		var port string
+		var err error
+		host, port, err = net.SplitHostPort(authority)
+		if err != nil || port == "" || strings.Trim(port, "0123456789") != "" {
+			return false
+		}
+		value, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || value == 0 || strings.ContainsAny(authority, "[]") {
+			return false
+		}
+	}
+	normalized, ok := contract.NormalizeHostname(host)
+	if !ok {
+		return false
+	}
+	_, ok = boundary.allowedHosts[normalized]
+	return ok
 }
 
 func (boundary *Boundary) AdmissionStatus() (regular, control, admin, health contract.LimitStatus) {

@@ -152,7 +152,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 		},
 	}
 	flags := command.Flags()
-	flags.StringVar(&options.address, "address", controlclient.DefaultAddress, "canonical numeric 127/8 Gateway URL")
+	flags.StringVar(&options.address, "address", controlclient.DefaultAddress, "HTTP Gateway URL with port: numeric 127/8 or an explicitly trusted local forwarding hostname")
 	flags.StringVar(&options.bearerFile, "admin-bearer-file", "", "owner-readable admin bearer file")
 	flags.BoolVar(&options.bearerStdin, "admin-bearer-stdin", false, "read the admin bearer from standard input")
 	flags.StringVar(&options.output, "output", string(controlclient.OutputHuman), "output mode: human or json")
@@ -304,6 +304,11 @@ func projectOnlineFailure(command *cobra.Command, failure *controlclient.OnlineE
 	address, err := command.Flags().GetString("address")
 	if err != nil {
 		return failure
+	}
+	if _, err := controlclient.ListenAuthority(address); err != nil {
+		projected := *failure
+		projected.Title = "The selected Gateway hostname refused the connection. Check the trusted local forwarding destination and start Gateway on its numeric IPv4 loopback listener with the hostname explicitly allowed."
+		return &projected
 	}
 	dataDir := selectedDataDir(command, "")
 	includeDataDir := dataDir != "" && command.Root().PersistentFlags().Changed("data-dir")

@@ -21,13 +21,13 @@ import (
 
 func TestControlTransport(t *testing.T) {
 	t.Run("canonical loopback addresses", func(t *testing.T) {
-		for _, address := range []string{DefaultAddress, "http://127.0.0.1:1", "http://127.255.254.253:65535"} {
+		for _, address := range []string{DefaultAddress, "http://127.0.0.1:1", "http://127.255.254.253:65535", "http://localhost:8210", "http://Host.Lima.Internal:18210", "http://container.internal:65535"} {
 			client, err := New(address, TransportOptions{})
 			require.NoError(t, err, address)
 			assert.Equal(t, address, client.Address())
 		}
 		for _, address := range []string{
-			"", "https://127.0.0.1:8210", "http://localhost:8210", "http://127.0.0.1", "http://127.0.0.1:0",
+			"", "https://127.0.0.1:8210", "https://host.lima.internal:8210", "http://host.lima.internal", "http://host.lima.internal:0", "http://host.lima.internal:65536", "http://host.lima.internal:+1", "http://host.lima.internal:08210", "http://host.lima.internal:8210/", "http://host.lima.internal:8210?", "http://host.lima.internal:8210#", "http://user@host.lima.internal:8210", "http://*.internal:8210", "http://host..internal:8210", "http://[host.lima.internal]:8210", "http://127.0.0.1", "http://127.0.0.1:0",
 			"http://127.0.0.1:65536", "http://127.00.0.1:8210", "http://127.0.0.01:8210", "http://127.0.0.1:08210",
 			"http://127.0.0.1:8210/", "http://127.0.0.1:8210/path", "http://127.0.0.1:8210?x=1", "http://127.0.0.1:8210#x",
 			"http://user@127.0.0.1:8210", "http://[::1]:8210", "http://2130706433:8210", " http://127.0.0.1:8210",

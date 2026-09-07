@@ -33,6 +33,8 @@ mcp-gateway status
 
 `initialize` creates a new administrator bearer file and prints safe next steps, never the bearer value. `status` reads that default bearer and uses the public loopback control API. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
 
+For trusted local VM/container forwarding, `mcp-gateway serve --allowed-host host.lima.internal` admits that exact hostname without changing the numeric-loopback listener or browser Origin policy. Online `--address http://host.lima.internal:8210` explicitly selects the forwarding destination; plain HTTP is not secure arbitrary-remote administration. Follow [sandbox administration](docs/operators/administration.md#trusted-local-forwarding-and-sandbox-administration) to provision and revoke a separate administrator credential. Removing a hostname is not credential revocation.
+
 ## Current capabilities
 
 Gateway provides:
