@@ -550,7 +550,7 @@ mcp-broker rules edit         # Open rules file in $EDITOR
 ```bash
 make build              # Build binary to ./mcp-broker
 make test               # Run tests with race detector
-make test-integration   # Run integration tests (-tags=integration)
+make test-integration   # Tagged integration cases, without ordinary reruns
 make lint               # Run golangci-lint
 make fmt                # Format with goimports
 make tidy               # go mod tidy + verify

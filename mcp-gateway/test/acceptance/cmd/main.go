@@ -82,6 +82,10 @@ func runSuite(root, operation string, arguments []string) int {
 	flags := flag.NewFlagSet(operation, flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	count := flags.Int("count", 1, "repeat count (stress only)")
+	jsonOutput := false
+	if operation == "run-suite" {
+		flags.BoolVar(&jsonOutput, "json", false, "emit Go test JSON events")
+	}
 	if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
 		return 2
 	}
@@ -104,7 +108,7 @@ func runSuite(root, operation string, arguments []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := acceptance.RunSuite(ctx, root, arguments[0], *count, acceptance.SuiteExecutor{}); err != nil {
+	if err := acceptance.RunSuite(ctx, root, arguments[0], *count, acceptance.SuiteExecutor{JSON: jsonOutput}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}

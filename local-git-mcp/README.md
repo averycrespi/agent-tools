@@ -83,7 +83,7 @@ Each git command runs with a finite timeout so hung remote operations do not blo
 ```bash
 make build              # Build binary to ./local-git-mcp
 make test               # Run tests with race detector
-make test-integration   # Run integration tests (-tags=integration)
+make test-integration   # Tagged integration cases, without ordinary reruns
 make lint               # Run golangci-lint
 make fmt                # Format with goimports
 make tidy               # go mod tidy + verify

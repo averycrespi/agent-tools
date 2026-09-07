@@ -1,12 +1,25 @@
 TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
-OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
+OTHER_TOOLS := $(filter-out mcp-gateway,$(TOOLS))
 INTEGRATION_TOOLS := mcp-broker mcp-gateway local-git-mcp local-gomod-proxy
 E2E_TOOLS := mcp-broker mcp-gateway local-gomod-proxy http-broker
 UNAME_S := $(shell uname -s)
+LOCAL_TEST_JOBS ?= 2
+
+ifneq ($(LOCAL_TEST_JOBS),1)
+ifneq ($(LOCAL_TEST_JOBS),2)
+$(error LOCAL_TEST_JOBS must be 1 or 2)
+endif
+endif
+
+# .NOTPARALLEL is global on older Make, so omit it in the internal worker invocation.
+ifeq ($(filter __test-%,$(MAKECMDGOALS)),)
+.NOTPARALLEL:
+endif
 
 .PHONY: help install install-dev setup build test test-ci test-integration test-e2e lint fmt fmt-check tidy check vulncheck check-other-tools test-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
 
 help:
+	@printf '%s\n' 'LOCAL_TEST_JOBS=1|2 bounds non-Gateway ordinary tests; Gateway and linters stay isolated'
 	@$(MAKE) -s -C mcp-gateway help
 
 install:
@@ -27,8 +40,10 @@ endif
 build:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir build; done
 
+# Gateway's harness releases and rebinds ports, so it must not overlap other listeners.
 test:
-	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir test; done
+	$(MAKE) -C mcp-gateway test
+	$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS))
 
 test-ci:
 	python3 -B -m unittest discover -s .github/scripts -p '*_test.py'
@@ -59,7 +74,8 @@ vulncheck:
 	@set -e; for dir in $(TOOLS); do go -C $$dir tool govulncheck ./...; done
 
 check-other-tools:
-	@set -e; for dir in $(OTHER_TOOLS); do $(MAKE) -C $$dir lint; $(MAKE) -C $$dir test; done
+	@set -e; for dir in $(OTHER_TOOLS); do $(MAKE) -C $$dir lint; done
+	$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS))
 
 test-browser:
 	$(MAKE) -C mcp-gateway test-browser
@@ -93,3 +109,7 @@ adopt-acceptance-report:
 
 audit:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done
+
+.PHONY: $(addprefix __test-,$(OTHER_TOOLS))
+$(addprefix __test-,$(OTHER_TOOLS)): __test-%:
+	$(MAKE) -C $* test

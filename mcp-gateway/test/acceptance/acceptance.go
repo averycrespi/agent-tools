@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -43,16 +44,16 @@ func (failure *commandExecutionError) Error() string { return failure.cause.Erro
 func (failure *commandExecutionError) Unwrap() error { return failure.cause }
 
 func (OSExecutor) Run(ctx context.Context, root string, command Command) ([]byte, error) {
-	return runOSCommand(ctx, root, command, true)
+	return runOSCommand(ctx, root, command, true, os.Stderr)
 }
 
-func runOSCommand(ctx context.Context, root string, command Command, cleanupInherited bool) ([]byte, error) {
+func runOSCommand(ctx context.Context, root string, command Command, cleanupInherited bool, stdout io.Writer) ([]byte, error) {
 	runner, err := testutil.NewBinaryRunner(19*time.Minute, 4*1024*1024)
 	if err != nil {
 		return nil, err
 	}
 	result, runErr := runner.RunInDir(ctx, root, command.Name, command.Arguments...)
-	_, _ = os.Stderr.Write(result.Stdout)
+	_, stdoutErr := stdout.Write(result.Stdout)
 	_, _ = os.Stderr.Write(result.Stderr)
 	var cleanupErr error
 	if cleanupInherited {
@@ -61,7 +62,7 @@ func runOSCommand(ctx context.Context, root string, command Command, cleanupInhe
 	if result.StdoutTruncated || result.StderrTruncated {
 		cleanupErr = errors.Join(cleanupErr, errors.New("acceptance command output exceeded its bound"))
 	}
-	combinedErr := errors.Join(runErr, cleanupErr)
+	combinedErr := errors.Join(runErr, cleanupErr, stdoutErr)
 	if combinedErr != nil {
 		termination := "none"
 		if result.Cleanup.KillSent {

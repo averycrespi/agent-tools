@@ -7,7 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -102,7 +104,7 @@ func TestPurposeNamedRootForwardingAndOwnership(t *testing.T) {
 	assert.Equal(t, "\t$(MAKE) -C mcp-gateway adopt-acceptance-report REPORT=\"$(REPORT)\" ADOPTION=\"$(ADOPTION)\"", purposeMakeTargetRecipe(makefile, "adopt-acceptance-report"))
 	assert.Equal(t, "\t$(MAKE) -C mcp-gateway qualify-external-evidence", purposeMakeTargetRecipe(makefile, "qualify-external-evidence"))
 	assert.NotContains(t, purposeMakeTargetRecipe(makefile, "check-other-tools"), "mcp-gateway")
-	assert.Contains(t, makefile, "OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker")
+	assert.Contains(t, makefile, "OTHER_TOOLS := $(filter-out mcp-gateway,$(TOOLS))")
 }
 
 func TestPurposeNamedTargetsPublishOnlyFinalAcceptanceInterface(t *testing.T) {
@@ -133,18 +135,42 @@ func TestPurposeNamedTargetsPublishOnlyFinalAcceptanceInterface(t *testing.T) {
 	}
 }
 
-func purposeTargetDryRun(t *testing.T, root, target string) string {
+func TestPurposeNamedStructuredOutputIsOptIn(t *testing.T) {
+	root := purposeTargetModuleRoot(t)
+	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-browser", "test-e2e", "test-security", "test-frontend-development-browser", "frontend-verify-supply-chain"} {
+		t.Run(target, func(t *testing.T) {
+			assert.NotContains(t, purposeTargetDryRun(t, root, target), "--json")
+			output := purposeTargetDryRun(t, root, target, "TEST_JSON=1")
+			found := false
+			for _, line := range strings.Split(output, "\n") {
+				if strings.HasPrefix(line, "go run ./test/acceptance/cmd run-suite ") {
+					found = true
+					assert.True(t, strings.HasSuffix(strings.TrimSpace(line), "--json"), line)
+				}
+			}
+			assert.True(t, found)
+		})
+	}
+}
+
+func purposeTargetDryRun(t *testing.T, root, target string, overrides ...string) string {
 	t.Helper()
-	command := exec.Command("make", "-n", "-C", root, target)
-	output, err := command.CombinedOutput()
-	require.NoError(t, err, string(output))
-	return string(output)
+	runner, err := testutil.NewBinaryRunner(5*time.Second, 64*1024)
+	require.NoError(t, err)
+	arguments := append([]string{"-n", "-C", root, target, "TEST_JSON=0"}, overrides...)
+	result, err := runner.Run(t.Context(), "make", arguments...)
+	output := string(result.Stdout) + string(result.Stderr)
+	require.NoError(t, err, output)
+	require.False(t, result.StdoutTruncated)
+	require.False(t, result.StderrTruncated)
+	return output
 }
 
 func purposeTargetDryRunLines(t *testing.T, root, target string) []string {
 	t.Helper()
 	var lines []string
 	for _, line := range strings.Split(strings.TrimSpace(purposeTargetDryRun(t, root, target)), "\n") {
+		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "make[") || strings.HasPrefix(line, "make: ") {
 			continue
 		}

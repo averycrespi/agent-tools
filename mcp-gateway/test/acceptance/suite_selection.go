@@ -388,11 +388,21 @@ func suiteExecutionPermission(id string) error {
 	return nil
 }
 
-type SuiteExecutor struct{}
+type SuiteExecutor struct {
+	JSON bool
+}
 
-func (SuiteExecutor) Run(ctx context.Context, root string, command Command) ([]byte, error) {
+func (executor SuiteExecutor) Run(ctx context.Context, root string, command Command) ([]byte, error) {
+	stdout := os.Stderr
+	if executor.JSON {
+		if command.Name != "go" || len(command.Arguments) == 0 || command.Arguments[0] != "test" {
+			return nil, fmt.Errorf("structured suite output requires a Go test command")
+		}
+		command.Arguments = append([]string{"test", "-json"}, command.Arguments[1:]...)
+		stdout = os.Stdout
+	}
 	// The outer acceptance executor owns the inherited ledger, including its live parent command.
-	return runOSCommand(ctx, root, command, false)
+	return runOSCommand(ctx, root, command, false, stdout)
 }
 
 func RunSuite(ctx context.Context, root, id string, repeats int, executor Executor) error {

@@ -1,5 +1,13 @@
 STRESS_COUNT ?= 20
 TEMPORARY_LISTEN ?= 127.0.0.1:8211
+TEST_JSON ?= 0
+
+ifneq ($(TEST_JSON),0)
+ifneq ($(TEST_JSON),1)
+$(error TEST_JSON must be 0 or 1)
+endif
+endif
+SUITE_OUTPUT_FLAG := $(if $(filter 1,$(TEST_JSON)),--json)
 
 .NOTPARALLEL: test test-browser test-frontend-development
 
@@ -11,6 +19,7 @@ help:
 		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-temporary' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
 		'test-browser (developer aggregate; one planner, isolated leaves)' \
+		'TEST_JSON=1 emits JSON events for planned Go test commands' \
 		'test-frontend-development-node | test-frontend-development-browser | test-frontend-development (developer aggregate)' \
 		'frontend-typecheck | frontend-build | frontend-verify-generated | frontend-verify-supply-chain | frontend-audit' \
 		'qualify-external-evidence' \
@@ -31,13 +40,13 @@ install:
 test: test-unit test-integration test-harness test-material test-serve-temporary
 
 test-unit:
-	go run ./test/acceptance/cmd run-suite test-unit
+	go run ./test/acceptance/cmd run-suite test-unit $(SUITE_OUTPUT_FLAG)
 
 test-harness:
-	go run ./test/acceptance/cmd run-suite test-harness
+	go run ./test/acceptance/cmd run-suite test-harness $(SUITE_OUTPUT_FLAG)
 
 test-material:
-	go run ./test/acceptance/cmd run-suite test-material
+	go run ./test/acceptance/cmd run-suite test-material $(SUITE_OUTPUT_FLAG)
 
 suite-inventory:
 	@go run ./test/acceptance/cmd suite-inventory
@@ -46,37 +55,37 @@ test-serve-temporary:
 	./test/serve-temporary.sh
 
 test-integration:
-	go run ./test/acceptance/cmd run-suite test-integration
+	go run ./test/acceptance/cmd run-suite test-integration $(SUITE_OUTPUT_FLAG)
 
 test-e2e:
-	go run ./test/acceptance/cmd run-suite test-e2e
+	go run ./test/acceptance/cmd run-suite test-e2e $(SUITE_OUTPUT_FLAG)
 
 test-security:
-	go run ./test/acceptance/cmd run-suite test-security
+	go run ./test/acceptance/cmd run-suite test-security $(SUITE_OUTPUT_FLAG)
 
 test-stress:
-	go run ./test/acceptance/cmd run-suite test-stress --count=$(STRESS_COUNT)
+	go run ./test/acceptance/cmd run-suite test-stress --count=$(STRESS_COUNT) $(SUITE_OUTPUT_FLAG)
 
 test-keyring-native:
 	./test/keyring-native.sh
 
 test-browser:
-	go run ./test/acceptance/cmd run-suite test-browser
+	go run ./test/acceptance/cmd run-suite test-browser $(SUITE_OUTPUT_FLAG)
 
 test-browser-workflows:
-	go run ./test/acceptance/cmd run-suite test-browser-workflows
+	go run ./test/acceptance/cmd run-suite test-browser-workflows $(SUITE_OUTPUT_FLAG)
 
 test-browser-privacy:
-	go run ./test/acceptance/cmd run-suite test-browser-privacy
+	go run ./test/acceptance/cmd run-suite test-browser-privacy $(SUITE_OUTPUT_FLAG)
 
 test-browser-visual:
-	go run ./test/acceptance/cmd run-suite test-browser-visual
+	go run ./test/acceptance/cmd run-suite test-browser-visual $(SUITE_OUTPUT_FLAG)
 
 test-browser-accessibility:
-	go run ./test/acceptance/cmd run-suite test-browser-accessibility
+	go run ./test/acceptance/cmd run-suite test-browser-accessibility $(SUITE_OUTPUT_FLAG)
 
 test-browser-cross:
-	go run ./test/acceptance/cmd run-suite test-browser-cross
+	go run ./test/acceptance/cmd run-suite test-browser-cross $(SUITE_OUTPUT_FLAG)
 
 test-frontend-development: test-frontend-development-node test-frontend-development-browser
 
@@ -84,7 +93,7 @@ test-frontend-development-node:
 	npm --prefix .. run ui:test-dev
 
 test-frontend-development-browser:
-	go run ./test/acceptance/cmd run-suite test-frontend-development-browser
+	go run ./test/acceptance/cmd run-suite test-frontend-development-browser $(SUITE_OUTPUT_FLAG)
 
 frontend-typecheck:
 	npm --prefix .. run ui:typecheck
@@ -97,7 +106,7 @@ frontend-verify-generated:
 
 frontend-verify-supply-chain:
 	npm --prefix .. run ui:verify-supply-chain
-	go run ./test/acceptance/cmd run-suite frontend-static-tests
+	go run ./test/acceptance/cmd run-suite frontend-static-tests $(SUITE_OUTPUT_FLAG)
 
 frontend-audit:
 	npm --prefix .. run ui:audit

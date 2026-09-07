@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -164,6 +165,15 @@ func TestSuiteExecutorPreservesOuterCleanupLedger(t *testing.T) {
 	assert.Equal(t, "parent remains alive\n", string(result.Stdout))
 	assert.True(t, result.Cleanup.Reaped)
 	assert.Empty(t, ledger.Survivors())
+}
+
+func TestSuiteOutputWriteFailureDoesNotPass(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	t.Cleanup(func() { require.NoError(t, writer.Close()) })
+	_, err = runOSCommand(t.Context(), repositoryRoot(t), Command{Name: "sh", Arguments: []string{"-c", "printf evidence"}}, false, writer)
+	require.ErrorIs(t, err, syscall.EPIPE)
 }
 
 type browserSuiteExecutor struct {
