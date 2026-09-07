@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:d8c4e31cc44aba50d638ac3137a968a122d13972809940ce8367f3a2265ceb52", digest)
+	assert.Equal(t, "sha256:fb2d296ff15a425622d0f83ba23e6a84b6f7d106ddb193561a44f7fc66e06432", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -114,7 +114,7 @@ func TestCLIContract(t *testing.T) {
 			{path: []string{"initialize"}, use: "initialize", flags: []string{"data-dir", "json", "output", "secret-output"}},
 			{path: []string{"admin", "reset"}, use: "reset", flags: []string{"data-dir", "json", "output", "secret-output"}},
 			{path: []string{"restore"}, use: "restore [backup-id]", flags: []string{"data-dir", "json", "output", "secret-output", "verify-current"}},
-			{path: []string{"serve"}, use: "serve", flags: []string{"data-dir", "json", "listen", "output"}},
+			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "data-dir", "json", "listen", "output"}},
 		}
 		for _, test := range cases {
 			name := strings.Join(test.path, " ")

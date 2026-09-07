@@ -61,7 +61,7 @@ Run `make verify` before committing Go changes. Run focused race-enabled tests f
 ```text
 cmd/mcp-gateway/             Cobra composition root and public CLI
 internal/composition/        Sole production graph construction, binding, start, and drain
-internal/controlclient/      Strict public-loopback CLI transport, I/O, sinks, problems, and exits
+internal/controlclient/      Strict public-control CLI transport, I/O, sinks, problems, and exits
 internal/contract/           Canonical routes, problems, limits, states, representations, and manifests
 internal/strictjson/         Bounded strict JSON and token-preserving value tree
 internal/paths/              Owner-only installation paths and process ownership
@@ -108,7 +108,7 @@ docs/                       Role-oriented operator, maintainer, and design docum
 
 - `internal/contract` is the executable source for public routes, safe problems, media/protocol values, fixed limits, closed states/reasons/events, resource mechanics, approved secret sinks, and behavior manifests. Change the corresponding contract tests and the owning [normative design chapter](DESIGN.md#documentation-authority) deliberately when intended behavior changes.
 - `internal/strictjson` is the dependency-neutral parser for API, downstream, OAuth, and catalog input. Use explicit positive size/depth bounds, reject duplicate/unknown/trailing values for closed shapes, and preserve lexical number tokens where policy or canonical evidence depends on them.
-- Keep exact numeric-loopback validation, route classification, and admission ahead of authentication or body work. Every API response remains `no-store`; never add CORS authority.
+- Keep exact numeric-loopback listener validation and explicit hostname Host matching separate from port-sensitive Origin trust. Keep early Host validation, route classification, and admission ahead of authentication or body work. Every API response remains `no-store`; never add CORS authority.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation channels separate. Raw secrets never enter configuration, arguments, environment variables, URLs, logs, metrics, events, SQLite, backups, browser storage, or read APIs.
 - The official MCP SDK remains behind Gateway-owned authentication, classification, limits, and lifecycle. Only the ingress handler boundary and build-tagged dependency pin may import it; never add a second SDK list cache, subscription, transport owner, or active-capability consumer.
 
@@ -122,7 +122,7 @@ docs/                       Role-oriented operator, maintainer, and design docum
 ### Runtime, transport, and cleanup
 
 - Runtime state, handles, routes, OAuth transients, sessions, and cursors are process-local. Never serialize or resume them after restart.
-- `internal/remote` is the sole production downstream/OAuth HTTP client and transport factory. The only separate client is `internal/controlclient` for canonical numeric-loopback public administration.
+- `internal/remote` is the sole production downstream/OAuth HTTP client and transport factory. The only separate client is `internal/controlclient` for public administration at numeric loopback or an explicitly selected trusted forwarding hostname.
 - Direct stdio uses validated absolute executables, literal arguments, exact working directories, clean environments, fresh process groups, bounded streams, and identity-validated TERM/KILL/reap cleanup. Never signal an unverified PID or treat unconfirmed stop as success.
 - Downstream calls are one-shot. Preserve the pre-start versus start-uncertain marker, pinned capability revalidation, no reroute, and no automatic retry/reconnect behavior.
 - Drain fences invocation admission and routes before stopping producers, drains keyring consumers before storage closure, and leaves an unclean marker whenever cleanup is unconfirmed.

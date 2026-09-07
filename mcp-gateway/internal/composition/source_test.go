@@ -51,12 +51,16 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 			if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK[source.path] {
 				t.Errorf("%s: prohibited SDK import %s", source.path, imported)
 			}
-			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson" && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths" {
+			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson" && imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths" && (source.path != "internal/controlclient/controlclient.go" || imported != "github.com/averycrespi/agent-tools/mcp-gateway/internal/contract") {
 				t.Errorf("%s: prohibited local-control import %s", source.path, imported)
 			}
 		}
 		ast.Inspect(source.file, func(node ast.Node) bool {
 			switch value := node.(type) {
+			case *ast.SelectorExpr:
+				if strings.HasPrefix(source.path, "internal/controlclient/") && source.selectorPackage(value) == "github.com/averycrespi/agent-tools/mcp-gateway/internal/contract" {
+					assert.Equal(t, "NormalizeHostname", value.Sel.Name, "controlclient may consume only the hostname grammar")
+				}
 			case *ast.CompositeLit:
 				selector, ok := value.Type.(*ast.SelectorExpr)
 				if ok && source.selectorPackage(selector) == "net/http" && (selector.Sel.Name == "Client" || selector.Sel.Name == "Transport") && !allowedHTTP[source.path] {

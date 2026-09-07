@@ -10,6 +10,8 @@ This chapter owns the behavior and invariants described below. Operational proce
 
 The `internal/contract` package is the single executable source consumed by API, ingress, authorization, discovery, and composition implementations. Its returned tables are copies so callers cannot mutate the canonical contract. The tables and mechanics below document the corresponding normative closed vocabulary for principal-credential authentication, administration, discovery, and invocation. The default authority is `127.0.0.1:8210`, its canonical Origin is `http://127.0.0.1:8210`, the supported protocol versions are modern `2026-07-28` and legacy `2025-11-25`, and the media types are `application/json`, `application/problem+json`, and `text/event-stream`.
 
+`NormalizeHostname` owns the ASCII DNS hostname grammar shared by startup Host configuration and explicit CLI destinations. Early Host classification admits only the canonical numeric listener authority or an explicitly configured `--allowed-host` hostname; the latter ignores an absent or valid nonzero decimal request port. Matching folds ASCII case only and never consults DNS. This does not alter route/method authority, the exact numeric browser Origin, or OAuth callback construction. See [HTTP administration](administrative-control-plane.md#http-administration) for validation and security semantics.
+
 ### Route ownership
 
 Methods are lexicographically ordered and become the exact `Allow` value. `HEAD` is never inherited from `GET`.
