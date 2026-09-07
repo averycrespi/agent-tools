@@ -70,6 +70,64 @@ func TestServiceAdmissionCommitExcludesCredentialAndPolicyMutationUntilDispatch(
 	require.NoError(t, err, "credential mutation must proceed after invocation admission and dispatch release the gate")
 }
 
+func TestServiceTerminalWriterContentionPreservesOutcomeUnknownWithoutReplay(t *testing.T) {
+	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	lease, err := authority.Authenticate(ctx, credential.Bearer)
+	require.NoError(t, err)
+	defer lease.Release()
+
+	writerEntered := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	writerDone := make(chan error, 1)
+	executions := 0
+	defer func() {
+		if executions > 0 {
+			close(releaseWriter)
+			require.NoError(t, <-writerDone)
+		}
+	}()
+	service, err := newService(audits, authority, func(string) (callTarget, bool) {
+		return serviceCallTarget(nil, func(context.Context) (executionLease, error) {
+			return &serviceExecutionLease{execute: func(json.RawMessage) downstream.CallResult {
+				executions++
+				go func() {
+					writerDone <- audits.store.Mutate(ctx, func(*sql.Tx) error {
+						close(writerEntered)
+						select {
+						case <-releaseWriter:
+							return nil
+						case <-ctx.Done():
+							return ctx.Err()
+						}
+					})
+				}()
+				select {
+				case <-writerEntered:
+				case <-ctx.Done():
+					t.Fatal("writer did not acquire mutation admission")
+				}
+				return downstream.CallResult{Failure: downstream.FailureStartUncertain}
+			}}, nil
+		}), true
+	})
+	require.NoError(t, err)
+
+	response := service.Call(ctx, lease, validCallParams())
+
+	assert.Equal(t, contract.OutcomeUnknown, response.ErrorCode)
+	assert.NotEmpty(t, response.InvocationID)
+	assert.Nil(t, response.Result)
+	assert.Equal(t, 1, executions)
+	record := onlyInvocationRecord(t, audits)
+	assert.Equal(t, response.InvocationID, record.InvocationID)
+	assert.Equal(t, contract.DecisionAllow, *record.AuthorizationDecision)
+	assert.Nil(t, record.TerminalClass)
+	assert.Nil(t, record.CompletedAt)
+	assert.False(t, audits.store.Latched())
+}
+
 func TestDrainAfterDetachmentDoesNotUndoCommittedAllow(t *testing.T) {
 	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)

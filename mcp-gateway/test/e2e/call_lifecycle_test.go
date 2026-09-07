@@ -174,7 +174,7 @@ func TestGatewayBinaryClassifiesLegacySessionAndStdioProcessLossWithoutReplay(t 
 	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: httpCreation.Server.ID, UpstreamName: pointerTo("http-alpha")})
 	httpFixture.LoseSession()
 	sessionLoss := harness.ModernCall(issued.Bearer, json.RawMessage(`"session-loss"`), "http-auto.http-alpha", json.RawMessage(`{}`))
-	assertCallError(t, sessionLoss, json.RawMessage(`"session-loss"`), contract.OutcomeUnknown, true)
+	sessionInvocationID := assertCallError(t, sessionLoss, json.RawMessage(`"session-loss"`), contract.OutcomeUnknown, true)
 	assert.Equal(t, 1, httpFixtureMethodCount(httpFixture.Events(), "tools/call"))
 
 	executable, err := os.Executable()
@@ -186,7 +186,7 @@ func TestGatewayBinaryClassifiesLegacySessionAndStdioProcessLossWithoutReplay(t 
 	waitForStdioServer(t, harness, stdioCreation.Server.ID, activeCatalog)
 	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: stdioCreation.Server.ID, UpstreamName: pointerTo("alpha")})
 	processLoss := harness.ModernCall(issued.Bearer, json.RawMessage(`"process-loss"`), "stdio-legacy-call-uncertain.alpha", json.RawMessage(`{}`))
-	assertCallError(t, processLoss, json.RawMessage(`"process-loss"`), contract.OutcomeUnknown, true)
+	processInvocationID := assertCallError(t, processLoss, json.RawMessage(`"process-loss"`), contract.OutcomeUnknown, true)
 	events := waitForFixtureEvents(t, eventsPath, func(events []stdioFixtureEvent) bool {
 		return countFixtureEvents(events, "request", "tools/call") == 1
 	})
@@ -195,8 +195,12 @@ func TestGatewayBinaryClassifiesLegacySessionAndStdioProcessLossWithoutReplay(t 
 	harness.Stop(syscall.SIGTERM)
 	observations := harness.AuditObservations()
 	require.Len(t, observations, 2)
+	assert.Equal(t, sessionInvocationID, observations[0].InvocationID)
+	assert.Equal(t, processInvocationID, observations[1].InvocationID)
 	for _, observation := range observations {
-		assert.Equal(t, contract.TerminalOutcomeUnknown, observation.TerminalClass)
+		assert.Equal(t, contract.DecisionAllow, observation.Decision)
+		// Runtime withdrawal can contend with the best-effort terminal writer.
+		assert.Contains(t, []contract.InvocationTerminalClass{"", contract.TerminalOutcomeUnknown}, observation.TerminalClass)
 	}
 	assert.Equal(t, 1, httpFixtureMethodCount(httpFixture.Events(), "tools/call"))
 	assert.Equal(t, 1, countFixtureEvents(fixtureEventsNow(t, eventsPath), "request", "tools/call"))
