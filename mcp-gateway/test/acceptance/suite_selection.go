@@ -254,6 +254,21 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 	if repeats < 1 || (id != "test-stress" && repeats != 1) {
 		return nil, fmt.Errorf("only stress permits repeated execution")
 	}
+	if id == "test-browser" {
+		leaves, err := expandPurposeLeaves(purposeEvidenceDAG(), []string{id})
+		if err != nil {
+			return nil, err
+		}
+		var commands []SuiteGoCommand
+		for _, leaf := range leaves {
+			planned, err := PlanSuite(moduleRoot, leaf.ID, inventory, repeats)
+			if err != nil {
+				return nil, err
+			}
+			commands = append(commands, planned...)
+		}
+		return commands, nil
+	}
 	groups := make(map[string][]SuiteTest)
 	for _, test := range inventory.Tests {
 		if test.Owner == id && test.Selected {
@@ -366,6 +381,13 @@ func validateSuiteCommand(moduleRoot string, inventory SuiteInventory, command S
 	return nil
 }
 
+func suiteExecutionPermission(id string) error {
+	if id == "test-keyring-native" && os.Getenv("MCP_GATEWAY_KEYRING_NATIVE") != "1" {
+		return fmt.Errorf("native execution requires the isolated native wrapper")
+	}
+	return nil
+}
+
 type SuiteExecutor struct{}
 
 func (SuiteExecutor) Run(ctx context.Context, root string, command Command) ([]byte, error) {
@@ -374,8 +396,8 @@ func (SuiteExecutor) Run(ctx context.Context, root string, command Command) ([]b
 }
 
 func RunSuite(ctx context.Context, root, id string, repeats int, executor Executor) error {
-	if id == "test-keyring-native" && os.Getenv("MCP_GATEWAY_KEYRING_NATIVE") != "1" {
-		return fmt.Errorf("native execution requires the isolated native wrapper")
+	if err := suiteExecutionPermission(id); err != nil {
+		return err
 	}
 	moduleRoot := filepath.Join(root, "mcp-gateway")
 	inventory, err := DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
@@ -387,6 +409,13 @@ func RunSuite(ctx context.Context, root, id string, repeats int, executor Execut
 		return err
 	}
 	for _, command := range commands {
+		id := command.Tests[0].Owner
+		if err := suiteExecutionPermission(id); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		commandContext, cancel := context.WithTimeout(ctx, suiteTimeout(id)+time.Minute)
 		_, err := executor.Run(commandContext, moduleRoot, Command{CheckName: id, Name: command.Argv[0], Arguments: command.Argv[1:], Timeout: suiteTimeout(id)})
 		cancel()

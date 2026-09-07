@@ -23,7 +23,7 @@ make test-security         # security/privacy source and sink evidence
 make test-stress           # repeat only five named stress scenarios
 make test-keyring-native   # typed native keyring evidence
 make test-serve-temporary  # disposable runner lifecycle and cleanup
-make test-browser          # developer aggregate for five browser leaves
+make test-browser          # one planner; five isolated browser leaves
 make frontend-typecheck
 make frontend-build
 make frontend-verify-generated

@@ -3,6 +3,7 @@ package acceptance
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -163,6 +164,67 @@ func TestSuiteExecutorPreservesOuterCleanupLedger(t *testing.T) {
 	assert.Equal(t, "parent remains alive\n", string(result.Stdout))
 	assert.True(t, result.Cleanup.Reaped)
 	assert.Empty(t, ledger.Survivors())
+}
+
+type browserSuiteExecutor struct {
+	calls  []Command
+	failAt int
+	cancel context.CancelFunc
+}
+
+func (executor *browserSuiteExecutor) Run(_ context.Context, _ string, command Command) ([]byte, error) {
+	executor.calls = append(executor.calls, command)
+	if executor.cancel != nil {
+		executor.cancel()
+	}
+	if len(executor.calls) == executor.failAt {
+		return nil, errors.New("browser leaf failed")
+	}
+	return nil, nil
+}
+
+func TestBrowserAggregateUsesDisjointLeavesAndStopsOnFailure(t *testing.T) {
+	moduleRoot := filepath.Join(repositoryRoot(t), "mcp-gateway")
+	inventory, err := DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
+	require.NoError(t, err)
+	for _, failAt := range []int{0, 2} {
+		t.Run(fmt.Sprintf("failure_at_%d", failAt), func(t *testing.T) {
+			executor := &browserSuiteExecutor{failAt: failAt}
+			err := RunSuite(t.Context(), repositoryRoot(t), "test-browser", 1, executor)
+			want := purposeEvidenceDAG().Aggregates["test-browser"]
+			if failAt == 0 {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "browser leaf failed")
+				want = want[:failAt]
+			}
+			require.Len(t, executor.calls, len(want))
+			for index, command := range executor.calls {
+				assert.Equal(t, want[index], command.CheckName)
+				assert.Contains(t, command.Arguments, "-race")
+				assert.Contains(t, command.Arguments, "-count=1")
+				plan, err := PlanSuite(moduleRoot, want[index], inventory, 1)
+				require.NoError(t, err)
+				require.Len(t, plan, 1)
+				assert.Equal(t, plan[0].Argv, append([]string{command.Name}, command.Arguments...))
+			}
+		})
+	}
+}
+
+func TestBrowserAggregateCancellationStopsLaterLeaves(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	executor := &browserSuiteExecutor{cancel: cancel}
+	require.ErrorIs(t, RunSuite(ctx, repositoryRoot(t), "test-browser", 1, executor), context.Canceled)
+	assert.Len(t, executor.calls, 1)
+}
+
+func TestSuiteRunNativeBoundaryPrecedesPlanning(t *testing.T) {
+	t.Setenv("MCP_GATEWAY_KEYRING_NATIVE", "")
+	executor := &browserSuiteExecutor{}
+	require.ErrorContains(t, RunSuite(t.Context(), t.TempDir(), "test-keyring-native", 1, executor), "native execution requires")
+	assert.Empty(t, executor.calls)
 }
 
 type failingSuiteExecutor struct{ calls int }

@@ -51,11 +51,7 @@ func TestPurposeNamedDeveloperAggregatesAreDisjoint(t *testing.T) {
 	}
 	assert.Equal(t, wantTest, purposeTargetDryRunLines(t, root, "test"))
 
-	var browser []string
-	for _, target := range []string{"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"} {
-		browser = append(browser, purposeTargetDryRunLines(t, root, target)...)
-	}
-	assert.Equal(t, browser, purposeTargetDryRunLines(t, root, "test-browser"))
+	assert.Equal(t, []string{"go run ./test/acceptance/cmd run-suite test-browser"}, purposeTargetDryRunLines(t, root, "test-browser"))
 
 	var development []string
 	for _, target := range []string{"test-frontend-development-node", "test-frontend-development-browser"} {

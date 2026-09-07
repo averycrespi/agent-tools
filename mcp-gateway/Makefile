@@ -10,7 +10,7 @@ help:
 		'test-unit | test-integration | test-harness | test-material | suite-inventory' \
 		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-temporary' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
-		'test-browser (developer aggregate)' \
+		'test-browser (developer aggregate; one planner, isolated leaves)' \
 		'test-frontend-development-node | test-frontend-development-browser | test-frontend-development (developer aggregate)' \
 		'frontend-typecheck | frontend-build | frontend-verify-generated | frontend-verify-supply-chain | frontend-audit' \
 		'qualify-external-evidence' \
@@ -60,7 +60,8 @@ test-stress:
 test-keyring-native:
 	./test/keyring-native.sh
 
-test-browser: test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross
+test-browser:
+	go run ./test/acceptance/cmd run-suite test-browser
 
 test-browser-workflows:
 	go run ./test/acceptance/cmd run-suite test-browser-workflows
