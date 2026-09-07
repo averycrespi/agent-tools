@@ -23,6 +23,7 @@ type DocumentationSecurityContract struct {
 }
 
 var documentationGuides = []DocumentationGuide{
+	{ID: "docs.guide.launchd", Path: "docs/operators/launchd.md", Audience: "Gateway operators using a logged-in macOS desktop", Purpose: "Install, verify, and manage a per-user LaunchAgent"},
 	{ID: "docs.guide.cli.local.administration", Path: "docs/operators/administration.md", Audience: "Gateway operators and automation authors", Purpose: "Run local administration safely through the public CLI."},
 	{ID: "docs.guide.server.configuration", Path: "docs/operators/upstream-servers.md", Audience: "Gateway operators configuring upstream MCP servers", Purpose: "Configure servers, credentials, and OAuth without broadening trust."},
 	{ID: "docs.guide.access.policy", Path: "docs/operators/access-control.md", Audience: "Gateway administrators managing agent access", Purpose: "Manage principals, credentials, grants, and grant requests."},

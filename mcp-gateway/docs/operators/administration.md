@@ -40,9 +40,45 @@ mcp-gateway serve
 mcp-gateway status
 ```
 
-`serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts only a canonical numeric `127/8` HTTP URL. Hostnames, wildcard and non-loopback addresses, forwarding headers, alternate Host forms, redirects, proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `mcp-gateway serve` command for the selected address and explicit data directory. Start that service before retrying the online command.
+`serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts a canonical numeric `127/8` HTTP URL or an explicitly trusted hostname HTTP URL with a canonical decimal port (1–65535). Wildcard and non-loopback numeric destinations, URL userinfo, paths (including a trailing slash), queries, fragments, forwarding headers, redirects, ambient proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `mcp-gateway serve` command for the selected address and explicit data directory. A hostname refusal instead directs you to check forwarding and the numeric-loopback service; a hostname is never a valid `--listen` value.
 
 `GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. Detailed `status` requires administrator authentication.
+
+## Trusted local forwarding and sandbox administration
+
+To reach the existing routes through a trusted VM/container forwarding hostname, explicitly allow that name on the host:
+
+```bash
+mcp-gateway serve --allowed-host host.lima.internal
+# Repeat --allowed-host for another independently trusted hostname.
+```
+
+Names use ASCII DNS labels of 1–63 letters, digits, or hyphens, at most 253 characters total. Labels cannot start/end with a hyphen; the final label cannot be entirely numeric. Single-label names are accepted. URLs, IP literals, ports, wildcards, underscores, empty labels, trailing dots, Unicode, whitespace, and controls are rejected. Use an ASCII punycode spelling if needed. Matching folds ASCII DNS case only and is exact: neither subdomains nor lookalike suffixes inherit access. DNS resolution never grants Host trust. Requests may omit a port or carry any decimal port from 1–65535 (including leading zeros); the port is ignored only for an explicitly listed hostname. The canonical numeric listener Host still requires its exact port. Omitting the flag allows no extra names.
+
+The listener remains numeric IPv4 loopback. Arrange forwarding separately; Gateway has no Lima defaults, trusted-proxy mode, or forwarding-header support. All existing routes retain their own credentials, roles, methods, and limits. OAuth callback construction remains independent. Browser Origin policy is unchanged and includes the listener port: an allowed hostname is not a trusted browser origin, and it does not enable browser sign-in or CORS. Continue using the canonical numeric origin for the browser application. Browsers can send the alias Origin even while loading module assets, so opening an allowed alias may produce a blank page rather than a sign-in screen.
+
+Selecting an HTTP hostname destination is an explicit trust decision about resolution and the entire forwarding path. The CLI may connect to the VM's host-forwarding address rather than guest loopback; it does not infer that address from `--allowed-host`. Plain HTTP provides no remote confidentiality or server authentication. This is not secure arbitrary-remote administration; use only a trusted local forwarding path.
+
+Provision a separate administrator credential on the host, not the main administrator bearer and not an agent credential:
+
+```bash
+mcp-gateway admin credential create --secret-output /safe/new/sandbox-admin
+```
+
+Retain the credential ID from the safe metadata output. Securely transfer only that owner-only bearer file into the sandbox, not Gateway's database or installation root. Then select the destination and credential explicitly inside the sandbox (use the port exposed by your forwarding setup):
+
+```bash
+mcp-gateway status --address http://host.lima.internal:8210 \
+  --admin-bearer-file /safe/sandbox-admin
+```
+
+This credential grants full administrator authority; hostname allowlisting does not reduce its privileges. When access ends, revoke that specific credential using another active host administrator:
+
+```bash
+mcp-gateway admin credential revoke SANDBOX_CREDENTIAL_ID --yes
+```
+
+Also remove the `--allowed-host` entry and restart Gateway to block new requests through that name. Host removal is not credential revocation: the bearer remains usable through other accepted hosts until separately revoked or expired. Revocation blocks the bearer independently even while the hostname remains allowed. Securely remove the transferred file when no longer needed.
 
 ## Administrator authentication
 
@@ -52,7 +88,7 @@ Online administrator authentication never prompts. It resolves exactly one beare
 2. `--admin-bearer-stdin` reads exclusively from standard input.
 3. With neither flag, Gateway reads `<effective-data-dir>/admin-bearer`.
 
-The explicit file and stdin selectors conflict. Administrator bearers are never accepted in argv or environment variables. `--data-dir` selects the default credential location; it does not grant private database or keyring access to online commands. Online commands use only the public loopback HTTP API.
+The explicit file and stdin selectors conflict. Administrator bearers are never accepted in argv or environment variables. `--data-dir` selects the default credential location; it does not grant private database or keyring access to online commands. Online commands use only the public HTTP API at the explicitly selected destination.
 
 For a replacement bearer created by reset or restore, select it explicitly:
 

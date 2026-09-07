@@ -7,6 +7,7 @@ Choose documentation by the work you are doing. The same product and security co
 Start with the [Gateway README](../README.md) for installation and the quick start, then use the focused procedure for the task:
 
 - [Administrator CLI and local administration](operators/administration.md) — installation roots, startup, authentication, output, confirmation, and retry discipline.
+- [Run as a macOS launchd agent](operators/launchd.md) — per-user startup, verification, graceful maintenance, and native-keyring caveats.
 - [Upstream server configuration](operators/upstream-servers.md) — servers, credentials, OAuth, operations, and catalogs.
 - [Access control](operators/access-control.md) — principals, agent credentials, grants, and grant requests.
 - [Invocation evidence](operators/invocation-evidence.md) — retained evidence, redaction, and unknown outcomes.
