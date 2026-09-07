@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,6 +91,35 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 		for _, path := range command.DefinitionFiles {
 			_, err := os.Stat(filepath.Join(root, filepath.FromSlash(path)))
 			assert.NoError(t, err, "%s definition %s", id, path)
+		}
+	}
+}
+
+func TestBrowserCoordinatorModulesAreBoundToEvidenceLeaves(t *testing.T) {
+	root := repositoryRoot(t)
+	coordinatorPath := "mcp-gateway/web/tests/browser-coordinator.ts"
+	coordinator, err := os.ReadFile(filepath.Join(root, coordinatorPath))
+	require.NoError(t, err)
+	assert.Less(t, strings.Count(string(coordinator), "\n"), 1000)
+	assert.NotRegexp(t, `(?m)^(?:export )?async function run[A-Z]`, string(coordinator))
+	paths := []string{coordinatorPath}
+	require.NoError(t, filepath.WalkDir(filepath.Join(root, "mcp-gateway/web/tests/browser"), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() && strings.HasSuffix(path, ".ts") {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			paths = append(paths, filepath.ToSlash(relative))
+		}
+		return nil
+	}))
+	require.Greater(t, len(paths), 1)
+	for id, leaf := range purposeEvidenceDAG().Leaves {
+		if strings.HasPrefix(id, "test-browser-") || id == "test-frontend-development-browser" {
+			assert.Subset(t, leaf.DefinitionFiles, paths, id)
 		}
 	}
 }

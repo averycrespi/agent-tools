@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -90,6 +91,21 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"frontend-verify-generated":         leaf("frontend-verify-generated", []string{"security.frontend.generated_assets"}, 60*time.Second, 90*time.Second, 1, 0, 0, []string{"deterministic generated-asset comparison"}, packageManifest, generatedScript, "mcp-gateway/web/vite.config.ts"),
 		"frontend-verify-supply-chain":      leaf("frontend-verify-supply-chain", []string{"product.frontend.static_supply_chain", "frontend.production_separation", "security.frontend.generated_assets"}, 90*time.Second, 2*time.Minute, 1, 0, 0, []string{"dependency provenance", "generated-asset comparison", "static allowlist test output"}, packageManifest, generatedScript, supplyScript, "package-lock.json"),
 		"frontend-audit":                    leaf("frontend-audit", []string{"tier.supply_chain.frontend"}, 60*time.Second, 60*time.Second, 1, 0, 0, []string{"unsuppressed npm vulnerability findings"}, packageManifest, "package-lock.json"),
+	}
+
+	browserDefinitions := []string{
+		"mcp-gateway/web/tests/browser-coordinator.ts", "mcp-gateway/web/tests/collection-pagination.ts", "mcp-gateway/web/tests/visual-matrix.ts",
+		"mcp-gateway/web/tests/browser/shared.ts", "mcp-gateway/web/tests/browser/foundations.ts", "mcp-gateway/web/tests/browser/fixtures.ts",
+		"mcp-gateway/web/tests/browser/lifecycle-scenarios.ts", "mcp-gateway/web/tests/browser/privacy-presentation-scenarios.ts",
+		"mcp-gateway/web/tests/browser/system-scenarios.ts", "mcp-gateway/web/tests/browser/access-scenarios.ts",
+		"mcp-gateway/web/tests/browser/server-scenarios.ts", "mcp-gateway/web/tests/browser/development-scenarios.ts",
+		"mcp-gateway/web/src/mutation.ts", "mcp-gateway/web/src/sinks.ts", "mcp-gateway/web/src/session.ts", "mcp-gateway/web/src/view.ts",
+	}
+	for id, browserLeaf := range leaves {
+		if strings.HasPrefix(id, "test-browser-") || id == "test-frontend-development-browser" {
+			browserLeaf.DefinitionFiles = append(browserLeaf.DefinitionFiles, browserDefinitions...)
+			leaves[id] = browserLeaf
+		}
 	}
 
 	commands := map[string]purposeCommandNode{}
