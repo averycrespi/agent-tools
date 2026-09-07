@@ -163,6 +163,10 @@ func createAndActivateStaticServer(t *testing.T, harness *gatewayHarness, execut
 	require.NoError(t, response.Body.Close())
 	assert.Equal(t, "1", replacement.CredentialRevision)
 	harness.WaitOperation(created.Server.ID, replacement.Operation.ID, contract.OperationSucceeded)
+	// The committed operation is readable before marker cleanup releases storage.
+	waitForDestructiveServer(t, harness, created.Server.ID, func(server destructiveServerView) bool {
+		return server.Runtime.Reconciliation.InUse == 0
+	})
 
 	enabled, etag := patchServer(t, harness, created.Server.ID, etag, `{"enabled":true}`)
 	require.NotNil(t, enabled.Operation)

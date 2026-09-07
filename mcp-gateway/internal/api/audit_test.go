@@ -18,6 +18,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAuthenticatedRejectionDuringPostCommitCleanup(t *testing.T) {
+	ownership, err := gatewaypaths.Acquire(filepath.Join(t.TempDir(), "gateway"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, ownership.Close()) })
+	var afterCommit func()
+	store, err := storage.InitializeWithFaultInjection(t.Context(), ownership, testID, func(point storage.FaultPoint) error {
+		if point == storage.FaultAfterCommit && afterCommit != nil {
+			afterCommit()
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	repository, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	handler := New(Options{InstallationID: testID, Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Audit: repository})
+	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, AuthenticatedProblem: handler.RecordAuthenticatedProblem, Next: handler})
+	require.NoError(t, err)
+	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
+	observed := false
+	afterCommit = func() {
+		observed = true
+		identity, readErr := store.Identity(t.Context())
+		require.NoError(t, readErr)
+		assert.Equal(t, uint64(1), identity.Revision)
+		response := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", "{", headers)
+		assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+		assert.Contains(t, response.Body.String(), `"code":"storage_unavailable"`)
+		assert.False(t, store.Latched())
+	}
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `UPDATE gateway_meta SET revision = revision + 1 WHERE singleton = 1`)
+		return err
+	}))
+	require.True(t, observed)
+	afterCommit = nil
+	response := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", "{", headers)
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+	assert.False(t, store.Latched())
+	page, err := repository.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "admin_credential"}})
+	require.NoError(t, err)
+	assert.Len(t, page.Items, 2, "only the rejection after cleanup can be audited")
+}
+
 func TestAuthenticatedRejectionAuditIsAtomicAndSecretFree(t *testing.T) {
 	for _, refuse := range []bool{false, true} {
 		t.Run(map[bool]string{false: "recorded", true: "audit_refused"}[refuse], func(t *testing.T) {

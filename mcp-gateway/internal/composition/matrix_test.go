@@ -417,6 +417,11 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 			})
 			require.NoError(t, err)
 			defer built.shutdownConstructed()
+			// Release fixture barriers before drain, including on assertion failure.
+			releaseStop := sync.OnceFunc(func() { close(stopRelease) })
+			releaseReplacement := sync.OnceFunc(func() { close(replacementRelease) })
+			defer releaseStop()
+			defer releaseReplacement()
 			namespace := "replace-blocked"
 			if test.stopResult {
 				namespace = "replace-verified"
@@ -424,7 +429,11 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 			server := createServerWithTransport(t, built.servers, namespace, contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/fixture/mcp", Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
 			server = enableCompositionServer(t, built.servers, server)
 			require.NoError(t, built.Start(context.Background()))
-			require.Eventually(t, func() bool { return built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent }, 2*time.Second, time.Millisecond)
+			startupContext, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelStartup()
+			// Publication precedes durable completion; do not supersede startup work.
+			require.True(t, built.manager.Wait(startupContext), "initial reconciliation did not complete")
+			require.Equal(t, contract.ActiveCatalogCurrent, built.RuntimeStatus(server.ID).CatalogState)
 			page, err := built.ActiveCatalog().List(nil, 10)
 			require.NoError(t, err)
 			require.Len(t, page.Items, 1)
@@ -435,7 +444,11 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 			operation, err := built.servers.CreateOperation(context.Background(), servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationReload, ExpectedDesiredRevision: server.DesiredRevision})
 			require.NoError(t, err)
 			built.manager.Trigger(server.ID, &operation.Operation.ID, true)
-			<-stopStarted
+			select {
+			case <-stopStarted:
+			case <-time.After(10 * time.Second):
+				t.Fatal("previous runtime stop did not start")
+			}
 			_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
 			assert.False(t, routePresent)
 			assert.Equal(t, contract.ActiveCatalogUnavailable, built.ActiveCatalog().Status(server.ID).State)
@@ -446,10 +459,14 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 				return getErr == nil && current.State == contract.OperationRunning
 			}, 2*time.Second, time.Millisecond)
 			assert.Equal(t, int64(1), starts.Load())
-			close(stopRelease)
+			releaseStop()
 
 			if test.stopResult {
-				<-replacementStarted
+				select {
+				case <-replacementStarted:
+				case <-time.After(10 * time.Second):
+					t.Fatal("replacement construction did not start")
+				}
 				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
 				assert.False(t, routePresent)
 				require.Eventually(t, func() bool {
@@ -458,7 +475,7 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 					return getErr == nil && current.State == contract.OperationRunning
 				}, 2*time.Second, time.Millisecond)
 			}
-			close(replacementRelease)
+			releaseReplacement()
 			// Join the reconciliation worker before reading its durable outcome;
 			// SQLite completion under race-enabled CI load can outlast a short poll.
 			completionContext, cancelCompletion := context.WithTimeout(context.Background(), 10*time.Second)
