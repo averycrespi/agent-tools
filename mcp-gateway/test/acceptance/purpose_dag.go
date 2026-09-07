@@ -51,6 +51,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		generatedScript = "mcp-gateway/web/scripts/verify-generated.mjs"
 		supplyScript    = "mcp-gateway/web/scripts/verify-supply-chain.mjs"
 	)
+	demoDefinitions := []string{"mcp-gateway/scripts/serve-demo.sh", "mcp-gateway/test/demo/main.go", "mcp-gateway/test/demo/client.go", "mcp-gateway/test/demo/seed.go", "mcp-gateway/test/demo/fixture.go", "mcp-gateway/test/demo/process.go", "mcp-gateway/test/demo/exit_linux.go", "mcp-gateway/test/demo/exit_darwin.go", "mcp-gateway/test/demo/runner_test.go"}
 	commonDefinitions := []string{makefile, manifest, dagDefinition, "mcp-gateway/test/acceptance/suite_selection.go", "mcp-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
 	leaf := func(id string, behaviorIDs []string, timeout, budget time.Duration, repeats, processStarts, browserStarts int, artifacts []string, extraDefinitions ...string) purposeEvidenceLeaf {
@@ -69,7 +70,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
 		"test-harness":     leaf("test-harness", []string{"tier.harness.selftests", "product.compatibility.release_evidence", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"runner and fixture self-test output"}),
 		"test-material":    leaf("test-material", []string{"tier.native.keyring"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
-		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 11, 0, []string{"curated and empty demo public outcomes, privacy and lifecycle cleanup"}, "mcp-gateway/test/demo/runner_test.go", "mcp-gateway/test/serve-demo.py", "mcp-gateway/scripts/serve-demo.sh", "mcp-gateway/scripts/serve-demo.py"),
+		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 11, 0, []string{"curated and empty demo public outcomes, privacy and lifecycle cleanup"}, demoDefinitions...),
 		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 66, 0, []string{"real-binary output", "process cleanup records"}),
 		"test-security":    leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),
 		"test-stress": leaf("test-stress", []string{
@@ -123,7 +124,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addMake("test-material", "go.material")
 	addCommand("go.material", suiteCommandArgv("test-material"), []string{makefile}, nil)
 	addMake("test-serve-demo", "go.serve-demo")
-	addCommand("go.serve-demo", suiteCommandArgv("test-serve-demo"), []string{makefile, "mcp-gateway/test/demo/runner_test.go", "mcp-gateway/test/serve-demo.py", "mcp-gateway/scripts/serve-demo.py"}, nil)
+	addCommand("go.serve-demo", suiteCommandArgv("test-serve-demo"), append([]string{makefile}, demoDefinitions...), nil)
 	addMake("test-integration", "go.integration")
 	addCommand("go.integration", suiteCommandArgv("test-integration"), []string{makefile}, nil)
 	addMake("test-e2e", "go.e2e.complete")

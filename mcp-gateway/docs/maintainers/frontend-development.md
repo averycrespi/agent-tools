@@ -33,7 +33,7 @@ Wait for its `ready` line, then open `http://127.0.0.1:5173`. Gateway remains in
 
 ## Use a disposable feature-branch Gateway
 
-To test the current checkout without reading or changing the default Gateway installation, start the repository-only demo runner (Go and Python 3 with POSIX `waitid`/`WNOWAIT` required):
+To test the current checkout without reading or changing the default Gateway installation, start the repository-only demo runner (Go on Linux or macOS required; no Python or Node needed for the demo itself):
 
 ```bash
 make -C mcp-gateway serve-demo
@@ -41,7 +41,7 @@ make -C mcp-gateway serve-demo
 make -C mcp-gateway serve-demo DEMO_DATASET=empty
 ```
 
-`serve-demo` replaces `serve-temporary`; the old command and `TEMPORARY_LISTEN` are removed, not aliases. The runner builds the checkout with the existing `e2e` in-memory keyring, initializes a fresh owner-only account/data root, and serves on `127.0.0.1:8211`. Wait for **Demo Gateway ready**, which follows authenticated public verification of the selected dataset. Startup/seed errors never advertise a usable environment. It prints protected credential-file paths, not their contents. Read the administrator file only when entering it in the ordinary sign-in form; never retain a screenshot of that value.
+`serve-demo` replaces `serve-temporary`; the old command and `TEMPORARY_LISTEN` are removed, not aliases. The shell entry point builds the Go demo executable into ignored `mcp-gateway/.demo-bin/` and replaces itself with it; that nonsecret build artifact is reusable and remains after shutdown. The runner then builds the checkout with the existing `e2e` in-memory keyring, initializes a fresh owner-only account/data root, and serves on `127.0.0.1:8211`. Wait for **Demo Gateway ready**, which follows authenticated public verification of the selected dataset. Startup/seed errors never advertise a usable environment. It prints protected credential-file paths, not their contents. Read the administrator file only when entering it in the ordinary sign-in form; never retain a screenshot of that value.
 
 Curated data includes:
 

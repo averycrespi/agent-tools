@@ -172,20 +172,21 @@ jobs:
       - run: make -C "$TOOL" test-e2e
 
   gateway-demo:
-    name: Gateway demo runner
+    name: Gateway demo runner (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.gateway == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/go-cache
         with:
           role: demo
           tool: mcp-gateway
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
       - run: make -C mcp-gateway test-serve-demo
 
   vulnerability-scan:

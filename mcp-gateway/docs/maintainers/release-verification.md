@@ -18,7 +18,7 @@ The public verification interface is organized by evidence purpose:
 - `test-integration` owns component, real SQLite/filesystem, and compatibility boundaries at count one, including both ordinary and integration-tagged component tests in one execution.
 - `test-harness` owns runner, fixture, report, selector, and native-classifier self-tests at count one. These are not product E2E or native-provider evidence.
 - `test-material` owns deterministic credential-material composition at count one.
-- `test-serve-demo` owns real-process curated/empty public outcomes, post-readiness calls, privacy, failures, and disposable runner cleanup.
+- `test-serve-demo` owns real-process curated/empty public outcomes, post-readiness calls, privacy, failures, and disposable Go runner cleanup. CI executes this owner on both Linux and macOS to cover their non-reaping process-exit observers.
 - `test-e2e` owns nonbrowser real-binary and E2E-tagged composition-provider behavior at count one, excluding harness self-tests.
 - `test-security` owns source, secret-sink, durable-artifact, and privacy evidence at count one.
 - `test-stress` repeats only the five named stress scenarios at its configured repeat count.
