@@ -153,6 +153,7 @@ func (s *demoSubject) ready(t *testing.T) (string, readyManifest) {
 		root = roots[0]
 		return true
 	}, 75*time.Second, 50*time.Millisecond)
+	require.NoDirExists(t, filepath.Join(s.parent, "go"), "isolated account must not relocate the build dependency cache")
 	return root, manifest
 }
 func (s *demoSubject) stopped(t *testing.T, retained bool) testutil.ProcessResult {
@@ -230,11 +231,18 @@ func checkSupervisor(t *testing.T) {
 }
 
 func TestServeDemoLifecycle(t *testing.T) {
-	cache, err := os.UserCacheDir()
+	runner, err := testutil.NewBinaryRunner(15*time.Second, outputLimit)
 	require.NoError(t, err)
-	if os.Getenv("GOCACHE") == "" {
-		t.Setenv("GOCACHE", filepath.Join(cache, "go-build"))
+	result, err := runner.Run(t.Context(), "go", "env", "-json", "GOCACHE", "GOMODCACHE")
+	require.NoError(t, err)
+	var caches map[string]string
+	require.NoError(t, json.Unmarshal(result.Stdout, &caches))
+	// Both caches otherwise follow the isolated HOME when CI leaves GOPATH unset.
+	for _, name := range []string{"GOCACHE", "GOMODCACHE"} {
+		require.True(t, filepath.IsAbs(caches[name]))
+		t.Setenv(name, caches[name])
 	}
+	t.Setenv("GOPATH", "")
 	t.Run("bootstrap from absent output directory", func(t *testing.T) {
 		checkout := t.TempDir()
 		module := defaultOptions().module
