@@ -1,5 +1,6 @@
 STRESS_COUNT ?= 20
-TEMPORARY_LISTEN ?= 127.0.0.1:8211
+DEMO_LISTEN ?= 127.0.0.1:8211
+DEMO_DATASET ?= curated
 TEST_JSON ?= 0
 
 ifneq ($(TEST_JSON),0)
@@ -11,12 +12,12 @@ SUITE_OUTPUT_FLAG := $(if $(filter 1,$(TEST_JSON)),--json)
 
 .NOTPARALLEL: test test-browser test-frontend-development
 
-.PHONY: help build install serve-temporary test test-unit test-integration test-harness test-material suite-inventory test-e2e test-security test-stress test-keyring-native test-serve-temporary test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
+.PHONY: help build install serve-demo test test-unit test-integration test-harness test-material suite-inventory test-e2e test-security test-stress test-keyring-native test-serve-demo test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
 
 help:
 	@printf '%s\n' \
 		'test-unit | test-integration | test-harness | test-material | suite-inventory' \
-		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-temporary' \
+		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-demo' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
 		'test-browser (developer aggregate; one planner, isolated leaves)' \
 		'TEST_JSON=1 emits JSON events for planned Go test commands' \
@@ -25,19 +26,20 @@ help:
 		'qualify-external-evidence' \
 		'accept REPORT=<absolute-path>' \
 		'adopt-acceptance-report REPORT=<absolute-path> ADOPTION=<absolute-path>' \
-		'serve-temporary [TEMPORARY_LISTEN=127.0.0.1:8211]' \
+		'serve-demo [DEMO_DATASET=curated|empty] [DEMO_LISTEN=127.0.0.1:8211]' \
 		'build | install | lint | fmt | tidy | verify | audit'
 
 build:
 	go build -o mcp-gateway ./cmd/mcp-gateway
 
-serve-temporary:
-	./scripts/serve-temporary.sh --listen "$(TEMPORARY_LISTEN)"
+export DEMO_LISTEN DEMO_DATASET
+serve-demo:
+	./scripts/serve-demo.sh --listen "$$DEMO_LISTEN" --dataset "$$DEMO_DATASET"
 
 install:
 	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/mcp-gateway
 
-test: test-unit test-integration test-harness test-material test-serve-temporary
+test: test-unit test-integration test-harness test-material test-serve-demo
 
 test-unit:
 	go run ./test/acceptance/cmd run-suite test-unit $(SUITE_OUTPUT_FLAG)
@@ -51,8 +53,8 @@ test-material:
 suite-inventory:
 	@go run ./test/acceptance/cmd suite-inventory
 
-test-serve-temporary:
-	./test/serve-temporary.sh
+test-serve-demo:
+	go run ./test/acceptance/cmd run-suite test-serve-demo $(SUITE_OUTPUT_FLAG)
 
 test-integration:
 	go run ./test/acceptance/cmd run-suite test-integration $(SUITE_OUTPUT_FLAG)

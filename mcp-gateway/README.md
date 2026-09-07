@@ -33,6 +33,8 @@ mcp-gateway status
 
 `initialize` creates a new administrator bearer file and prints safe next steps, never the bearer value. `status` reads that default bearer and uses the public loopback control API. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
 
+For an interactive checkout-only sandbox, use `make -C mcp-gateway serve-demo` from the repository root. It provides local echo/arithmetic/document tools, sample agents and grants, a pending request, and real invocation history without the normal installation or native keyring. `DEMO_DATASET=empty` selects a fresh empty environment; `DEMO_LISTEN=127.0.0.1:PORT` overrides its default port 8211. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for protected credentials, separate Vite, requirements, and Ctrl-C cleanup. This is not an installed CLI command.
+
 ## Current capabilities
 
 Gateway provides:
@@ -101,7 +103,7 @@ Maintainers should start with [CLAUDE.md](CLAUDE.md) for package ownership, edit
 ```bash
 make build
 make test-unit  # fast contract and algorithm feedback
-make test       # disjoint unit, integration, harness, material, temporary-runner coverage
+make test       # disjoint unit, integration, harness, material, demo-runner coverage
 make verify
 npm run ui:typecheck
 npm run ui:build

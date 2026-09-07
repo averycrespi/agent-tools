@@ -920,7 +920,19 @@ func TestManagerPollCatalogChallengeUsesSameHandoffWithoutOperation(t *testing.T
 	driver := newLifecycleDriver()
 	catalog := newHandoffCatalog()
 	refresh := newChallengeRefreshFake()
-	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, OAuthRefresh: refresh})
+	published := make(chan struct{})
+	release := make(chan struct{})
+	var firstPublication sync.Once
+	releasePublication := sync.OnceFunc(func() { close(release) })
+	defer releasePublication()
+	manager, err := New(Options{Repository: repository, Driver: driver, Catalog: catalog, OAuthRefresh: refresh, Invalidate: func(event contract.Invalidation) {
+		if event.Kind == contract.InvalidationCatalog {
+			firstPublication.Do(func() {
+				close(published)
+				<-release
+			})
+		}
+	}})
 	require.NoError(t, err)
 	defer manager.Shutdown()
 	var serverID string
@@ -935,29 +947,50 @@ func TestManagerPollCatalogChallengeUsesSameHandoffWithoutOperation(t *testing.T
 	manager.Trigger(serverID, nil, false)
 	active := receiveCandidate(t, driver.started)
 	driver.startResult <- activeOutcome()
-	<-catalog.activateStarted
+	receiveCandidate(t, catalog.activateStarted)
 	catalog.activateResult <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
-	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	select {
+	case <-published:
+	case <-time.After(time.Second):
+		t.Fatal("active publication did not start")
+	}
 	disposition := &downstream.OAuthChallengeDisposition{Kind: downstream.OAuthChallengeRefresh, Stage: downstream.OAuthChallengeCatalogFirstPage}
+	status := manager.Status(serverID)
+	require.Equal(t, contract.RuntimeActive, status.State)
+	require.EqualValues(t, 1, status.Reconciliation.InUse)
+	require.False(t, manager.HandleCatalogCompletion(active, CatalogOutcome{State: contract.ActiveCatalogCurrent, OAuthChallenge: disposition}, nil))
+	releasePublication()
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeActive && status.Reconciliation.InUse == 0
+	}, time.Second, time.Millisecond)
 
-	assert.True(t, manager.HandleCatalogCompletion(active, CatalogOutcome{State: contract.ActiveCatalogCurrent, OAuthChallenge: disposition}, nil))
-	assert.True(t, manager.HandleCatalogCompletion(active, CatalogOutcome{State: contract.ActiveCatalogCurrent, OAuthChallenge: disposition}, nil))
-	<-refresh.started
+	require.True(t, manager.HandleCatalogCompletion(active, CatalogOutcome{State: contract.ActiveCatalogCurrent, OAuthChallenge: disposition}, nil))
+	require.True(t, manager.HandleCatalogCompletion(active, CatalogOutcome{State: contract.ActiveCatalogCurrent, OAuthChallenge: disposition}, nil))
+	select {
+	case <-refresh.started:
+	case <-time.After(time.Second):
+		t.Fatal("catalog challenge refresh did not start")
+	}
 	repository.mu.Lock()
 	authority = repository.authorities[serverID]
 	authority.CredentialRevisions.OAuthTokens = "2"
 	repository.authorities[serverID] = authority
 	repository.mu.Unlock()
 	refresh.release <- OAuthChallengeRefreshResult{OAuthTokensRevision: "2"}
-	<-catalog.withdrawn
+	receiveCandidate(t, catalog.withdrawn)
 	assert.Equal(t, active.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
 	driver.stopResult <- true
 	fresh := receiveCandidate(t, driver.started)
 	assert.Nil(t, fresh.OperationID)
 	driver.startResult <- activeOutcome()
-	<-catalog.activateStarted
+	receiveCandidate(t, catalog.activateStarted)
 	catalog.activateResult <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
-	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeActive && status.Reconciliation.InUse == 0
+	}, time.Second, time.Millisecond)
+	driver.stopResult <- true
 	select {
 	case transition := <-repository.transitions:
 		t.Fatalf("poll created an operation transition: %s", transition.State)

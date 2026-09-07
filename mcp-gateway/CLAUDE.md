@@ -11,8 +11,8 @@ Run commands from `mcp-gateway/` unless noted:
 ```bash
 make build                 # build ./cmd/mcp-gateway
 make install               # install the binary into GOPATH/bin
-make serve-temporary       # build and serve an isolated disposable test Gateway
-make test                  # disjoint unit/integration/harness/material/temporary aggregate
+make serve-demo            # build and serve an interactive isolated seeded Gateway
+make test                  # disjoint unit/integration/harness/material/demo aggregate
 make test-unit             # count-one dependency-light contract and algorithm tests
 make test-integration      # count-one component/SQLite/filesystem/compatibility tests
 make test-harness          # runner, fixture, report, and selector self-tests
@@ -22,7 +22,7 @@ make test-e2e              # count-one real-binary suite
 make test-security         # security/privacy source and sink evidence
 make test-stress           # repeat only five named stress scenarios
 make test-keyring-native   # typed native keyring evidence
-make test-serve-temporary  # disposable runner lifecycle and cleanup
+make test-serve-demo       # real-process demo outcomes, lifecycle and cleanup
 make test-browser          # one planner; five isolated browser leaves
 make frontend-typecheck
 make frontend-build
@@ -50,7 +50,9 @@ npm run ui:verify-supply-chain
 npm run ui:audit
 ```
 
-Use `make serve-temporary` for feature-branch testing that must not touch the default Gateway installation or native keyring. It builds the existing `e2e` variant into a temporary owner-only root, serves on `127.0.0.1:8211` by default, and removes the binary, database, bearer, and in-memory keyring when stopped. Override the authority with `TEMPORARY_LISTEN=127.0.0.1:PORT`. This workflow does not qualify native-keyring behavior or persistence across Gateway restarts.
+Use `make serve-demo` for interactive feature-branch testing without touching the default installation or native keyring. `DEMO_DATASET=empty` selects first-run testing; curated is the default. The Python 3 repository runner requires POSIX `waitid`/`WNOWAIT`, builds the existing `e2e` variant, and owns two local bounded HTTP fixtures outside the production graph. `DEMO_LISTEN=127.0.0.1:PORT` overrides the default `127.0.0.1:8211`. Follow the frontend-development guide for credentials and sample workflows. This replaces the former temporary runner without an alias and does not qualify native-keyring behavior or persistence across Gateway restarts.
+
+The demo supervisor retains unreaped direct-child identities while signalling owned process groups, bounds build (300s), initialization/credential CLI (15s), startup/seeding (60s plus any active bounded CLI), HTTP (3s), output (1 MiB per stream), and TERM/KILL/reap cleanup. Required fixture exits fail the whole demo. Mutations are one-shot; readiness polling reads only. Cleanup failures retain the root and fail rather than deleting evidence of unconfirmed ownership. Python tests exercise real demo processes under the shared race-enabled Go runner; keep their single owner `test-serve-demo` disjoint from E2E and harness.
 
 Use [frontend development](docs/maintainers/frontend-development.md) for the two-process live-reload trust boundary. Use [release verification](docs/maintainers/release-verification.md) for evidence tiers, acceptance, external qualification, and report adoption. Do not use a full acceptance run as the first integration or debugging loop.
 

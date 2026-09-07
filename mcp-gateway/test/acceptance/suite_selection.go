@@ -96,6 +96,9 @@ func suiteOwner(path string, tags map[string]bool) (string, []string, error) {
 			case "keyringnative":
 				owner = "test-keyring-native"
 			case "e2e":
+				if strings.HasPrefix(path, "test/demo/") {
+					return "test-serve-demo", []string{tag}, nil
+				}
 				if strings.HasSuffix(path, "_harness_test.go") || strings.HasSuffix(path, "/harness_self_test.go") || strings.HasSuffix(path, "/process_supervisor_test.go") {
 					owner = "test-harness"
 				}

@@ -135,7 +135,7 @@ class GateTests(unittest.TestCase):
             "quality": {"result": "success"},
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
-                         "vulnerability-scan": "tools", "gateway-temporary": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
+                         "vulnerability-scan": "tools", "gateway-demo": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
                          "sandbox-manager-macos": "sandbox"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
@@ -224,7 +224,7 @@ class CacheTests(unittest.TestCase):
         dependencies = re.findall(r"^      - ([a-z0-9-]+)$", required, re.M)
         self.assertEqual(set(dependencies), {"changes", "quality", *SUITE_JOBS})
         roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint", "gateway-harness": "harness",
-                 "integration-tests": "integration", "e2e-tests": "e2e", "gateway-temporary": "temporary",
+                 "integration-tests": "integration", "e2e-tests": "e2e", "gateway-demo": "demo",
                  "vulnerability-scan": "vulnerability", "sandbox-manager-macos": "macos"}
         for job, role in roles.items():
             self.assertEqual(jobs[job].count("uses: ./.github/actions/go-cache"), 1)
