@@ -60,7 +60,7 @@ cd telegram-mcp && make install
 
 ## CI
 
-Pull requests run Go lint, unit tests, supported integration/E2E suites, and blocking Go vulnerability scans in independent tool-scoped jobs. Gateway lint runs independently of its unit, integration, E2E, and temporary-runner leaves, without repeating integration under the unit job. Both Gateway lint and correctness remain mandatory in Required. Sandbox Manager retains its macOS unit tests. Formatting and CI selection/gate tests always run.
+Pull requests run Go lint, unit tests, supported integration/E2E suites, and blocking Go vulnerability scans in independent tool-scoped jobs. Gateway lint runs independently of its unit, integration, harness/material, E2E, and temporary-runner leaves. Its dependency-light unit path no longer runs component databases, while the integration and harness/material jobs retain that moved coverage without repeating it under another name. Both Gateway lint and correctness remain mandatory in Required. Sandbox Manager retains its macOS unit tests. Formatting and CI selection/gate tests always run.
 
 Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames. Pushes to `main`, manual runs, and the weekly scheduled run check every tool; scheduled vulnerability scans can catch new advisories without code changes.
 

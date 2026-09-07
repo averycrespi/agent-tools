@@ -16,8 +16,8 @@ func TestReleaseProfileDefinitions(t *testing.T) {
 	require.NoError(t, validateFinalReleaseProfile(profile))
 	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
 	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 234)
-	assert.Len(t, profile.Checks, 21)
+	assert.Len(t, profile.Coverage.ProductBehaviors, 236)
+	assert.Len(t, profile.Checks, 23)
 }
 
 func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
@@ -26,7 +26,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	require.NoError(t, validateFinalReleaseProfile(profile))
 
 	expectedChecks := []string{
-		"repository-format", "repository-verify", "test-unit", "test-integration", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-temporary", "test-e2e", "test-security", "test-stress", "test-keyring-native",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
 	}
@@ -48,7 +48,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	assert.Equal(t, expectedChecks, actualChecks)
 	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
 	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 234)
+	assert.Len(t, profile.Coverage.ProductBehaviors, 236)
 	assert.Len(t, profile.Coverage.CleanupCriteria, 10)
 	for _, id := range profile.Coverage.ProductBehaviors {
 		assert.Equal(t, 1, productOwners[id], id)
@@ -63,11 +63,14 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	}, checksByID["test-stress"].Coverage.ProductBehaviors)
 	assert.Subset(t, checksByID["test-frontend-development-browser"].Coverage.ProductBehaviors, []string{"frontend.style_live_reload", "frontend.module_live_reload", "frontend.control_plane", "frontend.streaming_uncertainty"})
 	assert.Contains(t, checksByID["test-e2e"].Coverage.ProductBehaviors, "tier.e2e.complete")
-	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
-	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "product.compatibility.release_evidence")
-	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "cli.documentation")
-	assert.Contains(t, checksByID["test-unit"].Coverage.CleanupCriteria, "cleanup.AC-1")
-	assert.Contains(t, checksByID["test-unit"].Coverage.CleanupCriteria, "cleanup.AC-10")
+	assert.Contains(t, checksByID["test-harness"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
+	assert.Contains(t, checksByID["test-harness"].Coverage.ProductBehaviors, "product.compatibility.release_evidence")
+	assert.Contains(t, checksByID["test-harness"].Coverage.ProductBehaviors, "cli.documentation")
+	assert.Contains(t, checksByID["test-harness"].Coverage.CleanupCriteria, "cleanup.AC-1")
+	assert.Contains(t, checksByID["test-harness"].Coverage.CleanupCriteria, "cleanup.AC-10")
+	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "tier.unit.contract")
+	assert.Contains(t, checksByID["test-integration"].Coverage.ProductBehaviors, "cli.security_boundary")
+	assert.Contains(t, checksByID["test-serve-temporary"].Coverage.ProductBehaviors, "tier.harness.temporary")
 	assert.NotContains(t, checksByID["repository-format"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
 	assert.Contains(t, checksByID["repository-verify"].Coverage.ProductBehaviors, "tier.repository.verify")
 	assert.Contains(t, checksByID["go-vulnerability"].Coverage.ProductBehaviors, "tier.supply_chain.go")
@@ -97,7 +100,7 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}
-	assert.Equal(t, 105, gatewayStarts)
+	assert.Equal(t, 106, gatewayStarts)
 	assert.Equal(t, 40, browserStarts)
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "test-e2e"))
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "verify-supply-chain"))

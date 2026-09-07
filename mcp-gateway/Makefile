@@ -3,11 +3,12 @@ TEMPORARY_LISTEN ?= 127.0.0.1:8211
 
 .NOTPARALLEL: test test-browser test-frontend-development
 
-.PHONY: help build install serve-temporary test test-unit test-integration test-e2e test-security test-stress test-keyring-native test-serve-temporary test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
+.PHONY: help build install serve-temporary test test-unit test-integration test-harness test-material suite-inventory test-e2e test-security test-stress test-keyring-native test-serve-temporary test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
 
 help:
 	@printf '%s\n' \
-		'test-unit | test-integration | test-e2e | test-security | test-stress | test-keyring-native | test-serve-temporary' \
+		'test-unit | test-integration | test-harness | test-material | suite-inventory' \
+		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-temporary' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
 		'test-browser (developer aggregate)' \
 		'test-frontend-development-node | test-frontend-development-browser | test-frontend-development (developer aggregate)' \
@@ -27,27 +28,34 @@ serve-temporary:
 install:
 	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/mcp-gateway
 
-test: test-unit test-integration test-serve-temporary
+test: test-unit test-integration test-harness test-material test-serve-temporary
 
 test-unit:
-	go test -race -count=1 -timeout=300s ./...
+	go run ./test/acceptance/cmd run-suite test-unit
+
+test-harness:
+	go run ./test/acceptance/cmd run-suite test-harness
+
+test-material:
+	go run ./test/acceptance/cmd run-suite test-material
+
+suite-inventory:
+	@go run ./test/acceptance/cmd suite-inventory
 
 test-serve-temporary:
 	./test/serve-temporary.sh
 
 test-integration:
-	go test -race -count=1 -tags=integration -timeout=300s -run '^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest65536ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$$' ./internal/storage ./internal/backup ./internal/servers ./internal/servercredentials ./internal/grantrequests ./internal/authorization ./internal/catalog ./internal/invocation ./internal/audit ./internal/composition
+	go run ./test/acceptance/cmd run-suite test-integration
 
 test-e2e:
-	go test -race -count=1 -tags=e2e -timeout=300s ./test/e2e/...
+	go run ./test/acceptance/cmd run-suite test-e2e
 
 test-security:
-	go test -race -count=1 -tags=security -timeout=30s -run '^(TestReleaseReportSecretSinkBoundaries|TestDurableSecretSinkBoundaries|TestSecurityEvidenceOwnerManifest|TestStaticSecretSinkClosure)$$' ./test/security/... ./test/acceptance
+	go run ./test/acceptance/cmd run-suite test-security
 
 test-stress:
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=2m -run '^(TestConcurrentSemanticDeduplicationStress|TestApprovalCancellationPolicyLinearizationStress)$$' ./internal/grantrequests
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^(TestSyntheticSnapshotPaginationStress|TestLostLocalMutationResponseDeduplicatesExplicitRetryStress)$$' ./internal/selfservice
-	go test -race -tags=stress -count=$(STRESS_COUNT) -timeout=90s -run '^TestLocalInvocationDrainCleanupStress$$' ./internal/composition
+	go run ./test/acceptance/cmd run-suite test-stress --count=$(STRESS_COUNT)
 
 test-keyring-native:
 	./test/keyring-native.sh
@@ -55,19 +63,19 @@ test-keyring-native:
 test-browser: test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross
 
 test-browser-workflows:
-	go test -race -count=1 -tags=e2e,browser -timeout=3m -run '^TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit|SessionLifecycleCanary|PriorSessionResponseIsolationCanary|OverviewInvocationSystemCanary|ServerManagementCanary|AccessManagementReadCanary|SystemAdministrationCanary|VisualAccessibilityPrivacyCanary|Coordinator)$$' ./test/e2e
+	go run ./test/acceptance/cmd run-suite test-browser-workflows
 
 test-browser-privacy:
-	go test -race -count=1 -tags=e2e,browser -timeout=30s -run '^TestBrowserSecretStoragePrivacy$$' ./test/e2e
+	go run ./test/acceptance/cmd run-suite test-browser-privacy
 
 test-browser-visual:
-	go test -race -count=1 -tags=e2e,browser -timeout=60s -run '^TestBrowserVisualResponsiveMatrix$$' ./test/e2e
+	go run ./test/acceptance/cmd run-suite test-browser-visual
 
 test-browser-accessibility:
-	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserAccessibility$$' ./test/e2e
+	go run ./test/acceptance/cmd run-suite test-browser-accessibility
 
 test-browser-cross:
-	go test -race -count=1 -tags=e2e,browser -timeout=45s -run '^TestBrowserCrossCompatibility$$' ./test/e2e
+	go run ./test/acceptance/cmd run-suite test-browser-cross
 
 test-frontend-development: test-frontend-development-node test-frontend-development-browser
 
@@ -75,7 +83,7 @@ test-frontend-development-node:
 	npm --prefix .. run ui:test-dev
 
 test-frontend-development-browser:
-	go test -race -count=1 -tags=e2e,browser -timeout=2m -run '^TestFrontendDevelopment(LiveReload|ControlPlane)$$' ./test/e2e
+	go run ./test/acceptance/cmd run-suite test-frontend-development-browser
 
 frontend-typecheck:
 	npm --prefix .. run ui:typecheck
@@ -88,7 +96,7 @@ frontend-verify-generated:
 
 frontend-verify-supply-chain:
 	npm --prefix .. run ui:verify-supply-chain
-	go test -race -count=1 -tags=frontend -timeout=30s -run '^TestStaticSupplyChain$$' ./internal/api
+	go run ./test/acceptance/cmd run-suite frontend-static-tests
 
 frontend-audit:
 	npm --prefix .. run ui:audit

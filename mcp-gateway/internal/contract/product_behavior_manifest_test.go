@@ -15,7 +15,7 @@ func TestProductBehaviorManifest(t *testing.T) {
 }
 
 func testProductBehaviorManifestSchema(t *testing.T) {
-	assert.Equal(t, 1, ProductBehaviorManifestVersion)
+	assert.Equal(t, 2, ProductBehaviorManifestVersion)
 	product := ProductBehaviorManifest()
 	require.Len(t, product, 141)
 	kindCounts := map[string]int{}
@@ -31,7 +31,7 @@ func testProductBehaviorManifestSchema(t *testing.T) {
 	assert.Len(t, SecurityBehaviorManifest(), 18)
 	assert.Len(t, DocumentationBehaviorManifest(), 41)
 	assert.Len(t, PredecessorBehaviorManifest(), 18)
-	assert.Len(t, EvidenceTierManifest(), 16)
+	assert.Len(t, EvidenceTierManifest(), 18)
 }
 
 func testProductBehaviorManifestIDsAreStableAndDisjoint(t *testing.T) {

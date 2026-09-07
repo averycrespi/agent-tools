@@ -12,9 +12,12 @@ Run commands from `mcp-gateway/` unless noted:
 make build                 # build ./cmd/mcp-gateway
 make install               # install the binary into GOPATH/bin
 make serve-temporary       # build and serve an isolated disposable test Gateway
-make test                  # race-enabled ordinary package suite
-make test-unit             # count-one ordinary correctness
-make test-integration      # race-enabled real SQLite/filesystem tests
+make test                  # disjoint unit/integration/harness/material/temporary aggregate
+make test-unit             # count-one dependency-light contract and algorithm tests
+make test-integration      # count-one component/SQLite/filesystem/compatibility tests
+make test-harness          # runner, fixture, report, and selector self-tests
+make test-material         # deterministic credential-material composition
+make suite-inventory       # JSON source/build-context/executable ownership
 make test-e2e              # count-one real-binary suite
 make test-security         # security/privacy source and sink evidence
 make test-stress           # repeat only five named stress scenarios
@@ -138,7 +141,7 @@ docs/                       Role-oriented operator, maintainer, and design docum
 - Test subprocesses use `testutil.BinaryRunner` or the shared E2E/acceptance harness with finite deadlines, bounded output, fresh process groups, and explicit process/listener/temporary-root cleanup.
 - The `e2e` build tag replaces only the composition provider factory with deterministic test material. Ordinary builds select the native keyring backend; neither selection is public configuration.
 - Routine authorization repository fixtures use `internal/testutil/storagefixture`: one real initialization creates a closed, checkpointed immutable in-memory image per test process, then each fixture copies it into its independently owned root and uses normal `storage.Open` validation. The subpackage keeps storage dependencies out of the general testutil helpers. Never use it for initialization, historical migration, restore, fault-injection, or recovery evidence; those owners retain real initialization. No database connection, mutable file, WAL/SHM sidecar, or keyring authority is shared between fixtures.
-- Keep focused tests with their behavior owner. Large persistence, migration, protocol, browser, and real-binary suites stay count one. Repeated execution belongs only to dedicated named stress scenarios.
+- Keep focused tests with their behavior owner. `test/acceptance/suite_selection.go` derives exact executable selectors from source/package ownership and build constraints; add tests beside their owner instead of maintaining Makefile name regexes. `make suite-inventory` exposes selected and platform-inapplicable identities, and `go run ./test/acceptance/cmd suite-plan <owner>` prints the checked command plan. Unknown tags, missing owners, empty leaves, or duplicate/foreign executable selection fail closed. Large persistence, migration, protocol, browser, and real-binary suites stay count one. Repeated execution belongs only to dedicated named stress scenarios.
 - Repository source guards use exact paths and symbols. Extend an allowlist only for a deliberate ownership change; never broaden a guard to make an unrelated refactor pass. Keep the narrow discovery conversion suppressions limited to reversible sign-bit mapping, bounded nanoseconds, and bounded page positions.
 - README is the user entry point; `docs/README.md` maps documentation by role and task; DESIGN is the normative architecture index and `docs/design/` contains its domain chapters. This file owns maintainer commands, layout, dependency flow, and non-obvious editing constraints. Detailed workflows belong to `docs/operators/` and `docs/maintainers/`.
 - Release evidence must remain bound to a clean unchanged revision and immutable definitions. Native and external gaps stay typed and visible; a failed blocking owner blocks. Follow [release verification](docs/maintainers/release-verification.md) rather than copying acceptance command inventories here.

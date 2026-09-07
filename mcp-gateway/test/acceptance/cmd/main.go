@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -22,7 +24,7 @@ func main() {
 
 func run(arguments []string) int {
 	if len(arguments) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: acceptance <accept|adopt-acceptance-report|qualify-external-evidence>")
+		fmt.Fprintln(os.Stderr, "usage: acceptance <accept|adopt-acceptance-report|qualify-external-evidence|suite-inventory|suite-plan|run-suite>")
 		return 2
 	}
 	for _, argument := range arguments {
@@ -37,6 +39,21 @@ func run(arguments []string) int {
 		return 1
 	}
 	switch arguments[0] {
+	case "suite-inventory":
+		if len(arguments) != 1 {
+			return 2
+		}
+		inventory, err := acceptance.DiscoverSuiteInventory(filepath.Join(root, "mcp-gateway"), runtime.GOOS, runtime.GOARCH)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(inventory); err != nil {
+			return 1
+		}
+		return 0
+	case "run-suite", "suite-plan":
+		return runSuite(root, arguments[0], arguments[1:])
 	case "accept":
 		return runAccept(root, arguments[1:])
 	case "adopt-acceptance-report":
@@ -55,6 +72,43 @@ func run(arguments []string) int {
 		fmt.Fprintln(os.Stderr, "unknown acceptance command")
 		return 2
 	}
+}
+
+func runSuite(root, operation string, arguments []string) int {
+	if len(arguments) == 0 {
+		fmt.Fprintln(os.Stderr, operation+" requires a suite owner")
+		return 2
+	}
+	flags := flag.NewFlagSet(operation, flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	count := flags.Int("count", 1, "repeat count (stress only)")
+	if err := flags.Parse(arguments[1:]); err != nil || flags.NArg() != 0 {
+		return 2
+	}
+	if operation == "suite-plan" {
+		moduleRoot := filepath.Join(root, "mcp-gateway")
+		inventory, err := acceptance.DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		plan, err := acceptance.PlanSuite(moduleRoot, arguments[0], inventory, *count)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(plan); err != nil {
+			return 1
+		}
+		return 0
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := acceptance.RunSuite(ctx, root, arguments[0], *count, acceptance.SuiteExecutor{}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
 }
 
 func runAccept(root string, arguments []string) int {

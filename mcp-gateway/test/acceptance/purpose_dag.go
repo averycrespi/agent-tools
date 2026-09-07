@@ -50,7 +50,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		generatedScript = "mcp-gateway/web/scripts/verify-generated.mjs"
 		supplyScript    = "mcp-gateway/web/scripts/verify-supply-chain.mjs"
 	)
-	commonDefinitions := []string{makefile, manifest, dagDefinition}
+	commonDefinitions := []string{makefile, manifest, dagDefinition, "mcp-gateway/test/acceptance/suite_selection.go", "mcp-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
 	leaf := func(id string, behaviorIDs []string, timeout, budget time.Duration, repeats, processStarts, browserStarts int, artifacts []string, extraDefinitions ...string) purposeEvidenceLeaf {
 		definitions := append([]string(nil), commonDefinitions...)
@@ -64,10 +64,13 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	}
 
 	leaves := map[string]purposeEvidenceLeaf{
-		"test-unit":        leaf("test-unit", []string{"tier.unit.contract", "cli.help_and_errors"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
-		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
-		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 66, 0, []string{"real-binary output", "process cleanup records"}),
-		"test-security":    leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),
+		"test-unit":            leaf("test-unit", []string{"tier.unit.contract"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
+		"test-integration":     leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
+		"test-harness":         leaf("test-harness", []string{"tier.harness.selftests", "product.compatibility.release_evidence", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"runner and fixture self-test output"}),
+		"test-material":        leaf("test-material", []string{"tier.native.keyring"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
+		"test-serve-temporary": leaf("test-serve-temporary", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 1, 0, []string{"disposable runner lifecycle and cleanup"}, "mcp-gateway/test/serve-temporary.sh", "mcp-gateway/scripts/serve-temporary.sh"),
+		"test-e2e":             leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 66, 0, []string{"real-binary output", "process cleanup records"}),
+		"test-security":        leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),
 		"test-stress": leaf("test-stress", []string{
 			"product.grant_request.conflict_and_uncertainty", "product.grant_request.approval_narrowing", "product.invocation.page_coherence",
 			"product.client_refresh.no_unsafe_replay", "product.invocation.missing_terminal_unknown",
@@ -98,39 +101,29 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	}
 
 	addMake("test-unit", "go.unit")
-	addCommand("go.unit", []string{"go", "test", "-race", "-count=1", "-timeout=300s", "./..."}, []string{makefile}, nil)
+	addCommand("go.unit", suiteCommandArgv("test-unit"), []string{makefile}, nil)
+	addMake("test-harness", "go.harness")
+	addCommand("go.harness", suiteCommandArgv("test-harness"), []string{makefile}, nil)
+	addMake("test-material", "go.material")
+	addCommand("go.material", suiteCommandArgv("test-material"), []string{makefile}, nil)
+	addMake("test-serve-temporary", "shell.serve-temporary")
+	addCommand("shell.serve-temporary", []string{"./test/serve-temporary.sh"}, []string{makefile, "mcp-gateway/test/serve-temporary.sh"}, nil)
 	addMake("test-integration", "go.integration")
-	integrationSelector := "^(Test.*Integration|TestRequestSchemaMigrationUsesRealSQLite|TestRestoreAcceptedSchemaLineages|TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline|TestBusyBeyondDeadlineLatchesMutationAcrossRestart|TestRepositoryRetainsNewest65536ByMonotonicSequence|TestRepositoryRollsBackEvictionWhenInsertFails|TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss|TestSchemaSevenFixtureMigratesWithRealSQLite|TestPopulatedSchemaEightMigratesToNineWithRealSQLite|TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation|TestServerSnapshotWatermarkExcludesLaterInsert|TestServicePublishesOneCompleteStaticGenerationAndSafeOperation)$"
-	integrationPackages := []string{"./internal/storage", "./internal/backup", "./internal/servers", "./internal/servercredentials", "./internal/grantrequests", "./internal/authorization", "./internal/catalog", "./internal/invocation", "./internal/audit", "./internal/composition"}
-	integrationArgv := []string{"go", "test", "-race", "-count=1", "-tags=integration", "-timeout=300s", "-run", integrationSelector}
-	addCommand("go.integration", append(integrationArgv, integrationPackages...), []string{makefile}, nil)
+	addCommand("go.integration", suiteCommandArgv("test-integration"), []string{makefile}, nil)
 	addMake("test-e2e", "go.e2e.complete")
-	addCommand("go.e2e.complete", []string{"go", "test", "-race", "-count=1", "-tags=e2e", "-timeout=300s", "./test/e2e/..."}, []string{makefile}, nil)
+	addCommand("go.e2e.complete", suiteCommandArgv("test-e2e"), []string{makefile}, nil)
 	addMake("test-security", "go.security")
-	addCommand("go.security", []string{"go", "test", "-race", "-count=1", "-tags=security", "-timeout=30s", "-run", "^(TestReleaseReportSecretSinkBoundaries|TestDurableSecretSinkBoundaries|TestSecurityEvidenceOwnerManifest|TestStaticSecretSinkClosure)$", "./test/security/...", "./test/acceptance"}, []string{makefile, "mcp-gateway/test/security/security_canaries_test.go", "mcp-gateway/test/acceptance/release_report_security_test.go"}, nil)
-	addMake("test-stress", "go.stress.grant-requests", "go.stress.self-service", "go.stress.composition")
-	addCommand("go.stress.grant-requests", []string{"go", "test", "-race", "-tags=stress", "-count=$(STRESS_COUNT)", "-timeout=2m", "-run", "^(TestConcurrentSemanticDeduplicationStress|TestApprovalCancellationPolicyLinearizationStress)$", "./internal/grantrequests"}, []string{makefile}, nil)
-	addCommand("go.stress.self-service", []string{"go", "test", "-race", "-tags=stress", "-count=$(STRESS_COUNT)", "-timeout=90s", "-run", "^(TestSyntheticSnapshotPaginationStress|TestLostLocalMutationResponseDeduplicatesExplicitRetryStress)$", "./internal/selfservice"}, []string{makefile}, nil)
-	addCommand("go.stress.composition", []string{"go", "test", "-race", "-tags=stress", "-count=$(STRESS_COUNT)", "-timeout=90s", "-run", "^TestLocalInvocationDrainCleanupStress$", "./internal/composition"}, []string{makefile}, nil)
+	addCommand("go.security", suiteCommandArgv("test-security"), []string{makefile, "mcp-gateway/test/security/security_canaries_test.go", "mcp-gateway/test/acceptance/release_report_security_test.go"}, nil)
+	addMake("test-stress", "go.stress")
+	addCommand("go.stress", append(suiteCommandArgv("test-stress"), "--count=$(STRESS_COUNT)"), []string{makefile}, nil)
 	addMake("test-keyring-native", "shell.keyring-native")
-	addCommand("shell.keyring-native", []string{"./test/keyring-native.sh"}, []string{makefile, "mcp-gateway/test/keyring-native.sh"}, nil)
+	addCommand("shell.keyring-native", []string{"./test/keyring-native.sh"}, []string{makefile, "mcp-gateway/test/keyring-native.sh", "mcp-gateway/test/keyringnative/result.go", "mcp-gateway/test/keyringnative/result.schema.json", "mcp-gateway/test/keyringnative/cmd/main.go"}, []string{"go.material", "go.native"})
+	addCommand("go.native", suiteCommandArgv("test-keyring-native"), []string{makefile, "mcp-gateway/test/keyring-native.sh"}, nil)
 
-	type browserCommand struct {
-		selector string
-		timeout  string
-	}
-	browserCommands := map[string]browserCommand{
-		"test-browser-workflows":            {selector: "TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch|ReadGeneration|MutationState|ShellPrimitives|SecretSinks|Overview|Invocations|SystemStatus|ServerCatalogReads|ServerCreateUpdate|ServerOperations|ServerCredentials|AuthFlows|ServerDisconnectDelete|Principals|PrincipalCredentials|GrantReadsCreate|GrantCorrection|RequestReads|RequestAdjudication|AdminCredentials|Backups|CapabilityAudit|SessionLifecycleCanary|PriorSessionResponseIsolationCanary|OverviewInvocationSystemCanary|ServerManagementCanary|AccessManagementReadCanary|SystemAdministrationCanary|VisualAccessibilityPrivacyCanary|Coordinator)", timeout: "3m"},
-		"test-browser-privacy":              {selector: "TestBrowserSecretStoragePrivacy", timeout: "30s"},
-		"test-browser-visual":               {selector: "TestBrowserVisualResponsiveMatrix", timeout: "60s"},
-		"test-browser-accessibility":        {selector: "TestBrowserAccessibility", timeout: "45s"},
-		"test-browser-cross":                {selector: "TestBrowserCrossCompatibility", timeout: "45s"},
-		"test-frontend-development-browser": {selector: "TestFrontendDevelopment(LiveReload|ControlPlane)", timeout: "2m"},
-	}
-	for target, definition := range browserCommands {
+	for _, target := range []string{"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser"} {
 		commandID := "go." + target
 		addMake(target, commandID)
-		addCommand(commandID, []string{"go", "test", "-race", "-count=1", "-tags=e2e,browser", "-timeout=" + definition.timeout, "-run", "^" + definition.selector + "$", "./test/e2e"}, []string{makefile}, nil)
+		addCommand(commandID, suiteCommandArgv(target), []string{makefile}, nil)
 	}
 
 	addMake("test-frontend-development-node", "npm.ui.test-dev")
@@ -149,7 +142,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addMake("frontend-verify-supply-chain", "npm.ui.verify-supply-chain", "go.frontend-static-supply-chain")
 	addCommand("npm.ui.verify-supply-chain", []string{"npm", "--prefix", "..", "run", "ui:verify-supply-chain"}, []string{makefile, packageManifest}, []string{"node.verify-supply-chain"})
 	addCommand("node.verify-supply-chain", []string{"node", supplyScript}, []string{packageManifest, "package-lock.json", supplyScript}, []string{"node.verify-generated"})
-	addCommand("go.frontend-static-supply-chain", []string{"go", "test", "-race", "-count=1", "-tags=frontend", "-timeout=30s", "-run", "^TestStaticSupplyChain$", "./internal/api"}, []string{makefile, "mcp-gateway/internal/api/static_supply_chain_frontend_test.go"}, nil)
+	addCommand("go.frontend-static-supply-chain", suiteCommandArgv("frontend-static-tests"), []string{makefile, "mcp-gateway/internal/api/static_supply_chain_frontend_test.go"}, nil)
 	addMake("frontend-audit", "npm.ui.audit")
 	addCommand("npm.ui.audit", []string{"npm", "--prefix", "..", "run", "ui:audit"}, []string{makefile, packageManifest}, []string{"npm.audit.frontend"})
 	addCommand("npm.audit.frontend", []string{"npm", "audit", "--audit-level=high"}, []string{packageManifest, "package-lock.json"}, nil)
@@ -157,13 +150,13 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	return purposeEvidenceGraph{
 		Leaves: leaves,
 		Aggregates: map[string][]string{
-			"test":                      {"test-unit", "test-integration"},
+			"test":                      {"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary"},
 			"test-browser":              {"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"},
 			"test-frontend-development": {"test-frontend-development-node", "test-frontend-development-browser"},
 		},
 		Commands: commands,
 		FinalLeaves: []string{
-			"test-unit", "test-integration", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+			"test-unit", "test-integration", "test-harness", "test-serve-temporary", "test-e2e", "test-security", "test-stress", "test-keyring-native",
 			"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
 			"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "frontend-audit",
 		},

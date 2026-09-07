@@ -16,10 +16,6 @@ emit() {
 	exit "$status"
 }
 
-if ! go -C "$ROOT" test -race ./test/material >"$LOG" 2>&1; then
-	emit failed deterministic_material_failed failed skipped
-fi
-
 if [[ "${MCP_GATEWAY_KEYRING_NATIVE_SELF_TEST:-}" == "1" ]]; then
 	case "${MCP_GATEWAY_KEYRING_NATIVE_FORCE_RESULT:-}" in
 	passed) emit passed self_test_passed passed passed ;;
@@ -29,8 +25,12 @@ if [[ "${MCP_GATEWAY_KEYRING_NATIVE_SELF_TEST:-}" == "1" ]]; then
 	esac
 fi
 
+if ! go -C "$ROOT" run ./test/acceptance/cmd run-suite test-material >"$LOG" 2>&1; then
+	emit failed deterministic_material_failed failed skipped
+fi
+
 run_native_test() {
-	MCP_GATEWAY_KEYRING_NATIVE=1 go -C "$ROOT" test -race -tags=keyringnative -run '^TestNative(DisposableKeyringRoundTrip|CompleteCredentialGenerationsAcquireAndClean)$' ./internal/keyring ./test/material >"$LOG" 2>&1
+	MCP_GATEWAY_KEYRING_NATIVE=1 go -C "$ROOT" run ./test/acceptance/cmd run-suite test-keyring-native >"$LOG" 2>&1
 }
 
 run_linux() {
@@ -50,7 +50,7 @@ run_linux() {
 		bash -euo pipefail -c '
 			eval "$(printf "%s\n" mcp-gateway-test | gnome-keyring-daemon --unlock --components=secrets)"
 			trap '\''if [[ -n "${GNOME_KEYRING_PID:-}" ]]; then kill "$GNOME_KEYRING_PID" 2>/dev/null || true; fi'\'' EXIT
-			MCP_GATEWAY_KEYRING_NATIVE=1 go -C "$MCP_GATEWAY_NATIVE_ROOT" test -race -tags=keyringnative -run '\''^TestNative(DisposableKeyringRoundTrip|CompleteCredentialGenerationsAcquireAndClean)$'\'' ./internal/keyring ./test/material
+			MCP_GATEWAY_KEYRING_NATIVE=1 go -C "$MCP_GATEWAY_NATIVE_ROOT" run ./test/acceptance/cmd run-suite test-keyring-native
 		' >"$LOG" 2>&1
 	status=$?
 	set -e

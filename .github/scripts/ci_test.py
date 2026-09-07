@@ -135,7 +135,7 @@ class GateTests(unittest.TestCase):
             "quality": {"result": "success"},
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
-                         "vulnerability-scan": "tools", "gateway-temporary": "gateway", "gateway-lint": "gateway",
+                         "vulnerability-scan": "tools", "gateway-temporary": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
                          "sandbox-manager-macos": "sandbox"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
@@ -192,7 +192,7 @@ class CacheTests(unittest.TestCase):
 
     def test_roles_tools_toolchains_and_platforms_are_isolated(self):
         first = self.identity()["prefix"]
-        for override in ({"role": "lint"}, {"role": "integration"}, {"role": "e2e"},
+        for override in ({"role": "lint"}, {"role": "integration"}, {"role": "harness"}, {"role": "e2e"},
                          {"tool": "mcp-broker"}, {"toolchain": "go version go1.26 linux/arm64"},
                          {"platform": "Linux/X64"}, {"platform": "macOS/ARM64"}):
             self.assertNotEqual(first, self.identity(**override)["prefix"])
@@ -223,7 +223,7 @@ class CacheTests(unittest.TestCase):
         required = jobs["required"].split("    runs-on:")[0]
         dependencies = re.findall(r"^      - ([a-z0-9-]+)$", required, re.M)
         self.assertEqual(set(dependencies), {"changes", "quality", *SUITE_JOBS})
-        roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint",
+        roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint", "gateway-harness": "harness",
                  "integration-tests": "integration", "e2e-tests": "e2e", "gateway-temporary": "temporary",
                  "vulnerability-scan": "vulnerability", "sandbox-manager-macos": "macos"}
         for job, role in roles.items():
@@ -234,6 +234,11 @@ class CacheTests(unittest.TestCase):
         self.assertIn("if: needs.changes.outputs.gateway == 'true'", jobs["gateway-lint"])
         self.assertIn("run: make -C mcp-gateway lint", jobs["gateway-lint"])
         self.assertIn("needs: changes\n", jobs["gateway-lint"])
+        self.assertIn("run: make -C mcp-gateway test-harness test-material", jobs["gateway-harness"])
+        self.assertIn("if: needs.changes.outputs.gateway == 'true'", jobs["gateway-harness"])
+        self.assertNotIn("actions/setup-node", jobs["unit-tests"])
+        self.assertIn('make -C "$TOOL" test-unit', jobs["unit-tests"])
+        self.assertIn('make -C "$TOOL" test-integration', jobs["integration-tests"])
         action = (ROOT / ".github/actions/go-cache/action.yml").read_text()
         for fragment in ("cache: false", "ci.py cache", "uses: actions/cache@v4", "go env GOMODCACHE",
                          "go env GOCACHE", "GOLANGCI_LINT_CACHE=", "key: ${{ steps.identity.outputs.key }}",

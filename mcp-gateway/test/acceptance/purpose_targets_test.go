@@ -15,25 +15,18 @@ import (
 func TestPurposeNamedLeafTargetDryRuns(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	checks := map[string][]string{
-		"test-unit":                         {"go test -race -count=1 -timeout=300s ./..."},
-		"test-integration":                  {"-count=1", "-tags=integration", "Test.*Integration", "TestRestoreAcceptedSchemaLineages"},
-		"test-e2e":                          {"-count=1", "-tags=e2e", "./test/e2e/..."},
-		"test-security":                     {"-count=1", "-tags=security", "TestReleaseReportSecretSinkBoundaries", "./test/security/...", "./test/acceptance"},
-		"test-stress":                       {"TestConcurrentSemanticDeduplicationStress", "TestApprovalCancellationPolicyLinearizationStress", "TestSyntheticSnapshotPaginationStress", "TestLostLocalMutationResponseDeduplicatesExplicitRetryStress", "TestLocalInvocationDrainCleanupStress"},
-		"test-keyring-native":               {"./test/keyring-native.sh"},
-		"test-serve-temporary":              {"./test/serve-temporary.sh"},
-		"test-browser-workflows":            {"TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch", "SessionLifecycleCanary", "VisualAccessibilityPrivacyCanary", "Coordinator", "-tags=e2e,browser"},
-		"test-browser-privacy":              {"TestBrowserSecretStoragePrivacy"},
-		"test-browser-visual":               {"TestBrowserVisualResponsiveMatrix"},
-		"test-browser-accessibility":        {"TestBrowserAccessibility"},
-		"test-browser-cross":                {"TestBrowserCrossCompatibility"},
-		"test-frontend-development-node":    {"npm --prefix .. run ui:test-dev"},
-		"test-frontend-development-browser": {"TestFrontendDevelopment(LiveReload|ControlPlane)"},
-		"frontend-typecheck":                {"npm --prefix .. run ui:typecheck"},
-		"frontend-build":                    {"npm --prefix .. run ui:build"},
-		"frontend-verify-generated":         {"npm --prefix .. run ui:verify-generated"},
-		"frontend-verify-supply-chain":      {"npm --prefix .. run ui:verify-supply-chain", "-tags=frontend", "TestStaticSupplyChain"},
-		"frontend-audit":                    {"npm --prefix .. run ui:audit"},
+		"test-stress":                    {"go run ./test/acceptance/cmd run-suite test-stress --count=20"},
+		"test-keyring-native":            {"./test/keyring-native.sh"},
+		"test-serve-temporary":           {"./test/serve-temporary.sh"},
+		"test-frontend-development-node": {"npm --prefix .. run ui:test-dev"},
+		"frontend-typecheck":             {"npm --prefix .. run ui:typecheck"},
+		"frontend-build":                 {"npm --prefix .. run ui:build"},
+		"frontend-verify-generated":      {"npm --prefix .. run ui:verify-generated"},
+		"frontend-verify-supply-chain":   {"npm --prefix .. run ui:verify-supply-chain", "go run ./test/acceptance/cmd run-suite frontend-static-tests"},
+		"frontend-audit":                 {"npm --prefix .. run ui:audit"},
+	}
+	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-e2e", "test-security", "test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser"} {
+		checks[target] = []string{"go run ./test/acceptance/cmd run-suite " + target}
 	}
 	for target, required := range checks {
 		t.Run(target, func(t *testing.T) {
@@ -52,10 +45,10 @@ func TestPurposeNamedDeveloperAggregatesAreDisjoint(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(makefile), ".NOTPARALLEL: test test-browser test-frontend-development")
 
-	unit := purposeTargetDryRunLines(t, root, "test-unit")
-	integration := purposeTargetDryRunLines(t, root, "test-integration")
-	serveTemporary := purposeTargetDryRunLines(t, root, "test-serve-temporary")
-	wantTest := append(append(append([]string(nil), unit...), integration...), serveTemporary...)
+	var wantTest []string
+	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary"} {
+		wantTest = append(wantTest, purposeTargetDryRunLines(t, root, target)...)
+	}
 	assert.Equal(t, wantTest, purposeTargetDryRunLines(t, root, "test"))
 
 	var browser []string

@@ -70,10 +70,6 @@ jobs:
         with:
           role: unit
           tool: ${{ matrix.tool }}
-      - uses: actions/setup-node@v4
-        if: matrix.tool == 'mcp-gateway'
-        with:
-          node-version: 24
       - name: Lint
         if: matrix.tool != 'mcp-gateway'
         run: make -C "$TOOL" lint
@@ -99,6 +95,23 @@ jobs:
           role: lint
           tool: mcp-gateway
       - run: make -C mcp-gateway lint
+
+  gateway-harness:
+    name: Gateway harness and material tests
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/go-cache
+        with:
+          role: harness
+          tool: mcp-gateway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: make -C mcp-gateway test-harness test-material
 
   sandbox-manager-macos:
     name: Sandbox Manager tests (macOS)
@@ -207,6 +220,7 @@ jobs:
       - e2e-tests
       - gateway-temporary
       - gateway-lint
+      - gateway-harness
       - vulnerability-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
