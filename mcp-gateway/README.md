@@ -78,6 +78,7 @@ Use the [documentation map](docs/README.md) to choose material by role and task.
 ### Gateway administrators
 
 - [Administrator CLI and local administration](docs/operators/administration.md)
+- [Run as a macOS launchd agent](docs/operators/launchd.md)
 - [Upstream server configuration](docs/operators/upstream-servers.md)
 - [Access control](docs/operators/access-control.md)
 - [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)
