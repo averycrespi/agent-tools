@@ -259,7 +259,14 @@ function validateTransport(value: unknown): void {
     "registration",
     "trusted_origins",
     "request_offline_access",
+    ...["callback_uri", "auth_server_metadata_url", "scopes"].filter((key) =>
+      Object.hasOwn(authentication, key),
+    ),
   ]);
+  if (oauth.callback_uri !== undefined) stringValue(oauth.callback_uri);
+  if (oauth.auth_server_metadata_url !== undefined)
+    stringValue(oauth.auth_server_metadata_url);
+  if (oauth.scopes !== undefined) array(oauth.scopes).forEach(stringValue);
   array(oauth.trusted_origins).forEach(stringValue);
   booleanValue(oauth.request_offline_access);
   const registration = record(

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"strconv"
 	"time"
@@ -252,7 +251,7 @@ func RegistrationMatchesDesired(contents []byte, authority OAuthRegistrationAuth
 		return false
 	}
 	authentication, ok := transport.Authentication.(contract.OAuthAuthentication)
-	if !ok {
+	if !ok || authentication.CallbackURI != nil && *authentication.CallbackURI != authority.CallbackURL {
 		return false
 	}
 	switch desired := authentication.Registration.(type) {
@@ -302,12 +301,7 @@ func validateRegistrationAuthority(registration OAuthRegistrationAuthority) erro
 	if err != nil || resource.Scheme != "https" {
 		return ErrInvalidInput
 	}
-	callback, err := url.Parse(registration.CallbackURL)
-	if err != nil || callback.Scheme != "http" || callback.User != nil || callback.RawQuery != "" || callback.Fragment != "" || callback.Path != "/oauth/callback" || callback.Port() == "" || callback.String() != registration.CallbackURL {
-		return ErrInvalidInput
-	}
-	callbackAddress := net.ParseIP(callback.Hostname())
-	if callbackAddress == nil || callbackAddress.To4() == nil || !callbackAddress.IsLoopback() {
+	if _, _, err := contract.ParseOAuthCallbackURI(registration.CallbackURL); err != nil {
 		return ErrInvalidInput
 	}
 	if _, err := contract.ParseTokenEndpointAuthMethod(string(registration.TokenEndpointAuthMethod)); err != nil {

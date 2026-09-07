@@ -41,6 +41,7 @@ Gateway provides:
 
 - strict local HTTP control and modern/legacy MCP ingress;
 - durable server configuration, credential and OAuth authority, runtime supervision, and active catalog publication;
+- per-server OAuth `callback_uri`, `auth_server_metadata_url`, and `scopes` overrides for provider compatibility, including exact `http://localhost:3118/callback`; omission preserves defaults. See the [configuration example](docs/operators/upstream-servers.md#oauth-compatibility-settings).
 - permanent principals, one current agent credential per principal, immutable grants, and self-service grant requests;
 - governed tool calls with at most one automatic attempt and bounded redacted invocation evidence;
 - an embedded browser application and a matching public-HTTP administration CLI;

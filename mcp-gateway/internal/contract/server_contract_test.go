@@ -83,6 +83,7 @@ func TestServerProblemsAreExact(t *testing.T) {
 		{Status: 409, Code: ProblemNamespaceUnavailable, Title: "The server namespace is unavailable."},
 		{Status: 409, Code: ProblemOperationConflict, Title: "The server has conflicting work."},
 		{Status: 409, Code: ProblemOAuthFlowActive, Title: "The OAuth flow is already exchanging."},
+		{Status: 409, Code: ProblemOAuthCallbackUnavailable, Title: "The OAuth callback port is unavailable. Stop the conflicting listener and start a new flow."},
 		{Status: 409, Code: ProblemStaleCursor, Title: "The cursor snapshot is no longer available."},
 		{Status: 412, Code: ProblemStaleRevision, Title: "The server revision is stale."},
 		{Status: 428, Code: ProblemPreconditionRequired, Title: "The current server revision is required."},

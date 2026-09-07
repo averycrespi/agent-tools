@@ -547,6 +547,55 @@ export async function runServerCreateUpdate(
   await page.locator("#server-registration-mode").selectOption("dynamic");
   await page.locator("#server-issuer").fill("  https://issuer.example  ");
   await page.getByText("Advanced OAuth settings").click();
+  await page
+    .locator("#server-callback-uri")
+    .fill("http://remote.example:3118/callback");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  if (
+    (await page
+      .locator("#server-callback-uri")
+      .getAttribute("aria-invalid")) !== "true" ||
+    creates !== 0
+  )
+    fail("unsafe OAuth callback was not rejected before mutation");
+  await page
+    .locator("#server-callback-uri")
+    .fill("http://localhost:3118/callback");
+  await page
+    .locator("#server-auth-metadata-url")
+    .fill("http://metadata.example/custom");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  if (
+    (await page
+      .locator("#server-auth-metadata-url")
+      .getAttribute("aria-invalid")) !== "true" ||
+    creates !== 0
+  )
+    fail("unsafe authorization metadata URL was not rejected before mutation");
+  await page
+    .locator("#server-auth-metadata-url")
+    .fill("https://metadata.example/custom?revision=2");
+  await page.locator("#server-explicit-scopes").check();
+  await page.locator("#server-initial-scopes").fill("read write");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  if (
+    (await page
+      .locator("#server-initial-scopes")
+      .getAttribute("aria-invalid")) !== "true" ||
+    creates !== 0
+  )
+    fail("invalid scope token was not rejected before mutation");
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    )
+  )
+    fail("OAuth compatibility controls overflow the narrow viewport");
+  await page
+    .locator("#server-initial-scopes")
+    .fill("fixture.write\nfixture.read\nfixture.write");
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.locator('[data-testid="server-oauth-origin-add"]').click();
   const origin = page.locator('[data-testid="server-oauth-origin"]');
   await origin.fill("   ");
@@ -564,6 +613,13 @@ export async function runServerCreateUpdate(
     '[data-testid="server-creation-review"]',
   );
   await normalizedReview.waitFor();
+  const oauthReview = await normalizedReview.textContent();
+  if (
+    !oauthReview?.includes("http://localhost:3118/callback") ||
+    !oauthReview.includes("https://metadata.example/custom?revision=2") ||
+    !oauthReview.includes("fixture.read fixture.write")
+  )
+    fail("OAuth compatibility values were omitted or not normalized in review");
   const reviewedConnection = await normalizedReview
     .getByText("Connection", { exact: true })
     .locator("xpath=following-sibling::dd")
@@ -573,10 +629,31 @@ export async function runServerCreateUpdate(
       `server review did not show the normalized HTTP endpoint: ${reviewedConnection}`,
     );
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
+  await normalizedReview.waitFor({ state: "hidden" });
+  await page.locator("#server-initial-scopes").fill("");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  await normalizedReview
+    .getByText("Explicit empty set", { exact: true })
+    .waitFor();
+  await page.locator('[data-testid="server-change-confirm-cancel"]').click();
+  await normalizedReview.waitFor({ state: "hidden" });
+  await page.locator("#server-explicit-scopes").uncheck();
+  await page.locator("#server-callback-uri").fill("");
+  await page.locator("#server-auth-metadata-url").fill("");
+  await page.locator('[data-testid="server-editor-submit"]').click();
+  for (const value of [
+    "Gateway main callback",
+    "Standard discovery",
+    "Resource metadata defaults",
+  ])
+    await normalizedReview.getByText(value, { exact: true }).waitFor();
+  await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   await page.locator("#server-registration-mode").selectOption("static");
   if (
     (await editor
-      .locator('input[id*="secret"], textarea, input[id*="bearer-token"]')
+      .locator(
+        'input[id*="secret"], textarea:not(#server-initial-scopes), input[id*="bearer-token"]',
+      )
       .count()) !== 0
   )
     fail("server form offered raw JSON or inline secret input");

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -11,9 +12,32 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCLIOAuthCompatibilityFileShape(t *testing.T) {
+	const prefix = `{"mode":"oauth","registration":{"mode":"dynamic","issuer":null},"trusted_origins":[],"request_offline_access":false`
+	for _, fields := range []string{"", `,"callback_uri":"http://localhost:3118/callback","auth_server_metadata_url":"https://issuer.example/custom","scopes":["fixture.read"]`, `,"callback_uri":null,"auth_server_metadata_url":null,"scopes":null`, `,"scopes":[]`} {
+		require.NoError(t, validateServerAuthenticationInput(json.RawMessage(prefix+fields+"}")), fields)
+	}
+	for _, test := range []struct {
+		fields string
+		field  contract.ServerConfigurationField
+	}{
+		{`,"callback_uri":3118`, contract.ServerConfigurationFieldCallbackURI},
+		{`,"auth_server_metadata_url":[]`, contract.ServerConfigurationFieldAuthServerMetadataURL},
+		{`,"scopes":"fixture.read"`, contract.ServerConfigurationFieldScopes},
+		{`,"scopes":[1]`, contract.ServerConfigurationFieldScopes},
+		{`,"client_secret":"forbidden"`, contract.ServerConfigurationFieldAuthentication},
+	} {
+		err := validateServerAuthenticationInput(json.RawMessage(prefix + test.fields + "}"))
+		var inputError *serverMutationInputError
+		require.ErrorAs(t, err, &inputError)
+		assert.Equal(t, test.field, inputError.field)
+	}
+}
 
 func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")

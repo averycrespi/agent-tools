@@ -21,6 +21,7 @@ import (
 )
 
 var ErrFlowRejected = errors.New("OAuth flow preparation was rejected")
+var ErrCallbackUnavailable = errors.New("OAuth callback listener is unavailable")
 
 type FlowFailure struct {
 	CorrelationID string
@@ -51,6 +52,7 @@ type FlowRequest struct {
 	ChallengeMetadata       []string
 	ChallengeScopes         []string
 	PriorRequestedScopes    []string
+	InitialScopes           *[]string
 }
 
 type flowStore interface {
@@ -98,6 +100,15 @@ type flowBundle struct {
 	issuerResponseUsed bool
 }
 
+type CallbackListeners interface {
+	AcquireCallback(context.Context, string, string, time.Time) (func(), error)
+}
+
+type callbackLease struct {
+	serverID string
+	release  func()
+}
+
 type FlowService struct {
 	store       flowStore
 	resolver    flowResolver
@@ -118,19 +129,22 @@ type FlowService struct {
 	mu             sync.Mutex
 	byState        map[string]flowBundle
 	pendingStepUp  map[string]FlowRequest
+	listeners      CallbackListeners
+	leases         map[string]callbackLease
 }
 
-func NewFlowService(store *servers.Repository, resolver *Resolver, registrar *Registrar, factory *remote.Factory, secrets *keyring.Coordinator, installationID string, entropy io.Reader, callbackURL string, now func() time.Time) (*FlowService, error) {
+func NewFlowService(store *servers.Repository, resolver *Resolver, registrar *Registrar, factory *remote.Factory, secrets *keyring.Coordinator, installationID string, entropy io.Reader, callbackURL string, now func() time.Time, listeners CallbackListeners) (*FlowService, error) {
 	if store == nil || resolver == nil || registrar == nil || factory == nil || secrets == nil || installationID == "" || entropy == nil || now == nil || !validCallbackURL(callbackURL) {
 		return nil, ErrFlowRejected
 	}
 	service := newFlowService(store, resolver, registrar, entropy, callbackURL, now)
 	service.configureCallback(hardenedRequester{factory: factory}, secrets, installationID)
+	service.listeners = listeners
 	return service, nil
 }
 
 func newFlowService(store flowStore, resolver flowResolver, registrar flowRegistrar, entropy io.Reader, callbackURL string, now func() time.Time) *FlowService {
-	return &FlowService{store: store, resolver: resolver, registrar: registrar, entropy: entropy, callbackURL: callbackURL, now: now, byState: make(map[string]flowBundle), pendingStepUp: make(map[string]FlowRequest)}
+	return &FlowService{store: store, resolver: resolver, registrar: registrar, entropy: entropy, callbackURL: callbackURL, now: now, byState: make(map[string]flowBundle), pendingStepUp: make(map[string]FlowRequest), leases: make(map[string]callbackLease)}
 }
 
 func (service *FlowService) configureCallback(requester machineRequester, secrets tokenSecretStore, installationID string) {
@@ -261,14 +275,43 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 	default:
 		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
-	graph, err := service.resolver.Discover(ctx, Input{Resource: configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: desiredIssuer, TrustedOrigins: configuration.Authentication.TrustedOrigins})
+	graph, err := service.resolver.Discover(ctx, Input{Resource: configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: desiredIssuer, TrustedOrigins: configuration.Authentication.TrustedOrigins, AuthServerMetadataURL: configuration.Authentication.AuthServerMetadataURL})
 	if err != nil {
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticMetadataDiscovery)
+	}
+	callbackURL := service.callbackURL
+	if configuration.Authentication.CallbackURI != nil {
+		callbackURL = *configuration.Authentication.CallbackURI
+	}
+	if callbackURL != service.callbackURL {
+		expires, parseErr := time.Parse(time.RFC3339Nano, prepared.Flow.ExpiresAt)
+		if service.listeners == nil || parseErr != nil {
+			return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
+		}
+		release, acquireErr := service.listeners.AcquireCallback(ctx, prepared.Flow.ID, callbackURL, expires)
+		if acquireErr != nil {
+			return service.fail(ctx, prepared.Flow.ID, acquireErr, contract.OAuthDiagnosticAuthorizationRequest)
+		}
+		service.mu.Lock()
+		service.leases[prepared.Flow.ID] = callbackLease{serverID: prepared.Flow.ServerID, release: release}
+		service.mu.Unlock()
+		defer func() {
+			if resultErr != nil {
+				service.removeFlowIDs([]string{prepared.Flow.ID})
+			}
+		}()
+	}
+	service.callbackMu.Lock()
+	stopped := service.callbackDrain
+	service.callbackMu.Unlock()
+	currentFlow, currentErr := service.store.GetAuthFlow(ctx, prepared.Flow.ServerID, prepared.Flow.ID)
+	if stopped || currentErr != nil || currentFlow.State != contract.AuthFlowPreparing {
+		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	registration, err := service.registrar.Register(ctx, RegistrationRequest{
 		ServerID: prepared.Flow.ServerID, ExpectedDesiredRevision: prepared.Flow.TargetDesiredRevision,
 		ExpectedRegistrationRevision: prepared.Authority.RegistrationRevision, ExpectedOAuthClientRevision: prepared.Authority.CredentialRevisions.OAuthClient,
-		ExpectedAuthFlowID: prepared.Flow.ID, Graph: graph, Registration: registrationConfig, CallbackURL: service.callbackURL,
+		ExpectedAuthFlowID: prepared.Flow.ID, Graph: graph, Registration: registrationConfig, CallbackURL: callbackURL,
 	})
 	if err != nil {
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticClientRegistration)
@@ -288,11 +331,12 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 	}
 	state := base64.RawURLEncoding.EncodeToString(stateBytes)
 	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
+	request.InitialScopes = configuration.Authentication.Scopes
 	scopes, err := requestedScopes(request, configuration.Authentication.RequestOfflineAccess, graph)
 	if err != nil {
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticAuthorizationRequest)
 	}
-	authorizationURL, err := buildAuthorizationURL(graph.AuthorizationEndpoint, registration.ClientID, service.callbackURL, graph.Resource, state, verifier, scopes)
+	authorizationURL, err := buildAuthorizationURL(graph.AuthorizationEndpoint, registration.ClientID, callbackURL, graph.Resource, state, verifier, scopes)
 	if err != nil {
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticAuthorizationRequest)
 	}
@@ -300,7 +344,7 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 		cause:    audit.Capture(ctx),
 		serverID: prepared.Flow.ServerID, flowID: prepared.Flow.ID, desiredRevision: prepared.Flow.TargetDesiredRevision,
 		authority: boundAuthority, registration: registration, graph: graph, state: state, verifier: verifier,
-		requestedScopes: append([]string(nil), scopes...), issuerResponseUsed: graph.AuthorizationResponseIssuerParameterUsed,
+		requestedScopes: scopes, issuerResponseUsed: graph.AuthorizationResponseIssuerParameterUsed,
 	}
 	service.mu.Lock()
 	_, stateExists := service.byState[state]
@@ -315,6 +359,15 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 	if err != nil {
 		service.removeFlowIDs([]string{prepared.Flow.ID})
 		return contract.AuthFlowCreation{}, err
+	}
+	service.callbackMu.Lock()
+	draining := service.callbackDrain
+	service.callbackMu.Unlock()
+	service.mu.Lock()
+	_, current := service.byState[state]
+	service.mu.Unlock()
+	if draining || !current || ctx.Err() != nil {
+		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	return contract.AuthFlowCreation{Flow: authFlowResource(awaiting), AuthorizationURL: authorizationURL}, nil
 }
@@ -371,11 +424,22 @@ func (service *FlowService) Status(ctx context.Context) contract.LimitStatus {
 
 func (service *FlowService) FenceServer(serverID string) {
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	delete(service.pendingStepUp, serverID)
+	var releases []func()
 	for state, bundle := range service.byState {
 		if bundle.serverID == serverID {
 			delete(service.byState, state)
 		}
+	}
+	for id, lease := range service.leases {
+		if lease.serverID == serverID {
+			releases = append(releases, lease.release)
+			delete(service.leases, id)
+		}
+	}
+	service.mu.Unlock()
+	for _, release := range releases {
+		release()
 	}
 }
 
@@ -392,7 +456,11 @@ func (service *FlowService) fail(ctx context.Context, flowID string, cause error
 	diagnostic := oauthDiagnostic(flowID, stage, cause)
 	_, _ = service.store.FailAuthFlow(ctx, flowID, diagnostic)
 	service.removeFlowIDs([]string{flowID})
-	return contract.AuthFlowCreation{}, NewFlowFailure(flowID, ErrFlowRejected)
+	rejected := ErrFlowRejected
+	if errors.Is(cause, ErrCallbackUnavailable) {
+		rejected = errors.Join(rejected, ErrCallbackUnavailable)
+	}
+	return contract.AuthFlowCreation{}, NewFlowFailure(flowID, rejected)
 }
 
 func (service *FlowService) removeFlowIDs(flowIDs []string) {
@@ -404,29 +472,50 @@ func (service *FlowService) removeFlowIDs(flowIDs []string) {
 		wanted[flowID] = struct{}{}
 	}
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	var releases []func()
 	for state, bundle := range service.byState {
 		if _, ok := wanted[bundle.flowID]; ok {
 			delete(service.byState, state)
 		}
 	}
+	for id := range wanted {
+		if lease, ok := service.leases[id]; ok {
+			releases = append(releases, lease.release)
+			delete(service.leases, id)
+		}
+	}
+	service.mu.Unlock()
+	for _, release := range releases {
+		release()
+	}
 }
 
 func (service *FlowService) clearAll() {
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	var releases []func()
+	for _, lease := range service.leases {
+		releases = append(releases, lease.release)
+	}
+	clear(service.leases)
 	clear(service.byState)
 	clear(service.pendingStepUp)
+	service.mu.Unlock()
+	for _, release := range releases {
+		release()
+	}
 }
 
 func requestedScopes(request FlowRequest, requestOffline bool, graph Graph) ([]string, error) {
 	values := make([]string, 0)
 	switch {
-	case len(request.PriorRequestedScopes) != 0:
+	case len(request.PriorRequestedScopes) != 0 || len(request.ChallengeScopes) != 0:
 		values = append(values, request.PriorRequestedScopes...)
 		values = append(values, request.ChallengeScopes...)
-	case len(request.ChallengeScopes) != 0:
-		values = append(values, request.ChallengeScopes...)
+		if request.InitialScopes != nil {
+			values = append(values, (*request.InitialScopes)...)
+		}
+	case request.InitialScopes != nil:
+		values = append(values, (*request.InitialScopes)...)
 	default:
 		values = append(values, graph.ProtectedScopesSupported...)
 	}
@@ -434,6 +523,9 @@ func requestedScopes(request FlowRequest, requestOffline bool, graph Graph) ([]s
 		values = append(values, "offline_access")
 	}
 	if len(values) == 0 {
+		if request.InitialScopes != nil {
+			return []string{}, nil
+		}
 		return nil, nil
 	}
 	sort.Strings(values)
@@ -471,7 +563,7 @@ func buildAuthorizationURL(endpoint, clientID, callback, resource, state, verifi
 	query.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
 	query.Set("code_challenge_method", "S256")
 	query.Set("resource", resource)
-	if len(scopes) != 0 {
+	if scopes != nil {
 		query.Set("scope", strings.Join(scopes, " "))
 	}
 	parsed.RawQuery = query.Encode()

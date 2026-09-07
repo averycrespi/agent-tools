@@ -202,6 +202,10 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
+	case "server create", "server update":
+		return spec.Short + ". Strict --file transport.authentication OAuth configuration accepts optional callback_uri (for example http://localhost:3118/callback), auth_server_metadata_url (exact HTTPS metadata location, not issuer identity), and scopes (initial tokens replacing metadata defaults). Omit or use null to restore defaults in a complete transport replacement; [] requests no initial scopes. request_offline_access separately adds advertised offline_access. Exact callback ports must be free; temporary callback-only listeners close when the flow ends. Credentials use only server credential replace. See docs/operators/upstream-servers.md for a complete example."
+	case "server auth-flow start":
+		return spec.Short + ". A configured callback_uri must exactly match the provider registration. Gateway acquires its loopback callback port before publishing the authorization URL; a collision fails without choosing another port. Stop the conflicting listener and start a new flow. Temporary listeners close on terminal state, expiry, supersession, or shutdown. Main allowed-host settings do not grant callback authority."
 	case "admin credential create", "principal credential issue", "principal credential rotate":
 		return spec.Short + ". The bearer is published once to a new non-symlink 0600 owner-only file, or to a controlling terminal when --secret-output is omitted. It is never written to stdout or JSON and cannot be recovered after publication."
 	case "admin credential rotate":

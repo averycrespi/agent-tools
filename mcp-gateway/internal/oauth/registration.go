@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/netip"
-	"net/url"
 	"strconv"
 	"time"
 	"unicode/utf8"
@@ -318,15 +316,8 @@ func registrationUsable(existing servers.OAuthRegistrationAuthority, request Reg
 }
 
 func validCallbackURL(raw string) bool {
-	if raw == "" || int64(len(raw)) > limit("oauth_url_bytes") {
-		return false
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "/oauth/callback" || parsed.String() != raw || parsed.Port() == "" {
-		return false
-	}
-	address, err := netip.ParseAddr(parsed.Hostname())
-	return err == nil && address.Is4() && address.IsLoopback()
+	_, _, err := contract.ParseOAuthCallbackURI(raw)
+	return err == nil
 }
 
 func selectDynamicMethod(values []string) (contract.TokenEndpointAuthMethod, bool) {

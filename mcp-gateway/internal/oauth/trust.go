@@ -21,10 +21,11 @@ import (
 var ErrTrustRejected = errors.New("OAuth trust graph is invalid")
 
 type Input struct {
-	Resource          string
-	ChallengeMetadata []string
-	DesiredIssuer     *string
-	TrustedOrigins    []string
+	Resource              string
+	ChallengeMetadata     []string
+	DesiredIssuer         *string
+	TrustedOrigins        []string
+	AuthServerMetadataURL *string
 }
 
 type Graph struct {
@@ -134,7 +135,7 @@ func (resolver *Resolver) Discover(ctx context.Context, input Input) (Graph, err
 	if err != nil {
 		return Graph{}, ErrTrustRejected
 	}
-	authorization, err := resolver.discoverAuthorization(ctx, issuerURL, trusted)
+	authorization, err := resolver.discoverAuthorization(ctx, issuerURL, trusted, input.AuthServerMetadataURL)
 	if err != nil {
 		return Graph{}, err
 	}
@@ -213,10 +214,20 @@ func (resolver *Resolver) fetchProtected(ctx context.Context, rawURL, expectedRe
 	return metadata, nil
 }
 
-func (resolver *Resolver) discoverAuthorization(ctx context.Context, issuer *url.URL, trusted map[string]struct{}) (authorizationMetadata, error) {
+func (resolver *Resolver) discoverAuthorization(ctx context.Context, issuer *url.URL, trusted map[string]struct{}, override *string) (authorizationMetadata, error) {
 	urls := authorizationMetadataURLs(issuer)
+	if override != nil {
+		if _, err := parseIdentifier(*override, true); err != nil || strings.Contains(*override, "#") {
+			return authorizationMetadata{}, ErrTrustRejected
+		}
+		urls = []string{*override}
+	}
 	for index, rawURL := range urls {
-		status, header, body, err := resolver.fetch.Fetch(ctx, rawURL, isTrusted(issuer, trusted))
+		location, err := parseIdentifier(rawURL, true)
+		if err != nil {
+			return authorizationMetadata{}, ErrTrustRejected
+		}
+		status, header, body, err := resolver.fetch.Fetch(ctx, rawURL, isTrusted(location, trusted))
 		if err != nil {
 			return authorizationMetadata{}, err
 		}

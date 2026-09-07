@@ -99,6 +99,7 @@ type Composition struct {
 	disconnect           *oauth.DisconnectService
 	registrar            *oauth.Registrar
 	flows                *oauth.FlowService
+	oauthCallbacks       *oauthCallbackListeners
 	refresh              *oauth.RefreshService
 	replacements         *servercredentials.Service
 	manager              *runtimes.Manager
@@ -655,7 +656,8 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("flow_service"); err != nil {
 		return nil, err
 	}
-	built.flows, err = oauth.NewFlowService(built.servers, built.oauthResolver, built.registrar, built.remoteFactory, built.keyring, options.InstallationID, options.Entropy, options.CallbackURL, options.Clock.Now)
+	built.oauthCallbacks = newOAuthCallbackListeners(built, options)
+	built.flows, err = oauth.NewFlowService(built.servers, built.oauthResolver, built.registrar, built.remoteFactory, built.keyring, options.InstallationID, options.Entropy, options.CallbackURL, options.Clock.Now, built.oauthCallbacks)
 	if err != nil {
 		return nil, fmt.Errorf("construct flow_service: %w", err)
 	}
@@ -841,6 +843,9 @@ func (built *Composition) beginDrain() {
 	if built.refresh != nil {
 		built.refresh.Shutdown()
 	}
+	if built.oauthCallbacks != nil {
+		built.oauthCallbacks.Shutdown()
+	}
 	if built.flows != nil {
 		built.flows.Shutdown()
 	}
@@ -869,6 +874,7 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 		func(ctx context.Context) bool { return built.catalog == nil || built.catalog.Wait(ctx) },
 		func(ctx context.Context) bool { return built.refresh == nil || built.refresh.Wait(ctx) },
 		func(ctx context.Context) bool { return built.flows == nil || built.flows.Wait(ctx) },
+		func(ctx context.Context) bool { return built.oauthCallbacks == nil || built.oauthCallbacks.Wait(ctx) },
 		func(ctx context.Context) bool { return built.keyring == nil || built.keyring.Wait(ctx) },
 	} {
 		waitCount++

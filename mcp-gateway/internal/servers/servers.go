@@ -239,6 +239,14 @@ func (repository *Repository) Patch(ctx context.Context, serverID, expectedRevis
 			WHERE id = ?`, displayName, state, string(transportValue), formatTime(now), cause, serverID); err != nil {
 			return fmt.Errorf("patch server definition: %w", err)
 		}
+		if !bytes.Equal(oauthCompatibilityConfiguration(current.Transport), oauthCompatibilityConfiguration(transportValue)) {
+			if _, err := transaction.ExecContext(ctx, `UPDATE server_oauth_registrations SET revision = revision + 1 WHERE server_id = ? AND revision > 0`, serverID); err != nil {
+				return fmt.Errorf("fence OAuth compatibility authority: %w", err)
+			}
+			if err := audit.MutationTx(audit.WithSystem(ctx), transaction, now, "oauth", "invalidate_registration", contract.AuditTarget{Type: "server", ID: serverID}); err != nil {
+				return err
+			}
+		}
 		updated, getErr := serverByIDTx(ctx, transaction, serverID)
 		if getErr != nil {
 			return getErr

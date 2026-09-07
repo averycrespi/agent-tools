@@ -53,13 +53,24 @@ interface Draft {
     | "client_secret_post";
   trustedOrigins: StringItem[];
   requestOfflineAccess: boolean;
+  callbackURI: string;
+  authServerMetadataURL: string;
+  explicitScopes: boolean;
+  scopes: string;
 }
 interface MutationResult {
   server: ServerView;
   operationID: string | null;
   etag: string;
 }
-type DraftValidationField = "url" | "issuer" | "clientID" | "origin";
+type DraftValidationField =
+  | "url"
+  | "issuer"
+  | "clientID"
+  | "origin"
+  | "callbackURI"
+  | "authServerMetadataURL"
+  | "scopes";
 class DraftValidationError extends Error {
   constructor(
     readonly field: DraftValidationField,
@@ -108,6 +119,10 @@ function serverConfigurationContextMessage(
     "transport.authentication.mode": "Authentication mode",
     "transport.authentication.trusted_origins": "Trusted origins",
     "transport.authentication.request_offline_access": "Offline access policy",
+    "transport.authentication.callback_uri": "Callback URI",
+    "transport.authentication.auth_server_metadata_url":
+      "Authorization metadata URL",
+    "transport.authentication.scopes": "Initial scopes",
     "transport.authentication.registration": "OAuth registration",
     "transport.authentication.registration.mode": "OAuth registration mode",
     "transport.authentication.registration.issuer": "OAuth issuer",
@@ -128,6 +143,10 @@ function serverConfigurationContextMessage(
     case "canonical_absolute_path":
       return `${label} must be an absolute canonical path without a trailing slash, empty segment, ".", or ".." segment.`;
     case "canonical_url":
+      if (context.field === "transport.authentication.callback_uri")
+        return "Callback URI must be an exact HTTP loopback URL with an explicit port and path, without credentials, query, fragment, or encoded path.";
+      if (context.field === "transport.authentication.auth_server_metadata_url")
+        return "Authorization metadata URL must be an exact canonical HTTPS URL with a path and without credentials or fragment. A bounded query is allowed.";
       return `${label} must be a canonical URL without credentials, a query, fragment, uppercase hostname, or default port.`;
     case "transport_policy":
       return `${label} does not satisfy the selected transport security policy.`;
@@ -183,6 +202,10 @@ function blankDraft(): Draft {
     tokenEndpointAuthMethod: "none",
     trustedOrigins: [],
     requestOfflineAccess: false,
+    callbackURI: "",
+    authServerMetadataURL: "",
+    explicitScopes: false,
+    scopes: "",
   };
 }
 function jsonRecord(value: unknown): JSONRecord {
@@ -338,6 +361,68 @@ function transportFromDraft(draft: Draft): unknown {
     const clientID = draft.clientID.trim();
     if (draft.registrationMode === "static" && clientID.length === 0)
       throw new DraftValidationError("clientID", "Enter the OAuth client ID.");
+    const callbackURI = draft.callbackURI;
+    if (callbackURI !== "") {
+      const match =
+        /^http:\/\/(localhost|127(?:\.[0-9]{1,3}){3}|\[::1\]):([1-9][0-9]{0,4})(\/[^?#%\\\s]*)$/.exec(
+          callbackURI,
+        );
+      if (
+        match === null ||
+        Number(match[2]) > 65535 ||
+        !isCanonicalAbsolutePath(match[3] ?? "") ||
+        new URL(callbackURI).pathname !== match[3] ||
+        (match[1]?.startsWith("127.") &&
+          match[1]
+            .split(".")
+            .some(
+              (part) => Number(part) > 255 || String(Number(part)) !== part,
+            )) ||
+        new TextEncoder().encode(callbackURI).byteLength > 8192
+      )
+        throw new DraftValidationError(
+          "callbackURI",
+          "Use an exact HTTP localhost or numeric-loopback URI with an explicit port and canonical path, such as http://localhost:3118/callback. No credentials, query, fragment, or encoded path.",
+        );
+    }
+    const metadataURL = draft.authServerMetadataURL;
+    if (metadataURL !== "") {
+      let parsed: URL;
+      try {
+        parsed = new URL(metadataURL);
+      } catch {
+        throw new DraftValidationError(
+          "authServerMetadataURL",
+          "Enter an absolute HTTPS metadata URL.",
+        );
+      }
+      if (
+        parsed.protocol !== "https:" ||
+        parsed.username !== "" ||
+        parsed.password !== "" ||
+        metadataURL.includes("#") ||
+        parsed.href !== metadataURL ||
+        new TextEncoder().encode(metadataURL).byteLength > 8192 ||
+        !isCanonicalAbsolutePath(parsed.pathname)
+      )
+        throw new DraftValidationError(
+          "authServerMetadataURL",
+          "Use the exact canonical HTTPS metadata URL with a path, without credentials or fragment. A bounded query is allowed.",
+        );
+    }
+    const scopes = draft.scopes === "" ? [] : draft.scopes.split("\n");
+    if (
+      draft.explicitScopes &&
+      (scopes.length > 64 ||
+        scopes.some(
+          (scope) => !/^[\x21\x23-\x5b\x5d-\x7e]{1,256}$/.test(scope),
+        ) ||
+        [...new Set(scopes)].join(" ").length > 8192)
+    )
+      throw new DraftValidationError(
+        "scopes",
+        "Enter at most 64 ASCII scope tokens, one per line, without spaces, quotes, or backslashes (256 bytes each, 8192 bytes total).",
+      );
     authentication = {
       mode: "oauth",
       registration:
@@ -354,6 +439,9 @@ function transportFromDraft(draft: Draft): unknown {
             },
       trusted_origins: trustedOrigins,
       request_offline_access: draft.requestOfflineAccess,
+      ...(callbackURI === "" ? {} : { callback_uri: callbackURI }),
+      ...(metadataURL === "" ? {} : { auth_server_metadata_url: metadataURL }),
+      ...(draft.explicitScopes ? { scopes: [...new Set(scopes)].sort() } : {}),
     };
   }
   return {
@@ -406,6 +494,13 @@ function draftFromServer(server: ServerView): Draft {
     authentication.trusted_origins as readonly string[],
   );
   draft.requestOfflineAccess = authentication.request_offline_access as boolean;
+  draft.callbackURI = (authentication.callback_uri as string | undefined) ?? "";
+  draft.authServerMetadataURL =
+    (authentication.auth_server_metadata_url as string | undefined) ?? "";
+  draft.explicitScopes = authentication.scopes !== undefined;
+  draft.scopes = ((authentication.scopes as string[] | undefined) ?? []).join(
+    "\n",
+  );
   return draft;
 }
 function operationID(value: unknown): string | null {
@@ -628,6 +723,7 @@ function EditorForm({
   issuerError,
   clientIDError,
   originErrors,
+  compatibilityErrors,
   clearFieldError,
 }: {
   draft: Draft;
@@ -638,6 +734,7 @@ function EditorForm({
   issuerError: string | undefined;
   clientIDError: string | undefined;
   originErrors: Readonly<Record<string, string>>;
+  compatibilityErrors: Readonly<Record<string, string>>;
   clearFieldError: (field: DraftValidationField) => void;
 }) {
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) =>
@@ -997,6 +1094,94 @@ function EditorForm({
               )}
               <details class="form-disclosure">
                 <summary>Advanced OAuth settings</summary>
+                <FormField
+                  id="server-callback-uri"
+                  label="Callback URI"
+                  optional
+                  hint="Optional exact redirect registered with the provider. Blank uses Gateway's main callback. A temporary loopback-only listener requires the configured port to be free; it closes when the flow ends."
+                  {...(compatibilityErrors.callbackURI === undefined
+                    ? {}
+                    : { error: compatibilityErrors.callbackURI })}
+                >
+                  {(attributes) => (
+                    <input
+                      {...attributes}
+                      value={draft.callbackURI}
+                      disabled={disabled}
+                      placeholder="http://localhost:3118/callback"
+                      onInput={(event) => {
+                        clearFieldError("callbackURI");
+                        update("callbackURI", event.currentTarget.value);
+                      }}
+                    />
+                  )}
+                </FormField>
+                <FormField
+                  id="server-auth-metadata-url"
+                  label="Authorization metadata URL"
+                  optional
+                  hint="Optional exact HTTPS discovery location, not an issuer override. Blank restores standard discovery; a configured failure never falls back."
+                  {...(compatibilityErrors.authServerMetadataURL === undefined
+                    ? {}
+                    : { error: compatibilityErrors.authServerMetadataURL })}
+                >
+                  {(attributes) => (
+                    <input
+                      {...attributes}
+                      value={draft.authServerMetadataURL}
+                      disabled={disabled}
+                      onInput={(event) => {
+                        clearFieldError("authServerMetadataURL");
+                        update(
+                          "authServerMetadataURL",
+                          event.currentTarget.value,
+                        );
+                      }}
+                    />
+                  )}
+                </FormField>
+                <label class="checkbox-field" for="server-explicit-scopes">
+                  <input
+                    id="server-explicit-scopes"
+                    type="checkbox"
+                    checked={draft.explicitScopes}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      update("explicitScopes", event.currentTarget.checked)
+                    }
+                  />
+                  <span>
+                    <strong>Configure initial scopes explicitly</strong>
+                    <small>
+                      Unchecked uses resource metadata defaults. Checked with an
+                      empty list requests no initial scopes. Offline access
+                      remains separately explicit.
+                    </small>
+                  </span>
+                </label>
+                {draft.explicitScopes && (
+                  <FormField
+                    id="server-initial-scopes"
+                    label="Initial scopes"
+                    optional
+                    hint="One scope token per line. These replace metadata defaults; duplicates are removed and sorted. Later expansion requires foreground authorization."
+                    {...(compatibilityErrors.scopes === undefined
+                      ? {}
+                      : { error: compatibilityErrors.scopes })}
+                  >
+                    {(attributes) => (
+                      <textarea
+                        {...attributes}
+                        value={draft.scopes}
+                        disabled={disabled}
+                        onInput={(event) => {
+                          clearFieldError("scopes");
+                          update("scopes", event.currentTarget.value);
+                        }}
+                      />
+                    )}
+                  </FormField>
+                )}
                 <StringListEditor
                   id="server-oauth-origin"
                   label="Additional OAuth origins allowed on restricted networks"
@@ -1138,6 +1323,34 @@ function CreationReview({ draft }: { draft: Draft }) {
                   </dd>
                 </div>
                 <div>
+                  <dt>Callback URI</dt>
+                  <dd>
+                    {draft.callbackURI === ""
+                      ? "Gateway main callback"
+                      : draft.callbackURI}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Authorization metadata URL</dt>
+                  <dd>
+                    {draft.authServerMetadataURL === ""
+                      ? "Standard discovery"
+                      : draft.authServerMetadataURL}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Initial scopes</dt>
+                  <dd>
+                    {!draft.explicitScopes
+                      ? "Resource metadata defaults"
+                      : draft.scopes === ""
+                        ? "Explicit empty set"
+                        : [...new Set(draft.scopes.split("\n"))]
+                            .sort()
+                            .join(" ")}
+                  </dd>
+                </div>
+                <div>
                   <dt>Offline access</dt>
                   <dd>
                     {draft.requestOfflineAccess
@@ -1183,6 +1396,9 @@ export function ServerEditor({
   const [issuerError, setIssuerError] = useState<string>();
   const [clientIDError, setClientIDError] = useState<string>();
   const [originErrors, setOriginErrors] = useState<Record<string, string>>({});
+  const [compatibilityErrors, setCompatibilityErrors] = useState<
+    Record<string, string>
+  >({});
   const [notice, setNotice] = useState<string>();
   const [blockedETag, setBlockedETag] = useState<string>();
   const [controller] = useState<MutationController<MutationResult>>(() =>
@@ -1243,7 +1459,8 @@ export function ServerEditor({
     if (field === "url") setURLError(undefined);
     else if (field === "issuer") setIssuerError(undefined);
     else if (field === "clientID") setClientIDError(undefined);
-    else setOriginErrors({});
+    else if (field === "origin") setOriginErrors({});
+    else setCompatibilityErrors({});
   };
   const prepare = ():
     | { spec: MutationSpec<MutationResult>; behavioral: boolean }
@@ -1253,6 +1470,7 @@ export function ServerEditor({
     setIssuerError(undefined);
     setClientIDError(undefined);
     setOriginErrors({});
+    setCompatibilityErrors({});
     setNotice(undefined);
     try {
       if (
@@ -1320,6 +1538,7 @@ export function ServerEditor({
         else if (caught.field === "clientID") setClientIDError(message);
         else if (caught.itemID !== undefined)
           setOriginErrors({ [caught.itemID]: message });
+        else setCompatibilityErrors({ [caught.field]: message });
       } else setError(message);
       return undefined;
     }
@@ -1355,6 +1574,7 @@ export function ServerEditor({
           issuerError={issuerError}
           clientIDError={clientIDError}
           originErrors={originErrors}
+          compatibilityErrors={compatibilityErrors}
           clearFieldError={clearFieldError}
         />
         {error !== undefined && (
