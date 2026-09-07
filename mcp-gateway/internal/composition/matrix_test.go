@@ -457,21 +457,26 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 					current, getErr = built.servers.GetOperation(context.Background(), operation.Operation.ID)
 					return getErr == nil && current.State == contract.OperationRunning
 				}, 2*time.Second, time.Millisecond)
-				close(replacementRelease)
-				require.Eventually(t, func() bool {
-					current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
-					return err == nil && current.State == contract.OperationSucceeded && built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent
-				}, 2*time.Second, time.Millisecond)
+			}
+			close(replacementRelease)
+			// Join the reconciliation worker before reading its durable outcome;
+			// SQLite completion under race-enabled CI load can outlast a short poll.
+			completionContext, cancelCompletion := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelCompletion()
+			require.True(t, built.manager.Wait(completionContext), "replacement reconciliation did not complete")
+			current, err = built.servers.GetOperation(completionContext, operation.Operation.ID)
+			require.NoError(t, err)
+			assert.Zero(t, built.RuntimeStatus(server.ID).Reconciliation.InUse)
+			if test.stopResult {
+				assert.Equal(t, contract.OperationSucceeded, current.State)
+				assert.Equal(t, contract.ActiveCatalogCurrent, built.RuntimeStatus(server.ID).CatalogState)
 				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
 				assert.True(t, routePresent)
 				assert.Equal(t, int64(2), starts.Load())
 			} else {
-				close(replacementRelease)
-				require.Eventually(t, func() bool {
-					current, err = built.servers.GetOperation(context.Background(), operation.Operation.ID)
-					return err == nil && current.State == contract.OperationFailed && current.Reason != nil && *current.Reason == contract.ReasonStopUnconfirmed &&
-						built.RuntimeStatus(server.ID).Reconciliation.InUse == 0
-				}, 2*time.Second, time.Millisecond)
+				assert.Equal(t, contract.OperationFailed, current.State)
+				require.NotNil(t, current.Reason)
+				assert.Equal(t, contract.ReasonStopUnconfirmed, *current.Reason)
 				assert.Equal(t, int64(1), starts.Load())
 				assert.Equal(t, int64(1), built.RuntimeOccupancy().InUse)
 				_, routePresent = built.ActiveCatalog().Routes().Resolve(resourceID)
