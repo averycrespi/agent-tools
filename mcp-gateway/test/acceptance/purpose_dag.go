@@ -51,7 +51,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		generatedScript = "mcp-gateway/web/scripts/verify-generated.mjs"
 		supplyScript    = "mcp-gateway/web/scripts/verify-supply-chain.mjs"
 	)
-	demoDefinitions := []string{"mcp-gateway/scripts/serve-demo.sh", "mcp-gateway/test/demo/main.go", "mcp-gateway/test/demo/client.go", "mcp-gateway/test/demo/seed.go", "mcp-gateway/test/demo/fixture.go", "mcp-gateway/test/demo/process.go", "mcp-gateway/test/demo/exit_linux.go", "mcp-gateway/test/demo/exit_darwin.go", "mcp-gateway/test/demo/runner_test.go"}
+	demoDefinitions := []string{"mcp-gateway/scripts/serve-demo.sh", "mcp-gateway/test/demo/main.go", "mcp-gateway/test/demo/client.go", "mcp-gateway/test/demo/seed.go", "mcp-gateway/test/demo/fixture.go", "mcp-gateway/test/demo/process.go", "mcp-gateway/test/demo/runner_test.go"}
 	commonDefinitions := []string{makefile, manifest, dagDefinition, "mcp-gateway/test/acceptance/suite_selection.go", "mcp-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
 	leaf := func(id string, behaviorIDs []string, timeout, budget time.Duration, repeats, processStarts, browserStarts int, artifacts []string, extraDefinitions ...string) purposeEvidenceLeaf {

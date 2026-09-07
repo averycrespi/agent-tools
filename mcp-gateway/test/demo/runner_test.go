@@ -193,7 +193,7 @@ func testClient(t *testing.T, listen, root string) *client {
 
 func checkSupervisor(t *testing.T) {
 	t.Helper()
-	for _, script := range []string{"printf finished; exit 0", "trap '' TERM; printf ready; while :; do :; done", "yes output"} {
+	for _, script := range []string{"printf finished; exit 0", "sleep 60 & printf finished; exit 0", "printf failed; exit 7", "trap '' TERM; printf ready; while :; do :; done", "yes output"} {
 		c, err := startChild("supervisor fixture", []string{"/bin/sh", "-c", script}, os.Environ())
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.finish(context.Background(), 0, false)) })
@@ -201,11 +201,14 @@ func checkSupervisor(t *testing.T) {
 		switch {
 		case strings.Contains(script, "finished"):
 			require.Eventually(t, func() bool { exited, err := c.poll(); require.NoError(t, err); return exited }, 2*time.Second, 10*time.Millisecond)
-			pgid, err := syscall.Getpgid(c.cmd.Process.Pid)
-			require.NoError(t, err)
-			require.Equal(t, c.cmd.Process.Pid, pgid, "leader identity must remain reserved after exit notification")
+			group, err := syscall.Getpgid(c.cmd.Process.Pid)
+			require.NoError(t, err, "group owner must remain live after command exit")
+			require.Equal(t, c.cmd.Process.Pid, group)
 			require.NoError(t, c.finish(t.Context(), time.Second, true))
 			require.Zero(t, c.code)
+		case strings.Contains(script, "failed"):
+			require.ErrorContains(t, c.finish(t.Context(), time.Second, true), "failed or timed out")
+			require.Equal(t, 7, c.code)
 		case script == "yes output":
 			require.Eventually(t, c.stdout.exceeded, 2*time.Second, 10*time.Millisecond)
 			require.ErrorContains(t, c.finish(t.Context(), 0, false), "exceeded output bound")
@@ -215,8 +218,15 @@ func checkSupervisor(t *testing.T) {
 			require.Equal(t, -1, c.code)
 		}
 		require.True(t, c.settled)
+		require.ErrorContains(t, c.signal(syscall.SIGKILL), "process identity changed")
 		require.ErrorIs(t, syscall.Kill(-c.cmd.Process.Pid, 0), syscall.ESRCH)
 	}
+	literal := "spaces ; $(printf injected) 'quotes' $HOME"
+	c, err := startChild("literal arguments", []string{"/bin/sh", "-c", "printf '%s' \"$1\"", "fixture", literal}, os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, c.finish(context.Background(), 0, false)) })
+	require.NoError(t, c.finish(t.Context(), time.Second, true))
+	require.Equal(t, literal, string(c.stdout.bytes()))
 }
 
 func TestServeDemoLifecycle(t *testing.T) {
@@ -328,7 +338,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 		pgid, err := syscall.Getpgid(pid)
 		require.NoError(t, err)
 		require.Equal(t, pid, pgid)
-		require.NoError(t, syscall.Kill(pid, syscall.SIGTERM))
+		require.NoError(t, syscall.Kill(-pid, syscall.SIGTERM))
 		result := s.stopped(t, false)
 		require.Contains(t, string(result.Stderr), "fixture exited unexpectedly")
 		require.Contains(t, string(result.Stdout), "Demo Gateway ready")
@@ -435,7 +445,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 			require.ErrorIs(t, syscall.Kill(-pid, 0), syscall.ESRCH)
 		}
 	})
-	t.Run("non-reaping process supervision", func(t *testing.T) {
+	t.Run("live process-group ownership", func(t *testing.T) {
 		exe, err := os.Executable()
 		require.NoError(t, err)
 		runner, err := testutil.NewBinaryRunner(30*time.Second, outputLimit)

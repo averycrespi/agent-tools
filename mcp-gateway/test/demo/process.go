@@ -3,11 +3,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -40,39 +42,95 @@ func (b *boundedOutput) bytes() []byte {
 }
 func (b *boundedOutput) exceeded() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.overflow }
 
+type commandResult struct {
+	code int
+	err  error
+}
+
 type child struct {
 	label          string
 	cmd            *exec.Cmd
 	stdout, stderr boundedOutput
-	exited         <-chan error
+	exited         <-chan commandResult
+	status         *os.File
+	control        *os.File
 	settled        bool
 	cleanupErr     error
 	code           int
 }
 
 func startChild(label string, argv, env []string) (*child, error) {
-	c := &child{label: label, cmd: exec.Command(argv[0], argv[1:]...)} //nolint:gosec // Only fixed developer commands and owned binary paths reach this supervisor.
+	// The shell reaps the command but remains a live group owner until teardown.
+	// Arguments stay positional, and the command cannot inherit control pipes.
+	const owner = `"$@" 3>&- 4>&- &
+child=$!
+trap '' TERM INT
+wait "$child"
+code=$?
+printf '%s\n' "$code" >&3
+IFS= read -r release <&4
+kill -KILL -$$
+`
+	status, statusWriter, err := os.Pipe()
+	if err != nil {
+		return nil, errors.New(label + " status pipe failed")
+	}
+	defer func() { _ = statusWriter.Close() }()
+	controlReader, control, err := os.Pipe()
+	if err != nil {
+		_ = status.Close()
+		return nil, errors.New(label + " control pipe failed")
+	}
+	defer func() { _ = controlReader.Close() }()
+	args := append([]string{"-c", owner, "demo-owner"}, argv...)
+	c := &child{label: label, cmd: exec.Command("/bin/sh", args...), status: status, control: control, code: -1} //nolint:gosec // Fixed shell program; command arguments are positional, never interpolated.
+	c.cmd.ExtraFiles = []*os.File{statusWriter, controlReader}
 	c.cmd.Env = env
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	c.cmd.Stdout = &c.stdout
 	c.cmd.Stderr = &c.stderr
 	c.cmd.WaitDelay = 2 * time.Second
 	if err := c.cmd.Start(); err != nil {
+		_ = status.Close()
+		_ = control.Close()
 		return nil, errors.New(label + " could not start")
 	}
-	c.exited = observeExit(c.cmd.Process.Pid)
+	exited := make(chan commandResult, 1)
+	c.exited = exited
+	go func() {
+		scanner := bufio.NewScanner(status)
+		scanner.Buffer(make([]byte, 16), 16)
+		if !scanner.Scan() {
+			exited <- commandResult{-1, errors.New("command status unavailable")}
+			return
+		}
+		code, err := strconv.Atoi(scanner.Text())
+		if err != nil || code < 0 || code > 255 {
+			exited <- commandResult{-1, errors.New("invalid command status")}
+			return
+		}
+		if code >= 128 {
+			code = -1
+		}
+		exited <- commandResult{code: code}
+	}()
 	return c, nil
 }
 func (c *child) poll() (bool, error) {
 	select {
-	case err := <-c.exited:
-		c.exited = closedExit(err)
-		return true, err
+	case result := <-c.exited:
+		c.code = result.code
+		c.exited = closedExit(result)
+		return true, result.err
 	default:
 		return false, nil
 	}
 }
-func closedExit(err error) <-chan error { ch := make(chan error, 1); ch <- err; return ch }
+func closedExit(result commandResult) <-chan commandResult {
+	ch := make(chan commandResult, 1)
+	ch <- result
+	return ch
+}
 func (c *child) check(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return errors.New("interrupted")
@@ -87,11 +145,12 @@ func (c *child) check(ctx context.Context) error {
 }
 func (c *child) signal(sig syscall.Signal) error {
 	pid := c.cmd.Process.Pid
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil || pgid != pid {
+	// Start applied Setpgid, and no Wait occurs until the group is fenced.
+	// The direct child's reserved PID therefore still names our group.
+	if c.settled {
 		return errors.New(c.label + " process identity changed")
 	}
-	if err = syscall.Kill(-pid, sig); err != nil {
+	if err := syscall.Kill(-pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return errors.New(c.label + " group signal failed")
 	}
 	return nil
@@ -122,33 +181,47 @@ func (c *child) finish(ctx context.Context, timeout time.Duration, success bool)
 		return c.cleanupErr
 	}
 	exited, err := c.wait(ctx, timeout, true)
-	if err != nil {
-		return errors.New(c.label + " exit observation failed")
-	}
+	statusErr := err
 	if !exited {
 		if err = c.signal(syscall.SIGTERM); err != nil {
 			return err
 		}
-		if _, err = c.wait(context.Background(), 5*time.Second, false); err != nil {
-			return errors.New(c.label + " exit observation failed")
-		}
+		_, statusErr = c.wait(context.Background(), 5*time.Second, false)
 	}
 	// Do not reap the leader until its process group is fenced: its reserved PID
 	// prevents another process from acquiring the identity we are signalling.
 	if err = c.signal(syscall.SIGKILL); err != nil {
 		return err
 	}
-	if yes, waitErr := c.wait(context.Background(), 5*time.Second, false); !yes || waitErr != nil {
-		return errors.New(c.label + " could not be reaped")
-	}
-	waitErr := c.cmd.Wait()
+	_ = c.control.Close()
 	c.settled = true
-	c.code = c.cmd.ProcessState.ExitCode()
+	reaped := make(chan error, 1)
+	go func() { reaped <- c.cmd.Wait() }()
+	var waitErr error
+	select {
+	case waitErr = <-reaped:
+	case <-time.After(5 * time.Second):
+		_ = c.status.Close()
+		c.cleanupErr = errors.New(c.label + " could not be reaped")
+		return c.cleanupErr
+	}
+	_ = c.status.Close()
+	_, _ = c.wait(context.Background(), time.Second, false)
 	if errors.Is(waitErr, exec.ErrWaitDelay) {
 		c.cleanupErr = errors.New(c.label + " output pipes survived")
 	}
-	if err = syscall.Kill(-c.cmd.Process.Pid, 0); !errors.Is(err, syscall.ESRCH) {
-		c.cleanupErr = errors.New(c.label + " process group survived cleanup")
+	// Orphaned descendants can remain zombies until their new parent reaps them.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err = syscall.Kill(-c.cmd.Process.Pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			break
+		}
+		if (err != nil && !errors.Is(err, syscall.EPERM)) || !time.Now().Before(deadline) {
+			c.cleanupErr = errors.New(c.label + " process group survived cleanup")
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if c.cleanupErr != nil {
 		return c.cleanupErr
@@ -156,7 +229,7 @@ func (c *child) finish(ctx context.Context, timeout time.Duration, success bool)
 	if c.stdout.exceeded() || c.stderr.exceeded() {
 		return errors.New(c.label + " exceeded output bound")
 	}
-	if success && (!exited || waitErr != nil) {
+	if success && (!exited || statusErr != nil || c.code != 0) {
 		return errors.New(c.label + " failed or timed out (child output suppressed)")
 	}
 	return nil
