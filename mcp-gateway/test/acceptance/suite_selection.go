@@ -426,9 +426,8 @@ func RunSuite(ctx context.Context, root, id string, repeats int, executor Execut
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		commandContext, cancel := context.WithTimeout(ctx, suiteTimeout(id)+time.Minute)
-		_, err := executor.Run(commandContext, moduleRoot, Command{CheckName: id, Name: command.Argv[0], Arguments: command.Argv[1:], Timeout: suiteTimeout(id)})
-		cancel()
+		// Go bounds each test binary; the executor separately bounds compilation and the whole package group.
+		_, err := executor.Run(ctx, moduleRoot, Command{CheckName: id, Name: command.Argv[0], Arguments: command.Argv[1:], Timeout: suiteTimeout(id)})
 		if err != nil {
 			return err
 		}

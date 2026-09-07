@@ -34,6 +34,8 @@ Run `make help` for exact target spelling and required variables. `make suite-in
 
 For machine-readable timing, `run-suite <owner> --json` emits Go test events on stdout while diagnostics remain on stderr. `TEST_JSON=1` enables that mode for planned Make commands, including the browser aggregate. Make banners and non-Go wrappers are not JSON events. The same selectors, count-one/race flags, deadlines, four-MiB per-stream output bound, and cleanup apply; a truncated or undeliverable event stream fails. Test processes are race-instrumented; the spawned Gateway binary remains the default non-race `e2e` build unless build flags explicitly request instrumentation. Record both facts in timing evidence. JSON events describe executed tests; an inventory/plan alone is not execution evidence.
 
+Go's `-timeout` bounds each package's test binary, not cold compilation or all packages in a command. Suite execution preserves that per-binary limit and the caller's cancellation/deadline; the shared process supervisor independently bounds each complete command at 19 minutes (or the caller's earlier deadline). Do not derive a whole-command deadline from one package's timeout: package scheduling and cold setup can exhaust it while every individual test binary remains within its limit. Release-profile and CI-job bounds still apply.
+
 ## CI mapping
 
 | CI intent                 | Owners                                                                                                          |

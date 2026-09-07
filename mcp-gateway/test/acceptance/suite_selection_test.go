@@ -237,6 +237,45 @@ func TestSuiteRunNativeBoundaryPrecedesPlanning(t *testing.T) {
 	assert.Empty(t, executor.calls)
 }
 
+type suiteExecutorFunc func(context.Context, string, Command) ([]byte, error)
+
+func (execute suiteExecutorFunc) Run(ctx context.Context, root string, command Command) ([]byte, error) {
+	return execute(ctx, root, command)
+}
+
+func TestSuiteRunnerKeepsPackageAndCommandDeadlinesSeparate(t *testing.T) {
+	root := suiteFixture(t, map[string]string{
+		"mcp-gateway/internal/first/first_test.go":   "package first\nimport \"testing\"\nfunc TestFirst(t *testing.T) {}\n",
+		"mcp-gateway/internal/second/second_test.go": "package second\nimport \"testing\"\nfunc TestSecond(t *testing.T) {}\n",
+	})
+	for _, budget := range []time.Duration{0, 20 * time.Minute} {
+		t.Run(budget.String(), func(t *testing.T) {
+			ctx := t.Context()
+			if budget != 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, budget)
+				defer cancel()
+			}
+			wantDeadline, wantBound := ctx.Deadline()
+			calls := 0
+			executor := suiteExecutorFunc(func(commandContext context.Context, _ string, command Command) ([]byte, error) {
+				calls++
+				deadline, bounded := commandContext.Deadline()
+				assert.Equal(t, wantBound, bounded, "the package timeout must not bound compilation and the whole package group")
+				assert.Equal(t, wantDeadline, deadline)
+				assert.Contains(t, command.Arguments, "-timeout=5m0s")
+				assert.Contains(t, command.Arguments, "-race")
+				assert.Contains(t, command.Arguments, "-count=1")
+				assert.Contains(t, command.Arguments, "./internal/first")
+				assert.Contains(t, command.Arguments, "./internal/second")
+				return nil, nil
+			})
+			require.NoError(t, RunSuite(ctx, root, "test-integration", 1, executor))
+			assert.Equal(t, 1, calls)
+		})
+	}
+}
+
 type failingSuiteExecutor struct{ calls int }
 
 func (executor *failingSuiteExecutor) Run(_ context.Context, _ string, command Command) ([]byte, error) {
