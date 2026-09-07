@@ -76,6 +76,7 @@ func TestTemplateMatchesRealInitialization(t *testing.T) {
 	require.NoError(t, gatewaypaths.ValidateOwnerOnlyFile(layout.Database))
 	_, err = New(installationID).Open(t.Context(), owner)
 	assert.ErrorIs(t, err, os.ErrExist, "opening a fixture must never overwrite an existing database")
+	require.NoError(t, gatewaypaths.ValidateOwnerOnlyFile(layout.Database))
 }
 
 func TestTemplateConcurrentCopiesHaveIndependentDurableState(t *testing.T) {
@@ -115,9 +116,36 @@ func TestTemplateFailureAndNormalOpenValidation(t *testing.T) {
 		_, err = os.Stat(layout.Database)
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	}
-	corrupt := &Template{image: sync.OnceValues(func() (string, error) { return "not sqlite", nil })}
-	_, err := corrupt.Open(t.Context(), fixtureOwner(t))
-	assert.ErrorIs(t, err, storage.ErrInvalidDatabase)
+	valid := New(installationID)
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, test := range []struct {
+		name     string
+		template *Template
+		ctx      context.Context
+		wantErr  error
+	}{
+		{name: "corrupt", template: &Template{image: sync.OnceValues(func() (string, error) { return "not sqlite", nil })}, ctx: t.Context(), wantErr: storage.ErrInvalidDatabase},
+		{name: "canceled", template: valid, ctx: canceled, wantErr: context.Canceled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			owner := fixtureOwner(t)
+			_, err := test.template.Open(test.ctx, owner)
+			require.ErrorIs(t, err, test.wantErr)
+			layout, err := owner.ActiveLayout()
+			require.NoError(t, err)
+			for _, suffix := range []string{"", "-wal", "-shm"} {
+				_, err := os.Lstat(layout.Database + suffix)
+				assert.ErrorIs(t, err, os.ErrNotExist)
+			}
+			store, err := valid.Open(t.Context(), owner)
+			require.NoError(t, err, "failed copies must not block a new fixture for the same owner")
+			t.Cleanup(func() { require.NoError(t, store.Close()) })
+			identity, err := store.Identity(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, installationID, identity.InstallationID)
+		})
+	}
 }
 
 func TestTemplateRemovesGenerationRootsAfterSuccessAndFailure(t *testing.T) {

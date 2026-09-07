@@ -23,7 +23,7 @@ func New(installationID string) *Template {
 	})}
 }
 
-func (template *Template) Open(ctx context.Context, ownership *gatewaypaths.Ownership) (*storage.Store, error) {
+func (template *Template) Open(ctx context.Context, ownership *gatewaypaths.Ownership) (store *storage.Store, resultErr error) {
 	layout, err := ownership.ActiveLayout()
 	if err != nil {
 		return nil, err
@@ -36,6 +36,11 @@ func (template *Template) Open(ctx context.Context, ownership *gatewaypaths.Owne
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.Join(resultErr, os.Remove(layout.Database))
+		}
+	}()
 	_, copyErr := io.Copy(file, strings.NewReader(image))
 	if err := errors.Join(copyErr, file.Close()); err != nil {
 		return nil, fmt.Errorf("copy fixture database: %w", err)
