@@ -7,7 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,25 +17,18 @@ import (
 func TestPurposeNamedLeafTargetDryRuns(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	checks := map[string][]string{
-		"test-unit":                         {"go test -race -count=1 -timeout=300s ./..."},
-		"test-integration":                  {"-count=1", "-tags=integration", "Test.*Integration", "TestRestoreAcceptedSchemaLineages"},
-		"test-e2e":                          {"-count=1", "-tags=e2e", "./test/e2e/..."},
-		"test-security":                     {"-count=1", "-tags=security", "TestReleaseReportSecretSinkBoundaries", "./test/security/...", "./test/acceptance"},
-		"test-stress":                       {"TestConcurrentSemanticDeduplicationStress", "TestApprovalCancellationPolicyLinearizationStress", "TestSyntheticSnapshotPaginationStress", "TestLostLocalMutationResponseDeduplicatesExplicitRetryStress", "TestLocalInvocationDrainCleanupStress"},
-		"test-keyring-native":               {"./test/keyring-native.sh"},
-		"test-serve-temporary":              {"./test/serve-temporary.sh"},
-		"test-browser-workflows":            {"TestBrowser(Protocol|FragmentStorage|AuthenticationEpoch", "SessionLifecycleCanary", "VisualAccessibilityPrivacyCanary", "Coordinator", "-tags=e2e,browser"},
-		"test-browser-privacy":              {"TestBrowserSecretStoragePrivacy"},
-		"test-browser-visual":               {"TestBrowserVisualResponsiveMatrix"},
-		"test-browser-accessibility":        {"TestBrowserAccessibility"},
-		"test-browser-cross":                {"TestBrowserCrossCompatibility"},
-		"test-frontend-development-node":    {"npm --prefix .. run ui:test-dev"},
-		"test-frontend-development-browser": {"TestFrontendDevelopment(LiveReload|ControlPlane)"},
-		"frontend-typecheck":                {"npm --prefix .. run ui:typecheck"},
-		"frontend-build":                    {"npm --prefix .. run ui:build"},
-		"frontend-verify-generated":         {"npm --prefix .. run ui:verify-generated"},
-		"frontend-verify-supply-chain":      {"npm --prefix .. run ui:verify-supply-chain", "-tags=frontend", "TestStaticSupplyChain"},
-		"frontend-audit":                    {"npm --prefix .. run ui:audit"},
+		"test-stress":                    {"go run ./test/acceptance/cmd run-suite test-stress --count=20"},
+		"test-keyring-native":            {"./test/keyring-native.sh"},
+		"test-serve-temporary":           {"./test/serve-temporary.sh"},
+		"test-frontend-development-node": {"npm --prefix .. run ui:test-dev"},
+		"frontend-typecheck":             {"npm --prefix .. run ui:typecheck"},
+		"frontend-build":                 {"npm --prefix .. run ui:build"},
+		"frontend-verify-generated":      {"npm --prefix .. run ui:verify-generated"},
+		"frontend-verify-supply-chain":   {"npm --prefix .. run ui:verify-supply-chain", "go run ./test/acceptance/cmd run-suite frontend-static-tests"},
+		"frontend-audit":                 {"npm --prefix .. run ui:audit"},
+	}
+	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-e2e", "test-security", "test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser"} {
+		checks[target] = []string{"go run ./test/acceptance/cmd run-suite " + target}
 	}
 	for target, required := range checks {
 		t.Run(target, func(t *testing.T) {
@@ -52,17 +47,13 @@ func TestPurposeNamedDeveloperAggregatesAreDisjoint(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(makefile), ".NOTPARALLEL: test test-browser test-frontend-development")
 
-	unit := purposeTargetDryRunLines(t, root, "test-unit")
-	integration := purposeTargetDryRunLines(t, root, "test-integration")
-	serveTemporary := purposeTargetDryRunLines(t, root, "test-serve-temporary")
-	wantTest := append(append(append([]string(nil), unit...), integration...), serveTemporary...)
+	var wantTest []string
+	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary"} {
+		wantTest = append(wantTest, purposeTargetDryRunLines(t, root, target)...)
+	}
 	assert.Equal(t, wantTest, purposeTargetDryRunLines(t, root, "test"))
 
-	var browser []string
-	for _, target := range []string{"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"} {
-		browser = append(browser, purposeTargetDryRunLines(t, root, target)...)
-	}
-	assert.Equal(t, browser, purposeTargetDryRunLines(t, root, "test-browser"))
+	assert.Equal(t, []string{"go run ./test/acceptance/cmd run-suite test-browser"}, purposeTargetDryRunLines(t, root, "test-browser"))
 
 	var development []string
 	for _, target := range []string{"test-frontend-development-node", "test-frontend-development-browser"} {
@@ -113,7 +104,7 @@ func TestPurposeNamedRootForwardingAndOwnership(t *testing.T) {
 	assert.Equal(t, "\t$(MAKE) -C mcp-gateway adopt-acceptance-report REPORT=\"$(REPORT)\" ADOPTION=\"$(ADOPTION)\"", purposeMakeTargetRecipe(makefile, "adopt-acceptance-report"))
 	assert.Equal(t, "\t$(MAKE) -C mcp-gateway qualify-external-evidence", purposeMakeTargetRecipe(makefile, "qualify-external-evidence"))
 	assert.NotContains(t, purposeMakeTargetRecipe(makefile, "check-other-tools"), "mcp-gateway")
-	assert.Contains(t, makefile, "OTHER_TOOLS := mcp-broker sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker")
+	assert.Contains(t, makefile, "OTHER_TOOLS := $(filter-out mcp-gateway,$(TOOLS))")
 }
 
 func TestPurposeNamedTargetsPublishOnlyFinalAcceptanceInterface(t *testing.T) {
@@ -144,18 +135,42 @@ func TestPurposeNamedTargetsPublishOnlyFinalAcceptanceInterface(t *testing.T) {
 	}
 }
 
-func purposeTargetDryRun(t *testing.T, root, target string) string {
+func TestPurposeNamedStructuredOutputIsOptIn(t *testing.T) {
+	root := purposeTargetModuleRoot(t)
+	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-browser", "test-e2e", "test-security", "test-frontend-development-browser", "frontend-verify-supply-chain"} {
+		t.Run(target, func(t *testing.T) {
+			assert.NotContains(t, purposeTargetDryRun(t, root, target), "--json")
+			output := purposeTargetDryRun(t, root, target, "TEST_JSON=1")
+			found := false
+			for _, line := range strings.Split(output, "\n") {
+				if strings.HasPrefix(line, "go run ./test/acceptance/cmd run-suite ") {
+					found = true
+					assert.True(t, strings.HasSuffix(strings.TrimSpace(line), "--json"), line)
+				}
+			}
+			assert.True(t, found)
+		})
+	}
+}
+
+func purposeTargetDryRun(t *testing.T, root, target string, overrides ...string) string {
 	t.Helper()
-	command := exec.Command("make", "-n", "-C", root, target)
-	output, err := command.CombinedOutput()
-	require.NoError(t, err, string(output))
-	return string(output)
+	runner, err := testutil.NewBinaryRunner(5*time.Second, 64*1024)
+	require.NoError(t, err)
+	arguments := append([]string{"-n", "-C", root, target, "TEST_JSON=0"}, overrides...)
+	result, err := runner.Run(t.Context(), "make", arguments...)
+	output := string(result.Stdout) + string(result.Stderr)
+	require.NoError(t, err, output)
+	require.False(t, result.StdoutTruncated)
+	require.False(t, result.StderrTruncated)
+	return output
 }
 
 func purposeTargetDryRunLines(t *testing.T, root, target string) []string {
 	t.Helper()
 	var lines []string
 	for _, line := range strings.Split(strings.TrimSpace(purposeTargetDryRun(t, root, target)), "\n") {
+		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "make[") || strings.HasPrefix(line, "make: ") {
 			continue
 		}

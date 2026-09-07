@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,7 +21,7 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	require.NoError(t, validatePurposeEvidenceDAG(dag))
 
 	expectedLeaves := []string{
-		"test-unit", "test-integration", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary", "test-e2e", "test-security", "test-stress", "test-keyring-native",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-build",
 		"frontend-verify-generated", "frontend-verify-supply-chain", "frontend-audit",
@@ -31,7 +32,7 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	}
 	assert.ElementsMatch(t, expectedLeaves, actualLeaves)
 	assert.Equal(t, map[string][]string{
-		"test":                      {"test-unit", "test-integration"},
+		"test":                      {"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary"},
 		"test-browser":              {"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"},
 		"test-frontend-development": {"test-frontend-development-node", "test-frontend-development-browser"},
 	}, dag.Aggregates)
@@ -94,6 +95,35 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	}
 }
 
+func TestBrowserCoordinatorModulesAreBoundToEvidenceLeaves(t *testing.T) {
+	root := repositoryRoot(t)
+	coordinatorPath := "mcp-gateway/web/tests/browser-coordinator.ts"
+	coordinator, err := os.ReadFile(filepath.Join(root, coordinatorPath))
+	require.NoError(t, err)
+	assert.Less(t, strings.Count(string(coordinator), "\n"), 1000)
+	assert.NotRegexp(t, `(?m)^(?:export )?async function run[A-Z]`, string(coordinator))
+	paths := []string{coordinatorPath}
+	require.NoError(t, filepath.WalkDir(filepath.Join(root, "mcp-gateway/web/tests/browser"), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() && strings.HasSuffix(path, ".ts") {
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			paths = append(paths, filepath.ToSlash(relative))
+		}
+		return nil
+	}))
+	require.Greater(t, len(paths), 1)
+	for id, leaf := range purposeEvidenceDAG().Leaves {
+		if strings.HasPrefix(id, "test-browser-") || id == "test-frontend-development-browser" {
+			assert.Subset(t, leaf.DefinitionFiles, paths, id)
+		}
+	}
+}
+
 func TestPurposeEvidenceDAGExpansionAndMultiplicity(t *testing.T) {
 	dag := purposeEvidenceDAG()
 	finalLeaves, err := expandPurposeLeaves(dag, dag.FinalLeaves)
@@ -121,22 +151,22 @@ func TestPurposeEvidenceDAGExpansionAndMultiplicity(t *testing.T) {
 	e2e := dag.Leaves["test-e2e"]
 	assert.Equal(t, 1, e2e.Repeats)
 	assert.Contains(t, strings.Join(dag.Commands[e2e.Command].Dependencies, " "), "go.e2e.complete")
-	assert.Contains(t, strings.Join(dag.Commands["go.e2e.complete"].Argv, " "), "./test/e2e/...")
+	assert.Equal(t, suiteCommandArgv("test-e2e"), dag.Commands["go.e2e.complete"].Argv)
 
 	stress := dag.Leaves["test-stress"]
 	assert.Equal(t, 20, stress.Repeats)
-	stressCommands, err := expandPurposeCommands(dag, []purposeEvidenceLeaf{stress})
+	moduleRoot := purposeTargetModuleRoot(t)
+	inventory, err := DiscoverSuiteInventory(moduleRoot, "linux", "arm64")
+	require.NoError(t, err)
+	stressCommands, err := PlanSuite(moduleRoot, "test-stress", inventory, stress.Repeats)
 	require.NoError(t, err)
 	var selectors []string
 	for _, command := range stressCommands {
-		joined := strings.Join(command.Argv, " ")
-		if !strings.Contains(joined, "-tags=stress") {
-			continue
-		}
-		for _, name := range purposeStressTestIDs {
-			if strings.Contains(joined, name) {
-				selectors = append(selectors, name)
-			}
+		assert.Contains(t, command.Argv, "-tags=stress")
+		assert.Contains(t, command.Argv, "-count=20")
+		assert.Contains(t, command.Argv, "-race")
+		for _, test := range command.Tests {
+			selectors = append(selectors, test.Name)
 		}
 	}
 	sort.Strings(selectors)
@@ -147,9 +177,9 @@ func TestPurposeEvidenceDAGExpansionAndMultiplicity(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 1, countPurposeCommandsContaining(commands, "TestBrowserSecretStoragePrivacy"))
+	assert.Equal(t, 1, countPurposeCommandsContaining(commands, "run-suite test-browser-privacy"))
 	assert.Equal(t, 1, countPurposeCommandsContaining(commands, "mcp-gateway/web/scripts/verify-generated.mjs"))
-	assert.Equal(t, 1, countPurposeCommandsContaining(commands, "./test/e2e/..."))
+	assert.Equal(t, 1, countPurposeCommandsContaining(commands, "run-suite test-e2e"))
 }
 
 func TestPurposeEvidenceDAGMatchesMakeAndNPMDefinitions(t *testing.T) {

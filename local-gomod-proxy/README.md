@@ -83,7 +83,7 @@ To keep the proxy running in the background whenever you're logged in, install i
 ```bash
 make build              # Build binary to ./local-gomod-proxy
 make test               # Run unit tests with race detector
-make test-integration   # Run integration tests (-tags=integration)
+make test-integration   # Tagged integration cases, without ordinary reruns
 make test-e2e           # Run E2E tests (-tags=e2e)
 make lint               # Run golangci-lint
 make fmt                # Format with goimports

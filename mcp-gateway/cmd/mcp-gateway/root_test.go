@@ -19,6 +19,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCLIServePostStartFailureOutput(t *testing.T) {
+	for _, mode := range []controlclient.OutputMode{controlclient.OutputHuman, controlclient.OutputJSON} {
+		t.Run(string(mode), func(t *testing.T) {
+			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+			renderer, err := controlclient.NewRenderer(mode, stdout, stderr)
+			require.NoError(t, err)
+			phases := controlclient.NewServePhases(renderer)
+			require.NoError(t, phases.Acknowledge([]byte(`{"ok":true,"operation":"serve"}`), "Gateway started successfully."))
+			startup := stdout.String()
+			problem := serveCommandProblem(context.DeadlineExceeded, phases.Acknowledged(), "/private-installation")
+			require.NoError(t, phases.WriteProblem(problem))
+			assert.Equal(t, 7, commandExitCode(problem))
+			assert.Equal(t, startup, stdout.String(), "post-start failure must not emit another startup or write to stdout")
+			assert.ErrorIs(t, phases.Acknowledge([]byte(`{"ok":true}`), "duplicate startup"), controlclient.ErrInvalidInput)
+			assert.NotContains(t, stderr.String(), "/private-installation")
+			assert.Contains(t, stderr.String(), "clean shutdown could not be confirmed")
+			assert.Contains(t, stderr.String(), "marked unclean")
+			if mode == controlclient.OutputJSON {
+				assert.JSONEq(t, `{"ok":true,"operation":"serve"}`, startup)
+				var rendered controlclient.Problem
+				require.NoError(t, json.Unmarshal(stderr.Bytes(), &rendered))
+				assert.Equal(t, "serve_stopped", rendered.Code)
+				assert.Equal(t, 7, rendered.Exit)
+			} else {
+				assert.Equal(t, "Gateway started successfully.\n", startup)
+			}
+		})
+	}
+}
+
 func TestCLIExecutionOptionsResolveOnce(t *testing.T) {
 	tests := []struct {
 		name      string

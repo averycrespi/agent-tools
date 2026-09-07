@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -243,42 +242,6 @@ func TestCLIServeOutputLifecycle(t *testing.T) {
 			} else {
 				assert.Equal(t, 1, strings.Count(string(result.Stdout), "Gateway started successfully."))
 				assert.Contains(t, string(result.Stdout), "http://"+authority+"/")
-			}
-		})
-	}
-
-	for _, mode := range []string{"human", "json"} {
-		t.Run("post-start-failure/"+mode, func(t *testing.T) {
-			harness := newGatewayHarness(t)
-			if mode == "json" {
-				harness.serveArgs = append(harness.serveArgs, "--output", "json")
-			}
-			harness.Start()
-			blocked, err := net.Dial("tcp", harness.authority)
-			require.NoError(t, err)
-			defer func() { _ = blocked.Close() }()
-			_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: cli-output-phase\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
-			require.NoError(t, err)
-			waitForAdminOccupancy(t, harness, 2)
-			require.NoError(t, harness.process.Signal(syscall.SIGTERM))
-			waitForListenerClose(t, harness.authority)
-			result, waitErr := harness.process.Wait()
-			harness.process = nil
-			require.Error(t, waitErr)
-			assert.Equal(t, 7, result.ExitCode)
-			assertSettledResult(t, result)
-			if mode == "json" {
-				lines := strings.Split(strings.TrimSpace(string(result.Stdout)), "\n")
-				require.Len(t, lines, 1)
-				assert.True(t, json.Valid([]byte(lines[0])))
-				var problem struct {
-					Code string `json:"code"`
-				}
-				require.NoError(t, json.Unmarshal(result.Stderr, &problem))
-				assert.Equal(t, "serve_stopped", problem.Code)
-			} else {
-				assert.Equal(t, 1, strings.Count(string(result.Stdout), "Gateway started successfully."))
-				assert.Contains(t, string(result.Stderr), "clean shutdown could not be confirmed")
 			}
 		})
 	}

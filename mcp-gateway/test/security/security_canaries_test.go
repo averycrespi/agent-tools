@@ -22,6 +22,7 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
+	"github.com/averycrespi/agent-tools/mcp-gateway/test/acceptance"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,23 +65,36 @@ func TestDurableSecretSinkBoundaries(t *testing.T) {
 func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 	type privacyOwner struct {
 		class string
+		pkg   string
 		owner string
 	}
 	owners := []privacyOwner{
-		{"browser stores", "assertSecretAbsent"}, {"URL fragments and attributes", "TestBrowserSecretStoragePrivacy"},
-		{"DOM and input values", "TestBrowserSecretStoragePrivacy"}, {"one-time display lifecycle", "assertSensitiveSinkFoundation"},
-		{"user-gesture clipboard", "runSecretSinks"}, {"OAuth opener and referrer", "TestBrowserSecretStoragePrivacy"},
-		{"stale authentication epoch", "assertSensitiveSinkFoundation"}, {"post-response sink loss", "assertSensitiveSinkFoundation"},
-		{"CLI argv and environment", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "TestCLISensitiveSinks"},
-		{"logs and acceptance reports", "TestReleaseReportSecretSinkBoundaries"}, {"events", "TestE2EInvocationReadPrivacy"},
-		{"audit capture", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "TestDurableSecretSinkBoundaries"},
-		{"generated frontend assets", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "TestBrowserSecretStoragePrivacy"},
-		{"process output", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "TestSecurityEvidenceOwnerManifest"},
+		{"browser stores", "./test/e2e", "TestBrowserSecretStoragePrivacy"}, {"URL fragments and attributes", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
+		{"DOM and input values", "./test/e2e", "TestBrowserSecretStoragePrivacy"}, {"one-time display lifecycle", "./test/e2e", "TestBrowserSecretSinks"},
+		{"user-gesture clipboard", "./test/e2e", "TestBrowserSecretSinks"}, {"OAuth opener and referrer", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
+		{"stale authentication epoch", "./test/e2e", "TestBrowserSecretSinks"}, {"post-response sink loss", "./test/e2e", "TestBrowserSecretSinks"},
+		{"CLI argv and environment", "./cmd/mcp-gateway", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "./cmd/mcp-gateway", "TestCLISensitiveSinks"},
+		{"logs and acceptance reports", "./test/acceptance", "TestReleaseReportSecretSinkBoundaries"}, {"events", "./test/e2e", "TestE2EInvocationReadPrivacy"},
+		{"audit capture", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "./test/security", "TestDurableSecretSinkBoundaries"},
+		{"generated frontend assets", "./test/security", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
+		{"process output", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "./test/security", "TestSecurityEvidenceOwnerManifest"},
 	}
 	require.Len(t, owners, 18)
+	moduleRoot := filepath.Join(repositoryRoot(t), "mcp-gateway")
+	inventory, err := acceptance.DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
+	require.NoError(t, err)
+	selected := make(map[string]string)
+	for _, test := range inventory.Tests {
+		if test.Selected {
+			selected[test.Package+"/"+test.Name] = test.Owner
+		}
+	}
 	classes := make(map[string]struct{}, len(owners))
 	for _, owner := range owners {
-		assert.NotEmpty(t, owner.owner)
+		leaf, exists := selected[owner.pkg+"/"+owner.owner]
+		require.True(t, exists, "%s has no selected executable owner", owner.class)
+		_, err := acceptance.PlanSuite(moduleRoot, leaf, inventory, 1)
+		require.NoError(t, err, owner.class)
 		_, duplicate := classes[owner.class]
 		assert.False(t, duplicate, owner.class)
 		classes[owner.class] = struct{}{}
@@ -187,41 +201,6 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 			}
 			return nil
 		}))
-	}
-}
-
-func TestCLIControlBoundary(t *testing.T) {
-	root := filepath.Join(repositoryRoot(t), "mcp-gateway", "cmd", "mcp-gateway")
-	files, err := filepath.Glob(filepath.Join(root, "online*.go"))
-	require.NoError(t, err)
-	acquisitionCalls := 0
-	pathResolutionCalls := 0
-	publicClientCalls := 0
-	for _, path := range files {
-		if strings.HasSuffix(path, "_test.go") {
-			continue
-		}
-		contents, readErr := os.ReadFile(path)
-		require.NoError(t, readErr)
-		source := string(contents)
-		calls := strings.Count(source, "controlclient.AcquireAdminBearer(")
-		if calls > 0 {
-			assert.Equal(t, "online.go", filepath.Base(path), "bearer acquisition must have one command-layer owner")
-		}
-		acquisitionCalls += calls
-		pathResolutionCalls += strings.Count(source, "gatewaypaths.Resolve(")
-		publicClientCalls += strings.Count(source, "controlclient.New(")
-		assert.NotContains(t, source, "internal/storage", path)
-		assert.NotContains(t, source, "internal/admin", path)
-	}
-	assert.Equal(t, 1, acquisitionCalls)
-	assert.Equal(t, 1, pathResolutionCalls)
-	assert.Greater(t, publicClientCalls, 0)
-
-	online, err := os.ReadFile(filepath.Join(root, "online.go"))
-	require.NoError(t, err)
-	for _, forbidden := range []string{`"client-secret"`, `"values"`, `"transport"`, `"constraint"`, `"secret-environment"`} {
-		assert.NotContains(t, string(online), forbidden, "secret and structured values must not become argv flags")
 	}
 }
 

@@ -252,7 +252,7 @@ func TestMaintainerGuidanceAndReleaseDocumentation(t *testing.T) {
 	assert.NotContains(t, gatewayGuidance, "## Quick start")
 
 	for _, phrase := range []string{
-		"## Purpose-based verification DAG", "`test` aggregates `test-unit`, `test-integration`, and `test-serve-temporary`",
+		"## Purpose-based verification DAG", "`test` aggregates `test-unit`, `test-integration`, `test-harness`, `test-material`, and `test-serve-temporary`",
 		"`accept` invokes disjoint leaves directly", "complete nonbrowser E2E", "five named stress scenarios",
 		"## CI mapping", "superseded report definitions are incompatible", "candidate revision",
 		"typed `passed`, `skipped`, or `failed`", "blocking", "additive", "qualify-external-evidence",

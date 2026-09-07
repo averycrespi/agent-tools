@@ -16,7 +16,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-broker/internal/server"
 )
 
-func TestBroker_Integration_FullPipeline(t *testing.T) {
+func TestIntegration_FullPipeline(t *testing.T) {
 	// Real audit logger
 	dbPath := filepath.Join(t.TempDir(), "test-audit.db")
 	auditor, err := audit.NewLogger(dbPath)

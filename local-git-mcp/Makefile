@@ -1,4 +1,4 @@
-.PHONY: build install test lint fmt tidy audit
+.PHONY: build install test test-integration lint fmt tidy audit
 
 build:
 	go build -o local-git-mcp ./cmd/local-git-mcp
@@ -10,7 +10,7 @@ test:
 	go test -race ./...
 
 test-integration:
-	go test -race -tags=integration ./...
+	go test -race -tags=integration -run '^TestIntegration' ./internal/git
 
 lint:
 	go tool golangci-lint run ./...

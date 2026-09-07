@@ -8,14 +8,14 @@ Stdio MCP server for authenticated git remote operations.
 make build              # go build -o local-git-mcp ./cmd/local-git-mcp
 make install            # go install ./cmd/local-git-mcp
 make test               # go test -race ./...
-make test-integration   # go test -race -tags=integration ./...
+make test-integration   # checked TestIntegration* cases only
 make lint               # go tool golangci-lint run ./...
 make fmt                # go tool goimports -w .
 make tidy               # go mod tidy && go mod verify
 make audit              # tidy + fmt + lint + test + govulncheck
 ```
 
-Run `make audit` before committing. Integration tests use `//go:build integration`.
+Run `make audit` before committing. Integration tests use `//go:build integration` and `TestIntegration*` names. The target selects their packages without rerunning ordinary tests; root `make test-ci` checks that ownership.
 
 ## Architecture
 

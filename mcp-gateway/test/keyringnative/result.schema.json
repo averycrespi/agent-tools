@@ -20,7 +20,9 @@
           "properties": {
             "name": { "const": "deterministic_material_composition" },
             "status": { "enum": ["passed", "failed"] },
-            "command": { "const": "go test -race ./test/material" }
+            "command": {
+              "const": "go run ./test/acceptance/cmd run-suite test-material"
+            }
           }
         },
         {
@@ -31,7 +33,7 @@
             "name": { "const": "native_backend" },
             "status": { "enum": ["passed", "skipped", "failed"] },
             "command": {
-              "const": "go test -race -tags=keyringnative ./internal/keyring ./test/material"
+              "const": "go run ./test/acceptance/cmd run-suite test-keyring-native"
             }
           }
         }

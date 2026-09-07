@@ -866,7 +866,10 @@ func TestManagerExplicitCatalogChallengeKeepsOperationAttachedThroughFreshTraver
 	driver.startResult <- activeOutcome()
 	assert.Equal(t, active.RuntimeID, receiveCandidate(t, catalog.activateStarted).RuntimeID)
 	catalog.activateResult <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
-	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeActive && status.Reconciliation.InUse == 0
+	}, time.Second, time.Millisecond)
 	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationRefreshCatalog, ExpectedDesiredRevision: "1"})
 	require.NoError(t, err)
 
@@ -1862,6 +1865,9 @@ func TestRuntimeFailureAfterActivationPublicationHasOneCleanupOwner(t *testing.T
 	case <-time.After(time.Second):
 		t.Fatal("activation publication did not arrive")
 	}
+	status := manager.Status(serverID)
+	assert.Equal(t, contract.RuntimeActive, status.State)
+	assert.EqualValues(t, 1, status.Reconciliation.InUse, "active publication precedes admission release")
 	assert.True(t, manager.RuntimeFailed(candidate, contract.ReasonProcessExited))
 	assert.False(t, manager.RuntimeFailed(candidate, contract.ReasonProcessExited))
 	releaseOnce.Do(func() { close(release) })
@@ -2151,7 +2157,10 @@ func TestManagerDrainRacingCatalogHandoffStopsExactHandleOnce(t *testing.T) {
 	driver.startResult <- activeOutcome()
 	_ = receiveCandidate(t, catalog.activateStarted)
 	catalog.activateResult <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
-	require.Eventually(t, func() bool { return manager.Status(serverID).State == contract.RuntimeActive }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		status := manager.Status(serverID)
+		return status.State == contract.RuntimeActive && status.Reconciliation.InUse == 0
+	}, time.Second, time.Millisecond)
 	operation, err := repository.CreateOperation(context.Background(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationRefreshCatalog, ExpectedDesiredRevision: "1"})
 	require.NoError(t, err)
 	manager.Trigger(serverID, &operation.Operation.ID, false)

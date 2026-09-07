@@ -36,8 +36,8 @@ var resultSchema []byte
 
 func NewResult(result, platform, reason, deterministicStatus, nativeStatus string) Result {
 	return Result{SchemaVersion: 1, Result: result, Platform: platform, Reason: reason, Evidence: []Evidence{
-		{Name: "deterministic_material_composition", Status: deterministicStatus, Command: "go test -race ./test/material"},
-		{Name: "native_backend", Status: nativeStatus, Command: "go test -race -tags=keyringnative ./internal/keyring ./test/material"},
+		{Name: "deterministic_material_composition", Status: deterministicStatus, Command: "go run ./test/acceptance/cmd run-suite test-material"},
+		{Name: "native_backend", Status: nativeStatus, Command: "go run ./test/acceptance/cmd run-suite test-keyring-native"},
 	}}
 }
 

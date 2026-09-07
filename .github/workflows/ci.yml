@@ -41,10 +41,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.work
-          cache-dependency-path: "**/go.sum"
+          role: quality
+          tool: all
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -66,15 +66,12 @@ jobs:
       TOOL: ${{ matrix.tool }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.work
-          cache-dependency-path: ${{ matrix.tool }}/go.sum
-      - uses: actions/setup-node@v4
-        if: matrix.tool == 'mcp-gateway'
-        with:
-          node-version: 24
+          role: unit
+          tool: ${{ matrix.tool }}
       - name: Lint
+        if: matrix.tool != 'mcp-gateway'
         run: make -C "$TOOL" lint
       - name: Unit tests
         if: ${{ !cancelled() }}
@@ -85,6 +82,37 @@ jobs:
             make -C "$TOOL" test
           fi
 
+  gateway-lint:
+    name: Gateway lint
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/go-cache
+        with:
+          role: lint
+          tool: mcp-gateway
+      - run: make -C mcp-gateway lint
+
+  gateway-harness:
+    name: Gateway harness and material tests
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/go-cache
+        with:
+          role: harness
+          tool: mcp-gateway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: make -C mcp-gateway test-harness test-material
+
   sandbox-manager-macos:
     name: Sandbox Manager tests (macOS)
     needs: changes
@@ -93,10 +121,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.work
-          cache-dependency-path: sandbox-manager/go.sum
+          role: macos
+          tool: sandbox-manager
       - run: make -C sandbox-manager test
 
   integration-tests:
@@ -113,10 +141,10 @@ jobs:
       TOOL: ${{ matrix.tool }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.work
-          cache-dependency-path: ${{ matrix.tool }}/go.sum
+          role: integration
+          tool: ${{ matrix.tool }}
       - run: make -C "$TOOL" test-integration
 
   e2e-tests:
@@ -133,10 +161,10 @@ jobs:
       TOOL: ${{ matrix.tool }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.work
-          cache-dependency-path: ${{ matrix.tool }}/go.sum
+          role: e2e
+          tool: ${{ matrix.tool }}
       - name: Prepare Gateway E2E build cache
         if: matrix.tool == 'mcp-gateway'
         timeout-minutes: 5
@@ -151,10 +179,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.work
-          cache-dependency-path: mcp-gateway/go.sum
+          role: temporary
+          tool: mcp-gateway
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -174,10 +202,10 @@ jobs:
       TOOL: ${{ matrix.tool }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: ./.github/actions/go-cache
         with:
-          go-version-file: go.work
-          cache-dependency-path: ${{ matrix.tool }}/go.sum
+          role: vulnerability
+          tool: ${{ matrix.tool }}
       - run: go -C "$TOOL" tool govulncheck ./...
 
   required:
@@ -191,6 +219,8 @@ jobs:
       - integration-tests
       - e2e-tests
       - gateway-temporary
+      - gateway-lint
+      - gateway-harness
       - vulnerability-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5

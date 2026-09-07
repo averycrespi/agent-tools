@@ -161,7 +161,7 @@ func TestCLIControlBoundary(t *testing.T) {
 	require.NoError(t, err)
 
 	acquisitionCalls := 0
-	pathResolutionCalls := 0
+	pathResolutionCalls := make(map[string]int)
 	publicClientCalls := 0
 	for _, path := range files {
 		if strings.HasSuffix(path, "_test.go") {
@@ -175,10 +175,19 @@ func TestCLIControlBoundary(t *testing.T) {
 			assert.Equal(t, "online.go", filepath.Base(path), "bearer acquisition must have one command-layer owner")
 		}
 		acquisitionCalls += calls
-		pathResolutionCalls += strings.Count(source, "gatewaypaths.Resolve(")
+		if count := strings.Count(source, "gatewaypaths.Resolve("); count != 0 {
+			pathResolutionCalls[filepath.Base(path)] = count
+		}
 		publicClientCalls += strings.Count(source, "controlclient.New(")
+		assert.NotContains(t, source, "internal/storage", path)
+		assert.NotContains(t, source, "internal/admin", path)
 	}
 	assert.Equal(t, 1, acquisitionCalls)
-	assert.Equal(t, 2, pathResolutionCalls)
+	assert.Equal(t, map[string]int{"online.go": 1, "online_admin_rotation.go": 1}, pathResolutionCalls)
 	assert.Greater(t, publicClientCalls, 0, "online operations must remain on the hardened public HTTP client")
+	online, err := os.ReadFile(filepath.Join(filepath.Dir(current), "online.go"))
+	require.NoError(t, err)
+	for _, forbidden := range []string{`"client-secret"`, `"values"`, `"transport"`, `"constraint"`, `"secret-environment"`} {
+		assert.NotContains(t, string(online), forbidden, "secret and structured values must not become argv flags")
+	}
 }

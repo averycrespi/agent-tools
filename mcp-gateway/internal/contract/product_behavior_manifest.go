@@ -2,7 +2,7 @@ package contract
 
 import "strings"
 
-const ProductBehaviorManifestVersion = 1
+const ProductBehaviorManifestVersion = 2
 
 type ProductBehavior struct {
 	ID            string
@@ -60,7 +60,7 @@ var productClauseGroups = []struct {
 	{prefix: "administration", owner: "tier.integration.compatibility", ids: []string{
 		"admin_credentials", "backup_idempotency", "stopped_recovery_guidance", "offline_commands",
 	}},
-	{prefix: "invocation", owner: "tier.unit.contract", ids: []string{
+	{prefix: "invocation", owner: "tier.integration.compatibility", ids: []string{
 		"read_only_routes", "closed_filters", "newest_first_cursor", "page_coherence", "summary_projection", "item_redacted_arguments", "synthetic_target_derivation", "outcome_derivation", "missing_terminal_unknown", "local_target_unknown", "bounded_retention", "polling_without_authority",
 	}},
 	{prefix: "client_refresh", owner: "tier.browser.workflows", ids: []string{
@@ -99,10 +99,10 @@ var predecessorBehaviorRows = []ProductBehavior{
 	{ID: "cli.output.human_json", Kind: "predecessor", EvidenceOwner: "tier.e2e.complete"},
 	{ID: "cli.secret_sinks", Kind: "predecessor", EvidenceOwner: "tier.security.privacy"},
 	{ID: "cli.uncertain_outcomes", Kind: "predecessor", EvidenceOwner: "tier.e2e.complete"},
-	{ID: "cli.help_and_errors", Kind: "predecessor", EvidenceOwner: "tier.unit.contract"},
+	{ID: "cli.help_and_errors", Kind: "predecessor", EvidenceOwner: "tier.integration.compatibility"},
 	{ID: "cli.compatibility", Kind: "predecessor", EvidenceOwner: "tier.integration.compatibility"},
-	{ID: "cli.security_boundary", Kind: "predecessor", EvidenceOwner: "tier.security.privacy"},
-	{ID: "cli.documentation", Kind: "predecessor", EvidenceOwner: "tier.unit.contract"},
+	{ID: "cli.security_boundary", Kind: "predecessor", EvidenceOwner: "tier.integration.compatibility"},
+	{ID: "cli.documentation", Kind: "predecessor", EvidenceOwner: "tier.harness.selftests"},
 	{ID: "frontend.command_interface", Kind: "predecessor", EvidenceOwner: "tier.frontend.static"},
 	{ID: "frontend.style_live_reload", Kind: "predecessor", EvidenceOwner: "tier.browser.workflows"},
 	{ID: "frontend.module_live_reload", Kind: "predecessor", EvidenceOwner: "tier.browser.workflows"},
@@ -111,7 +111,7 @@ var predecessorBehaviorRows = []ProductBehavior{
 	{ID: "frontend.streaming_uncertainty", Kind: "predecessor", EvidenceOwner: "tier.browser.workflows"},
 	{ID: "frontend.privacy", Kind: "predecessor", EvidenceOwner: "tier.security.privacy"},
 	{ID: "frontend.production_separation", Kind: "predecessor", EvidenceOwner: "tier.frontend.static"},
-	{ID: "frontend.documentation", Kind: "predecessor", EvidenceOwner: "tier.unit.contract"},
+	{ID: "frontend.documentation", Kind: "predecessor", EvidenceOwner: "tier.harness.selftests"},
 }
 
 var evidenceTierRows = []EvidenceTier{
@@ -120,6 +120,8 @@ var evidenceTierRows = []EvidenceTier{
 	{ID: "tier.frontend.static"},
 	{ID: "tier.unit.contract"},
 	{ID: "tier.integration.compatibility"},
+	{ID: "tier.harness.selftests"},
+	{ID: "tier.harness.temporary"},
 	{ID: "tier.browser.workflows"},
 	{ID: "tier.browser.visual"},
 	{ID: "tier.browser.accessibility"},
@@ -136,7 +138,7 @@ var evidenceTierRows = []EvidenceTier{
 func ProductBehaviorManifest() []ProductBehavior {
 	rows := make([]ProductBehavior, 0, 140)
 	criterionOwners := []string{
-		"tier.browser.visual", "tier.browser.workflows", "tier.browser.workflows", "tier.unit.contract", "tier.browser.workflows", "tier.security.privacy", "tier.browser.workflows", "tier.browser.accessibility", "tier.e2e.complete", "tier.frontend.static", "tier.unit.contract",
+		"tier.browser.visual", "tier.browser.workflows", "tier.browser.workflows", "tier.integration.compatibility", "tier.browser.workflows", "tier.security.privacy", "tier.browser.workflows", "tier.browser.accessibility", "tier.e2e.complete", "tier.frontend.static", "tier.harness.selftests",
 	}
 	for index, id := range productCriterionIDs {
 		rows = append(rows, ProductBehavior{ID: "product." + id, Kind: "criterion", EvidenceOwner: criterionOwners[index]})
@@ -170,10 +172,10 @@ func SecurityBehaviorManifest() []ProductBehavior {
 func DocumentationBehaviorManifest() []DocumentationBehavior {
 	rows := make([]DocumentationBehavior, 0, 40)
 	for _, id := range productCapabilityIDs {
-		rows = append(rows, DocumentationBehavior{ID: "docs.capability." + strings.ReplaceAll(id, "-", "."), EvidenceOwner: "tier.unit.contract", CanonicalOwner: "administration"})
+		rows = append(rows, DocumentationBehavior{ID: "docs.capability." + strings.ReplaceAll(id, "-", "."), EvidenceOwner: "tier.harness.selftests", CanonicalOwner: "administration"})
 	}
 	for _, id := range documentationTopicIDs {
-		rows = append(rows, DocumentationBehavior{ID: "docs.topic." + strings.ReplaceAll(id, "-", "."), EvidenceOwner: "tier.unit.contract", CanonicalOwner: strings.ReplaceAll(id, "-", "_")})
+		rows = append(rows, DocumentationBehavior{ID: "docs.topic." + strings.ReplaceAll(id, "-", "."), EvidenceOwner: "tier.harness.selftests", CanonicalOwner: strings.ReplaceAll(id, "-", "_")})
 	}
 	return rows
 }

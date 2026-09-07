@@ -55,9 +55,9 @@ func finalReleaseChecks() ([]releaseCheckDefinition, error) {
 	}
 	productOwners := releaseProductBehaviorOwners()
 	cleanupOwners := map[string]string{
-		"cleanup.AC-1": "test-unit", "cleanup.AC-2": "repository-verify", "cleanup.AC-3": "repository-verify",
+		"cleanup.AC-1": "test-harness", "cleanup.AC-2": "repository-verify", "cleanup.AC-3": "repository-verify",
 		"cleanup.AC-4": "repository-diff", "cleanup.AC-5": "repository-verify", "cleanup.AC-6": "test-security",
-		"cleanup.AC-7": "test-browser-accessibility", "cleanup.AC-8": "test-stress", "cleanup.AC-9": "test-integration", "cleanup.AC-10": "test-unit",
+		"cleanup.AC-7": "test-browser-accessibility", "cleanup.AC-8": "test-stress", "cleanup.AC-9": "test-integration", "cleanup.AC-10": "test-harness",
 	}
 	checks := make([]releaseCheckDefinition, len(specs))
 	byID := make(map[string]int, len(specs))
@@ -119,7 +119,7 @@ func finalReleaseCheckSpecs() ([]finalReleaseCheckSpec, error) {
 		"repository-diff":        {ID: "repository-diff", Argv: []string{"git", "diff", "--check"}, Timeout: 10 * time.Second, Budget: 30 * time.Second, Repeats: 1},
 	}
 	order := []string{
-		"repository-format", "repository-verify", "test-unit", "test-integration", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-temporary", "test-e2e", "test-security", "test-stress", "test-keyring-native",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
 	}
@@ -169,7 +169,7 @@ func canonicalReleaseCleanupCriteria() []string {
 func releaseProductBehaviorOwners() map[string]string {
 	tierOwners := map[string]string{
 		"tier.repository.format": "repository-format", "tier.repository.verify": "repository-verify", "tier.frontend.static": "frontend-typecheck",
-		"tier.unit.contract": "test-unit", "tier.integration.compatibility": "test-integration", "tier.browser.workflows": "test-browser-workflows",
+		"tier.unit.contract": "test-unit", "tier.integration.compatibility": "test-integration", "tier.harness.selftests": "test-harness", "tier.harness.temporary": "test-serve-temporary", "tier.browser.workflows": "test-browser-workflows",
 		"tier.browser.visual": "test-browser-visual", "tier.browser.accessibility": "test-browser-accessibility", "tier.browser.cross": "test-browser-cross",
 		"tier.e2e.complete": "test-e2e", "tier.security.privacy": "test-security", "tier.supply_chain.go": "go-vulnerability",
 		"tier.supply_chain.frontend": "frontend-audit", "tier.native.keyring": "test-keyring-native", "tier.repository.other_tools": "repository-other-tools", "tier.repository.diff": "repository-diff",
@@ -232,6 +232,7 @@ func finalReleaseDefinitionFiles() ([]string, error) {
 		"mcp-gateway/internal/contract/product_behavior_manifest.go", "mcp-gateway/internal/contract/documentation_ownership.go", "mcp-gateway/internal/contract/control_plane_capabilities.go",
 		"mcp-gateway/test/acceptance/acceptance.go", "mcp-gateway/test/acceptance/cmd/main.go", "mcp-gateway/test/acceptance/purpose_dag.go",
 		"mcp-gateway/test/acceptance/release_profile.go", "mcp-gateway/test/acceptance/release_report.go", "mcp-gateway/test/acceptance/release_runner.go",
+		"mcp-gateway/test/acceptance/suite_selection.go", "mcp-gateway/test/keyringnative/result.go", "mcp-gateway/test/keyringnative/result.schema.json", "mcp-gateway/test/keyringnative/cmd/main.go",
 		"mcp-gateway/test/acceptance/release_report.schema.json", "mcp-gateway/test/acceptance/release_external_evidence.go",
 		"mcp-gateway/test/acceptance/release_external_evidence.schema.json", "mcp-gateway/web/environments.json",
 		"mcp-gateway/internal/testutil/cleanup_ledger.go", "mcp-gateway/internal/testutil/cleanup_ledger_darwin.go", "mcp-gateway/internal/testutil/cleanup_ledger_linux.go",

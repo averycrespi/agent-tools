@@ -8,7 +8,7 @@ HTTP Go module proxy that lets sandboxed agents resolve private Go dependencies 
 make build              # go build -o local-gomod-proxy ./cmd/local-gomod-proxy
 make install            # go install ./cmd/local-gomod-proxy
 make test               # go test -race ./...
-make test-integration   # go test -race -tags=integration ./...
+make test-integration   # checked TestIntegration* cases only
 make test-e2e           # go test -race -tags=e2e -timeout=60s ./test/e2e/...
 make lint               # go tool golangci-lint run ./...
 make fmt                # go tool goimports -w .
@@ -16,7 +16,7 @@ make tidy               # go mod tidy && go mod verify
 make audit              # tidy + fmt + lint + test + govulncheck
 ```
 
-Run `make audit` before committing. Integration tests use `//go:build integration`. E2E tests use `//go:build e2e`.
+Run `make audit` before committing. Integration tests use `//go:build integration` and `TestIntegration*` names. The target selects their packages without rerunning ordinary tests; root `make test-ci` checks that ownership. E2E tests use `//go:build e2e`.
 
 ## Architecture
 

@@ -13,13 +13,17 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const testInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
-var testNow = time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
+var (
+	testNow            = time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
+	repositoryTemplate = storagefixture.New(testInstallationID)
+)
 
 type fixedClock struct{ now time.Time }
 
@@ -243,7 +247,7 @@ func newRepository(t *testing.T, fault func(storage.FaultPoint) error) (*Reposit
 	require.NoError(t, err)
 	var store *storage.Store
 	if fault == nil {
-		store, err = storage.Initialize(context.Background(), ownership, testInstallationID)
+		store, err = repositoryTemplate.Open(context.Background(), ownership)
 	} else {
 		store, err = storage.InitializeWithFaultInjection(context.Background(), ownership, testInstallationID, fault)
 	}

@@ -409,10 +409,23 @@ func (harness *gatewayHarness) AuditObservations() []auditObservation {
 	return observations
 }
 
+func (harness *gatewayHarness) ArtifactAuditObservations() []auditObservation {
+	harness.t.Helper()
+	require.Nil(harness.t, harness.process, "artifact inspection requires a stopped Gateway")
+	return harness.readOnlyAuditObservations()
+}
+
 func (harness *gatewayHarness) LiveAuditObservations() []auditObservation {
 	harness.t.Helper()
 	require.NotNil(harness.t, harness.process, "live audit inspection requires a running Gateway")
-	databaseURL := url.URL{Scheme: "file", Path: filepath.Join(harness.root, gatewaypaths.DatabaseName)}
+	return harness.readOnlyAuditObservations()
+}
+
+func (harness *gatewayHarness) readOnlyAuditObservations() []auditObservation {
+	harness.t.Helper()
+	databasePath := filepath.Join(harness.root, gatewaypaths.DatabaseName)
+	require.NoError(harness.t, gatewaypaths.ValidateOwnerOnlyFile(databasePath))
+	databaseURL := url.URL{Scheme: "file", Path: databasePath}
 	query := databaseURL.Query()
 	query.Set("mode", "ro")
 	query.Add("_pragma", "busy_timeout(1000)")
@@ -420,6 +433,7 @@ func (harness *gatewayHarness) LiveAuditObservations() []auditObservation {
 	database, err := sql.Open("sqlite3", databaseURL.String())
 	require.NoError(harness.t, err)
 	database.SetMaxOpenConns(1)
+	harness.t.Cleanup(func() { require.NoError(harness.t, database.Close()) })
 	observations, err := readAuditObservations(harness.ctx, database)
 	require.NoError(harness.t, err)
 	require.NoError(harness.t, database.Close())

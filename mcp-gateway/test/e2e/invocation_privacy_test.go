@@ -240,7 +240,7 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	evidence = append(evidence, fixtureEvidence)
 	result := harness.Stop(syscall.SIGTERM)
 
-	observations := harness.AuditObservations()
+	observations := harness.ArtifactAuditObservations()
 	require.Len(t, observations, 65536)
 	assert.Equal(t, int64(2), observations[0].Sequence)
 	assert.Equal(t, seededInvocationID(1), observations[0].InvocationID)
@@ -284,30 +284,65 @@ func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
 	scanInvocationPrivacySinks(t, harness, issued.Bearer, []string{argumentCanary, fixtureToolErrorText}, evidence, result)
 }
 
+func TestArtifactAuditObservationsDoNotReconstructStorageAuthority(t *testing.T) {
+	root := testutil.NewOwnerOnlyDataRoot(t)
+	path := filepath.Join(root, gatewaypaths.DatabaseName)
+	file, err := gatewaypaths.CreateOwnerOnlyFile(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	database, err := sql.Open("sqlite3", (&url.URL{Scheme: "file", Path: path}).String())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	_, err = database.ExecContext(t.Context(), `CREATE TABLE invocations (
+		insertion_sequence INTEGER, id TEXT, admission_class TEXT, decision TEXT, terminal_class TEXT
+	); INSERT INTO invocations VALUES (1, 'artifact-row', 'invalid_params', NULL, NULL)`)
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	harness := &gatewayHarness{t: t, ctx: t.Context(), root: root}
+	assert.Equal(t, []auditObservation{{Sequence: 1, InvocationID: "artifact-row", AdmissionClass: contract.AdmissionInvalidParams}}, harness.ArtifactAuditObservations())
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "artifact observation must not migrate or rewrite durable bytes")
+	owner, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, owner.Close()) })
+	_, err = storage.Open(t.Context(), owner)
+	require.ErrorIs(t, err, storage.ErrInvalidDatabase, "artifact observation is not production authority validation")
+}
+
 func seedInvocationHistory(t *testing.T, root string, count int) {
 	t.Helper()
 	require.Equal(t, 65536, count)
+	limit, ok := contract.FixedLimitByName("invocation_audit_rows")
+	require.True(t, ok)
+	require.Equal(t, limit.Maximum, int64(count))
 	ctx := context.Background()
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, ownership.Close()) }()
 	store, err := storage.Open(ctx, ownership)
 	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
 	err = store.Mutate(ctx, func(transaction *sql.Tx) error {
-		statement, prepareErr := transaction.PrepareContext(ctx, `INSERT INTO invocations (
+		result, err := transaction.ExecContext(ctx, `WITH RECURSIVE fixtures(sequence) AS (
+			SELECT 0 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence + 1 < ?
+		) INSERT INTO invocations (
 			id, principal_id, credential_id, credential_fingerprint, credential_revision,
 			admitted_at, admission_class
-		) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-		if prepareErr != nil {
-			return prepareErr
+		) SELECT printf('01M10E%020d', sequence), ?, ?, ?, 1, ?, ? FROM fixtures`,
+			count, "01M10F00000000000000000000", "01M10G00000000000000000000", "0123456789abcdef",
+			"2026-08-26T00:00:00.000000000Z", string(contract.AdmissionInvalidParams))
+		if err != nil {
+			return err
 		}
-		defer func() { _ = statement.Close() }()
-		for index := range count {
-			if _, insertErr := statement.ExecContext(ctx,
-				seededInvocationID(index), "01M10F00000000000000000000", "01M10G00000000000000000000", "0123456789abcdef", 1,
-				"2026-08-26T00:00:00.000000000Z", string(contract.AdmissionInvalidParams),
-			); insertErr != nil {
-				return insertErr
-			}
+		inserted, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if inserted != int64(count) {
+			return fmt.Errorf("seeded %d invocations, want %d", inserted, count)
 		}
 		return nil
 	})

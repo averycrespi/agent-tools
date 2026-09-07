@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ SUITE_JOBS = {
     "e2e-tests": "e2e",
     "vulnerability-scan": "tools",
     "gateway-temporary": "gateway",
+    "gateway-lint": "gateway",
+    "gateway-harness": "gateway",
     "sandbox-manager-macos": "sandbox",
 }
 
@@ -78,6 +81,23 @@ def check_gate(needs):
             raise ValueError(f"{job}: expected {expected}, got {actual}")
 
 
+def cache_identity(root, role, tool, toolchain, platform, run, attempt):
+    if role not in {"quality", "unit", "lint", "integration", "harness", "e2e", "temporary", "vulnerability", "macos"}:
+        raise ValueError("Unknown build-cache role")
+    if tool not in {"all", *inventory(root)["tools"]}:
+        raise ValueError("Unknown build-cache tool")
+    if not run.isdecimal() or not attempt.isdecimal():
+        raise ValueError("Cache save requires a unique workflow run and attempt")
+    digest = hashlib.sha256()
+    for value in (role, tool, toolchain, platform):
+        digest.update(value.encode() + b"\0")
+    paths = {root / "go.work", *root.glob("*/go.mod"), *root.glob("*/go.sum"), *root.glob("*/.golangci.yml")}
+    for path in sorted(paths):
+        digest.update(path.relative_to(root).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
+    prefix = f"go-v2-{role}-{tool}-{digest.hexdigest()}-"
+    return {"prefix": prefix, "key": f"{prefix}{run}-{attempt}"}
+
+
 def main():
     if sys.argv[1:] == ["gate"]:
         check_gate(json.loads(os.environ["NEEDS_JSON"]))
@@ -95,8 +115,17 @@ def main():
             for key, value in selection.items():
                 output.write(f"{key}={json.dumps(value, separators=(',', ':'))}\n")
         print(json.dumps(selection, indent=2))
+    elif sys.argv[1:] == ["cache"]:
+        root = Path(__file__).resolve().parents[2]
+        values = cache_identity(root, os.environ["CACHE_ROLE"], os.environ["CACHE_TOOL"],
+                                subprocess.check_output(["go", "version"], text=True, timeout=30).strip(),
+                                os.environ["RUNNER_OS"] + "/" + os.environ["RUNNER_ARCH"],
+                                os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            for key, value in values.items():
+                output.write(f"{key}={value}\n")
     else:
-        raise ValueError("Usage: ci.py select|gate")
+        raise ValueError("Usage: ci.py select|gate|cache")
 
 
 if __name__ == "__main__":

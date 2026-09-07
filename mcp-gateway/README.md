@@ -100,11 +100,14 @@ Maintainers should start with [CLAUDE.md](CLAUDE.md) for package ownership, edit
 
 ```bash
 make build
-make test
+make test-unit  # fast contract and algorithm feedback
+make test       # disjoint unit, integration, harness, material, temporary-runner coverage
 make verify
 npm run ui:typecheck
 npm run ui:build
 ```
+
+`make suite-inventory` reports test ownership and build-context applicability. Browser, E2E, security, stress, and native evidence remain explicit leaves rather than hidden work in the fast unit path. `make test-browser` batches its five disjoint leaves through one planner while retaining separate test processes and Gateway builds. Add `TEST_JSON=1` to Go suite targets for structured execution events without changing selection or instrumentation.
 
 Use the [frontend development guide](docs/maintainers/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/maintainers/release-verification.md) for release evidence and failure discipline.
 
