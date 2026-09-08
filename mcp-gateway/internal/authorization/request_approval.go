@@ -40,7 +40,7 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 	if transition == nil {
 		return GrantRequestApprovalResult{}, ErrInvalidInput
 	}
-	releaseGate, err := repository.authority.tryAcquire(ctx)
+	releaseGate, err := repository.authority.acquire(ctx)
 	if err != nil {
 		if errors.Is(err, ErrResourceLimit) {
 			return GrantRequestApprovalResult{}, ErrApprovalUnavailable

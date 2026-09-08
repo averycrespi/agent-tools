@@ -175,6 +175,8 @@ Deletion has no ETag or idempotency surface. An uncertain create or delete requi
 
 ## Interpret MCP call rejections
 
+Before MCP dispatch, Gateway admits up to 32 outstanding authority operations across all agents, with one executing and up to 31 waiting for at most one second. Authentication capacity exhaustion or gate-wait expiry returns HTTP 429 (`resource_limit`), not HTTP 401. Reduce concurrent requests if these persist; rotating a valid credential does not resolve overload. These limits are compiled, not configurable. See [authority admission](../design/invocation-and-ingress.md#agent-authentication-and-leases) for ordering and cancellation behavior.
+
 Modern and legacy `tools/call` rejections retain JSON-RPC `-32000` and `data.code: "call_rejected"`. Read the closed `data.reason` rather than parsing message text:
 
 - `invalid_params`: check the `tools/call` request shape.

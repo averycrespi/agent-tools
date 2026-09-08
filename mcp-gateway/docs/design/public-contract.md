@@ -155,6 +155,7 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `http_control_auth`                           |         32 |
 | `http_admin`                                  |         16 |
 | `http_health`                                 |          8 |
+| `authority_work`                              |         32 |
 | `mcp_work`                                    |         32 |
 | `mcp_streams`                                 |         32 |
 | `admin_sessions`                              |        128 |
@@ -263,7 +264,7 @@ Credential, backup, server/catalog, and principal/grant collection pages default
 
 #### Deadlines and defaults
 
-Fixed service deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours. Server coordination adds a five-minute OAuth flow lifetime; connect/OAuth/initialization deadlines of 10/15/30 seconds; catalog page/traversal deadlines of 15/60 seconds; a maximum downstream call deadline of 60 seconds; stdio graceful/forced stop windows of 3/2 seconds; a five-minute catalog poll interval with at most 30 seconds jitter; and reconciliation retry delays of 1, 2, 4, 8, 16, 32, then 60 seconds.
+Fixed service deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, authority gate wait one second (within 32 outstanding authority operations, shortened by caller cancellation/deadline), SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours. Server coordination adds a five-minute OAuth flow lifetime; connect/OAuth/initialization deadlines of 10/15/30 seconds; catalog page/traversal deadlines of 15/60 seconds; a maximum downstream call deadline of 60 seconds; stdio graceful/forced stop windows of 3/2 seconds; a five-minute catalog poll interval with at most 30 seconds jitter; and reconciliation retry delays of 1, 2, 4, 8, 16, 32, then 60 seconds.
 
 ### Resource representations and mechanics
 

@@ -170,6 +170,9 @@ func (handler *Handler) Authenticate(ctx context.Context, request *http.Request,
 		if lease != nil {
 			lease.Release()
 		}
+		if errors.Is(err, authorization.ErrResourceLimit) {
+			return ctx, httpboundary.Error{Code: contract.ProblemResourceLimit}
+		}
 		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
 	}
 	binding := lease.Binding()

@@ -34,6 +34,42 @@ func newModernDiscoveryBoundary(t *testing.T, list ToolsListService) (*Handler, 
 	return handler, newLegacyBoundary(t, handler), authority
 }
 
+func TestModernDiscoveryAccepts32ConcurrentSearches(t *testing.T) {
+	list := listToolsFunc(func(ctx context.Context, _ *authorization.Lease, _ string, encode ToolsListEncoder) ([]byte, error) {
+		return encode(ctx, []*discovery.Tool{{Name: "server.tool", InputSchema: json.RawMessage(`{"type":"object"}`)}}, "")
+	})
+	handler, boundary, authority := newModernDiscoveryBoundary(t, list)
+	ready := make(chan struct{}, 32)
+	start := make(chan struct{})
+	handler.authenticator = authenticatorFunc(func(ctx context.Context, bearer string) (*authorization.Lease, error) {
+		ready <- struct{}{}
+		<-start
+		return authority.Authenticate(ctx, bearer)
+	})
+	responses := make(chan *httptest.ResponseRecorder, 32)
+	for range 32 {
+		go func() {
+			request := modernRequest(http.MethodPost, modernList)
+			request.Header.Set("Mcp-Protocol-Version", contract.ModernProtocolVersion)
+			response := httptest.NewRecorder()
+			boundary.ServeHTTP(response, request)
+			responses <- response
+		}()
+	}
+	for range 32 {
+		<-ready
+	}
+	close(start)
+	for range 32 {
+		response := <-responses
+		assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		assert.JSONEq(t, `{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"server.tool","inputSchema":{"type":"object"}}]}}`, response.Body.String())
+	}
+	for _, lease := range authority.captured() {
+		assert.True(t, leaseDone(lease))
+	}
+}
+
 func TestModernDiscoveryAdvertisesToolsAndWritesPagerBytes(t *testing.T) {
 	t.Parallel()
 	var gotCursor string

@@ -88,6 +88,37 @@ func TestAgentAuthenticationPrecedesMCPBodyAndHandlerWork(t *testing.T) {
 	require.True(t, leaseDone(leases[0]), "request lease survived handler completion")
 }
 
+func TestAgentAuthenticationContentionReturns429WithoutReadingBody(t *testing.T) {
+	authority := newTestAuthority(t)
+	authority.add(t, "valid", contract.VisibilityRequestable)
+	ingress := New(Options{Authenticator: authority})
+	boundary, err := httpboundary.New(httpboundary.Options{
+		Authority: contract.DefaultAuthority, Authenticate: ingress.Authenticate,
+		Next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
+	})
+	require.NoError(t, err)
+	requestStatus := func() int {
+		body := &readSpy{}
+		request := httptest.NewRequest(http.MethodPost, "/mcp", body)
+		request.Host = contract.DefaultAuthority
+		request.Header.Set("Authorization", "Bearer "+contract.AgentBearerPrefix+"valid")
+		response := httptest.NewRecorder()
+		boundary.ServeHTTP(response, request)
+		require.Zero(t, body.reads.Load())
+		require.Empty(t, response.Header().Get("WWW-Authenticate"))
+		return response.Code
+	}
+	require.Equal(t, http.StatusOK, requestStatus())
+	lease, err := authority.Authenticate(t.Context(), contract.AgentBearerPrefix+"valid")
+	require.NoError(t, err)
+	defer lease.Release()
+	require.NoError(t, authority.repository.WithAdmission(t.Context(), lease, func(*authorization.Admission) error {
+		require.Equal(t, http.StatusTooManyRequests, requestStatus())
+		return nil
+	}))
+	require.Equal(t, http.StatusOK, requestStatus(), "contention must not invalidate the credential")
+}
+
 func TestAgentAuthenticationRejectsInvalidLeaseAndProductionDeniesAll(t *testing.T) {
 	authority := newTestAuthority(t)
 	authority.add(t, "valid", contract.VisibilityRequestable)

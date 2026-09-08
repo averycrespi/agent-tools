@@ -119,7 +119,7 @@ docs/                       Role-oriented operator, maintainer, and design docum
 - `internal/composition` is the sole production constructor and lifecycle owner for the authorization, discovery, invocation, runtime, catalog, OAuth, and keyring graph. Root consumes narrow complete bundles; it must not create a second authenticator, repository, route consumer, or active-capability path.
 - Preserve package SQL ownership. Server SQL stays in `internal/servers`, catalog SQL in `internal/catalog`, online principal/grant SQL in `internal/authorization`, request SQL in `internal/grantrequests`, invocation SQL in `internal/invocation`, control-plane audit SQL in `internal/audit`, and migration DDL in `internal/storage`. Cross-owner mutations use existing supplied-transaction seams rather than nested mutation admission.
 - Keep storage/keyring/network/process work outside unrelated locks and admissions. Mutations that may expose authority must arm durable intent before uncertain external work and fail closed; never add online repair or automatic replay.
-- Limits are compiled, nonqueueing, and acquired in the documented order. Preserve actual-owner occupancy rather than placeholders or summed duplicates.
+- Limits are compiled and acquired in the documented order. Authority admission alone permits bounded waiting: 32 outstanding operations, one exclusive executor, and a one-second gate wait shortened by caller cancellation/deadline. Other admissions remain nonqueueing. Never wait for authority while holding a storage transaction or mutation slot. Preserve actual-owner occupancy rather than placeholders or summed duplicates.
 
 ### Runtime, transport, and cleanup
 

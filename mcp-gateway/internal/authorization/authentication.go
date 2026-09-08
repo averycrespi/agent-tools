@@ -28,7 +28,7 @@ type authenticationCandidate struct {
 }
 
 func (repository *Repository) Authenticate(ctx context.Context, bearer string) (*Lease, error) {
-	releaseGate, err := repository.authority.tryAcquire(ctx)
+	releaseGate, err := repository.authority.acquire(ctx)
 	if err != nil {
 		return nil, err
 	}

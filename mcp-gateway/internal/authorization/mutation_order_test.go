@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -62,6 +63,47 @@ func TestEveryAuthorityMutationOrdersBothWaysWithAuthentication(t *testing.T) {
 	require.NoError(t, repository.Drain(context.Background()))
 	_, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "After drain", Visibility: contract.VisibilityRequestable})
 	assert.ErrorIs(t, err, ErrShuttingDown)
+}
+
+func TestQueuedAuthenticationObservesCredentialRevocation(t *testing.T) {
+	armed := false
+	committed := make(chan struct{})
+	releaseCommit := make(chan struct{})
+	repository, _ := newRepository(t, func(point storage.FaultPoint) error {
+		if armed && point == storage.FaultAfterCommit {
+			close(committed)
+			<-releaseCommit
+		}
+		return nil
+	})
+	principal := mustCreatePrincipal(t, repository)
+	credential, err := repository.IssueCredential(t.Context(), principal.ID, principal.Revision)
+	require.NoError(t, err)
+	lease := mustAuthenticateLease(t, repository, credential.Bearer)
+	armed = true
+	mutationResult := make(chan error, 1)
+	go func() {
+		_, err := repository.RevokeCredential(t.Context(), principal.ID, credential.Principal.Revision)
+		mutationResult <- err
+	}()
+	<-committed
+	authResult := make(chan leaseResult, 1)
+	go func() {
+		lease, err := repository.Authenticate(t.Context(), credential.Bearer)
+		authResult <- leaseResult{lease: lease, err: err}
+	}()
+	assert.Eventually(t, func() bool {
+		repository.authority.mu.Lock()
+		defer repository.authority.mu.Unlock()
+		return repository.authority.work == 2
+	}, 500*time.Millisecond, time.Millisecond)
+	assert.Empty(t, authResult, "authentication must wait for post-commit invalidation")
+	close(releaseCommit)
+	require.NoError(t, <-mutationResult)
+	result := <-authResult
+	require.ErrorIs(t, result.err, ErrAuthenticationRequired)
+	require.Nil(t, result.lease)
+	assertLeaseClosed(t, lease)
 }
 
 func TestPrincipalAndCredentialCommitsCancelOnlyAffectedLeases(t *testing.T) {
@@ -213,7 +255,7 @@ func TestUncertainGrantMutationDoesNotCloseCredentialChannel(t *testing.T) {
 	lease.Release()
 }
 
-func TestAuthorityGateAndStorageMutationAdmissionNeverWaitOnEachOther(t *testing.T) {
+func TestAuthorityGatePreservesNonblockingStorageMutationAdmission(t *testing.T) {
 	t.Run("storage first", func(t *testing.T) {
 		repository, store := newRepository(t, nil)
 		principal := mustCreatePrincipal(t, repository)

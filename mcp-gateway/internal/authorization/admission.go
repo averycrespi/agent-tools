@@ -32,7 +32,7 @@ func (repository *Repository) WithAdmission(ctx context.Context, lease *Lease, u
 	if lease == nil || lease.owner != repository.authority || use == nil {
 		return ErrInvalidInput
 	}
-	releaseGate, err := repository.authority.tryAcquire(ctx)
+	releaseGate, err := repository.authority.acquire(ctx)
 	if err != nil {
 		return err
 	}

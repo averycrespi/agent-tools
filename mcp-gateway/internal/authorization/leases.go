@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
 
@@ -82,38 +83,90 @@ type authorityRegistry struct {
 	gate     chan struct{}
 	draining atomic.Bool
 
-	mu     sync.Mutex
-	leases map[*Lease]struct{}
-	hooks  authorityHooks
+	mu       sync.Mutex
+	work     int64
+	idle     chan struct{}
+	stopping chan struct{}
+	leases   map[*Lease]struct{}
+	hooks    authorityHooks
 }
 
 func newAuthorityRegistry(store *storage.Store) *authorityRegistry {
-	return &authorityRegistry{store: store, gate: make(chan struct{}, 1), leases: make(map[*Lease]struct{})}
+	idle := make(chan struct{})
+	close(idle)
+	return &authorityRegistry{
+		store: store, gate: make(chan struct{}, 1), idle: idle,
+		stopping: make(chan struct{}), leases: make(map[*Lease]struct{}),
+	}
 }
 
-func (registry *authorityRegistry) tryAcquire(ctx context.Context) (func(), error) {
+func (registry *authorityRegistry) acquire(ctx context.Context) (func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if registry.draining.Load() {
-		return nil, ErrShuttingDown
+	if err := registry.reserveWork(); err != nil {
+		return nil, err
 	}
+	wait, cancel := context.WithTimeout(ctx, contract.AuthorityWaitDeadline)
+	defer cancel()
+	release := registry.releaseWork
 	select {
 	case registry.gate <- struct{}{}:
-		if registry.hooks.afterGateAcquire != nil {
-			registry.hooks.afterGateAcquire()
-		}
-		if err := ctx.Err(); err != nil {
+		release = func() {
 			<-registry.gate
-			return nil, err
+			registry.releaseWork()
 		}
-		if registry.draining.Load() {
-			<-registry.gate
-			return nil, ErrShuttingDown
-		}
-		return func() { <-registry.gate }, nil
-	default:
+	case <-wait.Done():
+	case <-registry.stopping:
+	}
+	if err := ctx.Err(); err != nil {
+		release()
+		return nil, err
+	}
+	if registry.draining.Load() {
+		release()
+		return nil, ErrShuttingDown
+	}
+	if wait.Err() != nil {
+		release()
 		return nil, ErrResourceLimit
+	}
+	if registry.hooks.afterGateAcquire != nil {
+		registry.hooks.afterGateAcquire()
+	}
+	if err := ctx.Err(); err != nil {
+		release()
+		return nil, err
+	}
+	if registry.draining.Load() {
+		release()
+		return nil, ErrShuttingDown
+	}
+	return release, nil
+}
+
+func (registry *authorityRegistry) reserveWork() error {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if registry.draining.Load() {
+		return ErrShuttingDown
+	}
+	if registry.work >= mustLimit("authority_work") {
+		return ErrResourceLimit
+	}
+	if registry.work == 0 {
+		registry.idle = make(chan struct{})
+	}
+	registry.work++
+	return nil
+}
+
+func (registry *authorityRegistry) releaseWork() {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	registry.work--
+	if registry.work == 0 {
+		close(registry.idle)
 	}
 }
 
@@ -179,7 +232,7 @@ func (repository *Repository) mutateCredentialCandidate(
 }
 
 func (repository *Repository) mutateAuthority(ctx context.Context, affectedPrincipalID string, mutate func() error) error {
-	releaseGate, err := repository.authority.tryAcquire(ctx)
+	releaseGate, err := repository.authority.acquire(ctx)
 	if err != nil {
 		return err
 	}
@@ -193,9 +246,13 @@ func (repository *Repository) mutateAuthority(ctx context.Context, affectedPrinc
 
 func (repository *Repository) BeginDrain() {
 	registry := repository.authority
+	registry.mu.Lock()
 	if !registry.draining.CompareAndSwap(false, true) {
+		registry.mu.Unlock()
 		return
 	}
+	close(registry.stopping)
+	registry.mu.Unlock()
 	if registry.hooks.afterDrainFence != nil {
 		registry.hooks.afterDrainFence()
 	}
@@ -208,9 +265,11 @@ func (repository *Repository) Drain(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	registry.mu.Lock()
+	idle := registry.idle
+	registry.mu.Unlock()
 	select {
-	case registry.gate <- struct{}{}:
-		defer func() { <-registry.gate }()
+	case <-idle:
 		return ctx.Err()
 	case <-ctx.Done():
 		return ctx.Err()

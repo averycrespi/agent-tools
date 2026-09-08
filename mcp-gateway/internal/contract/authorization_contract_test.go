@@ -98,6 +98,7 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 	require.Equal(t, expectedProblems, problems[s3ProblemStart:s3ProblemStart+len(expectedProblems)])
 
 	expectedLimits := []FixedLimit{
+		{Name: "authority_work", Maximum: 32},
 		{Name: "principals", Maximum: 128},
 		{Name: "grants", Maximum: 4096},
 		{Name: "constraint_atoms", Maximum: 16},
@@ -118,6 +119,7 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 	}
 	require.Equal(t, 50, S3ListPageDefault)
 	require.Equal(t, 5*time.Minute, AuthorizationCursorLifetime)
+	require.Equal(t, time.Second, AuthorityWaitDeadline)
 	require.Equal(t, []AgentAuthMode{AgentAuthDenyAll, AgentAuthPrincipalCredentials}, AgentAuthModes())
 	require.Equal(t, AgentBearerPrefix, "mgw_agent_")
 	require.Equal(t, []InvalidationKind{

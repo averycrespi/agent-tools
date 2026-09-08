@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -122,39 +124,97 @@ func TestRegistrationOrderedBeforeDrainReturnsThenCancelsLease(t *testing.T) {
 	result.lease.Release()
 }
 
-func TestAuthorityGateRejectsWithoutWaiters(t *testing.T) {
-	repository, bearer := issuedLeaseRepository(t)
-	gateAcquired := make(chan struct{})
-	releaseFirst := make(chan struct{})
-	repository.authority.hooks.afterGateAcquire = func() {
-		close(gateAcquired)
-		<-releaseFirst
-	}
-	firstResult := make(chan leaseResult, 1)
-	go func() {
-		lease, err := repository.Authenticate(context.Background(), bearer)
-		firstResult <- leaseResult{lease: lease, err: err}
-	}()
-	<-gateAcquired
+func TestAuthorityGateAccepts32OutstandingAndRejectsOverflow(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		registry := newAuthorityRegistry(nil)
+		releaseFirst, err := registry.acquire(t.Context())
+		require.NoError(t, err)
+		results := make(chan error, 31)
+		for range 31 {
+			go func() {
+				release, err := registry.acquire(t.Context())
+				if release != nil {
+					release()
+				}
+				results <- err
+			}()
+		}
+		synctest.Wait()
+		require.Equal(t, int64(32), registry.outstanding())
+		require.Empty(t, results, "waiters must not execute beside the holder")
+		_, err = registry.acquire(t.Context())
+		require.ErrorIs(t, err, ErrResourceLimit)
+		releaseFirst()
+		for range 31 {
+			require.NoError(t, <-results)
+		}
+		synctest.Wait()
+		require.Zero(t, registry.outstanding())
+		release, err := registry.acquire(t.Context())
+		require.NoError(t, err, "all burst and overflow occupancy must be released")
+		release()
+	})
+}
 
-	const rejected = 32
-	results := make(chan error, rejected)
-	for range rejected {
-		go func() {
-			_, err := repository.Authenticate(context.Background(), bearer)
-			results <- err
-		}()
+func TestAuthorityGateWaitCancellationDeadlineAndDrain(t *testing.T) {
+	for _, reason := range []string{"cancel", "deadline", "wait limit", "drain"} {
+		t.Run(reason, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				registry := newAuthorityRegistry(nil)
+				releaseFirst, err := registry.acquire(t.Context())
+				require.NoError(t, err)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				if reason == "deadline" {
+					var stop context.CancelFunc
+					ctx, stop = context.WithTimeout(ctx, 100*time.Millisecond)
+					defer stop()
+				}
+				result := make(chan error, 1)
+				go func() {
+					release, err := registry.acquire(ctx)
+					if release != nil {
+						release()
+					}
+					result <- err
+				}()
+				synctest.Wait()
+				require.Equal(t, int64(2), registry.outstanding())
+				var expected error
+				switch reason {
+				case "cancel":
+					cancel()
+					expected = context.Canceled
+				case "deadline":
+					time.Sleep(100 * time.Millisecond)
+					expected = context.DeadlineExceeded
+				case "wait limit":
+					time.Sleep(time.Second - time.Nanosecond)
+					synctest.Wait()
+					require.Empty(t, result)
+					time.Sleep(time.Nanosecond)
+					expected = ErrResourceLimit
+				case "drain":
+					(&Repository{authority: registry}).BeginDrain()
+					expected = ErrShuttingDown
+				}
+				require.ErrorIs(t, <-result, expected)
+				synctest.Wait()
+				require.Equal(t, int64(1), registry.outstanding(), "waiter must leave before holder exits")
+				releaseFirst()
+				require.Zero(t, registry.outstanding())
+				if reason == "drain" {
+					require.NoError(t, (&Repository{authority: registry}).Drain(t.Context()))
+					_, err = registry.acquire(t.Context())
+					require.ErrorIs(t, err, ErrShuttingDown)
+				} else {
+					release, err := registry.acquire(t.Context())
+					require.NoError(t, err)
+					release()
+				}
+			})
+		})
 	}
-	for range rejected {
-		assert.ErrorIs(t, <-results, ErrResourceLimit)
-	}
-	assert.Equal(t, 0, repository.authority.count())
-	close(releaseFirst)
-	first := <-firstResult
-	require.NoError(t, first.err)
-	require.NotNil(t, first.lease)
-	first.lease.Release()
-	assert.Equal(t, 0, repository.authority.count())
 }
 
 func TestAuthenticateCancellationAfterReadRegistersNoLease(t *testing.T) {
@@ -308,7 +368,6 @@ func TestDrainCleansAllPendingLeasesWithoutInternalGoroutines(t *testing.T) {
 	source, err := os.ReadFile("leases.go")
 	require.NoError(t, err)
 	assert.NotContains(t, string(source), "go func")
-	assert.NotContains(t, string(source), "time.")
 }
 
 func TestLeaseCurrentFailsClosedOnStorageLatch(t *testing.T) {
@@ -348,6 +407,12 @@ func TestLeaseBindingIsSafeAndImmutable(t *testing.T) {
 type leaseResult struct {
 	lease *Lease
 	err   error
+}
+
+func (registry *authorityRegistry) outstanding() int64 {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	return registry.work
 }
 
 func (registry *authorityRegistry) count() int {
