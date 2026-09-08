@@ -430,8 +430,8 @@ function App() {
   const destination = resolved.location.destination;
   const isServerDetail =
     destination === "servers" &&
-    resolved.canonicalFragment !== "#/servers" &&
-    resolved.canonicalFragment !== "#/servers/new";
+    resolved.location.segments[1] !== undefined &&
+    resolved.location.segments[1] !== "new";
   const isPrincipalDetail =
     destination === "principals" &&
     resolved.location.segments[1] !== undefined &&
@@ -448,7 +448,7 @@ function App() {
   const isResourceDetail =
     isPrincipalDetail || isInvocationDetail || isGrantDetail || isRequestDetail;
   const destinationLabel =
-    destination === "servers" && resolved.canonicalFragment !== "#/servers"
+    destination === "servers" && resolved.location.segments[1] !== undefined
       ? resolved.canonicalFragment === "#/servers/new"
         ? "Create server"
         : "Server details"
@@ -727,6 +727,8 @@ function App() {
             />
           ) : destination === "servers" || destination === "catalog" ? (
             <ServerReads
+              session={sessionClient}
+              resolved={resolved}
               controller={serverReadsController}
               view={view}
               destination={destination}

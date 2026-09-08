@@ -142,6 +142,8 @@ Failed flows retain a bounded, secret-free diagnostic with the flow ID as its co
 
 ## Inspect durable and active catalogs
 
+In the browser, Servers, a server's Tools tab, and Catalog use Previous/Next to replace one page of at most 50 rows. Filters and column sorting search the entire collection, not just the displayed rows. Filters and sorting survive browser Back/Forward; changing them starts on page one. Shared links and reloads also start at the first matching page—page cursors are not bookmarks. A changed traversal restarts once with a notice; use Refresh after an error. Empty results keep their filters and Reset control. Counts describe the displayed page only, not a collection total.
+
 Durable descriptor history belongs to one server:
 
 ```bash
@@ -151,7 +153,7 @@ mcp-gateway server descriptor get SERVER_ID TOOL_ID
 
 A durable descriptor is evidence, not a callability claim. It preserves normalized identity and revision history even when a server is disabled, unavailable, disconnected, or deleted.
 
-API clients can request collection-wide descriptor matching with `GET /api/v1/servers/{id}/descriptors?tool=echo&status=available&sort=tool&direction=ascending&limit=50`. Table-query pages contain at most 50 full descriptors and no totals; follow `next_cursor` only on explicit navigation, keeping the same query. Do not combine these options with legacy `retired` or `representation=summary`. A `409 stale_cursor` requires discarding the traversal and starting again without a cursor. Here `available` means non-retired durable evidence, not current callability. Existing CLI list behavior is unchanged.
+API clients can request collection-wide descriptor matching with the opt-in table queries described in the [public contract](../design/public-contract.md#server-and-catalog-vocabulary). Table-query pages contain at most 50 full descriptors and no totals; follow `next_cursor` only on explicit navigation, keeping the same query. Do not combine these options with legacy `retired` or `representation=summary`. A `409 stale_cursor` requires discarding the traversal and starting again without a cursor. Here `available` means non-retired durable evidence, not current callability. Existing CLI list behavior is unchanged.
 
 The active catalog reports currently published tools and page-level generation posture:
 

@@ -52,13 +52,14 @@ func TestBrowserServerCatalogReads(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
-		Event             string `json:"event"`
-		ChromiumVersion   string `json:"chromium_version"`
-		PlaywrightVersion string `json:"playwright_version"`
-		Requests          int    `json:"requests"`
-		ServerReads       int    `json:"server_reads"`
-		DescriptorReads   int    `json:"descriptor_reads"`
-		CatalogReads      int    `json:"catalog_reads"`
+		Event             string   `json:"event"`
+		ChromiumVersion   string   `json:"chromium_version"`
+		PlaywrightVersion string   `json:"playwright_version"`
+		Requests          int      `json:"requests"`
+		ServerReads       int      `json:"server_reads"`
+		DescriptorReads   int      `json:"descriptor_reads"`
+		CatalogReads      int      `json:"catalog_reads"`
+		Screenshots       []string `json:"screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "server_catalog_reads_complete", event.Event)
@@ -68,6 +69,8 @@ func TestBrowserServerCatalogReads(t *testing.T) {
 	assert.GreaterOrEqual(t, event.ServerReads, 4)
 	assert.GreaterOrEqual(t, event.DescriptorReads, 4)
 	assert.GreaterOrEqual(t, event.CatalogReads, 3)
+	assert.Len(t, event.Screenshots, 42)
+	t.Logf("catalog pagination screenshots: %v", event.Screenshots)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "T23 must own one Gateway lifecycle")

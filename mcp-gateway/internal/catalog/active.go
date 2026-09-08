@@ -58,6 +58,8 @@ func durableOnlyFailure(cause PublicationFailureCause, err error) error {
 }
 
 type ActiveCursor struct {
+	Query      string `json:"query,omitempty"`
+	Position   int    `json:"position,omitempty"`
 	Generation string `json:"generation"`
 	Upper      int64  `json:"upper"`
 	After      int64  `json:"after"`
@@ -576,7 +578,7 @@ func (registry *ActiveRegistry) List(cursor *ActiveCursor, limit int) (ActivePag
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	generation := registry.generationLocked()
-	if cursor != nil && cursor.Generation != generation {
+	if cursor != nil && (cursor.Generation != generation || cursor.Query != "" || cursor.Position != 0) {
 		return ActivePage{}, servers.ErrStaleCursor
 	}
 	items := make([]DescriptorRecord, 0, registry.activeToolCountLocked())

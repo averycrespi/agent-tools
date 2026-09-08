@@ -244,7 +244,16 @@ func (handler *Handler) listServers(writer http.ResponseWriter, request *http.Re
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	limit, cursor, problem := parseServerQuery(request.URL.Query())
+	query, legacy, enabled, problem := parseInventoryQuery(request.URL.RawQuery)
+	if problem != "" {
+		writeProblem(writer, problem)
+		return
+	}
+	if enabled {
+		handler.queryServers(writer, request, query, legacy)
+		return
+	}
+	limit, cursor, problem := parseServerQuery(legacy)
 	if problem != "" {
 		writeProblem(writer, problem)
 		return

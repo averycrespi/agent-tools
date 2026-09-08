@@ -20,11 +20,16 @@ type fakeActiveCatalog struct {
 	err    error
 	cursor *catalog.ActiveCursor
 	limit  int
+	query  catalog.ToolQuery
 }
 
 func (service *fakeActiveCatalog) Status(string) catalog.ActiveStatus { return service.status }
 func (service *fakeActiveCatalog) List(cursor *catalog.ActiveCursor, limit int) (catalog.ActivePage, error) {
 	service.cursor, service.limit = cursor, limit
+	return service.page, service.err
+}
+func (service *fakeActiveCatalog) Query(query catalog.ToolQuery, cursor *catalog.ActiveCursor, limit int) (catalog.ActivePage, error) {
+	service.query, service.cursor, service.limit = query, cursor, limit
 	return service.page, service.err
 }
 func (service *fakeActiveCatalog) Occupancy() contract.LimitStatus {
@@ -51,6 +56,19 @@ func TestActiveCatalogResourceAndCursor(t *testing.T) {
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
 	require.NotNil(t, service.cursor)
 	assert.Equal(t, next.Generation, service.cursor.Generation)
+}
+
+func TestActiveCatalogTableQueryContract(t *testing.T) {
+	service := new(fakeActiveCatalog)
+	handler := newActiveCatalogTestHandler(t, service)
+	response := perform(handler, http.MethodGet, "/api/v1/catalog?tool=echo&server=Display&status=issue&sort=server&direction=descending", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	require.Equal(t, 200, response.Code, response.Body.String())
+	assert.Equal(t, catalog.ToolQuery{Tool: "echo", Server: "Display", Status: "issue", Sort: "server", Direction: "descending"}, service.query)
+	assert.Equal(t, 50, service.limit)
+	for _, query := range []string{"sort=server&limit=51", "server=", "status=retired", "sort=status", "sort=tool&limit=01", "tool=%FF", "sort=tool&cursor=", "server=a&server=b", "sort=tool&retired=include"} {
+		response := perform(handler, http.MethodGet, "/api/v1/catalog?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
+		assert.Equal(t, 400, response.Code, query)
+	}
 }
 
 func TestActiveCatalogRejectsInvalidQueriesAndStaleCursor(t *testing.T) {

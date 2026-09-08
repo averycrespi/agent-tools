@@ -157,3 +157,68 @@ func (repository *Repository) QueryDescriptors(ctx context.Context, serverID str
 	})
 	return page, mapStoreError(err)
 }
+
+func (registry *ActiveRegistry) Query(query ToolQuery, cursor *ActiveCursor, limit int) (ActivePage, error) {
+	if !query.Validate(true) || limit < 1 || limit > contract.S2ListPageDefault {
+		return ActivePage{}, servers.ErrInvalidInput
+	}
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	generation, binding := registry.generationLocked(), query.binding()
+	position, upper := 0, int64(0)
+	if cursor != nil {
+		if cursor.Generation != generation || cursor.Query != binding || cursor.Position < 1 || cursor.Upper < 0 || cursor.After != 0 || cursor.AfterID != "" {
+			return ActivePage{}, servers.ErrStaleCursor
+		}
+		position, upper = cursor.Position, cursor.Upper
+	}
+	page := ActivePage{Summary: registry.summaryLocked(), ServerDisplayNames: make(map[string]string), ServerStates: make(map[string]contract.ActiveCatalogState)}
+	candidates := make([]DescriptorRecord, 0)
+	toolFilter, serverFilter := toolRecognition(query.Tool), toolRecognition(query.Server)
+	for serverID, snapshot := range registry.servers {
+		if snapshot.State == contract.ActiveCatalogAbsent || snapshot.State == contract.ActiveCatalogUnavailable {
+			continue
+		}
+		page.ServerDisplayNames[serverID], page.ServerStates[serverID] = snapshot.ServerDisplayName, snapshot.State
+		status := "issue"
+		if snapshot.State == contract.ActiveCatalogCurrent {
+			status = "available"
+		}
+		for _, tool := range snapshot.Tools {
+			item := tool.Record
+			if cursor == nil {
+				upper = max(upper, item.InsertionSequence)
+			}
+			if cursor != nil && item.InsertionSequence > upper || query.Status != "" && query.Status != status || !strings.Contains(toolRecognition(snapshot.ServerDisplayName), serverFilter) || !strings.Contains(toolRecognition(item.Resource.ExternalName), toolFilter) {
+				continue
+			}
+			candidates = append(candidates, item)
+		}
+	}
+	slices.SortFunc(candidates, func(left, right DescriptorRecord) int {
+		leftKey, rightKey := left.Resource.ExternalName, right.Resource.ExternalName
+		if query.Sort == "server" {
+			leftKey, rightKey = page.ServerDisplayNames[left.Resource.ServerID], page.ServerDisplayNames[right.Resource.ServerID]
+		}
+		order := strings.Compare(toolRecognition(leftKey), toolRecognition(rightKey))
+		if order == 0 {
+			return strings.Compare(left.Resource.ID, right.Resource.ID)
+		}
+		if query.Direction == "descending" {
+			return -order
+		}
+		return order
+	})
+	if position > len(candidates) {
+		return ActivePage{}, servers.ErrStaleCursor
+	}
+	end := min(position+limit, len(candidates))
+	page.Items = make([]DescriptorRecord, 0, end-position)
+	for _, item := range candidates[position:end] {
+		page.Items = append(page.Items, cloneDescriptorRecord(item))
+	}
+	if end < len(candidates) {
+		page.Next = &ActiveCursor{Generation: generation, Upper: upper, Query: binding, Position: end}
+	}
+	return page, nil
+}
