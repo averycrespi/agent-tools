@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Render the absolute path placeholders using docs/operators/launchd.md.
+<!-- Run ./scripts/install-launchd-agent.sh from mcp-gateway/ to install this
+     template with account-specific defaults; no manual editing is needed.
+     See docs/operators/launchd.md for initialization, loading, and management.
      launchd does not expand shell variables or source shell profiles. -->
 <plist version="1.0">
 <dict>

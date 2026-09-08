@@ -12,86 +12,90 @@ Gateway's startup keyring capability probe is secret-free and does not request c
 
 Never put administrator, agent, server, or OAuth secrets in the plist, command arguments, environment variables, URLs, or logs. The service uses native keyring storage for server credentials; the online CLI reads an owner-only administrator bearer file. No bearer value needs to be printed, copied into a shell variable, or passed to `curl` for this procedure. Follow [administrator authentication](administration.md#administrator-authentication) and [upstream server configuration](upstream-servers.md) for credential workflows.
 
-## Install and select paths
+## Quick start
 
-Prerequisites: the [Gateway build requirements](../../README.md#installation), Python 3 for the XML-safe renderer below, and macOS `launchctl` and `plutil`. Commands use one shell session. Replace `GATEWAY_SOURCE` with the absolute path to this repository's `mcp-gateway` directory:
+Prerequisites: the [Gateway build requirements](../../README.md#installation) and the macOS tools `dscl`, `plutil`, and `launchctl`. No Python or manual plist editing is needed. Run from this repository's `mcp-gateway/` directory in one Terminal session as the intended logged-in user, without `sudo`.
 
-```bash
-GATEWAY_SOURCE='/absolute/path/to/agent-tools/mcp-gateway'
-make -C "$GATEWAY_SOURCE" install
-GATEWAY_BIN="$(go env GOPATH)/bin/mcp-gateway"
-ACCOUNT_HOME="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
-DATA_DIR="$ACCOUNT_HOME/.local/share/mcp-gateway"
-LOG_DIR="$ACCOUNT_HOME/Library/Logs/mcp-gateway"
-LABEL='dev.agent-tools.mcp-gateway'
-DOMAIN="gui/$(id -u)"
-SERVICE="$DOMAIN/$LABEL"
-PLIST="$ACCOUNT_HOME/Library/LaunchAgents/$LABEL.plist"
-LISTEN='127.0.0.1:8210'
-ADDRESS="http://$LISTEN"
-
-test -x "$GATEWAY_BIN" &&
-  umask 077 &&
-  mkdir -p "$ACCOUNT_HOME/Library/LaunchAgents" "$LOG_DIR"
-```
-
-Stop on any error before proceeding. Verify `GATEWAY_BIN` names the installed native macOS executable, not a shell shim or an `e2e`-provider build. `make install` uses `$(go env GOPATH)/bin`; adjust the absolute path if installing by another method. Keep logs in a user-owned private directory (mode `0700`) and files private (mode `0600`); inspect existing directories before changing permissions.
-
-**Existing installation:** set `DATA_DIR` to its actual absolute root and skip initialization entirely. If it was created with shell `XDG_DATA_HOME`, select that existing root here; do not silently create a second installation at the example default. Stop any existing foreground or supervised Gateway owning that root or listen address before loading this agent. Do not overwrite an existing plist or take over an unrelated service label.
-
-**New installation only:** after confirming this is a fresh, unused root, run:
+**Existing installation:** skip initialization. Stop any existing foreground or supervised Gateway owning the data root or port before installing a replacement binary or loading the agent. For an already installed agent, follow [management](#manage) instead; the installer refuses to overwrite its plist. If the existing data root or executable differs from the defaults below, use [custom paths](#custom-paths).
 
 ```bash
-if [ -e "$DATA_DIR" ] || [ -L "$DATA_DIR" ]; then
-  printf '%s\n' 'Path already exists; inspect it and do not reinitialize.' >&2
-else
-  "$GATEWAY_BIN" initialize --data-dir "$DATA_DIR"
-fi
+make install
 ```
 
-Initialization creates owner-only state and the new `<data-dir>/admin-bearer` file; it never prints the bearer or overwrites an existing secret output. If initialization fails or is interrupted, stop and use [administration](administration.md#installation-root) and [recovery](backup-and-recovery.md), not repeated initialization or deletion of existing state.
-
-The same explicit `DATA_DIR` is used for initialization, the rendered service argv, and all verification commands. Thus differences between shell and launchd XDG settings cannot select another root. In a new terminal, restore these exact selections before running management commands. Gateway itself resolves defaults from the operating-system account home, not the `HOME` environment variable; see [installation root precedence](administration.md#installation-root).
-
-## Render, validate, and load
-
-The template runs the executable directly, with each argument as its own array element. It has no shell wrapper. `~`, `$HOME`, `$PATH`, command substitutions, and shell quoting inside plist strings are literal, not expansions. The renderer substitutes complete absolute paths and XML-escapes them, including spaces and ampersands; no username-based `sed` replacement is needed.
+**New installation only:** after confirming the default root is fresh and unused:
 
 ```bash
-python3 - "$GATEWAY_SOURCE/examples/launchd/mcp-gateway.plist" \
-  "$PLIST" "$GATEWAY_BIN" "$DATA_DIR" "$LOG_DIR" "$LABEL" "$LISTEN" <<'PY'
-import os
-import plistlib
-import sys
-
-source, target, binary, data, logs, label, listen = sys.argv[1:]
-for path in (source, target, binary, data, logs):
-    if not os.path.isabs(path):
-        raise SystemExit("All selected paths must be absolute")
-with open(source, "rb") as stream:
-    job = plistlib.load(stream)
-job["Label"] = label
-job["ProgramArguments"] = [binary, "serve", "--data-dir", data, "--listen", listen]
-job["StandardOutPath"] = os.path.join(logs, "stdout.log")
-job["StandardErrorPath"] = os.path.join(logs, "stderr.log")
-with open(target, "xb") as stream:
-    plistlib.dump(job, stream, sort_keys=False)
-PY
+"$(go env GOPATH)/bin/mcp-gateway" initialize
 ```
 
-The renderer refuses to overwrite an existing plist. For an existing agent, use the [plist-change procedure](#manage) instead. After successful rendering:
+Stop on any error. Initialization creates owner-only state and `<data-dir>/admin-bearer` without printing the bearer. If it fails or is interrupted, use [administration](administration.md#installation-root) and [recovery](backup-and-recovery.md), not repeated initialization or deletion of existing state.
+
+Install the plist and load it:
 
 ```bash
-chmod 600 "$PLIST" &&
-  plutil -lint "$PLIST" &&
-  launchctl bootstrap "$DOMAIN" "$PLIST"
+./scripts/install-launchd-agent.sh &&
+  launchctl bootstrap "gui/$(id -u)" \
+    "$HOME/Library/LaunchAgents/dev.agent-tools.mcp-gateway.plist"
+
+"$(go env GOPATH)/bin/mcp-gateway" status
 ```
+
+The short commands assume your normal account `HOME` and unchanged `XDG_DATA_HOME`. The installer uses the **OS-account home**, not the `HOME` environment variable. It prints exact load and authenticated verification commands; use those if your shell overrides `HOME` or if you selected custom paths. A successful bootstrap alone is not a readiness check; continue with [verification](#verify).
+
+### Defaults and installer behavior
+
+| Setting        | Default                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| Executable     | `$(go env GOPATH)/bin/mcp-gateway`, matching `make install`                                    |
+| Data directory | Absolute `$XDG_DATA_HOME/mcp-gateway`, otherwise OS-account home + `/.local/share/mcp-gateway` |
+| Listener       | `127.0.0.1:8210`                                                                               |
+| Label          | `dev.agent-tools.mcp-gateway`                                                                  |
+| Plist          | OS-account home + `/Library/LaunchAgents/dev.agent-tools.mcp-gateway.plist`                    |
+| Logs           | OS-account home + `/Library/Logs/mcp-gateway/{stdout,stderr}.log`                              |
+
+The [installer](../../scripts/install-launchd-agent.sh) resolves the [template](../../examples/launchd/mcp-gateway.plist) relative to itself, uses native `plutil` to safely insert literal paths (including spaces and XML characters), validates a staged plist, and installs it with mode `0600`. It creates a private log directory (`0700`) and log files (`0600`), refuses unsafe existing permissions or symlinks rather than changing them, and never overwrites an existing plist. Inspect conflicting paths before changing permissions. Run `./scripts/install-launchd-agent.sh --help` for its options.
+
+It does **not** initialize or inspect private Gateway state, access credentials, start/stop services, or run the selected Gateway binary. Verify that binary is the intended native macOS executable, not a shell shim or an `e2e`-provider build. On failure, no service is loaded; newly created log directories/files may remain. Fix the reported cause rather than deleting existing state.
+
+The selected data root is written explicitly into the service argv, so launchd does not depend on your shell's XDG settings. A relative `XDG_DATA_HOME` is rejected unless `--data-dir` overrides it, matching [installation root precedence](administration.md#installation-root). The template runs the executable directly with separate argv elements and no shell wrapper; launchd does not expand `~`, `$HOME`, or shell expressions inside plist strings.
+
+### Custom paths
+
+For an existing installation or a binary installed another way:
+
+```bash
+./scripts/install-launchd-agent.sh \
+  --binary /absolute/path/to/mcp-gateway \
+  --data-dir /absolute/path/to/existing-data
+```
+
+Omitting either flag uses its default. Both flags require absolute paths. Use the installer's printed commands to load and verify these selections; do not initialize another root. Multiple GOPATH entries require an explicit `--binary`. Custom listeners, labels, and multiple instances remain an advanced [plist-change procedure](#plist-changes), not additional installer options.
+
+## Service behavior
 
 `RunAtLoad` starts the job on loading; no immediate forced kickstart is needed. `KeepAlive` restarts the process after exit, including clean exit. It is not a health check: a hung or unready process can remain running. A readiness failure is a reason to investigate, not an automatic restart or mutation-retry instruction.
 
 The minimal `PATH` is for Gateway's own system utilities, including native keyring support. launchd does not source `.zshrc`, `.bashrc`, or version-manager setup. Do not add secrets to compensate. Gateway-managed stdio servers receive a separate clean environment of declared non-secret values and runtime-resolved secret slots, not the LaunchAgent environment. Their absolute executables, literal arguments, working directories, and environment are configured through [upstream server configuration](upstream-servers.md).
 
 ## Verify
+
+For detailed verification and later management, recover the installed selections in each new Terminal session. These commands use the default label; adjust `LABEL` only if you deliberately changed it:
+
+```bash
+ACCOUNT_HOME="$(dscl -plist . -read "/Users/$(id -un)" NFSHomeDirectory |
+  plutil -extract dsAttrTypeStandard:NFSHomeDirectory.0 raw -o - -)"
+LABEL='dev.agent-tools.mcp-gateway'
+DOMAIN="gui/$(id -u)"
+SERVICE="$DOMAIN/$LABEL"
+PLIST="$ACCOUNT_HOME/Library/LaunchAgents/$LABEL.plist"
+GATEWAY_BIN="$(plutil -extract ProgramArguments.0 raw -o - "$PLIST")"
+DATA_DIR="$(plutil -extract ProgramArguments.3 raw -o - "$PLIST")"
+LISTEN="$(plutil -extract ProgramArguments.5 raw -o - "$PLIST")"
+LOG_DIR="$(dirname "$(plutil -extract StandardOutPath raw -o - "$PLIST")")"
+ADDRESS="http://$LISTEN"
+```
+
+Stop if any selection cannot be read. Then:
 
 ```bash
 launchctl print "$SERVICE"
@@ -121,10 +125,10 @@ launchctl bootout "$SERVICE"
 
 bootout requests termination and removes the job from the domain. Gateway handles the first `SIGTERM` by making readiness false and draining owned work within its ten-second shutdown bound. The plist sets `ExitTimeOut` to 30 seconds so launchd's deadline leaves room for that drain. A second signal or forced termination can interrupt cleanup. Confirm the job is absent with `launchctl print "$SERVICE"` (expected service-not-found), inspect stderr, and confirm its old process has exited before offline maintenance or replacement. If removal fails or shutdown remains uncertain, investigate rather than sending repeated signals, deleting locks, or assuming the data directory is free.
 
-For a binary upgrade, first bootout and confirm stop, then install the replacement at the same absolute executable path and reload:
+For a binary upgrade, first bootout and confirm stop, then install the replacement at the same absolute executable path and reload. Run the following from this repository's `mcp-gateway/` directory; `make install` targets `$(go env GOPATH)/bin`, so use your original installation method instead for a custom binary path:
 
 ```bash
-make -C "$GATEWAY_SOURCE" install &&
+make install &&
   plutil -lint "$PLIST" &&
   launchctl bootstrap "$DOMAIN" "$PLIST"
 ```
