@@ -488,30 +488,6 @@ function Conditions({
   }
 }
 
-function PolicyWarnings({ policy }: { policy: Policy }) {
-  if (
-    policy.durationSeconds !== null &&
-    policy.constraint !== null &&
-    policy.scope !== "server"
-  )
-    return null;
-  return (
-    <StateNotice state="warning" title="Access considerations">
-      <ul>
-        {policy.durationSeconds === null && (
-          <li>Access does not expire automatically.</li>
-        )}
-        {policy.constraint === null && (
-          <li>This grant adds no restrictions on argument values.</li>
-        )}
-        {policy.scope === "server" && (
-          <li>Access includes tools added to this server later.</li>
-        )}
-      </ul>
-    </StateNotice>
-  );
-}
-
 function AccessSummary({
   policy,
   source,
@@ -542,7 +518,6 @@ function AccessSummary({
           <dd>{definition}</dd>
         </div>
       </dl>
-      <PolicyWarnings policy={policy} />
     </div>
   );
 }
@@ -1280,9 +1255,8 @@ function RequestActions({
         <section
           id="request-customization"
           class="form-section"
-          aria-labelledby="request-approval-title"
+          aria-label="Customize approval"
         >
-          <h3 id="request-approval-title">Customize approval</h3>
           <h3>Tools</h3>
           <FormField id="approval-scope" label="Approved scope">
             {(attributes) => (
@@ -1597,6 +1571,30 @@ function RequestActions({
                 Creates one allow grant and closes this request. It does not run
                 a tool.
               </p>
+              <dl class="fact-grid">
+                <div>
+                  <dt>Principal</dt>
+                  <dd>{principalName}</dd>
+                </div>
+                <div>
+                  <dt>Approved target</dt>
+                  <dd>{serverName}</dd>
+                </div>
+                <div>
+                  <dt>Tools</dt>
+                  <dd>
+                    {confirmationPolicy.scope === "tool"
+                      ? confirmationPolicy.target
+                      : "All tools"}
+                  </dd>
+                </div>
+                {description !== "" && (
+                  <div>
+                    <dt>Description</dt>
+                    <dd>{description}</dd>
+                  </div>
+                )}
+              </dl>
               <AccessSummary
                 policy={confirmationPolicy}
                 source={confirmationSource}
@@ -1610,28 +1608,6 @@ function RequestActions({
                 All conditions must match. Matching deny grants still take
                 precedence.
               </p>
-              <dl class="fact-grid">
-                <div>
-                  <dt>Description</dt>
-                  <dd>{description === "" ? "None" : description}</dd>
-                </div>
-                <div>
-                  <dt>Principal</dt>
-                  <dd>{principalName}</dd>
-                </div>
-                <div>
-                  <dt>Server</dt>
-                  <dd>{serverName}</dd>
-                </div>
-                <div>
-                  <dt>Literal tool name</dt>
-                  <dd>
-                    {confirmationPolicy.scope === "tool"
-                      ? confirmationPolicy.target
-                      : "All tools"}
-                  </dd>
-                </div>
-              </dl>
               <details>
                 <summary>Exact identifiers and serialized policy</summary>
                 <p>Principal ID: {detail.principalID}</p>
@@ -1817,7 +1793,7 @@ export function Requests({
             <h1 id="request-page-title" tabindex={-1}>
               {detail.state === "pending"
                 ? "Review request"
-                : "Request decision"}
+                : `${sentenceCase(detail.state)} request`}
             </h1>
           </div>
         </header>
@@ -2015,6 +1991,18 @@ export function Requests({
             <h2 id="approved-policy-title">
               {sentenceCase(detail.state)} decision
             </h2>
+            {detail.approvedGrantID !== null && (
+              <dl class="fact-grid">
+                <div>
+                  <dt>Created grant</dt>
+                  <dd>
+                    <a href={`#/grants/${detail.approvedGrantID}`}>
+                      {detail.approvedGrantID}
+                    </a>
+                  </dd>
+                </div>
+              </dl>
+            )}
             <StateNotice state="empty" title="Request adjudication is closed">
               <p>Terminal requests cannot be approved or rejected again.</p>
             </StateNotice>
@@ -2057,27 +2045,11 @@ export function Requests({
                 </details>
               </>
             )}
-            {detail.state === "approved" && (
-              <p>
-                Approval created one ordinary ALLOW but never executed or
-                resumed a call. An explicit fresh call is required after
-                approval.
-              </p>
-            )}
             {detail.approvedEvidence !== null && (
               <details>
                 <summary>Approved descriptor evidence</summary>
                 <Evidence evidence={detail.approvedEvidence} label="Approved" />
               </details>
-            )}
-            {detail.approvedGrantID !== null && (
-              <p>
-                <a href={`#/grants/${detail.approvedGrantID}`}>
-                  Grant {detail.approvedGrantID}
-                </a>
-                . This historical link does not prove the grant still exists, is
-                active, or currently authorizes calls.
-              </p>
             )}
             {detail.rejectionReason !== null && (
               <p>Closed rejection reason: {detail.rejectionReason}</p>
@@ -2160,10 +2132,24 @@ export function Requests({
           ]}
           columns={[
             {
+              key: "decision",
+              label: "Action",
+              render: (item) => (
+                <a class="button-link" href={`#/requests/${item.id}`}>
+                  {item.state === "pending" ? "Review" : "View decision"}
+                </a>
+              ),
+            },
+            {
               key: "request",
               label: "Request ID",
               render: (item) => (
-                <span class="technical-value request-id">{item.id}</span>
+                <a
+                  class="technical-value request-id"
+                  href={`#/requests/${item.id}`}
+                >
+                  {item.id}
+                </a>
               ),
               sortValue: (item) => item.id,
             },
@@ -2225,15 +2211,6 @@ export function Requests({
               label: "Submitted",
               render: (item) => <UserTime value={item.createdAt} />,
               sortValue: (item) => item.createdAt,
-            },
-            {
-              key: "decision",
-              label: "Decision",
-              render: (item) => (
-                <a class="button-link" href={`#/requests/${item.id}`}>
-                  {item.state === "pending" ? "Review" : "View decision"}
-                </a>
-              ),
             },
           ]}
         />

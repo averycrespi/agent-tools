@@ -3082,10 +3082,17 @@ export async function runRequestReads(
     .getByText("Showing 51–100 of 128 requests", { exact: true })
     .waitFor();
   await captureRequestState(page, "all-queue-page-two");
-  await page
+  const decisionLink = page
     .getByRole("link", { name: "View decision", exact: true })
-    .first()
-    .click();
+    .first();
+  const requestIDLink = decisionLink
+    .locator("xpath=ancestor::tr")
+    .locator('[data-label="Request ID"] a');
+  await expect(requestIDLink).toHaveAttribute(
+    "href",
+    (await decisionLink.getAttribute("href"))!,
+  );
+  await requestIDLink.click();
   await page.getByTestId("request-detail").waitFor();
   await page
     .getByRole("link", { name: "Back to all requests", exact: true })
@@ -3130,10 +3137,13 @@ export async function runRequestReads(
     page.getByRole("heading", { name: "All requests", exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByTestId("request-row").first().locator("th"),
+    page
+      .getByTestId("request-row")
+      .first()
+      .locator('[data-label="Request ID"] a'),
   ).toHaveText(/^[0-9A-HJKMNP-TV-Z]{26}$/);
   await expect(
-    page.getByTestId("request-row").first().locator("td").last().locator("a"),
+    page.getByTestId("request-row").first().locator("th").locator("a"),
   ).toHaveClass(/button-link/);
   const queueGap = await page
     .getByRole("navigation", { name: "Request queues" })
@@ -3142,7 +3152,7 @@ export async function runRequestReads(
   const requestHeaders = await page.locator("thead th").allTextContents();
   if (
     requestHeaders.map((header) => header.replace(/[↕↑↓]/g, "")).join("|") !==
-    "Request ID|Principal|Target|State|Access requested|Submitted|Decision"
+    "Action|Request ID|Principal|Target|State|Access requested|Submitted"
   )
     fail(`request table columns changed: ${requestHeaders.join("|")}`);
   if (
@@ -3225,13 +3235,25 @@ export async function runRequestReads(
     fail("request detail omitted reciprocal navigation");
 
   await navigate(requestIDs[1]!);
+  await expect(
+    page.getByRole("heading", { name: "Approved request", exact: true }),
+  ).toBeVisible();
+  const approvedDecision = page.getByRole("region", {
+    name: "Approved decision",
+    exact: true,
+  });
+  await expect(
+    approvedDecision.getByRole("link", { name: grantID, exact: true }),
+  ).toHaveAttribute("href", `#/grants/${grantID}`);
+  await expect(approvedDecision).not.toContainText("ordinary ALLOW");
+  await expect(approvedDecision).not.toContainText("This historical link");
   await captureRequestState(page, "approved-deleted");
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "retired historical evidence",
     "Retained evidence is not callable authority",
-    `Grant ${grantID}`,
-    "does not prove the grant still exists",
+    "Created grant",
+    grantID,
   ])
     if (!body.includes(phrase))
       fail(`approved request history omitted ${phrase}`);
@@ -3250,6 +3272,9 @@ export async function runRequestReads(
     .waitFor();
   if ((await page.getByTestId("request-actions").count()) !== 0)
     fail("cancelled request remained editable");
+  await expect(
+    page.getByRole("heading", { name: "Cancelled request", exact: true }),
+  ).toBeVisible();
   await captureRequestState(page, "cancelled");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -3615,12 +3640,18 @@ export async function runRequestAdjudication(
     }, id);
     await page.locator(`[data-request-id="${id}"]`).waitFor();
     await page.locator('[data-testid="request-actions"]').waitFor();
+    await expect(
+      page.getByText("Access considerations", { exact: true }),
+    ).toHaveCount(0);
     if ([ids[0], ids[1], ids[9]].includes(id))
       await captureRequestState(page, `summary-${ids.indexOf(id)}`);
     if (narrow)
       await page
         .getByRole("button", { name: "Customize approval", exact: true })
         .press("Enter");
+    await expect(
+      page.getByRole("heading", { name: "Customize approval", exact: true }),
+    ).toHaveCount(0);
   };
   const confirm = async () => {
     await page.locator('dialog[open] [data-testid$="-submit"]').click();
@@ -3753,6 +3784,7 @@ export async function runRequestAdjudication(
   await expect(
     page.getByRole("dialog", { name: "Approve as narrowed?", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("Access to demo.safe");
   await captureRequestState(page, "server-to-tool-confirmation");
   await confirm();
   try {
@@ -3876,7 +3908,7 @@ export async function runRequestAdjudication(
     !approvalReview.includes(serverID) ||
     !approvalReview.includes("demo.safe") ||
     !approvalReview.includes("Comparison unavailable") ||
-    !/Description\s*None/.test(approvalReview) ||
+    /Description\s*None/.test(approvalReview) ||
     !/Duration\s*5 minutes from approval/.test(approvalReview) ||
     !approvalReview.includes("/zone") ||
     !approvalReview.includes("/extra") ||
@@ -4007,6 +4039,9 @@ export async function runRequestAdjudication(
     await page
       .getByText("Request adjudication is closed", { exact: true })
       .waitFor();
+    await expect(
+      page.getByRole("heading", { name: "Rejected request", exact: true }),
+    ).toBeVisible();
   }
 
   await navigate(ids[9]!);
@@ -4024,7 +4059,22 @@ export async function runRequestAdjudication(
   await expect(permanentDialog).not.toContainText("Temporary access");
   await expect(
     permanentDialog.getByText("Access considerations", { exact: true }),
-  ).toHaveCount(1);
+  ).toHaveCount(0);
+  await expect(permanentDialog.locator("dt")).toHaveText([
+    "Principal",
+    "Approved target",
+    "Tools",
+    "Duration",
+    "Conditions",
+    "Tool definition",
+  ]);
+  for (const text of [
+    "Access does not expire automatically.",
+    "This grant adds no restrictions on argument values.",
+    "Access includes tools added to this server later.",
+  ]) {
+    await expect(page.getByTestId("request-detail")).not.toContainText(text);
+  }
   await captureRequestState(page, "permanent-confirmation");
   await page.getByTestId("request-adjudication-confirm-cancel").click();
   await page.getByTestId("approval-duration-unit").selectOption("seconds");
