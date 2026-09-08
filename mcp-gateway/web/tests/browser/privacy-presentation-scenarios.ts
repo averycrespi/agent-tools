@@ -517,9 +517,14 @@ export async function runAccessibilityKeyboardResponsive(
   await page.locator('[data-testid="admin-credential-create"]').click();
   await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
   const expiry = page.locator('[data-testid="admin-credential-expiry"]');
-  await expiry.fill("invalid");
+  await expiry.fill("2000-01-01T12:34:56");
   await page.locator('[data-testid="admin-credential-create"]').click();
-  await page.getByText(/Expiry must be an RFC 3339 time/).waitFor();
+  await page
+    .getByText(
+      "Choose an expiry from 5 minutes through 365 days in the future.",
+      { exact: true },
+    )
+    .waitFor();
   if (
     (await expiry.getAttribute("aria-invalid")) !== "true" ||
     !(await expiry.getAttribute("aria-describedby"))?.includes(

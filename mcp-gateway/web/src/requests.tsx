@@ -40,6 +40,8 @@ import { UserTime } from "./time";
 import type { ViewSnapshot } from "./view";
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+const durationUnits = { days: 86400, hours: 3600, minutes: 60, seconds: 1 };
+type DurationUnit = keyof typeof durationUnits;
 type JSONRecord = Record<string, unknown>;
 export type RequestState = "pending" | "approved" | "rejected" | "cancelled";
 type Scope = "tool" | "server";
@@ -625,7 +627,26 @@ function RequestActions({
   const [approvalCatalogError, setApprovalCatalogError] = useState(false);
   const [approvalDescriptorError, setApprovalDescriptorError] = useState(false);
   const [additionalAtoms, setAdditionalAtoms] = useState<MatcherAtom[]>([]);
-  const [duration, setDuration] = useState(submitted.durationSeconds ?? "");
+  const initialDurationUnit =
+    (Object.keys(durationUnits) as DurationUnit[]).find(
+      (unit) =>
+        submitted.durationSeconds !== null &&
+        Number(submitted.durationSeconds) % durationUnits[unit] === 0,
+    ) ?? "minutes";
+  const [durationUnit, setDurationUnit] =
+    useState<DurationUnit>(initialDurationUnit);
+  const [durationAmount, setDurationAmount] = useState(
+    submitted.durationSeconds === null
+      ? ""
+      : String(
+          Number(submitted.durationSeconds) /
+            durationUnits[initialDurationUnit],
+        ),
+  );
+  const duration =
+    durationAmount === ""
+      ? ""
+      : String(Number(durationAmount) * durationUnits[durationUnit]);
   const [reason, setReason] = useState("not_approved");
   const initialDraft = useRef({
     description: defaultDescription,
@@ -651,6 +672,7 @@ function RequestActions({
   const [blockedETag, setBlockedETag] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const actionButton = useRef<HTMLButtonElement>(null);
+  const rejectButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   const narrowsServerToTool = submitted.scope === "server" && scope === "tool";
@@ -773,12 +795,24 @@ function RequestActions({
         : (JSON.parse(constraintSource) as unknown);
     if (scope === "server" && parsedConstraint !== null)
       throw new Error("Server approval cannot include a constraint.");
+    const durationInput = document.getElementById(
+      "approval-duration",
+    ) as HTMLInputElement;
+    if (!durationInput.validity.valid)
+      throw new Error(
+        "Enter a positive whole-number duration and choose its unit.",
+      );
     if (duration !== "") {
-      if (!/^(?:[1-9][0-9]*)$/.test(duration))
-        throw new Error("Duration must be canonical seconds.");
+      if (
+        !/^[1-9][0-9]*$/.test(durationAmount) ||
+        !/^[1-9][0-9]*$/.test(duration)
+      )
+        throw new Error(
+          "Enter a positive whole-number duration and choose its unit.",
+        );
       const seconds = Number(duration);
       if (seconds < 60 || seconds > 2592000)
-        throw new Error("Duration must be between 60 and 2592000 seconds.");
+        throw new Error("Duration must be between 1 minute and 30 days.");
       if (
         submitted.durationSeconds !== null &&
         BigInt(duration) > BigInt(submitted.durationSeconds)
@@ -824,6 +858,7 @@ function RequestActions({
   })();
   const review = async (next: "approve" | "reject") => {
     const reviewedDraft = currentDraft.current;
+    setMode(next);
     setError(undefined);
     try {
       let body: string;
@@ -872,7 +907,6 @@ function RequestActions({
         successStatuses: [200],
         decode: decodeMutation,
       };
-      setMode(next);
       controller.begin(spec);
       setConfirming(true);
     } catch (caught) {
@@ -928,189 +962,249 @@ function RequestActions({
       <div class="panel-heading">
         <div>
           <span class="panel-code">ADJUDICATION</span>
-          <h2 id="request-actions-title">Approve a narrowing or reject</h2>
+          <h2 id="request-actions-title">Review request</h2>
         </div>
       </div>
       <p>
-        Approval creates one ordinary ALLOW only. It never resumes, retries, or
-        executes a held call. Rejection records one closed reason.
+        Approval grants access under the policy below; it does not execute or
+        retry a call. Rejection records your reason without granting access.
       </p>
-      <FormField
-        id="approval-description"
-        label="Grant description"
-        hint="Display metadata; it does not change authorization policy."
-        optional
-      >
-        {(attributes) => (
-          <input
-            {...attributes}
-            data-testid="approval-description"
-            value={description}
-            maxlength={256}
-            disabled={disabled}
-            onInput={(event) => setDescription(event.currentTarget.value)}
-          />
-        )}
-      </FormField>
-      <FormField id="approval-scope" label="Approved scope">
-        {(attributes) => (
-          <select
-            {...attributes}
-            data-testid="approval-scope"
-            value={scope}
-            disabled={submitted.scope === "tool" || disabled}
-            onChange={(event) => {
-              const next = event.currentTarget.value as Scope;
-              setScope(next);
-              if (next === "server") {
-                setTarget(submitted.target);
-                setAdditionalAtoms([]);
-              }
-            }}
-          >
-            <option value="server">Server</option>
-            <option value="tool">Exact tool</option>
-          </select>
-        )}
-      </FormField>
-      <FormField id="approval-target" label="Approved target">
-        {(attributes) =>
-          narrowsServerToTool ? (
-            <div class="matcher-tool-input">
-              <SuggestionInput
-                attributes={attributes}
-                label="Approved target"
-                testID="approval-target"
-                value={target}
-                options={(approvalDescriptors ?? [])
-                  .filter(
-                    (descriptor) =>
-                      descriptor.serverID === detail.resolvedServerID,
-                  )
-                  .map((descriptor) => ({ value: descriptor.externalName }))}
-                disabled={disabled}
-                onChange={setTarget}
-              />
-              <MatcherRecognition
-                status={approvalToolStatus}
-                testID="approval-tool-recognition"
-              />
-            </div>
-          ) : (
+      <section class="form-section" aria-labelledby="request-approval-title">
+        <h3 id="request-approval-title">Approve request</h3>
+        <FormField
+          id="approval-description"
+          label="Grant description"
+          hint="Display metadata; it does not change authorization policy."
+          optional
+        >
+          {(attributes) => (
             <input
               {...attributes}
-              data-testid="approval-target"
-              value={target}
-              disabled
-            />
-          )
-        }
-      </FormField>
-      {narrowsServerToTool && approvalToolNotice && (
-        <p
-          class="bounded-note"
-          role="status"
-          data-testid="approval-tool-posture"
-        >
-          {approvalToolNotice}
-        </p>
-      )}
-      {scope === "tool" && (
-        <>
-          {detail.submittedConstraintSource !== null && (
-            <FormField
-              id="approval-submitted-constraint"
-              label="Submitted matcher atoms — locked"
-              hint="These exact operator, pointer, and value tokens are retained automatically."
-            >
-              {(attributes) => (
-                <textarea
-                  {...attributes}
-                  data-testid="approval-submitted-constraint"
-                  value={detail.submittedConstraintSource ?? ""}
-                  readOnly
-                  rows={6}
-                />
-              )}
-            </FormField>
-          )}
-          <div aria-labelledby="approval-additional-matchers-title">
-            <h3 id="approval-additional-matchers-title">
-              Additional constraints — All must match
-              <span class="optional-label"> (optional)</span>
-            </h3>
-            <p class="field-hint">
-              Add rules without changing the submitted policy.
-            </p>
-            {approvalSuggestions?.unsupported && (
-              <p
-                class="bounded-note"
-                data-testid="approval-matcher-schema-posture"
-              >
-                Some schema fields cannot be suggested. Custom pointers are
-                still available.
-              </p>
-            )}
-            <MatcherAtomEditor
-              idPrefix="approval-additional"
-              testPrefix="approval-additional"
-              atoms={additionalAtoms}
-              suggestions={approvalSuggestions}
-              schemaState={
-                narrowsServerToTool &&
-                !approvalCatalogError &&
-                (approvalDescriptors === undefined ||
-                  (selectedApprovalDescriptorSummary !== undefined &&
-                    !approvalDescriptorError &&
-                    approvalSuggestions === undefined))
-                  ? "loading"
-                  : "unavailable"
-              }
+              data-testid="approval-description"
+              value={description}
+              maxlength={256}
               disabled={disabled}
-              onChange={(next) => {
-                setError(undefined);
-                setAdditionalAtoms(next);
-              }}
+              onInput={(event) => setDescription(event.currentTarget.value)}
             />
-          </div>
-        </>
-      )}
-      <FormField
-        id="approval-duration"
-        label="Approved duration seconds"
-        hint="Blank means permanent only when the submitted request was permanent."
-      >
-        {(attributes) => (
-          <input
-            {...attributes}
-            data-testid="approval-duration"
-            value={duration}
-            disabled={disabled}
-            onInput={(event) => setDuration(event.currentTarget.value)}
-          />
-        )}
-      </FormField>
-      <FormField id="rejection-reason" label="Rejection reason">
-        {(attributes) => (
-          <select
-            {...attributes}
-            data-testid="rejection-reason"
-            value={reason}
-            disabled={disabled}
-            onChange={(event) => setReason(event.currentTarget.value)}
+          )}
+        </FormField>
+        <FormField id="approval-scope" label="Approved scope">
+          {(attributes) => (
+            <select
+              {...attributes}
+              data-testid="approval-scope"
+              value={scope}
+              disabled={submitted.scope === "tool" || disabled}
+              onChange={(event) => {
+                const next = event.currentTarget.value as Scope;
+                setScope(next);
+                if (next === "server") {
+                  setTarget(submitted.target);
+                  setAdditionalAtoms([]);
+                }
+              }}
+            >
+              <option value="server">Server</option>
+              <option value="tool">Exact tool</option>
+            </select>
+          )}
+        </FormField>
+        <FormField id="approval-target" label="Approved target">
+          {(attributes) =>
+            narrowsServerToTool ? (
+              <div class="matcher-tool-input">
+                <SuggestionInput
+                  attributes={attributes}
+                  label="Approved target"
+                  testID="approval-target"
+                  value={target}
+                  options={(approvalDescriptors ?? [])
+                    .filter(
+                      (descriptor) =>
+                        descriptor.serverID === detail.resolvedServerID,
+                    )
+                    .map((descriptor) => ({ value: descriptor.externalName }))}
+                  disabled={disabled}
+                  onChange={setTarget}
+                />
+                <MatcherRecognition
+                  status={approvalToolStatus}
+                  testID="approval-tool-recognition"
+                />
+              </div>
+            ) : (
+              <input
+                {...attributes}
+                data-testid="approval-target"
+                value={target}
+                disabled
+              />
+            )
+          }
+        </FormField>
+        {narrowsServerToTool && approvalToolNotice && (
+          <p
+            class="bounded-note"
+            role="status"
+            data-testid="approval-tool-posture"
           >
-            <option value="not_approved">Not approved</option>
-            <option value="existing_access">Existing access</option>
-            <option value="scope_too_broad">Scope too broad</option>
-            <option value="policy_conflict">Policy conflict</option>
-          </select>
+            {approvalToolNotice}
+          </p>
         )}
-      </FormField>
-      {error !== undefined && (
-        <StateNotice state="error" title="Check adjudication">
-          <p>{error}</p>
-        </StateNotice>
-      )}
+        {scope === "tool" && (
+          <>
+            {detail.submittedConstraintSource !== null && (
+              <FormField
+                id="approval-submitted-constraint"
+                label="Submitted matcher atoms — locked"
+                hint="These exact operator, pointer, and value tokens are retained automatically."
+              >
+                {(attributes) => (
+                  <textarea
+                    {...attributes}
+                    data-testid="approval-submitted-constraint"
+                    value={detail.submittedConstraintSource ?? ""}
+                    readOnly
+                    rows={6}
+                  />
+                )}
+              </FormField>
+            )}
+            <div aria-labelledby="approval-additional-matchers-title">
+              <h3 id="approval-additional-matchers-title">
+                Additional constraints — All must match
+                <span class="optional-label"> (optional)</span>
+              </h3>
+              <p class="field-hint">
+                Add rules without changing the submitted policy.
+              </p>
+              {approvalSuggestions?.unsupported && (
+                <p
+                  class="bounded-note"
+                  data-testid="approval-matcher-schema-posture"
+                >
+                  Some schema fields cannot be suggested. Custom pointers are
+                  still available.
+                </p>
+              )}
+              <MatcherAtomEditor
+                idPrefix="approval-additional"
+                testPrefix="approval-additional"
+                atoms={additionalAtoms}
+                suggestions={approvalSuggestions}
+                schemaState={
+                  narrowsServerToTool &&
+                  !approvalCatalogError &&
+                  (approvalDescriptors === undefined ||
+                    (selectedApprovalDescriptorSummary !== undefined &&
+                      !approvalDescriptorError &&
+                      approvalSuggestions === undefined))
+                    ? "loading"
+                    : "unavailable"
+                }
+                disabled={disabled}
+                onChange={(next) => {
+                  setError(undefined);
+                  setAdditionalAtoms(next);
+                }}
+              />
+            </div>
+          </>
+        )}
+        <FormField
+          id="approval-duration"
+          label="Approved duration"
+          hint={
+            submitted.durationSeconds === null
+              ? "Enter a whole number and choose its unit, from 1 minute to 30 days. Leave blank for permanent access."
+              : "Enter a whole number and choose its unit, from 1 minute to 30 days. The duration cannot exceed the request; temporary access cannot become permanent."
+          }
+          optional={submitted.durationSeconds === null}
+        >
+          {(attributes) => (
+            <div class="duration-controls">
+              <input
+                {...attributes}
+                type="number"
+                min="1"
+                step="1"
+                data-testid="approval-duration"
+                value={durationAmount}
+                disabled={disabled}
+                onInput={(event) =>
+                  setDurationAmount(event.currentTarget.value)
+                }
+              />
+              <select
+                aria-label="Approved duration unit"
+                data-testid="approval-duration-unit"
+                value={durationUnit}
+                disabled={disabled}
+                onChange={(event) =>
+                  setDurationUnit(event.currentTarget.value as DurationUnit)
+                }
+              >
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+                <option value="seconds">Seconds</option>
+              </select>
+            </div>
+          )}
+        </FormField>
+        {mode === "approve" && error !== undefined && (
+          <StateNotice state="error" title="Check adjudication">
+            <p>{error}</p>
+          </StateNotice>
+        )}
+        <div class="form-actions">
+          <button
+            ref={actionButton}
+            data-testid="request-approve"
+            type="button"
+            disabled={disabled}
+            onClick={() => void review("approve")}
+          >
+            {validating ? "Validating matcher…" : "Review approval"}
+          </button>
+        </div>
+      </section>
+      <section class="form-section" aria-labelledby="request-rejection-title">
+        <h3 id="request-rejection-title">Reject request</h3>
+        <FormField id="rejection-reason" label="Rejection reason">
+          {(attributes) => (
+            <select
+              {...attributes}
+              data-testid="rejection-reason"
+              value={reason}
+              disabled={disabled}
+              onChange={(event) => setReason(event.currentTarget.value)}
+            >
+              <option value="not_approved">Not approved</option>
+              <option value="existing_access">Existing access</option>
+              <option value="scope_too_broad">Scope too broad</option>
+              <option value="policy_conflict">Policy conflict</option>
+            </select>
+          )}
+        </FormField>
+        {mode === "reject" && error !== undefined && (
+          <StateNotice state="error" title="Check adjudication">
+            <p>{error}</p>
+          </StateNotice>
+        )}
+        <div class="form-actions">
+          <button
+            ref={rejectButton}
+            data-testid="request-reject"
+            class="danger-action"
+            type="button"
+            disabled={disabled}
+            onClick={() => void review("reject")}
+          >
+            Review rejection
+          </button>
+        </div>
+      </section>
       {mutation.problem !== undefined && (
         <StateNotice state="error" title={mutation.problem.title}>
           {mutation.requiresRefresh && (
@@ -1129,26 +1223,6 @@ function RequestActions({
           </p>
         </StateNotice>
       )}
-      <div class="inline-actions">
-        <button
-          ref={actionButton}
-          data-testid="request-approve"
-          type="button"
-          disabled={disabled}
-          onClick={() => void review("approve")}
-        >
-          {validating ? "Validating matcher…" : "Review approval"}
-        </button>
-        <button
-          data-testid="request-reject"
-          class="danger-action"
-          type="button"
-          disabled={disabled}
-          onClick={() => void review("reject")}
-        >
-          Review rejection
-        </button>
-      </div>
       <ConfirmationDialog
         id="request-adjudication-confirm"
         open={confirming}
@@ -1205,7 +1279,9 @@ function RequestActions({
                 <div>
                   <dt>Approved duration</dt>
                   <dd>
-                    {duration === "" ? "Permanent" : `${duration} seconds`}
+                    {duration === ""
+                      ? "Permanent"
+                      : `${durationAmount} ${Number(durationAmount) === 1 ? durationUnit.slice(0, -1) : durationUnit}`}
                   </dd>
                 </div>
                 <div>
@@ -1226,14 +1302,14 @@ function RequestActions({
             </div>
           ) : (
             <p>
-              Rejection atomically closes the request with reason {reason}; it
-              creates no grant.
+              Rejection atomically closes the request with reason{" "}
+              {sentenceCase(reason)}; it creates no grant.
             </p>
           )
         }
         confirmLabel={mode === "approve" ? "Approve request" : "Reject request"}
         destructive={mode === "reject"}
-        returnFocus={actionButton}
+        returnFocus={mode === "approve" ? actionButton : rejectButton}
         onCancel={cancel}
         onConfirm={() => void confirm()}
       />

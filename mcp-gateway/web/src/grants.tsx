@@ -282,7 +282,7 @@ function GrantCreate({
             : null;
   const reviewPolicy = (() => {
     try {
-      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}}`;
     } catch {
       return "Complete the policy to review its serialized form.";
     }
@@ -378,13 +378,19 @@ function GrantCreate({
         )
       )
         throw new Error("RE2 patterns must be at most 1024 bytes.");
+      const expiryInput = document.getElementById(
+        "grant-expiry",
+      ) as HTMLInputElement;
+      if (!expiryInput.validity.valid)
+        throw new Error(
+          "Choose a complete expiry date and time, or clear it for permanent access.",
+        );
       if (
         expiresAt !== "" &&
-        (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(expiresAt) ||
-          Number.isNaN(Date.parse(expiresAt)) ||
+        (Number.isNaN(Date.parse(expiresAt)) ||
           Date.parse(expiresAt) <= Date.now())
       )
-        throw new Error("Expiry must be a future canonical UTC timestamp.");
+        throw new Error("Choose an expiry date and time in the future.");
       const constraint = matcherConstraintText(atoms);
       if (constraint !== "null") {
         setValidating(true);
@@ -393,7 +399,7 @@ function GrantCreate({
           return;
         if (diagnostic !== null) throw new Error(diagnostic);
       }
-      const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(expiresAt)}}`;
+      const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}}`;
       const spec: MutationSpec<Grant> = {
         route: "/api/v1/grants",
         method: "POST",
@@ -614,15 +620,16 @@ function GrantCreate({
           <FormField
             id="grant-expiry"
             label="Expiry"
-            hint="Leave blank for permanent; otherwise use a future canonical UTC RFC3339 timestamp."
+            hint="Choose a future date and time in your local timezone. Leave blank for permanent access."
             optional
           >
             {(attributes) => (
               <input
                 {...attributes}
                 data-testid="grant-expiry"
+                type="datetime-local"
+                step="1"
                 value={expiresAt}
-                placeholder="2030-01-01T00:00:00Z"
                 onInput={(event) => setExpiresAt(event.currentTarget.value)}
               />
             )}
@@ -717,7 +724,19 @@ function GrantCreate({
                 </div>
                 <div>
                   <dt>Expiry</dt>
-                  <dd>{expiresAt === "" ? "Permanent" : expiresAt}</dd>
+                  <dd>
+                    {expiresAt === "" ? (
+                      "Permanent"
+                    ) : (
+                      <UserTime
+                        value={
+                          Number.isFinite(Date.parse(expiresAt))
+                            ? new Date(expiresAt).toISOString()
+                            : expiresAt
+                        }
+                      />
+                    )}
+                  </dd>
                 </div>
                 <div>
                   <dt>Constraint</dt>

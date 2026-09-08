@@ -526,8 +526,34 @@ p {
 }
 
 .panel > button,
-.form-submit-action {
+.form-submit-action,
+.form-actions {
   margin-top: 16px;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.form-section {
+  margin-top: 24px;
+}
+
+.duration-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.duration-controls > input {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.duration-controls > select {
+  flex: 0 1 140px;
 }
 
 .panel-heading button,

@@ -167,8 +167,8 @@ export async function runAccessManagementReadCanary(
   for (const phrase of [
     "Submitted: no descriptor evidence",
     "Current target",
-    "Approval creates one ordinary ALLOW only",
-    "It never resumes, retries, or executes a held call",
+    "Approval grants access under the policy below",
+    "it does not execute or retry a call",
   ])
     if (!body.includes(phrase))
       fail(`Access management read canary omitted ${phrase}`);
@@ -1145,6 +1145,9 @@ export async function runGrantReadsCreate(
   let creates = 0;
   let descriptionPatches = 0;
   let descriptorRequests = 0;
+  const expectedExpiry = await page.evaluate(() =>
+    new Date("2030-01-01T12:34:56").toISOString(),
+  );
 
   await page.route("**/api/v1/principals?*", async (route) => {
     await route.fulfill({
@@ -1538,7 +1541,7 @@ export async function runGrantReadsCreate(
     } else if (
       body.effect !== "deny" ||
       body.upstream_name !== "literal.tool" ||
-      body.expires_at !== "2030-01-01T00:00:00Z" ||
+      body.expires_at !== expectedExpiry ||
       !raw.includes('"version":2') ||
       !raw.includes('"/a~1b/0":1.0') ||
       !raw.includes('"/empty/":null') ||
@@ -2172,12 +2175,52 @@ export async function runGrantReadsCreate(
     fail("grant creation did not preserve a cancelled dirty draft");
   await page
     .locator('[data-testid="grant-expiry"]')
-    .fill("2030-01-01T00:00:00Z");
+    .fill("2030-01-01T12:34:56");
   if (
     (await page.locator('[data-testid="grant-expiry"]').inputValue()) !==
-    "2030-01-01T00:00:00Z"
+      "2030-01-01T12:34:56" ||
+    (await page.getByTestId("grant-expiry").getAttribute("type")) !==
+      "datetime-local"
   )
-    fail("grant expiry input did not retain its draft value");
+    fail("grant expiry input did not retain its local date/time draft value");
+  const expiryInput = page.getByTestId("grant-expiry");
+  await expiryInput.press("Backspace");
+  if (
+    !(await expiryInput.evaluate(
+      (input: HTMLInputElement) =>
+        input.value === "" && input.validity.badInput,
+    ))
+  )
+    fail("grant expiry fixture did not produce native incomplete input");
+  await page.getByTestId("grant-create-submit").click();
+  if (
+    !(await expiryInput.evaluate(
+      (input: HTMLInputElement) =>
+        input.matches(":invalid") &&
+        input.validationMessage.length > 0 &&
+        document.activeElement === input,
+    ))
+  )
+    fail("native grant validation did not explain and focus incomplete expiry");
+  // Programmatic submission bypasses browser constraint validation.
+  await expiryInput.evaluate((input: HTMLInputElement) =>
+    input.form!.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    ),
+  );
+  await page
+    .getByTestId("grant-create-view")
+    .getByText(
+      "Choose a complete expiry date and time, or clear it for permanent access.",
+      { exact: true },
+    )
+    .waitFor();
+  if (
+    creates !== 1 ||
+    (await page.getByTestId("grant-create-confirm-submit").isVisible())
+  )
+    fail("incomplete grant expiry was treated as blank permanent access");
+  await expiryInput.fill("2030-01-01T12:34:56");
   await page.locator('[data-testid="add-constraint-atom"]').click();
   await page.locator('[data-testid="constraint-type"]').selectOption("number");
   await page.locator('[data-testid="constraint-value"]').fill("1.0");
@@ -2262,7 +2305,7 @@ export async function runGrantReadsCreate(
     .waitFor({ state: "hidden" });
   if (
     (await page.locator('[data-testid="grant-expiry"]').inputValue()) !==
-    "2030-01-01T00:00:00Z"
+    "2030-01-01T12:34:56"
   )
     fail("grant constraint edits discarded the expiry draft");
   await assertMatcherAuthoringAccessibility(page, "grant creation");
@@ -3355,6 +3398,19 @@ export async function runRequestAdjudication(
       )
         fail("approval body changed shape");
       const approved = body.approved_policy as ReturnType<typeof policy>;
+      const expectedSeconds =
+        id === ids[0]
+          ? "600"
+          : id === ids[1]
+            ? "300"
+            : id === ids[9]
+              ? "60"
+              : undefined;
+      if (
+        expectedSeconds !== undefined &&
+        approved.duration_seconds !== expectedSeconds
+      )
+        fail("duration amount/unit did not serialize exact seconds");
       if (
         id === ids[0] &&
         (approved.target !== "demo.safe" ||
@@ -3455,7 +3511,23 @@ export async function runRequestAdjudication(
   if ((await approvalPointer.inputValue()) !== "/mode")
     fail("approval pointer autocomplete did not select the field");
   await page.locator('[data-testid="approval-additional-value"]').fill("safe");
-  await page.locator('[data-testid="approval-duration"]').fill("600");
+  await page.getByTestId("approval-duration-unit").selectOption("minutes");
+  await page.locator('[data-testid="approval-duration"]').fill("10");
+  const approvalGroup = page.getByRole("region", {
+    name: "Approve request",
+    exact: true,
+  });
+  const rejectionGroup = page.getByRole("region", {
+    name: "Reject request",
+    exact: true,
+  });
+  if (
+    (await approvalGroup.getByTestId("rejection-reason").count()) !== 0 ||
+    (await rejectionGroup.getByTestId("approval-duration").count()) !== 0 ||
+    !(await approvalGroup.getByTestId("request-approve").isVisible()) ||
+    !(await rejectionGroup.getByTestId("request-reject").isVisible())
+  )
+    fail("approval and rejection controls were not grouped by task");
   await reviewApproval();
   if (
     !(
@@ -3491,6 +3563,13 @@ export async function runRequestAdjudication(
     !(await submittedConstraint.inputValue()).includes('"/attempt":1.0')
   )
     fail("approval editor did not lock exact submitted matcher tokens");
+  if (
+    (await page.getByTestId("approval-duration-unit").inputValue()) !==
+      "minutes" ||
+    (await page.getByTestId("approval-duration").inputValue()) !== "10"
+  )
+    fail("submitted duration did not load in a readable exact unit");
+  await page.getByTestId("approval-duration-unit").selectOption("seconds");
   await page.locator('[data-testid="approval-duration"]').fill("601");
   await reviewApproval();
   await page
@@ -3503,7 +3582,8 @@ export async function runRequestAdjudication(
   await page
     .getByText("A temporary request cannot become permanent.", { exact: true })
     .waitFor();
-  await page.locator('[data-testid="approval-duration"]').fill("300");
+  await page.getByTestId("approval-duration-unit").selectOption("minutes");
+  await page.locator('[data-testid="approval-duration"]').fill("5");
   await page.locator('[data-testid="approval-additional-add"]').click();
   const additionalPointers = page.locator(
     '[data-testid="approval-additional-pointer"]',
@@ -3557,7 +3637,7 @@ export async function runRequestAdjudication(
     !approvalReview.includes("demo.safe") ||
     !approvalReview.includes("current / current") ||
     !approvalReview.includes("DescriptionNone") ||
-    !approvalReview.includes("Approved duration300 seconds") ||
+    !approvalReview.includes("Approved duration5 minutes") ||
     !approvalReview.includes("Constraintv2 · 3 equality · 2 regex") ||
     !approvalReview.includes("Every matcher atom is required (AND)") ||
     !approvalReview.includes("matching DENY takes precedence") ||
@@ -3615,7 +3695,17 @@ export async function runRequestAdjudication(
     await page
       .locator('[data-testid="rejection-reason"]')
       .selectOption(reasons[index]!);
+    await page.getByTestId("approval-duration").fill("0");
     await page.locator('[data-testid="request-reject"]').click();
+    if (index === 0) {
+      await page.getByTestId("request-adjudication-confirm-cancel").click();
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[data-testid="request-reject"]') ===
+          document.activeElement,
+      );
+      await page.getByTestId("request-reject").click();
+    }
     await confirm();
     await page
       .getByText("Request adjudication is closed", { exact: true })
@@ -3623,7 +3713,8 @@ export async function runRequestAdjudication(
   }
 
   await navigate(ids[9]!);
-  await page.locator('[data-testid="approval-duration"]').fill("60");
+  await page.getByTestId("approval-duration-unit").selectOption("minutes");
+  await page.locator('[data-testid="approval-duration"]').fill("1");
   await reviewApproval();
   await page
     .getByText("Not applicable to server-wide authority", { exact: true })

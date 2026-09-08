@@ -1855,6 +1855,19 @@ export function ServerReads({
           serverID={authenticationTab[1]!}
           current="authentication"
         />
+        <ReadPanel panel={overviewPanel}>
+          {snapshot.server !== undefined &&
+            snapshot.serverETag !== undefined && (
+              <ServerCredentials
+                mutations={mutations}
+                sinks={sinks}
+                server={snapshot.server}
+                etag={snapshot.serverETag}
+                readVersion={snapshot.readVersion}
+                onRefresh={onRefresh}
+              />
+            )}
+        </ReadPanel>
         <ReadPanel panel={authFlowPanel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -1872,19 +1885,6 @@ export function ServerReads({
                 onLoadMore={() => void controller.loadMore("authFlows")}
                 onRefresh={onRefresh}
                 mode="action"
-              />
-            )}
-        </ReadPanel>
-        <ReadPanel panel={overviewPanel}>
-          {snapshot.server !== undefined &&
-            snapshot.serverETag !== undefined && (
-              <ServerCredentials
-                mutations={mutations}
-                sinks={sinks}
-                server={snapshot.server}
-                etag={snapshot.serverETag}
-                readVersion={snapshot.readVersion}
-                onRefresh={onRefresh}
               />
             )}
         </ReadPanel>

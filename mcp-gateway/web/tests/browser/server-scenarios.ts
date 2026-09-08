@@ -558,8 +558,35 @@ export async function runServerCreateUpdate(
   )
     fail("normalized OAuth client ID error was not associated with its field");
   await page.locator("#server-client-id").fill("safe-client");
+  const advancedToggle = page
+    .locator("summary")
+    .filter({ hasText: "advanced OAuth settings" });
+  if (
+    (await advancedToggle.textContent()) !== "Show advanced OAuth settings" ||
+    (await page.locator("#server-issuer").isVisible())
+  )
+    fail(
+      "unconfigured issuer override was not inside collapsed advanced settings",
+    );
+  await advancedToggle.focus();
+  await page.keyboard.press("Enter");
+  await page
+    .getByText("Hide advanced OAuth settings", { exact: true })
+    .waitFor();
+  const advancedInputs = await page
+    .locator("details.form-disclosure input")
+    .evaluateAll((nodes) => nodes.map((node) => node.id));
+  if (advancedInputs[0] !== "server-issuer")
+    fail("issuer was not the first advanced field");
   await page.locator("#server-issuer").fill("http://issuer.example");
+  await advancedToggle.click();
+  await page
+    .getByText("Show advanced OAuth settings", { exact: true })
+    .waitFor();
   await page.locator('[data-testid="server-editor-submit"]').click();
+  await page
+    .getByText("Hide advanced OAuth settings", { exact: true })
+    .waitFor();
   await page
     .getByText(
       "OAuth issuer must be an HTTPS URL without credentials, query, or fragment.",
@@ -572,19 +599,6 @@ export async function runServerCreateUpdate(
     fail("OAuth issuer error was not associated with its field");
   await page.locator("#server-registration-mode").selectOption("dynamic");
   await page.locator("#server-issuer").fill("  https://issuer.example  ");
-  const advancedToggle = page
-    .locator("summary")
-    .filter({ hasText: "advanced OAuth settings" });
-  if (
-    (await advancedToggle.textContent()) !== "Show advanced OAuth settings" ||
-    (await page.locator("#server-callback-uri").isVisible())
-  )
-    fail("unconfigured advanced OAuth settings were not clearly collapsed");
-  await advancedToggle.focus();
-  await page.keyboard.press("Enter");
-  await page
-    .getByText("Hide advanced OAuth settings", { exact: true })
-    .waitFor();
   await page
     .locator("#server-callback-uri")
     .fill("http://remote.example:3118/callback");
@@ -695,6 +709,7 @@ export async function runServerCreateUpdate(
   await normalizedReview.waitFor();
   const oauthReview = await normalizedReview.textContent();
   if (
+    !oauthReview?.includes("Automatic (recommended)") ||
     !oauthReview?.includes("http://localhost:3118/callback") ||
     !oauthReview.includes("https://metadata.example/custom?revision=2") ||
     !oauthReview.includes("fixture.read fixture.write")
@@ -734,6 +749,16 @@ export async function runServerCreateUpdate(
     await normalizedReview.getByText(value, { exact: true }).waitFor();
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   await page.locator("#server-registration-mode").selectOption("static");
+  await page.locator("#server-token-auth").selectOption("client_secret_basic");
+  await page.getByTestId("server-editor-submit").click();
+  await normalizedReview
+    .getByText("Existing client safe-client (Client secret in HTTP Basic)", {
+      exact: true,
+    })
+    .waitFor();
+  if ((await normalizedReview.textContent())?.includes("client_secret_basic"))
+    fail("review exposed token-auth enum");
+  await page.getByTestId("server-change-confirm-cancel").click();
   if (
     (await editor
       .locator('input[id*="secret"], textarea, input[id*="bearer-token"]')
@@ -768,12 +793,12 @@ export async function runServerCreateUpdate(
       fail(`stdio setting ${id} was hidden`);
   await page.locator('[data-testid="server-argument-add"]').click();
   await page.locator('[data-testid="server-argument"]').fill("--safe");
-  await page.locator('[data-testid="server-environment-add"]').click();
+  await page.getByRole("button", { name: "Add variable", exact: true }).click();
   await page
     .locator('[data-testid="server-environment-name"]')
     .fill("__proto__");
   await page.locator('[data-testid="server-environment-value"]').fill("read");
-  await page.locator('[data-testid="server-secret-environment-add"]').click();
+  await page.getByRole("button", { name: "Add binding", exact: true }).click();
   await page
     .locator('[data-testid="server-secret-environment-name"]')
     .fill("TOKEN");
@@ -2402,6 +2427,24 @@ export async function runServerCredentials(
   };
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-bearer");
+  await page
+    .getByRole("textbox", { name: "Bearer token", exact: true })
+    .waitFor();
+  const assertCredentialActionGap = async () => {
+    const gap = await page
+      .getByTestId("credential-replacement-submit")
+      .evaluate((button) => {
+        const input = document.querySelector(
+          '[data-testid="credential-replacement-form"] input',
+        )!;
+        return (
+          button.getBoundingClientRect().top -
+          input.getBoundingClientRect().bottom
+        );
+      });
+    if (gap < 16) fail(`credential action gap was ${gap}px`);
+  };
+  await assertCredentialActionGap();
   eligibilityModes += 1;
   currentServer = {
     ...currentServer,
@@ -2410,6 +2453,47 @@ export async function runServerCredentials(
   };
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-client_secret");
+  await assertCredentialActionGap();
+  const oauthHeadings = await page
+    .getByTestId("server-authentication-view")
+    .locator("h2")
+    .allTextContents();
+  if (
+    oauthHeadings.indexOf("OAuth client credentials") < 0 ||
+    oauthHeadings.indexOf("OAuth client credentials") >=
+      oauthHeadings.indexOf("OAuth authorization")
+  )
+    fail("OAuth prerequisite panels were unnamed or out of order");
+  currentServer = {
+    ...currentServer,
+    credential_revisions: {
+      ...currentServer.credential_revisions,
+      oauth_client: "0",
+    },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await page
+    .getByText("Add the client secret above before authorizing.", {
+      exact: true,
+    })
+    .waitFor();
+  if (!(await page.getByTestId("start-auth-flow").isDisabled()))
+    fail("missing client secret allowed authorization");
+  currentServer = {
+    ...currentServer,
+    credential_revisions: {
+      ...currentServer.credential_revisions,
+      oauth_client: "3",
+    },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await page
+    .getByText("Add the client secret above before authorizing.", {
+      exact: true,
+    })
+    .waitFor({ state: "hidden" });
+  if (await page.getByTestId("start-auth-flow").isDisabled())
+    fail("aggregate credential state incorrectly blocked OAuth");
   eligibilityModes += 1;
   currentServer = {
     ...currentServer,
@@ -2439,7 +2523,9 @@ export async function runServerCredentials(
       oauthDynamicTransport as unknown as typeof currentServer.transport,
   };
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.getByRole("heading", { name: "OAuth", exact: true }).waitFor();
+  await page
+    .getByRole("heading", { name: "OAuth authorization", exact: true })
+    .waitFor();
   if (
     (await page
       .locator('[data-testid="credential-replacement-form"]')

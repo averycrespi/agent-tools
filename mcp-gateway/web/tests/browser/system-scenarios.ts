@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
   assertSecretAbsent,
   browserStorage,
@@ -439,6 +439,7 @@ export async function runAdminCredentials(
   let items = [credential(0), credential(1), credential(2, "active", false)];
   let creates = 0;
   let revokes = 0;
+  let expectedExpiry: string | null = null;
   let releaseLost: (() => void) | undefined;
   let markLostStarted: (() => void) | undefined;
   const lostStarted = new Promise<void>((resolve) => {
@@ -469,6 +470,10 @@ export async function runAdminCredentials(
       >;
       if (Object.keys(body).join(",") !== "expires_at")
         fail("admin credential create changed shape");
+      if (body.expires_at !== (creates === 1 ? expectedExpiry : null))
+        fail(
+          "admin credential expiry did not serialize local time as UTC or preserve non-expiring state",
+        );
       if (creates === 2) {
         markLostStarted?.();
         await new Promise<void>((resolve) => {
@@ -577,11 +582,72 @@ export async function runAdminCredentials(
     fail("admin credential fingerprints remained interactive or expanded");
   await page.locator('[data-testid="admin-credential-create"]').click();
   await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
-  await page.locator('[data-testid="admin-credential-expiry"]').fill("invalid");
+  if (
+    (await page.getByTestId("admin-credential-expiry").getAttribute("type")) !==
+    "datetime-local"
+  )
+    fail("admin credential expiry did not use a date/time control");
+  const expiryInput = page.getByTestId("admin-credential-expiry");
+  await expiryInput.fill("2030-01-01T12:34:56");
+  await expiryInput.press("Backspace");
+  if (
+    !(await expiryInput.evaluate(
+      (input: HTMLInputElement) =>
+        input.value === "" && input.validity.badInput,
+    ))
+  )
+    fail("admin expiry fixture did not produce native incomplete input");
+  await page.getByTestId("admin-credential-create").click();
+  await page
+    .getByText(
+      "Choose a complete expiry date and time, or clear it for a non-expiring credential.",
+      { exact: true },
+    )
+    .waitFor();
+  if (
+    creates !== 0 ||
+    (await page
+      .getByTestId("admin-credential-create-confirm-submit")
+      .isVisible()) ||
+    (await expiryInput.getAttribute("aria-invalid")) !== "true" ||
+    !(await expiryInput.getAttribute("aria-describedby"))?.includes(
+      "admin-credential-expiry-error",
+    )
+  )
+    fail(
+      "incomplete admin expiry was treated as blank or lacked associated error",
+    );
+  await expiryInput.fill("");
+  await page.getByTestId("admin-credential-create").click();
+  await page
+    .locator("dialog[open]")
+    .getByText("Non-expiring", { exact: true })
+    .waitFor();
+  await page.getByTestId("admin-credential-create-confirm-cancel").click();
+  await page
+    .locator('[data-testid="admin-credential-expiry"]')
+    .fill("2000-01-01T12:34:56");
   await page.locator('[data-testid="admin-credential-create"]').click();
-  await page.getByText(/Expiry must be an RFC 3339 time/).waitFor();
+  await page
+    .getByText(
+      "Choose an expiry from 5 minutes through 365 days in the future.",
+      { exact: true },
+    )
+    .waitFor();
   if (creates !== 0) fail("invalid admin expiry reached the API");
-  await page.locator('[data-testid="admin-credential-expiry"]').fill("");
+  const localExpiry = await page.evaluate(() => {
+    const future = new Date(Date.now() + 60 * 60_000);
+    return new Date(future.getTime() - future.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 19);
+  });
+  expectedExpiry = await page.evaluate(
+    (value) => new Date(value).toISOString(),
+    localExpiry,
+  );
+  await page
+    .locator('[data-testid="admin-credential-expiry"]')
+    .fill(localExpiry);
   await page.locator('[data-testid="admin-credential-create"]').click();
   await page
     .getByRole("heading", { name: "Review admin credential", exact: true })
@@ -681,7 +747,15 @@ export async function runAdminCredentials(
   );
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
-  await logoutResponse;
+  const logout = await logoutResponse;
+  if (logout.status() !== 204)
+    fail(`admin credential scenario logout failed: HTTP ${logout.status()}`);
+  await expect
+    .poll(
+      async () => (await context.cookies(baseURL)).map((cookie) => cookie.name),
+      { timeout: 3000 },
+    )
+    .not.toContain("mcp_gateway_session");
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,

@@ -827,7 +827,7 @@ function Backups({
             )}
           </StateNotice>
         )}
-        <div class="inline-actions">
+        <div class="form-actions">
           <a class="button-link" href="#/system?tab=backups">
             Cancel
           </a>
@@ -1064,6 +1064,15 @@ function AdminCredentials({
   const beginCreate = () => {
     setNotice(undefined);
     setExpiryError(undefined);
+    const expiryInput = document.getElementById(
+      "admin-credential-expiry",
+    ) as HTMLInputElement;
+    if (!expiryInput.validity.valid) {
+      setExpiryError(
+        "Choose a complete expiry date and time, or clear it for a non-expiring credential.",
+      );
+      return;
+    }
     let expiresAt: string | null = null;
     if (expiry !== "") {
       const timestamp = Date.parse(expiry);
@@ -1074,7 +1083,7 @@ function AdminCredentials({
         delta > 365 * 24 * 60 * 60_000
       ) {
         setExpiryError(
-          "Expiry must be an RFC 3339 time from 5 minutes through 365 days in the future.",
+          "Choose an expiry from 5 minutes through 365 days in the future.",
         );
         return;
       }
@@ -1173,8 +1182,8 @@ function AdminCredentials({
         </p>
         <FormField
           id="admin-credential-expiry"
-          label="Expiry (RFC 3339)"
-          hint="Blank creates non-expiring authority. Expiry must be 5 minutes through 365 days ahead."
+          label="Expiry"
+          hint="Choose a date and time in your local timezone, from 5 minutes through 365 days ahead. Leave blank for a non-expiring credential."
           optional
           {...(expiryError === undefined ? {} : { error: expiryError })}
         >
@@ -1182,9 +1191,10 @@ function AdminCredentials({
             <input
               {...attributes}
               data-testid="admin-credential-expiry"
+              type="datetime-local"
+              step="1"
               value={expiry}
               disabled={disabled}
-              placeholder="2030-01-01T00:00:00Z"
               onInput={(event) => {
                 setExpiry(event.currentTarget.value);
                 setExpiryError(undefined);
@@ -1205,7 +1215,7 @@ function AdminCredentials({
             </p>
           </StateNotice>
         )}
-        <div class="inline-actions">
+        <div class="form-actions">
           <a class="button-link" href="#/system?tab=admin-credentials">
             Cancel
           </a>
@@ -1232,7 +1242,19 @@ function AdminCredentials({
               </p>
               <dl>
                 <dt>Expiry</dt>
-                <dd>{expiry === "" ? "Non-expiring" : expiry}</dd>
+                <dd>
+                  {expiry === "" ? (
+                    "Non-expiring"
+                  ) : (
+                    <UserTime
+                      value={
+                        Number.isFinite(Date.parse(expiry))
+                          ? new Date(expiry).toISOString()
+                          : expiry
+                      }
+                    />
+                  )}
+                </dd>
               </dl>
             </div>
           }

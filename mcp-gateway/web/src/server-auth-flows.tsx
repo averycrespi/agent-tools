@@ -213,25 +213,43 @@ function StartFlow({
     mutation.availability === "storage_latched" ||
     waitingForRead;
   const replacingAuthority = server.credentialState === "ready";
+  const authentication = (server.transport as Record<string, unknown> | null)
+    ?.authentication as Record<string, unknown> | undefined;
+  const registration = authentication?.registration as
+    | Record<string, unknown>
+    | undefined;
+  const clientSecretMissing =
+    registration?.mode === "static" &&
+    (registration.token_endpoint_auth_method === "client_secret_basic" ||
+      registration.token_endpoint_auth_method === "client_secret_post") &&
+    server.oauthClientRevision === "0";
 
   return (
     <section class="panel domain-panel" aria-labelledby="auth-flow-start-title">
       <div class="panel-heading">
         <div>
           <span class="panel-code">ONE-TIME AUTHORIZATION</span>
-          <h2 id="auth-flow-start-title">OAuth</h2>
+          <h2 id="auth-flow-start-title">OAuth authorization</h2>
         </div>
       </div>
       <p>
         Continue authorization in a new browser page. The one-time URL is
         cleared when it is dismissed, opened, or you leave this page.
       </p>
+      {clientSecretMissing && (
+        <p class="bounded-note" id="oauth-client-prerequisite">
+          Add the client secret above before authorizing.
+        </p>
+      )}
       {eligible(server) && !exchangeActive ? (
         <button
           type="button"
           class={replacingAuthority ? undefined : "primary-action"}
           data-testid="start-auth-flow"
-          disabled={disabled}
+          disabled={disabled || clientSecretMissing}
+          aria-describedby={
+            clientSecretMissing ? "oauth-client-prerequisite" : undefined
+          }
           onClick={start}
         >
           {replacingAuthority ? "Reauthorize server" : "Authorize server"}

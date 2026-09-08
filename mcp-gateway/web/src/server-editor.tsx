@@ -85,6 +85,16 @@ const namespacePattern = /^[a-z][a-z0-9_-]{0,31}$/;
 const secretSlotPattern = /^[a-z][a-z0-9_]{0,63}$/;
 const absolutePathPattern = /^\/(?:[^\0]*)$/;
 let nextItemID = 0;
+const protocolLabels = {
+  auto: "Automatic (recommended)",
+  modern: "Current only — 2026-07-28",
+  legacy: "Legacy only — 2025-11-25",
+};
+const tokenAuthLabels = {
+  none: "Public client — no client secret",
+  client_secret_basic: "Client secret in HTTP Basic",
+  client_secret_post: "Client secret in request body",
+};
 
 function isCanonicalAbsolutePath(value: string): boolean {
   if (!absolutePathPattern.test(value)) return false;
@@ -642,6 +652,7 @@ function PairListEditor({
   hint,
   nameLabel,
   valueLabel,
+  addLabel,
   valueRequired = true,
   items,
   disabled,
@@ -652,6 +663,7 @@ function PairListEditor({
   hint: string;
   nameLabel: string;
   valueLabel: string;
+  addLabel: string;
   valueRequired?: boolean;
   items: PairItem[];
   disabled: boolean;
@@ -729,7 +741,7 @@ function PairListEditor({
           onChange([...items, { id: itemID(id), name: "", value: "" }])
         }
       >
-        Add row
+        {addLabel}
       </button>
     </fieldset>
   );
@@ -762,6 +774,7 @@ function EditorForm({
 }) {
   const [advancedOpen, setAdvancedOpen] = useState(
     () =>
+      draft.issuer !== "" ||
       draft.callbackURI !== "" ||
       draft.authServerMetadataURL !== "" ||
       draft.explicitScopes ||
@@ -771,10 +784,12 @@ function EditorForm({
   useEffect(() => {
     const field = configurationError?.field;
     if (
+      issuerError !== undefined ||
       Object.keys(compatibilityErrors).length > 0 ||
       Object.keys(originErrors).length > 0 ||
       (field !== undefined &&
         [
+          "transport.authentication.registration.issuer",
           "transport.authentication.callback_uri",
           "transport.authentication.auth_server_metadata_url",
           "transport.authentication.scopes",
@@ -783,7 +798,7 @@ function EditorForm({
         ].includes(field))
     )
       setAdvancedOpen(true);
-  }, [compatibilityErrors, originErrors, configurationError]);
+  }, [issuerError, compatibilityErrors, originErrors, configurationError]);
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft({ ...draft, [key]: value });
   return (
@@ -926,6 +941,7 @@ function EditorForm({
           <PairListEditor
             id="server-environment"
             label="Environment variables"
+            addLabel="Add variable"
             hint="Add non-secret environment variables for the process. Use Secret environment bindings for passwords and tokens."
             nameLabel="Variable name"
             valueLabel="Value"
@@ -937,6 +953,7 @@ function EditorForm({
           <PairListEditor
             id="server-secret-environment"
             label="Secret environment bindings"
+            addLabel="Add binding"
             hint={
               namespaceLocked
                 ? "Map each environment variable to a credential slot name, not a secret value. Manage the matching secret under Authentication."
@@ -989,9 +1006,9 @@ function EditorForm({
                   )
                 }
               >
-                <option value="auto">Automatic (recommended)</option>
-                <option value="modern">Current only — 2026-07-28</option>
-                <option value="legacy">Legacy only — 2025-11-25</option>
+                <option value="auto">{protocolLabels.auto}</option>
+                <option value="modern">{protocolLabels.modern}</option>
+                <option value="legacy">{protocolLabels.legacy}</option>
               </select>
             )}
           </FormField>
@@ -1112,39 +1129,18 @@ function EditorForm({
                           )
                         }
                       >
-                        <option value="none">
-                          Public client — no client secret
-                        </option>
+                        <option value="none">{tokenAuthLabels.none}</option>
                         <option value="client_secret_basic">
-                          Client secret in HTTP Basic
+                          {tokenAuthLabels.client_secret_basic}
                         </option>
                         <option value="client_secret_post">
-                          Client secret in request body
+                          {tokenAuthLabels.client_secret_post}
                         </option>
                       </select>
                     )}
                   </FormField>
                 </>
               )}
-              <FormField
-                id="server-issuer"
-                label="OAuth issuer URL"
-                hint="Enter the exact HTTPS issuer URL from your provider's OAuth documentation, not its authorization or token endpoint. You can leave this blank if the MCP server advertises exactly one issuer with the same scheme, hostname, and port as its HTTP endpoint."
-                {...(issuerError === undefined ? {} : { error: issuerError })}
-                optional
-              >
-                {(attributes) => (
-                  <input
-                    {...attributes}
-                    value={draft.issuer}
-                    disabled={disabled}
-                    onInput={(event) => {
-                      clearFieldError("issuer");
-                      update("issuer", event.currentTarget.value);
-                    }}
-                  />
-                )}
-              </FormField>
               <details
                 class="form-disclosure"
                 open={advancedOpen}
@@ -1155,6 +1151,25 @@ function EditorForm({
                     ? "Hide advanced OAuth settings"
                     : "Show advanced OAuth settings"}
                 </summary>
+                <FormField
+                  id="server-issuer"
+                  label="OAuth issuer URL"
+                  hint="Enter the exact HTTPS issuer URL from your provider's OAuth documentation, not its authorization or token endpoint. You can leave this blank if the MCP server advertises exactly one issuer with the same scheme, hostname, and port as its HTTP endpoint."
+                  {...(issuerError === undefined ? {} : { error: issuerError })}
+                  optional
+                >
+                  {(attributes) => (
+                    <input
+                      {...attributes}
+                      value={draft.issuer}
+                      disabled={disabled}
+                      onInput={(event) => {
+                        clearFieldError("issuer");
+                        update("issuer", event.currentTarget.value);
+                      }}
+                    />
+                  )}
+                </FormField>
                 <FormField
                   id="server-callback-uri"
                   label="Callback URI"
@@ -1345,7 +1360,7 @@ function CreationReview({ draft }: { draft: Draft }) {
           <>
             <div>
               <dt>Protocol</dt>
-              <dd>{draft.protocolMode}</dd>
+              <dd>{protocolLabels[draft.protocolMode]}</dd>
             </div>
             <div>
               <dt>Authentication</dt>
@@ -1358,7 +1373,7 @@ function CreationReview({ draft }: { draft: Draft }) {
                   <dd>
                     {draft.registrationMode === "dynamic"
                       ? "Register Gateway automatically"
-                      : `Existing client ${draft.clientID.trim()} (${draft.tokenEndpointAuthMethod})`}
+                      : `Existing client ${draft.clientID.trim()} (${tokenAuthLabels[draft.tokenEndpointAuthMethod]})`}
                   </dd>
                 </div>
                 <div>

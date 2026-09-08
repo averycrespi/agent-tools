@@ -267,7 +267,9 @@ function ReplacementForm({
             label={
               shape.kind === "oauth_client"
                 ? "OAuth client secret"
-                : `Secret slot ${slot}`
+                : (server.transport as JSONRecord).kind === "streamable_http"
+                  ? "Bearer token"
+                  : `Secret slot ${slot}`
             }
             hint="Write-only. This value is cleared immediately after submission and is never returned by the Gateway."
             onInput={updateCredentialDirty}
@@ -309,7 +311,7 @@ function ReplacementForm({
         )}
         <button
           ref={submitButton}
-          class="danger-action"
+          class="danger-action form-submit-action"
           type="button"
           data-testid="credential-replacement-submit"
           disabled={disabled}
@@ -377,9 +379,9 @@ function authenticationPresentation(server: ServerView): {
     heading = "Bearer token";
     description = "Replace the write-only bearer token used for this server.";
   } else if (authentication.mode === "oauth") {
-    heading = "OAuth";
+    heading = "OAuth client credentials";
     description =
-      "Authorize this server or replace its configured client secret.";
+      "This client secret identifies your OAuth application. You must also authorize Gateway below to access the server.";
   }
   const warning = [
     "absent",
@@ -419,7 +421,11 @@ export function ServerCredentials({
 }) {
   const shape = replacementShape(server);
   const presentation = authenticationPresentation(server);
-  if (presentation.heading === "OAuth" && shape === undefined) return null;
+  if (
+    presentation.heading === "OAuth client credentials" &&
+    shape === undefined
+  )
+    return null;
   return (
     <section
       class="panel domain-panel"
@@ -430,9 +436,15 @@ export function ServerCredentials({
         <div>
           <h2 id="server-credentials-title">{presentation.heading}</h2>
         </div>
-        <StatusLabel state={presentation.warning ? "warning" : "current"}>
-          {presentation.status}
-        </StatusLabel>
+        {shape?.kind === "oauth_client" ? (
+          server.oauthClientRevision === "0" && (
+            <StatusLabel state="warning">Client secret required</StatusLabel>
+          )
+        ) : (
+          <StatusLabel state={presentation.warning ? "warning" : "current"}>
+            {presentation.status}
+          </StatusLabel>
+        )}
       </div>
       {presentation.description !== undefined && (
         <p>{presentation.description}</p>
