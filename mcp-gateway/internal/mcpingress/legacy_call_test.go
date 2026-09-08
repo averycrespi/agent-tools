@@ -171,7 +171,7 @@ func TestLegacyCallDisconnectCancelsRequestWithoutClosingOrReplayingSession(t *t
 			<-ctx.Done()
 			return ToolsCallResponse{ErrorCode: contract.OutcomeUnknown, InvocationID: "01J60000000000000000000004"}
 		}
-		return ToolsCallResponse{ErrorCode: contract.CallRejected, InvocationID: "01J60000000000000000000005"}
+		return ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionInvalidParams, InvocationID: "01J60000000000000000000005"}
 	})
 	handler, authority, boundary := newLegacyCallHarness(t, service)
 	defer handler.Shutdown()
@@ -195,6 +195,6 @@ func TestLegacyCallDisconnectCancelsRequestWithoutClosingOrReplayingSession(t *t
 	secondResponse := httptest.NewRecorder()
 	boundary.ServeHTTP(secondResponse, legacyCallRequest(`2`, "valid", sessionID))
 	assert.Equal(t, int32(2), calls.Load())
-	assert.Equal(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Call rejected","data":{"code":"call_rejected","invocationId":"01J60000000000000000000005"}}}`, secondResponse.Body.String())
+	assert.Equal(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Request rejected: invalid tools/call parameters. Check the request shape.","data":{"code":"call_rejected","reason":"invalid_params","invocationId":"01J60000000000000000000005"}}}`, secondResponse.Body.String())
 	assert.False(t, leaseDone(sessionLease))
 }

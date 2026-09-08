@@ -76,7 +76,7 @@ func TestModernCallMapsEverySafeServiceResponse(t *testing.T) {
 		want     string
 	}{
 		{name: "success", response: ToolsCallResponse{Result: &ToolsCallResult{Content: []json.RawMessage{json.RawMessage(`{"type":"text","text":"ok"}`)}}}, want: `{"jsonrpc":"2.0","id":"modern","result":{"content":[{"type":"text","text":"ok"}]}}`},
-		{name: "rejected", response: ToolsCallResponse{ErrorCode: contract.CallRejected, InvocationID: "01J60000000000000000000001"}, want: `{"jsonrpc":"2.0","id":"modern","error":{"code":-32000,"message":"Call rejected","data":{"code":"call_rejected","invocationId":"01J60000000000000000000001"}}}`},
+		{name: "rejected", response: ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionInvalidParams, InvocationID: "01J60000000000000000000001"}, want: `{"jsonrpc":"2.0","id":"modern","error":{"code":-32000,"message":"Request rejected: invalid tools/call parameters. Check the request shape.","data":{"code":"call_rejected","reason":"invalid_params","invocationId":"01J60000000000000000000001"}}}`},
 		{name: "audit unavailable", response: ToolsCallResponse{ErrorCode: contract.AuditUnavailable}, want: `{"jsonrpc":"2.0","id":"modern","error":{"code":-32000,"message":"Call unavailable","data":{"code":"audit_unavailable"}}}`},
 		{name: "tool unavailable", response: ToolsCallResponse{ErrorCode: contract.ToolUnavailable, InvocationID: "01J60000000000000000000002"}, want: `{"jsonrpc":"2.0","id":"modern","error":{"code":-32000,"message":"Tool unavailable","data":{"code":"tool_unavailable","invocationId":"01J60000000000000000000002"}}}`},
 		{name: "downstream failure", response: ToolsCallResponse{ErrorCode: contract.DownstreamFailure, InvocationID: "01J60000000000000000000003"}, want: `{"jsonrpc":"2.0","id":"modern","error":{"code":-32000,"message":"Tool failed","data":{"code":"downstream_failure","invocationId":"01J60000000000000000000003"}}}`},
@@ -139,7 +139,7 @@ func TestModernCallDisconnectCancelsOnceAndReconnectDoesNotReplay(t *testing.T) 
 			<-ctx.Done()
 			return ToolsCallResponse{ErrorCode: contract.OutcomeUnknown, InvocationID: "01J60000000000000000000004"}
 		}
-		return ToolsCallResponse{ErrorCode: contract.CallRejected, InvocationID: "01J60000000000000000000005"}
+		return ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionInvalidParams, InvocationID: "01J60000000000000000000005"}
 	})
 	_, _, boundary := newModernCallBoundary(t, service)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -159,5 +159,5 @@ func TestModernCallDisconnectCancelsOnceAndReconnectDoesNotReplay(t *testing.T) 
 	secondResponse := httptest.NewRecorder()
 	boundary.ServeHTTP(secondResponse, modernCallRequest(`2`))
 	assert.Equal(t, int32(2), calls.Load())
-	assert.Equal(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Call rejected","data":{"code":"call_rejected","invocationId":"01J60000000000000000000005"}}}`, strings.TrimSpace(secondResponse.Body.String()))
+	assert.Equal(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Request rejected: invalid tools/call parameters. Check the request shape.","data":{"code":"call_rejected","reason":"invalid_params","invocationId":"01J60000000000000000000005"}}}`, strings.TrimSpace(secondResponse.Body.String()))
 }

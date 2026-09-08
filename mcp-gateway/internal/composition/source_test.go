@@ -372,6 +372,11 @@ var _ http.Client
 			want:     "internal/api/bad.go: prohibited capability consumer .Acquire(",
 		},
 		{
+			name: "call method in contract message owner", path: "internal/contract/s4_states.go",
+			contents: "package contract\nconst method = `tools/call`\n",
+			want:     "internal/contract/s4_states.go: prohibited S4/S5 consumer tools/call",
+		},
+		{
 			name: "call slice", path: "internal/api/bad.go",
 			contents: "package api\nconst method = `tools/call`\n",
 			want:     "internal/api/bad.go: prohibited S4/S5 consumer tools/call",
@@ -496,7 +501,11 @@ func productionSliceViolations(source productionSource) []string {
 	}
 	allowedCallWireOwner := source.path == "internal/downstream/call.go" || source.path == "internal/mcpingress/handler.go" ||
 		source.path == "internal/mcpingress/tools_list.go" || source.path == "internal/mcpingress/tools_call.go"
-	if !allowedCallWireOwner && strings.Contains(source.contents, "tools/call") {
+	callWireSource := source.contents
+	if source.path == "internal/contract/s4_states.go" {
+		callWireSource = strings.ReplaceAll(callWireSource, `"Request rejected: invalid tools/call parameters. Check the request shape."`, "")
+	}
+	if !allowedCallWireOwner && strings.Contains(callWireSource, "tools/call") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 consumer tools/call", source.path))
 	}
 	if strings.Contains(source.contents, "target.local(") && source.path != "internal/invocation/service.go" {

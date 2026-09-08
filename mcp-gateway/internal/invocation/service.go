@@ -18,9 +18,11 @@ type CallRequest struct {
 }
 
 type CallResponse struct {
-	Result       *ProjectedCallResult
-	ErrorCode    contract.AgentCallErrorCode
-	InvocationID string
+	Result             *ProjectedCallResult
+	ErrorCode          contract.AgentCallErrorCode
+	RejectionReason    contract.CallRejectionReason
+	BlockedSelfService bool
+	InvocationID       string
 }
 
 type executionLease interface {
@@ -171,11 +173,19 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 		return CallResponse{ErrorCode: contract.AuditUnavailable}
 	}
 	admission, err := service.admissions.Admit(ctx, lease, identity, admissionRequest)
+	code, reason, mayRun := ClassifyAdmission(admission.Committed, admission.Class, admission.Decision)
 	if !admission.Committed {
-		return CallResponse{ErrorCode: contract.AuditUnavailable}
+		return CallResponse{ErrorCode: code}
 	}
-	if err != nil || !admission.DispatchAuthorized || admission.Subject == nil {
-		return CallResponse{ErrorCode: contract.CallRejected, InvocationID: identity.InvocationID}
+	if err != nil || !mayRun || !admission.DispatchAuthorized || admission.Subject == nil {
+		if mayRun {
+			// An acknowledged ALLOW can still lose detachment to drain.
+			code, reason = contract.CallRejected, contract.RejectionAuthorizationUnavailable
+		}
+		return CallResponse{
+			ErrorCode: code, RejectionReason: reason, InvocationID: identity.InvocationID,
+			BlockedSelfService: reason == contract.RejectionBlock && target.local != nil,
+		}
 	}
 	if target.local != nil {
 		return service.finish(ctx, identity.InvocationID, SanitizeLocalCallResult(target.local(ctx, *admission.Subject, *classified.arguments)))

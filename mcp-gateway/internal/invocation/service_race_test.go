@@ -189,6 +189,7 @@ func TestDrainBetweenCommitAndDetachmentNeverAcquiresCapability(t *testing.T) {
 	result := <-response
 
 	assert.Equal(t, contract.CallRejected, result.ErrorCode)
+	assert.Equal(t, contract.RejectionAuthorizationUnavailable, result.RejectionReason)
 	assert.NotEmpty(t, result.InvocationID)
 	assert.Zero(t, acquisitions)
 	record := onlyInvocationRecord(t, audits)

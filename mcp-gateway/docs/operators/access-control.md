@@ -124,6 +124,21 @@ mcp-gateway grant delete GRANT_ID --yes
 
 Deletion has no ETag or idempotency surface. An uncertain create or delete requires narrow principal/grant reads rather than replay. Visibility by itself never authorizes calls, and deleting an expired or default grant can still change capacity or self-service behavior.
 
+## Interpret MCP call rejections
+
+Modern and legacy `tools/call` rejections retain JSON-RPC `-32000` and `data.code: "call_rejected"`. Read the closed `data.reason` rather than parsing message text:
+
+- `invalid_params`: check the `tools/call` request shape.
+- `unknown_tool`: refresh `tools/list` and check the name; discovery is not authorization.
+- `invalid_arguments`: check the tool's input schema.
+- `deny`: a matching DENY takes precedence. Additional ALLOW grants and self-service requests cannot override it. An administrator may review/remove the DENY, or it may expire; the response does not mean denial is permanent.
+- `block`: no matching ALLOW authorizes the call. If available, the caller may use `mcp_gateway.list_grants` to inspect access or `mcp_gateway.create_grant_request` to request it. Requesting access does not authorize the call; approval is required and is not guaranteed.
+- `authorization_unavailable`: authorization could not be established; this is not a DENY or BLOCK decision. Review Gateway health and retained evidence rather than assuming another grant will fix it.
+
+Self-service tools require their own grants. A blocked `mcp_gateway` call therefore offers optional administrator review instead of circular advice to call blocked self-service tools. Guidance never submits a request or retries a call automatically. Rejected calls do not execute locally or downstream.
+
+An acknowledged rejection includes `data.invocationId` for administrator investigation, but no grant IDs, constraints, argument values, or raw errors. Without acknowledged admission, Gateway returns `audit_unavailable` without an invocation ID or rejection reason; do not infer a policy decision. Other error codes omit `data.reason`, and uncertain-outcome handling is unchanged. See the [normative response contract](../design/invocation-and-ingress.md#live-call-rejection-contract) for exact messages and [invocation evidence](invocation-evidence.md) before deciding whether to retry an uncertain call.
+
 ## Review grant requests
 
 Agents create and cancel requests only through the six fixed self-service tools. Administrators inspect the queue through the CLI:

@@ -179,7 +179,6 @@ func TestToolsCallCodecEmitsOnlyClosedSafeErrors(t *testing.T) {
 		invocation string
 		want       string
 	}{
-		{code: contract.CallRejected, invocation: "01J60000000000000000000001", want: `{"jsonrpc":"2.0","id":"request","error":{"code":-32000,"message":"Call rejected","data":{"code":"call_rejected","invocationId":"01J60000000000000000000001"}}}`},
 		{code: contract.AuditUnavailable, want: `{"jsonrpc":"2.0","id":"request","error":{"code":-32000,"message":"Call unavailable","data":{"code":"audit_unavailable"}}}`},
 		{code: contract.ToolUnavailable, invocation: "01J60000000000000000000002", want: `{"jsonrpc":"2.0","id":"request","error":{"code":-32000,"message":"Tool unavailable","data":{"code":"tool_unavailable","invocationId":"01J60000000000000000000002"}}}`},
 		{code: contract.DownstreamFailure, invocation: "01J60000000000000000000003", want: `{"jsonrpc":"2.0","id":"request","error":{"code":-32000,"message":"Tool failed","data":{"code":"downstream_failure","invocationId":"01J60000000000000000000003"}}}`},
@@ -198,6 +197,66 @@ func TestToolsCallCodecEmitsOnlyClosedSafeErrors(t *testing.T) {
 
 			assert.Equal(t, test.want, response.Body.String())
 		})
+	}
+}
+
+func TestCallRejectionReasonsHaveExactDualEraWireMessages(t *testing.T) {
+	for _, test := range []struct {
+		reason      contract.CallRejectionReason
+		selfService bool
+		message     string
+	}{
+		{contract.RejectionInvalidParams, false, "Request rejected: invalid tools/call parameters. Check the request shape."},
+		{contract.RejectionUnknownTool, false, "Request rejected: unknown tool. Refresh tools/list and check the tool name."},
+		{contract.RejectionInvalidArguments, false, "Request rejected: invalid tool arguments. Check the tool’s input schema."},
+		{contract.RejectionDeny, false, "DENIED: a matching DENY grant forbids this call. Additional ALLOW grants and self-service requests cannot override it."},
+		{contract.RejectionBlock, false, "BLOCKED: no matching ALLOW grant authorizes this call. If available, you may use mcp_gateway.list_grants to inspect your access or mcp_gateway.create_grant_request to request access. Requesting access does not authorize the call; approval is required."},
+		{contract.RejectionBlock, true, "BLOCKED: no matching ALLOW grant authorizes this call. You may ask an administrator to review your access."},
+		{contract.RejectionAuthorizationUnavailable, false, "Call rejected: authorization could not be established. This is not a DENY or BLOCK decision."},
+	} {
+		t.Run(test.message, func(t *testing.T) {
+			calls := 0
+			service := toolsCallServiceFunc(func(context.Context, *authorization.Lease, ToolsCallRequest) ToolsCallResponse {
+				calls++
+				return ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: test.reason, BlockedSelfService: test.selfService, InvocationID: "01J60000000000000000000001"}
+			})
+			modernHandler, _, modern := newModernCallBoundary(t, service)
+			defer modernHandler.Shutdown()
+			legacyHandler, _, legacy := newLegacyCallHarness(t, service)
+			defer legacyHandler.Shutdown()
+			session := initializeLegacyCall(t, legacy)
+			modernResponse, legacyResponse := httptest.NewRecorder(), httptest.NewRecorder()
+			modern.ServeHTTP(modernResponse, modernCallRequest(`"same-id"`))
+			legacy.ServeHTTP(legacyResponse, legacyCallRequest(`"same-id"`, "valid", session))
+			require.Equal(t, 200, modernResponse.Code)
+			require.Equal(t, 200, legacyResponse.Code)
+			assert.Equal(t, modernResponse.Body.String(), legacyResponse.Body.String())
+			assert.Equal(t, 2, calls)
+			assert.JSONEq(t, `{"jsonrpc":"2.0","id":"same-id","error":{"code":-32000,"message":"`+test.message+`","data":{"code":"call_rejected","reason":"`+string(test.reason)+`","invocationId":"01J60000000000000000000001"}}}`, modernResponse.Body.String())
+			for _, private := range []string{"sample.echo", "1e0", "grantId", "constraint", "outcomeUnknown"} {
+				assert.NotContains(t, modernResponse.Body.String(), private)
+			}
+		})
+	}
+}
+
+func TestToolsCallCodecFailsClosedOnInvalidRejectionEvidence(t *testing.T) {
+	id := "01J60000000000000000000001"
+	for _, response := range []ToolsCallResponse{
+		{ErrorCode: contract.CallRejected, InvocationID: id},
+		{ErrorCode: contract.CallRejected, RejectionReason: "private-reason", InvocationID: id},
+		{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionDeny},
+		{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionDeny, InvocationID: "private-id"},
+		{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionDeny, BlockedSelfService: true, InvocationID: id},
+		{ErrorCode: contract.AuditUnavailable, RejectionReason: contract.RejectionDeny},
+		{ErrorCode: contract.DownstreamFailure, RejectionReason: contract.RejectionDeny, InvocationID: id},
+		{ErrorCode: contract.OutcomeUnknown, RejectionReason: contract.RejectionBlock, InvocationID: id},
+		{ErrorCode: contract.ToolUnavailable, BlockedSelfService: true, InvocationID: id},
+		{Result: &ToolsCallResult{Content: []json.RawMessage{}}, RejectionReason: contract.RejectionBlock},
+	} {
+		encoded, err := encodeToolsCallResponse(t.Context(), json.RawMessage(`7`), response)
+		require.NoError(t, err)
+		assert.Equal(t, `{"jsonrpc":"2.0","id":7,"error":{"code":-32000,"message":"Call unavailable","data":{"code":"audit_unavailable"}}}`, string(encoded))
 	}
 }
 
