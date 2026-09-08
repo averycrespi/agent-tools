@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -33,6 +34,27 @@ type assertionCapture struct {
 
 func (capture *assertionCapture) Errorf(format string, arguments ...any) {
 	capture.output = fmt.Sprintf(format, arguments...)
+}
+
+func TestGatewayHarnessCatalogQuietWindow(t *testing.T) {
+	epoch := time.Unix(0, 0).UTC()
+	period, jitter := contract.CatalogPollInterval, contract.CatalogPollMaximumJitter
+	for _, elapsed := range []time.Duration{0, jitter - 1, jitter, period - gatewayProcessDeadline - 1, period - gatewayProcessDeadline, period - 1, period} {
+		t.Run(elapsed.String(), func(t *testing.T) {
+			now := epoch.Add(elapsed)
+			start, end := catalogQuietWindow(now)
+			runStart := now
+			if runStart.Before(start) {
+				runStart = start
+			}
+			assert.True(t, runStart.Add(gatewayProcessDeadline).Before(end))
+			assert.LessOrEqual(t, runStart.Sub(now), jitter+gatewayProcessDeadline)
+			for _, offset := range []time.Duration{0, jitter / 2, jitter - 1} {
+				next := catalog.NextPoll(runStart, offset)
+				assert.False(t, next.Before(end), "scheduled poll overlaps isolated process lifetime")
+			}
+		})
+	}
 }
 
 func TestGatewayHarnessWaitsForPostCommitReconciliationSettlement(t *testing.T) {

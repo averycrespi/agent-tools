@@ -60,6 +60,37 @@ type gatewayHarness struct {
 	serveArgs          []string
 }
 
+const gatewayProcessDeadline = 20 * time.Second
+
+func catalogQuietWindow(now time.Time) (time.Time, time.Time) {
+	epoch := now.Truncate(contract.CatalogPollInterval)
+	start := epoch.Add(contract.CatalogPollMaximumJitter)
+	end := epoch.Add(contract.CatalogPollInterval)
+	if !now.Add(gatewayProcessDeadline).Before(end) {
+		start = start.Add(contract.CatalogPollInterval)
+		end = end.Add(contract.CatalogPollInterval)
+	}
+	return start, end
+}
+
+func (harness *gatewayHarness) StartBetweenCatalogPolls() {
+	harness.t.Helper()
+	// Polls use an epoch grid, not a delay from activation. Exact isolation
+	// counters need a full process lifetime outside every possible poll offset.
+	start, end := catalogQuietWindow(time.Now())
+	timer := time.NewTimer(time.Until(start))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-harness.t.Context().Done():
+		harness.t.Fatal("cancelled while awaiting catalog quiet window")
+	}
+	ctx, cancel := context.WithDeadline(harness.ctx, end)
+	harness.t.Cleanup(cancel)
+	harness.ctx = ctx
+	harness.Start()
+}
+
 func newGatewayHarness(t *testing.T) *gatewayHarness {
 	t.Helper()
 	return newGatewayHarnessContext(t, context.Background())
@@ -67,7 +98,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 
 func newGatewayHarnessContext(t *testing.T, ctx context.Context) *gatewayHarness {
 	t.Helper()
-	runner, err := testutil.NewBinaryRunner(20*time.Second, 128*1024)
+	runner, err := testutil.NewBinaryRunner(gatewayProcessDeadline, 128*1024)
 	require.NoError(t, err)
 	harness := &gatewayHarness{
 		t: t, ctx: ctx, binary: gatewayBinary(t), root: filepath.Join(t.TempDir(), "gateway"),

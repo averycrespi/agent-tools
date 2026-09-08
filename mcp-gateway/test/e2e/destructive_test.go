@@ -29,7 +29,7 @@ type destructiveServerView struct {
 
 func TestGatewayBinaryDisconnectDisableDeleteAndIsolation(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.Start()
+	harness.StartBetweenCatalogPolls()
 	defer harness.Stop(syscall.SIGTERM)
 
 	unrelatedFixture := newRawHTTPFixture(t, "modern")
