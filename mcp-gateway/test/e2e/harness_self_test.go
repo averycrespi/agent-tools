@@ -11,10 +11,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -31,6 +33,46 @@ type assertionCapture struct {
 
 func (capture *assertionCapture) Errorf(format string, arguments ...any) {
 	capture.output = fmt.Sprintf(format, arguments...)
+}
+
+func TestGatewayHarnessWaitsForPostCommitReconciliationSettlement(t *testing.T) {
+	for _, terminal := range []contract.ServerOperationState{contract.OperationSucceeded, contract.OperationFailed} {
+		t.Run(string(terminal), func(t *testing.T) {
+			var operationReads, serverReads atomic.Int64
+			fixture := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				assert.Equal(t, http.MethodGet, request.Method)
+				writer.Header().Set("Content-Type", contract.MediaTypeJSON)
+				switch request.URL.Path {
+				case "/api/v1/servers/server/operations/operation":
+					state := terminal
+					if operationReads.Add(1) == 1 {
+						state = contract.OperationRunning
+					}
+					assert.NoError(t, json.NewEncoder(writer).Encode(contract.ServerOperation{State: state}))
+				case "/api/v1/servers/server":
+					assert.GreaterOrEqual(t, operationReads.Load(), int64(2))
+					switch serverReads.Add(1) {
+					case 1:
+						writer.WriteHeader(http.StatusServiceUnavailable)
+						_, _ = io.WriteString(writer, `{"code":"storage_unavailable"}`)
+					case 2:
+						_, _ = io.WriteString(writer, `{"runtime":{"reconciliation":{"in_use":1,"limit":1,"saturated":true}}}`)
+					default:
+						_, _ = io.WriteString(writer, `{"runtime":{"reconciliation":{"in_use":0,"limit":1,"saturated":false}}}`)
+					}
+				default:
+					t.Errorf("unexpected settlement request: %s", request.URL.Path)
+					writer.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer fixture.Close()
+			harness := &gatewayHarness{t: t, ctx: t.Context(), authority: strings.TrimPrefix(fixture.URL, "http://"), client: fixture.Client()}
+			harness.client.Timeout = 3 * time.Second
+			harness.WaitSettledOperation("server", "operation")
+			assert.GreaterOrEqual(t, operationReads.Load(), int64(2))
+			assert.EqualValues(t, 3, serverReads.Load(), "terminal operation state alone must not permit the next mutation")
+		})
+	}
 }
 
 func TestGatewayHarnessReusesOneBuiltBinary(t *testing.T) {

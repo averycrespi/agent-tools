@@ -124,6 +124,7 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 	require.NotNil(t, standardFlows.Items[0].Diagnostic.HTTPStatus)
 	assert.Equal(t, 404, *standardFlows.Items[0].Diagnostic.HTTPStatus)
 	patch := func() {
+		t.Helper()
 		encoded, err := json.Marshal(map[string]any{"transport": transport})
 		require.NoError(t, err)
 		var result stdioCreation
@@ -132,12 +133,7 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 		etag = response.Header.Get("ETag")
 		require.NoError(t, response.Body.Close())
 		if result.Operation != nil {
-			require.Eventually(t, func() bool {
-				var operation contract.ServerOperation
-				read := harness.AdminJSON("GET", "/api/v1/servers/"+created.Server.ID+"/operations/"+result.Operation.ID, "", nil, &operation)
-				_ = read.Body.Close()
-				return operation.State == contract.OperationSucceeded || operation.State == contract.OperationFailed
-			}, 5*time.Second, 10*time.Millisecond, "settle the isolated server operation before starting foreground authorization")
+			harness.WaitSettledOperation(created.Server.ID, result.Operation.ID)
 		}
 	}
 	auth["callback_uri"], auth["auth_server_metadata_url"], auth["scopes"] = callback, issuer+"/custom/metadata", []string{"fixture.write", "fixture.read"}
@@ -158,9 +154,13 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 	assert.Equal(t, issuer+"/custom/metadata", persisted["auth_server_metadata_url"])
 	assert.Equal(t, []any{"fixture.read", "fixture.write"}, persisted["scopes"])
 	start := func() contract.AuthFlowCreation {
+		t.Helper()
 		var flow contract.AuthFlowCreation
 		response := harness.AdminJSON("POST", flowPath, `{}`, map[string]string{"If-Match": etag}, nil)
-		require.Equal(t, 201, response.StatusCode, "exact port 3118 collision is a failure, never a fallback")
+		if response.StatusCode != http.StatusCreated {
+			body := readResponseBody(t, response)
+			t.Fatalf("create OAuth flow: status=%d body=%s", response.StatusCode, body)
+		}
 		require.NoError(t, json.NewDecoder(response.Body).Decode(&flow))
 		require.NoError(t, response.Body.Close())
 		return flow

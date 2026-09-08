@@ -200,6 +200,31 @@ func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state
 	}
 }
 
+func (harness *gatewayHarness) WaitSettledOperation(serverID, operationID string) {
+	harness.t.Helper()
+	require.Eventually(harness.t, func() bool {
+		response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID+"/operations/"+operationID, nil)
+		if response.StatusCode != http.StatusOK {
+			return false
+		}
+		var operation contract.ServerOperation
+		require.NoError(harness.t, json.Unmarshal(response.Body, &operation))
+		if operation.State != contract.OperationSucceeded && operation.State != contract.OperationFailed {
+			return false
+		}
+		// A terminal operation is readable before post-commit cleanup releases the writer.
+		response = harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID, nil)
+		if response.StatusCode != http.StatusOK {
+			return false
+		}
+		var server struct {
+			Runtime contract.ServerRuntime `json:"runtime"`
+		}
+		require.NoError(harness.t, json.Unmarshal(response.Body, &server))
+		return server.Runtime.Reconciliation.InUse == 0
+	}, 5*time.Second, 10*time.Millisecond, "settle reconciliation before the next mutation")
+}
+
 func prepareGatewayBinary() error {
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
