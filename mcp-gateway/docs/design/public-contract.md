@@ -16,6 +16,8 @@ The `internal/contract` package is the single executable source consumed by API,
 
 Methods are lexicographically ordered and become the exact `Allow` value. `HEAD` is never inherited from `GET`.
 
+The main callback remains unchanged. A configured per-flow callback-only numeric-loopback listener admits only its exact configured path, `GET`, and exact URI authority; it has no other public route. Main hostname allowlisting and browser Origin authority are independent. Collisions fail before URL publication; temporary listeners are composition-owned and released on terminal/cancellation/expiry/supersession/shutdown paths.
+
 | Pattern                                              | Exact `Allow`        | Authority                                         |
 | ---------------------------------------------------- | -------------------- | ------------------------------------------------- |
 | `/`                                                  | `GET`                | public                                            |
@@ -83,53 +85,54 @@ The read/store backend does not itself establish producer coverage or restore co
 
 Problems normally have exactly `status`, `code`, and `title`. The `invalid_server_configuration` problem additionally has one required `context` object with exact `field` and `rule` members so every administrative client can identify the rejected configuration boundary. Both values come from closed vocabularies: fields are `configuration`, `namespace`, `display_name`, `enabled`, `transport`, `transport.kind`, `transport.executable`, `transport.arguments`, `transport.working_directory`, `transport.environment`, `transport.secret_environment`, `transport.url`, `transport.protocol_mode`, `transport.authentication`, `transport.authentication.mode`, `transport.authentication.trusted_origins`, `transport.authentication.request_offline_access`, `transport.authentication.registration`, `transport.authentication.registration.mode`, `transport.authentication.registration.issuer`, `transport.authentication.registration.client_id`, and `transport.authentication.registration.token_endpoint_auth_method`; rules are `invalid`, `required`, `maximum`, `unique`, `disjoint`, `canonical_absolute_path`, `canonical_url`, and `transport_policy`. Only one deterministic first violation is returned. Dependency messages, submitted values, paths, payloads, dynamic map keys, array positions, and other details are never added.
 
-| Status | Code                                    | Fixed title                                                         |
-| -----: | --------------------------------------- | ------------------------------------------------------------------- |
-|    400 | `malformed_request`                     | The request is invalid.                                             |
-|    400 | `invalid_json`                          | The JSON body is invalid.                                           |
-|    400 | `invalid_cursor`                        | The cursor is invalid.                                              |
-|    400 | `invalid_idempotency_key`               | The idempotency key is invalid.                                     |
-|    400 | `ambiguous_credentials`                 | Multiple credential types were supplied.                            |
-|    400 | `invalid_oauth_state`                   | The OAuth state is invalid or expired.                              |
-|    401 | `authentication_required`               | Authentication is required.                                         |
-|    403 | `credential_domain_mismatch`            | The credential is for a different authority.                        |
-|    403 | `forbidden_origin`                      | The Origin is not accepted.                                         |
-|    403 | `csrf_failed`                           | CSRF validation failed.                                             |
-|    404 | `not_found`                             | The resource was not found.                                         |
-|    405 | `method_not_allowed`                    | The method is not allowed.                                          |
-|    409 | `conflict`                              | The request conflicts with current state.                           |
-|    409 | `idempotency_conflict`                  | The idempotency key conflicts with prior work.                      |
-|    409 | `admin_rotation_conflict`               | The administrator credential rotation conflicts with current state. |
-|    412 | `stale_admin_authority`                 | The administrator authority revision is stale.                      |
-|    428 | `admin_authority_precondition_required` | The administrator authority revision is required.                   |
-|    413 | `body_too_large`                        | The request body is too large.                                      |
-|    415 | `unsupported_media_type`                | The media type is not supported.                                    |
-|    421 | `misdirected_request`                   | The Host is not accepted.                                           |
-|    429 | `resource_limit`                        | The resource limit is reached.                                      |
-|    503 | `storage_unavailable`                   | Storage is unavailable.                                             |
-|    503 | `keyring_unavailable`                   | The credential provider is unavailable.                             |
-|    503 | `shutting_down`                         | The service is shutting down.                                       |
-|    400 | `invalid_server_configuration`          | The server configuration is invalid.                                |
-|    400 | `invalid_operation`                     | The server operation is invalid.                                    |
-|    409 | `namespace_unavailable`                 | The server namespace is unavailable.                                |
-|    409 | `operation_conflict`                    | The server has conflicting work.                                    |
-|    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                               |
-|    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                         |
-|    409 | `audit_history_replaced`                | The audit history generation has changed.                           |
-|    412 | `stale_revision`                        | The server revision is stale.                                       |
-|    428 | `precondition_required`                 | The current server revision is required.                            |
-|    503 | `downstream_unavailable`                | The downstream server is unavailable.                               |
-|    400 | `invalid_principal`                     | The principal is invalid.                                           |
-|    400 | `invalid_grant`                         | The grant is invalid.                                               |
-|    412 | `stale_grant_revision`                  | The grant revision is stale.                                        |
-|    428 | `grant_precondition_required`           | The current grant revision is required.                             |
-|    412 | `stale_principal_revision`              | The principal revision is stale.                                    |
-|    428 | `principal_precondition_required`       | The current principal revision is required.                         |
-|    503 | `authorization_unavailable`             | Authorization is unavailable.                                       |
-|    400 | `invalid_grant_request`                 | The grant request is invalid.                                       |
-|    409 | `grant_request_conflict`                | The grant request conflicts with current state.                     |
-|    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                |
-|    428 | `grant_request_precondition_required`   | The current grant request revision is required.                     |
+| Status | Code                                    | Fixed title                                                                                 |
+| -----: | --------------------------------------- | ------------------------------------------------------------------------------------------- |
+|    400 | `malformed_request`                     | The request is invalid.                                                                     |
+|    400 | `invalid_json`                          | The JSON body is invalid.                                                                   |
+|    400 | `invalid_cursor`                        | The cursor is invalid.                                                                      |
+|    400 | `invalid_idempotency_key`               | The idempotency key is invalid.                                                             |
+|    400 | `ambiguous_credentials`                 | Multiple credential types were supplied.                                                    |
+|    400 | `invalid_oauth_state`                   | The OAuth state is invalid or expired.                                                      |
+|    401 | `authentication_required`               | Authentication is required.                                                                 |
+|    403 | `credential_domain_mismatch`            | The credential is for a different authority.                                                |
+|    403 | `forbidden_origin`                      | The Origin is not accepted.                                                                 |
+|    403 | `csrf_failed`                           | CSRF validation failed.                                                                     |
+|    404 | `not_found`                             | The resource was not found.                                                                 |
+|    405 | `method_not_allowed`                    | The method is not allowed.                                                                  |
+|    409 | `conflict`                              | The request conflicts with current state.                                                   |
+|    409 | `idempotency_conflict`                  | The idempotency key conflicts with prior work.                                              |
+|    409 | `admin_rotation_conflict`               | The administrator credential rotation conflicts with current state.                         |
+|    412 | `stale_admin_authority`                 | The administrator authority revision is stale.                                              |
+|    428 | `admin_authority_precondition_required` | The administrator authority revision is required.                                           |
+|    413 | `body_too_large`                        | The request body is too large.                                                              |
+|    415 | `unsupported_media_type`                | The media type is not supported.                                                            |
+|    421 | `misdirected_request`                   | The Host is not accepted.                                                                   |
+|    429 | `resource_limit`                        | The resource limit is reached.                                                              |
+|    503 | `storage_unavailable`                   | Storage is unavailable.                                                                     |
+|    503 | `keyring_unavailable`                   | The credential provider is unavailable.                                                     |
+|    503 | `shutting_down`                         | The service is shutting down.                                                               |
+|    400 | `invalid_server_configuration`          | The server configuration is invalid.                                                        |
+|    400 | `invalid_operation`                     | The server operation is invalid.                                                            |
+|    409 | `namespace_unavailable`                 | The server namespace is unavailable.                                                        |
+|    409 | `operation_conflict`                    | The server has conflicting work.                                                            |
+|    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                                                       |
+|    409 | `oauth_callback_unavailable`            | The OAuth callback port is unavailable. Stop the conflicting listener and start a new flow. |
+|    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                                                 |
+|    409 | `audit_history_replaced`                | The audit history generation has changed.                                                   |
+|    412 | `stale_revision`                        | The server revision is stale.                                                               |
+|    428 | `precondition_required`                 | The current server revision is required.                                                    |
+|    503 | `downstream_unavailable`                | The downstream server is unavailable.                                                       |
+|    400 | `invalid_principal`                     | The principal is invalid.                                                                   |
+|    400 | `invalid_grant`                         | The grant is invalid.                                                                       |
+|    412 | `stale_grant_revision`                  | The grant revision is stale.                                                                |
+|    428 | `grant_precondition_required`           | The current grant revision is required.                                                     |
+|    412 | `stale_principal_revision`              | The principal revision is stale.                                                            |
+|    428 | `principal_precondition_required`       | The current principal revision is required.                                                 |
+|    503 | `authorization_unavailable`             | Authorization is unavailable.                                                               |
+|    400 | `invalid_grant_request`                 | The grant request is invalid.                                                               |
+|    409 | `grant_request_conflict`                | The grant request conflicts with current state.                                             |
+|    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                        |
+|    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                             |
 
 ### Fixed numeric limits
 
@@ -314,7 +317,7 @@ Server idempotency is scoped to parent admin credential, method, route, key, can
 
 `Server` is exactly `{id,namespace,display_name,desired_state,desired_revision,transport,credential_revisions,credential_state,runtime,catalog,created_at,updated_at,deleted_at}`. `credential_revisions` is exactly `{static_credential,oauth_client,oauth_tokens}`. Runtime is exactly `{state,reason,runtime_id,reconciliation,dispatch}` and catalog is exactly `{durable_state,active_state,durable_revision,active_revision,durable_tool_count,active_tool_count,last_success_at,traversal}`; each occupancy uses `LimitStatus`.
 
-The sanitized transport union is closed to stdio `{kind,executable,arguments,working_directory,environment,secret_environment}` and Streamable HTTP `{kind,url,protocol_mode,authentication}`. HTTP authentication is exactly `{mode:none}`, `{mode:bearer}`, or OAuth `{mode,registration,trusted_origins,request_offline_access}`. Registration is static `{mode,issuer,client_id,token_endpoint_auth_method}` or dynamic `{mode,issuer}`. Credential replacement is static `{kind,expected_revision,values}` or OAuth client `{kind,expected_revision,client_secret}`.
+The sanitized transport union is closed to stdio `{kind,executable,arguments,working_directory,environment,secret_environment}` and Streamable HTTP `{kind,url,protocol_mode,authentication}`. HTTP authentication is exactly `{mode:none}`, `{mode:bearer}`, or OAuth `{mode,registration,trusted_origins,request_offline_access}` with optional `callback_uri`, `auth_server_metadata_url`, and `scopes`. URL overrides are nullable strings and scopes is a nullable string array on input; omitted/null overrides are absent on reads. `scopes: []` is retained as an explicit empty set. Existing omitted-field configurations keep their representation and behavior. Complete transport replacement clears omitted overrides; omitting PATCH transport preserves them. Canonical callback, metadata, and scope rules are owned by [Downstream servers](downstream-servers.md#foreground-authorization-flows). Registration is static `{mode,issuer,client_id,token_endpoint_auth_method}` or dynamic `{mode,issuer}`. Credential replacement is static `{kind,expected_revision,values}` or OAuth client `{kind,expected_revision,client_secret}`.
 
 `ServerOperation` is exactly `{id,server_id,kind,target_desired_revision,target_credential_revisions,state,reason,created_at,started_at,finished_at}`. `ServerAuthFlow` is exactly `{id,server_id,flow_state,target_desired_revision,registration_revision,created_at,expires_at,finished_at,reason,diagnostic}`. Its diagnostic is null or exactly `{correlation_id,stage,reason,http_status}` with correlation ID equal to the flow ID, a closed diagnostic stage, the same stable public reason as the failed flow, and a null or bounded HTTP status. `ToolDescriptor` is exactly `{id,server_id,upstream_name,external_name,descriptor,fingerprint,catalog_revision,first_seen_at,last_seen_at,retired_at}`. Descriptor collection queries accept only the ordinary pagination and retired-state fields plus optional `representation=summary`; that representation returns items exactly `{id,server_id,upstream_name,external_name,catalog_revision}` so searchable selectors do not transfer descriptor schemas before selection, while omission returns full `ToolDescriptor` resources. `CatalogToolDescriptor` contains those exact fields plus snapshot-consistent `server_display_name` and `server_catalog_state`. `CatalogPage` is exactly `{catalog,items,next_cursor}`, where catalog is exactly `{active_state,active_generation,changed_at,issue_count}` and items are `CatalogToolDescriptor` resources. `CredentialReplacementResult` is exactly `{server_id,kind,credential_revision,operation}` and `AuthFlowCreation` is exactly `{flow,authorization_url}`.
 

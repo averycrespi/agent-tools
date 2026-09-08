@@ -89,7 +89,7 @@ Treat the development server as a trusted local process. The browser sends the a
 
 Gateway's `Set-Cookie` response is preserved as a host-only session cookie for the frontend origin. The proxy preserves the cookie and CSRF headers for API requests and rewrites the one exact frontend `Origin` to the configured Gateway origin. Changing the frontend host creates a different browser cookie boundary and requires signing in there. Bearers, cookies, CSRF values, request bodies, and response bodies are intentionally absent from development logs and temporary state, but the local process can observe traffic while it is running; do not use it on an untrusted account or machine.
 
-OAuth callback remains on the Gateway origin. Configure and open the callback as `http://127.0.0.1:8210/oauth/callback` for the default Gateway, not on port `5173`. The development proxy never becomes callback authority.
+OAuth callback remains on the Gateway origin by default: `http://127.0.0.1:8210/oauth/callback`, not port `5173`. A per-server `callback_uri` override uses a Gateway-owned temporary callback-only loopback listener; it is never proxied by Vite. The development proxy never becomes callback authority.
 
 ## Live reload and production assets
 
@@ -113,7 +113,7 @@ Press `Ctrl-C` in the frontend terminal and the Gateway terminal to stop each in
 - **Gateway is unavailable:** the shell can still load, but proxied API requests fail locally with status `502`. Start Gateway and verify `MCP_GATEWAY_UI_GATEWAY`; the development server does not supervise or retry Gateway mutations.
 - **A selector is rejected:** use a full numeric `127.x.x.x` address, an explicit valid port, and `http://` for the Gateway selector. Remove all command-line arguments after `ui:dev`.
 - **The browser returns to sign-in:** confirm both selectors still name the intended origins. A session cookie belongs to the selected frontend host, and Gateway restart or authority revocation can invalidate the session.
-- **OAuth completion fails:** confirm the provider redirects directly to the Gateway `/oauth/callback` origin rather than the frontend development origin.
+- **OAuth completion fails:** confirm the provider redirects to the exact configured callback URI (or Gateway's default `/oauth/callback`), not the frontend development origin.
 
 ## Visual verification
 

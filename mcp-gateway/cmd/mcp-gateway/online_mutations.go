@@ -392,7 +392,24 @@ func validateServerAuthenticationInput(raw json.RawMessage) error {
 	if !jsonBoolean(offlineAccess) {
 		return invalidServerMutationInput(contract.ServerConfigurationFieldRequestOfflineAccess, contract.ServerConfigurationRuleInvalid)
 	}
-	if !exactMembers(object, "mode", "registration", "trusted_origins", "request_offline_access") {
+	members := []string{"mode", "registration", "trusted_origins", "request_offline_access"}
+	for _, field := range []struct {
+		name  string
+		field contract.ServerConfigurationField
+		valid func(json.RawMessage) bool
+	}{
+		{"callback_uri", contract.ServerConfigurationFieldCallbackURI, jsonNullableString},
+		{"auth_server_metadata_url", contract.ServerConfigurationFieldAuthServerMetadataURL, jsonNullableString},
+		{"scopes", contract.ServerConfigurationFieldScopes, func(raw json.RawMessage) bool { return string(raw) == "null" || jsonStringArray(raw) }},
+	} {
+		if value, exists := object[field.name]; exists {
+			if !field.valid(value) {
+				return invalidServerMutationInput(field.field, contract.ServerConfigurationRuleInvalid)
+			}
+			members = append(members, field.name)
+		}
+	}
+	if !exactMembers(object, members...) {
 		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
 	}
 	return validateServerRegistrationInput(registration)

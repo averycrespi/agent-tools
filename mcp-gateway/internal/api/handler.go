@@ -461,10 +461,8 @@ func (handler *Handler) oauthCallback(writer http.ResponseWriter, request *http.
 		result = handler.callbackService.HandleCallback(request.Context(), request.URL.RawQuery)
 	}
 	request = request.WithContext(audit.WithCause(request.Context(), result.Cause))
-	status, body := http.StatusBadRequest, callbackFailedHTML
 	switch result.Outcome {
 	case oauth.CallbackSucceeded:
-		status, body = http.StatusOK, callbackSucceededHTML
 		if result.FlowID != "" {
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows, ResourceID: &result.FlowID})
 		}
@@ -473,7 +471,6 @@ func (handler *Handler) oauthCallback(writer http.ResponseWriter, request *http.
 			handler.trigger(request.Context(), result.ServerID, nil, true)
 		}
 	case oauth.CallbackTransient:
-		status, body = http.StatusServiceUnavailable, callbackTransientHTML
 	case oauth.CallbackInvalid:
 		if result.FlowID != "" {
 			handler.emit(contract.Invalidation{Kind: contract.InvalidationServerAuthFlows, ResourceID: &result.FlowID})
@@ -483,19 +480,8 @@ func (handler *Handler) oauthCallback(writer http.ResponseWriter, request *http.
 			handler.trigger(request.Context(), result.ServerID, nil, true)
 		}
 	}
-	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	writer.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
-	writer.Header().Set("Referrer-Policy", "no-referrer")
-	writer.Header().Set("X-Content-Type-Options", "nosniff")
-	writer.WriteHeader(status)
-	_, _ = writer.Write([]byte(body))
+	oauth.WriteCallbackResponse(writer, result.Outcome)
 }
-
-const (
-	callbackSucceededHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorization complete</title></head><body>Authorization complete. You may close this window.</body></html>\n"
-	callbackFailedHTML    = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorization failed</title></head><body>Authorization failed. Return to Gateway and start a new authorization flow.</body></html>\n"
-	callbackTransientHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Gateway unavailable</title></head><body>Gateway is temporarily unavailable. Retry the authorization callback.</body></html>\n"
-)
 
 func (handler *Handler) exchange(writer http.ResponseWriter, request *http.Request) {
 	if !decodeEmptyObject(writer, request) {

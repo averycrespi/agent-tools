@@ -25,6 +25,9 @@ func newDiagnosticFailure(cause error, reason contract.PublicReason, status int)
 
 func oauthDiagnostic(flowID string, stage contract.OAuthDiagnosticStage, cause error) contract.OAuthDiagnostic {
 	diagnostic := contract.OAuthDiagnostic{CorrelationID: flowID, Stage: stage, Reason: contract.ReasonOAuthRejected}
+	if errors.Is(cause, ErrCallbackUnavailable) {
+		diagnostic.Reason = contract.ReasonConfigurationInvalid
+	}
 	var failure *diagnosticFailure
 	if errors.As(cause, &failure) {
 		diagnostic.Reason = failure.reason

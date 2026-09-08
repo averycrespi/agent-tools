@@ -227,7 +227,14 @@ function decodeTransport(value: unknown): unknown | null {
     "registration",
     "trusted_origins",
     "request_offline_access",
+    ...["callback_uri", "auth_server_metadata_url", "scopes"].filter((key) =>
+      Object.hasOwn(authentication, key),
+    ),
   ]);
+  if (oauth.callback_uri !== undefined) text(oauth.callback_uri);
+  if (oauth.auth_server_metadata_url !== undefined)
+    text(oauth.auth_server_metadata_url);
+  if (oauth.scopes !== undefined) array(oauth.scopes).forEach(text);
   array(oauth.trusted_origins).forEach(text);
   booleanValue(oauth.request_offline_access);
   const registration = oauth.registration as JSONRecord;

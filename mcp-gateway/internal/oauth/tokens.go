@@ -149,6 +149,9 @@ func encodeBoundTokenGeneration(binding TokenGeneration, token parsedTokenRespon
 		AccessToken: token.accessToken, RefreshToken: token.refreshToken, Scopes: append([]string(nil), token.scopes...), ScopeSpecified: token.scopeSpecified,
 		IssuedAt: issuedAt.UTC().Format(time.RFC3339Nano), ExpiresAt: expiresAt,
 	}
+	if generation.ScopeSpecified && generation.Scopes == nil {
+		generation.Scopes = []string{}
+	}
 	contents, err := json.Marshal(generation) //nolint:gosec // This is the approved complete oauth_tokens keyring-generation sink.
 	if err != nil {
 		return nil, ErrTokenRejected
@@ -176,11 +179,10 @@ func DecodeTokenGeneration(contents []byte) (TokenGeneration, error) {
 		return TokenGeneration{}, ErrTokenRejected
 	}
 	if generation.ScopeSpecified {
-		if len(generation.Scopes) == 0 {
+		if generation.Scopes == nil {
 			return TokenGeneration{}, ErrTokenRejected
 		}
-		joined := strings.Join(generation.Scopes, " ")
-		parsed, err := parseScope(joined)
+		parsed, err := contract.NormalizeOAuthScopes(generation.Scopes)
 		if err != nil || !equalStrings(parsed, generation.Scopes) {
 			return TokenGeneration{}, ErrTokenRejected
 		}

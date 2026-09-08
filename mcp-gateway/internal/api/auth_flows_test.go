@@ -103,6 +103,15 @@ func TestAuthFlowAPIStrictBodiesQueriesPreconditionsAndSafeErrors(t *testing.T) 
 	require.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
 	assert.Equal(t, correlationID, response.Header().Get(contract.OAuthCorrelationHeader))
 	assert.NotContains(t, response.Body.String(), correlationID)
+
+	flows = &fakeAuthFlows{err: oauth.NewFlowFailure(correlationID, oauth.ErrCallbackUnavailable)}
+	response = perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v1/servers/"+testID+"/auth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
+	require.Equal(t, http.StatusConflict, response.Code)
+	assert.Contains(t, response.Body.String(), `"code":"oauth_callback_unavailable"`)
+	assert.Contains(t, response.Body.String(), "Stop the conflicting listener and start a new flow")
+	assert.Equal(t, correlationID, response.Header().Get(contract.OAuthCorrelationHeader))
+	assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	assert.NotContains(t, response.Body.String(), "authorization_url")
 }
 
 func newAuthFlowHandler(t *testing.T, flows AuthFlowService) http.Handler {

@@ -47,6 +47,46 @@ mcp-gateway server update SERVER_ID --file PATH --yes
 
 Omitting `--etag` performs one validated server read and uses that exact strong value once. Supplying `--etag ETAG` pins the explicit value and skips the convenience read. A patch that changes `enabled` or `transport` requires consequence confirmation because it can withdraw a runtime or replace behavior. A display-name-only patch does not prompt. The CLI never refreshes a stale ETag or replays an update automatically. On conflict, read the current server, review the new state, and prepare fresh intent.
 
+## OAuth compatibility settings
+
+Server create files, complete transport replacements in server update files, and the web form's **Advanced OAuth settings** accept three optional fields under `transport.authentication`:
+
+- `callback_uri`: the exact HTTP loopback redirect registered with the provider, including explicit port and canonical path. `localhost`, canonical IPv4 loopback, and `[::1]` are accepted; remote names, wildcard addresses, credentials, query, fragment, encoded paths, and ambiguous spellings are rejected. Omission uses the main numeric-loopback `/oauth/callback` listener.
+- `auth_server_metadata_url`: an exact canonical HTTPS metadata location with a path and optional bounded query. This changes the fetch location for authorization and refresh, never issuer identity or protected-resource authority. Invalid metadata fails without fallback. Existing TLS, address, trusted-origin, no-redirect, size, and deadline controls still apply.
+- `scopes`: initial scope tokens replacing resource-metadata defaults. Tokens are deduplicated and sorted, bounded to 64 entries, 256 bytes each, and 8192 bytes including separators. `[]` explicitly sends an empty scope value; omission uses metadata defaults. `request_offline_access` separately adds `offline_access` only when advertised. Token responses may narrow, never expand the requested set; later expansion requires a new foreground authorization, without tool-call replay.
+
+Omit a field or supply `null` in a **complete replacement transport** to clear that override. Omitting `transport` from a PATCH leaves all its settings unchanged. In the web form, blank URLs clear overrides; unchecking explicit scopes restores metadata defaults. No credentials belong in these fields.
+
+This disabled synthetic example illustrates all three settings together; its metadata URL and scopes are **not real Slack configuration**:
+
+```json
+{
+  "namespace": "compatibility-fixture",
+  "display_name": "Compatibility fixture",
+  "enabled": false,
+  "transport": {
+    "kind": "streamable_http",
+    "url": "https://resource.example/mcp",
+    "protocol_mode": "auto",
+    "authentication": {
+      "mode": "oauth",
+      "registration": { "mode": "dynamic", "issuer": null },
+      "trusted_origins": [],
+      "request_offline_access": false,
+      "callback_uri": "http://localhost:3118/callback",
+      "auth_server_metadata_url": "https://resource.example/custom/authorization-metadata",
+      "scopes": ["fixture.read", "fixture.write"]
+    }
+  }
+}
+```
+
+Save as a JSON file and use `mcp-gateway server create --file PATH`. For updates, put the complete `transport` object under `transport` in the patch file and use `mcp-gateway server update SERVER_ID --file PATH --yes`.
+
+Registration, browser authorization, and code exchange use identical redirect bytes. Gateway acquires a separate numeric-loopback, callback-only listener before exposing the authorization URL. A port collision—including another Broker or flow—fails without random-port fallback: stop the conflicting listener and start a new flow. The default callback URI reuses the main callback route. Additional listeners never expose MCP, administration, health, or assets, and main `--allowed-host` configuration neither registers nor admits them. Listeners close on terminal state, cancellation, expiry, supersession, shutdown, and rejected late preparation. Configuration changes fence stale flows and incompatible token authority. Restart never resumes listeners or authorization pages.
+
+Deterministic fixtures are not live Slack qualification. Use actual provider configuration and credentials only under separately authorized live testing.
+
 ## Start and monitor operations
 
 Inspect operation history before starting more work:
@@ -90,7 +130,7 @@ mcp-gateway server auth-flow start SERVER_ID --etag ETAG --open
 
 Flow start requires a prepared controlling terminal in human and JSON modes. It publishes the one-time authorization URL only to that sink; safe metadata goes to ordinary output. `--open` opens the validated URL explicitly without a referrer. Gateway does not retain or reconstruct a lost URL and never retries flow creation automatically.
 
-The OAuth callback remains on the Gateway origin, not the frontend development origin. Flow state is process-local where sensitive and bounded where durable; restart interrupts nonterminal work. To cancel an eligible flow after reading its current state:
+The OAuth callback remains Gateway-owned, on its main origin by default or the configured callback-only loopback listener, never the frontend development origin. Flow state is process-local where sensitive and bounded where durable; restart interrupts nonterminal work. To cancel an eligible flow after reading its current state:
 
 ```bash
 mcp-gateway server auth-flow cancel SERVER_ID FLOW_ID

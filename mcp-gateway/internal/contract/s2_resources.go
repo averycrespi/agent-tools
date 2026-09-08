@@ -43,10 +43,13 @@ type BearerAuthentication struct {
 func (BearerAuthentication) isHTTPAuthentication() {}
 
 type OAuthAuthentication struct {
-	Mode                 AuthenticationMode `json:"mode"`
-	Registration         OAuthRegistration  `json:"registration"`
-	TrustedOrigins       []string           `json:"trusted_origins"`
-	RequestOfflineAccess bool               `json:"request_offline_access"`
+	Mode                  AuthenticationMode `json:"mode"`
+	Registration          OAuthRegistration  `json:"registration"`
+	TrustedOrigins        []string           `json:"trusted_origins"`
+	RequestOfflineAccess  bool               `json:"request_offline_access"`
+	CallbackURI           *string            `json:"callback_uri,omitempty"`
+	AuthServerMetadataURL *string            `json:"auth_server_metadata_url,omitempty"`
+	Scopes                *[]string          `json:"scopes,omitempty"`
 }
 
 func (OAuthAuthentication) isHTTPAuthentication() {}

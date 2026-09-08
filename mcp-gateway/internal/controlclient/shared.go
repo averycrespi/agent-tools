@@ -325,6 +325,7 @@ func validServerConfigurationContext(code string, context *ServerConfigurationCo
 		"transport.authentication.trusted_origins": {}, "transport.authentication.request_offline_access": {}, "transport.authentication.registration": {},
 		"transport.authentication.registration.mode": {}, "transport.authentication.registration.issuer": {}, "transport.authentication.registration.client_id": {},
 		"transport.authentication.registration.token_endpoint_auth_method": {},
+		"transport.authentication.callback_uri":                            {}, "transport.authentication.auth_server_metadata_url": {}, "transport.authentication.scopes": {},
 	}
 	rules := map[string]struct{}{
 		"invalid": {}, "required": {}, "maximum": {}, "unique": {}, "disjoint": {}, "canonical_absolute_path": {}, "canonical_url": {}, "transport_policy": {},

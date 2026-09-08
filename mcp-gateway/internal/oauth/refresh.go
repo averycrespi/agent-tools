@@ -250,7 +250,7 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			defer clear(clientSecret)
 		}
 		state(request.ServerID, contract.ServerCredentialRefreshing, false)
-		graph, err := service.resolver.Discover(ctx, Input{Resource: prepared.Configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: &prepared.Registration.Issuer, TrustedOrigins: prepared.Configuration.Authentication.TrustedOrigins})
+		graph, err := service.resolver.Discover(ctx, Input{Resource: prepared.Configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: &prepared.Registration.Issuer, TrustedOrigins: prepared.Configuration.Authentication.TrustedOrigins, AuthServerMetadataURL: prepared.Configuration.Authentication.AuthServerMetadataURL})
 		if err != nil || graph.Issuer != old.Issuer || graph.Resource != old.Resource || !slices.Contains(graph.TokenEndpointAuthMethodsSupported, string(prepared.Registration.TokenEndpointAuthMethod)) {
 			state(request.ServerID, contract.ServerCredentialReady, false)
 			return ErrTokenRejected
@@ -289,7 +289,7 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 		issuedAt := service.now().UTC()
 		requested := []string(nil)
 		if old.ScopeSpecified {
-			requested = old.Scopes
+			requested = append([]string{}, old.Scopes...)
 		}
 		token, parseErr := parseTokenResponse(status, responseHeader, responseBody, requested, issuedAt)
 		if parseErr != nil {

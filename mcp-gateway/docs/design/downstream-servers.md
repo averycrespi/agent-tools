@@ -74,7 +74,7 @@ A call object copies one pinned upstream name and validated argument object, con
 
 Resource strings are compared exactly against the branch-specific audience, at least one unique issuer is required, and `header` is mandatory when bearer methods are advertised. A sole same-resource-origin issuer may be selected automatically; every cross-origin or multiple-issuer choice requires the exact desired issuer.
 
-The selected issuer is fetched in RFC 8414 then OpenID well-known order, must match byte-for-byte, and must advertise code response/grant plus PKCE S256. Required and optional consumed members are exactly typed while extensions are discarded.
+Authorization metadata is fetched in RFC 8414 then OpenID well-known order unless optional `auth_server_metadata_url` selects one exact canonical HTTPS location. An override never falls back on failure or changes selected-issuer/protected-resource identity. Foreground discovery and refresh use the same override; restricted-address permission follows the fetch location's origin, not the issuer's origin. The returned issuer must match byte-for-byte and advertise code response/grant plus PKCE S256. Required and optional consumed members are exactly typed while extensions are discarded.
 
 Registered resources and issuer identifiers prohibit queries; standard metadata and delegated endpoint URLs allow only the compiled bounded query. Canonical explicit trusted origins are unique lowercase HTTPS DNS origins without default ports or paths.
 
@@ -82,7 +82,7 @@ The registered-resource origin and explicitly trusted origins may resolve to res
 
 ### Client registration
 
-A static registration is local and binds the exact graph issuer/resource, configured client ID, fixed numeric-loopback callback, and an explicitly metadata-supported token endpoint authentication method. Dynamic registration requires the advertised role endpoint and no reusable exact unexpired authority.
+A static registration is local and binds the exact graph issuer/resource, configured client ID, exact callback URI, and an explicitly metadata-supported token endpoint authentication method. Dynamic registration requires the advertised role endpoint and no reusable exact unexpired authority.
 
 It sends one unauthenticated bounded RFC 7591 native-client JSON request with the exact callback, code response, code/refresh grants, and one method selected Basic → Post → None; it never probes or retries. Publication accepts only bounded extensible JSON at `201` whose client ID, sole callback, response/grant support, returned method, and secret/expiry shape match.
 
@@ -95,6 +95,12 @@ Stale desired/registration/client/flow or drain results are orphan cleanup only;
 ### Foreground authorization flows
 
 Foreground flow creation first commits one safe `preparing` record under the global-16/per-server-one bound, then performs discovery/registration outside SQLite admission. Independent 32-byte state and verifier material, S256 challenge, exact graph/registration/revision binding, endpoint snapshot, and sorted requested scopes remain in one process-local registry.
+
+Optional `callback_uri` selects one exact HTTP `localhost` or canonical numeric-loopback URI with an explicit nonzero port and canonical path. Query, fragment, userinfo, wildcard/remote/alias hosts, encoded paths, and ambiguous spellings are rejected. `localhost` binds numeric `127.0.0.1`, never a resolved or wildcard address. Omission retains the main numeric-loopback `/oauth/callback`; that exact URI reuses the existing listener. Registration, authorization, and exchange retain identical redirect bytes.
+
+Composition owns temporary callback-only listener acquisition before URL publication. A conflicting port fails without fallback. Each listener admits only its exact method, path, and authority, rejects forwarding headers and request bodies, and delegates to the shared one-time state/PKCE/issuer/fence/token owner. State presented on the wrong callback or another flow's listener is not consumed. The existing global flow bound limits outstanding listener owners and accepted connections, while the independent callback-work bound limits exchanges. Header/body/write deadlines and shutdown are finite. No MCP, health, administration, assets, redirects, main allowed-host, or alternate browser-origin authority is added. Terminal, cancellation, expiry, supersession, shutdown, and late preparation paths release owned listeners; drain waits for their connections outside unrelated locks.
+
+Optional `scopes` replaces metadata-derived initial scopes; omission/null clears the override and retains derivation. An explicit empty list sends an empty scope parameter, while `request_offline_access` independently adds advertised `offline_access`. Tokens use existing ASCII token/count/byte bounds, deterministic deduplication and sorting, and response non-expansion, including the explicit empty set. Foreground step-up unions configured/prior and challenged scopes without replay. Complete transport replacement clears omitted overrides; an omitted PATCH transport preserves them. Changes to callback, metadata location, or scopes advance registration authority and fence prior token generations as well as stale flows, without replacing reusable client-secret storage. No transient listener facts are persisted.
 
 Only the creation response receives the exact canonical authorization URL; durable rows, later reads, events, logs, backups, and browser assets cannot represent it or its state/verifier. Publication to `awaiting_callback` rechecks desired, registration, and flow identity; superseded or late DCR cannot publish.
 

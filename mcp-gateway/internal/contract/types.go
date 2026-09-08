@@ -29,6 +29,9 @@ const (
 	ServerConfigurationFieldAuthentication          ServerConfigurationField = "transport.authentication"
 	ServerConfigurationFieldAuthenticationMode      ServerConfigurationField = "transport.authentication.mode"
 	ServerConfigurationFieldTrustedOrigins          ServerConfigurationField = "transport.authentication.trusted_origins"
+	ServerConfigurationFieldCallbackURI             ServerConfigurationField = "transport.authentication.callback_uri"
+	ServerConfigurationFieldAuthServerMetadataURL   ServerConfigurationField = "transport.authentication.auth_server_metadata_url"
+	ServerConfigurationFieldScopes                  ServerConfigurationField = "transport.authentication.scopes"
 	ServerConfigurationFieldRequestOfflineAccess    ServerConfigurationField = "transport.authentication.request_offline_access"
 	ServerConfigurationFieldRegistration            ServerConfigurationField = "transport.authentication.registration"
 	ServerConfigurationFieldRegistrationMode        ServerConfigurationField = "transport.authentication.registration.mode"
@@ -65,7 +68,7 @@ func ValidServerConfigurationContext(context ServerConfigurationContext) bool {
 		ServerConfigurationFieldProtocolMode, ServerConfigurationFieldAuthentication, ServerConfigurationFieldAuthenticationMode,
 		ServerConfigurationFieldTrustedOrigins, ServerConfigurationFieldRequestOfflineAccess, ServerConfigurationFieldRegistration,
 		ServerConfigurationFieldRegistrationMode, ServerConfigurationFieldIssuer, ServerConfigurationFieldClientID,
-		ServerConfigurationFieldTokenEndpointAuthMethod:
+		ServerConfigurationFieldTokenEndpointAuthMethod, ServerConfigurationFieldCallbackURI, ServerConfigurationFieldAuthServerMetadataURL, ServerConfigurationFieldScopes:
 	default:
 		return false
 	}
