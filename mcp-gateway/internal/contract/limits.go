@@ -23,8 +23,8 @@ const (
 	SSEKeepaliveInterval             = 15 * time.Second
 	SSEBlockedWriteDeadline          = 15 * time.Second
 	AuthorizationCursorLifetime      = 5 * time.Minute
-	AdminSessionIdleLifetime         = 30 * time.Minute
-	AdminSessionAbsoluteLifetime     = 8 * time.Hour
+	AdminSessionIdleLifetime         = 24 * time.Hour
+	AdminSessionAbsoluteLifetime     = 7 * 24 * time.Hour
 	LegacyIdleLifetime               = 30 * time.Minute
 	LegacyAbsoluteLifetime           = 8 * time.Hour
 	GracefulShutdownDeadline         = 10 * time.Second

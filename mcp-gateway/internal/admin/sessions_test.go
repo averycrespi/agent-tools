@@ -77,6 +77,8 @@ func TestSessionCookieCSRFIdleAndAbsoluteExpiry(t *testing.T) {
 
 	created, err := manager.Exchange(ctx, sink.value)
 	require.NoError(t, err)
+	assert.Equal(t, testNow.Add(24*time.Hour), created.IdleExpiresAt)
+	assert.Equal(t, testNow.Add(7*24*time.Hour), created.AbsoluteExpiresAt)
 	cookie := created.Cookie()
 	assert.Equal(t, contract.SessionCookieName, cookie.Name)
 	assert.Equal(t, created.ID, cookie.Value)
@@ -93,13 +95,15 @@ func TestSessionCookieCSRFIdleAndAbsoluteExpiry(t *testing.T) {
 	assert.ErrorIs(t, err, ErrCSRF)
 	_, err = manager.Authenticate(ctx, "", created.ID, created.CSRFToken, true)
 	require.NoError(t, err)
-	clock.Advance(contract.AdminSessionIdleLifetime - time.Second)
+	clock.Advance(24*time.Hour - time.Second)
 	_, err = manager.Authenticate(ctx, "", created.ID, created.CSRFToken, true)
 	require.NoError(t, err)
-	clock.Advance(contract.AdminSessionIdleLifetime + time.Second)
+	clock.Advance(24 * time.Hour)
 	manager.Sweep(ctx)
 	assertChannelClosed(t, created.Done)
 	assertChannelClosed(t, subscription)
+	_, err = manager.Authenticate(ctx, "", created.ID, created.CSRFToken, true)
+	assert.ErrorIs(t, err, ErrAuthenticationRequired)
 	assert.Equal(t, int64(0), manager.Status().InUse)
 
 	absolute, err := manager.Exchange(ctx, sink.value)
@@ -118,6 +122,8 @@ func TestSessionCookieCSRFIdleAndAbsoluteExpiry(t *testing.T) {
 	}
 	manager.Sweep(ctx)
 	assertChannelClosed(t, absolute.Done)
+	_, err = manager.Authenticate(ctx, "", absolute.ID, absolute.CSRFToken, true)
+	assert.ErrorIs(t, err, ErrAuthenticationRequired)
 }
 
 func TestSessionCapacityRejectsBeforeEntropyAndReleasesOnLogout(t *testing.T) {

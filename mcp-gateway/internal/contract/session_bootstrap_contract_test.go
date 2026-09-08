@@ -3,12 +3,15 @@ package contract
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAdminSessionBootstrapContract(t *testing.T) {
+	assert.Equal(t, 24*time.Hour, AdminSessionIdleLifetime)
+	assert.Equal(t, 7*24*time.Hour, AdminSessionAbsoluteLifetime)
 	route, ok := RouteForPath("/api/v1/admin-sessions/current")
 	require.True(t, ok)
 	assert.Equal(t, []string{"DELETE", "POST"}, route.Methods)
