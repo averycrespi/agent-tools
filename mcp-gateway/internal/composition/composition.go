@@ -391,7 +391,10 @@ func (adapter *invocationCallAdapter) Call(
 	}
 	defer release()
 	response := adapter.service.Call(ctx, lease, invocation.CallRequest{Params: request.Params, WireValid: request.WireValid})
-	result := mcpingress.ToolsCallResponse{ErrorCode: response.ErrorCode, InvocationID: response.InvocationID}
+	result := mcpingress.ToolsCallResponse{
+		ErrorCode: response.ErrorCode, InvocationID: response.InvocationID,
+		RejectionReason: response.RejectionReason, BlockedSelfService: response.BlockedSelfService,
+	}
 	if response.Result != nil {
 		projected := &mcpingress.ToolsCallResult{
 			Content:           make([]json.RawMessage, len(response.Result.Content)),

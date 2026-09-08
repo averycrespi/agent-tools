@@ -53,14 +53,30 @@ func (outcome CallOutcome) SafeString() string {
 	return string(outcome.ErrorCode) + "/" + string(outcome.TerminalClass)
 }
 
-func ClassifyAdmission(committed bool, class contract.InvocationAdmissionClass, decision *contract.AuthorizationDecision) (contract.AgentCallErrorCode, bool) {
+func ClassifyAdmission(committed bool, class contract.InvocationAdmissionClass, decision *contract.AuthorizationDecision) (contract.AgentCallErrorCode, contract.CallRejectionReason, bool) {
 	if !committed {
-		return contract.AuditUnavailable, false
+		return contract.AuditUnavailable, "", false
 	}
-	if class == contract.AdmissionEvaluated && decision != nil && *decision == contract.DecisionAllow {
-		return "", true
+	switch class {
+	case contract.AdmissionInvalidParams:
+		return contract.CallRejected, contract.RejectionInvalidParams, false
+	case contract.AdmissionUnknownTool:
+		return contract.CallRejected, contract.RejectionUnknownTool, false
+	case contract.AdmissionInvalidArguments:
+		return contract.CallRejected, contract.RejectionInvalidArguments, false
+	case contract.AdmissionEvaluated:
+		if decision != nil {
+			switch *decision {
+			case contract.DecisionAllow:
+				return "", "", true
+			case contract.DecisionDeny:
+				return contract.CallRejected, contract.RejectionDeny, false
+			case contract.DecisionBlock:
+				return contract.CallRejected, contract.RejectionBlock, false
+			}
+		}
 	}
-	return contract.CallRejected, false
+	return contract.CallRejected, contract.RejectionAuthorizationUnavailable, false
 }
 
 func SanitizeLocalCallResult(result LocalCallResult) CallOutcome {

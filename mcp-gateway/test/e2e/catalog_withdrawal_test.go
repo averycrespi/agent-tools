@@ -47,7 +47,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	assertHTTPMethods(t, catalog.Fixture, map[string]int{"server/discover": 1, "tools/list": 2})
 
 	call := harness.ModernRequest(credential.Bearer, []byte(`{"jsonrpc":"2.0","id":"no-http-call","method":"tools/call","params":{"name":"withdrawal.tool-000","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"e2e-harness","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`))
-	assertCallRejected(t, call, json.RawMessage(`"no-http-call"`))
+	assertCallRejected(t, call, json.RawMessage(`"no-http-call"`), contract.RejectionBlock, false)
 	assert.Equal(t, contract.MediaTypeJSON, call.Header.Get("Content-Type"))
 	assertHTTPMethods(t, catalog.Fixture, map[string]int{"server/discover": 1, "tools/list": 2})
 	afterCall := currentServer(t, harness, catalog.ServerID)
@@ -174,7 +174,7 @@ func TestGatewayBinaryToolsCallHasNoStdioProcessEffect(t *testing.T) {
 	principal := harness.CreatePrincipal("No call", contract.VisibilityAll)
 	credential := harness.IssueCredential(principal)
 	call := harness.ModernRequest(credential.Bearer, []byte(`{"jsonrpc":"2.0","id":"no-stdio-call","method":"tools/call","params":{"name":"stdio-modern.alpha","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"e2e-harness","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`))
-	assertCallRejected(t, call, json.RawMessage(`"no-stdio-call"`))
+	assertCallRejected(t, call, json.RawMessage(`"no-stdio-call"`), contract.RejectionBlock, false)
 
 	afterEvents := fixtureEventsNow(t, eventsPath)
 	assert.Equal(t, 1, countFixtureEvents(afterEvents, "start", ""))
@@ -186,7 +186,7 @@ func TestGatewayBinaryToolsCallHasNoStdioProcessEffect(t *testing.T) {
 	assert.Equal(t, contract.LimitStatus{InUse: 0, Limit: 4}, afterServer.Runtime.Dispatch)
 }
 
-func assertCallRejected(t *testing.T, response responseSnapshot, expectedID json.RawMessage) {
+func assertCallRejected(t *testing.T, response responseSnapshot, expectedID json.RawMessage, reason contract.CallRejectionReason, selfService bool) {
 	t.Helper()
 	require.Equal(t, http.StatusOK, response.StatusCode, string(response.Body))
 	var envelope struct {
@@ -200,12 +200,15 @@ func assertCallRejected(t *testing.T, response responseSnapshot, expectedID json
 	require.NoError(t, json.Unmarshal(response.Body, &envelope))
 	assert.JSONEq(t, string(expectedID), string(envelope.ID))
 	assert.Equal(t, contract.AgentCallJSONRPCErrorCode, envelope.Error.Code)
-	assert.Equal(t, "Call rejected", envelope.Error.Message)
+	message, ok := contract.CallRejectionMessage(reason, selfService)
+	require.True(t, ok)
+	assert.Equal(t, message, envelope.Error.Message)
+	assert.Equal(t, reason, envelope.Error.Data.Reason)
 	assert.Equal(t, contract.CallRejected, envelope.Error.Data.Code)
 	require.NotNil(t, envelope.Error.Data.InvocationID)
 	assert.Len(t, *envelope.Error.Data.InvocationID, 26)
 	assert.False(t, envelope.Error.Data.OutcomeUnknown)
-	expected := `{"jsonrpc":"2.0","id":` + string(expectedID) + `,"error":{"code":-32000,"message":"Call rejected","data":{"code":"call_rejected","invocationId":"` + *envelope.Error.Data.InvocationID + `"}}}`
+	expected := `{"jsonrpc":"2.0","id":` + string(expectedID) + `,"error":{"code":-32000,"message":"` + message + `","data":{"code":"call_rejected","reason":"` + string(reason) + `","invocationId":"` + *envelope.Error.Data.InvocationID + `"}}}`
 	assert.Equal(t, expected, string(response.Body))
 }
 

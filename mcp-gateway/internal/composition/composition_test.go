@@ -297,6 +297,8 @@ func TestCompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testi
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &callError))
 	assert.Equal(t, contract.CallRejected, callError.Error.Data.Code)
+	assert.Contains(t, response.Body.String(), `"reason":"unknown_tool"`)
+	assert.Contains(t, response.Body.String(), `"message":"Request rejected: unknown tool. Refresh tools/list and check the tool name."`)
 	require.NotNil(t, callError.Error.Data.InvocationID)
 	record, found, err := built.invocationRepository.Read(t.Context(), *callError.Error.Data.InvocationID)
 	require.NoError(t, err)
@@ -304,6 +306,19 @@ func TestCompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testi
 	assert.Equal(t, contract.AdmissionUnknownTool, record.AdmissionClass)
 	assert.Equal(t, created.Principal.ID, record.PrincipalID)
 	assert.Equal(t, "2026-08-25T01:00:00.000000000Z", record.AdmittedAt)
+
+	require.NoError(t, built.Authorization().DeleteGrant(t.Context(), created.DefaultGrant.ID))
+	blocked := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"blocked","method":"tools/call","params":{"name":"mcp_gateway.list_grants","arguments":{"cursor":null},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	authenticated, err = ingress.Authenticate(blocked.Context(), blocked, contract.AuthorityAgent)
+	require.NoError(t, err)
+	response = httptest.NewRecorder()
+	ingress.ServeHTTP(response, blocked.WithContext(authenticated))
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), `"reason":"block"`)
+	assert.Contains(t, response.Body.String(), `"message":"BLOCKED: no matching ALLOW grant authorizes this call. You may ask an administrator to review your access."`)
+	for _, private := range []string{created.DefaultGrant.ID, created.Principal.ID, issued.Bearer, "mcp_gateway.list_grants", "mcp_gateway.create_grant_request", `"result"`} {
+		assert.NotContains(t, response.Body.String(), private)
+	}
 
 	assert.Equal(t, runtimes.DrainResult{}, <-built.Drain(context.Background()))
 	countBefore, err := built.invocationRepository.Count(t.Context())

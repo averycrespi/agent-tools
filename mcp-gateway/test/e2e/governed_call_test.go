@@ -28,7 +28,8 @@ func TestGatewayBinaryGovernsModernAndLegacyCallsBeforeHTTPDispatch(t *testing.T
 	principal := harness.CreatePrincipal("Governed HTTP caller", contract.VisibilityAll)
 	issued := harness.IssueCredential(principal)
 	allow := harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: catalog.ServerID, UpstreamName: pointerTo("allowed")})
-	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantDeny, ServerID: catalog.ServerID, UpstreamName: pointerTo("denied")})
+	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: catalog.ServerID, UpstreamName: pointerTo("denied")})
+	deny := harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantDeny, ServerID: catalog.ServerID, UpstreamName: pointerTo("denied")})
 
 	beforeDiscovery := harness.ModernList(issued.Bearer, json.RawMessage(`"before-calls"`), "")
 	assert.Equal(t, withSyntheticNames([]string{"governed-http.allowed", "governed-http.blocked", "governed-http.denied"}), discoveryToolNames(t, beforeDiscovery))
@@ -36,10 +37,14 @@ func TestGatewayBinaryGovernsModernAndLegacyCallsBeforeHTTPDispatch(t *testing.T
 	legacySuccess := harness.LegacyCall(issued.Bearer, session, json.RawMessage(`"legacy-allow"`), "governed-http.allowed", json.RawMessage(`{"value":"legacy"}`))
 	assert.JSONEq(t, `{"jsonrpc":"2.0","id":"legacy-allow","result":{"content":[{"type":"text","text":"fixture success"}]}}`, string(legacySuccess.Body))
 
-	assertCallRejected(t, harness.ModernCall(issued.Bearer, json.RawMessage(`"deny"`), "governed-http.denied", json.RawMessage(`{}`)), json.RawMessage(`"deny"`))
-	assertCallRejected(t, harness.LegacyCall(issued.Bearer, session, json.RawMessage(`"block"`), "governed-http.blocked", json.RawMessage(`{}`)), json.RawMessage(`"block"`))
-	assertCallRejected(t, harness.ModernCall(issued.Bearer, json.RawMessage(`"invalid"`), "governed-http.allowed", json.RawMessage(`{"value":7}`)), json.RawMessage(`"invalid"`))
-	assertCallRejected(t, harness.LegacyCall(issued.Bearer, session, json.RawMessage(`"unknown"`), "governed-http.absent", json.RawMessage(`{}`)), json.RawMessage(`"unknown"`))
+	denied := harness.ModernCall(issued.Bearer, json.RawMessage(`"deny"`), "governed-http.denied", json.RawMessage(`{"private-constraint-key":"private-argument-canary"}`))
+	assertCallRejected(t, denied, json.RawMessage(`"deny"`), contract.RejectionDeny, false)
+	for _, private := range []string{deny.ID, principal.Resource.ID, "private-constraint-key", "private-argument-canary", "governed-http.denied"} {
+		assert.NotContains(t, string(denied.Body), private)
+	}
+	assertCallRejected(t, harness.LegacyCall(issued.Bearer, session, json.RawMessage(`"block"`), "governed-http.blocked", json.RawMessage(`{}`)), json.RawMessage(`"block"`), contract.RejectionBlock, false)
+	assertCallRejected(t, harness.ModernCall(issued.Bearer, json.RawMessage(`"invalid"`), "governed-http.allowed", json.RawMessage(`{"value":7}`)), json.RawMessage(`"invalid"`), contract.RejectionInvalidArguments, false)
+	assertCallRejected(t, harness.LegacyCall(issued.Bearer, session, json.RawMessage(`"unknown"`), "governed-http.absent", json.RawMessage(`{}`)), json.RawMessage(`"unknown"`), contract.RejectionUnknownTool, false)
 	afterMatrixDiscovery := harness.ModernList(issued.Bearer, json.RawMessage(`"after-calls"`), "")
 	assert.Equal(t, discoveryToolNames(t, beforeDiscovery), discoveryToolNames(t, afterMatrixDiscovery))
 

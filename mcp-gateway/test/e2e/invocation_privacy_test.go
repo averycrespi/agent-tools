@@ -40,9 +40,9 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: catalog.ServerID, UpstreamName: pointerTo("allowed")})
 
 	unknown := harness.ModernCall(issued.Bearer, json.RawMessage(`"unknown"`), "invocation-read.absent", json.RawMessage(`{}`))
-	assertCallRejected(t, unknown, json.RawMessage(`"unknown"`))
+	assertCallRejected(t, unknown, json.RawMessage(`"unknown"`), contract.RejectionUnknownTool, false)
 	blocked := harness.ModernCall(issued.Bearer, json.RawMessage(`"blocked"`), "invocation-read.blocked", json.RawMessage(`{}`))
-	assertCallRejected(t, blocked, json.RawMessage(`"blocked"`))
+	assertCallRejected(t, blocked, json.RawMessage(`"blocked"`), contract.RejectionBlock, false)
 
 	const argumentCanary = "s6-invocation-secret-argument-canary"
 	const inertCapture = "<script>window.invocationCanary=true</script>"

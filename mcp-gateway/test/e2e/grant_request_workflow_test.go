@@ -129,7 +129,28 @@ func TestE2EGrantRequestWorkflow(t *testing.T) {
 	defaultGrant := harness.ListGrants(principal.Resource.ID, contract.SyntheticServerID)
 	require.Len(t, defaultGrant, 1)
 	harness.DeleteGrant(defaultGrant[0].ID)
-	assertCallRejected(t, harness.ModernSelfServiceCall(issued.Bearer, json.RawMessage(`"default-removed"`), "get_identity", struct{}{}), json.RawMessage(`"default-removed"`))
+	for _, tool := range []struct {
+		name      string
+		arguments any
+	}{
+		{"get_identity", struct{}{}},
+		{"list_grants", contract.ListGrantsInput{}},
+		{"create_grant_request", contract.CreateGrantRequestInput{Policy: exactPolicy}},
+		{"get_grant_request", contract.GrantRequestIDInput{ID: created.Request.ID}},
+		{"list_grant_requests", contract.ListGrantRequestsInput{}},
+		{"cancel_grant_request", contract.GrantRequestIDInput{ID: created.Request.ID}},
+	} {
+		modern := harness.ModernSelfServiceCall(issued.Bearer, json.RawMessage(`"default-removed"`), tool.name, tool.arguments)
+		legacy := harness.LegacySelfServiceCall(issued.Bearer, legacySession, json.RawMessage(`"default-removed"`), tool.name, tool.arguments)
+		for _, response := range []responseSnapshot{modern, legacy} {
+			assertCallRejected(t, response, json.RawMessage(`"default-removed"`), contract.RejectionBlock, true)
+			assert.NotContains(t, string(response.Body), "mcp_gateway.list_grants")
+			assert.NotContains(t, string(response.Body), "mcp_gateway.create_grant_request")
+			assert.NotContains(t, string(response.Body), defaultGrant[0].ID)
+		}
+	}
+	assert.Len(t, harness.ListGrantRequests(principal.Resource.ID), 3, "blocked self-service must not create requests")
+	assert.Equal(t, 1, catalog.CallCount(), "blocked self-service must not replay downstream calls")
 	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: contract.SyntheticServerID})
 	restoredID := json.RawMessage(`"default-restored"`)
 	restoredResponse := harness.ModernSelfServiceCall(issued.Bearer, restoredID, "get_identity", struct{}{})

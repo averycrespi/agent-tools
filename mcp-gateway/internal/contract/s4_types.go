@@ -1,9 +1,10 @@
 package contract
 
 type AgentCallErrorData struct {
-	Code           AgentCallErrorCode `json:"code"`
-	InvocationID   *string            `json:"invocationId,omitempty"`
-	OutcomeUnknown bool               `json:"outcomeUnknown,omitempty"`
+	Code           AgentCallErrorCode  `json:"code"`
+	Reason         CallRejectionReason `json:"reason,omitempty"`
+	InvocationID   *string             `json:"invocationId,omitempty"`
+	OutcomeUnknown bool                `json:"outcomeUnknown,omitempty"`
 }
 
 type InvocationAuditRecord struct {
