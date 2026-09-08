@@ -12,7 +12,7 @@ SUITE_JOBS = {
     "integration-tests": "integration",
     "e2e-tests": "e2e",
     "vulnerability-scan": "tools",
-    "gateway-temporary": "gateway",
+    "gateway-demo": "gateway",
     "gateway-lint": "gateway",
     "gateway-harness": "gateway",
     "sandbox-manager-macos": "sandbox",
@@ -82,7 +82,7 @@ def check_gate(needs):
 
 
 def cache_identity(root, role, tool, toolchain, platform, run, attempt):
-    if role not in {"quality", "unit", "lint", "integration", "harness", "e2e", "temporary", "vulnerability", "macos"}:
+    if role not in {"quality", "unit", "lint", "integration", "harness", "e2e", "demo", "vulnerability", "macos"}:
         raise ValueError("Unknown build-cache role")
     if tool not in {"all", *inventory(root)["tools"]}:
         raise ValueError("Unknown build-cache tool")

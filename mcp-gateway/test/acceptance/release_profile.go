@@ -119,7 +119,7 @@ func finalReleaseCheckSpecs() ([]finalReleaseCheckSpec, error) {
 		"repository-diff":        {ID: "repository-diff", Argv: []string{"git", "diff", "--check"}, Timeout: 10 * time.Second, Budget: 30 * time.Second, Repeats: 1},
 	}
 	order := []string{
-		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-temporary", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
 	}
@@ -169,7 +169,7 @@ func canonicalReleaseCleanupCriteria() []string {
 func releaseProductBehaviorOwners() map[string]string {
 	tierOwners := map[string]string{
 		"tier.repository.format": "repository-format", "tier.repository.verify": "repository-verify", "tier.frontend.static": "frontend-typecheck",
-		"tier.unit.contract": "test-unit", "tier.integration.compatibility": "test-integration", "tier.harness.selftests": "test-harness", "tier.harness.temporary": "test-serve-temporary", "tier.browser.workflows": "test-browser-workflows",
+		"tier.unit.contract": "test-unit", "tier.integration.compatibility": "test-integration", "tier.harness.selftests": "test-harness", "tier.harness.temporary": "test-serve-demo", "tier.browser.workflows": "test-browser-workflows",
 		"tier.browser.visual": "test-browser-visual", "tier.browser.accessibility": "test-browser-accessibility", "tier.browser.cross": "test-browser-cross",
 		"tier.e2e.complete": "test-e2e", "tier.security.privacy": "test-security", "tier.supply_chain.go": "go-vulnerability",
 		"tier.supply_chain.frontend": "frontend-audit", "tier.native.keyring": "test-keyring-native", "tier.repository.other_tools": "repository-other-tools", "tier.repository.diff": "repository-diff",

@@ -102,7 +102,7 @@ func TestRepositorySuitesHaveCompleteUniqueExecutableOwnership(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	inventory, err := DiscoverSuiteInventory(root, runtime.GOOS, runtime.GOARCH)
 	require.NoError(t, err)
-	owners := []string{"test-unit", "test-integration", "test-harness", "test-material", "test-e2e", "test-security", "test-stress", "test-keyring-native", "test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser", "frontend-static-tests"}
+	owners := []string{"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native", "test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser", "frontend-static-tests"}
 	selected := make(map[string]string)
 	var stress []string
 	for _, owner := range owners {
@@ -129,6 +129,7 @@ func TestRepositorySuitesHaveCompleteUniqueExecutableOwnership(t *testing.T) {
 	assert.True(t, slices.ContainsFunc(inventory.Tests, func(test SuiteTest) bool {
 		return test.Selected && test.Package == "./internal/composition" && test.Owner == "test-e2e"
 	}))
+	assert.Equal(t, "test-serve-demo", selected["./test/demo/TestServeDemoLifecycle"])
 	assert.Equal(t, "test-integration", selected["./cmd/mcp-gateway/TestCLIControlBoundary"])
 	assert.Equal(t, "test-harness", selected["./test/e2e/TestGatewayHarnessCleansProcessesAndBoundsTimeoutOutput"])
 	for _, test := range inventory.Tests {
