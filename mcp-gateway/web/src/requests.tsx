@@ -2144,10 +2144,7 @@ export function Requests({
               key: "request",
               label: "Request ID",
               render: (item) => (
-                <a
-                  class="technical-value request-id"
-                  href={`#/requests/${item.id}`}
-                >
+                <a class="technical-value" href={`#/requests/${item.id}`}>
                   {item.id}
                 </a>
               ),

@@ -2017,7 +2017,6 @@ button.sort-button:not(:disabled):hover {
   color: var(--accent);
 }
 
-.request-id,
 .request-draft-note {
   color: var(--muted);
   font-weight: 400;

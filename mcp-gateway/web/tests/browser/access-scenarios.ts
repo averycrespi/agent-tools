@@ -3145,6 +3145,27 @@ export async function runRequestReads(
   await expect(
     page.getByTestId("request-row").first().locator("th").locator("a"),
   ).toHaveClass(/button-link/);
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    const linkStyles = await page
+      .getByTestId("request-row")
+      .first()
+      .evaluate((row) => {
+        return ["Request ID", "Principal", "Target"].map((label) => {
+          const style = getComputedStyle(
+            row.querySelector(`[data-label="${label}"] a`)!,
+          );
+          return {
+            color: style.color,
+            decoration: style.textDecorationLine,
+            weight: style.fontWeight,
+          };
+        });
+      });
+    expect(linkStyles[0]).toEqual(linkStyles[1]);
+    expect(linkStyles[0]).toEqual(linkStyles[2]);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
   const queueGap = await page
     .getByRole("navigation", { name: "Request queues" })
     .evaluate((node) => parseFloat(getComputedStyle(node).marginBottom));
