@@ -169,6 +169,9 @@ func (manager *SessionManager) Bootstrap(ctx context.Context, sessionID string) 
 		return CreatedSession{}, ErrAuthenticationRequired
 	}
 	parent, err := manager.service.Get(ctx, session.parentID)
+	if cancelledSessionRead(ctx, err) {
+		return CreatedSession{}, err
+	}
 	if err != nil || parent.Status != contract.CredentialActive {
 		manager.closeSession(session)
 		return CreatedSession{}, ErrAuthenticationRequired
@@ -206,6 +209,9 @@ func (manager *SessionManager) Authenticate(
 		return contract.AdminCredential{}, ErrAuthenticationRequired
 	}
 	parent, err := manager.service.Get(ctx, session.parentID)
+	if cancelledSessionRead(ctx, err) {
+		return contract.AdminCredential{}, err
+	}
 	if err != nil || parent.Status != contract.CredentialActive {
 		manager.closeSession(session)
 		return contract.AdminCredential{}, ErrAuthenticationRequired
@@ -280,10 +286,19 @@ func (manager *SessionManager) Sweep(ctx context.Context) {
 			continue
 		}
 		parent, err := manager.service.Get(ctx, session.parentID)
+		if cancelledSessionRead(ctx, err) {
+			continue
+		}
 		if err != nil || parent.Status != contract.CredentialActive {
 			manager.closeSession(session)
 		}
 	}
+}
+
+func cancelledSessionRead(ctx context.Context, err error) bool {
+	// database/sql may report ErrTxDone after cancellation rolls back a read.
+	// Neither that race nor request cancellation proves parent revocation.
+	return err != nil && (ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
 }
 
 func (manager *SessionManager) Status() contract.LimitStatus {

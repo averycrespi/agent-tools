@@ -94,6 +94,14 @@ type GrantRequestSummary struct {
 	ClosedAt        *string                      `json:"closed_at"`
 }
 
+type GrantRequestTableItem struct {
+	Request              GrantRequestSummary `json:"request"`
+	PrincipalDisplayName string              `json:"principal_display_name"`
+	ServerDisplayName    string              `json:"server_display_name"`
+	ResolvedServerID     string              `json:"resolved_server_id"`
+	ResolvedUpstreamName *string             `json:"resolved_upstream_name"`
+}
+
 type GrantRequest struct {
 	GrantRequestSummary
 	ResolvedServerID     string              `json:"resolved_server_id"`

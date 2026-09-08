@@ -64,7 +64,7 @@ func TestBrowserRequestReads(t *testing.T) {
 	assert.Positive(t, event.Requests)
 	assert.GreaterOrEqual(t, event.ListReads, 4)
 	assert.GreaterOrEqual(t, event.DetailReads, 3)
-	assert.Equal(t, 4, event.Destinations)
+	assert.Equal(t, 5, event.Destinations)
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "request read scenario must own one Gateway lifecycle")
 }

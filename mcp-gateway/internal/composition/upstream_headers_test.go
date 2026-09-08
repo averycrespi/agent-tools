@@ -95,6 +95,10 @@ func testUpstreamHeaderChange(t *testing.T, replacement string) {
 	defer built.shutdownConstructed()
 	transport := contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}, Headers: map[string]string{"X-MCP-Toolsets": initial}}
 	desired := enableCompositionServer(t, built.servers, createServerWithTransport(t, built.servers, "headers", transport))
+	blockers := make([]servers.Server, 0, 4)
+	for index := range 4 {
+		blockers = append(blockers, createServerWithTransport(t, built.servers, fmt.Sprintf("blocker-%d", index), contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/block", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}))
+	}
 	require.NoError(t, built.Start(t.Context()))
 	startupCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -108,13 +112,17 @@ func testUpstreamHeaderChange(t *testing.T, replacement string) {
 	preacquired, err := old.Capability.Acquire(t.Context())
 	require.NoError(t, err)
 	defer func() { _ = preacquired.Cancel(t.Context()) }()
-	for index := range 4 {
-		blocker := createServerWithTransport(t, built.servers, fmt.Sprintf("blocker-%d", index), contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/block", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}})
+	activations := make([]servers.Operation, 0, len(blockers))
+	for _, blocker := range blockers {
 		enabled := true
 		activation, err := built.servers.Patch(t.Context(), blocker.ID, blocker.DesiredRevision, servers.Patch{Enabled: &enabled})
 		require.NoError(t, err)
 		require.NotNil(t, activation.Operation)
-		built.TriggerServer(t.Context(), blocker.ID, &activation.Operation.ID, true)
+		activations = append(activations, *activation.Operation)
+	}
+	// Reconciliation writes must not race the fixture's remaining setup mutations.
+	for index, blocker := range blockers {
+		built.TriggerServer(t.Context(), blocker.ID, &activations[index].ID, true)
 	}
 	for range 4 {
 		select {

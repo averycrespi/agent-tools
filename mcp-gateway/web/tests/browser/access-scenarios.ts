@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
   assertSecretAbsent,
   fail,
@@ -8,6 +8,56 @@ import {
 } from "./shared.ts";
 import { exerciseCollectionPagination } from "../collection-pagination.ts";
 import { serverReadFixture } from "./fixtures.ts";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+async function captureRequestState(page: Page, state: string): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), `request-${state}-`));
+  for (const [width, height, label] of [
+    [1280, 900, "desktop"],
+    [320, 900, "narrow"],
+    [720, 450, "200-reference"],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    if (
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      )
+    )
+      fail(`Request ${state} overflows at ${label}`);
+    const dialog = page.locator("dialog[open]");
+    const modal = (await dialog.count()) > 0;
+    await page.screenshot({
+      path: join(directory, `${label}.png`),
+      fullPage: !modal,
+    });
+    if (modal) {
+      await dialog.locator('[data-testid$="-submit"]').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(directory, `${label}-actions.png`) });
+      await dialog.evaluate((element) => {
+        element.scrollTop = 0;
+      });
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.screenshot({
+    path: join(directory, "dark-desktop.png"),
+    fullPage: (await page.locator("dialog[open]").count()) === 0,
+  });
+  await page.emulateMedia({ colorScheme: "light" });
+  const audit = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+    .analyze();
+  const violations = audit.violations.filter(
+    (item) => item.impact === "serious" || item.impact === "critical",
+  );
+  if (violations.length > 0)
+    fail(
+      `Request ${state} accessibility: ${JSON.stringify(violations.map((item) => ({ id: item.id, targets: item.nodes.map((node) => node.target) })))}`,
+    );
+}
 
 export async function runAccessManagementReadCanary(
   browserVersion: string,
@@ -167,7 +217,7 @@ export async function runAccessManagementReadCanary(
   for (const phrase of [
     "Submitted: no descriptor evidence",
     "Current target",
-    "Approval grants access under the policy below",
+    "Approval grants the selected authority",
     "it does not execute or retry a call",
   ])
     if (!body.includes(phrase))
@@ -2754,6 +2804,7 @@ export async function runRequestReads(
     "01ARZ3NDEKTSV4RRFFQ69G5FB0",
     "01ARZ3NDEKTSV4RRFFQ69G5FB1",
     "01ARZ3NDEKTSV4RRFFQ69G5FB2",
+    "01ARZ3NDEKTSV4RRFFQ69G5FB3",
   ];
   const grantID = "01ARZ3NDEKTSV4RRFFQ69G5FB9";
   const policy = (target: string, duration: string | null = "600") => ({
@@ -2862,6 +2913,10 @@ export async function runRequestReads(
       },
     ],
   ]);
+  details.set(requestIDs[3]!, {
+    ...details.get(requestIDs[2]!)!,
+    ...summary(requestIDs[3]!, "cancelled"),
+  });
   let staleRestarted = false;
   let listReads = 0;
   let detailReads = 0;
@@ -2898,11 +2953,11 @@ export async function runRequestReads(
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
-      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+      query.get("representation") !== "table"
     )
       fail("request queue filters changed shape");
     const cursor = query.get("cursor");
-    if (cursor === "request-stale") {
+    if (cursor !== null && !staleRestarted) {
       staleRestarted = true;
       await route.fulfill({
         status: 409,
@@ -2915,25 +2970,39 @@ export async function runRequestReads(
       });
       return;
     }
+    let rows = Array.from({ length: 128 }, (_, index) =>
+      summary(
+        requestIDs[index] ??
+          `01ARZ3NDEKTSV4RRFFQ69K${String(index).padStart(4, "0")}`,
+        index % 4 === 0 ? "pending" : "approved",
+      ),
+    );
+    rows = rows.filter(
+      (item) =>
+        (!query.has("state") || item.state === query.get("state")) &&
+        (!query.has("request") || item.id.includes(query.get("request")!)),
+    );
+    if (query.get("direction") === "descending") rows.reverse();
+    const offset = Number(cursor ?? 0);
+    const selected = rows.slice(offset, offset + 50);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(
-        cursor === "request-next"
-          ? {
-              items: [summary(requestIDs[2]!, "cancelled")],
-              next_cursor: null,
-            }
-          : {
-              items: [
-                summary(requestIDs[0]!, "pending"),
-                ...(staleRestarted
-                  ? [summary(requestIDs[1]!, "approved")]
-                  : []),
-              ],
-              next_cursor: staleRestarted ? "request-next" : "request-stale",
-            },
-      ),
+      body: JSON.stringify({
+        items: selected.map((request) => ({
+          request,
+          principal_display_name: "Requesting agent",
+          server_display_name: "Demo server",
+          resolved_server_id: serverID,
+          resolved_upstream_name: "safe",
+        })),
+        total_count: rows.length,
+        offset,
+        next_cursor:
+          offset + selected.length < rows.length
+            ? String(offset + selected.length)
+            : null,
+      }),
     });
   });
   await page.route("**/api/v1/principals?*", async (route) => {
@@ -2962,8 +3031,11 @@ export async function runRequestReads(
   await page.route("**/api/v1/grant-requests/*", async (route) => {
     detailReads += 1;
     const id = new URL(route.request().url()).pathname.split("/").pop()!;
-    const item = details.get(id);
-    if (route.request().method() !== "GET" || item === undefined)
+    const item = details.get(id) ?? {
+      ...details.get(requestIDs[1]!)!,
+      ...summary(id, "approved"),
+    };
+    if (route.request().method() !== "GET")
       fail("request detail changed shape");
     await route.fulfill({
       status: 200,
@@ -2980,20 +3052,68 @@ export async function runRequestReads(
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-testid="request-row"]').length === 1,
+  await page
+    .getByText("Showing 1–32 of 32 requests", { exact: true })
+    .waitFor();
+  await captureRequestState(page, "pending-queue");
+  if (
+    (await page.locator('[data-testid="request-row"]').count()) !== 32 ||
+    !(
+      await page
+        .getByRole("link", { name: "Review", exact: true })
+        .first()
+        .getAttribute("href")
+    )?.includes(requestIDs[0]!)
+  )
+    fail("pending queue did not expose oldest request");
+  await page.getByRole("link", { name: "All requests", exact: true }).click();
+  await page
+    .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page
+    .getByText(
+      "The previous page expired or changed. Restarted at the first page.",
+      { exact: true },
+    )
+    .waitFor();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page
+    .getByText("Showing 51–100 of 128 requests", { exact: true })
+    .waitFor();
+  await captureRequestState(page, "all-queue-page-two");
+  const decisionLink = page
+    .getByRole("link", { name: "View decision", exact: true })
+    .first();
+  const requestIDLink = decisionLink
+    .locator("xpath=ancestor::tr")
+    .locator('[data-label="Request ID"] a');
+  await expect(requestIDLink).toHaveAttribute(
+    "href",
+    (await decisionLink.getAttribute("href"))!,
   );
-  const loadOlderRequests = page.getByRole("button", {
-    name: "Load older requests",
-  });
-  await loadOlderRequests.click();
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-testid="request-row"]').length === 2,
-  );
-  await loadOlderRequests.click();
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-testid="request-row"]').length === 3,
-  );
+  await requestIDLink.click();
+  await page.getByTestId("request-detail").waitFor();
+  await page
+    .getByRole("link", { name: "Back to all requests", exact: true })
+    .click();
+  await page
+    .getByText("Showing 51–100 of 128 requests", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page
+    .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .waitFor();
+  await page.getByLabel("Request ID", { exact: true }).fill(requestIDs[0]!);
+  await page
+    .getByText("Showing 1–1 of 1 matching request", { exact: true })
+    .waitFor();
+  if (detailReads !== 1 || principalReads !== 0)
+    fail("queue traversed identities or expanded per-row detail");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await page
+    .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .waitFor();
   await page
     .getByText("Requesting agent", { exact: true })
     .first()
@@ -3013,66 +3133,88 @@ export async function runRequestReads(
       .count()) !== 0
   )
     fail("request queue retained duplicate introductory presentation");
+  await expect(
+    page.getByRole("heading", { name: "All requests", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page
+      .getByTestId("request-row")
+      .first()
+      .locator('[data-label="Request ID"] a'),
+  ).toHaveText(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  await expect(
+    page.getByTestId("request-row").first().locator("th").locator("a"),
+  ).toHaveClass(/button-link/);
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    const linkStyles = await page
+      .getByTestId("request-row")
+      .first()
+      .evaluate((row) => {
+        return ["Request ID", "Principal", "Target"].map((label) => {
+          const style = getComputedStyle(
+            row.querySelector(`[data-label="${label}"] a`)!,
+          );
+          return {
+            color: style.color,
+            decoration: style.textDecorationLine,
+            weight: style.fontWeight,
+          };
+        });
+      });
+    expect(linkStyles[0]).toEqual(linkStyles[1]);
+    expect(linkStyles[0]).toEqual(linkStyles[2]);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  const queueGap = await page
+    .getByRole("navigation", { name: "Request queues" })
+    .evaluate((node) => parseFloat(getComputedStyle(node).marginBottom));
+  if (queueGap < 24) fail("queue tabs are cramped against filters");
   const requestHeaders = await page.locator("thead th").allTextContents();
   if (
     requestHeaders.map((header) => header.replace(/[↕↑↓]/g, "")).join("|") !==
-    "Request ID|Principal|Requested target|State|Submitted"
+    "Action|Request ID|Principal|Target|State|Access requested|Submitted"
   )
     fail(`request table columns changed: ${requestHeaders.join("|")}`);
   if (
     !body.includes("Requesting agent") ||
-    !body.includes("Showing 3 of 3") ||
+    !body.includes("Showing 1–50 of 128 requests") ||
     body.includes("EVIDENCE-CANARY") ||
-    detailReads !== 0
+    detailReads !== 1
   )
     fail("request collection omitted shared metadata or expanded evidence");
   const stateFilter = page.getByLabel("State", { exact: true });
   await stateFilter.selectOption("approved");
+  await page
+    .getByText("Showing 1–50 of 96 matching requests", { exact: true })
+    .waitFor();
   if (
-    (await page.locator('[data-testid="request-row"]').count()) !== 1 ||
+    (await page.locator('[data-testid="request-row"]').count()) !== 50 ||
     !(await page.evaluate(() => window.location.hash)).includes(
       "filter_state=approved",
     )
   )
     fail("request state filter was not URL-backed");
   await page.getByRole("button", { name: "Reset" }).click();
-  if ((await page.locator('[data-testid="request-row"]').count()) !== 3)
-    fail("request filter Reset did not restore rows");
+  await page
+    .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .waitFor();
 
-  const liveSwitch = page.getByRole("switch", { name: "Live mode" });
-  if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
-    fail("request live mode was not enabled by default");
-  if (body.includes("Live updates on") || body.includes("Live updates paused"))
-    fail("request live mode retained redundant state text");
-  const beforeIdle = listReads;
-  await page.waitForTimeout(5100);
-  if (listReads !== beforeIdle)
-    fail("request live mode polled instead of waiting for invalidations");
-  await liveSwitch.uncheck();
-  const beforePausedRefresh = listReads;
+  const beforeRefresh = listReads;
   releaseInvalidation?.();
-  await page.getByText("Updates available", { exact: true }).waitFor();
-  if (
-    listReads !== beforePausedRefresh ||
-    (await page.locator('[data-testid="request-row"]').count()) !== 3
-  )
-    fail("paused request collection replaced its stable rows");
-  await liveSwitch.check();
-  await page.waitForFunction(
-    () =>
-      !document.body.textContent?.includes("Updates available") &&
-      document.querySelectorAll('[data-testid="request-row"]').length === 2,
+  await page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/v1/grant-requests?") &&
+      response.status() === 200,
   );
-  if (listReads <= beforePausedRefresh)
-    fail("resuming request live mode did not perform one authoritative read");
+  if (listReads <= beforeRefresh)
+    fail("request invalidation did not revalidate queue");
 
   const navigate = async (id: string) => {
     await page.evaluate((requestID) => {
       window.location.hash = `#/requests/${requestID}`;
     }, id);
-    await page
-      .getByRole("heading", { name: `Request ${id}`, exact: true })
-      .waitFor();
+    await page.locator(`[data-request-id="${id}"]`).waitFor();
     const requestDetail = page.locator('[data-testid="request-detail"]');
     if (
       (await requestDetail
@@ -3090,14 +3232,15 @@ export async function runRequestReads(
       fail("request detail did not use the shared detail hierarchy");
   };
   await navigate(requestIDs[0]!);
+  await captureRequestState(page, "changed-evidence");
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Submitted policy and evidence — immutable",
     "Current target comparison — read-time",
-    "Proposed approved policy",
+    "Choose a decision",
     "Descriptor fingerprint changed",
-    "never executes or resumes the motivating call",
-    "explicit fresh call is required",
+    "Approve as requested",
+    "Customize approval",
   ])
     if (!body.includes(phrase)) fail(`request detail omitted ${phrase}`);
   if (
@@ -3113,26 +3256,50 @@ export async function runRequestReads(
     fail("request detail omitted reciprocal navigation");
 
   await navigate(requestIDs[1]!);
+  await expect(
+    page.getByRole("heading", { name: "Approved request", exact: true }),
+  ).toBeVisible();
+  const approvedDecision = page.getByRole("region", {
+    name: "Approved decision",
+    exact: true,
+  });
+  await expect(
+    approvedDecision.getByRole("link", { name: grantID, exact: true }),
+  ).toHaveAttribute("href", `#/grants/${grantID}`);
+  await expect(approvedDecision).not.toContainText("ordinary ALLOW");
+  await expect(approvedDecision).not.toContainText("This historical link");
+  await captureRequestState(page, "approved-deleted");
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "retired historical evidence",
     "Retained evidence is not callable authority",
-    `Grant ${grantID}`,
-    "does not prove the grant still exists",
+    "Created grant",
+    grantID,
   ])
     if (!body.includes(phrase))
       fail(`approved request history omitted ${phrase}`);
 
   await navigate(requestIDs[2]!);
+  await captureRequestState(page, "absent-evidence");
   body = (await page.locator("body").textContent()) ?? "";
   if (
     !body.includes("Current descriptor is absent") ||
     !body.includes("no descriptor evidence")
   )
     fail("absent request target omitted explicit evidence state");
+  await navigate(requestIDs[3]!);
+  await page
+    .getByText("Request adjudication is closed", { exact: true })
+    .waitFor();
+  if ((await page.getByTestId("request-actions").count()) !== 0)
+    fail("cancelled request remained editable");
+  await expect(
+    page.getByRole("heading", { name: "Cancelled request", exact: true }),
+  ).toBeVisible();
+  await captureRequestState(page, "cancelled");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "request_reads_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, detail_reads: detailReads, destinations: 4 })}\n`,
+    `${JSON.stringify({ event: "request_reads_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, detail_reads: detailReads, destinations: 5 })}\n`,
   );
 }
 
@@ -3240,6 +3407,46 @@ export async function runRequestAdjudication(
   let approvals = 0;
   let rejections = 0;
   const attempts = new Map<string, number>();
+
+  await page.route("**/api/v1/grant-requests?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    const rows = [...states.values()].filter(
+      (item) =>
+        (!query.has("request") || item.id === query.get("request")) &&
+        (!query.has("state") || item.state === query.get("state")),
+    );
+    const items = rows.map((item) => ({
+      request: Object.fromEntries(
+        [
+          "id",
+          "principal_id",
+          "state",
+          "revision",
+          "requested_policy",
+          "approved_policy",
+          "approved_grant_id",
+          "rejection_reason",
+          "created_at",
+          "updated_at",
+          "closed_at",
+        ].map((key) => [key, item[key]]),
+      ),
+      principal_display_name: "Review agent",
+      server_display_name: "Demo server",
+      resolved_server_id: serverID,
+      resolved_upstream_name: item.resolved_upstream_name,
+    }));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items,
+        total_count: items.length,
+        offset: 0,
+        next_cursor: null,
+      }),
+    });
+  });
 
   await page.route(
     `**/api/v1/servers/${serverID}/descriptors?*`,
@@ -3421,7 +3628,8 @@ export async function runRequestAdjudication(
         );
       if (
         id === ids[10] &&
-        (!raw.includes('"version":2') ||
+        (body.description !== "Revised metadata" ||
+          !raw.includes('"version":2') ||
           !raw.includes('"/attempt":1.0') ||
           !raw.includes('"/literal":"<>&"'))
       )
@@ -3447,19 +3655,27 @@ export async function runRequestAdjudication(
     });
   });
 
-  const navigate = async (id: string) => {
+  const navigate = async (id: string, narrow = true) => {
     await page.evaluate((requestID) => {
       window.location.hash = `#/requests/${requestID}`;
     }, id);
-    await page
-      .getByRole("heading", { name: `Request ${id}`, exact: true })
-      .waitFor();
+    await page.locator(`[data-request-id="${id}"]`).waitFor();
     await page.locator('[data-testid="request-actions"]').waitFor();
+    await expect(
+      page.getByText("Access considerations", { exact: true }),
+    ).toHaveCount(0);
+    if ([ids[0], ids[1], ids[9]].includes(id))
+      await captureRequestState(page, `summary-${ids.indexOf(id)}`);
+    if (narrow)
+      await page
+        .getByRole("button", { name: "Customize approval", exact: true })
+        .press("Enter");
+    await expect(
+      page.getByRole("heading", { name: "Customize approval", exact: true }),
+    ).toHaveCount(0);
   };
   const confirm = async () => {
-    await page
-      .locator('[data-testid="request-adjudication-confirm-submit"]')
-      .click();
+    await page.locator('dialog[open] [data-testid$="-submit"]').click();
   };
   const reviewApproval = async () => {
     await page.locator('[data-testid="request-approve"]').click();
@@ -3473,6 +3689,12 @@ export async function runRequestAdjudication(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await navigate(ids[0]!);
+  await expect(
+    page.getByRole("region", { name: "Approval preview" }),
+  ).toContainText("No changes to requested access.");
+  await expect(page.getByTestId("request-approve")).toHaveText(
+    "Approve as requested",
+  );
   await page
     .locator('[data-testid="approval-description"]')
     .fill("Unsafe\u0085access");
@@ -3513,30 +3735,78 @@ export async function runRequestAdjudication(
   await page.locator('[data-testid="approval-additional-value"]').fill("safe");
   await page.getByTestId("approval-duration-unit").selectOption("minutes");
   await page.locator('[data-testid="approval-duration"]').fill("10");
-  const approvalGroup = page.getByRole("region", {
-    name: "Approve request",
-    exact: true,
-  });
-  const rejectionGroup = page.getByRole("region", {
-    name: "Reject request",
-    exact: true,
-  });
+  await expect(page.getByTestId("request-approve")).toHaveText(
+    "Approve as narrowed",
+  );
+  await expect(page.getByTestId("request-approve")).toHaveClass(
+    /primary-action/,
+  );
+  await page
+    .getByRole("button", { name: "Hide customization", exact: true })
+    .press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Customize approval", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByText("Custom approval edited", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("approval-duration")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Approve as requested", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Approve as requested?", exact: true }),
+  ).toBeVisible();
+  const originalPreview = JSON.parse(
+    await page.getByTestId("approval-review-policy").inputValue(),
+  );
   if (
-    (await approvalGroup.getByTestId("rejection-reason").count()) !== 0 ||
-    (await rejectionGroup.getByTestId("approval-duration").count()) !== 0 ||
-    !(await approvalGroup.getByTestId("request-approve").isVisible()) ||
-    !(await rejectionGroup.getByTestId("request-reject").isVisible())
+    originalPreview.approved_policy.scope !== "server" ||
+    originalPreview.approved_policy.constraint !== null ||
+    originalPreview.approved_policy.duration_seconds !== "1200"
   )
-    fail("approval and rejection controls were not grouped by task");
+    fail("hidden customization leaked into unchanged approval");
+  await page.getByTestId("request-adjudication-confirm-cancel").click();
+  await page
+    .getByRole("button", { name: "Customize approval", exact: true })
+    .click();
+  await expect(page.getByTestId("approval-duration")).toHaveValue("10");
+  await expect(approvalTarget).toHaveValue("demo.safe");
+  await expect(page.getByTestId("approval-additional-value")).toHaveValue(
+    "safe",
+  );
+  if (
+    !(await page
+      .getByRole("button", { name: "Approve as requested", exact: true })
+      .isVisible()) ||
+    !(await page.getByTestId("request-reject").isVisible())
+  )
+    fail("decision paths are not directly available");
   await reviewApproval();
   if (
     !(
       await page
         .locator("#request-adjudication-confirm-consequence")
         .innerText()
-    ).includes("Current durable descriptor · catalog revision 1")
+    ).includes("Current definition available.")
   )
     fail("server-to-tool approval review used stale catalog posture");
+  const narrowedEvidence = await page
+    .locator("#request-adjudication-confirm-consequence")
+    .innerText();
+  if (
+    !narrowedEvidence.includes(
+      "Narrowed to one tool — no submitted definition to compare.",
+    ) ||
+    narrowedEvidence.includes("Not applicable to server-wide authority") ||
+    narrowedEvidence.includes("Descriptor changed")
+  )
+    fail("narrowed tool confirmation misrepresented descriptor comparison");
+  await expect(
+    page.getByRole("dialog", { name: "Approve as narrowed?", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("Access to demo.safe");
+  await captureRequestState(page, "server-to-tool-confirmation");
   await confirm();
   try {
     await page
@@ -3547,6 +3817,24 @@ export async function runRequestAdjudication(
       `first approval did not close: ${((await page.locator("body").textContent()) ?? "").slice(-1200)}`,
     );
   }
+
+  const terminalComparison = page.getByRole("region", {
+    name: "Requested versus approved",
+    exact: true,
+  });
+  await expect(terminalComparison).toBeVisible();
+  for (const phrase of [
+    "Server → Tool",
+    "demo → demo.safe",
+    "20 minutes → 10 minutes",
+    "Requested conditions",
+    "No argument restrictions",
+    "Approved conditions",
+    '/mode equals "safe"',
+  ]) {
+    await expect(terminalComparison).toContainText(phrase);
+  }
+  await captureRequestState(page, "server-to-tool-approved");
 
   await navigate(ids[1]!);
   await page
@@ -3620,6 +3908,7 @@ export async function runRequestAdjudication(
   if ((attempts.get(ids[1]!) ?? 0) !== 0)
     fail("invalid RE2 approval reached confirmation");
   await additionalValues.nth(1).fill("(local|dev)");
+  await captureRequestState(page, "narrowed-draft");
   if (
     (await page.getByLabel("Constraint preview", { exact: true }).count()) !== 0
   )
@@ -3628,6 +3917,10 @@ export async function runRequestAdjudication(
   if (await page.getByText("Check adjudication", { exact: true }).isVisible())
     fail("corrected matcher retained a stale adjudication error");
   await reviewApproval();
+  await page
+    .getByText("Exact identifiers and serialized policy", { exact: true })
+    .click();
+  await captureRequestState(page, "narrowed-confirmation");
   const approvalReview = await page
     .locator("#request-adjudication-confirm-consequence")
     .innerText();
@@ -3635,12 +3928,13 @@ export async function runRequestAdjudication(
     !approvalReview.includes(principalID) ||
     !approvalReview.includes(serverID) ||
     !approvalReview.includes("demo.safe") ||
-    !approvalReview.includes("current / current") ||
-    !approvalReview.includes("DescriptionNone") ||
-    !approvalReview.includes("Approved duration5 minutes") ||
-    !approvalReview.includes("Constraintv2 · 3 equality · 2 regex") ||
-    !approvalReview.includes("Every matcher atom is required (AND)") ||
-    !approvalReview.includes("matching DENY takes precedence") ||
+    !approvalReview.includes("Comparison unavailable") ||
+    /Description\s*None/.test(approvalReview) ||
+    !/Duration\s*5 minutes from approval/.test(approvalReview) ||
+    !approvalReview.includes("/zone") ||
+    !approvalReview.includes("/extra") ||
+    !approvalReview.includes("All conditions must match.") ||
+    !approvalReview.includes("Matching deny grants still take precedence.") ||
     !(
       await page.locator('[data-testid="approval-review-policy"]').inputValue()
     ).includes('"/attempt":1.0')
@@ -3653,13 +3947,70 @@ export async function runRequestAdjudication(
     .getByText("Request adjudication is closed", { exact: true })
     .waitFor();
 
-  await navigate(ids[10]!);
+  for (const phrase of [
+    "Tool → Unchanged",
+    "demo.safe → Unchanged",
+    "10 minutes → 5 minutes",
+    '/mode equals "safe"',
+    "/extra equals 1",
+    '/zone matches "(local|dev)"',
+  ]) {
+    await expect(terminalComparison).toContainText(phrase);
+  }
+  await captureRequestState(page, "exact-tool-approved");
+
+  await navigate(ids[10]!, false);
   const lockedV1 = await page
-    .locator('[data-testid="approval-submitted-constraint"]')
+    .getByLabel("Exact condition source", { exact: true })
+    .first()
     .inputValue();
   if (lockedV1.includes('"version"') || !lockedV1.includes('"/attempt":1.0'))
     fail("existing v1 request was rewritten before approval");
-  await reviewApproval();
+  await page
+    .getByRole("button", { name: "Approve as requested", exact: true })
+    .press("Enter");
+  await page
+    .getByRole("heading", { name: "Approve as requested?", exact: true })
+    .waitFor();
+  await captureRequestState(page, "unchanged-confirmation");
+  await page.keyboard.press("Escape");
+  await page
+    .getByTestId("request-adjudication-confirm-submit")
+    .waitFor({ state: "hidden" });
+  await page.waitForFunction(
+    () => document.activeElement?.textContent === "Approve as requested",
+  );
+  if (
+    (attempts.get(ids[10]!) ?? 0) !== 0 ||
+    !(await page
+      .getByRole("button", { name: "Approve as requested", exact: true })
+      .evaluate((element) => element === document.activeElement))
+  )
+    fail("unchanged cancellation mutated or lost focus");
+  await page
+    .getByRole("button", { name: "Approve as requested", exact: true })
+    .click();
+  await page
+    .getByTestId("request-adjudication-confirm-submit")
+    .waitFor({ state: "visible" });
+  await page.getByTestId("approval-description").evaluate((input) => {
+    (input as HTMLInputElement).value = "Revised metadata";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await confirm();
+  await page
+    .getByText("The draft changed. Review the current draft again.", {
+      exact: true,
+    })
+    .waitFor();
+  if ((attempts.get(ids[10]!) ?? 0) !== 0)
+    fail("stale reviewed draft reached mutation");
+  await page
+    .getByRole("button", { name: "Approve as requested", exact: true })
+    .click();
+  await page
+    .getByText("Exact identifiers and serialized policy", { exact: true })
+    .click();
   if (
     !(
       await page.locator('[data-testid="approval-review-policy"]').inputValue()
@@ -3692,13 +4043,12 @@ export async function runRequestAdjudication(
   ];
   for (let index = 0; index < reasons.length; index++) {
     await navigate(ids[index + 2]!);
-    await page
-      .locator('[data-testid="rejection-reason"]')
-      .selectOption(reasons[index]!);
     await page.getByTestId("approval-duration").fill("0");
     await page.locator('[data-testid="request-reject"]').click();
+    await page.getByTestId("rejection-reason").selectOption(reasons[index]!);
     if (index === 0) {
-      await page.getByTestId("request-adjudication-confirm-cancel").click();
+      await captureRequestState(page, "rejection-dialog");
+      await page.getByTestId("request-rejection-cancel").click();
       await page.waitForFunction(
         () =>
           document.querySelector('[data-testid="request-reject"]') ===
@@ -3710,14 +4060,71 @@ export async function runRequestAdjudication(
     await page
       .getByText("Request adjudication is closed", { exact: true })
       .waitFor();
+    await expect(
+      page.getByRole("heading", { name: "Rejected request", exact: true }),
+    ).toBeVisible();
   }
 
   await navigate(ids[9]!);
+  await page
+    .getByRole("button", { name: "Approve as requested", exact: true })
+    .first()
+    .click();
+  const permanentDialog = page.getByRole("dialog", {
+    name: "Approve as requested?",
+    exact: true,
+  });
+  await expect(permanentDialog).toBeVisible();
+  await expect(permanentDialog).toContainText("No expiry");
+  await expect(permanentDialog).not.toContainText("from approval");
+  await expect(permanentDialog).not.toContainText("Temporary access");
+  await expect(
+    permanentDialog.getByText("Access considerations", { exact: true }),
+  ).toHaveCount(0);
+  await expect(permanentDialog.locator("dt")).toHaveText([
+    "Principal",
+    "Approved target",
+    "Tools",
+    "Duration",
+    "Conditions",
+    "Tool definition",
+  ]);
+  for (const text of [
+    "Access does not expire automatically.",
+    "This grant adds no restrictions on argument values.",
+    "Access includes tools added to this server later.",
+  ]) {
+    await expect(page.getByTestId("request-detail")).not.toContainText(text);
+  }
+  await captureRequestState(page, "permanent-confirmation");
+  await page.getByTestId("request-adjudication-confirm-cancel").click();
+  await page.getByTestId("approval-duration-unit").selectOption("seconds");
+  await page.getByTestId("approval-duration").fill("59");
+  await reviewApproval();
+  await page
+    .getByText("Duration must be between 1 minute and 30 days.", {
+      exact: true,
+    })
+    .waitFor();
+  await page.getByTestId("approval-duration-unit").selectOption("days");
+  await page.getByTestId("approval-duration").fill("31");
+  await reviewApproval();
+  await page
+    .getByText("Duration must be between 1 minute and 30 days.", {
+      exact: true,
+    })
+    .waitFor();
+  await page.getByTestId("approval-duration").fill("30");
+  await reviewApproval();
+  await page.getByTestId("request-adjudication-confirm-cancel").click();
+  if ((attempts.get(ids[9]!) ?? 0) !== 0)
+    fail("duration boundary review mutated");
   await page.getByTestId("approval-duration-unit").selectOption("minutes");
   await page.locator('[data-testid="approval-duration"]').fill("1");
   await reviewApproval();
   await page
     .getByText("Not applicable to server-wide authority", { exact: true })
+    .last()
     .waitFor();
   await confirm();
   await page
@@ -3743,6 +4150,11 @@ export async function runRequestAdjudication(
   await navigate(ids[8]!);
   await reviewApproval();
   await confirm();
+  await page
+    .getByText("Adjudication outcome is unknown", { exact: true })
+    .waitFor();
+  await captureRequestState(page, "uncertain");
+  await page.getByTestId("manual-refresh").click();
   await page
     .getByText("Adjudication outcome is unknown", { exact: true })
     .waitFor();
