@@ -29,9 +29,11 @@ type ToolsCallResult struct {
 }
 
 type ToolsCallResponse struct {
-	Result       *ToolsCallResult
-	ErrorCode    contract.AgentCallErrorCode
-	InvocationID string
+	Result             *ToolsCallResult
+	ErrorCode          contract.AgentCallErrorCode
+	RejectionReason    contract.CallRejectionReason
+	BlockedSelfService bool
+	InvocationID       string
 }
 
 type ToolsCallService interface {
@@ -137,7 +139,7 @@ func encodeToolsCallResponse(ctx context.Context, id json.RawMessage, response T
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if response.Result != nil && response.ErrorCode == "" && response.InvocationID == "" && response.Result.Content != nil {
+	if response.Result != nil && response.ErrorCode == "" && response.InvocationID == "" && response.RejectionReason == "" && !response.BlockedSelfService && response.Result.Content != nil {
 		encoded, err := json.Marshal(toolsCallSuccessEnvelope{JSONRPC: "2.0", ID: copyRequestID(id), Result: response.Result})
 		if err != nil {
 			return nil, err
@@ -148,8 +150,12 @@ func encodeToolsCallResponse(ctx context.Context, id json.RawMessage, response T
 		return encoded, nil
 	}
 	callError, ok := contract.AgentCallErrorForCode(response.ErrorCode)
+	validReason := response.RejectionReason == "" && !response.BlockedSelfService
+	if response.ErrorCode == contract.CallRejected {
+		callError.Message, validReason = contract.CallRejectionMessage(response.RejectionReason, response.BlockedSelfService)
+	}
 	validID := response.InvocationID == "" || toolsCallIDPattern.MatchString(response.InvocationID)
-	validCombination := ok && response.Result == nil && validID &&
+	validCombination := ok && validReason && response.Result == nil && validID &&
 		(response.ErrorCode == contract.AuditUnavailable && response.InvocationID == "" || response.ErrorCode != contract.AuditUnavailable && response.InvocationID != "")
 	if !validCombination {
 		callError, _ = contract.AgentCallErrorForCode(contract.AuditUnavailable)
@@ -161,7 +167,7 @@ func encodeToolsCallResponse(ctx context.Context, id json.RawMessage, response T
 		invocationID = &value
 	}
 	data := contract.AgentCallErrorData{
-		Code: response.ErrorCode, InvocationID: invocationID,
+		Code: response.ErrorCode, Reason: response.RejectionReason, InvocationID: invocationID,
 		OutcomeUnknown: response.ErrorCode == contract.OutcomeUnknown,
 	}
 	encoded, err := json.Marshal(toolsCallErrorEnvelope{

@@ -135,6 +135,34 @@ func TestLocalInvocationNeverExecutesWithoutAllow(t *testing.T) {
 	assert.Nil(t, record.TerminalClass)
 }
 
+func TestBlockedLocalInvocationDoesNotExecuteAndSelectsAdministratorGuidance(t *testing.T) {
+	_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
+	grants, err := authority.ListGrants(t.Context(), authorization.GrantFilter{PrincipalID: principal.ID}, nil, 10)
+	require.NoError(t, err)
+	require.Len(t, grants.Items, 1)
+	require.NoError(t, authority.DeleteGrant(t.Context(), grants.Items[0].ID))
+	lease, err := authority.Authenticate(t.Context(), credential.Bearer)
+	require.NoError(t, err)
+	defer lease.Release()
+	executions := 0
+	service, err := newService(audits, authority, func(string) (callTarget, bool) {
+		return localServiceCallTarget(func(context.Context, authorization.AdmittedSubject, strictjson.Value) LocalCallResult {
+			executions++
+			return LocalSuccess(json.RawMessage(`{"content":[]}`))
+		}), true
+	})
+	require.NoError(t, err)
+	response := service.Call(t.Context(), lease, CallRequest{Params: callParams(`{"name":"mcp_gateway.get_identity","arguments":{}}`), WireValid: true})
+	assert.Equal(t, contract.CallRejected, response.ErrorCode)
+	assert.Equal(t, contract.RejectionBlock, response.RejectionReason)
+	assert.True(t, response.BlockedSelfService)
+	assert.Zero(t, executions)
+	assert.Nil(t, response.Result)
+	record := onlyInvocationRecord(t, audits)
+	assert.Equal(t, contract.DecisionBlock, *record.AuthorizationDecision)
+	assert.Nil(t, record.TerminalClass)
+}
+
 func TestLocalStorageFailuresUseToolUnavailableWithoutOutcomeUnknown(t *testing.T) {
 	tests := []struct {
 		name       string

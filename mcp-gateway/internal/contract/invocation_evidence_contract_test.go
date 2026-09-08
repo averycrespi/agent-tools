@@ -74,9 +74,34 @@ func TestInvocationAgentErrorDataShapeIsClosed(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"code":"outcome_unknown","invocationId":"01ARZ3NDEKTSV4RRFFQ69G5FAV","outcomeUnknown":true}`, string(encoded))
 
-	encoded, err = json.Marshal(AgentCallErrorData{Code: CallRejected})
+	encoded, err = json.Marshal(AgentCallErrorData{Code: CallRejected, Reason: RejectionDeny, InvocationID: &invocationID})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"code":"call_rejected"}`, string(encoded))
+	require.JSONEq(t, `{"code":"call_rejected","reason":"deny","invocationId":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`, string(encoded))
+}
+
+func TestCallRejectionVocabularyAndMessagesAreClosed(t *testing.T) {
+	t.Parallel()
+	reasons := []string{"invalid_params", "unknown_tool", "invalid_arguments", "deny", "block", "authorization_unavailable"}
+	require.Len(t, CallRejectionReasons(), len(reasons))
+	for index, value := range reasons {
+		reason, err := ParseCallRejectionReason(value)
+		require.NoError(t, err)
+		require.Equal(t, value, string(reason))
+		require.Equal(t, reason, CallRejectionReasons()[index])
+		message, ok := CallRejectionMessage(reason, false)
+		require.True(t, ok)
+		require.NotEmpty(t, message)
+		require.LessOrEqual(t, len(message), 256)
+		_, ok = CallRejectionMessage(reason, true)
+		require.Equal(t, reason == RejectionBlock, ok)
+	}
+	for _, value := range []string{"", "allow", "DENY", "private-error"} {
+		_, err := ParseCallRejectionReason(value)
+		require.Error(t, err)
+		message, ok := CallRejectionMessage(CallRejectionReason(value), false)
+		require.False(t, ok)
+		require.Empty(t, message)
+	}
 }
 
 func TestInvocationAuditRecordCarriesOnlyBoundedEvidence(t *testing.T) {

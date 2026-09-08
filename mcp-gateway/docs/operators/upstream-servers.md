@@ -83,6 +83,8 @@ The following names are reserved, case-insensitively:
 - `host`, `connection`, `keep-alive`, `te`, `trailer`, `transfer-encoding`, `upgrade`, `expect`, `forwarded`, `via`, `x-real-ip`, `x-original-url`, `x-rewrite-url`, `x-http-method-override`.
 - `origin`, `referer`, `accept`, `user-agent`, `range`, `cache-control`, `pragma`, `max-forwards`, `date`.
 
+Configured custom headers are supported by both Overview and Servers reads; their presence alone does not flag a server for investigation.
+
 These headers apply only to this server's MCP requests (all protocol modes, initialization, notifications, discovery, and calls). They are not sent to OAuth metadata, registration, or token endpoints, other servers, or browser response headers. Inbound client headers are never forwarded; configured headers do not relax URL, TLS, address, or no-redirect policy.
 
 ## OAuth compatibility settings

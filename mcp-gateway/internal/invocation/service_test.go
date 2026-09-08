@@ -65,6 +65,8 @@ func TestServiceClassifiesAndAuditsEveryRecognizableBranch(t *testing.T) {
 			require.NoError(t, readErr)
 			require.True(t, found)
 			assert.Equal(t, test.wantClass, record.AdmissionClass)
+			assert.Equal(t, string(test.wantClass), string(response.RejectionReason))
+			assert.False(t, response.BlockedSelfService)
 			assert.Equal(t, test.wantName, record.RequestedName)
 			assert.Equal(t, test.wantArguments, record.RedactedArguments)
 			assert.Nil(t, record.AuthorizationDecision)
@@ -127,7 +129,7 @@ func TestServiceDispatchesPinnedAllowOnceAfterGateRelease(t *testing.T) {
 }
 
 func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
-	t.Run("committed deny is least disclosing", func(t *testing.T) {
+	t.Run("committed deny takes precedence over default allow", func(t *testing.T) {
 		_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 		upstream := "tool"
 		_, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
@@ -153,6 +155,8 @@ func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
 		assert.Zero(t, acquisitions)
 		record := onlyInvocationRecord(t, audits)
 		assert.Equal(t, contract.DecisionDeny, *record.AuthorizationDecision)
+		assert.Equal(t, contract.RejectionDeny, response.RejectionReason)
+		assert.False(t, response.BlockedSelfService)
 		assert.Nil(t, record.TerminalClass)
 	})
 
@@ -181,10 +185,81 @@ func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
 		response := service.Call(context.Background(), lease, validCallParams())
 
 		assert.Equal(t, contract.AuditUnavailable, response.ErrorCode)
+		assert.Empty(t, response.RejectionReason)
 		assert.Empty(t, response.InvocationID)
 		assert.Zero(t, acquisitions)
 		assert.True(t, audits.store.Latched())
 	})
+}
+
+func TestServiceRejectionReasonsUseAcknowledgedEvidenceWithoutDispatch(t *testing.T) {
+	for _, scenario := range []string{"block", "authorization failure", "binding failure", "storage failure", "known audit failure", "uncertain audit failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			armed := false
+			fault := func(point storage.FaultPoint) error {
+				if armed && (scenario == "known audit failure" && point == storage.FaultArmCreate || scenario == "uncertain audit failure" && point == storage.FaultAfterCommit) {
+					return errors.New("private-audit-canary")
+				}
+				return nil
+			}
+			_, audits, authority, principal, credential := newAdmissionCoordinator(t, fault)
+			lease, err := authority.Authenticate(t.Context(), credential.Bearer)
+			require.NoError(t, err)
+			defer lease.Release()
+			switch scenario {
+			case "authorization failure":
+				insertMalformedEvaluationGrant(t, audits.store, principal.ID)
+			case "binding failure":
+				_, err = authority.RevokeCredential(t.Context(), principal.ID, credential.Principal.Revision)
+				require.NoError(t, err)
+			case "storage failure":
+				require.NoError(t, audits.store.Mutate(t.Context(), func(tx *sql.Tx) error {
+					_, dropErr := tx.ExecContext(t.Context(), `DROP TABLE grants`)
+					return dropErr
+				}))
+			}
+			resolutions, validations, acquisitions := 0, 0, 0
+			service, err := newService(audits, authority, func(string) (callTarget, bool) {
+				resolutions++
+				target := serviceCallTarget(nil, func(context.Context) (executionLease, error) {
+					acquisitions++
+					return nil, errors.New("must not acquire")
+				})
+				if scenario != "authorization failure" {
+					target.evidence.ServerID = invocationID(500)
+				}
+				target.validate = func(strictjson.Value) error { validations++; return nil }
+				return target, true
+			})
+			require.NoError(t, err)
+			armed = true
+			response := service.Call(t.Context(), lease, validCallParams())
+			assert.Equal(t, 1, resolutions)
+			assert.Equal(t, 1, validations)
+			assert.Zero(t, acquisitions)
+			assert.Nil(t, response.Result)
+			assert.False(t, response.BlockedSelfService)
+			switch scenario {
+			case "block", "authorization failure":
+				assert.Equal(t, contract.CallRejected, response.ErrorCode)
+				assert.NotEmpty(t, response.InvocationID)
+				record := onlyInvocationRecord(t, audits)
+				assert.Nil(t, record.TerminalClass)
+				if scenario == "block" {
+					assert.Equal(t, contract.RejectionBlock, response.RejectionReason)
+					assert.Equal(t, contract.DecisionBlock, *record.AuthorizationDecision)
+				} else {
+					assert.Equal(t, contract.RejectionAuthorizationUnavailable, response.RejectionReason)
+					assert.Equal(t, contract.AdmissionAuthorizationUnavailable, record.AdmissionClass)
+					assert.Nil(t, record.AuthorizationDecision)
+				}
+			default:
+				assert.Equal(t, contract.AuditUnavailable, response.ErrorCode)
+				assert.Empty(t, response.InvocationID)
+				assert.Empty(t, response.RejectionReason)
+			}
+		})
+	}
 }
 
 func TestServiceWireInvalidParamsPreserveSafeFieldsWithoutResolution(t *testing.T) {
@@ -353,6 +428,8 @@ func TestServiceSanitizesEveryDispatchOutcomeAndAnnotatesOnce(t *testing.T) {
 
 			assert.Equal(t, 1, executions)
 			assert.Equal(t, test.wantCode, response.ErrorCode)
+			assert.Empty(t, response.RejectionReason)
+			assert.False(t, response.BlockedSelfService)
 			assert.Equal(t, test.wantSuccess, response.Result != nil)
 			if test.wantSuccess {
 				assert.Empty(t, response.InvocationID)

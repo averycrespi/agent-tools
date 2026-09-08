@@ -242,7 +242,19 @@ function validateTransport(value: unknown): void {
     "url",
     "protocol_mode",
     "authentication",
+    ...(Object.hasOwn(base, "headers") ? ["headers"] : []),
   ]);
+  if (item.headers !== undefined) {
+    const headers = item.headers;
+    if (
+      headers === null ||
+      typeof headers !== "object" ||
+      Array.isArray(headers)
+    )
+      throw new Error("invalid HTTP headers");
+    const values = record(headers, Object.keys(headers));
+    Object.values(values).forEach(stringValue);
+  }
   stringValue(item.url);
   closed(item.protocol_mode, ["modern", "legacy", "auto"]);
   const authentication = record(

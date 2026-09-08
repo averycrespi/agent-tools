@@ -29,6 +29,25 @@ The retained outcome vocabulary is closed:
 
 The accompanying basis is `admission`, `policy`, `terminal`, or `missing_terminal`. Missing terminal evidence always projects as unknown.
 
+### Live call rejection contract
+
+Both modern and legacy governed `tools/call` errors retain JSON-RPC code `-32000` and the five existing `data.code` values. Only `call_rejected` carries a required closed `data.reason`. The reason comes from the acknowledged admission class or its evaluated decision, never a second policy evaluation. Messages are bounded Gateway-owned text; no grant IDs, matching constraints, argument values, or raw internal/downstream errors are interpolated.
+
+| `data.reason`               | `error.message`                                                                                                                                                                                                                                             |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_params`            | Request rejected: invalid tools/call parameters. Check the request shape.                                                                                                                                                                                   |
+| `unknown_tool`              | Request rejected: unknown tool. Refresh tools/list and check the tool name.                                                                                                                                                                                 |
+| `invalid_arguments`         | Request rejected: invalid tool arguments. Check the tool’s input schema.                                                                                                                                                                                    |
+| `deny`                      | DENIED: a matching DENY grant forbids this call. Additional ALLOW grants and self-service requests cannot override it.                                                                                                                                      |
+| `block`                     | BLOCKED: no matching ALLOW grant authorizes this call. If available, you may use mcp_gateway.list_grants to inspect your access or mcp_gateway.create_grant_request to request access. Requesting access does not authorize the call; approval is required. |
+| `authorization_unavailable` | Call rejected: authorization could not be established. This is not a DENY or BLOCK decision.                                                                                                                                                                |
+
+For a blocked resolved local `mcp_gateway` target, the message is instead: “BLOCKED: no matching ALLOW grant authorizes this call. You may ask an administrator to review your access.” Self-service is optional and grant-controlled, not a workaround for DENY. A DENY may expire or be removed by an administrator; its precedence does not imply permanence. Guidance neither submits requests nor replays calls.
+
+Malformed parameters, unknown targets, and invalid arguments remain binding-only admission classes even if policy would deny a valid call. A semantic authorization failure after verified binding uses `authorization_unavailable`; an acknowledged ALLOW that cannot detach (for example, because drain intervened) also uses that reason, never DENY/BLOCK. Rejections execute neither downstream nor local targets.
+
+Without an acknowledged admission, the error is `audit_unavailable` with no invocation ID or reason, even if evaluation or an uncertain commit may have occurred. Acknowledged rejection errors retain `data.invocationId`. Successes have no Gateway metadata; other error codes omit `data.reason`. Existing `outcome_unknown` and `data.outcomeUnknown` semantics, downstream error projection, authentication/admission ordering, and audit fail-closed behavior are unchanged. Invalid internal response combinations fail closed to `audit_unavailable` rather than inventing a rejection reason.
+
 ### Audit evidence and retention
 
 Argument capture uses one fixed recursive key redactor owned by Gateway before compact encoding. Matching is case-insensitive over the normalized sensitive-key set; a matching value is replaced wholesale, including nested structures. Capture overflow falls back to the fixed `[TRUNCATED]` placeholder; redaction or encoding failure produces no capture, and neither path falls back to the original bytes. This is a least-disclosure control over recognized keys, not a claim that arbitrary secret material is detected. Operator-facing projections distinguish a retained capture, truncation, and absence without describing any capture as sanitized or safe. SQLite, backups, events, logs, process output, and test evidence must contain neither raw bearer values nor successful results, raw tool errors, or unredacted canaries.
@@ -85,7 +104,7 @@ Gateway validates the modern `2026-07-28` header/body protocol mirror and dispat
 
 Modern requests reject legacy session IDs, cannot fall through to legacy classification, and propagate request cancellation. Before SDK dispatch, one shared raw codec preserves the JSON-RPC ID, strictly accepts absent, empty, or cursor-only list parameters (beside required modern protocol metadata), owns the closed discovery success/error envelopes, and returns fixed method-not-found for every uncomposed non-lifecycle feature method.
 
-Its call-only sibling recognizes only a non-null string/number ID, excludes batches and notifications, strips `_meta` and disallowed fields, and passes token-preserving name/arguments plus closed wire-validity evidence to an era-neutral service seam. It owns exact success projection and the five fixed safe call errors.
+Its call-only sibling recognizes only a non-null string/number ID, excludes batches and notifications, strips `_meta` and disallowed fields, and passes token-preserving name/arguments plus closed wire-validity evidence to an era-neutral service seam. It owns exact success projection and the five safe call error codes, with the closed rejection reasons and fixed messages above.
 
 Modern injection supplies the registered request lease and cancellation context directly to that seam before stateless SDK dispatch. Legacy injection first matches the reauthenticated request's exact initialized session binding, then supplies only that request lease and cancellation context; it never treats the session ID or session-owned lease as call authority.
 

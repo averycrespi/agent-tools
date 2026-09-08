@@ -122,27 +122,40 @@ func TestSanitizeCallResultUsesOnlyTypedCompletionEvidence(t *testing.T) {
 
 func TestClassifyAdmissionIsLeastDisclosing(t *testing.T) {
 	allow, deny, block := contract.DecisionAllow, contract.DecisionDeny, contract.DecisionBlock
+	unknown := contract.AuthorizationDecision("private-decision")
 	for _, test := range []struct {
-		name      string
-		committed bool
-		class     contract.InvocationAdmissionClass
-		decision  *contract.AuthorizationDecision
-		wantCode  contract.AgentCallErrorCode
-		mayRun    bool
+		name       string
+		class      contract.InvocationAdmissionClass
+		decision   *contract.AuthorizationDecision
+		wantReason contract.CallRejectionReason
+		mayRun     bool
 	}{
-		{name: "uncommitted", class: contract.AdmissionEvaluated, decision: &allow, wantCode: contract.AuditUnavailable},
-		{name: "invalid params", committed: true, class: contract.AdmissionInvalidParams, wantCode: contract.CallRejected},
-		{name: "unknown tool", committed: true, class: contract.AdmissionUnknownTool, wantCode: contract.CallRejected},
-		{name: "invalid arguments", committed: true, class: contract.AdmissionInvalidArguments, wantCode: contract.CallRejected},
-		{name: "authorization unavailable", committed: true, class: contract.AdmissionAuthorizationUnavailable, wantCode: contract.CallRejected},
-		{name: "deny", committed: true, class: contract.AdmissionEvaluated, decision: &deny, wantCode: contract.CallRejected},
-		{name: "block", committed: true, class: contract.AdmissionEvaluated, decision: &block, wantCode: contract.CallRejected},
-		{name: "allow", committed: true, class: contract.AdmissionEvaluated, decision: &allow, mayRun: true},
+		{name: "invalid params", class: contract.AdmissionInvalidParams, wantReason: contract.RejectionInvalidParams},
+		{name: "unknown tool", class: contract.AdmissionUnknownTool, wantReason: contract.RejectionUnknownTool},
+		{name: "invalid arguments", class: contract.AdmissionInvalidArguments, wantReason: contract.RejectionInvalidArguments},
+		{name: "authorization unavailable", class: contract.AdmissionAuthorizationUnavailable, wantReason: contract.RejectionAuthorizationUnavailable},
+		{name: "deny", class: contract.AdmissionEvaluated, decision: &deny, wantReason: contract.RejectionDeny},
+		{name: "block", class: contract.AdmissionEvaluated, decision: &block, wantReason: contract.RejectionBlock},
+		{name: "allow", class: contract.AdmissionEvaluated, decision: &allow, mayRun: true},
+		{name: "missing decision", class: contract.AdmissionEvaluated, wantReason: contract.RejectionAuthorizationUnavailable},
+		{name: "unknown decision", class: contract.AdmissionEvaluated, decision: &unknown, wantReason: contract.RejectionAuthorizationUnavailable},
+		{name: "unknown class", class: "private-class", decision: &deny, wantReason: contract.RejectionAuthorizationUnavailable},
+		{name: "malformed before deny", class: contract.AdmissionInvalidParams, decision: &deny, wantReason: contract.RejectionInvalidParams},
+		{name: "unavailable before block", class: contract.AdmissionAuthorizationUnavailable, decision: &block, wantReason: contract.RejectionAuthorizationUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			code, mayRun := ClassifyAdmission(test.committed, test.class, test.decision)
-			assert.Equal(t, test.wantCode, code)
+			code, reason, mayRun := ClassifyAdmission(true, test.class, test.decision)
+			if test.mayRun {
+				assert.Empty(t, code)
+			} else {
+				assert.Equal(t, contract.CallRejected, code)
+			}
+			assert.Equal(t, test.wantReason, reason)
 			assert.Equal(t, test.mayRun, mayRun)
+			code, reason, mayRun = ClassifyAdmission(false, test.class, test.decision)
+			assert.Equal(t, contract.AuditUnavailable, code)
+			assert.Empty(t, reason)
+			assert.False(t, mayRun)
 		})
 	}
 }

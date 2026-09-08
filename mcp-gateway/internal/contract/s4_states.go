@@ -70,6 +70,53 @@ func ParseAgentCallErrorCode(value string) (AgentCallErrorCode, error) {
 	return parseClosed(value, AgentCallErrorCodes())
 }
 
+type CallRejectionReason string
+
+const (
+	RejectionInvalidParams            CallRejectionReason = "invalid_params"
+	RejectionUnknownTool              CallRejectionReason = "unknown_tool"
+	RejectionInvalidArguments         CallRejectionReason = "invalid_arguments"
+	RejectionDeny                     CallRejectionReason = "deny"
+	RejectionBlock                    CallRejectionReason = "block"
+	RejectionAuthorizationUnavailable CallRejectionReason = "authorization_unavailable"
+)
+
+func CallRejectionReasons() []CallRejectionReason {
+	return []CallRejectionReason{
+		RejectionInvalidParams, RejectionUnknownTool, RejectionInvalidArguments,
+		RejectionDeny, RejectionBlock, RejectionAuthorizationUnavailable,
+	}
+}
+
+func ParseCallRejectionReason(value string) (CallRejectionReason, error) {
+	return parseClosed(value, CallRejectionReasons())
+}
+
+func CallRejectionMessage(reason CallRejectionReason, blockedSelfService bool) (string, bool) {
+	if blockedSelfService && reason != RejectionBlock {
+		return "", false
+	}
+	switch reason {
+	case RejectionInvalidParams:
+		return "Request rejected: invalid tools/call parameters. Check the request shape.", true
+	case RejectionUnknownTool:
+		return "Request rejected: unknown tool. Refresh tools/list and check the tool name.", true
+	case RejectionInvalidArguments:
+		return "Request rejected: invalid tool arguments. Check the tool’s input schema.", true
+	case RejectionDeny:
+		return "DENIED: a matching DENY grant forbids this call. Additional ALLOW grants and self-service requests cannot override it.", true
+	case RejectionBlock:
+		if blockedSelfService {
+			return "BLOCKED: no matching ALLOW grant authorizes this call. You may ask an administrator to review your access.", true
+		}
+		return "BLOCKED: no matching ALLOW grant authorizes this call. If available, you may use mcp_gateway.list_grants to inspect your access or mcp_gateway.create_grant_request to request access. Requesting access does not authorize the call; approval is required.", true
+	case RejectionAuthorizationUnavailable:
+		return "Call rejected: authorization could not be established. This is not a DENY or BLOCK decision.", true
+	default:
+		return "", false
+	}
+}
+
 const AgentCallJSONRPCErrorCode = -32000
 
 type AgentCallError struct {
