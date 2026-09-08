@@ -449,13 +449,14 @@ func (manager *Manager) TriggerWithCause(cause audit.Cause, serverID string, ope
 		}
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.draining {
+		manager.mu.Unlock()
 		return
 	}
 	current := manager.entryLocked(serverID)
 	current.generation++
 	manager.publisher.Fence(serverID, current.generation)
+	previous := []*Candidate{cloneCandidate(current.active), cloneCandidate(current.activating)}
 	current.pending = true
 	current.cause = cause
 	current.operationID = cloneString(operationID)
@@ -467,7 +468,17 @@ func (manager *Manager) TriggerWithCause(cause audit.Cause, serverID string, ope
 	if resetBackoff {
 		current.retryAttempt = 0
 	}
+	manager.mu.Unlock()
+	// Publication rechecks manager authority while holding the catalog lock.
+	// Withdraw outside this lock, but before the mutation can acknowledge success.
+	for _, candidate := range previous {
+		if candidate != nil {
+			manager.publisher.Withdraw(*candidate)
+		}
+	}
+	manager.mu.Lock()
 	manager.startAvailableLocked()
+	manager.mu.Unlock()
 }
 
 func (manager *Manager) triggerCatalogRefresh(cause audit.Cause, serverID, operationID string, refresher CatalogRefresher) {
