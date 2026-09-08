@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
@@ -779,6 +782,18 @@ export async function runOverview(
 ): Promise<void> {
   await waitForLifecycle(page, "signed_out");
   let invocationReads = 0;
+  let customHeaders: unknown = { "X-MCP-Toolsets": "repos,issues" };
+  const screenshots = await mkdtemp(join(tmpdir(), "overview-headers-"));
+  const httpServer = () => ({
+    ...overviewServer("01ARZ3NDEKTSV4RRFFQ69G5FA0", "Quiet server", "active"),
+    transport: {
+      kind: "streamable_http",
+      url: "https://example.invalid/mcp",
+      protocol_mode: "modern",
+      authentication: { mode: "bearer" },
+      ...(customHeaders === undefined ? {} : { headers: customHeaders }),
+    },
+  });
   let serverMode:
     | "complete"
     | "stale"
@@ -865,16 +880,7 @@ export async function runOverview(
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          items:
-            serverMode === "empty"
-              ? []
-              : [
-                  overviewServer(
-                    "01ARZ3NDEKTSV4RRFFQ69G5FA0",
-                    "Quiet server",
-                    "active",
-                  ),
-                ],
+          items: serverMode === "empty" ? [] : [httpServer()],
           next_cursor: null,
         }),
       });
@@ -1155,7 +1161,12 @@ export async function runOverview(
         });
         if (clipped)
           fail(`Overview ${state}/${theme}/${width} clipped content or links`);
-        const screenshot = await page.screenshot({ fullPage: true });
+        const screenshot = await page.screenshot({
+          fullPage: true,
+          ...(state === "quiet" || state === "invalid-headers"
+            ? { path: join(screenshots, `${state}-${theme}-${width}.png`) }
+            : {}),
+        });
         if (screenshot.length === 0) fail(`Overview ${state} screenshot empty`);
       }
     }
@@ -1367,6 +1378,29 @@ export async function runOverview(
     fail("Fresh unlatched read did not reopen admission");
   await capture("quiet");
 
+  for (const headers of [null, [], "invalid", { "X-MCP-Toolsets": 7 }]) {
+    customHeaders = headers;
+    await page.locator('[data-testid="manual-refresh"]').click();
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="overview-servers"]')
+          ?.getAttribute("data-panel-status") === "error",
+    );
+    if ((await sourceText("servers")).includes("in the current read"))
+      fail("Malformed headers retained current server reassurance");
+    await assertCurrent("status");
+    await assertCurrent("requests");
+  }
+  await capture("invalid-headers");
+  for (const headers of [undefined, {}, { "X-MCP-Toolsets": "repos,issues" }]) {
+    customHeaders = headers;
+    await page.locator('[data-testid="manual-refresh"]').click();
+    await assertCurrent("servers");
+    if (!(await sourceText("servers")).includes("1 configured server"))
+      fail("Valid HTTP headers prevented complete server counts");
+  }
+
   serverMode = "empty";
   await page.locator('[data-testid="manual-refresh"]').click();
   await page.waitForFunction(() =>
@@ -1508,7 +1542,7 @@ export async function runOverview(
     fail("Overview invocation reads returned after reload");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "overview_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), invocation_reads: invocationReads })}\n`,
+    `${JSON.stringify({ event: "overview_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), invocation_reads: invocationReads, screenshots })}\n`,
   );
 }
 
