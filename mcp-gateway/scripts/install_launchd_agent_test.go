@@ -80,21 +80,37 @@ func TestIntegrationLaunchdPlutilFixture(t *testing.T) {
 	}
 	require.Len(t, args, 5)
 	require.Equal(t, "-replace", args[0])
-	require.Equal(t, "-string", args[2])
 	dict := readPlist(t, args[4])
 	var target *plistNode
 	switch args[1] {
-	case "ProgramArguments.0":
-		target = &dict.member(t, "ProgramArguments").Nodes[0]
-	case "ProgramArguments.3":
-		target = &dict.member(t, "ProgramArguments").Nodes[3]
+	case "ProgramArguments":
+		require.Equal(t, "-xml", args[2])
+		var replacement plistNode
+		require.NoError(t, xml.Unmarshal([]byte(args[3]), &replacement))
+		require.Equal(t, "array", replacement.XMLName.Local)
+		*dict.member(t, "ProgramArguments") = replacement
+	case "ProgramArguments.0", "ProgramArguments.3":
+		// A final numeric keypath inserts even with -replace on affected macOS
+		// versions. Preserve that observed behavior rather than assuming a set.
+		array := dict.member(t, "ProgramArguments")
+		index := 0
+		if args[1] == "ProgramArguments.3" {
+			index = 3
+		}
+		array.Nodes = append(array.Nodes, plistNode{})
+		copy(array.Nodes[index+1:], array.Nodes[index:])
+		array.Nodes[index] = plistNode{XMLName: xml.Name{Local: "string"}}
+		target = &array.Nodes[index]
 	case "StandardOutPath", "StandardErrorPath":
 		target = dict.member(t, args[1])
 	default:
 		t.Fatalf("unexpected replacement %q", args[1])
 	}
-	require.Equal(t, "string", target.XMLName.Local)
-	target.Text = args[3]
+	if args[1] != "ProgramArguments" {
+		require.Equal(t, "-string", args[2])
+		require.Equal(t, "string", target.XMLName.Local)
+		target.Text = args[3]
+	}
 	root := plistNode{XMLName: xml.Name{Local: "plist"}, Nodes: []plistNode{dict}}
 	content, err := xml.MarshalIndent(root, "", "  ")
 	require.NoError(t, err)
@@ -190,7 +206,7 @@ func TestIntegrationLaunchdInstaller(t *testing.T) {
 				t.Setenv("XDG_DATA_HOME", "relative-ignored")
 				t.Setenv("GATEWAY_TEST_GOPATH", "invalid-ignored")
 				data = filepath.Join(fixture.home, "custom & <data>")
-				binary = filepath.Join(fixture.home, "custom gateway")
+				binary = filepath.Join(fixture.home, "custom & <gateway> \"quoted\" \\path")
 				content, err := os.ReadFile(fixture.binary)
 				require.NoError(t, err)
 				require.NoError(t, os.WriteFile(binary, content, 0o700))

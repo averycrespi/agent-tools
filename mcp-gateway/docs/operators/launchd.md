@@ -53,7 +53,7 @@ The short commands assume your normal account `HOME` and unchanged `XDG_DATA_HOM
 | Plist          | OS-account home + `/Library/LaunchAgents/dev.agent-tools.mcp-gateway.plist`                    |
 | Logs           | OS-account home + `/Library/Logs/mcp-gateway/{stdout,stderr}.log`                              |
 
-The [installer](../../scripts/install-launchd-agent.sh) resolves the [template](../../examples/launchd/mcp-gateway.plist) relative to itself, uses native `plutil` to safely insert literal paths (including spaces and XML characters), validates a staged plist, and installs it with mode `0600`. It creates a private log directory (`0700`) and log files (`0600`), refuses unsafe existing permissions or symlinks rather than changing them, and never overwrites an existing plist. Inspect conflicting paths before changing permissions. Run `./scripts/install-launchd-agent.sh --help` for its options.
+The [installer](../../scripts/install-launchd-agent.sh) resolves the [template](../../examples/launchd/mcp-gateway.plist) relative to itself, replaces the complete `ProgramArguments` array using XML-escaped literal paths, updates log paths with native `plutil`, validates a staged plist, and installs it with mode `0600`. Replacing the whole array avoids numeric-keypath operations that can insert extra arguments instead of replacing them. It creates a private log directory (`0700`) and log files (`0600`), refuses unsafe existing permissions or symlinks rather than changing them, and never overwrites an existing plist. Inspect conflicting paths before changing permissions. Run `./scripts/install-launchd-agent.sh --help` for its options.
 
 It does **not** initialize or inspect private Gateway state, access credentials, start/stop services, or run the selected Gateway binary. Verify that binary is the intended native macOS executable, not a shell shim or an `e2e`-provider build. On failure, no service is loaded; newly created log directories/files may remain. Fix the reported cause rather than deleting existing state.
 
@@ -107,7 +107,7 @@ curl --noproxy '*' --fail --silent --show-error \
 tail -n 50 "$LOG_DIR/stdout.log" "$LOG_DIR/stderr.log"
 ```
 
-Check launchd's state, program arguments, PID, and last exit status. Both HTTP probes are unauthenticated, use the same exact numeric loopback authority as `--listen`, bypass shell proxies, and have finite deadlines. `/livez` proves process liveness only; `/readyz` reports Gateway readiness, not that every upstream is usable. During startup or drain the service may not be ready. Inspect status and logs before deliberately repeating a read.
+Check launchd's state, program arguments, PID, and last exit status. `plutil -p "$PLIST"` should show exactly six `ProgramArguments` entries in this order: the selected executable, `serve`, `--data-dir`, the selected data root, `--listen`, and `127.0.0.1:8210` (or your deliberately selected listener). No `/ABSOLUTE/PATH/TO/` template placeholders should remain. `plutil -lint` checks syntax, not argument correctness. Both HTTP probes are unauthenticated, use the same exact numeric loopback authority as `--listen`, bypass shell proxies, and have finite deadlines. `/livez` proves process liveness only; `/readyz` reports Gateway readiness, not that every upstream is usable. During startup or drain the service may not be ready. Inspect status and logs before deliberately repeating a read.
 
 `status` authenticates through the public loopback API using `$DATA_DIR/admin-bearer` without displaying its value. If rotation, reset, or restore gave you a replacement file, add `--admin-bearer-file /absolute/path/to/replacement` as described in [administration](administration.md#administrator-authentication); never `cat` the bearer into a header argument. Check keyring capability and storage posture separately from readiness. Native capability status is not proof of successful credential access across restarts.
 
@@ -138,6 +138,15 @@ For a restart without an upgrade, bootstrap the unchanged plist after the same s
 ### Plist changes
 
 bootout and confirm stop first. Edit the installed plist's literal values using a plist-aware editor, preserving owner-only permissions and never including secrets. Update the matching shell selections too (`DATA_DIR`, `GATEWAY_BIN`, log paths, listen/address, and label/service as applicable). Validate with `plutil -lint "$PLIST"`, then `launchctl bootstrap "$DOMAIN" "$PLIST"` and verify. A kickstart alone does not reread plist changes. If changing the label, unload the old service before selecting the new label and plist filename. Gateway has no Broker-style signal reload procedure; use its online administration commands for supported runtime changes.
+
+If an older installer generated extra arguments or retained template placeholders, do not load that plist. If already loaded, bootout and confirm stop using the procedure above. Preserve the incorrect plist outside `LaunchAgents`, then rerun the corrected installer from `mcp-gateway/` (with the same explicit path overrides, if any):
+
+```bash
+mv -i "$PLIST" "$LOG_DIR/launch-agent.before-fix.plist" &&
+  ./scripts/install-launchd-agent.sh
+```
+
+Inspect the regenerated arguments before following its printed load and verification commands. Do not reinitialize Gateway or remove any data, bearer, or keyring state.
 
 ### Logs and uninstall
 

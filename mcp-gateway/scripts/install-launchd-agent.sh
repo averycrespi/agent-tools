@@ -79,8 +79,17 @@ temporary="$(mktemp "$agents/.mcp-gateway.XXXXXX")"
 trap 'rm -f "$temporary"' EXIT
 cp "$source_dir/../examples/launchd/mcp-gateway.plist" "$temporary"
 chmod 600 "$temporary"
-plutil -replace ProgramArguments.0 -string "$binary" "$temporary"
-plutil -replace ProgramArguments.3 -string "$data" "$temporary"
+# A final numeric plutil keypath can insert instead of replacing an array item.
+arguments_xml="$(
+  printf '<array>'
+  for argument in "$binary" serve --data-dir "$data" --listen 127.0.0.1:8210; do
+    printf '<string>'
+    printf '%s' "$argument" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+    printf '</string>'
+  done
+  printf '</array>'
+)"
+plutil -replace ProgramArguments -xml "$arguments_xml" "$temporary"
 plutil -replace StandardOutPath -string "$logs/stdout.log" "$temporary"
 plutil -replace StandardErrorPath -string "$logs/stderr.log" "$temporary"
 plutil -lint "$temporary"
