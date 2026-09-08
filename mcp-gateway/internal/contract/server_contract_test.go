@@ -52,7 +52,7 @@ func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 	}
 
 	expectedMechanics := []ResourceMechanic{
-		{Pattern: "/api/v1/servers", Method: "GET", RequestSchema: "ServerListQuery", SuccessSchema: "Page<Server>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/servers", Method: "GET", RequestSchema: "ServerListQuery|ServerTableQuery", SuccessSchema: "Page<Server>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/servers", Method: "POST", RequestSchema: "ServerCreate", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200, 201}, Idempotency: true, ETag: true},
 		{Pattern: "/api/v1/servers/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Server", SuccessStatuses: []int{200}, ETag: true},
 		{Pattern: "/api/v1/servers/{id}", Method: "PATCH", RequestSchema: "ServerPatch", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
@@ -65,8 +65,8 @@ func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v1/servers/{id}/auth-flows", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AuthFlowCreation", SuccessStatuses: []int{201}, Precondition: true},
 		{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerAuthFlow", SuccessStatuses: []int{200}},
 		{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
-		{Pattern: "/api/v1/catalog", Method: "GET", RequestSchema: "CatalogListQuery", SuccessSchema: "CatalogPage", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery", SuccessSchema: "Page<ToolDescriptor>|Page<ToolDescriptorSummary>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/catalog", Method: "GET", RequestSchema: "CatalogListQuery|CatalogTableQuery", SuccessSchema: "CatalogPage", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery|DescriptorTableQuery", SuccessSchema: "Page<ToolDescriptor>|Page<ToolDescriptorSummary>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ToolDescriptor", SuccessStatuses: []int{200}},
 		{Pattern: "/oauth/callback", Method: "GET", RequestSchema: "OAuthCallbackQuery", SuccessSchema: "OAuthCallbackHTML", SuccessStatuses: []int{200, 400, 503}},
 	}

@@ -249,7 +249,12 @@ export function serverReadFixture(
   options: {
     name: string;
     desired: "enabled" | "disabled" | "deleted";
-    runtime: "active" | "degraded" | "authentication_required" | "deleted";
+    runtime:
+      | "inactive"
+      | "active"
+      | "degraded"
+      | "authentication_required"
+      | "deleted";
     credential:
       | "ready"
       | "reauthentication_required"

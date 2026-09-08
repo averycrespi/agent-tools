@@ -385,6 +385,40 @@ func (repository *Repository) ListServers(ctx context.Context, cursor *SnapshotC
 	return page, mapViewError(err)
 }
 
+func (repository *Repository) Inventory(ctx context.Context, upper *int64) ([]Server, int64, error) {
+	var items []Server
+	watermark := int64(0)
+	err := repository.store.View(ctx, func(tx *sql.Tx) error {
+		if upper == nil {
+			if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(insertion_sequence), 0) FROM server_identities`).Scan(&watermark); err != nil {
+				return err
+			}
+		} else {
+			watermark = *upper
+			if watermark < 0 {
+				return ErrStaleCursor
+			}
+		}
+		rows, err := tx.QueryContext(ctx, serverSelect+` WHERE i.insertion_sequence <= ? ORDER BY i.insertion_sequence LIMIT ?`, watermark, mustLimit("server_identities")+1)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			item, err := scanServer(rows)
+			if err != nil {
+				return err
+			}
+			items = append(items, item)
+		}
+		if int64(len(items)) > mustLimit("server_identities") {
+			return ErrStorageUnavailable
+		}
+		return rows.Err()
+	})
+	return items, watermark, mapViewError(err)
+}
+
 func minimalStdioTransport() contract.StdioTransport {
 	return contract.StdioTransport{
 		Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{},

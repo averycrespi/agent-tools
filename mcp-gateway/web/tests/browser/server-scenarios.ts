@@ -1,4 +1,5 @@
-import { type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { exerciseCatalogPagination } from "./catalog-pagination.ts";
 import {
   assertClosedStorage,
   assertSecretAbsent,
@@ -2752,9 +2753,17 @@ export async function runServerCatalogReads(
       if (
         parts.length !== 5 ||
         query.get("limit") !== "50" ||
-        query.get("retired") !== "include" ||
+        query.get("sort") !== "last-seen" ||
         [...query.keys()].some(
-          (key) => key !== "limit" && key !== "retired" && key !== "cursor",
+          (key) =>
+            ![
+              "limit",
+              "sort",
+              "direction",
+              "cursor",
+              "tool",
+              "status",
+            ].includes(key),
         )
       )
         fail("descriptor list request changed shape");
@@ -2814,7 +2823,18 @@ export async function runServerCatalogReads(
     if (
       parts.length !== 3 ||
       query.get("limit") !== "50" ||
-      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+      [...query.keys()].some(
+        (key) =>
+          ![
+            "limit",
+            "cursor",
+            "sort",
+            "direction",
+            "name",
+            "namespace",
+            "status",
+          ].includes(key),
+      )
     )
       fail("server list request changed shape");
     const cursor = query.get("cursor");
@@ -2855,17 +2875,23 @@ export async function runServerCatalogReads(
       });
       return;
     }
+    const matching = [activeServer, degradedServer, deletedServer].filter(
+      (item) =>
+        (!query.has("name") ||
+          `${item.display_name} ${item.id}`
+            .toLowerCase()
+            .includes(query.get("name")!.toLowerCase())) &&
+        (!query.has("namespace") ||
+          item.namespace.includes(query.get("namespace")!)),
+    );
+    const position = cursor === "server-next" ? 2 : 0;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(
-        cursor === "server-next"
-          ? { items: [deletedServer], next_cursor: null }
-          : {
-              items: [degradedServer, activeServer],
-              next_cursor: "server-next",
-            },
-      ),
+      body: JSON.stringify({
+        items: matching.slice(position, position + 2),
+        next_cursor: matching.length > position + 2 ? "server-next" : null,
+      }),
     });
   });
 
@@ -2878,7 +2904,18 @@ export async function runServerCatalogReads(
       request.method() !== "GET" ||
       headers["x-csrf-token"] === undefined ||
       query.get("limit") !== "50" ||
-      [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
+      [...query.keys()].some(
+        (key) =>
+          ![
+            "limit",
+            "cursor",
+            "sort",
+            "direction",
+            "tool",
+            "server",
+            "status",
+          ].includes(key),
+      )
     )
       fail("active catalog request changed shape");
     const cursor = query.get("cursor");
@@ -2905,7 +2942,7 @@ export async function runServerCatalogReads(
           changed_at: "2026-08-28T13:00:00Z",
           issue_count: 2,
         },
-        items: catalogRestarted
+        items: (catalogRestarted
           ? [
               {
                 ...descriptorReadFixture(
@@ -2939,7 +2976,18 @@ export async function runServerCatalogReads(
                 server_display_name: "Authority required",
                 server_catalog_state: "current",
               },
-            ],
+            ]
+        )
+          .filter(
+            (item) =>
+              !query.has("status") ||
+              (item.server_catalog_state === "current"
+                ? "available"
+                : "issue") === query.get("status"),
+          )
+          .sort((left, right) =>
+            left.external_name.localeCompare(right.external_name),
+          ),
         next_cursor: catalogRestarted ? null : "catalog-stale",
       }),
     });
@@ -3067,12 +3115,15 @@ export async function runServerCatalogReads(
     Math.abs(createButtonBox.x - serversViewBox.x) > 1
   )
     fail("Create server was not left aligned");
-  if (!(await page.getByText("Showing 2 of 2", { exact: true }).count()))
+  if (!(await page.getByText("Showing 2 servers", { exact: true }).count()))
     fail("server inventory omitted its visible result count");
   await page.getByLabel("Name or ID", { exact: true }).fill("Degraded catalog");
-  if ((await page.locator('[data-testid="server-row"]').count()) !== 1)
-    fail("server name filter did not narrow loaded rows");
-  if (!(await page.getByText("Showing 1 of 2", { exact: true }).count()))
+  await expect(page.locator('[data-testid="server-row"]')).toHaveCount(1);
+  if (
+    !(await page
+      .getByText("Showing 1 matching server", { exact: true })
+      .count())
+  )
     fail("server inventory did not update its visible result count");
   if (
     !(await page.evaluate(() => window.location.hash)).includes(
@@ -3083,6 +3134,9 @@ export async function runServerCatalogReads(
   await page
     .getByLabel("Name or ID", { exact: true })
     .fill(serverReadIDs.active);
+  await expect(page.locator('[data-testid="server-row"]')).toHaveText(
+    /Authority required/,
+  );
   if (
     (await page.locator('[data-testid="server-row"]').count()) !== 1 ||
     !(await page.locator('[data-testid="server-row"]').innerText()).includes(
@@ -3091,19 +3145,19 @@ export async function runServerCatalogReads(
   )
     fail("server ID search did not match");
   await page.getByRole("button", { name: "Reset" }).click();
-  if ((await page.locator('[data-testid="server-row"]').count()) !== 2)
-    fail("server filter Reset did not restore loaded rows");
-  await page.locator('[data-testid="load-more-servers"]').click();
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-testid="server-row"]').length === 3,
-  );
+  await expect(page.locator('[data-testid="server-row"]')).toHaveCount(2);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.locator('[data-testid="server-row"]')).toHaveCount(1);
   body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Deleted history") || !body.includes("Deleted"))
     fail("server inventory omitted deleted server");
 
   serverStale = true;
-  await page.locator('[data-testid="manual-refresh"]').click();
-  await page.locator('[data-testid="load-more-servers"]').click();
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Next", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await page.waitForFunction(
     (id) => document.querySelector(`a[href="#/servers/${id}"]`) !== null,
     serverReadIDs.active,
@@ -3218,7 +3272,7 @@ export async function runServerCatalogReads(
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=tools`;
   }, serverReadIDs.active);
-  await page.locator('[data-testid="load-more-descriptors"]').click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await page.waitForFunction(
     () => document.querySelector('a[data-tool-name="durable-only"]') !== null,
   );
@@ -3286,9 +3340,11 @@ export async function runServerCatalogReads(
       `catalog filters were wastefully sized: ${JSON.stringify(catalogFilterLayout)}`,
     );
   await page.getByLabel("Status", { exact: true }).selectOption("issue");
+  await expect(page.locator('[data-testid="catalog-row"]')).toHaveCount(1);
   if ((await page.locator('[data-testid="catalog-row"]').count()) !== 1)
     fail("active catalog status filter did not retain matching tools");
   await page.getByRole("button", { name: "Reset" }).click();
+  await expect(page.locator('[data-testid="catalog-row"]')).toHaveCount(2);
   if (
     (await page
       .locator(`a[href="#/servers/${serverReadIDs.active}?tab=tools"]`)
@@ -3300,7 +3356,7 @@ export async function runServerCatalogReads(
       .count()) === 0
   )
     fail("active catalog omitted reciprocal routes");
-  await page.locator('[data-testid="load-more-catalog"]').click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await page.waitForFunction(
     () =>
       document.querySelector('a[data-tool-name="active-restarted"]') !== null,
@@ -3309,8 +3365,9 @@ export async function runServerCatalogReads(
   if (!catalogRestarted || body.includes("active-before-stale"))
     fail("active catalog stale traversal was merged");
 
+  const screenshots = await exerciseCatalogPagination(page);
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "server_catalog_reads_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), server_reads: serverReads, descriptor_reads: descriptorReads, catalog_reads: catalogReads })}\n`,
+    `${JSON.stringify({ event: "server_catalog_reads_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), server_reads: serverReads, descriptor_reads: descriptorReads, catalog_reads: catalogReads, screenshots })}\n`,
   );
 }

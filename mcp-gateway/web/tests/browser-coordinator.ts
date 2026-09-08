@@ -265,11 +265,13 @@ try {
         ) &&
         !(
           input.scenario === "server-catalog-reads" &&
-          message
-            .text()
-            .startsWith(
-              "Failed to load resource: the server responded with a status of 409",
-            )
+          [409, 503].some((status) =>
+            message
+              .text()
+              .startsWith(
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+          )
         ) &&
         !(
           input.scenario === "server-create-update" &&

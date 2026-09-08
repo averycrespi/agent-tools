@@ -449,9 +449,13 @@ export function CollectionTable<T>({
               ? "Loading…"
               : remote.status === "error"
                 ? "Unavailable"
-                : remote.totalCount === 0
-                  ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
-                  : `Showing ${remote.offset + 1}–${remote.offset + visible.length} of ${remote.totalCount} ${hasActiveFilters ? "matching " : ""}${remote.totalCount === 1 ? itemNames.singular : itemNames.plural}`}
+                : remote.totalCount === undefined
+                  ? visible.length === 0
+                    ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
+                    : `Showing ${visible.length} ${hasActiveFilters ? "matching " : ""}${visible.length === 1 ? itemNames.singular : itemNames.plural}`
+                  : remote.totalCount === 0
+                    ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
+                    : `Showing ${remote.offset + 1}–${remote.offset + visible.length} of ${remote.totalCount} ${hasActiveFilters ? "matching " : ""}${remote.totalCount === 1 ? itemNames.singular : itemNames.plural}`}
           </output>
         </div>
       )}

@@ -26,6 +26,8 @@ type fakeCatalogService struct {
 	toolID       string
 	fullCalls    int
 	summaryCalls int
+	queryCalls   int
+	query        catalog.ToolQuery
 }
 
 func (service *fakeCatalogService) Status(context.Context, string) (catalog.DurableStatus, error) {
@@ -56,6 +58,48 @@ func (service *fakeCatalogService) ListDescriptorSummaries(_ context.Context, se
 		})
 	}
 	return page, service.err
+}
+
+func (service *fakeCatalogService) QueryDescriptors(_ context.Context, serverID string, query catalog.ToolQuery, cursor *catalog.DescriptorCursor, limit int) (catalog.DescriptorPage, error) {
+	service.server, service.query, service.cursor, service.limit = serverID, query, cursor, limit
+	service.queryCalls++
+	return service.page, service.err
+}
+
+func TestDescriptorCollectionQueriesAreOptInAndStrict(t *testing.T) {
+	item := descriptorResource()
+	service := &fakeCatalogService{page: catalog.DescriptorPage{Items: []catalog.DescriptorRecord{{Resource: item}}}}
+	handler := newCatalogTestHandler(t, service)
+	root := "/api/v1/servers/" + testID + "/descriptors"
+	headers := map[string]string{"Authorization": "Bearer " + testBearer}
+	response := perform(handler, http.MethodGet, root+"?tool=echo&status=available&sort=last-seen&direction=descending&limit=50", "", headers)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, catalog.ToolQuery{Tool: "echo", Status: "available", Sort: "last-seen", Direction: "descending"}, service.query)
+	assert.Equal(t, 50, service.limit)
+	assert.Equal(t, testID, service.server)
+	assert.Equal(t, 1, service.queryCalls)
+	assert.Zero(t, service.fullCalls)
+	assert.NotContains(t, response.Body.String(), "total_count")
+	assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	for _, query := range []string{
+		"tool=", "tool=null", "tool=echo&tool=other", "tool=%00", "tool=%FF", "tool=%E2%80%AE",
+		"status=issue", "sort=server", "direction=ascending", "sort=tool&direction=up",
+		"sort=tool&limit=51", "sort=tool&limit=01", "sort=tool&limit=", "sort=tool&cursor=",
+		"sort=tool&retired=only", "sort=tool&representation=summary", "sort=tool&unknown=1", "tool=%ZZ",
+	} {
+		rejected := perform(handler, http.MethodGet, root+"?"+query, "", headers)
+		assert.Equal(t, http.StatusBadRequest, rejected.Code, query)
+	}
+	assert.Equal(t, 1, service.queryCalls)
+	legacy := perform(handler, http.MethodGet, root+"?limit=100&retired=only", "", headers)
+	require.Equal(t, http.StatusOK, legacy.Code, legacy.Body.String())
+	assert.Equal(t, 100, service.limit)
+	assert.Equal(t, contract.DescriptorRetiredOnly, service.filter)
+	assert.Equal(t, 1, service.fullCalls)
+	service.err = servers.ErrStaleCursor
+	stale := perform(handler, http.MethodGet, root+"?sort=tool", "", headers)
+	assert.Equal(t, http.StatusConflict, stale.Code)
+	assert.Contains(t, stale.Body.String(), "stale_cursor")
 }
 
 func TestDescriptorListAndMemberResources(t *testing.T) {

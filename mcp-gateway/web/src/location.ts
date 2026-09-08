@@ -114,6 +114,50 @@ function authorizationCollectionQuery(
   );
 }
 
+function serverCollectionQuery(
+  query: Record<string, string>,
+  collection: "servers" | "descriptors" | "catalog",
+): boolean {
+  const textKeys =
+    collection === "servers"
+      ? ["filter_name", "filter_namespace"]
+      : collection === "catalog"
+        ? ["filter_tool", "filter_server"]
+        : ["filter_tool"];
+  const values: Record<string, readonly string[]> = {
+    direction: ["ascending", "descending"],
+    sort:
+      collection === "servers"
+        ? ["name", "id", "namespace", "status", "tools"]
+        : collection === "catalog"
+          ? ["tool", "server"]
+          : ["tool", "status", "last-seen"],
+    filter_status:
+      collection === "servers"
+        ? [
+            "Ready",
+            "Connecting",
+            "Authorization required",
+            "Authentication unavailable",
+            "Capacity saturated",
+            "Disabled",
+            "Deleted",
+            "Needs attention",
+          ]
+        : collection === "catalog"
+          ? ["available", "issue"]
+          : ["available", "retired"],
+  };
+  if (collection === "descriptors") values.tab = ["tools"];
+  if (query.direction !== undefined && query.sort === undefined) return false;
+  return Object.entries(query).every(([key, value]) =>
+    textKeys.includes(key)
+      ? isCollectionFilter(key, value) &&
+        isCollectionFilter(key, value.normalize("NFKC").toLowerCase())
+      : values[key]?.includes(value) === true,
+  );
+}
+
 function location(
   destination: Destination,
   segments: readonly string[],
@@ -162,9 +206,9 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     if (first === "overview" || first === "sign-in") {
       if (noQuery) return location(first, segments, query);
     }
-    if (first === "catalog" && exactQuery(query, {}))
+    if (first === "catalog" && serverCollectionQuery(query, "catalog"))
       return location(first, segments, query);
-    if (first === "servers" && exactQuery(query, {}))
+    if (first === "servers" && serverCollectionQuery(query, "servers"))
       return location("servers", segments, query);
   }
   if (first === "servers") {
@@ -172,7 +216,11 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("servers", segments, query);
     }
     if (segments.length === 2 && second !== undefined && isGatewayID(second)) {
-      if (exactQuery(query, { tab: (value) => serverTabs.has(value) })) {
+      if (
+        query.tab === "tools"
+          ? serverCollectionQuery(query, "descriptors")
+          : exactQuery(query, { tab: (value) => serverTabs.has(value) })
+      ) {
         return location("servers", segments, query);
       }
     }
@@ -268,6 +316,8 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
 
 const queryOrder: Readonly<Record<string, readonly string[]>> = {
   "grants/new": ["principal_id", "server_id"],
+  servers: ["sort", "direction"],
+  catalog: ["sort", "direction"],
   principals: ["sort", "direction"],
   grants: ["sort", "direction"],
 };
@@ -278,7 +328,12 @@ export function serializeLocation(value: ApplicationLocation): string {
   if (path.startsWith("servers/") && query.tab === "overview") delete query.tab;
   if (path === "system" && query.tab === "status") delete query.tab;
   const fixedKeys =
-    queryOrder[path] ?? (Object.hasOwn(query, "tab") ? ["tab"] : []);
+    queryOrder[path] ??
+    (query.tab === "tools"
+      ? ["tab", "sort", "direction"]
+      : Object.hasOwn(query, "tab")
+        ? ["tab"]
+        : []);
   const keys = [
     ...fixedKeys,
     ...Object.keys(query)

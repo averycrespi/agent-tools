@@ -21,7 +21,16 @@ func (handler *Handler) descriptorsCollection(writer http.ResponseWriter, reques
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	limit, retired, cursor, summary, problem := parseDescriptorQuery(request.URL.Query())
+	query, legacy, enabled, problem := parseToolQuery(request.URL.RawQuery, false)
+	if problem != "" {
+		writeProblem(writer, problem)
+		return
+	}
+	if enabled {
+		handler.queryDescriptors(writer, request, serverID, query, legacy)
+		return
+	}
+	limit, retired, cursor, summary, problem := parseDescriptorQuery(legacy)
 	if problem != "" {
 		writeProblem(writer, problem)
 		return

@@ -1,4 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
+import { parseFragment, type ResolvedLocation } from "./location";
+import { useUnsavedChanges } from "./navigation";
+import {
+  readCollectionPage,
+  useCollectionPage,
+  type CollectionControls,
+} from "./view";
 import type { MutationCoordinator } from "./mutation";
 import {
   CollectionTable,
@@ -45,6 +52,18 @@ type ListKind =
   | "catalog"
   | "operations"
   | "authFlows";
+
+function serverCollectionKind(
+  key: string,
+): "servers" | "descriptors" | "catalog" | undefined {
+  const location = parseFragment(key);
+  if (location?.destination === "catalog") return "catalog";
+  if (location?.destination !== "servers") return undefined;
+  if (location.segments.length === 1) return "servers";
+  if (location.segments.length === 2 && location.query.tab === "tools")
+    return "descriptors";
+  return undefined;
+}
 
 function record(value: unknown, keys: readonly string[]): JSONRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -584,6 +603,7 @@ interface ServerReadsSnapshot {
   restarted: boolean;
 }
 type ReadResult =
+  | { kind: "collection"; viewKey: string }
   | {
       kind: "servers";
       viewKey: string;
@@ -708,7 +728,9 @@ function serverIDFromViewKey(viewKey: string): string | undefined {
 }
 
 function serverPanelID(viewKey: string): string {
-  if (viewKey === "#/catalog") return "catalog-reads";
+  if (serverCollectionKind(viewKey) === "catalog") return "catalog-reads";
+  if (serverCollectionKind(viewKey) === "descriptors")
+    return "server-descriptor-reads";
   if (/\?tab=activity$|\/operations\//.test(viewKey))
     return "server-operation-reads";
   if (/\/auth-flows\//.test(viewKey)) return "server-oauth-reads";
@@ -765,7 +787,7 @@ export class ServerReadsController {
     register(
       "server-overview-reads",
       (key) =>
-        key === "#/servers" ||
+        serverCollectionKind(key) === "servers" ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=(?:authentication|settings|status))?$/.test(
           key,
         ),
@@ -796,13 +818,17 @@ export class ServerReadsController {
     register(
       "server-descriptor-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=tools$/.test(key) ||
+        serverCollectionKind(key) === "descriptors" ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
       ["catalog"],
     );
-    register("catalog-reads", (key) => key === "#/catalog", ["catalog"]);
+    register(
+      "catalog-reads",
+      (key) => serverCollectionKind(key) === "catalog",
+      ["catalog"],
+    );
     session.registerProtectedState(() => {
       this.continuation = undefined;
       this.continuationPending = false;
@@ -861,6 +887,20 @@ export class ServerReadsController {
           : undefined;
       this.value = { ...emptySnapshot(context.viewKey), server };
       this.emit();
+    }
+    const collection = serverCollectionKind(context.viewKey);
+    if (collection === "servers" || collection === "catalog")
+      return { kind: "collection", viewKey: context.viewKey };
+    if (collection === "descriptors") {
+      const response = await get(
+        context,
+        `/api/v1/servers/${serverIDFromViewKey(context.viewKey)!}`,
+      );
+      const server = decodeServer(await json(response));
+      const etag = response.headers.get("ETag");
+      if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
+        throw new Error("invalid server ETag");
+      return { kind: "server", viewKey: context.viewKey, server, etag };
     }
     const authFlowItem =
       /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
@@ -1044,6 +1084,7 @@ export class ServerReadsController {
     };
   }
   private publish(result: ReadResult): void {
+    if (result.kind === "collection") return;
     if (result.kind === "server")
       this.value = {
         ...this.value,
@@ -1339,10 +1380,18 @@ function ServerNavigation({
   );
 }
 
-function ServerRows({ items }: { items: readonly ServerView[] }) {
+function ServerRows({
+  items,
+  controls,
+}: {
+  items: readonly ServerView[];
+  controls: CollectionControls;
+}) {
   return (
     <CollectionTable
       caption="Servers"
+      remote={controls}
+      itemNames={{ singular: "server", plural: "servers" }}
       items={items}
       rowKey={(server) => server.id}
       initialSort={{ key: "name", direction: "ascending" }}
@@ -1387,7 +1436,7 @@ function ServerRows({ items }: { items: readonly ServerView[] }) {
           ],
         },
       ]}
-      emptyTitle="No servers match these filters"
+      emptyTitle="No servers"
       columns={[
         {
           key: "name",
@@ -1573,10 +1622,19 @@ function ToolSchema({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function CatalogRows({ items }: { items: readonly CatalogDescriptorView[] }) {
+function CatalogRows({
+  items,
+  controls,
+}: {
+  items: readonly CatalogDescriptorView[];
+  controls: CollectionControls;
+}) {
   return (
     <CollectionTable
       caption="Available tools"
+      remote={controls}
+      itemNames={{ singular: "tool", plural: "tools" }}
+      emptyTitle="No catalog tools"
       items={items}
       rowKey={(descriptor) => descriptor.id}
       initialSort={{ key: "tool", direction: "ascending" }}
@@ -1646,10 +1704,19 @@ function CatalogRows({ items }: { items: readonly CatalogDescriptorView[] }) {
     />
   );
 }
-function DescriptorRows({ items }: { items: readonly DescriptorView[] }) {
+function DescriptorRows({
+  items,
+  controls,
+}: {
+  items: readonly DescriptorView[];
+  controls: CollectionControls;
+}) {
   return (
     <CollectionTable
       caption="Server tools"
+      remote={controls}
+      itemNames={{ singular: "tool", plural: "tools" }}
+      emptyTitle="No server tools"
       items={items}
       rowKey={(descriptor) => descriptor.id}
       rowTestID="descriptor-row"
@@ -1711,7 +1778,76 @@ function DescriptorRows({ items }: { items: readonly DescriptorView[] }) {
   );
 }
 
+function ServerCollectionTable<T>({
+  session,
+  resolved,
+  view,
+  kind,
+  decodePage,
+  render,
+}: {
+  session: SessionClient;
+  resolved: ResolvedLocation;
+  view: ViewSnapshot;
+  kind: "servers" | "descriptors" | "catalog";
+  decodePage: (value: unknown) => Page<T>;
+  render: (
+    items: T[],
+    controls: CollectionControls,
+  ) => preact.ComponentChildren;
+}) {
+  const navigate = useUnsavedChanges(false);
+  const initialSort =
+    kind === "descriptors"
+      ? { key: "last-seen", direction: "descending" as const }
+      : {
+          key: kind === "servers" ? "name" : "tool",
+          direction: "ascending" as const,
+        };
+  const { items, controls } = useCollectionPage<T>(
+    session,
+    resolved,
+    view,
+    (query, cursor, signal) => {
+      const params = new URLSearchParams({
+        limit: "50",
+        sort: query.sort ?? initialSort.key,
+        direction:
+          query.direction ??
+          (query.sort === undefined ? initialSort.direction : "ascending"),
+      });
+      for (const [key, value] of Object.entries(query))
+        if (key.startsWith("filter_")) params.set(key.slice(7), value);
+      if (cursor !== null) params.set("cursor", cursor);
+      const route =
+        kind === "descriptors"
+          ? `/api/v1/servers/${resolved.location.segments[1]!}/descriptors`
+          : `/api/v1/${kind}`;
+      return readCollectionPage<T>(
+        session,
+        `${route}?${params}`,
+        undefined,
+        signal,
+        (value) => {
+          const page = decodePage(value);
+          if (
+            page.items.length > 50 ||
+            (page.nextCursor !== null && page.nextCursor.length > 512)
+          )
+            throw new Error("Invalid collection response.");
+          return { ...page, totalCount: undefined, offset: 0 };
+        },
+      );
+    },
+    navigate,
+    initialSort,
+  );
+  return <>{render(items, controls)}</>;
+}
+
 export function ServerReads({
+  session,
+  resolved,
   controller,
   view,
   destination,
@@ -1720,6 +1856,8 @@ export function ServerReads({
   onRefresh,
   notify,
 }: {
+  session: SessionClient;
+  resolved: ResolvedLocation;
   controller: ServerReadsController;
   view: ViewSnapshot;
   destination: "servers" | "catalog";
@@ -1766,7 +1904,9 @@ export function ServerReads({
     view.viewKey,
   );
   const descriptorList =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=tools$/.exec(view.viewKey);
+    serverCollectionKind(view.viewKey) === "descriptors"
+      ? serverIDFromViewKey(view.viewKey)
+      : undefined;
   const otherTab =
     /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=([^&]+)$/.exec(
       view.viewKey,
@@ -1788,27 +1928,20 @@ export function ServerReads({
     return (
       <div class="domain-view" data-testid="catalog-view">
         <section class="panel domain-panel" aria-labelledby="page-title">
-          <ReadPanel panel={panel}>
-            {snapshot.catalog !== undefined && (
-              <>
-                <CatalogRows items={snapshot.catalogItems} />
-                {snapshot.catalogNext !== null && (
-                  <button
-                    data-testid="load-more-catalog"
-                    type="button"
-                    disabled={snapshot.loadingMore}
-                    onClick={() => void controller.loadMore("catalog")}
-                  >
-                    Load more catalog tools
-                  </button>
-                )}
-              </>
+          <ServerCollectionTable
+            session={session}
+            resolved={resolved}
+            view={view}
+            kind="catalog"
+            decodePage={(value) => decodeCatalogPage(value).page}
+            render={(items, controls) => (
+              <CatalogRows items={items} controls={controls} />
             )}
-          </ReadPanel>
+          />
         </section>
       </div>
     );
-  if (view.viewKey === "#/servers")
+  if (serverCollectionKind(view.viewKey) === "servers")
     return (
       <div class="domain-view" data-testid="servers-view">
         <div class="collection-toolbar">
@@ -1821,29 +1954,16 @@ export function ServerReads({
           </a>
         </div>
         <section class="panel domain-panel" aria-labelledby="page-title">
-          <ReadPanel panel={panel}>
-            {snapshot.servers.length === 0 ? (
-              <StateNotice state="empty" title="No servers" />
-            ) : (
-              <ServerRows items={snapshot.servers} />
+          <ServerCollectionTable
+            session={session}
+            resolved={resolved}
+            view={view}
+            kind="servers"
+            decodePage={decodeServerPage}
+            render={(items, controls) => (
+              <ServerRows items={items} controls={controls} />
             )}
-            {snapshot.restarted && (
-              <p class="bounded-note">
-                The server list changed while loading. Current results replaced
-                the stale pages.
-              </p>
-            )}
-            {snapshot.serverNext !== null && (
-              <button
-                data-testid="load-more-servers"
-                type="button"
-                disabled={snapshot.loadingMore}
-                onClick={() => void controller.loadMore("servers")}
-              >
-                {snapshot.loadingMore ? "Loading…" : "Load more"}
-              </button>
-            )}
-          </ReadPanel>
+          />
         </section>
       </div>
     );
@@ -2111,12 +2231,12 @@ export function ServerReads({
         </section>
       </div>
     );
-  if (descriptorList !== null)
+  if (descriptorList !== undefined)
     return (
       <div class="domain-view" data-testid="descriptor-list">
         <ServerNavigation
           server={snapshot.server}
-          serverID={descriptorList[1]!}
+          serverID={descriptorList}
           current="tools"
         />
         <section
@@ -2127,25 +2247,20 @@ export function ServerReads({
             <h2 id="descriptor-list-title">Tools</h2>
             <a href="#/catalog">All available tools</a>
           </div>
-          <ReadPanel panel={panel}>
-            <DescriptorRows items={snapshot.descriptors} />
-            {snapshot.restarted && (
-              <p class="bounded-note">
-                A stale cursor restarted this traversal; prior pages were
-                discarded.
-              </p>
+          <p class="bounded-note">
+            Available means non-retired catalog evidence, not permission or
+            current callability.
+          </p>
+          <ServerCollectionTable
+            session={session}
+            resolved={resolved}
+            view={view}
+            kind="descriptors"
+            decodePage={decodeDescriptorPage}
+            render={(items, controls) => (
+              <DescriptorRows items={items} controls={controls} />
             )}
-            {snapshot.descriptorNext !== null && (
-              <button
-                data-testid="load-more-descriptors"
-                type="button"
-                disabled={snapshot.loadingMore}
-                onClick={() => void controller.loadMore("descriptors")}
-              >
-                {snapshot.loadingMore ? "Loading…" : "Load more tools"}
-              </button>
-            )}
-          </ReadPanel>
+          />
         </section>
       </div>
     );
