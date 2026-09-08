@@ -498,7 +498,11 @@ export async function runServerCreateUpdate(
   if (
     (await page.locator("#server-executable").count()) !== 0 ||
     (await page.locator("#server-url").count()) !== 1 ||
-    (await page.locator("#server-protocol-mode").inputValue()) !== "auto"
+    (await page.locator("#server-protocol-mode").inputValue()) !== "auto" ||
+    !(await page.locator("#server-protocol-mode").isVisible()) ||
+    (await page
+      .getByText("Compatibility settings", { exact: true })
+      .count()) !== 0
   )
     fail("HTTP selection did not reveal only automatic HTTP configuration");
   await page.locator("#server-url").fill("file:///tmp/mcp");
@@ -515,7 +519,9 @@ export async function runServerCreateUpdate(
   await page.locator("#server-url").fill("https://resource.example/mcp");
   await page.locator("#server-auth-oauth").check();
   if (
-    !(await editor.textContent())?.includes("same origin") ||
+    !(await editor.textContent())?.includes(
+      "same scheme, hostname, and port",
+    ) ||
     !(await editor.textContent())?.includes("Register Gateway automatically") ||
     !(await editor.textContent())?.includes(
       "Request offline access when supported",
@@ -523,6 +529,26 @@ export async function runServerCreateUpdate(
   )
     fail("OAuth controls did not explain registration or offline access");
   await page.locator("#server-registration-mode").selectOption("static");
+  const oauthFieldOrder = await editor
+    .locator(".form-field input, .form-field select")
+    .evaluateAll((nodes) => nodes.map((node) => node.id));
+  const registrationIndex = oauthFieldOrder.indexOf("server-registration-mode");
+  if (
+    oauthFieldOrder
+      .slice(registrationIndex, registrationIndex + 4)
+      .join(",") !==
+    "server-registration-mode,server-client-id,server-token-auth,server-issuer"
+  )
+    fail(
+      "existing OAuth client fields were not adjacent to their controlling choice",
+    );
+  if (
+    !(await editor.textContent())?.includes("This is not the client secret.") ||
+    (await editor.textContent())?.includes(
+      "The provider must support automatic client registration.",
+    )
+  )
+    fail("existing OAuth client guidance did not match the selected mode");
   await page.locator("#server-client-id").fill("   ");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.getByText("Enter the OAuth client ID.").waitFor();
@@ -546,11 +572,30 @@ export async function runServerCreateUpdate(
     fail("OAuth issuer error was not associated with its field");
   await page.locator("#server-registration-mode").selectOption("dynamic");
   await page.locator("#server-issuer").fill("  https://issuer.example  ");
-  await page.getByText("Advanced OAuth settings").click();
+  const advancedToggle = page
+    .locator("summary")
+    .filter({ hasText: "advanced OAuth settings" });
+  if (
+    (await advancedToggle.textContent()) !== "Show advanced OAuth settings" ||
+    (await page.locator("#server-callback-uri").isVisible())
+  )
+    fail("unconfigured advanced OAuth settings were not clearly collapsed");
+  await advancedToggle.focus();
+  await page.keyboard.press("Enter");
+  await page
+    .getByText("Hide advanced OAuth settings", { exact: true })
+    .waitFor();
   await page
     .locator("#server-callback-uri")
     .fill("http://remote.example:3118/callback");
+  await advancedToggle.click();
+  await page
+    .getByText("Show advanced OAuth settings", { exact: true })
+    .waitFor();
   await page.locator('[data-testid="server-editor-submit"]').click();
+  await page
+    .getByText("Hide advanced OAuth settings", { exact: true })
+    .waitFor();
   if (
     (await page
       .locator("#server-callback-uri")
@@ -576,7 +621,12 @@ export async function runServerCreateUpdate(
     .locator("#server-auth-metadata-url")
     .fill("https://metadata.example/custom?revision=2");
   await page.locator("#server-explicit-scopes").check();
-  await page.locator("#server-initial-scopes").fill("read write");
+  const scopeRows = page.getByTestId("server-initial-scopes");
+  const addScope = page.getByRole("button", { name: "Add scope", exact: true });
+  if ((await scopeRows.count()) !== 0)
+    fail("explicit empty scopes started with an unwanted row");
+  await addScope.click();
+  await scopeRows.fill("read write");
   await page.locator('[data-testid="server-editor-submit"]').click();
   if (
     (await page
@@ -592,9 +642,39 @@ export async function runServerCreateUpdate(
     )
   )
     fail("OAuth compatibility controls overflow the narrow viewport");
+  await scopeRows.fill("fixture.write");
+  await addScope.click();
+  await scopeRows.nth(1).fill("fixture.read");
+  await addScope.click();
+  await scopeRows.nth(2).fill("fixture.write");
+  await page.locator("#server-explicit-scopes").uncheck();
+  if ((await scopeRows.count()) !== 0)
+    fail("inactive scope rows remained visible");
+  await page.locator("#server-explicit-scopes").check();
+  if (
+    (
+      await scopeRows.evaluateAll((nodes) =>
+        nodes.map((node) => (node as HTMLInputElement).value),
+      )
+    ).join(",") !== "fixture.write,fixture.read,fixture.write"
+  )
+    fail("explicit-scopes toggle discarded draft rows");
+  await advancedToggle.click();
   await page
-    .locator("#server-initial-scopes")
-    .fill("fixture.write\nfixture.read\nfixture.write");
+    .getByText("Show advanced OAuth settings", { exact: true })
+    .waitFor();
+  await advancedToggle.click();
+  await page
+    .getByText("Hide advanced OAuth settings", { exact: true })
+    .waitFor();
+  if (
+    (
+      await scopeRows.evaluateAll((nodes) =>
+        nodes.map((node) => (node as HTMLInputElement).value),
+      )
+    ).join(",") !== "fixture.write,fixture.read,fixture.write"
+  )
+    fail("advanced disclosure discarded draft scope rows");
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.locator('[data-testid="server-oauth-origin-add"]').click();
   const origin = page.locator('[data-testid="server-oauth-origin"]');
@@ -630,10 +710,15 @@ export async function runServerCreateUpdate(
     );
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   await normalizedReview.waitFor({ state: "hidden" });
-  await page.locator("#server-initial-scopes").fill("");
+  for (let index = 3; index > 0; index -= 1)
+    await page
+      .getByRole("button", { name: `Remove scope ${index}`, exact: true })
+      .click();
+  if ((await scopeRows.count()) !== 0)
+    fail("removing scope rows did not produce an explicit empty list");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await normalizedReview
-    .getByText("Explicit empty set", { exact: true })
+    .getByText("No initial scopes (explicit)", { exact: true })
     .waitFor();
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   await normalizedReview.waitFor({ state: "hidden" });
@@ -644,16 +729,14 @@ export async function runServerCreateUpdate(
   for (const value of [
     "Gateway main callback",
     "Standard discovery",
-    "Resource metadata defaults",
+    "Server-advertised defaults",
   ])
     await normalizedReview.getByText(value, { exact: true }).waitFor();
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   await page.locator("#server-registration-mode").selectOption("static");
   if (
     (await editor
-      .locator(
-        'input[id*="secret"], textarea:not(#server-initial-scopes), input[id*="bearer-token"]',
-      )
+      .locator('input[id*="secret"], textarea, input[id*="bearer-token"]')
       .count()) !== 0
   )
     fail("server form offered raw JSON or inline secret input");
@@ -670,7 +753,19 @@ export async function runServerCreateUpdate(
     .waitFor();
   if (creates !== 0) fail("noncanonical stdio path submitted a create");
   await page.locator("#server-working-directory").fill("/srv/example");
-  await page.getByText("Optional process settings").click();
+  if (
+    (await page
+      .getByText("Optional process settings", { exact: true })
+      .count()) !== 0
+  )
+    fail("stdio settings retained a redundant disclosure heading");
+  for (const id of [
+    "server-argument-add",
+    "server-environment-add",
+    "server-secret-environment-add",
+  ])
+    if (!(await page.getByTestId(id).isVisible()))
+      fail(`stdio setting ${id} was hidden`);
   await page.locator('[data-testid="server-argument-add"]').click();
   await page.locator('[data-testid="server-argument"]').fill("--safe");
   await page.locator('[data-testid="server-environment-add"]').click();
@@ -769,6 +864,13 @@ export async function runServerCreateUpdate(
     fail("create body contained inline secret material");
 
   await page.getByRole("link", { name: "Settings", exact: true }).click();
+  if (
+    (await editor.textContent())?.includes("After creating the server") ||
+    !(await page.getByTestId("server-secret-environment-name").isVisible())
+  )
+    fail(
+      "stdio edit form hid configured settings or retained create-only guidance",
+    );
   await page.locator("#server-display-name").fill("Display only draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.getByText("Precondition required").waitFor();
@@ -808,6 +910,7 @@ export async function runServerCreateUpdate(
     `"server-${serverID}-1","server-${serverID}-2","server-${serverID}-3","server-${serverID}-4"`
   )
     fail(`updates did not use fresh ETags: ${etags.join(",")}`);
+  await assertOAuthScopeEditing(page, baseURL, serverID);
   assertClosedStorage(await browserStorage(page));
   if (((await page.locator("body").textContent()) ?? "").includes(bearer))
     fail("admin bearer reached server workflow DOM");
@@ -822,6 +925,122 @@ export async function runServerCreateUpdate(
       updates,
     })}\n`,
   );
+}
+
+async function assertOAuthScopeEditing(
+  page: Page,
+  baseURL: string,
+  serverID: string,
+): Promise<void> {
+  const server = {
+    ...serverReadFixture(serverID, {
+      name: "OAuth scope editing",
+      desired: "disabled",
+      runtime: "authentication_required",
+      credential: "reauthentication_required",
+      durable: "current",
+      active: "unavailable",
+    }),
+    transport: {
+      kind: "streamable_http",
+      url: "https://resource.example/mcp",
+      protocol_mode: "auto",
+      authentication: {
+        mode: "oauth",
+        registration: {
+          mode: "static",
+          issuer: "https://issuer.example",
+          client_id: "fixture-client",
+          token_endpoint_auth_method: "none",
+        },
+        trusted_origins: [],
+        request_offline_access: false,
+        callback_uri: "http://localhost:3118/callback",
+        scopes: ["fixture.read"],
+      },
+    },
+  };
+  const submitted: Record<string, unknown>[] = [];
+  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"server-${serverID}-7"` },
+        body: JSON.stringify(server),
+      });
+      return;
+    }
+    const body = route.request().postDataJSON() as {
+      transport: { authentication: Record<string, unknown> };
+    };
+    submitted.push(body.transport.authentication);
+    await route.fulfill({
+      status: 400,
+      contentType: "application/problem+json",
+      body: JSON.stringify({
+        status: 400,
+        code: "invalid_server_configuration",
+        title: "Check scope configuration",
+        context: { field: "transport.authentication.scopes", rule: "maximum" },
+      }),
+    });
+  });
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page
+    .getByText("Hide advanced OAuth settings", { exact: true })
+    .waitFor();
+  const scopeRows = page.getByTestId("server-initial-scopes");
+  if (
+    !(await scopeRows.isVisible()) ||
+    (await scopeRows.inputValue()) !== "fixture.read" ||
+    (await page.getByTestId("server-editor").textContent())?.includes(
+      "After creating the server",
+    )
+  )
+    fail(
+      "OAuth edit form hid configured overrides or retained create-only guidance",
+    );
+  const submit = async () => {
+    const previous = submitted.length;
+    await page.getByTestId("server-editor-submit").click();
+    await page.getByTestId("server-change-confirm-submit").click();
+    await page
+      .getByText("Check scope configuration", { exact: true })
+      .waitFor();
+    if (submitted.length !== previous + 1)
+      fail("OAuth scope edit did not submit exactly once");
+  };
+  await page.getByRole("button", { name: "Add scope", exact: true }).click();
+  await scopeRows.nth(1).fill("fixture.write");
+  await page.getByRole("button", { name: "Add scope", exact: true }).click();
+  await scopeRows.nth(2).fill("fixture.read");
+  await page.getByText("Hide advanced OAuth settings", { exact: true }).click();
+  await submit();
+  await page
+    .getByText("Hide advanced OAuth settings", { exact: true })
+    .waitFor();
+  if (
+    JSON.stringify(submitted.at(-1)?.scopes) !==
+    '["fixture.read","fixture.write"]'
+  )
+    fail("scope rows were not normalized in the actual update request");
+  for (let index = 3; index > 0; index -= 1)
+    await page
+      .getByRole("button", { name: `Remove scope ${index}`, exact: true })
+      .click();
+  await submit();
+  if (JSON.stringify(submitted.at(-1)?.scopes) !== "[]")
+    fail("explicit empty scopes were not serialized as an empty list");
+  await page.getByRole("button", { name: "Add scope", exact: true }).click();
+  await scopeRows.fill("fixture.inactive");
+  await page.locator("#server-explicit-scopes").uncheck();
+  await submit();
+  if (Object.hasOwn(submitted.at(-1) ?? {}, "scopes"))
+    fail("default scopes submitted inactive draft rows");
+  await page.locator("#server-explicit-scopes").check();
+  if ((await scopeRows.inputValue()) !== "fixture.inactive")
+    fail("scope submission cleared inactive draft rows");
 }
 
 export async function runServerOperations(

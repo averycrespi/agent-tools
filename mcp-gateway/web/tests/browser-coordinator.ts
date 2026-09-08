@@ -671,8 +671,8 @@ try {
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
       (input.scenario === "server-create-update" &&
-        consoleFailures.length === 1 &&
-        consoleFailures.some((value) =>
+        consoleFailures.length === 4 &&
+        consoleFailures.every((value) =>
           value.includes("server responded with a status of 400"),
         )) ||
       (input.scenario === "principals" &&

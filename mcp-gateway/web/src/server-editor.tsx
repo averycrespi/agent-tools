@@ -56,7 +56,7 @@ interface Draft {
   callbackURI: string;
   authServerMetadataURL: string;
   explicitScopes: boolean;
-  scopes: string;
+  scopes: StringItem[];
 }
 interface MutationResult {
   server: ServerView;
@@ -205,7 +205,7 @@ function blankDraft(): Draft {
     callbackURI: "",
     authServerMetadataURL: "",
     explicitScopes: false,
-    scopes: "",
+    scopes: [],
   };
 }
 function jsonRecord(value: unknown): JSONRecord {
@@ -410,7 +410,7 @@ function transportFromDraft(draft: Draft): unknown {
           "Use the exact canonical HTTPS metadata URL with a path, without credentials or fragment. A bounded query is allowed.",
         );
     }
-    const scopes = draft.scopes === "" ? [] : draft.scopes.split("\n");
+    const scopes = draft.scopes.map((item) => item.value);
     if (
       draft.explicitScopes &&
       (scopes.length > 64 ||
@@ -421,7 +421,7 @@ function transportFromDraft(draft: Draft): unknown {
     )
       throw new DraftValidationError(
         "scopes",
-        "Enter at most 64 ASCII scope tokens, one per line, without spaces, quotes, or backslashes (256 bytes each, 8192 bytes total).",
+        "Enter one scope per row, without spaces, quotes, or backslashes. Remove unused rows. Use at most 64 ASCII scopes (256 bytes each, 8192 bytes total).",
       );
     authentication = {
       mode: "oauth",
@@ -498,8 +498,9 @@ function draftFromServer(server: ServerView): Draft {
   draft.authServerMetadataURL =
     (authentication.auth_server_metadata_url as string | undefined) ?? "";
   draft.explicitScopes = authentication.scopes !== undefined;
-  draft.scopes = ((authentication.scopes as string[] | undefined) ?? []).join(
-    "\n",
+  draft.scopes = stringItems(
+    "scope",
+    (authentication.scopes as string[] | undefined) ?? [],
   );
   return draft;
 }
@@ -534,6 +535,7 @@ function StringListEditor({
   items,
   disabled,
   errors = {},
+  error,
   onChange,
 }: {
   id: string;
@@ -544,10 +546,18 @@ function StringListEditor({
   items: StringItem[];
   disabled: boolean;
   errors?: Readonly<Record<string, string>>;
+  error?: string;
   onChange: (items: StringItem[]) => void;
 }) {
   return (
-    <fieldset class="collection-field" aria-describedby={`${id}-hint`}>
+    <fieldset
+      class="collection-field"
+      id={id}
+      aria-describedby={
+        error === undefined ? `${id}-hint` : `${id}-hint ${id}-error`
+      }
+      aria-invalid={error === undefined ? undefined : true}
+    >
       <legend>
         {label}
         <span class="optional-label"> (optional)</span>
@@ -555,6 +565,11 @@ function StringListEditor({
       <p class="field-hint" id={`${id}-hint`}>
         {hint}
       </p>
+      {error !== undefined && (
+        <span class="field-error" id={`${id}-error`} role="alert">
+          {error}
+        </span>
+      )}
       {items.map((item, index) => (
         <div class="collection-row" key={item.id}>
           <label class="visually-hidden" for={`${id}-${item.id}`}>
@@ -565,12 +580,18 @@ function StringListEditor({
             data-testid={id}
             value={item.value}
             disabled={disabled}
-            aria-invalid={errors[item.id] === undefined ? undefined : true}
-            aria-describedby={
-              errors[item.id] === undefined
-                ? `${id}-hint`
-                : `${id}-hint ${id}-${item.id}-error`
+            aria-invalid={
+              errors[item.id] === undefined && error === undefined
+                ? undefined
+                : true
             }
+            aria-describedby={[
+              `${id}-hint`,
+              ...(error === undefined ? [] : [`${id}-error`]),
+              ...(errors[item.id] === undefined
+                ? []
+                : [`${id}-${item.id}-error`]),
+            ].join(" ")}
             onInput={(event) =>
               onChange(
                 items.map((current) =>
@@ -724,6 +745,7 @@ function EditorForm({
   clientIDError,
   originErrors,
   compatibilityErrors,
+  configurationError,
   clearFieldError,
 }: {
   draft: Draft;
@@ -735,8 +757,33 @@ function EditorForm({
   clientIDError: string | undefined;
   originErrors: Readonly<Record<string, string>>;
   compatibilityErrors: Readonly<Record<string, string>>;
+  configurationError: ServerConfigurationContext | undefined;
   clearFieldError: (field: DraftValidationField) => void;
 }) {
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () =>
+      draft.callbackURI !== "" ||
+      draft.authServerMetadataURL !== "" ||
+      draft.explicitScopes ||
+      draft.trustedOrigins.length > 0 ||
+      draft.requestOfflineAccess,
+  );
+  useEffect(() => {
+    const field = configurationError?.field;
+    if (
+      Object.keys(compatibilityErrors).length > 0 ||
+      Object.keys(originErrors).length > 0 ||
+      (field !== undefined &&
+        [
+          "transport.authentication.callback_uri",
+          "transport.authentication.auth_server_metadata_url",
+          "transport.authentication.scopes",
+          "transport.authentication.trusted_origins",
+          "transport.authentication.request_offline_access",
+        ].includes(field))
+    )
+      setAdvancedOpen(true);
+  }, [compatibilityErrors, originErrors, configurationError]);
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft({ ...draft, [key]: value });
   return (
@@ -747,7 +794,7 @@ function EditorForm({
       <FormField
         id="server-namespace"
         label="Namespace"
-        hint="Namespace cannot be changed after creation. Use a permanent lowercase routing identity."
+        hint="Namespace cannot be changed after creation. It prefixes this server's tool names. Use 1–32 lowercase letters, digits, underscores, or hyphens, starting with a letter; mcp_gateway is reserved."
         required
       >
         {(attributes) => (
@@ -759,7 +806,12 @@ function EditorForm({
           />
         )}
       </FormField>
-      <FormField id="server-display-name" label="Display name" required>
+      <FormField
+        id="server-display-name"
+        label="Display name"
+        hint="A recognizable name for this server in Gateway. You can change it later."
+        required
+      >
         {(attributes) => (
           <input
             {...attributes}
@@ -774,7 +826,7 @@ function EditorForm({
       <FormField
         id="server-enabled"
         label="Server enabled"
-        hint="Enabled servers schedule connection work after creation."
+        hint="When enabled, Gateway will try to connect when you save this server. Leave disabled to finish configuring credentials first."
       >
         {(attributes) => (
           <BinaryToggle
@@ -830,7 +882,7 @@ function EditorForm({
           <FormField
             id="server-executable"
             label="Executable"
-            hint="Absolute path; no shell interpolation."
+            hint="Enter the full path to the executable on the Gateway host. Shell expressions such as ~ and $HOME are not expanded."
             required
           >
             {(attributes) => (
@@ -847,7 +899,7 @@ function EditorForm({
           <FormField
             id="server-working-directory"
             label="Working directory"
-            hint="Absolute path."
+            hint="Enter the full path to the directory the process should run in, on the Gateway host."
             required
           >
             {(attributes) => (
@@ -861,40 +913,41 @@ function EditorForm({
               />
             )}
           </FormField>
-          <details class="form-disclosure">
-            <summary>Optional process settings</summary>
-            <StringListEditor
-              id="server-argument"
-              label="Arguments"
-              hint="Passed literally and in this order; no shell interpolation."
-              itemLabel="Argument"
-              addLabel="Add argument"
-              items={draft.arguments}
-              disabled={disabled}
-              onChange={(items) => update("arguments", items)}
-            />
-            <PairListEditor
-              id="server-environment"
-              label="Environment variables"
-              hint="Ordinary nonsecret values only."
-              nameLabel="Variable name"
-              valueLabel="Value"
-              valueRequired={false}
-              items={draft.environment}
-              disabled={disabled}
-              onChange={(items) => update("environment", items)}
-            />
-            <PairListEditor
-              id="server-secret-environment"
-              label="Secret environment bindings"
-              hint="Map environment variables to keyring slot names. Secret values are added later under Credentials."
-              nameLabel="Environment variable"
-              valueLabel="Credential slot"
-              items={draft.secretEnvironment}
-              disabled={disabled}
-              onChange={(items) => update("secretEnvironment", items)}
-            />
-          </details>
+          <StringListEditor
+            id="server-argument"
+            label="Arguments"
+            hint="Add one command-line argument per row, in order. Values are passed as written, without shell expansion or shell quoting."
+            itemLabel="Argument"
+            addLabel="Add argument"
+            items={draft.arguments}
+            disabled={disabled}
+            onChange={(items) => update("arguments", items)}
+          />
+          <PairListEditor
+            id="server-environment"
+            label="Environment variables"
+            hint="Add non-secret environment variables for the process. Use Secret environment bindings for passwords and tokens."
+            nameLabel="Variable name"
+            valueLabel="Value"
+            valueRequired={false}
+            items={draft.environment}
+            disabled={disabled}
+            onChange={(items) => update("environment", items)}
+          />
+          <PairListEditor
+            id="server-secret-environment"
+            label="Secret environment bindings"
+            hint={
+              namespaceLocked
+                ? "Map each environment variable to a credential slot name, not a secret value. Manage the matching secret under Authentication."
+                : "Map each environment variable to a credential slot name, not a secret value. After creating the server, add the matching secret under Authentication."
+            }
+            nameLabel="Environment variable"
+            valueLabel="Credential slot"
+            items={draft.secretEnvironment}
+            disabled={disabled}
+            onChange={(items) => update("secretEnvironment", items)}
+          />
         </>
       )}
       {draft.transportKind === "streamable_http" && (
@@ -902,7 +955,7 @@ function EditorForm({
           <FormField
             id="server-url"
             label="HTTP endpoint"
-            hint="Credentials, query strings, and fragments are rejected."
+            hint="Enter the server's full MCP endpoint URL, including its path. Do not include credentials, a query string, or a fragment."
             {...(urlError === undefined ? {} : { error: urlError })}
             required
           >
@@ -918,42 +971,36 @@ function EditorForm({
               />
             )}
           </FormField>
-          <details class="form-disclosure">
-            <summary>Compatibility settings</summary>
-            <FormField
-              id="server-protocol-mode"
-              label="Protocol preference"
-              required
-            >
-              {(attributes) => (
-                <select
-                  {...attributes}
-                  value={draft.protocolMode}
-                  disabled={disabled}
-                  onChange={(event) =>
-                    update(
-                      "protocolMode",
-                      event.currentTarget.value as Draft["protocolMode"],
-                    )
-                  }
-                >
-                  <option value="auto">Automatic (recommended)</option>
-                  <option value="modern">Current only — 2026-07-28</option>
-                  <option value="legacy">Legacy only — 2025-11-25</option>
-                </select>
-              )}
-            </FormField>
-            <p class="field-hint">
-              Automatic uses legacy only when the server explicitly reports that
-              the current protocol is unsupported.
-            </p>
-          </details>
+          <FormField
+            id="server-protocol-mode"
+            label="Protocol preference"
+            hint="Keep Automatic unless the provider requires a specific version. It tries the current protocol and uses legacy only if the server explicitly reports that the current version is unsupported."
+            required
+          >
+            {(attributes) => (
+              <select
+                {...attributes}
+                value={draft.protocolMode}
+                disabled={disabled}
+                onChange={(event) =>
+                  update(
+                    "protocolMode",
+                    event.currentTarget.value as Draft["protocolMode"],
+                  )
+                }
+              >
+                <option value="auto">Automatic (recommended)</option>
+                <option value="modern">Current only — 2026-07-28</option>
+                <option value="legacy">Legacy only — 2025-11-25</option>
+              </select>
+            )}
+          </FormField>
           <fieldset class="choice-field">
             <legend>Authentication</legend>
             <p class="field-hint">
-              Credentials are added separately and stored in the
-              operating-system keyring; this configuration contains no secret
-              values.
+              Choose the authentication method required by the server. Tokens
+              and client secrets are managed separately and stored in the
+              operating-system keyring, not in this form.
             </p>
             {(
               [
@@ -979,7 +1026,9 @@ function EditorForm({
           </fieldset>
           {draft.authMode === "bearer" && (
             <p class="bounded-note">
-              After creating the server, add its bearer token under Credentials.
+              {namespaceLocked
+                ? "Manage this server's bearer token under Authentication."
+                : "After creating the server, add its bearer token under Authentication."}{" "}
               Gateway stores it in the keyring and sends it in the Authorization
               header.
             </p>
@@ -987,12 +1036,19 @@ function EditorForm({
           {draft.authMode === "oauth" && (
             <>
               <p class="bounded-note">
-                After creating the server, complete an OAuth authorization flow.
-                Gateway stores resulting token authority in the keyring.
+                {namespaceLocked
+                  ? "Start or manage OAuth authorization under Authentication."
+                  : "After creating the server, open Authentication to authorize Gateway with the provider."}{" "}
+                Gateway stores access and refresh tokens in the keyring.
               </p>
               <FormField
                 id="server-registration-mode"
                 label="OAuth client registration"
+                hint={
+                  draft.registrationMode === "dynamic"
+                    ? "Gateway registers a client when you start authorization. The provider must support automatic client registration."
+                    : "Use an OAuth application you have already registered with the provider. Enter its client details below."
+                }
                 required
               >
                 {(attributes) => (
@@ -1014,34 +1070,12 @@ function EditorForm({
                   </select>
                 )}
               </FormField>
-              <p class="field-hint">
-                Automatic registration uses the provider's advertised dynamic
-                registration endpoint when authorization begins.
-              </p>
-              <FormField
-                id="server-issuer"
-                label="Authorization server issuer"
-                hint="Leave blank only when metadata identifies one issuer on the same origin as the HTTP endpoint; otherwise enter the exact HTTPS issuer."
-                {...(issuerError === undefined ? {} : { error: issuerError })}
-                optional
-              >
-                {(attributes) => (
-                  <input
-                    {...attributes}
-                    value={draft.issuer}
-                    disabled={disabled}
-                    onInput={(event) => {
-                      clearFieldError("issuer");
-                      update("issuer", event.currentTarget.value);
-                    }}
-                  />
-                )}
-              </FormField>
               {draft.registrationMode === "static" && (
                 <>
                   <FormField
                     id="server-client-id"
                     label="Client ID"
+                    hint="Enter the client ID assigned when you registered your OAuth application with the provider. This is not the client secret."
                     {...(clientIDError === undefined
                       ? {}
                       : { error: clientIDError })}
@@ -1062,7 +1096,7 @@ function EditorForm({
                   <FormField
                     id="server-token-auth"
                     label="Token endpoint authentication"
-                    hint="Basic and request-body methods require a separately installed client secret."
+                    hint="Choose the method configured for your OAuth application. For either client-secret method, add the secret separately under Authentication."
                     required
                   >
                     {(attributes) => (
@@ -1092,13 +1126,40 @@ function EditorForm({
                   </FormField>
                 </>
               )}
-              <details class="form-disclosure">
-                <summary>Advanced OAuth settings</summary>
+              <FormField
+                id="server-issuer"
+                label="OAuth issuer URL"
+                hint="Enter the exact HTTPS issuer URL from your provider's OAuth documentation, not its authorization or token endpoint. You can leave this blank if the MCP server advertises exactly one issuer with the same scheme, hostname, and port as its HTTP endpoint."
+                {...(issuerError === undefined ? {} : { error: issuerError })}
+                optional
+              >
+                {(attributes) => (
+                  <input
+                    {...attributes}
+                    value={draft.issuer}
+                    disabled={disabled}
+                    onInput={(event) => {
+                      clearFieldError("issuer");
+                      update("issuer", event.currentTarget.value);
+                    }}
+                  />
+                )}
+              </FormField>
+              <details
+                class="form-disclosure"
+                open={advancedOpen}
+                onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  {advancedOpen
+                    ? "Hide advanced OAuth settings"
+                    : "Show advanced OAuth settings"}
+                </summary>
                 <FormField
                   id="server-callback-uri"
                   label="Callback URI"
                   optional
-                  hint="Optional exact redirect registered with the provider. Blank uses Gateway's main callback. A temporary loopback-only listener requires the configured port to be free; it closes when the flow ends."
+                  hint="Leave blank to use Gateway's default callback. To use a different callback, enter the exact HTTP loopback redirect URL registered with your provider, including port and path. That port must be free; Gateway listens there only during authorization."
                   {...(compatibilityErrors.callbackURI === undefined
                     ? {}
                     : { error: compatibilityErrors.callbackURI })}
@@ -1120,7 +1181,7 @@ function EditorForm({
                   id="server-auth-metadata-url"
                   label="Authorization metadata URL"
                   optional
-                  hint="Optional exact HTTPS discovery location, not an issuer override. Blank restores standard discovery; a configured failure never falls back."
+                  hint="Leave blank for standard OAuth discovery. Set this only if your provider specifies a different HTTPS metadata URL. It does not change the issuer; if this URL fails, Gateway will not try another location."
                   {...(compatibilityErrors.authServerMetadataURL === undefined
                     ? {}
                     : { error: compatibilityErrors.authServerMetadataURL })}
@@ -1153,39 +1214,34 @@ function EditorForm({
                   <span>
                     <strong>Configure initial scopes explicitly</strong>
                     <small>
-                      Unchecked uses resource metadata defaults. Checked with an
-                      empty list requests no initial scopes. Offline access
-                      remains separately explicit.
+                      Leave off to use the MCP server's advertised defaults.
+                      Turn on to choose scopes below; an empty list requests no
+                      initial scopes. Offline access is controlled separately.
                     </small>
                   </span>
                 </label>
                 {draft.explicitScopes && (
-                  <FormField
+                  <StringListEditor
                     id="server-initial-scopes"
                     label="Initial scopes"
-                    optional
-                    hint="One scope token per line. These replace metadata defaults; duplicates are removed and sorted. Later expansion requires foreground authorization."
+                    hint="Add scope names from your provider's documentation, one per row. These replace the server's defaults; duplicates are removed. Adding permissions later requires authorizing the server again."
+                    itemLabel="Scope"
+                    addLabel="Add scope"
+                    items={draft.scopes}
+                    disabled={disabled}
                     {...(compatibilityErrors.scopes === undefined
                       ? {}
                       : { error: compatibilityErrors.scopes })}
-                  >
-                    {(attributes) => (
-                      <textarea
-                        {...attributes}
-                        value={draft.scopes}
-                        disabled={disabled}
-                        onInput={(event) => {
-                          clearFieldError("scopes");
-                          update("scopes", event.currentTarget.value);
-                        }}
-                      />
-                    )}
-                  </FormField>
+                    onChange={(items) => {
+                      clearFieldError("scopes");
+                      update("scopes", items);
+                    }}
+                  />
                 )}
                 <StringListEditor
                   id="server-oauth-origin"
                   label="Additional OAuth origins allowed on restricted networks"
-                  hint="HTTPS network exceptions for private or loopback OAuth endpoints. The MCP server origin is already included; TLS and browser-origin policy are unchanged."
+                  hint="Allow OAuth connections to additional private-network or loopback hosts. Enter each HTTPS origin (scheme, hostname, and optional port), without a path. The MCP server's origin is already allowed. This does not relax TLS checks or browser access rules."
                   itemLabel="OAuth origin"
                   addLabel="Add OAuth origin"
                   items={draft.trustedOrigins}
@@ -1212,8 +1268,10 @@ function EditorForm({
                   <span>
                     <strong>Request offline access when supported</strong>
                     <small>
-                      Requests the offline_access scope only when advertised.
-                      The provider may still omit a refresh token.
+                      Ask for offline_access so Gateway can refresh access
+                      without another sign-in. Gateway requests it only if the
+                      provider advertises support; a refresh token is not
+                      guaranteed.
                     </small>
                   </span>
                 </label>
@@ -1342,10 +1400,10 @@ function CreationReview({ draft }: { draft: Draft }) {
                   <dt>Initial scopes</dt>
                   <dd>
                     {!draft.explicitScopes
-                      ? "Resource metadata defaults"
-                      : draft.scopes === ""
-                        ? "Explicit empty set"
-                        : [...new Set(draft.scopes.split("\n"))]
+                      ? "Server-advertised defaults"
+                      : draft.scopes.length === 0
+                        ? "No initial scopes (explicit)"
+                        : [...new Set(draft.scopes.map((item) => item.value))]
                             .sort()
                             .join(" ")}
                   </dd>
@@ -1364,8 +1422,8 @@ function CreationReview({ draft }: { draft: Draft }) {
         )}
       </dl>
       <p>
-        The namespace is permanent. Creating an enabled server also schedules
-        connection work.
+        The namespace is permanent. If enabled, Gateway will try to connect
+        after the server is created.
       </p>
     </>
   );
@@ -1575,6 +1633,7 @@ export function ServerEditor({
           clientIDError={clientIDError}
           originErrors={originErrors}
           compatibilityErrors={compatibilityErrors}
+          configurationError={mutation.problem?.context}
           clearFieldError={clearFieldError}
         />
         {error !== undefined && (
