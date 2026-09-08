@@ -281,20 +281,66 @@ export async function runAudit(
   mode = "normal";
   await page.getByRole("link", { name: "Back to audit history" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  const from = page.getByLabel("From (inclusive, local time)", { exact: true });
+  const until = page.getByLabel("Until (exclusive, local time)", {
+    exact: true,
+  });
+  await expect(from).toHaveAttribute("type", "datetime-local");
+  await expect(until).toHaveAttribute("type", "datetime-local");
+  await expect(
+    page.getByText(
+      "Time bounds must both use nine fractional UTC digits and span at most 366 days.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText(
+      "Separate from Invocation History and Requests. Use Refresh to read the newest events.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
+  const beforeInvalid = queries.length;
+  await from.fill("2026-09-03T20:00");
+  for (const [value, message] of [
+    ["", "Choose both From and Until, or clear both."],
+    ["2026-09-03T19:00", "Until must be later than From."],
+    ["2028-09-03T20:00", "Choose a time range of at most 366 days."],
+  ]) {
+    await until.fill(value!);
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page.getByText(message!, { exact: true })).toBeVisible();
+    expect(queries.length).toBe(beforeInvalid);
+  }
+  await page.evaluate(() => {
+    window.location.hash =
+      "#/audit?filter_from=2026-01-01T23%3A00%3A00.123456789Z&filter_until=2026-01-02T23%3A00%3A00.123456789Z";
+  });
+  await expect(from).toHaveValue("2026-01-01T18:00");
+  await expect(until).toHaveValue("2026-01-02T18:00");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect
+    .poll(() => queries.at(-1)?.get("from"))
+    .toBe("2026-01-01T23:00:00.123456789Z");
+  await from.fill("2026-01-01T18:01");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect
+    .poll(() => queries.at(-1)?.get("from"))
+    .toBe("2026-01-01T23:01:00.000000000Z");
+  expect(queries.at(-1)?.get("until")).toBe("2026-01-02T23:00:00.123456789Z");
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(from).toHaveValue("");
+  await expect(until).toHaveValue("");
+  await expect.poll(() => queries.at(-1)?.has("from")).toBe(false);
   await page.getByLabel("Actor type", { exact: true }).selectOption("system");
-  await page.getByLabel("Credential id", { exact: true }).fill(id(9));
+  await page.getByLabel("Credential ID", { exact: true }).fill(id(9));
   await page.getByLabel("Category", { exact: true }).selectOption("server");
   await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
   await page.getByLabel("Target type", { exact: true }).selectOption("server");
-  await page.getByLabel("Target id", { exact: true }).fill(id(7));
+  await page.getByLabel("Target ID", { exact: true }).fill(id(7));
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
-  await page.getByLabel("Correlation id", { exact: true }).fill(id(8));
-  await page
-    .getByLabel("From (inclusive UTC)", { exact: true })
-    .fill("2026-09-04T00:00:00.000000000Z");
-  await page
-    .getByLabel("Until (exclusive UTC)", { exact: true })
-    .fill("2026-09-06T00:00:00.000000000Z");
+  await page.getByLabel("Correlation ID", { exact: true }).fill(id(8));
+  await from.fill("2026-09-03T20:00");
+  await until.fill("2026-09-05T20:00");
   mode = "loading";
   await page.getByRole("button", { name: "Apply filters" }).click();
   await expect(
@@ -322,6 +368,10 @@ export async function runAudit(
   ])
     if (!queries.at(-1)!.has(key))
       fail(`Audit authoritative filter missing: ${key}`);
+  expect(queries.at(-1)!.get("from")).toBe("2026-09-04T00:00:00.000000000Z");
+  expect(queries.at(-1)!.get("until")).toBe("2026-09-06T00:00:00.000000000Z");
+  await expect(from).toHaveValue("2026-09-03T20:00");
+  await expect(until).toHaveValue("2026-09-05T20:00");
   if (queries.at(-1)!.has("cursor")) fail("Query change retained cursor");
   mode = "normal";
   await page.getByRole("button", { name: "Clear filters" }).click();

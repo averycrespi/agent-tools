@@ -210,6 +210,7 @@ try {
   const context = await browser.newContext({
     baseURL,
     serviceWorkers: "block",
+    ...(input.scenario === "audit" ? { timezoneId: "America/New_York" } : {}),
   });
   const externalRequests: string[] = [];
   const originFailures: string[] = [];

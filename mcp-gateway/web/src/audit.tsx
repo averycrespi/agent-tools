@@ -386,6 +386,13 @@ function History({ value }: { value: AuditHistory }) {
     </section>
   );
 }
+function localAuditTime(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 19);
+}
 function Filters({
   resolved,
   navigate,
@@ -396,10 +403,10 @@ function Filters({
   const [draft, setDraft] = useState<Record<string, string>>({
     ...resolved.location.query,
   });
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string>();
   useEffect(() => {
     setDraft({ ...resolved.location.query });
-    setError(false);
+    setError(undefined);
   }, [resolved.canonicalFragment]);
   return (
     <form
@@ -410,12 +417,29 @@ function Filters({
         const query = Object.fromEntries(
           Object.entries(draft).filter(([, value]) => value !== ""),
         );
-        const fragment = serializeLocation({ ...resolved.location, query });
-        if (!validAuditQuery(query) || parseFragment(fragment) === undefined) {
-          setError(true);
+        const { filter_from: from, filter_until: until } = query;
+        if ((from === undefined) !== (until === undefined)) {
+          setError("Choose both From and Until, or clear both.");
           return;
         }
-        setError(false);
+        if (from !== undefined && until !== undefined) {
+          if (from >= until) {
+            setError("Until must be later than From.");
+            return;
+          }
+          if (Date.parse(until) - Date.parse(from) > 366 * 86400000) {
+            setError("Choose a time range of at most 366 days.");
+            return;
+          }
+        }
+        const fragment = serializeLocation({ ...resolved.location, query });
+        if (!validAuditQuery(query) || parseFragment(fragment) === undefined) {
+          setError(
+            "Check IDs, category/action and the selected dates and times.",
+          );
+          return;
+        }
+        setError(undefined);
         navigate(fragment);
       }}
     >
@@ -428,28 +452,39 @@ function Filters({
         {auditFilterKeys.map((key) => {
           const name = `filter_${key}`;
           const choices = auditFilterOptions(key, draft.filter_category);
+          const timeBound = key === "from" || key === "until";
           const label =
             key === "from"
-              ? "From (inclusive UTC)"
+              ? "From (inclusive, local time)"
               : key === "until"
-                ? "Until (exclusive UTC)"
-                : sentenceCase(key);
+                ? "Until (exclusive, local time)"
+                : sentenceCase(key).replace(/\bid\b/g, "ID");
           return (
             <FormField key={key} id={`audit-${key}`} label={label}>
               {(attributes) =>
                 choices === undefined ? (
                   <input
                     {...attributes}
-                    value={draft[name] ?? ""}
+                    type={timeBound ? "datetime-local" : "text"}
+                    step={timeBound ? "1" : undefined}
+                    value={
+                      timeBound
+                        ? localAuditTime(draft[name] ?? "")
+                        : (draft[name] ?? "")
+                    }
                     maxLength={64}
-                    placeholder={
-                      key === "from" || key === "until"
-                        ? "2026-09-05T00:00:00.000000000Z"
-                        : undefined
-                    }
-                    onInput={(event) =>
-                      setDraft({ ...draft, [name]: event.currentTarget.value })
-                    }
+                    onInput={(event) => {
+                      const value = event.currentTarget.value;
+                      const timestamp = timeBound ? Date.parse(value) : NaN;
+                      setDraft({
+                        ...draft,
+                        [name]: Number.isFinite(timestamp)
+                          ? new Date(timestamp)
+                              .toISOString()
+                              .replace("Z", "000000Z")
+                          : value,
+                      });
+                    }}
                   />
                 ) : (
                   <select
@@ -474,13 +509,9 @@ function Filters({
           );
         })}
       </div>
-      <p>
-        Time bounds must both use nine fractional UTC digits and span at most
-        366 days.
-      </p>
-      {error && (
+      {error !== undefined && (
         <StateNotice state="error" title="Invalid audit filters">
-          <p>Check IDs, category/action and the paired UTC time bounds.</p>
+          <p>{error}</p>
         </StateNotice>
       )}
       <div class="form-actions">
@@ -489,7 +520,7 @@ function Filters({
           type="button"
           onClick={() => {
             setDraft({});
-            setError(false);
+            setError(undefined);
             navigate("#/audit");
           }}
         >
@@ -659,11 +690,6 @@ export function Audit({
             <h2>Control-plane events</h2>
             <span>Newest first · {snapshot.items.length} loaded</span>
           </div>
-          <p>
-            Separate from <a href="#/invocations">Invocation History</a> and{" "}
-            <a href="#/requests">Requests</a>. Use Refresh to read the newest
-            events.
-          </p>
           <p class="audit-overflow-note">
             Scroll the table horizontally for performer, target and outcome, or
             open an event for full detail.
