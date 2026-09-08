@@ -150,13 +150,33 @@ Use stopped-process `mcp-gateway admin reset` only for all-authority recovery. T
 
 For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](backup-and-recovery.md).
 
-## Control-plane audit API
+## Control-plane audit history
 
-Authenticated API clients can read `GET /api/v1/audit-events` and `GET /api/v1/audit-events/{id}`. There are no new audit-reading CLI commands or Audit browser page here. The [coverage matrix](../design/administrative-control-plane.md#control-plane-audit-coverage) identifies audited operator, system and offline actions and their regression evidence. Do not infer that an action never happened from an empty audit collection.
+Use `mcp-gateway audit list` and `mcp-gateway audit get AUDIT_EVENT_ID`, or choose **Audit** immediately above System in the browser sidebar. Both consume the authenticated read-only `GET /api/v1/audit-events` and `GET /api/v1/audit-events/{id}` API. Generated `mcp-gateway audit --help`, `mcp-gateway audit list --help`, and `mcp-gateway audit get --help` describe the command grammar. The [coverage matrix](../design/administrative-control-plane.md#control-plane-audit-coverage) identifies audited operator, system and offline actions and their regression evidence. Do not infer that an action never happened from an empty audit collection.
 
 Collection responses return summaries, a next-page cursor, and `history` with `generation`, `oldest_retained`, and `pruned`. Only the newest 65,536 events are retained. Keep the generation separately from the oldest boundary; pruning advances the boundary within one generation, while a generation mismatch means histories must not be combined. After `stale_cursor`, discard the traversal, fetch a fresh first page, and compare its generation before using earlier records. Restore assigns a fresh generation and records an offline installation attempt in the replacement database; its success outcome is appended only after installation. An interruption may leave the new generation with a pending attempt and no outcome. Pin `generation` on item reads when following a previously displayed event. `audit_history_replaced` is a conflict, not a missing-record response. Never infer rollback or replay safety from an attempt without an outcome.
 
-See the [public audit contract](../design/public-contract.md#control-plane-audit-reads) for authoritative filters, bounded time ranges, and exact response shapes. Audit stores only credential IDs/fingerprints and closed detail codes, not human identity, raw credentials, unrestricted snapshots, or invocation payloads.
+### Filters, pagination, and event interpretation
+
+```bash
+mcp-gateway audit list --limit 50 --actor-type system --category server
+mcp-gateway audit list --outcome unknown \
+  --from 2026-09-01T00:00:00.000000000Z \
+  --until 2026-09-02T00:00:00.000000000Z --json
+mcp-gateway audit list --cursor OPAQUE_CURSOR --generation HISTORY_GENERATION \
+  --actor-type system --category server
+mcp-gateway audit get AUDIT_EVENT_ID --generation HISTORY_GENERATION --json
+```
+
+All filters are conjunctive and apply to server history: `--actor-type`, `--credential-id`, `--category`, `--action`, `--target-type`, `--target-id`, `--outcome`, `--correlation-id`, `--from`, and `--until`. IDs are canonical Gateway IDs. Credential filtering matches either a performing operator or a known system initiator. The time range is inclusive `from`, exclusive `until`; provide both as fixed UTC timestamps with nine fractional digits, separated by at most 366 days. Category/action pairs and actor/target/outcome values use the closed API vocabulary.
+
+Lists are descending sequence, not client-sorted timestamps. `--limit` is 1–100 (default 50); the CLI reads one page and never automatically retries. Keep the same filters and the returned `history.generation` when supplying `next_cursor`. The cursor is opaque and freezes the traversal's upper sequence watermark; later events require a fresh first page. On `stale_cursor`, discard all earlier pages and restart without the cursor, comparing generations. On `audit_history_replaced`, discard previous-history data and explicitly restart without the old generation. Neither response permits combining the two histories. JSON preserves the strict API representation, including nullable fields and decimal-string sequences; human output provides event facts, retention notes, and continuation guidance.
+
+The browser's **Apply filters** queries the server and starts page one; filters remain usable with no matches. Back/Forward restores applied filters. **Load older audit events** appends only compatible pages. **Refresh** restarts at the newest matching page. Cursors and generation comparisons live only in the authenticated session, not in URLs or browser storage; reload and a new session cannot compare with forgotten prior history. Stale cursors discard the traversal and fetch page one once with a notice. Replacement clears previous-history state and warns even if the fresh read fails. Pinned detail is discarded rather than reopening a potentially reused ID after replacement. A missing event is not proof of nonexecution. Detail links to current server, principal, grant, or request resources only after verifying they still exist; failure to verify a link does not hide the audit evidence.
+
+Performer labels distinguish **Operator**, **System**, and **Offline maintenance**. A system event's optional initiating credential is attribution, not its performer or a named human. Attempts and outcomes are immutable separate events joined by correlation ID; `pending`, `failed`, `rejected`, and `unknown` must not be interpreted as success or rollback. The detail correlation link selects matching retained events. Audit is separate from Invocation History and Requests: request submissions and invocation evidence are not copied here.
+
+See the [public audit contract](../design/public-contract.md#control-plane-audit-reads) for exact response shapes. Audit stores only credential IDs/fingerprints and allowlisted reason/problem codes, never raw secrets, raw error bodies, unrestricted snapshots, or invocation payloads. No export format or permanent-retention guarantee is provided.
 
 ## Command families
 
@@ -170,6 +190,7 @@ mcp-gateway principal --help
 mcp-gateway grant --help
 mcp-gateway grant-request --help
 mcp-gateway invocation --help
+mcp-gateway audit --help
 mcp-gateway backup --help
 mcp-gateway admin credential --help
 mcp-gateway admin reset --help

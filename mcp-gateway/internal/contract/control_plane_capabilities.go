@@ -11,6 +11,7 @@ type ControlPlaneCapability struct {
 }
 
 var controlPlaneCapabilities = []ControlPlaneCapability{
+	{ID: "audit-read", Operation: "Control-plane audit list/get", WebControl: "Audit", CLIUses: []string{"audit list", "audit get AUDIT_EVENT_ID"}, Mechanics: "authoritative filters/cursor/limit; generation and retention; bodyless"},
 	{ID: "status", Operation: "Detailed status", WebControl: "Overview/System", CLIUses: []string{"status"}, Mechanics: "GET status"},
 	{ID: "admin-credential-read", Operation: "Admin credential list/get", WebControl: "System / Admin credentials", CLIUses: []string{"admin credential list", "admin credential get ID"}, Mechanics: "cursor/limit; bodyless"},
 	{ID: "admin-credential-create", Operation: "Admin credential create/rotate", WebControl: "System / Admin credentials / Create and revoke", CLIUses: []string{"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH"}, Mechanics: "direct lifetime; one-time sink; rotation durably verifies replacement before conditional targeted revoke; no replay"},

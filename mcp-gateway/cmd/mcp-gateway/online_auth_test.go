@@ -89,6 +89,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 
 	categories := map[string][]string{
 		"read": {
+			"audit list", "audit get AUDIT_EVENT_ID",
 			"status", "admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
 			"server list", "server get ID", "server operation list ID", "server operation get ID OPERATION_ID",
 			"server auth-flow list ID", "server auth-flow get ID FLOW_ID", "server descriptor list ID", "server descriptor get ID TOOL_ID",

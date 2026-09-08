@@ -34,6 +34,7 @@ var documentationGuides = []DocumentationGuide{
 }
 
 var documentationCommandFamilies = []DocumentationCommandFamily{
+	{ID: "docs.command.audit", CommandPath: "audit", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "mcp-gateway audit --help"},
 	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "mcp-gateway admin credential --help"},
 	{ID: "docs.command.admin.reset", CommandPath: "admin reset", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "mcp-gateway admin reset --help"},
 	{ID: "docs.command.backup", CommandPath: "backup", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "mcp-gateway backup --help"},

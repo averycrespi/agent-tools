@@ -10,7 +10,7 @@ import (
 
 func TestControlPlaneCapabilityManifest(t *testing.T) {
 	capabilities := ControlPlaneCapabilityManifest()
-	require.Len(t, capabilities, 32)
+	require.Len(t, capabilities, 33)
 	productIDs := make([]string, 0, len(capabilities))
 	for _, row := range capabilities {
 		assert.NotEmpty(t, row.ID)

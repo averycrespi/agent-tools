@@ -1,4 +1,5 @@
 import { type Browser, chromium, firefox, webkit } from "@playwright/test";
+import { runAudit } from "./browser/audit-scenarios.ts";
 import { createInterface } from "node:readline";
 import { fail, loadShell } from "./browser/shared.ts";
 import { isAbsolute } from "node:path";
@@ -84,6 +85,7 @@ interface BridgeInput {
     | "request-adjudication"
     | "overview"
     | "invocations"
+    | "audit"
     | "system-status"
     | "server-catalog-reads"
     | "server-create-update"
@@ -160,6 +162,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "request-adjudication" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
+      value.scenario !== "audit" &&
       value.scenario !== "system-status" &&
       value.scenario !== "server-catalog-reads" &&
       value.scenario !== "server-create-update" &&
@@ -249,6 +252,16 @@ try {
               .startsWith(
                 "Failed to load resource: the server responded with a status of 503",
               ))
+        ) &&
+        !(
+          input.scenario === "audit" &&
+          [404, 409, 503].some((status) =>
+            message
+              .text()
+              .startsWith(
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+          )
         ) &&
         !(
           input.scenario === "invocations" &&
@@ -577,6 +590,15 @@ try {
       );
     } else if (input.scenario === "overview") {
       await runOverview(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "audit") {
+      await runAudit(
         browser.version(),
         context,
         page,

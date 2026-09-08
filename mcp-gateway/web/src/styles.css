@@ -2017,6 +2017,36 @@ button.sort-button:not(:disabled):hover {
   color: var(--accent);
 }
 
+.audit-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+}
+
+.audit-filter-grid .form-field {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.audit-filters > p {
+  margin-bottom: 12px;
+}
+
+.audit-overflow-note {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .audit-overflow-note {
+    display: block;
+  }
+}
+
+.audit-view dd,
+.audit-view td {
+  overflow-wrap: anywhere;
+}
+
 .fact-grid,
 .recovery-grid {
   display: grid;
