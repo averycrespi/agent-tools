@@ -748,8 +748,12 @@ export async function runAdminCredentials(
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
   const logout = await logoutResponse;
-  if (logout.status() !== 204)
-    fail(`admin credential scenario logout failed: HTTP ${logout.status()}`);
+  if (logout.status() !== 204) {
+    const problem = (await logout.json()) as { code?: string };
+    fail(
+      `admin credential scenario logout failed: HTTP ${logout.status()}, code ${problem.code ?? "absent"}, cookie sent ${Boolean((await logout.request().allHeaders()).cookie)}`,
+    );
+  }
   await expect
     .poll(
       async () => (await context.cookies(baseURL)).map((cookie) => cookie.name),

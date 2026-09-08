@@ -117,6 +117,23 @@ function authorizationCollectionQuery(
   );
 }
 
+function requestCollectionQuery(query: Record<string, string>): boolean {
+  const values: Record<string, readonly string[]> = {
+    queue: ["all"],
+    filter_state: ["pending", "approved", "rejected", "cancelled"],
+    filter_scope: ["tool", "server"],
+    sort: ["request", "principal", "target", "state", "submitted"],
+    direction: ["ascending", "descending"],
+  };
+  if (query.direction !== undefined && query.sort === undefined) return false;
+  if (query.queue !== "all" && query.filter_state !== undefined) return false;
+  return Object.entries(query).every(([key, value]) =>
+    ["filter_request", "filter_principal", "filter_target"].includes(key)
+      ? isCollectionFilter(key, value)
+      : values[key]?.includes(value) === true,
+  );
+}
+
 function serverCollectionQuery(
   query: Record<string, string>,
   collection: "servers" | "descriptors" | "catalog",
@@ -275,7 +292,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("grants", segments, query);
   }
   if (first === "requests") {
-    if (segments.length === 1 && exactQuery(query, {})) {
+    if (segments.length === 1 && requestCollectionQuery(query)) {
       return location("requests", segments, query);
     }
     if (
@@ -334,6 +351,7 @@ const queryOrder: Readonly<Record<string, readonly string[]>> = {
   catalog: ["sort", "direction"],
   principals: ["sort", "direction"],
   grants: ["sort", "direction"],
+  requests: ["queue", "sort", "direction"],
 };
 
 export function serializeLocation(value: ApplicationLocation): string {
