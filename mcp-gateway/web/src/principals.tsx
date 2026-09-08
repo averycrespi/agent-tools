@@ -226,10 +226,7 @@ export class PrincipalDirectory {
         key === "#/overview" ||
         key === "#/invocations" ||
         key.startsWith("#/invocations?") ||
-        /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key) ||
-        key === "#/requests" ||
-        key.startsWith("#/requests?") ||
-        /^#\/requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
+        /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
       invalidations: ["authorization"],
       read: () => readPrincipals(session),
       publish: (principals) => {

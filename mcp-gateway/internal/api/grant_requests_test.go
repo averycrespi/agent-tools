@@ -66,6 +66,28 @@ func TestGrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 	assert.Equal(t, contract.RejectionPolicyConflict, service.reason)
 }
 
+func TestGrantRequestTableQueryWireContract(t *testing.T) {
+	service := &fakeGrantRequestService{item: adminRequestFixture()}
+	service.page = grantrequests.AdminPage{Table: []contract.GrantRequestTableItem{{Request: service.item.GrantRequestSummary, PrincipalDisplayName: "Operator agent", ServerDisplayName: "Sample", ResolvedServerID: testServerID}}, CollectionRange: contract.CollectionRange{TotalCount: 1}}
+	handler := newGrantRequestHandler(t, service)
+	headers := map[string]string{"Authorization": "Bearer " + testBearer}
+	response := perform(handler, http.MethodGet, "/api/v1/grant-requests?representation=table&request="+service.item.ID+"&principal=agent&target=Sample&scope=tool&state=pending&sort=submitted&direction=ascending", "", headers)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.Equal(t, &grantrequests.AdminQuery{Request: service.item.ID, Principal: "agent", Target: "Sample", Scope: "tool", Sort: "submitted", Direction: "ascending"}, service.filter.Query)
+	var result map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+	require.Len(t, result, 4)
+	require.JSONEq(t, `1`, string(result["total_count"]))
+	require.JSONEq(t, `0`, string(result["offset"]))
+	require.Contains(t, string(result["items"]), `"principal_display_name":"Operator agent"`)
+	require.NotContains(t, response.Body.String(), "evidence")
+	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	for _, query := range []string{"sort=submitted", "representation=detail", "representation=table&direction=descending", "representation=table&scope=other", "representation=table&sort=unknown", "representation=table&principal=%00", "representation=table&target=a&target=b"} {
+		rejected := perform(handler, http.MethodGet, "/api/v1/grant-requests?"+query, "", headers)
+		require.Equal(t, 400, rejected.Code, query)
+	}
+}
+
 func TestGrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
 	service := &fakeGrantRequestService{item: adminRequestFixture()}
 	handler := newGrantRequestHandler(t, service)

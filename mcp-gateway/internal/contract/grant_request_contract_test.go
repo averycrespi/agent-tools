@@ -132,6 +132,7 @@ func TestGrantRequestResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T)
 	requireJSONKeys(t, TargetComparison{}, "scope", "target_state", "active_state", "durable_state", "catalog_revision", "fingerprint", "descriptor")
 	requireJSONKeys(t, GrantRequestSummary{}, "id", "principal_id", "state", "revision", "requested_policy", "approved_policy", "approved_grant_id", "rejection_reason", "created_at", "updated_at", "closed_at")
 	requireJSONKeys(t, GrantRequest{}, "id", "principal_id", "state", "revision", "requested_policy", "approved_policy", "approved_grant_id", "rejection_reason", "created_at", "updated_at", "closed_at", "resolved_server_id", "resolved_upstream_name", "submitted_evidence", "approved_evidence", "current_target")
+	requireJSONKeys(t, GrantRequestTableItem{}, "request", "principal_display_name", "server_display_name", "resolved_server_id", "resolved_upstream_name")
 	requireJSONKeys(t, GrantRequestApproval{}, "description", "approved_policy")
 	requireJSONKeys(t, GrantRequestRejection{}, "reason")
 	requireJSONKeys(t, GetIdentityResult{}, "identity")
@@ -156,7 +157,7 @@ func TestGrantRequestResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T)
 
 	mechanics := ResourceMechanics()
 	expectedMechanics := []ResourceMechanic{
-		{Pattern: "/api/v1/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "Page<GrantRequestSummary>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v1/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "Page<GrantRequestSummary>|QueryPage<GrantRequestTableItem>", SuccessStatuses: []int{200}, Cursor: true},
 		{Pattern: "/api/v1/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
 		{Pattern: "/api/v1/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 		{Pattern: "/api/v1/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},

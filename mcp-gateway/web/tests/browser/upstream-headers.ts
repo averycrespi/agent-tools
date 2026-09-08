@@ -121,7 +121,23 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
     await page.evaluate((id) => {
       location.hash = `#/servers/${id}?tab=settings`;
     }, body.server.id);
-    await page.getByTestId("server-editor").waitFor();
+    await page
+      .getByTestId("server-editor")
+      .waitFor()
+      .catch(async (error: unknown) => {
+        const state = await page.evaluate(() => ({
+          hash: location.hash,
+          lifecycle: document
+            .querySelector('[data-testid="gateway-shell"]')
+            ?.getAttribute("data-session-lifecycle"),
+          headings: [...document.querySelectorAll("h1,h2")].map(
+            (node) => node.textContent,
+          ),
+        }));
+        throw new Error(`Header save return failed: ${JSON.stringify(state)}`, {
+          cause: error,
+        });
+      });
   };
   await save();
   await expect(page.getByLabel("Header value 1", { exact: true })).toHaveValue(
@@ -134,7 +150,22 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
   await save();
   await expect(page.getByTestId("server-header-name")).toHaveCount(0);
   await page.reload();
-  await expect(page.getByTestId("server-editor")).toBeVisible();
+  await expect(page.getByTestId("server-editor"))
+    .toBeVisible()
+    .catch(async (error: unknown) => {
+      const state = await page.evaluate(() => ({
+        hash: location.hash,
+        lifecycle: document
+          .querySelector('[data-testid="gateway-shell"]')
+          ?.getAttribute("data-session-lifecycle"),
+        headings: [...document.querySelectorAll("h1,h2")].map(
+          (node) => node.textContent,
+        ),
+      }));
+      throw new Error(`Header reload failed: ${JSON.stringify(state)}`, {
+        cause: error,
+      });
+    });
   await expect(page.getByTestId("server-header-name")).toHaveCount(0);
   await page.evaluate(() => {
     location.hash = "#/servers";

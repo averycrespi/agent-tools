@@ -30,6 +30,9 @@ func (repository *Repository) ListAdmin(ctx context.Context, filter AdminFilter,
 			return AdminPage{}, ErrInvalidInput
 		}
 	}
+	if filter.Query != nil {
+		return repository.queryAdmin(ctx, filter, cursor, limit)
+	}
 	var page AdminPage
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
 		position := AdminCursor{Collection: adminRequestCollection, PrincipalID: filter.PrincipalID, State: cloneRequestState(filter.State)}
@@ -249,7 +252,7 @@ func cloneRequestState(state *contract.GrantRequestState) *contract.GrantRequest
 }
 
 func validAdminCursor(cursor AdminCursor, filter AdminFilter) bool {
-	return cursor.Collection == adminRequestCollection && cursor.PrincipalID == filter.PrincipalID &&
+	return cursor.Query == "" && cursor.MAC == "" && cursor.Expires == 0 && cursor.Collection == adminRequestCollection && cursor.PrincipalID == filter.PrincipalID &&
 		equalRequestState(cursor.State, filter.State) && cursor.Upper >= 0 && cursor.After >= 0 && cursor.After <= cursor.Upper &&
 		(cursor.After == 0 && cursor.AfterID == "" || cursor.After > 0 && opaqueIDPattern.MatchString(cursor.AfterID))
 }

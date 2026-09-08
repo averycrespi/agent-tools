@@ -49,15 +49,20 @@ type ActiveTargetInspector interface {
 	CompareActiveTarget(context.Context, string, string, string) contract.TargetActiveState
 }
 
+type PrincipalNames interface {
+	PrincipalDisplayNamesTx(context.Context, *sql.Tx) (map[string]string, error)
+}
+
 type Options struct {
-	Store       *storage.Store
-	Clock       Clock
-	Entropy     io.Reader
-	Namespaces  NamespaceInspector
-	Descriptors DescriptorInspector
-	Denies      DenyInspector
-	Active      ActiveTargetInspector
-	Invalidate  func(contract.Invalidation)
+	PrincipalNames PrincipalNames
+	Store          *storage.Store
+	Clock          Clock
+	Entropy        io.Reader
+	Namespaces     NamespaceInspector
+	Descriptors    DescriptorInspector
+	Denies         DenyInspector
+	Active         ActiveTargetInspector
+	Invalidate     func(contract.Invalidation)
 }
 
 type requestCapacity struct {
@@ -67,16 +72,18 @@ type requestCapacity struct {
 }
 
 type Repository struct {
-	store       *storage.Store
-	clock       Clock
-	entropy     io.Reader
-	namespaces  NamespaceInspector
-	descriptors DescriptorInspector
-	denies      DenyInspector
-	active      ActiveTargetInspector
-	invalidate  func(contract.Invalidation)
-	capacity    requestCapacity
-	entropyMu   sync.Mutex
+	principalNames PrincipalNames
+	store          *storage.Store
+	clock          Clock
+	entropy        io.Reader
+	namespaces     NamespaceInspector
+	descriptors    DescriptorInspector
+	denies         DenyInspector
+	active         ActiveTargetInspector
+	invalidate     func(contract.Invalidation)
+	capacity       requestCapacity
+	entropyMu      sync.Mutex
+	queryKey       []byte
 }
 
 type CreateRequest struct {
@@ -87,6 +94,7 @@ type CreateRequest struct {
 type AdminFilter struct {
 	PrincipalID string
 	State       *contract.GrantRequestState
+	Query       *AdminQuery
 }
 
 type AdminCursor struct {
@@ -96,11 +104,16 @@ type AdminCursor struct {
 	Upper       int64                       `json:"upper"`
 	After       int64                       `json:"after"`
 	AfterID     string                      `json:"after_id"`
+	Query       string                      `json:"query,omitempty"`
+	Expires     int64                       `json:"expires,omitempty"`
+	MAC         string                      `json:"mac,omitempty"`
 }
 
 type AdminPage struct {
 	Items []contract.GrantRequestSummary
 	Next  *AdminCursor
+	Table []contract.GrantRequestTableItem
+	contract.CollectionRange
 }
 
 func New(options Options) (*Repository, error) {
@@ -109,7 +122,7 @@ func New(options Options) (*Repository, error) {
 		return nil, errors.New("grant request repository dependencies are incomplete")
 	}
 	return &Repository{
-		store: options.Store, clock: options.Clock, entropy: options.Entropy,
+		store: options.Store, clock: options.Clock, entropy: options.Entropy, principalNames: options.PrincipalNames,
 		namespaces: options.Namespaces, descriptors: options.Descriptors, denies: options.Denies,
 		active: options.Active, invalidate: options.Invalidate,
 		capacity: requestCapacity{

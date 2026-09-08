@@ -720,9 +720,7 @@ function App() {
             />
           ) : destination === "requests" ? (
             <Requests
-              key={resolved.canonicalFragment}
               session={sessionClient}
-              principals={principalDirectory}
               mutations={mutationCoordinator}
               resolved={resolved}
               view={view}

@@ -507,7 +507,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	}
 	built.requests, err = grantrequests.New(grantrequests.Options{
 		Store: options.Store, Clock: options.Clock, Entropy: options.Entropy,
-		Namespaces: built.servers, Descriptors: built.catalogRepository, Denies: built.authorization,
+		Namespaces: built.servers, Descriptors: built.catalogRepository, Denies: built.authorization, PrincipalNames: built.authorization,
 		Active: built.activeCatalog, Invalidate: options.Invalidate,
 	})
 	if err != nil {

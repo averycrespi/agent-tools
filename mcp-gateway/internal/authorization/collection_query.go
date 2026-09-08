@@ -33,6 +33,35 @@ type CollectionQuery struct {
 	Representation string
 }
 
+func (repository *Repository) PrincipalDisplayNamesTx(ctx context.Context, tx *sql.Tx) (map[string]string, error) {
+	if tx == nil {
+		return nil, ErrInvalidInput
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, display_name FROM principals ORDER BY insertion_sequence LIMIT ?`, mustLimit("principals")+1)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	names := make(map[string]string)
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if int64(len(names)) > mustLimit("principals") {
+		return nil, ErrResourceLimit
+	}
+	return names, nil
+}
+
 type GrantDisplayNames interface {
 	GrantDisplayNamesTx(context.Context, *sql.Tx) (map[string]string, error)
 }
