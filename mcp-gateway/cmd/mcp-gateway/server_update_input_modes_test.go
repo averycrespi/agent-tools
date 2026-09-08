@@ -39,6 +39,16 @@ func TestCLIServerTransportInputContext(t *testing.T) {
 	}
 }
 
+func TestCLIUpstreamHeaderInput(t *testing.T) {
+	const transport = `{"kind":"streamable_http","url":"https://example.test/mcp","protocol_mode":"auto","authentication":{"mode":"none"}`
+	for _, extra := range []string{"", `,"headers":null`, `,"headers":{}`, `,"headers":{"X-MCP-Toolsets":"default,actions,gists,issues,labels,pull_requests,users"}`} {
+		require.NoError(t, validateServerTransportInput(json.RawMessage(transport+extra+"}")))
+	}
+	for _, value := range []string{`[]`, `{"X-A":null}`, `{"X-A":42}`, `{"X-A":"one","x-a":"two"}`, `{"Authorization":"token"}`, `{"X-A":"a\r\nb"}`} {
+		require.Error(t, validateServerTransportInput(json.RawMessage(transport+`,"headers":`+value+"}")))
+	}
+}
+
 func TestCLIServerUpdateInputModes(t *testing.T) {
 	const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	requests := make(chan []byte, 8)
@@ -95,7 +105,7 @@ func TestCLIServerUpdateInputModes(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"enabled":false}`, string(<-requests))
 
-	fullPatch := `{"display_name":"Remote","enabled":true,"transport":{"kind":"streamable_http","url":"https://example.test/mcp","protocol_mode":"auto","authentication":{"mode":"none"}}}`
+	fullPatch := `{"display_name":"Remote","enabled":true,"transport":{"kind":"streamable_http","url":"https://example.test/mcp","protocol_mode":"auto","authentication":{"mode":"none"},"headers":{"X-MCP-Toolsets":"default,actions,gists,issues,labels,pull_requests,users"}}}`
 	fullFile := filepath.Join(dir, "full.json")
 	require.NoError(t, os.WriteFile(fullFile, []byte(fullPatch), 0o600))
 	output, err = execute(append(updateArgs, "--file", fullFile, "--yes")...)

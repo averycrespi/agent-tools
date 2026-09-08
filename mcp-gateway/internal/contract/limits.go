@@ -164,6 +164,10 @@ var fixedLimits = []FixedLimit{
 	{Name: "control_audit_page", Maximum: AuditPageLimit},
 	{Name: "control_audit_event_bytes", Maximum: AuditDetailBytes},
 	{Name: "control_audit_cursor_bytes", Maximum: AuditCursorBytes},
+	{Name: "upstream_header_count", Maximum: UpstreamHeaderCount},
+	{Name: "upstream_header_name_bytes", Maximum: UpstreamHeaderNameBytes},
+	{Name: "upstream_header_value_bytes", Maximum: UpstreamHeaderValueBytes},
+	{Name: "upstream_header_bytes", Maximum: UpstreamHeaderBytes},
 }
 
 func FixedLimits() []FixedLimit {

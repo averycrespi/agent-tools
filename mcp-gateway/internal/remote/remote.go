@@ -186,7 +186,7 @@ func (factory *Factory) Open(ctx context.Context, request Request) (*OpenRespons
 	if int64(len(request.Body)) > bodyLimit.Maximum {
 		return nil, ErrResponseLimit
 	}
-	if err := validateHeaders(request.Header); err != nil {
+	if err := validateRequestHeaders(request); err != nil {
 		return nil, err
 	}
 	transport := &http.Transport{
@@ -317,6 +317,23 @@ var reservedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("192.88.99.0/24"), netip.MustParsePrefix("203.0.113.0/24"), netip.MustParsePrefix("240.0.0.0/4"),
 	netip.MustParsePrefix("64:ff9b:1::/48"), netip.MustParsePrefix("100::/64"), netip.MustParsePrefix("2001::/23"),
 	netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("3fff::/20"), netip.MustParsePrefix("5f00::/16"),
+}
+
+func validateRequestHeaders(request Request) error {
+	if err := validateHeaders(request.Header); err != nil {
+		return err
+	}
+	// Include the HTTP/1 transport's generated fields before its first handoff.
+	header := cloneHeader(request.Header)
+	header.Add("Host", request.Endpoint.url.Host)
+	header.Add("Connection", "close")
+	if len(request.Body) > 0 || request.Method == http.MethodPost || request.Method == http.MethodPut || request.Method == http.MethodPatch {
+		header.Add("Content-Length", strconv.Itoa(len(request.Body)))
+	}
+	if _, supplied := header["User-Agent"]; !supplied {
+		header.Set("User-Agent", "Go-http-client/1.1")
+	}
+	return validateHeaders(header)
 }
 
 func validateHeaders(header http.Header) error {

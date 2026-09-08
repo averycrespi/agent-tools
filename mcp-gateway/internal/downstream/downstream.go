@@ -305,6 +305,7 @@ type HTTPTransport struct {
 	factory    *remote.Factory
 	endpoint   remote.Endpoint
 	auth       string
+	headers    map[string]string
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 	active     int
@@ -312,12 +313,16 @@ type HTTPTransport struct {
 	closed     bool
 }
 
-func NewHTTPTransport(factory *remote.Factory, endpoint remote.Endpoint, authorization string) (*HTTPTransport, error) {
-	if factory == nil || (authorization != "" && !strings.HasPrefix(authorization, "Bearer ")) {
+func NewHTTPTransport(factory *remote.Factory, endpoint remote.Endpoint, authorization string, headers map[string]string) (*HTTPTransport, error) {
+	if factory == nil || (authorization != "" && !strings.HasPrefix(authorization, "Bearer ")) || contract.ValidateUpstreamHeaders(headers) != "" {
 		return nil, ErrInvalidMessage
 	}
 	rootCtx, rootCancel := context.WithCancel(context.Background())
-	return &HTTPTransport{factory: factory, endpoint: endpoint, auth: authorization, rootCtx: rootCtx, rootCancel: rootCancel}, nil
+	ownedHeaders := make(map[string]string, len(headers))
+	for name, value := range headers {
+		ownedHeaders[name] = value
+	}
+	return &HTTPTransport{factory: factory, endpoint: endpoint, auth: authorization, headers: ownedHeaders, rootCtx: rootCtx, rootCancel: rootCancel}, nil
 }
 
 func (*HTTPTransport) Kind() TransportKind { return TransportHTTP }
@@ -354,6 +359,9 @@ func (transport *HTTPTransport) exchange(ctx context.Context, message Message) (
 		transport.mu.Unlock()
 	}()
 	header := make(http.Header)
+	for name, value := range transport.headers {
+		header.Set(name, value)
+	}
 	header.Set("Content-Type", contract.MediaTypeJSON)
 	header.Set("Accept", contract.MediaTypeJSON+", "+contract.MediaTypeEventStream)
 	header["User-Agent"] = []string{""}

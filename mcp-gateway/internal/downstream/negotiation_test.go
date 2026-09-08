@@ -417,7 +417,7 @@ func TestAutoHTTPFallbackUsesFreshTransportAndBindsLegacySession(t *testing.T) {
 	opened := 0
 	negotiator, err := NewNegotiator(func(context.Context) (*Coordinator, error) {
 		opened++
-		transport, transportErr := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "Bearer server-secret")
+		transport, transportErr := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "Bearer server-secret", nil)
 		if transportErr != nil {
 			return nil, transportErr
 		}

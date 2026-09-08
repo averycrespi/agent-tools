@@ -276,6 +276,7 @@ func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.
 				method  string
 				version string
 				session string
+				headers string
 			}
 			var mu sync.Mutex
 			requests := make([]requestRecord, 0, 4)
@@ -286,7 +287,7 @@ func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.
 				}
 				_ = json.NewDecoder(request.Body).Decode(&envelope)
 				mu.Lock()
-				requests = append(requests, requestRecord{method: envelope.Method, version: request.Header.Get("Mcp-Protocol-Version"), session: request.Header.Get("Mcp-Session-Id")})
+				requests = append(requests, requestRecord{method: envelope.Method, version: request.Header.Get("Mcp-Protocol-Version"), session: request.Header.Get("Mcp-Session-Id"), headers: request.Header.Get("X-MCP-Toolsets")})
 				mu.Unlock()
 				writer.Header().Set("Content-Type", "application/json")
 				switch envelope.Method {
@@ -302,6 +303,11 @@ func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.
 				case "notifications/initialized":
 					writer.Header().Set("Mcp-Session-Id", "session-"+string(test.mode))
 					writer.WriteHeader(http.StatusAccepted)
+				case "tools/call":
+					if test.era == downstream.EraLegacy {
+						writer.Header().Set("Mcp-Session-Id", "session-"+string(test.mode))
+					}
+					_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%d,"result":{"content":[]}}`, envelope.ID)
 				case "tools/list":
 					if test.era == downstream.EraLegacy {
 						writer.Header().Set("Mcp-Session-Id", "session-"+string(test.mode))
@@ -311,7 +317,7 @@ func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.
 			}))
 			defer server.Close()
 			candidate := ownerCandidate(200+index, contract.TransportStreamableHTTP)
-			candidate.Server.Transport = mustDriverTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/mcp", ProtocolMode: test.mode, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}})
+			candidate.Server.Transport = mustDriverTransport(t, contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: server.URL + "/mcp", ProtocolMode: test.mode, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}, Headers: map[string]string{"X-MCP-Toolsets": "default,actions,gists,issues,labels,pull_requests,users"}})
 			driver, err := NewConcreteDriver(ConcreteDriverOptions{
 				Owner: NewRuntimeOwner(),
 				StartStdio: func(context.Context, StdioDefinition) (downstream.StdioRuntime, error) {
@@ -330,11 +336,18 @@ func TestConcreteDriverNegotiatesEveryHTTPModeAndUsesSelectedRuntime(t *testing.
 			response, err := runtime.Request(context.Background(), "tools/list", json.RawMessage(`{"cursor":""}`), "")
 			require.NoError(t, err)
 			assert.JSONEq(t, `{"tools":[]}`, string(response.Result))
+			call, err := runtime.NewCall("fixture", json.RawMessage(`{}`))
+			require.NoError(t, err)
+			result := call.Execute(t.Context())
+			assert.Empty(t, result.Failure)
 			mu.Lock()
 			captured := append([]requestRecord(nil), requests...)
 			mu.Unlock()
 			require.NotEmpty(t, captured)
-			assert.Equal(t, "tools/list", captured[len(captured)-1].method)
+			assert.Equal(t, "tools/call", captured[len(captured)-1].method)
+			for _, request := range captured {
+				assert.Equal(t, "default,actions,gists,issues,labels,pull_requests,users", request.headers, request.method)
+			}
 			if test.era == downstream.EraLegacy {
 				assert.Equal(t, contract.LegacyProtocolVersion, captured[len(captured)-1].version)
 				assert.Equal(t, "session-"+string(test.mode), captured[len(captured)-1].session)

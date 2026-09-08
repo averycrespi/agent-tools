@@ -248,6 +248,7 @@ func TestServerResourceShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, server, "id", "namespace", "display_name", "desired_state", "desired_revision", "transport", "credential_revisions", "credential_state", "runtime", "catalog", "created_at", "updated_at", "deleted_at")
 	requireJSONKeys(t, stdio, "kind", "executable", "arguments", "working_directory", "environment", "secret_environment")
 	requireJSONKeys(t, StreamableHTTPTransport{}, "kind", "url", "protocol_mode", "authentication")
+	requireJSONKeys(t, StreamableHTTPTransport{Headers: map[string]string{"X-MCP-Toolsets": "default"}}, "kind", "url", "protocol_mode", "authentication", "headers")
 	requireJSONKeys(t, OAuthAuthentication{}, "mode", "registration", "trusted_origins", "request_offline_access")
 	requireJSONKeys(t, StaticOAuthRegistration{}, "mode", "issuer", "client_id", "token_endpoint_auth_method")
 	requireJSONKeys(t, DynamicOAuthRegistration{}, "mode", "issuer")

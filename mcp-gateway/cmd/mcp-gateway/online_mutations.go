@@ -345,7 +345,29 @@ func validateHTTPTransportInput(object map[string]json.RawMessage) error {
 	if !exists {
 		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleRequired)
 	}
-	if !exactMembers(object, "kind", "url", "protocol_mode", "authentication") {
+	members := []string{"kind", "url", "protocol_mode", "authentication"}
+	if raw, present := object["headers"]; present {
+		members = append(members, "headers")
+		if string(raw) != "null" {
+			var values map[string]json.RawMessage
+			if json.Unmarshal(raw, &values) != nil || values == nil {
+				return invalidServerMutationInput(contract.ServerConfigurationFieldHeaders, contract.ServerConfigurationRuleInvalid)
+			}
+			for _, value := range values {
+				if !jsonString(value) {
+					return invalidServerMutationInput(contract.ServerConfigurationFieldHeaders, contract.ServerConfigurationRuleInvalid)
+				}
+			}
+			var headers map[string]string
+			if err := json.Unmarshal(raw, &headers); err != nil {
+				return invalidServerMutationInput(contract.ServerConfigurationFieldHeaders, contract.ServerConfigurationRuleInvalid)
+			}
+			if rule := contract.ValidateUpstreamHeaders(headers); rule != "" {
+				return invalidServerMutationInput(contract.ServerConfigurationFieldHeaders, rule)
+			}
+		}
+	}
+	if !exactMembers(object, members...) {
 		return invalidServerMutationInput(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
 	}
 	return validateServerAuthenticationInput(authentication)

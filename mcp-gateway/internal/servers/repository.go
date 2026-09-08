@@ -136,6 +136,7 @@ type stdioTransportEnvelope struct {
 }
 
 type httpTransportEnvelope struct {
+	Headers        json.RawMessage        `json:"headers"`
 	Kind           contract.TransportKind `json:"kind"`
 	URL            string                 `json:"url"`
 	ProtocolMode   contract.ProtocolMode  `json:"protocol_mode"`
@@ -271,7 +272,25 @@ func DecodeTransport(contents []byte) (contract.Transport, error) {
 		if err != nil {
 			return nil, err
 		}
-		transport = contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication}
+		var headers map[string]string
+		if len(raw.Headers) != 0 && string(raw.Headers) != "null" {
+			var values map[string]json.RawMessage
+			if err := strictjson.Decode(raw.Headers, &values, options); err != nil || values == nil {
+				return invalid(contract.ServerConfigurationFieldHeaders, contract.ServerConfigurationRuleInvalid)
+			}
+			headers = make(map[string]string, len(values))
+			for name, value := range values {
+				if !configurationJSONValue[string](value) {
+					return invalid(contract.ServerConfigurationFieldHeaders, contract.ServerConfigurationRuleInvalid)
+				}
+				var text string
+				if err := json.Unmarshal(value, &text); err != nil {
+					return invalid(contract.ServerConfigurationFieldHeaders, contract.ServerConfigurationRuleInvalid)
+				}
+				headers[name] = text
+			}
+		}
+		transport = contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication, Headers: headers}
 	default:
 		return invalid(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleInvalid)
 	}
@@ -514,6 +533,9 @@ func validEnvironmentName(value string) bool {
 }
 
 func validateHTTPTransport(transport contract.StreamableHTTPTransport) error {
+	if rule := contract.ValidateUpstreamHeaders(transport.Headers); rule != "" {
+		return NewConfigurationError(contract.ServerConfigurationFieldHeaders, rule)
+	}
 	if transport.Kind != contract.TransportStreamableHTTP {
 		return NewConfigurationError(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleInvalid)
 	}

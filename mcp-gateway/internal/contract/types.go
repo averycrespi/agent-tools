@@ -24,6 +24,7 @@ const (
 	ServerConfigurationFieldWorkingDirectory        ServerConfigurationField = "transport.working_directory"
 	ServerConfigurationFieldEnvironment             ServerConfigurationField = "transport.environment"
 	ServerConfigurationFieldSecretEnvironment       ServerConfigurationField = "transport.secret_environment"
+	ServerConfigurationFieldHeaders                 ServerConfigurationField = "transport.headers"
 	ServerConfigurationFieldURL                     ServerConfigurationField = "transport.url"
 	ServerConfigurationFieldProtocolMode            ServerConfigurationField = "transport.protocol_mode"
 	ServerConfigurationFieldAuthentication          ServerConfigurationField = "transport.authentication"
@@ -65,7 +66,7 @@ func ValidServerConfigurationContext(context ServerConfigurationContext) bool {
 		ServerConfigurationFieldEnabled, ServerConfigurationFieldTransport, ServerConfigurationFieldTransportKind,
 		ServerConfigurationFieldExecutable, ServerConfigurationFieldArguments, ServerConfigurationFieldWorkingDirectory,
 		ServerConfigurationFieldEnvironment, ServerConfigurationFieldSecretEnvironment, ServerConfigurationFieldURL,
-		ServerConfigurationFieldProtocolMode, ServerConfigurationFieldAuthentication, ServerConfigurationFieldAuthenticationMode,
+		ServerConfigurationFieldHeaders, ServerConfigurationFieldProtocolMode, ServerConfigurationFieldAuthentication, ServerConfigurationFieldAuthenticationMode,
 		ServerConfigurationFieldTrustedOrigins, ServerConfigurationFieldRequestOfflineAccess, ServerConfigurationFieldRegistration,
 		ServerConfigurationFieldRegistrationMode, ServerConfigurationFieldIssuer, ServerConfigurationFieldClientID,
 		ServerConfigurationFieldTokenEndpointAuthMethod, ServerConfigurationFieldCallbackURI, ServerConfigurationFieldAuthServerMetadataURL, ServerConfigurationFieldScopes:
