@@ -1,5 +1,6 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { exerciseCatalogPagination } from "./catalog-pagination.ts";
+import { exerciseUpstreamHeaders } from "./upstream-headers.ts";
 import {
   assertClosedStorage,
   assertSecretAbsent,
@@ -210,6 +211,7 @@ export async function runServerCreateUpdate(
   await waitForLifecycle(page, "authenticated");
 
   const serverID = serverReadIDs.active;
+  const headerScreenshots = await exerciseUpstreamHeaders(page);
   let currentServer = {
     ...serverReadFixture(serverID, {
       name: "Created server",
@@ -944,6 +946,7 @@ export async function runServerCreateUpdate(
   process.stdout.write(
     `${JSON.stringify({
       event: "server_create_update_complete",
+      screenshots: headerScreenshots,
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),

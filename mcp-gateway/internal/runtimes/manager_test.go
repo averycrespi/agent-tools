@@ -430,8 +430,9 @@ type publisherEvent struct {
 }
 
 type recordingPublisher struct {
-	delegate *memoryPublisher
-	events   chan publisherEvent
+	delegate   *memoryPublisher
+	events     chan publisherEvent
+	onWithdraw func(Candidate)
 }
 
 func newRecordingPublisher() *recordingPublisher {
@@ -444,8 +445,48 @@ func (publisher *recordingPublisher) Fence(serverID string, generation uint64) {
 }
 
 func (publisher *recordingPublisher) Withdraw(candidate Candidate) {
+	if publisher.onWithdraw != nil {
+		publisher.onWithdraw(candidate)
+	}
 	publisher.delegate.Withdraw(candidate)
 	publisher.events <- publisherEvent{step: "withdraw", candidate: candidate}
+}
+
+func TestTriggerWithdrawsOutsideManagerLockAndRetainsExactOwnership(t *testing.T) {
+	for _, constructing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("constructing=%t", constructing), func(t *testing.T) {
+			publisher := newRecordingPublisher()
+			candidate := Candidate{Server: servers.Server{ID: "server"}, RuntimeID: "owned-runtime", Generation: 1}
+			current := &entry{generation: 1}
+			if constructing {
+				current.activating = &candidate
+			} else {
+				current.active = &candidate
+			}
+			manager := &Manager{publisher: publisher, entries: map[string]*entry{"server": current}, globalInUse: 1, globalLimit: 1}
+			publisher.onWithdraw = func(withdrawn Candidate) {
+				assert.Equal(t, candidate.Key(), withdrawn.Key())
+				checked := make(chan bool, 1)
+				go func() { checked <- manager.Current(withdrawn) }()
+				select {
+				case current := <-checked:
+					assert.False(t, current)
+				case <-time.After(time.Second):
+					t.Error("withdrawal held the manager lock needed by publication")
+				}
+			}
+			manager.Trigger("server", nil, true)
+			assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+			assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
+			assert.True(t, current.pending)
+			assert.False(t, current.running)
+			if constructing {
+				assert.Same(t, &candidate, current.activating)
+			} else {
+				assert.Same(t, &candidate, current.active)
+			}
+		})
+	}
 }
 
 func receivePublisherEvent(t *testing.T, events <-chan publisherEvent) publisherEvent {
@@ -1660,6 +1701,7 @@ func TestManagerWithdrawsAndVerifiesStopBeforeReplacementPublicationAndSuccess(t
 	repository.setRevision(serverID, "2")
 	manager.Trigger(serverID, &operation.Operation.ID, true)
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	running := <-repository.transitions
 	assert.Equal(t, contract.OperationRunning, running.State)
 	withdraw := receivePublisherEvent(t, publisher.events)
@@ -1697,6 +1739,7 @@ func TestSupersededCandidateWithUnconfirmedStopCannotStartLatestReplacement(t *t
 	repository.setRevision(serverID, "2")
 	manager.Trigger(serverID, nil, true)
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	driver.startResult <- activeOutcome()
 	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
@@ -1732,6 +1775,7 @@ func TestManagerStopUnconfirmedWithdrawsAndStartsNoReplacement(t *testing.T) {
 	repository.setRevision(serverID, "2")
 	manager.Trigger(serverID, &operation.Operation.ID, true)
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	assert.Equal(t, contract.OperationRunning, (<-repository.transitions).State)
 	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	_ = receiveCandidate(t, driver.stopping)
@@ -1766,6 +1810,7 @@ func TestDisabledStopUnconfirmedRetryPerformsCleanupOnly(t *testing.T) {
 	repository.setDesiredState(serverID, contract.DesiredServerDisabled)
 	manager.Trigger(serverID, nil, true)
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	_ = receiveCandidate(t, driver.stopping)
 	driver.stopResult <- false
@@ -1808,6 +1853,7 @@ func TestManagerDisableAndDeleteStopWithoutReplacement(t *testing.T) {
 			repository.setDesiredState(serverID, test.desired)
 			manager.Trigger(serverID, nil, true)
 			assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+			assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 			assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 			_ = receiveCandidate(t, driver.stopping)
 			driver.stopResult <- true
@@ -1859,6 +1905,7 @@ func TestBlockedStopDoesNotBlockUnrelatedServerActivation(t *testing.T) {
 	repository.setRevision(ids[0], "2")
 	manager.Trigger(ids[0], nil, true)
 	assert.Equal(t, "fence", receivePublisherEvent(t, publisher.events).step)
+	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	_ = receiveCandidate(t, driver.stopping)
 	manager.Trigger(ids[1], nil, true)

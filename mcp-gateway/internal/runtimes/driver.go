@@ -199,7 +199,7 @@ func (driver *ConcreteDriver) constructHTTP(candidate Candidate, desired contrac
 	if err != nil {
 		return nil, err
 	}
-	transport, err := downstream.NewHTTPTransport(driver.httpFactory, endpoint, authorization)
+	transport, err := downstream.NewHTTPTransport(driver.httpFactory, endpoint, authorization, desired.Headers)
 	if err != nil {
 		return nil, err
 	}

@@ -99,6 +99,7 @@ const serverConfigurationFields = new Set([
   "transport.secret_environment",
   "transport.url",
   "transport.protocol_mode",
+  "transport.headers",
   "transport.authentication",
   "transport.authentication.mode",
   "transport.authentication.trusted_origins",

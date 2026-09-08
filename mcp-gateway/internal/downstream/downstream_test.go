@@ -72,7 +72,7 @@ func TestHTTPTransportProjectsOAuthChallengeWithoutRetainingOtherHeaders(t *test
 	defer server.Close()
 	endpoint, err := remote.ParseEndpoint(server.URL+"/mcp", true)
 	require.NoError(t, err)
-	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "Bearer old-token")
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "Bearer old-token", nil)
 	require.NoError(t, err)
 
 	response, err := transport.Exchange(context.Background(), Message{Payload: []byte(`{}`), Method: "server/discover"})
@@ -99,7 +99,7 @@ func TestHTTPTransportSendsOnlyClosedGatewayHeadersAndAcceptsBoundedJSONOrSSE(t 
 	defer server.Close()
 	endpoint, err := remote.ParseEndpoint(server.URL+"/mcp", true)
 	require.NoError(t, err)
-	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "Bearer server-secret")
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "Bearer server-secret", nil)
 	require.NoError(t, err)
 	message := Message{Payload: []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`), Method: "tools/list", ProtocolVersion: "2026-07-28", Name: "server.tool", ParameterHeaders: map[string]string{"Region": "us"}}
 	_, err = transport.Exchange(context.Background(), message)
@@ -160,7 +160,7 @@ func TestHTTPTransportReturnsFirstSSEEventAndClosesBlockedBody(t *testing.T) {
 	defer server.Close()
 	endpoint, err := remote.ParseEndpoint(server.URL+"/mcp", true)
 	require.NoError(t, err)
-	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "")
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "", nil)
 	require.NoError(t, err)
 	response, err := transport.Exchange(context.Background(), Message{Payload: []byte(`{}`), Method: "server/discover"})
 	require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestHTTPTransportCloseCancelsBlockedResponse(t *testing.T) {
 	defer server.Close()
 	endpoint, err := remote.ParseEndpoint(server.URL+"/mcp", true)
 	require.NoError(t, err)
-	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "")
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "", nil)
 	require.NoError(t, err)
 	done := make(chan error, 1)
 	go func() {
@@ -213,7 +213,7 @@ func TestHTTPTransportCloseCancelsBlockedResponse(t *testing.T) {
 func TestHTTPTransportCloseReportsUnconfirmedWhenActiveWorkOutlivesContext(t *testing.T) {
 	endpoint, err := remote.ParseEndpoint("http://127.0.0.1/mcp", true)
 	require.NoError(t, err)
-	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "")
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "", nil)
 	require.NoError(t, err)
 	transport.mu.Lock()
 	transport.active = 1

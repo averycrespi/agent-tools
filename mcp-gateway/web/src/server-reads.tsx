@@ -228,7 +228,19 @@ function decodeTransport(value: unknown): unknown | null {
     "url",
     "protocol_mode",
     "authentication",
+    ...(Object.hasOwn(candidate, "headers") ? ["headers"] : []),
   ]);
+  if (transport.headers !== undefined) {
+    const headers = transport.headers;
+    if (
+      headers === null ||
+      typeof headers !== "object" ||
+      Array.isArray(headers)
+    )
+      throw new Error("invalid HTTP headers");
+    const values = optionalRecord(headers, [], Object.keys(headers));
+    Object.values(values).forEach(text);
+  }
   text(transport.url);
   closed(transport.protocol_mode, ["modern", "legacy", "auto"] as const);
   const authentication = transport.authentication as JSONRecord;

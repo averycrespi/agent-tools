@@ -42,6 +42,7 @@ interface Draft {
   environment: PairItem[];
   secretEnvironment: PairItem[];
   url: string;
+  headers: PairItem[];
   protocolMode: "modern" | "legacy" | "auto";
   authMode: AuthMode;
   registrationMode: RegistrationMode;
@@ -64,6 +65,7 @@ interface MutationResult {
   etag: string;
 }
 type DraftValidationField =
+  | "headers"
   | "url"
   | "issuer"
   | "clientID"
@@ -123,6 +125,7 @@ function serverConfigurationContextMessage(
     "transport.working_directory": "Working directory",
     "transport.environment": "Environment",
     "transport.secret_environment": "Secret environment bindings",
+    "transport.headers": "Custom HTTP headers",
     "transport.url": "HTTP endpoint",
     "transport.protocol_mode": "Protocol mode",
     "transport.authentication": "Authentication",
@@ -204,6 +207,7 @@ function blankDraft(): Draft {
     environment: [],
     secretEnvironment: [],
     url: "",
+    headers: [],
     protocolMode: "auto",
     authMode: "",
     registrationMode: "dynamic",
@@ -233,6 +237,92 @@ function canonical(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+function headerRecord(items: readonly PairItem[]): Record<string, string> {
+  const result = Object.create(null) as Record<string, string>;
+  const seen = new Set<string>();
+  const reserved = new Set([
+    "authorization",
+    "authentication-info",
+    "www-authenticate",
+    "cookie",
+    "cookie2",
+    "set-cookie",
+    "set-cookie2",
+    "api-key",
+    "x-api-key",
+    "x-auth-token",
+    "x-access-token",
+    "x-authorization",
+    "host",
+    "connection",
+    "keep-alive",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "expect",
+    "forwarded",
+    "via",
+    "x-real-ip",
+    "x-original-url",
+    "x-rewrite-url",
+    "x-http-method-override",
+    "origin",
+    "referer",
+    "accept",
+    "user-agent",
+    "range",
+    "cache-control",
+    "pragma",
+    "max-forwards",
+    "date",
+  ]);
+  let bytes = 0;
+  if (items.length > 16)
+    throw new DraftValidationError(
+      "headers",
+      "Use at most 16 custom HTTP headers.",
+    );
+  for (const [index, item] of items.entries()) {
+    const name = item.name.toLowerCase();
+    const row = `Header ${index + 1}`;
+    if (!/^[!#$%&'*+.^_`|~0-9a-z-]{1,128}$/i.test(item.name))
+      throw new DraftValidationError(
+        "headers",
+        `${row}: enter an HTTP token name of 1–128 ASCII bytes, without spaces or a colon.`,
+      );
+    if (seen.has(name))
+      throw new DraftValidationError(
+        "headers",
+        `${row}: names must be unique regardless of letter case.`,
+      );
+    if (
+      reserved.has(name) ||
+      /^(mcp-|proxy-|sec-|x-forwarded-|content-|accept-|if-)/.test(name)
+    )
+      throw new DraftValidationError(
+        "headers",
+        `${row}: this name is reserved for authentication, routing, HTTP, or MCP protocol control. Use Authentication for credentials.`,
+      );
+    if (
+      !/^[\x20-\x7e]{0,4096}$/.test(item.value) ||
+      item.value.trim() !== item.value
+    )
+      throw new DraftValidationError(
+        "headers",
+        `${row}: use at most 4096 printable ASCII bytes, without leading/trailing spaces, tabs, or line breaks. Empty values are allowed.`,
+      );
+    seen.add(name);
+    bytes += item.name.length + item.value.length;
+    result[item.name] = item.value;
+  }
+  if (bytes > 8192)
+    throw new DraftValidationError(
+      "headers",
+      "Custom header names and values together must not exceed 8192 bytes.",
+    );
+  return result;
 }
 function transportFromDraft(draft: Draft): unknown {
   if (draft.transportKind === "")
@@ -458,6 +548,9 @@ function transportFromDraft(draft: Draft): unknown {
     kind: "streamable_http",
     url: normalizedURL,
     protocol_mode: draft.protocolMode,
+    ...(draft.headers.length === 0
+      ? {}
+      : { headers: headerRecord(draft.headers) }),
     authentication,
   };
 }
@@ -487,6 +580,10 @@ function draftFromServer(server: ServerView): Draft {
   }
   draft.transportKind = "streamable_http";
   draft.url = transport.url as string;
+  draft.headers = pairItems(
+    "header",
+    (transport.headers as Record<string, string> | undefined) ?? {},
+  );
   draft.protocolMode = transport.protocol_mode as Draft["protocolMode"];
   const authentication = transport.authentication as JSONRecord;
   draft.authMode = authentication.mode as AuthMode;
@@ -654,6 +751,7 @@ function PairListEditor({
   valueLabel,
   addLabel,
   valueRequired = true,
+  error,
   items,
   disabled,
   onChange,
@@ -665,12 +763,19 @@ function PairListEditor({
   valueLabel: string;
   addLabel: string;
   valueRequired?: boolean;
+  error?: string;
   items: PairItem[];
   disabled: boolean;
   onChange: (items: PairItem[]) => void;
 }) {
   return (
-    <fieldset class="collection-field" aria-describedby={`${id}-hint`}>
+    <fieldset
+      class="collection-field"
+      aria-describedby={
+        error === undefined ? `${id}-hint` : `${id}-hint ${id}-error`
+      }
+      aria-invalid={error === undefined ? undefined : true}
+    >
       <legend>
         {label}
         <span class="optional-label"> (optional)</span>
@@ -678,6 +783,11 @@ function PairListEditor({
       <p class="field-hint" id={`${id}-hint`}>
         {hint}
       </p>
+      {error !== undefined && (
+        <span class="field-error" id={`${id}-error`} role="alert">
+          {error}
+        </span>
+      )}
       {items.map((item, index) => (
         <div class="collection-row collection-pair" key={item.id}>
           <label class="visually-hidden" for={`${id}-${item.id}-name`}>
@@ -785,7 +895,7 @@ function EditorForm({
     const field = configurationError?.field;
     if (
       issuerError !== undefined ||
-      Object.keys(compatibilityErrors).length > 0 ||
+      Object.keys(compatibilityErrors).some((key) => key !== "headers") ||
       Object.keys(originErrors).length > 0 ||
       (field !== undefined &&
         [
@@ -988,6 +1098,24 @@ function EditorForm({
               />
             )}
           </FormField>
+          <PairListEditor
+            id="server-header"
+            label="Custom HTTP headers"
+            hint="Non-secret values only. Headers are stored in plaintext and visible to administrators. Never enter tokens, API keys, passwords, or cookies."
+            nameLabel="Header name"
+            valueLabel="Header value"
+            addLabel="Add header"
+            valueRequired={false}
+            items={draft.headers}
+            disabled={disabled}
+            {...(compatibilityErrors.headers === undefined
+              ? {}
+              : { error: compatibilityErrors.headers })}
+            onChange={(items) => {
+              clearFieldError("headers");
+              update("headers", items);
+            }}
+          />
           <FormField
             id="server-protocol-mode"
             label="Protocol preference"
@@ -1361,6 +1489,10 @@ function CreationReview({ draft }: { draft: Draft }) {
             <div>
               <dt>Protocol</dt>
               <dd>{protocolLabels[draft.protocolMode]}</dd>
+            </div>
+            <div>
+              <dt>Custom HTTP headers (plaintext)</dt>
+              <dd>{pairs(draft.headers, ": ")}</dd>
             </div>
             <div>
               <dt>Authentication</dt>
