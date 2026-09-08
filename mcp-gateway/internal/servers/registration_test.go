@@ -34,6 +34,52 @@ func TestPublicOAuthRegistrationPublishesExactRevisionedAuthority(t *testing.T) 
 	assert.ErrorIs(t, err, ErrStaleRevision)
 }
 
+func TestOAuthCompatibilityChangesFenceRegistrationGenerations(t *testing.T) {
+	repository, _, _ := newRepository(t, new(sequenceReader))
+	for _, field := range []string{"callback", "metadata", "scopes"} {
+		t.Run(field, func(t *testing.T) {
+			ctx := context.Background()
+			created := mustCreateOAuthServer(t, repository, "compatibility-"+field, contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})
+			published, err := repository.PublishPublicRegistration(ctx, RegistrationFence{ServerID: created.ID, ExpectedDesiredRevision: "1", ExpectedRegistrationRevision: "0", ExpectedOAuthClientRevision: "0"}, testRegistrationAuthority(contract.RegistrationDynamic, contract.TokenEndpointAuthNone))
+			require.NoError(t, err)
+			original, err := DecodeTransport(created.Transport)
+			require.NoError(t, err)
+			transport := original.(contract.StreamableHTTPTransport)
+			auth := transport.Authentication.(contract.OAuthAuthentication)
+			callback, metadata, scopes := "http://localhost:3118/callback", "https://metadata.example/custom/config", []string{"fixture.read"}
+			switch field {
+			case "callback":
+				auth.CallbackURI = &callback
+			case "metadata":
+				auth.AuthServerMetadataURL = &metadata
+			case "scopes":
+				auth.Scopes = &scopes
+			}
+			transport.Authentication = auth
+			changed, err := repository.Patch(ctx, created.ID, "1", Patch{Transport: transport})
+			require.NoError(t, err)
+			authority, err := repository.Authority(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "2", authority.RegistrationRevision)
+			assert.NotEqual(t, published.Revision, authority.RegistrationRevision, "prior token generation must fail registration binding")
+			if field == "callback" {
+				assert.False(t, RegistrationMatchesDesired(changed.Transport, published))
+			}
+			_, err = repository.Patch(ctx, created.ID, "2", Patch{Transport: original})
+			require.NoError(t, err)
+			authority, err = repository.Authority(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "3", authority.RegistrationRevision, "clearing an override also fences authority")
+			name := "Display only"
+			_, err = repository.Patch(ctx, created.ID, "3", Patch{DisplayName: &name})
+			require.NoError(t, err)
+			authority, err = repository.Authority(ctx, created.ID)
+			require.NoError(t, err)
+			assert.Equal(t, "3", authority.RegistrationRevision)
+		})
+	}
+}
+
 func mustCreateOAuthServer(t *testing.T, repository *Repository, namespace string, registration contract.OAuthRegistration) Server {
 	t.Helper()
 	created, err := repository.Create(context.Background(), CreateRequest{Definition: Definition{

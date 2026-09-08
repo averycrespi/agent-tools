@@ -52,7 +52,17 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:c06714f8b42577bf975a3b086e81aa4f7b74cf914dde8a27d82a60c934f544e4", digest)
+	assert.Equal(t, "sha256:417f117dff3ba8402bf9ec58042bf6f5fbf705481200d85011620a283de7ffd0", digest)
+}
+
+func TestCLIOAuthCompatibilityHelp(t *testing.T) {
+	for _, path := range [][]string{{"server", "create"}, {"server", "update"}} {
+		command, _, err := newRootCmd().Find(path)
+		require.NoError(t, err)
+		for _, expected := range []string{"callback_uri", "http://localhost:3118/callback", "auth_server_metadata_url", "scopes", "null", "[]", "request_offline_access", "temporary callback-only"} {
+			assert.Contains(t, command.Long, expected)
+		}
+	}
 }
 
 func TestCLICredentialHelpExplainsOneTimeOutput(t *testing.T) {

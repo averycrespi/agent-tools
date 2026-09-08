@@ -27,7 +27,14 @@ type CallbackResult struct {
 	FlowID   string
 }
 
-func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string) (result CallbackResult) {
+func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string) CallbackResult {
+	return service.HandleCallbackAt(ctx, rawQuery, service.callbackURL, "")
+}
+
+func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, callbackURL, flowID string) (result CallbackResult) {
+	if int64(len(rawQuery)) > limit("oauth_query_bytes") {
+		return CallbackResult{Outcome: CallbackInvalid}
+	}
 	stateQuery, ok := callbackValues(rawQuery, "state")
 	stateValues := stateQuery["state"]
 	if !ok || len(stateValues) != 1 || stateValues[0] == "" {
@@ -41,6 +48,7 @@ func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string)
 	state := stateValues[0]
 	service.mu.Lock()
 	bundle, found := service.byState[state]
+	found = found && bundle.registration.CallbackURL == callbackURL && (flowID == "" || bundle.flowID == flowID)
 	if found {
 		delete(service.byState, state)
 	}
@@ -48,6 +56,7 @@ func (service *FlowService) HandleCallback(ctx context.Context, rawQuery string)
 	if !found {
 		return CallbackResult{Outcome: CallbackInvalid}
 	}
+	defer service.removeFlowIDs([]string{bundle.flowID})
 	workCtx = audit.WithSystem(audit.WithCause(workCtx, bundle.cause))
 	result = CallbackResult{Cause: audit.Capture(workCtx), Outcome: CallbackInvalid, ServerID: bundle.serverID, FlowID: bundle.flowID}
 	values, valid := callbackValues(rawQuery, "code", "error", "iss")

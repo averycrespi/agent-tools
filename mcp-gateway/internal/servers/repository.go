@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -146,10 +147,13 @@ type authenticationDiscriminator struct {
 }
 
 type oauthAuthenticationEnvelope struct {
-	Mode                 contract.AuthenticationMode `json:"mode"`
-	Registration         json.RawMessage             `json:"registration"`
-	TrustedOrigins       *[]string                   `json:"trusted_origins"`
-	RequestOfflineAccess *bool                       `json:"request_offline_access"`
+	Mode                  contract.AuthenticationMode `json:"mode"`
+	Registration          json.RawMessage             `json:"registration"`
+	TrustedOrigins        *[]string                   `json:"trusted_origins"`
+	RequestOfflineAccess  *bool                       `json:"request_offline_access"`
+	CallbackURI           json.RawMessage             `json:"callback_uri"`
+	AuthServerMetadataURL json.RawMessage             `json:"auth_server_metadata_url"`
+	Scopes                json.RawMessage             `json:"scopes"`
 }
 
 type registrationDiscriminator struct {
@@ -317,7 +321,28 @@ func decodeHTTPAuthentication(contents []byte, options, closed strictjson.Option
 		if raw.RequestOfflineAccess == nil {
 			return nil, NewConfigurationError(contract.ServerConfigurationFieldRequestOfflineAccess, contract.ServerConfigurationRuleRequired)
 		}
-		return contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: *raw.TrustedOrigins, RequestOfflineAccess: *raw.RequestOfflineAccess}, nil
+		value := contract.OAuthAuthentication{Mode: raw.Mode, Registration: registration, TrustedOrigins: *raw.TrustedOrigins, RequestOfflineAccess: *raw.RequestOfflineAccess}
+		for _, field := range []struct {
+			raw    json.RawMessage
+			target any
+			name   contract.ServerConfigurationField
+		}{
+			{raw.CallbackURI, &value.CallbackURI, contract.ServerConfigurationFieldCallbackURI},
+			{raw.AuthServerMetadataURL, &value.AuthServerMetadataURL, contract.ServerConfigurationFieldAuthServerMetadataURL},
+			{raw.Scopes, &value.Scopes, contract.ServerConfigurationFieldScopes},
+		} {
+			if len(field.raw) != 0 && strictjson.Decode(field.raw, field.target, options) != nil {
+				return nil, NewConfigurationError(field.name, contract.ServerConfigurationRuleInvalid)
+			}
+		}
+		if value.Scopes != nil {
+			normalized, err := contract.NormalizeOAuthScopes(*value.Scopes)
+			if err != nil {
+				return nil, NewConfigurationError(contract.ServerConfigurationFieldScopes, contract.ServerConfigurationRuleInvalid)
+			}
+			value.Scopes = &normalized
+		}
+		return value, nil
 	default:
 		return nil, NewConfigurationError(contract.ServerConfigurationFieldAuthenticationMode, contract.ServerConfigurationRuleInvalid)
 	}
@@ -370,6 +395,27 @@ func decodeRegistrationIssuer(contents json.RawMessage, options strictjson.Optio
 		return nil, NewConfigurationError(contract.ServerConfigurationFieldIssuer, contract.ServerConfigurationRuleInvalid)
 	}
 	return issuer, nil
+}
+
+func oauthCompatibilityConfiguration(contents []byte) []byte {
+	decoded, err := DecodeTransport(contents)
+	if err != nil {
+		return nil
+	}
+	transport, ok := decoded.(contract.StreamableHTTPTransport)
+	if !ok {
+		return nil
+	}
+	authentication, ok := transport.Authentication.(contract.OAuthAuthentication)
+	if !ok {
+		return nil
+	}
+	encoded, _ := json.Marshal(struct {
+		CallbackURI           *string
+		AuthServerMetadataURL *string
+		Scopes                *[]string
+	}{authentication.CallbackURI, authentication.AuthServerMetadataURL, authentication.Scopes})
+	return encoded
 }
 
 func validateDefinition(definition Definition) ([]byte, error) {
@@ -517,6 +563,26 @@ func validateHTTPAuthentication(authentication contract.HTTPAuthentication) erro
 	case contract.OAuthAuthentication:
 		if value.Mode != contract.AuthenticationOAuth {
 			return NewConfigurationError(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleInvalid)
+		}
+		if value.CallbackURI != nil {
+			if _, _, err := contract.ParseOAuthCallbackURI(*value.CallbackURI); err != nil {
+				return NewConfigurationError(contract.ServerConfigurationFieldCallbackURI, contract.ServerConfigurationRuleCanonicalURL)
+			}
+		}
+		if value.AuthServerMetadataURL != nil {
+			raw := *value.AuthServerMetadataURL
+			parsed, err := url.Parse(raw)
+			if err != nil || parsed.Scheme != "https" || parsed.String() != raw || strings.Contains(raw, "#") || int64(len(raw)) > mustLimit("oauth_url_bytes") || int64(len(parsed.RawQuery)) > mustLimit("oauth_query_bytes") {
+				return NewConfigurationError(contract.ServerConfigurationFieldAuthServerMetadataURL, contract.ServerConfigurationRuleCanonicalURL)
+			}
+			if endpoint, err := remote.Parse(raw, remote.Policy{AllowQuery: true}); err != nil || endpoint.String() != raw || path.Clean(parsed.Path) != parsed.Path {
+				return NewConfigurationError(contract.ServerConfigurationFieldAuthServerMetadataURL, contract.ServerConfigurationRuleCanonicalURL)
+			}
+		}
+		if value.Scopes != nil {
+			if _, err := contract.NormalizeOAuthScopes(*value.Scopes); err != nil {
+				return NewConfigurationError(contract.ServerConfigurationFieldScopes, contract.ServerConfigurationRuleInvalid)
+			}
 		}
 		if len(value.TrustedOrigins) > 64 {
 			return NewConfigurationError(contract.ServerConfigurationFieldTrustedOrigins, contract.ServerConfigurationRuleMaximum)

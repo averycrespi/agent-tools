@@ -101,6 +101,10 @@ func (handler *Handler) getAuthFlow(writer http.ResponseWriter, request *http.Re
 }
 
 func writeAuthFlowError(writer http.ResponseWriter, err error) {
+	if errors.Is(err, oauth.ErrCallbackUnavailable) {
+		writeProblem(writer, contract.ProblemOAuthCallbackUnavailable)
+		return
+	}
 	if errors.Is(err, oauth.ErrFlowRejected) {
 		writeProblem(writer, contract.ProblemDownstreamUnavailable)
 		return

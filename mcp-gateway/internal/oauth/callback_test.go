@@ -70,6 +70,27 @@ func TestCallbackAuditFencesExchangeAndPreservesInitiator(t *testing.T) {
 	}
 }
 
+func TestCallbackListenerIdentityDoesNotConsumeAnotherFlow(t *testing.T) {
+	store := &callbackFlowStore{flowStoreFake: flowStoreFake{created: flowCreateResult(contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})}}
+	requester := &tokenRequester{status: 200, header: http.Header{"Content-Type": {contract.MediaTypeJSON}}, body: []byte(`{"access_token":"fixture-token","token_type":"Bearer"}`)}
+	secrets := new(tokenSecrets)
+	service := callbackService(store, requester, secrets)
+	bundle := callbackBundle("listener-bound-state", false, contract.TokenEndpointAuthNone)
+	bundle.registration.CallbackURL = "http://localhost:3118/callback"
+	service.byState[bundle.state] = bundle
+	query := "state=listener-bound-state&code=fixture-code"
+	assert.Equal(t, CallbackInvalid, service.HandleCallback(context.Background(), query).Outcome)
+	assert.Equal(t, CallbackInvalid, service.HandleCallbackAt(context.Background(), query, bundle.registration.CallbackURL, "another-flow").Outcome)
+	assert.Contains(t, service.byState, bundle.state)
+	assert.Zero(t, store.beginCalls)
+	assert.Empty(t, requester.requests)
+	assert.Empty(t, secrets.secret)
+	assert.Equal(t, CallbackSucceeded, service.HandleCallbackAt(context.Background(), query, bundle.registration.CallbackURL, bundle.flowID).Outcome)
+	assert.Len(t, requester.requests, 1)
+	assert.NotEmpty(t, secrets.secret)
+	assert.Empty(t, service.byState)
+}
+
 func TestCallbackConsumesStateBeforeCodeErrorAndIssuerValidation(t *testing.T) {
 	store := &callbackFlowStore{flowStoreFake: flowStoreFake{created: flowCreateResult(contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})}}
 	service := callbackService(store, &tokenRequester{}, &tokenSecrets{})
