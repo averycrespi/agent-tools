@@ -57,7 +57,7 @@ Generated `mcp-gateway --help` and subcommand help are the exact command referen
 
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md).
-- Create principals, issue agent credentials, and manage grants or requests with [Access control](docs/operators/access-control.md).
+- Create principals, issue agent credentials, and manage grants or requests with [Access control](docs/operators/access-control.md). For Pi in a Lima guest, follow [agent provisioning](docs/operators/access-control.md#provision-a-pi-agent-in-a-lima-sandbox).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
 - Inspect control-plane history with `mcp-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Audit destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
 - Create backups or perform stopped-process verification, restore, and administrator reset with [Backup, restore, and recovery](docs/operators/backup-and-recovery.md).

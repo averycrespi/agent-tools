@@ -73,6 +73,55 @@ mcp-gateway principal credential revoke PRINCIPAL_ID --etag ETAG --yes
 
 Issue, rotate, revoke, and disable never replay automatically. On an uncertain result, read the principal and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that rotation failed. After Gateway acknowledges issue, lost output may leave the singular slot occupied even though no bearer can be recovered from metadata. After acknowledged rotation, the replacement may be current and the prior bearer may already be invalid. In either case, explicitly rotate or revoke the observed current credential instead of replaying the original operation.
 
+## Provision a Pi agent in a Lima sandbox
+
+Use the [Gateway provisioning script](../../examples/provision/configure-mcp-gateway.sh) to configure the Pi MCP Gateway extension in a Linux guest. It configures the client only; it does not install Gateway, change grants, issue credentials, or test network connectivity.
+
+On the host, start the initialized Gateway with the trusted forwarding hostname allowed:
+
+```bash
+mcp-gateway serve --allowed-host host.lima.internal
+```
+
+The listener remains `127.0.0.1:8210`. Lima must provide the trusted host-forwarding path separately. HTTP does not provide confidentiality or server authentication; use this only for trusted local forwarding. See [forwarding trust boundaries](administration.md#trusted-local-forwarding-and-sandbox-administration). Agent provisioning does **not** require the sandbox administrator credential described there.
+
+Create a dedicated principal, record its ID, and issue its agent credential on the host:
+
+```bash
+mcp-gateway principal create --display-name sandbox-pi --visibility allowed-only
+mkdir -p "$HOME/.config/mcp-gateway"
+chmod 700 "$HOME/.config/mcp-gateway"
+mcp-gateway principal credential issue PRINCIPAL_ID \
+  --secret-output "$HOME/.config/mcp-gateway/agent-token" \
+  --yes
+```
+
+The output file must be fresh; Gateway creates it owner-only. This is a chosen client-transfer path, not an automatically generated Gateway credential. Configure the principal's grants separately; issuance alone does not authorize upstream calls.
+
+Add these entries to sandbox-manager configuration, preserving other paths and scripts:
+
+```json
+{
+  "copy_paths": ["~/.config/mcp-gateway/agent-token"],
+  "scripts": [
+    "/path/to/agent-tools/mcp-gateway/examples/provision/configure-mcp-gateway.sh"
+  ]
+}
+```
+
+Run `sb provision`. It refreshes `copy_paths` before running scripts. Copy only the agent credential, never administrator credentials or the Gateway data directory; retain owner-only file permissions in the guest. The script requires a readable, nonempty token file and replaces its entire marker-fenced block in `~/.bashrc` on each run, preserving unrelated content:
+
+```bash
+export MCP_GATEWAY_ENDPOINT="http://host.lima.internal:8210/mcp"
+export MCP_GATEWAY_AGENT_TOKEN="$(cat "$HOME/.config/mcp-gateway/agent-token")"
+```
+
+The exact `/mcp` suffix is required. The Pi extension accepts the agent token only through `MCP_GATEWAY_AGENT_TOKEN`, not a credential-file setting. The file is read at shell startup, not embedded in `.bashrc`. This client integration exposes the agent bearer to Pi and inherited child environments; it is not an OS credential boundary. Never export an administrator bearer. Read-only mode and timeouts remain at the extension defaults. For a nondefault port or another shell, adapt the script before provisioning.
+
+Open a new Bash shell (or source `~/.bashrc`) and restart Pi from it. Noninteractive launchers that do not source `.bashrc` need their own trusted environment setup. Do not load the old Broker extension alongside Gateway; removal of Broker configuration is a separate migration, and this script leaves its managed block untouched.
+
+For rotation, use the explicit `principal credential rotate` procedure above with a fresh secret-output file, then securely replace the host's transfer file with that replacement. Refresh the sandbox with `sb provision`, source/open a shell, and restart Pi and any other launcher holding the old environment. Rotation invalidates the old token immediately; coordinate the interruption. Updating the file or parent shell does not update an already-running Pi process. Do not replay an uncertain rotation.
+
 ## Create and inspect immutable grants
 
 ```bash
