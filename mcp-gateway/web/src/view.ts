@@ -147,7 +147,7 @@ function joinSignals(
 export interface CollectionPage<T> {
   items: T[];
   nextCursor: string | null;
-  totalCount: number;
+  totalCount: number | undefined;
   offset: number;
 }
 
@@ -162,7 +162,7 @@ export interface CollectionControls {
   status: "loading" | "current" | "error";
   error: string | undefined;
   notice: string | undefined;
-  totalCount: number;
+  totalCount: number | undefined;
   offset: number;
   hasPrevious: boolean;
   hasNext: boolean;
@@ -175,8 +175,9 @@ class StaleCollectionCursor extends Error {}
 export async function readCollectionPage<T>(
   session: SessionClient,
   route: string,
-  decode: (value: unknown) => T,
+  decode: ((value: unknown) => T) | undefined,
   signal: AbortSignal,
+  decodePage?: (value: unknown) => CollectionPage<T>,
 ): Promise<CollectionPage<T> | undefined> {
   return session.runProtected(async (context) => {
     const response = await fetch(route, {
@@ -201,6 +202,7 @@ export async function readCollectionPage<T>(
         throw new StaleCollectionCursor();
       throw new Error("Collection data is unavailable.");
     }
+    if (decodePage !== undefined) return decodePage(value);
     if (
       typeof value !== "object" ||
       value === null ||
@@ -231,6 +233,7 @@ export async function readCollectionPage<T>(
       value.offset + value.items.length < value.total_count
     )
       throw new Error("Invalid collection response.");
+    if (decode === undefined) throw new Error("Missing collection decoder.");
     return {
       items: value.items.map(decode),
       nextCursor: value.next_cursor as string | null,
@@ -378,7 +381,7 @@ export function useCollectionPage<T>(
       status,
       error: queryError ?? (matching ? result.error : undefined),
       notice: active.notice,
-      totalCount: page?.totalCount ?? 0,
+      totalCount: page?.totalCount,
       offset: page?.offset ?? 0,
       hasPrevious: ready && active.index > 0,
       hasNext: ready && page?.nextCursor != null,

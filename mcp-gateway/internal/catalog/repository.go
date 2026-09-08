@@ -42,6 +42,8 @@ type DurableStatus struct {
 }
 
 type DescriptorCursor struct {
+	Query           string                           `json:"query,omitempty"`
+	Position        int                              `json:"position,omitempty"`
 	ServerID        string                           `json:"server_id"`
 	Retired         contract.DescriptorRetiredFilter `json:"retired"`
 	CatalogRevision string                           `json:"catalog_revision"`
@@ -513,7 +515,7 @@ func (repository *Repository) ListDescriptorSummaries(ctx context.Context, serve
 }
 
 func validDescriptorCursorPosition(cursor *DescriptorCursor) bool {
-	return cursor.Upper >= 0 && cursor.After >= 0 && cursor.After <= cursor.Upper &&
+	return cursor.Query == "" && cursor.Position == 0 && cursor.Upper >= 0 && cursor.After >= 0 && cursor.After <= cursor.Upper &&
 		(cursor.After == 0) == (cursor.AfterID == "") &&
 		(cursor.AfterID == "" || descriptorCursorID.MatchString(cursor.AfterID))
 }

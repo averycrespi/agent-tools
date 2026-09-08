@@ -21,12 +21,30 @@ func (handler *Handler) activeCatalogCollection(writer http.ResponseWriter, requ
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	limit, cursor, problem := parseActiveCatalogQuery(request.URL.Query())
+	query, legacy, enabled, problem := parseToolQuery(request.URL.RawQuery, true)
 	if problem != "" {
 		writeProblem(writer, problem)
 		return
 	}
-	page, err := handler.activeCatalog.List(cursor, limit)
+	limit, cursor, problem := parseActiveCatalogQuery(legacy)
+	if problem != "" {
+		writeProblem(writer, problem)
+		return
+	}
+	var page catalog.ActivePage
+	var err error
+	if enabled {
+		service, ok := handler.activeCatalog.(interface {
+			Query(catalog.ToolQuery, *catalog.ActiveCursor, int) (catalog.ActivePage, error)
+		})
+		if !ok {
+			writeProblem(writer, contract.ProblemStorageUnavailable)
+			return
+		}
+		page, err = service.Query(query, cursor, limit)
+	} else {
+		page, err = handler.activeCatalog.List(cursor, limit)
+	}
 	if err != nil {
 		writeServerError(writer, err)
 		return
