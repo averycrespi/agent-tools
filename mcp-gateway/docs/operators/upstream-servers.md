@@ -47,6 +47,44 @@ mcp-gateway server update SERVER_ID --file PATH --yes
 
 Omitting `--etag` performs one validated server read and uses that exact strong value once. Supplying `--etag ETAG` pins the explicit value and skips the convenience read. A patch that changes `enabled` or `transport` requires consequence confirmation because it can withdraw a runtime or replace behavior. A display-name-only patch does not prompt. The CLI never refreshes a stale ETag or replays an update automatically. On conflict, read the current server, review the new state, and prepare fresh intent.
 
+## Custom upstream HTTP headers
+
+Streamable HTTP create files and complete update transports accept an optional `headers` string map. The web create/edit form provides **Custom HTTP headers** rows to add, edit, or remove entries. For example, this disabled GitHub server selects the requested toolsets:
+
+```json
+{
+  "namespace": "github",
+  "display_name": "GitHub",
+  "enabled": false,
+  "transport": {
+    "kind": "streamable_http",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "protocol_mode": "auto",
+    "authentication": { "mode": "bearer" },
+    "headers": {
+      "X-MCP-Toolsets": "default,actions,gists,issues,labels,pull_requests,users"
+    }
+  }
+}
+```
+
+Use `server create --file PATH`, then supply the bearer through the separate credential command. For updates, include the complete transport under `transport` in the patch file and use `server update SERVER_ID --file PATH --yes`. The API uses the same create/PATCH JSON.
+
+**Non-secret values only.** These values are ordinary plaintext configuration, readable by administrators and included in SQLite and backups. Never put tokens, API keys, passwords, cookies, or other secrets here. There is no environment interpolation or per-call override. Authentication remains on the existing credential paths.
+
+Omitted, `null`, or `{}` headers in a **complete replacement transport** clear custom headers. Omitting the PATCH `transport` preserves them. Removing every row in the web form clears them. Header changes use the current ETag/revision, fence and replace the old runtime, and refresh the catalog; old routes cannot continue using the previous toolset.
+
+Limits are 16 entries, 128 ASCII bytes per name, 4096 bytes per value, and 8192 bytes total (sum of name and value lengths). Names must be HTTP tokens and unique ignoring case. Values may be empty but otherwise must be printable ASCII with no leading/trailing spaces, tabs, line breaks, or control characters. Accepted value bytes are sent unchanged. Final combined requests, including generated Host, Connection, Content-Length and User-Agent fields where applicable, remain bounded to 100 fields, 32768 name/value bytes, and 8192 bytes per value. Exceeding a bound fails before network handoff, never by truncating or overwriting fields.
+
+The following names are reserved, case-insensitively:
+
+- Prefixes `mcp-`, `proxy-`, `sec-`, `x-forwarded-`, `content-`, `accept-`, and `if-`.
+- `authorization`, `authentication-info`, `www-authenticate`, `cookie`, `cookie2`, `set-cookie`, `set-cookie2`, `api-key`, `x-api-key`, `x-auth-token`, `x-access-token`, `x-authorization`.
+- `host`, `connection`, `keep-alive`, `te`, `trailer`, `transfer-encoding`, `upgrade`, `expect`, `forwarded`, `via`, `x-real-ip`, `x-original-url`, `x-rewrite-url`, `x-http-method-override`.
+- `origin`, `referer`, `accept`, `user-agent`, `range`, `cache-control`, `pragma`, `max-forwards`, `date`.
+
+These headers apply only to this server's MCP requests (all protocol modes, initialization, notifications, discovery, and calls). They are not sent to OAuth metadata, registration, or token endpoints, other servers, or browser response headers. Inbound client headers are never forwarded; configured headers do not relax URL, TLS, address, or no-redirect policy.
+
 ## OAuth compatibility settings
 
 Server create files, complete transport replacements in server update files, and the web form's **Advanced OAuth settings** accept three optional fields under `transport.authentication`:

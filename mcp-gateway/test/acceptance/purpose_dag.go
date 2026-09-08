@@ -100,7 +100,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"mcp-gateway/web/tests/browser/lifecycle-scenarios.ts", "mcp-gateway/web/tests/browser/privacy-presentation-scenarios.ts",
 		"mcp-gateway/web/tests/browser/system-scenarios.ts", "mcp-gateway/web/tests/browser/access-scenarios.ts",
 		"mcp-gateway/web/tests/browser/server-scenarios.ts", "mcp-gateway/web/tests/browser/development-scenarios.ts",
-		"mcp-gateway/web/tests/browser/catalog-pagination.ts",
+		"mcp-gateway/web/tests/browser/catalog-pagination.ts", "mcp-gateway/web/tests/browser/upstream-headers.ts",
 		"mcp-gateway/web/src/mutation.ts", "mcp-gateway/web/src/sinks.ts", "mcp-gateway/web/src/session.ts", "mcp-gateway/web/src/view.ts",
 	}
 	for id, browserLeaf := range leaves {

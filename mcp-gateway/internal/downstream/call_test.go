@@ -362,7 +362,7 @@ func TestRealHTTPModernCancellationSendsNoNotificationPOST(t *testing.T) {
 	defer server.Close()
 	endpoint, err := remote.ParseEndpoint(server.URL+"/mcp", true)
 	require.NoError(t, err)
-	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "")
+	transport, err := NewHTTPTransport(remote.New(remote.Options{}), endpoint, "", nil)
 	require.NoError(t, err)
 	runtime := runtimeForCall(t, EraModern, "", transport)
 	call, err := runtime.NewCall("tool", json.RawMessage(`{}`))
