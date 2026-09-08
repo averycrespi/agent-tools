@@ -1098,6 +1098,24 @@ function EditorForm({
               />
             )}
           </FormField>
+          <PairListEditor
+            id="server-header"
+            label="Custom HTTP headers"
+            hint="Non-secret values only. Headers are stored in plaintext and visible to administrators. Never enter tokens, API keys, passwords, or cookies."
+            nameLabel="Header name"
+            valueLabel="Header value"
+            addLabel="Add header"
+            valueRequired={false}
+            items={draft.headers}
+            disabled={disabled}
+            {...(compatibilityErrors.headers === undefined
+              ? {}
+              : { error: compatibilityErrors.headers })}
+            onChange={(items) => {
+              clearFieldError("headers");
+              update("headers", items);
+            }}
+          />
           <FormField
             id="server-protocol-mode"
             label="Protocol preference"
@@ -1122,24 +1140,6 @@ function EditorForm({
               </select>
             )}
           </FormField>
-          <PairListEditor
-            id="server-header"
-            label="Custom HTTP headers"
-            hint="Non-secret values only. Headers are stored in plaintext configuration and backups and are visible to administrators. Never enter tokens, API keys, passwords, or cookies. These headers go only to this server's MCP endpoint, not OAuth endpoints. Removing all rows clears them. Up to 16 headers, 128 bytes per name, 4096 per value, 8192 total; Gateway also bounds the final request."
-            nameLabel="Header name"
-            valueLabel="Header value"
-            addLabel="Add header"
-            valueRequired={false}
-            items={draft.headers}
-            disabled={disabled}
-            {...(compatibilityErrors.headers === undefined
-              ? {}
-              : { error: compatibilityErrors.headers })}
-            onChange={(items) => {
-              clearFieldError("headers");
-              update("headers", items);
-            }}
-          />
           <fieldset class="choice-field">
             <legend>Authentication</legend>
             <p class="field-hint">

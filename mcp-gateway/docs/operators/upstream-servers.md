@@ -49,7 +49,7 @@ Omitting `--etag` performs one validated server read and uses that exact strong 
 
 ## Custom upstream HTTP headers
 
-Streamable HTTP create files and complete update transports accept an optional `headers` string map. The web create/edit form provides **Custom HTTP headers** rows to add, edit, or remove entries. For example, this disabled GitHub server selects the requested toolsets:
+Streamable HTTP create files and complete update transports accept an optional `headers` string map. The web create/edit form provides **Custom HTTP headers** rows directly below **HTTP endpoint**, before **Protocol preference**, to add, edit, or remove entries. For example, this disabled GitHub server selects the requested toolsets:
 
 ```json
 {

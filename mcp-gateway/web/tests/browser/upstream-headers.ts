@@ -33,7 +33,32 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
   await page.locator("#server-transport-http").check();
   await page.locator("#server-url").fill("https://resource.example/mcp");
   await page.locator("#server-auth-none").check();
-  await expect(page.getByText(/Non-secret values only/)).toBeVisible();
+  await expect(
+    page.getByText(
+      "Non-secret values only. Headers are stored in plaintext and visible to administrators. Never enter tokens, API keys, passwords, or cookies.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(
+    await page
+      .getByRole("group", { name: "Custom HTTP headers" })
+      .evaluate((headers) => {
+        const endpoint = document.getElementById("server-url");
+        const protocol = document.getElementById("server-protocol-mode");
+        return (
+          endpoint !== null &&
+          protocol !== null &&
+          Boolean(
+            endpoint.compareDocumentPosition(headers) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+          ) &&
+          Boolean(
+            headers.compareDocumentPosition(protocol) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+          )
+        );
+      }),
+  ).toBe(true);
   await capture("create-empty");
   await page.getByTestId("server-header-add").click();
   await page.getByLabel("Header name 1", { exact: true }).fill("Authorization");
