@@ -171,22 +171,23 @@ jobs:
         run: go -C "$TOOL" build -tags=e2e -o /dev/null ./cmd/mcp-gateway
       - run: make -C "$TOOL" test-e2e
 
-  gateway-temporary:
-    name: Gateway temporary runner
+  gateway-demo:
+    name: Gateway demo runner (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.gateway == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/go-cache
         with:
-          role: temporary
+          role: demo
           tool: mcp-gateway
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: make -C mcp-gateway test-serve-temporary
+      - run: make -C mcp-gateway test-serve-demo
 
   vulnerability-scan:
     name: Vulnerability scan (${{ matrix.tool }})
@@ -218,7 +219,7 @@ jobs:
       - sandbox-manager-macos
       - integration-tests
       - e2e-tests
-      - gateway-temporary
+      - gateway-demo
       - gateway-lint
       - gateway-harness
       - vulnerability-scan

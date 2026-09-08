@@ -26,7 +26,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	require.NoError(t, validateFinalReleaseProfile(profile))
 
 	expectedChecks := []string{
-		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-temporary", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
 	}
@@ -70,7 +70,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	assert.Contains(t, checksByID["test-harness"].Coverage.CleanupCriteria, "cleanup.AC-10")
 	assert.Contains(t, checksByID["test-unit"].Coverage.ProductBehaviors, "tier.unit.contract")
 	assert.Contains(t, checksByID["test-integration"].Coverage.ProductBehaviors, "cli.security_boundary")
-	assert.Contains(t, checksByID["test-serve-temporary"].Coverage.ProductBehaviors, "tier.harness.temporary")
+	assert.Contains(t, checksByID["test-serve-demo"].Coverage.ProductBehaviors, "tier.harness.temporary")
 	assert.NotContains(t, checksByID["repository-format"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
 	assert.Contains(t, checksByID["repository-verify"].Coverage.ProductBehaviors, "tier.repository.verify")
 	assert.Contains(t, checksByID["go-vulnerability"].Coverage.ProductBehaviors, "tier.supply_chain.go")
@@ -100,7 +100,7 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}
-	assert.Equal(t, 106, gatewayStarts)
+	assert.Equal(t, 116, gatewayStarts)
 	assert.Equal(t, 40, browserStarts)
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "test-e2e"))
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "verify-supply-chain"))

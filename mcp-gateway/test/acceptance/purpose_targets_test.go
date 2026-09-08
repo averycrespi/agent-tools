@@ -19,7 +19,7 @@ func TestPurposeNamedLeafTargetDryRuns(t *testing.T) {
 	checks := map[string][]string{
 		"test-stress":                    {"go run ./test/acceptance/cmd run-suite test-stress --count=20"},
 		"test-keyring-native":            {"./test/keyring-native.sh"},
-		"test-serve-temporary":           {"./test/serve-temporary.sh"},
+		"test-serve-demo":                {"go run ./test/acceptance/cmd run-suite test-serve-demo"},
 		"test-frontend-development-node": {"npm --prefix .. run ui:test-dev"},
 		"frontend-typecheck":             {"npm --prefix .. run ui:typecheck"},
 		"frontend-build":                 {"npm --prefix .. run ui:build"},
@@ -48,7 +48,7 @@ func TestPurposeNamedDeveloperAggregatesAreDisjoint(t *testing.T) {
 	assert.Contains(t, string(makefile), ".NOTPARALLEL: test test-browser test-frontend-development")
 
 	var wantTest []string
-	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary"} {
+	for _, target := range []string{"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo"} {
 		wantTest = append(wantTest, purposeTargetDryRunLines(t, root, target)...)
 	}
 	assert.Equal(t, wantTest, purposeTargetDryRunLines(t, root, "test"))

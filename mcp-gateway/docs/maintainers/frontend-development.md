@@ -33,19 +33,32 @@ Wait for its `ready` line, then open `http://127.0.0.1:5173`. Gateway remains in
 
 ## Use a disposable feature-branch Gateway
 
-To test the current checkout without reading or changing the default Gateway installation, start the repository-maintained temporary runner from the repository root:
+To test the current checkout without reading or changing the default Gateway installation, start the repository-only demo runner (Go on Linux or macOS required; no Python or Node needed for the demo itself):
 
 ```bash
-make -C mcp-gateway serve-temporary
+make -C mcp-gateway serve-demo
+# Or a fresh empty installation, without fixtures or seeded domain records:
+make -C mcp-gateway serve-demo DEMO_DATASET=empty
 ```
 
-The runner builds the checkout with the existing `e2e` in-memory keyring, initializes the binary under a fresh owner-only temporary root, and serves on `127.0.0.1:8211`. It prints the temporary administrator bearer path for browser sign-in. In another terminal, point the frontend development server at that Gateway:
+`serve-demo` replaces `serve-temporary`; the old command and `TEMPORARY_LISTEN` are removed, not aliases. The shell entry point builds the Go demo executable into ignored `mcp-gateway/.demo-bin/` and replaces itself with it; that nonsecret build artifact is reusable and remains after shutdown. The runner then builds the checkout with the existing `e2e` in-memory keyring, initializes a fresh owner-only account/data root, and serves on `127.0.0.1:8211`. Wait for **Demo Gateway ready**, which follows authenticated public verification of the selected dataset. Startup/seed errors never advertise a usable environment. It prints protected credential-file paths, not their contents. Read the administrator file only when entering it in the ordinary sign-in form; never retain a screenshot of that value.
+
+Curated data includes:
+
+- **Demo Workshop:** `demo_workshop.echo` (`text`, at most 256 characters), `demo_workshop.add` (`a`/`b`, finite numbers between -1,000,000 and 1,000,000), and `demo_workshop.controlled_error` (empty arguments; expected safe `downstream_failure`).
+- **Demo Library:** `demo_library.lookup` with `document` set to `welcome` or `permissions`; it never reads arbitrary files.
+- **Demo Explorer:** all demo tools. **Demo Reader:** echo and lookup; arithmetic is discoverable but calls are rejected, with a pending request ready for administrator approval. An explicit deny hides the controlled-error tool from Reader discovery. **Demo Disabled:** its credential cannot authenticate.
+- Real successful and controlled-error invocation history, plus the normal audit records emitted by those public mutations. No recurring synthetic activity runs after seeding.
+
+Configure a test MCP client's existing authenticated HTTP transport for `http://127.0.0.1:8211/mcp`, reading the selected agent bearer from the printed protected file into its Authorization header at request time. Use modern protocol `2026-07-28` or the supported legacy handshake; do not put bearer values in command arguments, environment variables, URLs, or browser storage. These agent credentials have no administrator authority. The fixtures remain callable until shutdown; an unexpected fixture exit fails and closes the demo.
+
+In another terminal, point the independently owned frontend development server at that Gateway:
 
 ```bash
 MCP_GATEWAY_UI_GATEWAY=http://127.0.0.1:8211 npm run ui:dev
 ```
 
-Use `make -C mcp-gateway serve-temporary TEMPORARY_LISTEN=127.0.0.1:PORT` when that authority is occupied, and set `MCP_GATEWAY_UI_GATEWAY` to the matching origin. Press `Ctrl-C` in the Gateway terminal to stop it and remove its binary, data directory, administrator bearer, and in-memory keyring.
+Use `make -C mcp-gateway serve-demo DEMO_LISTEN=127.0.0.1:PORT` when that authority is occupied, and set `MCP_GATEWAY_UI_GATEWAY` to the matching origin. The script equivalent is `./mcp-gateway/scripts/serve-demo.sh --dataset curated --listen 127.0.0.1:8211`; unknown datasets and noncanonical/nonloopback authorities are rejected before launch. Press `Ctrl-C` in the Gateway terminal to stop its Gateway and fixture process groups and remove its binary, data, account home, all credential files, and in-memory keyring. Interruption exits nonzero. Every launch generates fresh credentials/IDs/timestamps; a cleanup failure reports a retained root instead of claiming success. Stop Vite separately.
 
 This path is for isolated feature development. Because keyring values are process-local, it does not test the native operating-system keyring or credential persistence across Gateway restarts. Use ordinary builds and the release-verification owners when those behaviors are under review.
 
@@ -114,19 +127,10 @@ Record the states and viewports inspected in the change or agent completion repo
 
 ## Manual exploratory audits
 
-The browser suites create route-local mocked data and tear it down after each run; they do not provide a persistent populated demonstration installation. For a manual audit, use an isolated real Gateway and populate only the states under review. From the repository root:
+The browser suites create route-local mocked data and tear it down after each run. For a persistent interactive manual audit, use the curated demo above, or select `DEMO_DATASET=empty` and populate only the states under review. From the repository root:
 
 ```bash
-AUDIT_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/mcp-gateway-ui-audit.XXXXXX")
-chmod 700 "$AUDIT_ROOT"
-
-mcp-gateway initialize \
-  --data-dir "$AUDIT_ROOT/data" \
-  --secret-output "$AUDIT_ROOT/admin-bearer"
-
-mcp-gateway serve \
-  --data-dir "$AUDIT_ROOT/data" \
-  --listen 127.0.0.1:8211
+make -C mcp-gateway serve-demo
 ```
 
 In a second terminal:

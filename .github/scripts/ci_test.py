@@ -135,7 +135,7 @@ class GateTests(unittest.TestCase):
             "quality": {"result": "success"},
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
-                         "vulnerability-scan": "tools", "gateway-temporary": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
+                         "vulnerability-scan": "tools", "gateway-demo": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
                          "sandbox-manager-macos": "sandbox"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
@@ -224,7 +224,7 @@ class CacheTests(unittest.TestCase):
         dependencies = re.findall(r"^      - ([a-z0-9-]+)$", required, re.M)
         self.assertEqual(set(dependencies), {"changes", "quality", *SUITE_JOBS})
         roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint", "gateway-harness": "harness",
-                 "integration-tests": "integration", "e2e-tests": "e2e", "gateway-temporary": "temporary",
+                 "integration-tests": "integration", "e2e-tests": "e2e", "gateway-demo": "demo",
                  "vulnerability-scan": "vulnerability", "sandbox-manager-macos": "macos"}
         for job, role in roles.items():
             self.assertEqual(jobs[job].count("uses: ./.github/actions/go-cache"), 1)
@@ -236,6 +236,10 @@ class CacheTests(unittest.TestCase):
         self.assertIn("needs: changes\n", jobs["gateway-lint"])
         self.assertIn("run: make -C mcp-gateway test-harness test-material", jobs["gateway-harness"])
         self.assertIn("if: needs.changes.outputs.gateway == 'true'", jobs["gateway-harness"])
+        self.assertIn("os: [ubuntu-latest, macos-latest]", jobs["gateway-demo"])
+        self.assertIn("runs-on: ${{ matrix.os }}", jobs["gateway-demo"])
+        self.assertIn("run: make -C mcp-gateway test-serve-demo", jobs["gateway-demo"])
+        self.assertNotIn("actions/setup-node", jobs["gateway-demo"])
         self.assertNotIn("actions/setup-node", jobs["unit-tests"])
         self.assertIn('make -C "$TOOL" test-unit', jobs["unit-tests"])
         self.assertIn('make -C "$TOOL" test-integration', jobs["integration-tests"])

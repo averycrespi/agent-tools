@@ -21,7 +21,7 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	require.NoError(t, validatePurposeEvidenceDAG(dag))
 
 	expectedLeaves := []string{
-		"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-build",
 		"frontend-verify-generated", "frontend-verify-supply-chain", "frontend-audit",
@@ -32,7 +32,7 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	}
 	assert.ElementsMatch(t, expectedLeaves, actualLeaves)
 	assert.Equal(t, map[string][]string{
-		"test":                      {"test-unit", "test-integration", "test-harness", "test-material", "test-serve-temporary"},
+		"test":                      {"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo"},
 		"test-browser":              {"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"},
 		"test-frontend-development": {"test-frontend-development-node", "test-frontend-development-browser"},
 	}, dag.Aggregates)
