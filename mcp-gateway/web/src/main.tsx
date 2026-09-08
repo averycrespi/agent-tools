@@ -12,6 +12,7 @@ import {
   type Destination,
   type ResolvedLocation,
 } from "./location";
+import { Audit, AuditController } from "./audit";
 import { Grants } from "./grants";
 import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
@@ -65,6 +66,7 @@ const navigation: ReadonlyArray<{
     label: "Invocations",
     href: "#/invocations",
   },
+  { destination: "audit", label: "Audit", href: "#/audit" },
   { destination: "system", label: "System", href: "#/system" },
 ];
 
@@ -76,6 +78,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   grants: "Grants",
   requests: "Requests",
   invocations: "Invocations",
+  audit: "Audit",
   system: "System",
   "sign-in": "Sign in",
 };
@@ -94,6 +97,7 @@ const overviewController = new OverviewController(
   viewCoordinator,
   (latched) => mutationCoordinator.setStorageLatched(latched),
 );
+const auditController = new AuditController(sessionClient, viewCoordinator);
 const invocationsController = new InvocationsController(
   sessionClient,
   viewCoordinator,
@@ -377,7 +381,12 @@ function App() {
       resolved.location.destination === "requests"
         ? resolved.location.segments[1]
         : undefined;
-    const detailID = principalID ?? invocationID ?? grantID ?? requestID;
+    const auditID =
+      resolved.location.destination === "audit"
+        ? resolved.location.segments[1]
+        : undefined;
+    const detailID =
+      principalID ?? invocationID ?? grantID ?? requestID ?? auditID;
     const owner =
       serverID !== undefined
         ? `server:${serverID}`
@@ -446,7 +455,11 @@ function App() {
   const isRequestDetail =
     destination === "requests" && resolved.location.segments[1] !== undefined;
   const isResourceDetail =
-    isPrincipalDetail || isInvocationDetail || isGrantDetail || isRequestDetail;
+    isPrincipalDetail ||
+    isInvocationDetail ||
+    isGrantDetail ||
+    isRequestDetail ||
+    (destination === "audit" && resolved.location.segments[1] !== undefined);
   const destinationLabel =
     destination === "servers" && resolved.location.segments[1] !== undefined
       ? resolved.canonicalFragment === "#/servers/new"
@@ -682,6 +695,13 @@ function App() {
               controller={overviewController}
               principals={principalDirectory}
               view={view}
+            />
+          ) : destination === "audit" ? (
+            <Audit
+              controller={auditController}
+              resolved={resolved}
+              view={view}
+              navigate={navigate}
             />
           ) : destination === "invocations" ? (
             <Invocations

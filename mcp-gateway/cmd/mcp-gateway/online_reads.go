@@ -16,6 +16,8 @@ var gatewayIDPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) error {
 	switch strings.Join(spec.Path, " ") {
+	case "audit list", "audit get":
+		return runAuditRead(command, options, args)
 	case "status":
 		return runOnlineRead(command, options, "/api/v1/system-status", statusTable)
 	case "admin credential list":

@@ -202,6 +202,8 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
+	case "audit list", "audit get":
+		return spec.Short + ". Filters are authoritative and conjunctive. --from and --until must occur together as UTC timestamps with nine fractional digits, at most 366 days apart. --credential-id matches the operator or known system initiator, not a named human. Continue pages with the same filters and --generation. On stale_cursor discard the traversal and restart; on audit_history_replaced discard prior-history state and restart without the old generation. Restore can discard newer local events. See docs/operators/administration.md."
 	case "server create", "server update":
 		return spec.Short + ". Strict --file transport.authentication OAuth configuration accepts optional callback_uri (for example http://localhost:3118/callback), auth_server_metadata_url (exact HTTPS metadata location, not issuer identity), and scopes (initial tokens replacing metadata defaults). Omit or use null to restore defaults in a complete transport replacement; [] requests no initial scopes. request_offline_access separately adds advertised offline_access. Exact callback ports must be free; temporary callback-only listeners close when the flow ends. Credentials use only server credential replace. See docs/operators/upstream-servers.md for a complete example."
 	case "server auth-flow start":
@@ -302,6 +304,17 @@ func writeOnlineFailure(command *cobra.Command, rawMode string, failure *control
 }
 
 func projectOnlineFailure(command *cobra.Command, failure *controlclient.OnlineError) *controlclient.OnlineError {
+	if command != nil && failure != nil && strings.Contains(command.CommandPath(), " audit ") {
+		projected := *failure
+		switch failure.Code {
+		case "audit_history_replaced":
+			projected.Title = "Audit history may have been replaced by restore; newer local events may have been discarded. Discard previous-history state and restart audit list without the old cursor or generation."
+			return &projected
+		case "stale_cursor":
+			projected.Title = "The audit traversal expired or history was pruned. Discard previous pages and restart audit list without the cursor, comparing history generations before using earlier records."
+			return &projected
+		}
+	}
 	if command == nil || failure == nil || failure.Code != "gateway_not_running" {
 		return failure
 	}
@@ -364,6 +377,8 @@ func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.Onl
 func onlineCommandSpecs() []onlineCommandSpec {
 	return []onlineCommandSpec{
 		onlineSpec([]string{"status"}, "status", "status"),
+		onlineSpec([]string{"audit", "list"}, "list", "audit list", "limit", "cursor", "generation", "actor-type", "credential-id", "category", "action", "target-type", "target-id", "outcome", "correlation-id", "from", "until"),
+		onlineSpec([]string{"audit", "get"}, "get AUDIT_EVENT_ID", "audit get AUDIT_EVENT_ID", "generation"),
 		onlineSpec([]string{"admin", "credential", "list"}, "list", "admin credential list", "limit", "cursor"),
 		onlineSpec([]string{"admin", "credential", "get"}, "get ID", "admin credential get ID"),
 		onlineSpec([]string{"admin", "credential", "create"}, "create", "admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "expires-at", "secret-output"),
@@ -433,13 +448,16 @@ var onlineGroupDescriptions = map[string]string{
 	"grant":                "Manage agent authorization grants",
 	"grant-request":        "Review agent grant requests",
 	"invocation":           "Inspect governed tool invocations",
+	"audit":                "Inspect retained control-plane audit evidence",
 }
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineLeafDescriptions = map[string]string{
-	"status":                  "Show Gateway status",
-	"admin credential list":   "List administrator credentials",
-	"admin credential get ID": "Look up current administrator credential metadata by ID",
+	"status":                   "Show Gateway status",
+	"audit list":               "List newest-first retained control-plane audit events",
+	"audit get AUDIT_EVENT_ID": "Show bounded audit event detail and retention history",
+	"admin credential list":    "List administrator credentials",
+	"admin credential get ID":  "Look up current administrator credential metadata by ID",
 	"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]": "Create an administrator credential",
 	"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH":        "Rotate an administrator credential with durable replacement verification",
 	"admin credential revoke ID": "Revoke an administrator credential",

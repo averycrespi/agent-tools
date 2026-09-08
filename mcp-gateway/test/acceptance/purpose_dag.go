@@ -71,7 +71,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"test-harness":     leaf("test-harness", []string{"tier.harness.selftests", "product.compatibility.release_evidence", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"runner and fixture self-test output"}),
 		"test-material":    leaf("test-material", []string{"tier.native.keyring"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
 		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 11, 0, []string{"curated and empty demo public outcomes, privacy and lifecycle cleanup"}, demoDefinitions...),
-		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 66, 0, []string{"real-binary output", "process cleanup records"}),
+		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 67, 0, []string{"real-binary output", "process cleanup records"}),
 		"test-security":    leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),
 		"test-stress": leaf("test-stress", []string{
 			"product.grant_request.conflict_and_uncertainty", "product.grant_request.approval_narrowing", "product.invocation.page_coherence",
@@ -79,13 +79,13 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		}, 2*time.Minute, 5*time.Minute, 20, 0, 0, []string{"five targeted race scenario results"}),
 		"test-keyring-native": leaf("test-keyring-native", []string{"tier.native.keyring"}, 10*time.Second, 30*time.Second, 1, 0, 0, []string{"typed native keyring classification"}, "mcp-gateway/test/keyring-native.sh"),
 
-		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 3*time.Minute, 210*time.Second, 1, 33, 33, []string{"browser workflow output", "browser cleanup records"}, "mcp-gateway/test/e2e/harness_test.go"),
+		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 3*time.Minute, 210*time.Second, 1, 34, 34, []string{"browser workflow output", "browser cleanup records"}, "mcp-gateway/test/e2e/harness_test.go"),
 		"test-browser-privacy":       leaf("test-browser-privacy", []string{"security.browser.storage", "frontend.privacy"}, 30*time.Second, 45*time.Second, 1, 1, 1, []string{"secret canary scan", "browser cleanup records"}, "mcp-gateway/test/e2e/browser_secret_storage_privacy_test.go"),
 		"test-browser-visual":        leaf("test-browser-visual", []string{"tier.browser.visual", "product.interface.developer_first"}, 60*time.Second, 75*time.Second, 1, 1, 1, []string{"deterministic visual matrix output"}, "mcp-gateway/test/e2e/browser_visual_responsive_test.go"),
 		"test-browser-accessibility": leaf("test-browser-accessibility", []string{"tier.browser.accessibility", "product.browser.accessibility_responsive"}, 45*time.Second, 60*time.Second, 1, 1, 1, []string{"automated accessibility output"}, "mcp-gateway/test/e2e/browser_accessibility_test.go"),
 		"test-browser-cross":         leaf("test-browser-cross", []string{"tier.browser.cross"}, 45*time.Second, 60*time.Second, 1, 1, 2, []string{"Firefox and WebKit compatibility output"}, "mcp-gateway/test/e2e/browser_cross_compatibility_test.go"),
 
-		"test-frontend-development-node":    leaf("test-frontend-development-node", []string{"frontend.command_interface", "frontend.proxy_boundary"}, 30*time.Second, 45*time.Second, 1, 0, 0, []string{"Node development proxy matrix output"}, packageManifest, "mcp-gateway/web/dev-server.ts", "mcp-gateway/web/dev-proxy.ts", "mcp-gateway/web/tests/dev-server.test.ts", "mcp-gateway/web/tests/proxy-admission.test.ts"),
+		"test-frontend-development-node":    leaf("test-frontend-development-node", []string{"frontend.command_interface", "frontend.proxy_boundary"}, 30*time.Second, 45*time.Second, 1, 0, 0, []string{"Node development proxy and audit contract matrix output"}, packageManifest, "mcp-gateway/web/dev-server.ts", "mcp-gateway/web/dev-proxy.ts", "mcp-gateway/web/tests/dev-server.test.ts", "mcp-gateway/web/tests/proxy-admission.test.ts", "mcp-gateway/web/tests/audit-contract.test.ts", "mcp-gateway/web/src/audit-contract.ts"),
 		"test-frontend-development-browser": leaf("test-frontend-development-browser", []string{"frontend.style_live_reload", "frontend.module_live_reload", "frontend.control_plane", "frontend.streaming_uncertainty"}, 2*time.Minute, 150*time.Second, 1, 2, 2, []string{"live-reload browser output", "development process cleanup records"}, "mcp-gateway/test/e2e/frontend_development_test.go", "mcp-gateway/test/e2e/frontend_control_plane_test.go"),
 		"frontend-typecheck":                leaf("frontend-typecheck", []string{"tier.frontend.static", "frontend.command_interface"}, 30*time.Second, 45*time.Second, 1, 0, 0, []string{"TypeScript diagnostics"}, packageManifest, "mcp-gateway/web/tsconfig.json"),
 		"frontend-build":                    leaf("frontend-build", []string{"product.frontend.static_supply_chain"}, 60*time.Second, 90*time.Second, 1, 0, 0, []string{"generated production asset allowlist"}, packageManifest, "mcp-gateway/web/vite.config.ts"),
@@ -99,6 +99,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"mcp-gateway/web/tests/browser/shared.ts", "mcp-gateway/web/tests/browser/foundations.ts", "mcp-gateway/web/tests/browser/fixtures.ts",
 		"mcp-gateway/web/tests/browser/lifecycle-scenarios.ts", "mcp-gateway/web/tests/browser/privacy-presentation-scenarios.ts",
 		"mcp-gateway/web/tests/browser/system-scenarios.ts", "mcp-gateway/web/tests/browser/access-scenarios.ts",
+		"mcp-gateway/web/tests/browser/audit-scenarios.ts", "mcp-gateway/web/src/audit-contract.ts",
 		"mcp-gateway/web/tests/browser/server-scenarios.ts", "mcp-gateway/web/tests/browser/development-scenarios.ts",
 		"mcp-gateway/web/tests/browser/catalog-pagination.ts", "mcp-gateway/web/tests/browser/upstream-headers.ts",
 		"mcp-gateway/web/src/mutation.ts", "mcp-gateway/web/src/sinks.ts", "mcp-gateway/web/src/session.ts", "mcp-gateway/web/src/view.ts",
@@ -146,7 +147,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 
 	addMake("test-frontend-development-node", "npm.ui.test-dev")
 	addCommand("npm.ui.test-dev", []string{"npm", "--prefix", "..", "run", "ui:test-dev"}, []string{makefile, packageManifest}, []string{"node.test-dev"})
-	addCommand("node.test-dev", []string{"node", "--test", "--test-concurrency=1", "--test-timeout=30000"}, []string{packageManifest, "mcp-gateway/web/tests/dev-server.test.ts", "mcp-gateway/web/tests/proxy-admission.test.ts"}, nil)
+	addCommand("node.test-dev", []string{"node", "--test", "--test-concurrency=1", "--test-timeout=30000"}, []string{packageManifest, "mcp-gateway/web/tests/dev-server.test.ts", "mcp-gateway/web/tests/proxy-admission.test.ts", "mcp-gateway/web/tests/audit-contract.test.ts", "mcp-gateway/web/src/audit-contract.ts"}, nil)
 
 	addMake("frontend-typecheck", "npm.ui.typecheck")
 	addCommand("npm.ui.typecheck", []string{"npm", "--prefix", "..", "run", "ui:typecheck"}, []string{makefile, packageManifest}, []string{"tsc.frontend"})

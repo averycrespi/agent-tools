@@ -145,6 +145,19 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	if command.Flags().Changed("limit") && (options.limit < 1 || options.limit > 100) {
 		return controlclient.NewInputError("The page limit is invalid.")
 	}
+	if len(spec.Path) > 0 && spec.Path[0] == "audit" {
+		for name, value := range options.filters {
+			if command.Flags().Changed(name) && *value == "" {
+				return controlclient.NewInputError("Audit filter values must not be empty.")
+			}
+		}
+		if command.Flags().Changed("cursor") && options.cursor == "" {
+			return controlclient.NewInputError("The audit cursor must not be empty.")
+		}
+		if _, err := auditReadPath(options, args); err != nil {
+			return controlclient.NewInputError("Audit filters are invalid. Supply from/until together as fixed UTC nanosecond timestamps, at most 366 days apart.")
+		}
+	}
 	if !command.Flags().Changed("etag") {
 		return nil
 	}

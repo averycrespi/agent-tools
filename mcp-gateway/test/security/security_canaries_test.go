@@ -185,7 +185,7 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 				return readErr
 			}
 			if strings.Contains(string(contents), "/api/v1/audit") {
-				allowed := []string{"internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
+				allowed := []string{"cmd/mcp-gateway/online_audit.go", "internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
 				assert.Contains(t, allowed, filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "mcp-gateway")+string(filepath.Separator))), path)
 			}
 			if strings.Contains(string(contents), "/api/v1/invocations") {

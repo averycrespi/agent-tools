@@ -16,7 +16,7 @@ func TestReleaseProfileDefinitions(t *testing.T) {
 	require.NoError(t, validateFinalReleaseProfile(profile))
 	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
 	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 236)
+	assert.Len(t, profile.Coverage.ProductBehaviors, 238)
 	assert.Len(t, profile.Checks, 23)
 }
 
@@ -48,7 +48,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	assert.Equal(t, expectedChecks, actualChecks)
 	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
 	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 236)
+	assert.Len(t, profile.Coverage.ProductBehaviors, 238)
 	assert.Len(t, profile.Coverage.CleanupCriteria, 10)
 	for _, id := range profile.Coverage.ProductBehaviors {
 		assert.Equal(t, 1, productOwners[id], id)
@@ -100,8 +100,8 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}
-	assert.Equal(t, 116, gatewayStarts)
-	assert.Equal(t, 40, browserStarts)
+	assert.Equal(t, 118, gatewayStarts)
+	assert.Equal(t, 41, browserStarts)
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "test-e2e"))
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "verify-supply-chain"))
 	for _, aggregate := range []string{"test", "test-browser", "test-frontend-development", "frontend-build", "frontend-verify-generated"} {

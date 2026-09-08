@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -147,6 +148,14 @@ func TestGatewayBinaryReplacementWithdrawsPinnedCallWithoutReroute(t *testing.T)
 	awaitFixtureSignal(t, replacement.entered, "replacement discovery did not start after old-call withdrawal")
 	assertOperationState(t, harness, catalog.ServerID, mutation.Operation.ID, contract.OperationRunning)
 
+	// Discovery cancellation can settle graceful shutdown before the second signal.
+	// An admitted incomplete request keeps the local HTTP owner draining.
+	blocked, err := net.Dial("tcp", harness.authority)
+	require.NoError(t, err)
+	defer func() { _ = blocked.Close() }()
+	_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: forced\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
+	require.NoError(t, err)
+	waitForAdminOccupancy(t, harness, 2)
 	require.NoError(t, harness.process.Signal(syscall.SIGTERM))
 	waitForListenerClose(t, harness.authority)
 	require.NoError(t, harness.process.Signal(syscall.SIGTERM))

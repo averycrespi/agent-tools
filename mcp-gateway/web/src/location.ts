@@ -1,3 +1,5 @@
+import { validAuditQuery } from "./audit-contract.ts";
+
 export const MAX_FRAGMENT_BYTES = 2048;
 
 export type Destination =
@@ -8,6 +10,7 @@ export type Destination =
   | "grants"
   | "requests"
   | "invocations"
+  | "audit"
   | "system"
   | "sign-in";
 
@@ -283,6 +286,17 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     ) {
       return location("requests", segments, query);
     }
+  }
+  if (first === "audit") {
+    if (segments.length === 1 && validAuditQuery(query))
+      return location("audit", segments, query);
+    if (
+      segments.length === 2 &&
+      second !== undefined &&
+      isGatewayID(second) &&
+      noQuery
+    )
+      return location("audit", segments, query);
   }
   if (first === "invocations") {
     if (segments.length === 1 && exactQuery(query, {})) {

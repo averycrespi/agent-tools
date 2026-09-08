@@ -261,7 +261,7 @@ func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, 
 func stoppedMatrixValue(value, root, command string) string {
 	value = strings.Trim(value, "[]")
 	switch value {
-	case "ID", "BACKUP_ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "OLD_CREDENTIAL_ID":
+	case "ID", "BACKUP_ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
 		return stoppedMatrixID
 	case "PATH":
 		if command == "server credential replace" {

@@ -311,6 +311,22 @@ func DecodeResponse(body []byte, destination any) error {
 	return nil
 }
 
+func DecodeExactResponse(body []byte, destination any) error {
+	if DecodeResponse(body, destination) != nil {
+		return ErrResponseInvalid
+	}
+	canonical, err := json.Marshal(destination)
+	if err != nil {
+		return ErrResponseInvalid
+	}
+	// Round-trip equality also rejects missing required nullable members and null scalars.
+	equal, err := strictjson.CanonicalEqual(body, canonical, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth})
+	if err != nil || !equal {
+		return ErrResponseInvalid
+	}
+	return nil
+}
+
 func validServerConfigurationContext(code string, context *ServerConfigurationContext) bool {
 	if code != "invalid_server_configuration" {
 		return context == nil
