@@ -41,6 +41,12 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
     }
   }
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.screenshot({
+    path: join(directory, "dark-desktop.png"),
+    fullPage: (await page.locator("dialog[open]").count()) === 0,
+  });
+  await page.emulateMedia({ colorScheme: "light" });
   const audit = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();
@@ -3114,16 +3120,29 @@ export async function runRequestReads(
   if (
     body.includes("summary-only") ||
     body.includes("Pending filter") ||
-    (await page.locator('[data-testid="requests-view"] h2').count()) !== 1 ||
+    (await page.locator('[data-testid="requests-view"] h2').count()) !== 0 ||
     (await page
       .locator('[data-testid="requests-view"] .panel-code')
       .count()) !== 0
   )
     fail("request queue retained duplicate introductory presentation");
+  await expect(
+    page.getByRole("heading", { name: "All requests", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId("request-row").first().locator("th"),
+  ).toHaveText(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  await expect(
+    page.getByTestId("request-row").first().locator("td").last().locator("a"),
+  ).toHaveClass(/button-link/);
+  const queueGap = await page
+    .getByRole("navigation", { name: "Request queues" })
+    .evaluate((node) => parseFloat(getComputedStyle(node).marginBottom));
+  if (queueGap < 24) fail("queue tabs are cramped against filters");
   const requestHeaders = await page.locator("thead th").allTextContents();
   if (
     requestHeaders.map((header) => header.replace(/[↕↑↓]/g, "")).join("|") !==
-    "Decision|Principal|Target|State|Access requested|Submitted"
+    "Request ID|Principal|Target|State|Access requested|Submitted|Decision"
   )
     fail(`request table columns changed: ${requestHeaders.join("|")}`);
   if (
@@ -3190,7 +3209,7 @@ export async function runRequestReads(
     "Choose a decision",
     "Descriptor fingerprint changed",
     "Approve as requested",
-    "Narrow access",
+    "Customize approval",
   ])
     if (!body.includes(phrase)) fail(`request detail omitted ${phrase}`);
   if (
@@ -3600,7 +3619,7 @@ export async function runRequestAdjudication(
       await captureRequestState(page, `summary-${ids.indexOf(id)}`);
     if (narrow)
       await page
-        .getByRole("button", { name: "Narrow access", exact: true })
+        .getByRole("button", { name: "Customize approval", exact: true })
         .press("Enter");
   };
   const confirm = async () => {
@@ -3618,6 +3637,12 @@ export async function runRequestAdjudication(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await navigate(ids[0]!);
+  await expect(
+    page.getByRole("region", { name: "Approval preview" }),
+  ).toContainText("No changes to requested access.");
+  await expect(page.getByTestId("request-approve")).toHaveText(
+    "Approve as requested",
+  );
   await page
     .locator('[data-testid="approval-description"]')
     .fill("Unsafe\u0085access");
@@ -3658,6 +3683,46 @@ export async function runRequestAdjudication(
   await page.locator('[data-testid="approval-additional-value"]').fill("safe");
   await page.getByTestId("approval-duration-unit").selectOption("minutes");
   await page.locator('[data-testid="approval-duration"]').fill("10");
+  await expect(page.getByTestId("request-approve")).toHaveText(
+    "Approve as narrowed",
+  );
+  await expect(page.getByTestId("request-approve")).toHaveClass(
+    /primary-action/,
+  );
+  await page
+    .getByRole("button", { name: "Hide customization", exact: true })
+    .press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Customize approval", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByText("Custom approval edited", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("approval-duration")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Approve as requested", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Approve as requested?", exact: true }),
+  ).toBeVisible();
+  const originalPreview = JSON.parse(
+    await page.getByTestId("approval-review-policy").inputValue(),
+  );
+  if (
+    originalPreview.approved_policy.scope !== "server" ||
+    originalPreview.approved_policy.constraint !== null ||
+    originalPreview.approved_policy.duration_seconds !== "1200"
+  )
+    fail("hidden customization leaked into unchanged approval");
+  await page.getByTestId("request-adjudication-confirm-cancel").click();
+  await page
+    .getByRole("button", { name: "Customize approval", exact: true })
+    .click();
+  await expect(page.getByTestId("approval-duration")).toHaveValue("10");
+  await expect(approvalTarget).toHaveValue("demo.safe");
+  await expect(page.getByTestId("approval-additional-value")).toHaveValue(
+    "safe",
+  );
   if (
     !(await page
       .getByRole("button", { name: "Approve as requested", exact: true })
@@ -3671,7 +3736,7 @@ export async function runRequestAdjudication(
       await page
         .locator("#request-adjudication-confirm-consequence")
         .innerText()
-    ).includes("Current durable descriptor · catalog revision 1")
+    ).includes("Current definition available.")
   )
     fail("server-to-tool approval review used stale catalog posture");
   const narrowedEvidence = await page
@@ -3679,14 +3744,14 @@ export async function runRequestAdjudication(
     .innerText();
   if (
     !narrowedEvidence.includes(
-      "Narrowed to one tool — no like-for-like submitted descriptor to compare",
+      "Narrowed to one tool — no submitted definition to compare.",
     ) ||
     narrowedEvidence.includes("Not applicable to server-wide authority") ||
     narrowedEvidence.includes("Descriptor changed")
   )
     fail("narrowed tool confirmation misrepresented descriptor comparison");
   await expect(
-    page.getByRole("dialog", { name: "Approve narrowed access?", exact: true }),
+    page.getByRole("dialog", { name: "Approve as narrowed?", exact: true }),
   ).toBeVisible();
   await captureRequestState(page, "server-to-tool-confirmation");
   await confirm();
@@ -3710,7 +3775,7 @@ export async function runRequestAdjudication(
     "demo → demo.safe",
     "20 minutes → 10 minutes",
     "Requested conditions",
-    "Unrestricted arguments",
+    "No argument restrictions",
     "Approved conditions",
     '/mode equals "safe"',
   ]) {
@@ -3810,13 +3875,13 @@ export async function runRequestAdjudication(
     !approvalReview.includes(principalID) ||
     !approvalReview.includes(serverID) ||
     !approvalReview.includes("demo.safe") ||
-    !approvalReview.includes("current / current") ||
+    !approvalReview.includes("Comparison unavailable") ||
     !/Description\s*None/.test(approvalReview) ||
-    !/Approved duration\s*5 minutes/.test(approvalReview) ||
+    !/Duration\s*5 minutes from approval/.test(approvalReview) ||
     !approvalReview.includes("/zone") ||
     !approvalReview.includes("/extra") ||
-    !approvalReview.includes("Every matcher atom is required (AND)") ||
-    !approvalReview.includes("matching DENY takes precedence") ||
+    !approvalReview.includes("All conditions must match.") ||
+    !approvalReview.includes("Matching deny grants still take precedence.") ||
     !(
       await page.locator('[data-testid="approval-review-policy"]').inputValue()
     ).includes('"/attempt":1.0')
@@ -3945,6 +4010,23 @@ export async function runRequestAdjudication(
   }
 
   await navigate(ids[9]!);
+  await page
+    .getByRole("button", { name: "Approve as requested", exact: true })
+    .first()
+    .click();
+  const permanentDialog = page.getByRole("dialog", {
+    name: "Approve as requested?",
+    exact: true,
+  });
+  await expect(permanentDialog).toBeVisible();
+  await expect(permanentDialog).toContainText("No expiry");
+  await expect(permanentDialog).not.toContainText("from approval");
+  await expect(permanentDialog).not.toContainText("Temporary access");
+  await expect(
+    permanentDialog.getByText("Access considerations", { exact: true }),
+  ).toHaveCount(1);
+  await captureRequestState(page, "permanent-confirmation");
+  await page.getByTestId("request-adjudication-confirm-cancel").click();
   await page.getByTestId("approval-duration-unit").selectOption("seconds");
   await page.getByTestId("approval-duration").fill("59");
   await reviewApproval();

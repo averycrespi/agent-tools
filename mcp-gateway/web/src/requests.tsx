@@ -437,7 +437,7 @@ async function readRequest(
   );
 }
 function readableDuration(seconds: string | null): string {
-  if (seconds === null) return "Permanent";
+  if (seconds === null) return "No expiry";
   for (const [unit, size] of Object.entries(durationUnits)) {
     if (Number(seconds) % size === 0) {
       const amount = Number(seconds) / size;
@@ -454,7 +454,7 @@ function Conditions({
   source: string | null;
   locked?: boolean;
 }) {
-  if (source === null || source === "") return <p>Unrestricted arguments</p>;
+  if (source === null || source === "") return <p>No argument restrictions</p>;
   try {
     const shape = matcherShape(JSON.parse(source) as unknown);
     return (
@@ -489,34 +489,76 @@ function Conditions({
 }
 
 function PolicyWarnings({ policy }: { policy: Policy }) {
+  if (
+    policy.durationSeconds !== null &&
+    policy.constraint !== null &&
+    policy.scope !== "server"
+  )
+    return null;
   return (
-    <div class="review-stack">
-      {policy.durationSeconds === null && (
-        <StateNotice
-          state="warning"
-          title="Permanent access has no automatic expiry"
-        />
-      )}
-      {policy.constraint === null && (
-        <StateNotice
-          state="warning"
-          title="Unconstrained access matches every argument object"
-        />
-      )}
-      {policy.scope === "server" && (
-        <StateNotice
-          state="warning"
-          title="Server-wide access includes future tools"
-        />
-      )}
+    <StateNotice state="warning" title="Access considerations">
+      <ul>
+        {policy.durationSeconds === null && (
+          <li>Access does not expire automatically.</li>
+        )}
+        {policy.constraint === null && (
+          <li>This grant adds no restrictions on argument values.</li>
+        )}
+        {policy.scope === "server" && (
+          <li>Access includes tools added to this server later.</li>
+        )}
+      </ul>
+    </StateNotice>
+  );
+}
+
+function AccessSummary({
+  policy,
+  source,
+  definition,
+}: {
+  policy: Policy;
+  source: string | null;
+  definition: string;
+}) {
+  return (
+    <div class="request-access-summary">
+      <dl class="request-access-facts">
+        <div>
+          <dt>Duration</dt>
+          <dd>
+            {readableDuration(policy.durationSeconds)}
+            {policy.durationSeconds !== null && " from approval"}
+          </dd>
+        </div>
+        <div>
+          <dt>Conditions</dt>
+          <dd>
+            <Conditions source={source} />
+          </dd>
+        </div>
+        <div>
+          <dt>Tool definition</dt>
+          <dd>{definition}</dd>
+        </div>
+      </dl>
+      <PolicyWarnings policy={policy} />
     </div>
   );
 }
 
 function descriptorComparison(detail: RequestDetail): string {
   const policy = detail.approvedPolicy ?? detail.requestedPolicy;
+  const posture =
+    detail.currentTarget.targetState === "deleted"
+      ? "The requested server has been deleted. "
+      : detail.currentTarget.durableState === "retired"
+        ? "Only a historical tool definition is available. "
+        : detail.currentTarget.activeState === "unavailable"
+          ? "The current tool definition is unavailable. "
+          : "";
   if (policy.scope === "server")
-    return "Not applicable to server-wide authority";
+    return `${posture}Not applicable to server-wide authority`;
   const evidence =
     detail.approvedPolicy !== null && detail.requestedPolicy.scope === "server"
       ? detail.approvedEvidence
@@ -526,10 +568,13 @@ function descriptorComparison(detail: RequestDetail): string {
     detail.currentTarget.fingerprint === null ||
     detail.currentTarget.descriptor === null
   )
-    return "Descriptor comparison unavailable — missing evidence";
-  return evidence.fingerprint === detail.currentTarget.fingerprint
-    ? "Descriptor unchanged"
-    : "Descriptor changed — inspect submitted and current evidence";
+    return `${posture}Comparison unavailable — missing tool definition`;
+  return (
+    posture +
+    (evidence.fingerprint === detail.currentTarget.fingerprint
+      ? "Unchanged since submission"
+      : "Changed since submission — inspect submitted and current definitions")
+  );
 }
 
 function policyFacts(policy: Policy) {
@@ -1149,12 +1194,12 @@ function RequestActions({
   const confirmationSource = unchanged
     ? mergeConstraintSource(detail.submittedConstraintSource, "")
     : reviewedConstraint;
-  const isNarrowed =
-    !unchanged &&
-    (scope !== submitted.scope ||
-      target !== submitted.target ||
-      additionalAtoms.length > 0 ||
-      duration !== (submitted.durationSeconds ?? ""));
+  const draftChanged =
+    scope !== submitted.scope ||
+    target !== submitted.target ||
+    additionalAtoms.length > 0 ||
+    duration !== (submitted.durationSeconds ?? "");
+  const isNarrowed = !unchanged && draftChanged;
   return (
     <section
       class="panel domain-panel"
@@ -1199,12 +1244,18 @@ function RequestActions({
         </button>
         <button
           type="button"
-          class="secondary"
+          class="secondary request-customize-toggle"
           disabled={disabled}
-          onClick={() => setNarrowing(true)}
+          aria-expanded={narrowing}
+          aria-controls="request-customization"
+          onClick={() => setNarrowing(!narrowing)}
         >
-          Narrow access
+          <span aria-hidden="true">{narrowing ? "▾" : "▸"}</span>{" "}
+          {narrowing ? "Hide customization" : "Customize approval"}
         </button>
+        {!narrowing && draftChanged && (
+          <span class="request-draft-note">Custom approval edited</span>
+        )}
         <button
           ref={rejectButton}
           data-testid="request-reject"
@@ -1226,8 +1277,12 @@ function RequestActions({
         </StateNotice>
       )}
       {narrowing && (
-        <section class="form-section" aria-labelledby="request-approval-title">
-          <h3 id="request-approval-title">Narrow access</h3>
+        <section
+          id="request-customization"
+          class="form-section"
+          aria-labelledby="request-approval-title"
+        >
+          <h3 id="request-approval-title">Customize approval</h3>
           <h3>Tools</h3>
           <FormField id="approval-scope" label="Approved scope">
             {(attributes) => (
@@ -1381,46 +1436,91 @@ function RequestActions({
               </div>
             )}
           </FormField>
-          <section class="subpanel" aria-label="Requested versus will approve">
-            <h3>Requested versus Will approve</h3>
-            <p>Draft only; invalid changes cannot be approved.</p>
-            <p>
-              Tools: {submitted.target} →{" "}
-              {scope === submitted.scope && target === submitted.target
-                ? "Unchanged"
-                : target}
-            </p>
-            <p>
-              Duration: {readableDuration(submitted.durationSeconds)} →{" "}
-              {duration === (submitted.durationSeconds ?? "")
-                ? "Unchanged"
-                : readableDuration(duration === "" ? null : duration)}
-            </p>
-            <h4>Requested conditions</h4>
-            <Conditions source={detail.submittedConstraintSource} />
-            <h4>Will approve conditions</h4>
-            {constraintDraftError === undefined ? (
-              <Conditions source={reviewedConstraint} />
-            ) : (
-              <StateNotice
-                state="error"
-                title="Invalid draft conditions — correct them before review"
-              />
-            )}
-            <p>
-              Every condition must match (AND). Submitted conditions remain
-              locked.
-            </p>
+          <section class="subpanel" aria-label="Approval preview">
+            <h3>Approval preview</h3>
+            {!draftChanged && <p>No changes to requested access.</p>}
+            <div class="approval-preview">
+              <div class="preview-head" aria-hidden="true">
+                <span>Field</span>
+                <span>Requested</span>
+                <span>Proposed approval</span>
+              </div>
+              <div
+                class={
+                  scope !== submitted.scope || target !== submitted.target
+                    ? "preview-row changed"
+                    : "preview-row"
+                }
+              >
+                <strong>Tools</strong>
+                <div>
+                  <span class="preview-label">Requested</span>
+                  {submitted.scope === "server"
+                    ? "All tools"
+                    : submitted.target}
+                </div>
+                <div>
+                  <span class="preview-label">Proposed approval</span>
+                  {scope === "server" ? "All tools" : target}
+                </div>
+              </div>
+              <div
+                class={
+                  duration !== (submitted.durationSeconds ?? "")
+                    ? "preview-row changed"
+                    : "preview-row"
+                }
+              >
+                <strong>Duration</strong>
+                <div>
+                  <span class="preview-label">Requested</span>
+                  {readableDuration(submitted.durationSeconds)}
+                </div>
+                <div>
+                  <span class="preview-label">Proposed approval</span>
+                  {readableDuration(duration === "" ? null : duration)}
+                </div>
+              </div>
+              <div
+                class={
+                  additionalAtoms.length > 0
+                    ? "preview-row changed"
+                    : "preview-row"
+                }
+              >
+                <strong>Conditions</strong>
+                <div>
+                  <span class="preview-label">Requested</span>
+                  <Conditions source={detail.submittedConstraintSource} />
+                </div>
+                <div>
+                  <span class="preview-label">Proposed approval</span>
+                  {constraintDraftError === undefined ? (
+                    <Conditions source={reviewedConstraint} />
+                  ) : (
+                    <StateNotice
+                      state="error"
+                      title="Correct invalid conditions before approval"
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
           </section>
           <div class="form-actions">
             <button
               ref={actionButton}
               data-testid="request-approve"
+              class="primary-action"
               type="button"
               disabled={disabled}
               onClick={() => void review("approve")}
             >
-              {validating ? "Validating matcher…" : "Review approval"}
+              {validating
+                ? "Validating matcher…"
+                : draftChanged
+                  ? "Approve as narrowed"
+                  : "Approve as requested"}
             </button>
           </div>
         </section>
@@ -1486,26 +1586,30 @@ function RequestActions({
         title={
           mode === "approve"
             ? isNarrowed
-              ? "Approve narrowed access?"
+              ? "Approve as narrowed?"
               : "Approve as requested?"
             : "Reject request?"
         }
         consequence={
           mode === "approve" ? (
-            <div class="review-stack">
+            <div class="review-stack request-confirmation">
               <p>
-                Approval atomically closes the request and creates one ALLOW
-                grant; it does not execute a call. Every matcher atom is
-                required (AND), and any matching DENY takes precedence.
+                Creates one allow grant and closes this request. It does not run
+                a tool.
               </p>
-              <PolicyWarnings policy={confirmationPolicy} />
-              <Conditions source={confirmationSource} />
+              <AccessSummary
+                policy={confirmationPolicy}
+                source={confirmationSource}
+                definition={
+                  confirmationNarrowsToTool
+                    ? `Narrowed to one tool — no submitted definition to compare. ${approvalCatalogError || approvalDescriptorError || confirmationDescriptor === undefined ? "Current definition unavailable; using the literal tool name." : "Current definition available."}`
+                    : descriptorComparison(detail)
+                }
+              />
               <p>
-                {confirmationNarrowsToTool
-                  ? "Narrowed to one tool — no like-for-like submitted descriptor to compare"
-                  : descriptorComparison(detail)}
+                All conditions must match. Matching deny grants still take
+                precedence.
               </p>
-              <p>Temporary access starts at approval, not submission.</p>
               <dl class="fact-grid">
                 <div>
                   <dt>Description</dt>
@@ -1525,35 +1629,6 @@ function RequestActions({
                     {confirmationPolicy.scope === "tool"
                       ? confirmationPolicy.target
                       : "All tools"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Catalog posture</dt>
-                  <dd>
-                    {confirmationPolicy.scope === "server"
-                      ? "Not applicable to server-wide authority"
-                      : confirmationNarrowsToTool
-                        ? approvalCatalogError
-                          ? "Unavailable — literal manual name"
-                          : confirmationDescriptor === undefined ||
-                              approvalDescriptorError
-                            ? "No verified current descriptor — literal manual name"
-                            : `Current durable descriptor · catalog revision ${confirmationDescriptor.catalogRevision}`
-                        : `${detail.currentTarget.activeState ?? "unavailable"} / ${detail.currentTarget.durableState ?? "absent"}`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Approved duration</dt>
-                  <dd>
-                    {readableDuration(confirmationPolicy.durationSeconds)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Constraint</dt>
-                  <dd>
-                    {confirmationSource === ""
-                      ? "Unrestricted"
-                      : "All listed conditions must match"}
                   </dd>
                 </div>
               </dl>
@@ -1587,7 +1662,7 @@ function RequestActions({
         confirmLabel={
           mode === "approve"
             ? isNarrowed
-              ? "Approve narrowed access"
+              ? "Approve as narrowed"
               : "Approve as requested"
             : "Reject request"
         }
@@ -1783,21 +1858,11 @@ export function Requests({
               <dd>{detail.resolvedUpstreamName ?? "All tools"}</dd>
             </div>
           </dl>
-          <p>
-            {sentenceCase(detail.requestedPolicy.scope)} scope ·{" "}
-            {readableDuration(detail.requestedPolicy.durationSeconds)}
-            {detail.requestedPolicy.durationSeconds !== null &&
-              " starting at approval"}
-          </p>
-          <h3>Requested conditions</h3>
-          <Conditions source={detail.submittedConstraintSource} />
-          <PolicyWarnings policy={detail.requestedPolicy} />
-          <p>{descriptorComparison(detail)}</p>
-          <p>
-            Target: {detail.currentTarget.targetState}; active descriptor:{" "}
-            {detail.currentTarget.activeState ?? "not applicable"}; retained
-            descriptor: {detail.currentTarget.durableState ?? "not applicable"}.
-          </p>
+          <AccessSummary
+            policy={detail.requestedPolicy}
+            source={detail.submittedConstraintSource}
+            definition={descriptorComparison(detail)}
+          />
           {error !== undefined && (
             <StateNotice state="error" title="Request refresh failed">
               <p>
@@ -2026,7 +2091,7 @@ export function Requests({
   return (
     <div class="domain-view" data-testid="requests-view">
       <section class="panel domain-panel" aria-label="Grant requests">
-        <nav class="subnav" aria-label="Request queues">
+        <nav class="subnav request-queue-tabs" aria-label="Request queues">
           <a href="#/requests" aria-current={!allRequests ? "page" : undefined}>
             Pending
           </a>
@@ -2037,7 +2102,6 @@ export function Requests({
             All requests
           </a>
         </nav>
-        <h2>{allRequests ? "All requests" : "Pending requests"}</h2>
         <CollectionTable
           caption="Grant request summaries"
           items={items}
@@ -2097,17 +2161,9 @@ export function Requests({
           columns={[
             {
               key: "request",
-              label: "Decision",
+              label: "Request ID",
               render: (item) => (
-                <div>
-                  <a href={`#/requests/${item.id}`}>
-                    {item.state === "pending" ? "Review" : "View decision"}
-                  </a>
-                  <details>
-                    <summary>Request ID</summary>
-                    <span class="technical-value">{item.id}</span>
-                  </details>
-                </div>
+                <span class="technical-value request-id">{item.id}</span>
               ),
               sortValue: (item) => item.id,
             },
@@ -2169,6 +2225,15 @@ export function Requests({
               label: "Submitted",
               render: (item) => <UserTime value={item.createdAt} />,
               sortValue: (item) => item.createdAt,
+            },
+            {
+              key: "decision",
+              label: "Decision",
+              render: (item) => (
+                <a class="button-link" href={`#/requests/${item.id}`}>
+                  {item.state === "pending" ? "Review" : "View decision"}
+                </a>
+              ),
             },
           ]}
         />
