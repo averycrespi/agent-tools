@@ -151,6 +151,8 @@ mcp-gateway server descriptor get SERVER_ID TOOL_ID
 
 A durable descriptor is evidence, not a callability claim. It preserves normalized identity and revision history even when a server is disabled, unavailable, disconnected, or deleted.
 
+API clients can request collection-wide descriptor matching with `GET /api/v1/servers/{id}/descriptors?tool=echo&status=available&sort=tool&direction=ascending&limit=50`. Table-query pages contain at most 50 full descriptors and no totals; follow `next_cursor` only on explicit navigation, keeping the same query. Do not combine these options with legacy `retired` or `representation=summary`. A `409 stale_cursor` requires discarding the traversal and starting again without a cursor. Here `available` means non-retired durable evidence, not current callability. Existing CLI list behavior is unchanged.
+
 The active catalog reports currently published tools and page-level generation posture:
 
 ```bash

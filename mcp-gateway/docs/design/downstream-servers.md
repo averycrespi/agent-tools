@@ -136,7 +136,7 @@ Input/output schemas must compile as object-root JSON Schema 2020-12 with local-
 
 Only modern HTTP input properties may retain unique typed nested `x-mcp-header` bindings; present nonnull validated scalar arguments mirror through canonical string/boolean/safe-integer values and SEP-2243 base64 wrapping. A normalized candidate commits one complete durable revision under current desired/registration/credential/catalog fences.
 
-Projected per-server/global identity capacity is checked before immutable ID allocation; success alone retires omissions, reappearance reuses identity, safe issues aggregate by closed class, and failure changes no snapshot facts. Descriptor reads use revision/filter/insertion-watermark cursors and include retired evidence.
+Projected per-server/global identity capacity is checked before immutable ID allocation; success alone retires omissions, reappearance reuses identity, safe issues aggregate by closed class, and failure changes no snapshot facts. Descriptor reads use revision/filter/insertion-watermark cursors and include retired evidence. Opt-in descriptor table queries filter and sort compact identity, retirement, and last-seen metadata across the bounded per-server collection in one SQLite view before loading at most 50 descriptor schemas. Their position cursors also bind the exact query and are not interchangeable with legacy insertion-order cursors. A catalog revision change invalidates traversal; no total-count representation is added. Exact query grammar is owned by [Public contract](public-contract.md#server-and-catalog-vocabulary).
 
 ### Active catalog and discovery
 
