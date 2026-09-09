@@ -113,8 +113,8 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	assert.Less(t, len(gatewayOverview), 1800)
 	assert.NotContains(t, gatewayOverview, "being built")
 	assert.NotRegexp(t, regexp.MustCompile(`\bS[1-6]\b`), gatewayOverview)
-	assert.Contains(t, gatewayOverview, "mcp-gateway/README.md")
-	assert.Contains(t, gatewayOverview, "mcp-gateway/docs/README.md")
+	assert.Contains(t, gatewayOverview, "(mcp-gateway/README.md)")
+	assert.Contains(t, readme, "(docs/README.md)")
 }
 
 func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {

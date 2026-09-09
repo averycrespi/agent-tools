@@ -1074,6 +1074,71 @@ func TestManagerRefreshCatalogOperationSkipsLifecycleAndCompletesAttachedWork(t 
 	}
 }
 
+type settlingOperationRepository struct {
+	*fakeRepository
+	committed chan struct{}
+	release   chan struct{}
+}
+
+func (repository *settlingOperationRepository) TransitionOperation(ctx context.Context, id string, state contract.ServerOperationState, reason *contract.PublicReason) (servers.Operation, error) {
+	operation, err := repository.fakeRepository.TransitionOperation(ctx, id, state, reason)
+	if err == nil && state == contract.OperationSucceeded {
+		close(repository.committed)
+		<-repository.release
+	}
+	return operation, err
+}
+
+func TestManagerRefreshStatusWaitsForTerminalMutationSettlement(t *testing.T) {
+	repository := &settlingOperationRepository{fakeRepository: newFakeRepository(1), committed: make(chan struct{}), release: make(chan struct{})}
+	driver := newLifecycleDriver()
+	publisher := newRecordingPublisher()
+	catalog := newRefreshCatalog()
+	manager, err := New(Options{Repository: repository, Driver: driver, Publisher: publisher, Catalog: catalog})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	release := sync.OnceFunc(func() { close(repository.release) })
+	defer release()
+	var serverID string
+	for serverID = range repository.servers {
+		break
+	}
+	establishActiveRuntime(t, manager, driver, publisher, serverID)
+	operation, err := repository.CreateOperation(t.Context(), servers.OperationRequest{ServerID: serverID, Kind: contract.OperationRefreshCatalog, ExpectedDesiredRevision: "1"})
+	require.NoError(t, err)
+	manager.Trigger(serverID, &operation.Operation.ID, false)
+	receiveCandidate(t, catalog.refreshStarted)
+	catalog.release <- CatalogOutcome{State: contract.ActiveCatalogCurrent}
+	select {
+	case <-repository.committed:
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not commit its terminal operation")
+	}
+	terminal, err := repository.GetOperation(t.Context(), operation.Operation.ID)
+	require.NoError(t, err)
+	require.Equal(t, contract.OperationSucceeded, terminal.State)
+	reading := make(chan struct{})
+	status := make(chan Status, 1)
+	go func() {
+		close(reading)
+		status <- manager.Status(serverID)
+	}()
+	<-reading
+	select {
+	case <-status:
+		t.Fatal("runtime status exposed refresh completion before the terminal mutation settled")
+	case <-time.After(25 * time.Millisecond):
+	}
+	release()
+	select {
+	case settled := <-status:
+		assert.Equal(t, contract.RuntimeActive, settled.State)
+		assert.Equal(t, contract.ActiveCatalogCurrent, settled.CatalogState)
+	case <-time.After(time.Second):
+		t.Fatal("runtime status remained blocked after terminal mutation settlement")
+	}
+}
+
 type challengeRefreshFake struct {
 	started chan OAuthChallengeRefreshRequest
 	release chan OAuthChallengeRefreshResult

@@ -545,14 +545,15 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 		current.status.CatalogState = outcome.State
 		manager.publish(contract.InvalidationServers, &serverID)
 	}
-	manager.mu.Unlock()
 	state := contract.OperationSucceeded
 	if !stillCurrent || outcome.State != contract.ActiveCatalogCurrent {
 		state = contract.OperationFailed
 	}
+	// Runtime reads must not expose settlement while post-commit cleanup still owns the writer.
 	if _, err := manager.repository.TransitionOperation(context.Background(), operationID, state, outcome.Reason); err == nil {
 		manager.publish(contract.InvalidationServerOperations, &operationID)
 	}
+	manager.mu.Unlock()
 }
 
 func (manager *Manager) HandleCatalogCompletion(candidate Candidate, outcome CatalogOutcome, operationID *string) bool {

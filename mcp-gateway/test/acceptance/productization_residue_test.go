@@ -45,9 +45,29 @@ func TestPublishedMaintainerSurfacesContainNoImplementationProgramResidue(t *tes
 	}
 }
 
+// Stage labels are CamelCase identifiers, not a word-ending s followed by a count or status code.
+var testNameResidue = regexp.MustCompile(`S[1-6](?:[^0-9]|$)|(?i:Task|Milestone|Phase)`)
+
+func TestTestNameResidueRecognizesOwnerLabels(t *testing.T) {
+	for _, name := range []string{
+		"TestAuthorityGateAccepts32OutstandingAndRejectsOverflow",
+		"TestAgentAuthenticationContentionReturns429WithoutReadingBody",
+		"TestModernDiscoveryAccepts32ConcurrentSearches",
+		"TestAccepts4Requests", "TestHTTPStatus503", "TestS32Encoding",
+	} {
+		assert.NotRegexp(t, testNameResidue, name)
+	}
+	for _, name := range []string{
+		"TestS1Admission", "TestS2Catalog", "TestS3", "TestS4Recovery",
+		"TestS5Ingress", "TestGatewayS6Release", "TestTaskOwner",
+		"TestMilestoneOwner", "TestPhaseOwner", "TesttaskOwner",
+	} {
+		assert.Regexp(t, testNameResidue, name)
+	}
+}
+
 func TestTrackedGoTestNamesContainNoImplementationProgramOwners(t *testing.T) {
 	root := filepath.Join(repositoryRoot(t), "mcp-gateway")
-	nameResidue := regexp.MustCompile(`(?i)(?:S[1-6]|Task|Milestone|Phase)`)
 	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -65,7 +85,7 @@ func TestTrackedGoTestNamesContainNoImplementationProgramOwners(t *testing.T) {
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
 			if ok && strings.HasPrefix(function.Name.Name, "Test") {
-				assert.NotRegexp(t, nameResidue, function.Name.Name, path)
+				assert.NotRegexp(t, testNameResidue, function.Name.Name, path)
 			}
 		}
 		return nil

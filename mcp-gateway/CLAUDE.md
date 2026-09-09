@@ -127,6 +127,7 @@ docs/                       Role-oriented operator, maintainer, and design docum
 - `internal/remote` is the sole production downstream/OAuth HTTP client and transport factory. The only separate client is `internal/controlclient` for public administration at numeric loopback or an explicitly selected trusted forwarding hostname.
 - Direct stdio uses validated absolute executables, literal arguments, exact working directories, clean environments, fresh process groups, bounded streams, and identity-validated TERM/KILL/reap cleanup. Never signal an unverified PID or treat unconfirmed stop as success.
 - Downstream calls are one-shot. Preserve the pre-start versus start-uncertain marker, pinned capability revalidation, no reroute, and no automatic retry/reconnect behavior.
+- Explicit catalog refresh holds the lifecycle lock through terminal-operation mutation cleanup, matching reconciliation completion. An operation row can be readable before the writer is released; E2E scenarios must use `WaitSettledOperation` before the next mutation, not terminal-state polling alone.
 - Drain fences invocation admission and routes before stopping producers, drains keyring consumers before storage closure, and leaves an unclean marker whenever cleanup is unconfirmed.
 
 ### Browser and CLI

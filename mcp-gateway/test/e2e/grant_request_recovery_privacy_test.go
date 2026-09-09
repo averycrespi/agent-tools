@@ -77,6 +77,7 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	catalog.Fixture.SetTools([]fixtureTool{{Name: "echo", InputSchema: json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}}}`)}})
 	refresh := createServerOperation(t, harness, catalog.ServerID, catalog.ETag, string(contract.OperationRefreshCatalog), "s5-recovery-drift")
 	harness.WaitOperation(catalog.ServerID, refresh.ID, contract.OperationSucceeded)
+	harness.WaitSettledOperation(catalog.ServerID, refresh.ID)
 	afterDrift := harness.GetGrantRequest(recovered.Request.ID)
 	require.NotNil(t, afterDrift.Resource.SubmittedEvidence)
 	require.NotNil(t, afterDrift.Resource.CurrentTarget.Fingerprint)

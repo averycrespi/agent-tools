@@ -16,14 +16,14 @@ func TestDocumentationContractDrift(t *testing.T) {
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"locally secure, deny-by-default service", "never queues or automatically replays", "mcp-gateway/docs/README.md",
+			"Access is denied unless granted", "approval changes access rather than queuing a tool call", "mcp-gateway/README.md",
 		},
 		"../../../CLAUDE.md": {
 			"mcp-gateway/docs/maintainers/release-verification.md", "Gateway release acceptance is a separate owner", "make frontend-verify-supply-chain", "make frontend-audit",
 		},
 		"../../README.md": {
-			"## Current capabilities", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
-			"at most one automatic attempt", "deny by default", "Native keyring operations may prompt", "## Coexistence with MCP Broker",
+			"## Why Gateway?", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
+			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Native keyring operations may prompt", "## Coexistence with MCP Broker",
 		},
 		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/mcp-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
@@ -71,7 +71,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 		require.NoError(t, err, path)
 		text := string(contents)
 		for _, phrase := range required {
-			require.Contains(t, text, phrase, "%s: missing prohibited historical claim fixture", path)
+			require.Contains(t, text, phrase, "%s: missing current documentation contract", path)
 		}
 		for _, phrase := range prohibited {
 			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)
@@ -86,10 +86,10 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	require.NoError(t, err)
 	readme := string(readmeBytes)
 	quickStart := strings.Index(readme, "## Quick start")
-	currentCapabilities := strings.Index(readme, "## Current capabilities")
+	commonWorkflows := strings.Index(readme, "## Common workflows")
 	require.NotEqual(t, -1, quickStart)
-	require.NotEqual(t, -1, currentCapabilities)
-	require.Less(t, quickStart, currentCapabilities)
+	require.NotEqual(t, -1, commonWorkflows)
+	require.Less(t, quickStart, commonWorkflows)
 	for _, phrase := range []string{"make install", "mcp-gateway initialize", "mcp-gateway serve", "mcp-gateway status"} {
 		require.Contains(t, readme, phrase)
 	}
