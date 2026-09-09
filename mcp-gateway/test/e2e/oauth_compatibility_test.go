@@ -100,6 +100,7 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 	require.NoError(t, os.WriteFile(certificate, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: provider.Certificate().Raw}), 0o600))
 	t.Setenv("SSL_CERT_FILE", certificate)
 	harness := newGatewayHarness(t)
+	harness.serveArgs = append(harness.serveArgs, "--log-level", "debug")
 	harness.Start()
 	auth := map[string]any{"mode": "oauth", "registration": map[string]any{"mode": "dynamic", "issuer": nil}, "trusted_origins": []string{}, "request_offline_access": false}
 	transport := map[string]any{"kind": "streamable_http", "url": issuer + "/mcp", "protocol_mode": "modern", "authentication": auth}
@@ -233,5 +234,13 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 	listener, err = net.Listen("tcp4", "127.0.0.1:3118")
 	require.NoError(t, err, "completion must release port 3118")
 	require.NoError(t, listener.Close())
-	harness.Stop(syscall.SIGTERM)
+	result := harness.Stop(syscall.SIGTERM)
+	for _, event := range []string{"oauth_required", "oauth_failed", "oauth_completed"} {
+		require.Contains(t, string(result.Stderr), `"event":"`+event+`"`)
+	}
+	for _, canary := range []string{issuer, "fixture-access-1", "fixture-refresh-1", "fixture-code", "fixture-client", created.Server.ID, flow.Flow.ID, redirect.Query().Get("state"), flow.AuthorizationURL} {
+		require.NotEmpty(t, canary)
+		require.NotContains(t, string(result.Stderr), canary)
+	}
+	assertOAuthDiagnosticSequence(t, result.Stderr)
 }

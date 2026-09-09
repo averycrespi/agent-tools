@@ -452,6 +452,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		}
 		return nil
 	}
+	references := &diagnosticReferences{}
 	built := &Composition{callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready}
 	cleanup := true
 	defer func() {
@@ -702,13 +703,15 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, err
 	}
 	built.catalog, err = catalog.NewCoordinator(catalog.CoordinatorOptions{
-		InstallationID: options.InstallationID,
-		Repository:     built.catalogRepository,
-		Active:         built.activeCatalog,
-		Traverser:      built.traverser,
-		Clock:          options.Clock,
-		Scheduler:      systemScheduler{},
-		Client:         built.callbacks.client,
+		Diagnostics:         options.Diagnostics,
+		DiagnosticReference: references.reference,
+		InstallationID:      options.InstallationID,
+		Repository:          built.catalogRepository,
+		Active:              built.activeCatalog,
+		Traverser:           built.traverser,
+		Clock:               options.Clock,
+		Scheduler:           systemScheduler{},
+		Client:              built.callbacks.client,
 		Current: func(candidate runtimes.Candidate) bool {
 			return built.publisher.current(candidate) && built.callbacks.current(candidate)
 		},
@@ -737,20 +740,24 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, err
 	}
 	built.manager, err = runtimes.New(runtimes.Options{
-		Diagnostics:  options.Diagnostics,
-		Repository:   built.servers,
-		Driver:       built.driver,
-		Authority:    built.authority,
-		Catalog:      built.catalog,
-		Credentials:  built.disconnect,
-		OAuthRefresh: built.refresh,
-		OAuthStepUp:  built.flows,
-		Invalidate:   options.Invalidate,
-		Publisher:    built.publisher,
+		Diagnostics:         options.Diagnostics,
+		DiagnosticReference: references.reference,
+		DiagnosticNow:       options.Clock.Now,
+		Repository:          built.servers,
+		Driver:              built.driver,
+		Authority:           built.authority,
+		Catalog:             built.catalog,
+		Credentials:         built.disconnect,
+		OAuthRefresh:        built.refresh,
+		OAuthStepUp:         built.flows,
+		Invalidate:          options.Invalidate,
+		Publisher:           built.publisher,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("construct manager: %w", err)
 	}
+	built.flows.SetDiagnostics(options.Diagnostics, references.reference)
+	built.refresh.SetDiagnostics(options.Diagnostics, references.reference)
 	cleanup = false
 	return built, nil
 }

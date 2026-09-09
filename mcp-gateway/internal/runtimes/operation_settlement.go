@@ -47,22 +47,30 @@ func (manager *Manager) finishWork(serverID string, work *reconciliationWork) {
 		current.status.Reason = &reason
 		current.status.RuntimeID = nil
 		current.status.CatalogState = contract.ActiveCatalogUnavailable
-		manager.observeReconciliation(diagnostics.ReconciliationSettlementFailure, failureCause)
+		manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.ReconciliationSettlementFailure, Cause: failureCause})
 	} else if work.cleanupOnly && !manager.draining {
 		current.pending = true
 	}
+	if !manager.draining && (!displaced || work.failed) {
+		manager.observeHealthLocked(current)
+	}
+	facts := diagnosticStatus(current)
+	facts.Event = diagnostics.UpstreamAttemptComplete
+	facts.Attempt = work.diagnosticAttempt
+	facts.Duration = diagnostics.Elapsed(work.diagnosticStart, manager.diagnosticNow())
+	if displaced {
+		facts.Reason, facts.Disposition = diagnostics.ReasonSuperseded, diagnostics.DispositionSuperseded
+	}
+	if manager.draining {
+		facts.Reason, facts.Disposition = diagnostics.ReasonCancelled, diagnostics.DispositionCancelled
+	}
+	manager.observeUpstreamLocked(current, facts)
 	current.work = nil
 	current.reconcileAttempt = nil
 	manager.releaseLocked(current)
 	if !manager.draining {
 		manager.publish(contract.InvalidationServers, &serverID)
 		manager.publish(contract.InvalidationSystemStatus, nil)
-	}
-}
-
-func (manager *Manager) observeReconciliation(event diagnostics.Event, cause diagnostics.Cause) {
-	if manager.diagnostics != nil {
-		manager.diagnostics.Reconciliation(diagnostics.Facts{Event: event, Cause: cause})
 	}
 }
 

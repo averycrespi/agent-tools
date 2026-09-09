@@ -218,6 +218,8 @@ func TestDiagnosticExecutableEventManifest(t *testing.T) {
 func validEventExample(event Event) Facts {
 	f := Facts{Event: event}
 	switch {
+	case upstreamEvent(event):
+		return upstreamExample(event)
 	case event == Startup || event == Readiness || event == Drain || event == Loss || event == ReconciliationDisplaced:
 	case event == Shutdown:
 		f.Cause = Success

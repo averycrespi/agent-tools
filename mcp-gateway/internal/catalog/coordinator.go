@@ -10,6 +10,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -24,15 +25,17 @@ type ClientProvider func(runtimes.Candidate) (PageClient, bool)
 type RuntimeCurrent func(runtimes.Candidate) bool
 
 type CoordinatorOptions struct {
-	InstallationID string
-	Repository     *Repository
-	Active         *ActiveRegistry
-	Traverser      *Traverser
-	Clock          Clock
-	Scheduler      runtimes.Scheduler
-	Client         ClientProvider
-	Current        RuntimeCurrent
-	Complete       func(runtimes.Candidate, runtimes.CatalogOutcome, *string)
+	Diagnostics         diagnostics.ReconciliationObserver
+	DiagnosticReference func(string) uint64
+	InstallationID      string
+	Repository          *Repository
+	Active              *ActiveRegistry
+	Traverser           *Traverser
+	Clock               Clock
+	Scheduler           runtimes.Scheduler
+	Client              ClientProvider
+	Current             RuntimeCurrent
+	Complete            func(runtimes.Candidate, runtimes.CatalogOutcome, *string)
 }
 
 type refreshWork struct {
@@ -44,17 +47,19 @@ type refreshWork struct {
 }
 
 type Coordinator struct {
-	installationID string
-	repository     *Repository
-	active         *ActiveRegistry
-	traverser      *Traverser
-	clock          Clock
-	scheduler      runtimes.Scheduler
-	client         ClientProvider
-	current        RuntimeCurrent
-	complete       func(runtimes.Candidate, runtimes.CatalogOutcome, *string)
-	ctx            context.Context
-	cancel         context.CancelFunc
+	diagnostics         diagnostics.ReconciliationObserver
+	diagnosticReference func(string) uint64
+	installationID      string
+	repository          *Repository
+	active              *ActiveRegistry
+	traverser           *Traverser
+	clock               Clock
+	scheduler           runtimes.Scheduler
+	client              ClientProvider
+	current             RuntimeCurrent
+	complete            func(runtimes.Candidate, runtimes.CatalogOutcome, *string)
+	ctx                 context.Context
+	cancel              context.CancelFunc
 
 	mu           sync.Mutex
 	work         map[string]*refreshWork
@@ -71,7 +76,7 @@ func NewCoordinator(options CoordinatorOptions) (*Coordinator, error) {
 		return nil, servers.ErrInvalidInput
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Coordinator{installationID: options.InstallationID, repository: options.Repository, active: options.Active, traverser: options.Traverser, clock: options.Clock, scheduler: options.Scheduler, client: options.Client, current: options.Current, complete: options.Complete, ctx: ctx, cancel: cancel, work: make(map[string]*refreshWork), timers: make(map[string]runtimes.Timer), candidates: make(map[string]runtimes.Candidate), shutdownDone: make(chan struct{})}, nil
+	return &Coordinator{diagnostics: options.Diagnostics, diagnosticReference: options.DiagnosticReference, installationID: options.InstallationID, repository: options.Repository, active: options.Active, traverser: options.Traverser, clock: options.Clock, scheduler: options.Scheduler, client: options.Client, current: options.Current, complete: options.Complete, ctx: ctx, cancel: cancel, work: make(map[string]*refreshWork), timers: make(map[string]runtimes.Timer), candidates: make(map[string]runtimes.Candidate), shutdownDone: make(chan struct{})}, nil
 }
 
 func PollOffset(installationID, serverID string) time.Duration {
@@ -123,7 +128,9 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 		coordinator.mu.Unlock()
 		select {
 		case <-done:
-			return current.result
+			result := current.result
+			result.DiagnosticJoined = true
+			return result
 		case <-ctx.Done():
 			return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonCancelled)
 		}
@@ -153,8 +160,12 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 		complete(candidate, result, operationID)
 	}
 	if !stopped && result.RuntimeHealth != runtimes.CatalogRuntimeLost && result.OAuthChallenge == nil && coordinator.live(candidate) {
-		coordinator.schedule(candidate)
+		result.DiagnosticRetryDelay = coordinator.schedule(candidate)
 	}
+	if !stopped && intent == runtimes.CatalogTraversalPoll && result.OAuthChallenge == nil {
+		coordinator.observePoll(candidate, result)
+	}
+	coordinator.observeSchedule(candidate, result)
 	return result
 }
 
@@ -293,7 +304,16 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	return runtimes.CatalogOutcome{State: status.State, Phase: runtimes.CatalogPublicationInstalled, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
 }
 
-func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, err error, runtimeFailure *runtimes.FailureDisposition) runtimes.CatalogOutcome {
+func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, err error, runtimeFailure *runtimes.FailureDisposition) (outcome runtimes.CatalogOutcome) {
+	defer func() {
+		outcome.DiagnosticReason = diagnostics.PublicReason(outcome.Reason)
+		if outcome.Reason != nil && *outcome.Reason == contract.ReasonConnectivity {
+			outcome.DiagnosticReason = diagnostics.ReasonUnknown
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			outcome.DiagnosticReason = diagnostics.ReasonTimeout
+		}
+	}()
 	ctx := audit.WithSystem(audit.WithCause(context.Background(), candidate.Cause))
 	reason := catalogFailureReason(err)
 	var challenge *downstream.OAuthChallengeDisposition
@@ -369,12 +389,12 @@ func (coordinator *Coordinator) live(candidate runtimes.Candidate) bool {
 	return live && coordinator.current(candidate)
 }
 
-func (coordinator *Coordinator) schedule(candidate runtimes.Candidate) {
+func (coordinator *Coordinator) schedule(candidate runtimes.Candidate) time.Duration {
 	serverID := candidate.Server.ID
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	if coordinator.stopped || !coordinator.current(candidate) {
-		return
+		return 0
 	}
 	if previous := coordinator.timers[serverID]; previous != nil {
 		previous.Stop()
@@ -397,6 +417,7 @@ func (coordinator *Coordinator) schedule(candidate runtimes.Candidate) {
 		}
 	})
 	coordinator.timers[serverID] = timer
+	return delay
 }
 
 func allowsHeaderBindings(candidate runtimes.Candidate, runtime *downstream.Runtime) bool {

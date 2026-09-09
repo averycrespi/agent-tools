@@ -163,7 +163,15 @@ func TestOAuthDisplacementFailureAndTerminalRaces(t *testing.T) {
 				require.NotNil(t, retained)
 				require.Equal(t, operation.Operation.ID, *retained.operationID)
 				require.NotNil(t, retained.attempt)
-				require.Equal(t, diagnostics.ReconciliationSettlementFailure, observer.facts[len(observer.facts)-1].Event)
+				failures := 0
+				for _, fact := range observer.facts {
+					if fact.Event == diagnostics.ReconciliationSettlementFailure {
+						failures++
+						require.NotZero(t, fact.Upstream)
+						require.NotZero(t, fact.Attempt)
+					}
+				}
+				require.Equal(t, 1, failures)
 				manager.Trigger(serverID, nil, true)
 			}
 			select {

@@ -3,9 +3,12 @@ package runtimes
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 	"sync"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servercredentials"
@@ -68,7 +71,9 @@ func NewConcreteDriver(options ConcreteDriverOptions) (*ConcreteDriver, error) {
 	return &ConcreteDriver{owner: options.Owner, startStdio: options.StartStdio, httpFactory: options.HTTPFactory, newCoordinator: options.NewCoordinator, newNegotiator: options.NewNegotiator, reportFailure: options.ReportFailure, handles: make(map[CandidateKey]*concreteHandle)}, nil
 }
 
-func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate, lease *MaterialLease) Outcome {
+func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate, lease *MaterialLease) (outcome Outcome) {
+	phase := diagnostics.PhaseConnection
+	defer func() { outcome.DiagnosticPhase = phase }()
 	var desired contract.Transport
 	var initial *downstream.Coordinator
 	key, err := driver.owner.Admit(candidate, lease, func(OwnedRuntime) error {
@@ -105,8 +110,13 @@ func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate
 		driver.cleanupConstruction(ctx, key)
 		return constructionFailure(err)
 	}
+	phase = diagnostics.PhaseInitialization
 	selected, err := negotiator.Negotiate(ctx, replayNegotiationMode(desired, candidate.OAuthReplayStage))
 	if err != nil {
+		var network *net.OpError
+		if errors.As(err, &network) && network.Op == "dial" || tlsFailure(err) {
+			phase = diagnostics.PhaseConnection
+		}
 		var challenge *downstream.OAuthChallengeDisposition
 		if !errors.As(err, &challenge) {
 			driver.cleanupConstruction(ctx, key)
@@ -438,10 +448,18 @@ func constructionFailure(err error) Outcome {
 	var challenge *downstream.OAuthChallengeDisposition
 	if errors.As(err, &challenge) {
 		reason := contract.ReasonAuthenticationRejected
-		return Outcome{State: contract.RuntimeAuthenticationRequired, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &reason, OAuthChallenge: challenge}
+		return Outcome{DiagnosticReason: diagnostics.ReasonAuthenticationRejected, State: contract.RuntimeAuthenticationRequired, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &reason, OAuthChallenge: challenge}
 	}
 	failure := ClassifyFailure(err)
-	return Outcome{State: failure.State, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &failure.Reason, Retryable: failure.Retryable}
+	reason := diagnostics.PublicReason(&failure.Reason)
+	var network net.Error
+	if failure.Reason == contract.ReasonConnectivity && !errors.As(err, &network) && !errors.Is(err, io.EOF) && !errors.Is(err, downstream.ErrTransportClosed) {
+		reason = diagnostics.ReasonUnknown
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &network) && network.Timeout() {
+		reason = diagnostics.ReasonTimeout
+	}
+	return Outcome{DiagnosticReason: reason, State: failure.State, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogAbsent, Reason: &failure.Reason, Retryable: failure.Retryable}
 }
 
 func cloneStrings(values map[string]string) map[string]string {

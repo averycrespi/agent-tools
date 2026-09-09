@@ -54,7 +54,7 @@ Exact authorities, limits, states, and failure vocabularies are owned by the rel
 
 `cmd/mcp-gateway` constructs one `composition` graph before opening the listener. Domain packages own their SQL, process-local state, transport, protocol, and lifecycle behavior behind narrow interfaces. The command root composes those owners but does not become an alternate authority.
 
-Serve diagnostics use one startup-owned typed `log/slog` adapter, independently of mandatory durable audit writes. Narrow injected observers supply only the closed privacy-safe lifecycle, invocation, authority and storage inventory; [serve diagnostics](docs/design/administrative-control-plane.md#serve-diagnostics) owns bounded buffering and best-effort stderr shutdown.
+Serve diagnostics use one startup-owned typed `log/slog` adapter, independently of mandatory durable audit writes. Narrow injected observers supply only the closed privacy-safe process/upstream lifecycle, OAuth, invocation, authority and storage inventory; [serve diagnostics](docs/design/administrative-control-plane.md#serve-diagnostics) owns bounded buffering and best-effort stderr shutdown.
 
 Durable desired state remains separate from process-local runtime and active publication. Administrator authority remains separate from agent authority. Authentication remains separate from authorization; discovery remains separate from capability acquisition; audit admission completes before execution; and one-time secret ingress and output remain separate from reusable state.
 

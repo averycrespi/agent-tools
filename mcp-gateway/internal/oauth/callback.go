@@ -2,12 +2,14 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 )
@@ -56,9 +58,18 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 	if !found {
 		return CallbackResult{Outcome: CallbackInvalid}
 	}
+	bundle.diagnosticFailure = &flowDiagnostic{phase: diagnostics.PhaseAuthorization, reason: diagnostics.ReasonUnknown}
 	defer service.removeFlowIDs([]string{bundle.flowID})
+	defer func() {
+		if result.Outcome == CallbackSucceeded {
+			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthCompleted, diagnostics.PhaseAuthorization, diagnostics.ReasonNone)
+		} else {
+			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthFailed, bundle.diagnosticFailure.phase, bundle.diagnosticFailure.reason)
+		}
+	}()
 	workCtx = audit.WithSystem(audit.WithCause(workCtx, bundle.cause))
 	result = CallbackResult{Cause: audit.Capture(workCtx), Outcome: CallbackInvalid, ServerID: bundle.serverID, FlowID: bundle.flowID}
+	service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthStage, diagnostics.PhaseOAuthCallback, diagnostics.ReasonNone)
 	values, valid := callbackValues(rawQuery, "code", "error", "iss")
 	if !valid || !validIssuer(values["iss"], bundle) {
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, newDiagnosticFailure(ErrFlowRejected, contract.ReasonProtocolInvalid, 0))
@@ -134,6 +145,7 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 			result.Outcome = CallbackTransient
 		}
 	}()
+	service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthStage, diagnostics.PhaseOAuthExchange, diagnostics.ReasonNone)
 	status, responseHeader, responseBody, err := service.requester.Request(
 		workCtx, bundle.graph.TokenEndpoint, bundle.graph.AllowsRestrictedEndpoint(bundle.graph.TokenEndpoint),
 		http.MethodPost, header, body, limit("oauth_response_body_bytes"),
@@ -156,6 +168,7 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 		return result
 	}
 	defer clear(generation)
+	service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthStage, diagnostics.PhaseOAuthInstallation, diagnostics.ReasonNone)
 	if _, err := service.secrets.ReplaceFencedAfterAuthorizationSuccess(workCtx, tokenNamespace, generation, callback); err != nil {
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 		return result
@@ -197,7 +210,14 @@ func (service *FlowService) acquireCallback(ctx context.Context) (context.Contex
 }
 
 func (service *FlowService) failConsumed(ctx context.Context, bundle flowBundle, stage contract.OAuthDiagnosticStage, cause error) {
-	_, _ = service.store.FailAuthFlow(ctx, bundle.flowID, oauthDiagnostic(bundle.flowID, stage, cause))
+	diagnostic := oauthDiagnostic(bundle.flowID, stage, cause)
+	if bundle.diagnosticFailure != nil {
+		bundle.diagnosticFailure.phase, bundle.diagnosticFailure.reason = oauthPhase(stage), diagnostics.PublicReason(&diagnostic.Reason)
+		if errors.Is(cause, context.DeadlineExceeded) {
+			bundle.diagnosticFailure.reason = diagnostics.ReasonTimeout
+		}
+	}
+	_, _ = service.store.FailAuthFlow(ctx, bundle.flowID, diagnostic)
 }
 
 func validIssuer(values []string, bundle flowBundle) bool {

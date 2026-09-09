@@ -15,6 +15,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
@@ -23,7 +24,13 @@ import (
 var ErrFlowRejected = errors.New("OAuth flow preparation was rejected")
 var ErrCallbackUnavailable = errors.New("OAuth callback listener is unavailable")
 
+type flowDiagnostic struct {
+	phase  diagnostics.Phase
+	reason diagnostics.Reason
+}
+
 type FlowFailure struct {
+	diagnostic    flowDiagnostic
 	CorrelationID string
 	cause         error
 }
@@ -87,6 +94,8 @@ type tokenSecretStore interface {
 }
 
 type flowBundle struct {
+	diagnosticAttempt  uint64
+	diagnosticFailure  *flowDiagnostic
 	cause              audit.Cause
 	serverID           string
 	flowID             string
@@ -110,12 +119,14 @@ type callbackLease struct {
 }
 
 type FlowService struct {
-	store       flowStore
-	resolver    flowResolver
-	registrar   flowRegistrar
-	entropy     io.Reader
-	callbackURL string
-	now         func() time.Time
+	diagnostics         diagnostics.ReconciliationObserver
+	diagnosticReference func(string) uint64
+	store               flowStore
+	resolver            flowResolver
+	registrar           flowRegistrar
+	entropy             io.Reader
+	callbackURL         string
+	now                 func() time.Time
 
 	requester      machineRequester
 	secrets        tokenSecretStore
@@ -247,6 +258,19 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 	if err != nil {
 		return contract.AuthFlowCreation{}, err
 	}
+	diagnosticAttempt := diagnostics.AttemptReference()
+	defer func() {
+		if resultErr == nil {
+			service.observeFlow(request.ServerID, diagnosticAttempt, diagnostics.OAuthRequired, diagnostics.PhaseAuthorization, diagnostics.ReasonAuthenticationRequired)
+		} else {
+			phase, reason := diagnostics.PhaseAuthorization, diagnostics.ReasonUnknown
+			var failure *FlowFailure
+			if errors.As(resultErr, &failure) && failure.diagnostic.phase != diagnostics.PhaseUnknown {
+				phase, reason = failure.diagnostic.phase, failure.diagnostic.reason
+			}
+			service.observeFlow(request.ServerID, diagnosticAttempt, diagnostics.OAuthFailed, phase, reason)
+		}
+	}()
 	service.removeFlowIDs(prepared.SupersededIDs)
 	ctx = audit.WithSystem(audit.InheritCause(ctx, prepared.Flow.Cause))
 	attempt, err := beginOAuthEffect(ctx, service.store, service.now(), "prepare", contract.AuditTarget{Type: "auth_flow", ID: prepared.Flow.ID})
@@ -275,6 +299,7 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 	default:
 		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
+	service.observeFlow(request.ServerID, diagnosticAttempt, diagnostics.OAuthStage, diagnostics.PhaseOAuthMetadata, diagnostics.ReasonNone)
 	graph, err := service.resolver.Discover(ctx, Input{Resource: configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: desiredIssuer, TrustedOrigins: configuration.Authentication.TrustedOrigins, AuthServerMetadataURL: configuration.Authentication.AuthServerMetadataURL})
 	if err != nil {
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticMetadataDiscovery)
@@ -308,6 +333,7 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 	if stopped || currentErr != nil || currentFlow.State != contract.AuthFlowPreparing {
 		return service.fail(ctx, prepared.Flow.ID, ErrFlowRejected, contract.OAuthDiagnosticAuthorizationRequest)
 	}
+	service.observeFlow(request.ServerID, diagnosticAttempt, diagnostics.OAuthStage, diagnostics.PhaseOAuthRegistration, diagnostics.ReasonNone)
 	registration, err := service.registrar.Register(ctx, RegistrationRequest{
 		ServerID: prepared.Flow.ServerID, ExpectedDesiredRevision: prepared.Flow.TargetDesiredRevision,
 		ExpectedRegistrationRevision: prepared.Authority.RegistrationRevision, ExpectedOAuthClientRevision: prepared.Authority.CredentialRevisions.OAuthClient,
@@ -341,8 +367,9 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticAuthorizationRequest)
 	}
 	bundle := flowBundle{
-		cause:    audit.Capture(ctx),
-		serverID: prepared.Flow.ServerID, flowID: prepared.Flow.ID, desiredRevision: prepared.Flow.TargetDesiredRevision,
+		diagnosticAttempt: diagnosticAttempt,
+		cause:             audit.Capture(ctx),
+		serverID:          prepared.Flow.ServerID, flowID: prepared.Flow.ID, desiredRevision: prepared.Flow.TargetDesiredRevision,
 		authority: boundAuthority, registration: registration, graph: graph, state: state, verifier: verifier,
 		requestedScopes: scopes, issuerResponseUsed: graph.AuthorizationResponseIssuerParameterUsed,
 	}
@@ -448,6 +475,15 @@ func (service *FlowService) expire(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	service.mu.Lock()
+	for _, bundle := range service.byState {
+		for _, id := range expired {
+			if bundle.flowID == id {
+				service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthExpired, diagnostics.PhaseAuthorization, diagnostics.ReasonTimeout)
+			}
+		}
+	}
+	service.mu.Unlock()
 	service.removeFlowIDs(expired)
 	return nil
 }
@@ -460,7 +496,11 @@ func (service *FlowService) fail(ctx context.Context, flowID string, cause error
 	if errors.Is(cause, ErrCallbackUnavailable) {
 		rejected = errors.Join(rejected, ErrCallbackUnavailable)
 	}
-	return contract.AuthFlowCreation{}, NewFlowFailure(flowID, rejected)
+	reason := diagnostics.PublicReason(&diagnostic.Reason)
+	if errors.Is(cause, context.DeadlineExceeded) {
+		reason = diagnostics.ReasonTimeout
+	}
+	return contract.AuthFlowCreation{}, &FlowFailure{CorrelationID: flowID, cause: rejected, diagnostic: flowDiagnostic{phase: oauthPhase(stage), reason: reason}}
 }
 
 func (service *FlowService) removeFlowIDs(flowIDs []string) {

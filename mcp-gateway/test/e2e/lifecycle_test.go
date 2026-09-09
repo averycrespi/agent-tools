@@ -190,7 +190,12 @@ func TestServeFirstSignalDrainsActiveStdioAndHTTP(t *testing.T) {
 func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
-	defer harness.Stop(syscall.SIGTERM)
+	defer func() {
+		result := harness.Stop(syscall.SIGTERM)
+		require.Contains(t, string(result.Stderr), `"event":"upstream_unhealthy"`)
+		require.Contains(t, string(result.Stderr), `"level":"WARN"`)
+		require.NotContains(t, string(result.Stderr), `"event":"upstream_attempt_start"`)
+	}()
 
 	created := harness.AdminJSON(http.MethodPost, "/api/v1/servers", `{"namespace":"failing","display_name":"Failing","enabled":true,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, map[string]string{"Idempotency-Key": "failing-server"}, nil)
 	require.Equal(t, http.StatusCreated, created.StatusCode)
