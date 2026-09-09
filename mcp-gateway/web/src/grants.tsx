@@ -564,16 +564,27 @@ function GrantCreate({
           </FormField>
           {scope === "server" && effect === "allow" && (
             <div>
-              <label class="checkbox-field">
-                <input
-                  type="checkbox"
-                  data-testid="grant-read-only"
-                  checked={readOnly}
-                  onChange={(event) => setReadOnly(event.currentTarget.checked)}
-                />
-                Read-only tools only
-              </label>
-              <p class="muted">{readOnlyExplanation}</p>
+              <FormField
+                id="grant-read-only"
+                label="Allowed tools"
+                {...(readOnly ? { hint: readOnlyExplanation } : {})}
+              >
+                {(attributes) => (
+                  <select
+                    {...attributes}
+                    data-testid="grant-read-only"
+                    value={readOnly ? "read-only" : "all"}
+                    onChange={(event) =>
+                      setReadOnly(event.currentTarget.value === "read-only")
+                    }
+                  >
+                    <option value="all">All tools</option>
+                    <option value="read-only">
+                      Only tools marked read-only
+                    </option>
+                  </select>
+                )}
+              </FormField>
             </div>
           )}
           {scope === "tool" && (
@@ -754,7 +765,7 @@ function GrantCreate({
                       ? ` · ${upstreamName}`
                       : readOnly
                         ? " · Read-only tools"
-                        : " · All tools (unrestricted)"}
+                        : " · All tools"}
                   </dd>
                 </div>
                 <div>
@@ -1438,7 +1449,7 @@ export function Grants({
                 {detail.upstreamName === null
                   ? detail.readOnly
                     ? "Entire server — read-only tools"
-                    : "Entire server — unrestricted"
+                    : "Entire server — all tools"
                   : `Exact tool ${detail.upstreamName}`}
                 {detail.readOnly && <p>{readOnlyExplanation}</p>}
               </dd>
@@ -1653,7 +1664,7 @@ function GrantCollection({
                     {grant.upstreamName === null
                       ? grant.readOnly
                         ? " — Read-only tools"
-                        : " — All tools (unrestricted)"
+                        : " — All tools"
                       : ` — ${grant.upstreamName}`}
                   </a>
                 ),

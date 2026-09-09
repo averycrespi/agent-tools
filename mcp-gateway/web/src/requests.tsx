@@ -575,7 +575,7 @@ function policyAccess(policy: Policy): string {
   return policy.readOnly
     ? "Read-only server tools"
     : policy.scope === "server"
-      ? "Unrestricted server tools"
+      ? "All tools"
       : "Exact tool";
 }
 
@@ -1342,17 +1342,28 @@ function RequestActions({
           </FormField>
           {scope === "server" && (
             <div>
-              <label class="checkbox-field">
-                <input
-                  type="checkbox"
-                  data-testid="approval-read-only"
-                  checked={readOnly}
-                  disabled={submitted.readOnly || disabled}
-                  onChange={(event) => setReadOnly(event.currentTarget.checked)}
-                />
-                Read-only tools only
-              </label>
-              <p class="muted">{readOnlyExplanation}</p>
+              <FormField
+                id="approval-read-only"
+                label="Allowed tools"
+                {...(readOnly ? { hint: readOnlyExplanation } : {})}
+              >
+                {(attributes) => (
+                  <select
+                    {...attributes}
+                    data-testid="approval-read-only"
+                    value={readOnly ? "read-only" : "all"}
+                    disabled={submitted.readOnly || disabled}
+                    onChange={(event) =>
+                      setReadOnly(event.currentTarget.value === "read-only")
+                    }
+                  >
+                    <option value="all">All tools</option>
+                    <option value="read-only">
+                      Only tools marked read-only
+                    </option>
+                  </select>
+                )}
+              </FormField>
               {submitted.readOnly && (
                 <p>
                   The requested read-only server restriction cannot be removed
@@ -1522,7 +1533,7 @@ function RequestActions({
                   {scope === "server"
                     ? readOnly
                       ? "Read-only server tools"
-                      : "Unrestricted server tools"
+                      : "All tools"
                     : target}
                 </div>
               </div>
@@ -2269,7 +2280,7 @@ export function Requests({
                   {item.upstreamName ??
                     (item.requestedPolicy.readOnly
                       ? "Read-only tools"
-                      : "All tools (unrestricted)")}
+                      : "All tools")}
                 </a>
               ),
               sortValue: (item) => item.requestedPolicy.target,

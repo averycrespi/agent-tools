@@ -111,7 +111,9 @@ export async function runReadOnlyBackendFlow(
   await page
     .getByRole("button", { name: "Customize approval", exact: true })
     .click();
-  await page.getByTestId("approval-read-only").check();
+  await page
+    .getByRole("combobox", { name: "Allowed tools" })
+    .selectOption("read-only");
   await expect(
     page.getByRole("region", { name: "Approval preview" }),
   ).toContainText("Read-only server tools");
@@ -129,7 +131,7 @@ export async function runReadOnlyBackendFlow(
       name: "Requested versus approved",
       exact: true,
     }),
-  ).toContainText("Unrestricted server tools → Read-only server tools");
+  ).toContainText("All tools → Read-only server tools");
   await captureRequestState(page, "backend-read-only-approved");
   const createdGrant = page
     .getByTestId("request-detail")
@@ -160,7 +162,9 @@ export async function runReadOnlyBackendFlow(
     fail("real read-only fixture selectors missing");
   await page.getByTestId("grant-principal").selectOption(principal);
   await page.getByTestId("grant-server").selectOption(server);
-  await page.getByTestId("grant-read-only").check();
+  await page
+    .getByRole("combobox", { name: "Allowed tools" })
+    .selectOption("read-only");
   await page.getByTestId("grant-create-submit").click();
   await expect(page.getByRole("dialog")).toContainText("Read-only tools");
   await page.getByTestId("grant-create-confirm-submit").click();
@@ -1952,12 +1956,21 @@ export async function runGrantReadsCreate(
   if (Number(attempts) !== 0)
     fail("control-character grant description reached the API");
   await page.locator('[data-testid="grant-description"]').fill("New access");
-  await page.getByTestId("grant-read-only").check();
+  const allowedTools = page.getByRole("combobox", { name: "Allowed tools" });
+  await expect(allowedTools).toHaveValue("all");
+  await allowedTools.selectOption("read-only");
+  await allowedTools.selectOption("all");
+  await expect(
+    page.getByText("Includes current and future tools marked", {
+      exact: false,
+    }),
+  ).toHaveCount(0);
+  await allowedTools.selectOption("read-only");
   await page.getByTestId("grant-effect").selectOption("deny");
-  await expect(page.getByTestId("grant-read-only")).toHaveCount(0);
+  await expect(allowedTools).toHaveCount(0);
   await page.getByTestId("grant-effect").selectOption("allow");
-  await expect(page.getByTestId("grant-read-only")).not.toBeChecked();
-  await page.getByTestId("grant-read-only").check();
+  await expect(allowedTools).toHaveValue("all");
+  await allowedTools.selectOption("read-only");
   await captureRequestState(page, "read-only-grant-create");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
@@ -4373,7 +4386,9 @@ export async function runRequestAdjudication(
     fail("duration boundary review mutated");
   await page.getByTestId("approval-duration-unit").selectOption("minutes");
   await page.locator('[data-testid="approval-duration"]').fill("1");
-  await page.getByTestId("approval-read-only").check();
+  await page
+    .getByRole("combobox", { name: "Allowed tools" })
+    .selectOption("read-only");
   await reviewApproval();
   await page
     .getByText("Not applicable to server-wide authority", { exact: true })
@@ -4386,7 +4401,10 @@ export async function runRequestAdjudication(
 
   for (const index of [11, 12]) {
     await navigate(ids[index]!);
-    await expect(page.getByTestId("approval-read-only")).toBeChecked();
+    await expect(
+      page.getByRole("combobox", { name: "Allowed tools" }),
+    ).toHaveValue("read-only");
+    await captureRequestState(page, "read-only-request-dropdown");
     await expect(page.getByTestId("approval-read-only")).toBeDisabled();
     await expect(page.getByTestId("approval-scope")).toBeDisabled();
     if (index === 12) {

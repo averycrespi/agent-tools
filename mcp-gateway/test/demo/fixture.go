@@ -31,11 +31,11 @@ func schema(properties object, required ...string) object {
 
 var tools = map[string][]object{
 	"workshop": {
-		{"name": "echo", "description": "Echo at most 256 characters", "inputSchema": schema(object{"text": object{"type": "string", "maxLength": 256}}, "text")},
+		{"name": "echo", "annotations": object{"readOnlyHint": true}, "description": "Echo at most 256 characters", "inputSchema": schema(object{"text": object{"type": "string", "maxLength": 256}}, "text")},
 		{"name": "add", "description": "Add two bounded finite numbers", "inputSchema": schema(object{"a": object{"type": "number", "minimum": -1000000, "maximum": 1000000}, "b": object{"type": "number", "minimum": -1000000, "maximum": 1000000}}, "a", "b")},
-		{"name": "controlled_error", "description": "Return a deliberate harmless tool error", "inputSchema": schema(object{})},
+		{"name": "controlled_error", "annotations": object{"readOnlyHint": false}, "description": "Return a deliberate harmless tool error", "inputSchema": schema(object{})},
 	},
-	"library": {{"name": "lookup", "description": "Look up a fixed bundled sample document", "inputSchema": schema(object{"document": object{"type": "string", "enum": []string{"welcome", "permissions"}}}, "document")}},
+	"library": {{"name": "lookup", "annotations": object{"readOnlyHint": true}, "description": "Look up a fixed bundled sample document", "inputSchema": schema(object{"document": object{"type": "string", "enum": []string{"welcome", "permissions"}}}, "document")}},
 }
 
 func toolResult(kind, name string, args object) (object, error) {

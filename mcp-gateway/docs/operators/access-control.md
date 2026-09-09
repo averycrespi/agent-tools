@@ -135,7 +135,7 @@ Every grant has a stable ID and may have a non-unique human-readable description
 
 ### Read-only server access
 
-Add `--read-only` to direct server ALLOW creation, or select **Read-only tools only** in the browser's server ALLOW form:
+Add `--read-only` to direct server ALLOW creation, or select **Only tools marked read-only** in the browser's **Allowed tools** dropdown for a server ALLOW:
 
 ```bash
 mcp-gateway grant create --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID --read-only
@@ -238,7 +238,7 @@ mcp-gateway grant-request approve REQUEST_ID \
   --acknowledge-future-tools --duration-seconds 600 --yes
 ```
 
-In the browser, **Approve as requested** preserves the submitted restriction. **Customize approval** can enable **Read-only tools only** for an unrestricted server request; a requested read-only restriction is locked on and exact-tool narrowing is disabled. Both requested and approved restrictions remain visible after approval. Duration may only shorten, and future-tool acknowledgement remains required. A read-only server request cannot narrow to an unrestricted exact-tool grant, even if that tool currently declares itself read-only. Conservative active-DENY conflicts remain safe errors; neither client replays rejected, stale, or uncertain mutations.
+In the browser, **Approve as requested** preserves the submitted restriction. **Customize approval** can change **Allowed tools** from **All tools** to **Only tools marked read-only** for a server request; a requested read-only restriction locks the dropdown and disables exact-tool narrowing. Both requested and approved restrictions remain visible after approval. Duration may only shorten, and future-tool acknowledgement remains required. A read-only server request cannot narrow to an unrestricted exact-tool grant, even if that tool currently declares itself read-only. Conservative active-DENY conflicts remain safe errors; neither client replays rejected, stale, or uncertain mutations.
 
 The strict approval file accepts optional Boolean `read_only` inside `approved_policy` with the same server-only semantics. It contains the complete closed approval body; an additive v2 narrowing looks like:
 

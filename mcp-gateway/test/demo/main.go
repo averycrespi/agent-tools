@@ -222,7 +222,10 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	var output strings.Builder
 	fmt.Fprintf(&output, "\nDemo Gateway ready (%s)\n  URL:          http://%s/\n  Run root:     %s\n  Data:         %s\n  Admin bearer: %s\n", dataset, listen, root, filepath.Join(root, "data"), filepath.Join(root, "admin-bearer"))
 	if dataset == "curated" {
-		fmt.Fprintf(&output, "  Explorer:     %s (all demo tools)\n  Reader:       %s (echo/lookup; pending arithmetic request)\n  Disabled:     %s (authentication denied)\nUse an MCP client with an Authorization bearer read from its protected file at /mcp.\nTools: demo_workshop.echo/add/controlled_error and demo_library.lookup.\n", filepath.Join(root, "explorer-bearer"), filepath.Join(root, "reader-bearer"), filepath.Join(root, "disabled-bearer"))
+		fmt.Fprintf(&output, "  Explorer:     %s (all demo tools)\n  Reader:       %s (echo/lookup; arithmetic requires approval)\n  Disabled:     %s (authentication denied)\nUse an MCP client with an Authorization bearer read from its protected file at /mcp.\nTools: demo_workshop.echo/add/controlled_error and demo_library.lookup.\n", filepath.Join(root, "explorer-bearer"), filepath.Join(root, "reader-bearer"), filepath.Join(root, "disabled-bearer"))
+		for _, request := range pendingDemoRequests {
+			fmt.Fprintf(&output, "  %s: %s (pending approval)\n", request.label, filepath.Join(root, demoAgentFile(request.label)))
+		}
 	}
 	fmt.Fprintf(&output, "Separate Vite: MCP_GATEWAY_UI_GATEWAY=http://%s npm run ui:dev\nStop with Ctrl-C; all temporary state will be removed. Relaunch for fresh data; DEMO_DATASET=empty for empty state.\n", listen)
 	if _, err = io.WriteString(out, output.String()); err != nil {

@@ -9,6 +9,21 @@ import (
 	"strings"
 )
 
+var pendingDemoRequests = []struct {
+	label  string
+	policy object
+}{
+	{"Request Tool", object{"scope": "tool", "target": "demo_workshop.add", "constraint": nil, "duration_seconds": nil, "future_tools_acknowledged": false}},
+	{"Request Constraints", object{"scope": "tool", "target": "demo_workshop.add", "constraint": object{"version": 2, "equals": object{"/a": 1}}, "duration_seconds": nil, "future_tools_acknowledged": false}},
+	{"Request Duration", object{"scope": "tool", "target": "demo_workshop.add", "constraint": nil, "duration_seconds": "3600", "future_tools_acknowledged": false}},
+	{"Request Server", object{"scope": "server", "target": "demo_workshop", "constraint": nil, "duration_seconds": nil, "future_tools_acknowledged": true}},
+	{"Request Read-only", object{"scope": "server", "target": "demo_workshop", "constraint": nil, "duration_seconds": nil, "future_tools_acknowledged": true, "read_only": true}},
+}
+
+func demoAgentFile(label string) string {
+	return strings.ReplaceAll(strings.ToLower(label), " ", "-") + "-bearer"
+}
+
 func seed(ctx context.Context, c *client, root string, endpoints map[string]string, children []*child, command func(string, []string) error) error {
 	servers := map[string]string{}
 	for _, kind := range []string{"workshop", "library"} {
@@ -31,9 +46,13 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 	}
 	principals := map[string]string{}
 	agents := map[string]string{}
-	for _, label := range []string{"Explorer", "Reader", "Disabled"} {
+	labels := []string{"Explorer", "Reader", "Disabled"}
+	for _, request := range pendingDemoRequests {
+		labels = append(labels, request.label)
+	}
+	for _, label := range labels {
 		visibility := "allowed-only"
-		if label == "Reader" {
+		if label == "Reader" || strings.HasPrefix(label, "Request ") {
 			visibility = "requestable"
 		}
 		result := c.post("principals", object{"display_name": "Demo " + label, "visibility": visibility})
@@ -44,8 +63,8 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 		}
 		principals[label] = id
 	}
-	for _, label := range []string{"Explorer", "Reader", "Disabled"} {
-		sink := filepath.Join(root, strings.ToLower(label)+"-bearer")
+	for _, label := range labels {
+		sink := filepath.Join(root, demoAgentFile(label))
 		err := command("issue "+label, []string{"principal", "credential", "issue", principals[label], "--secret-output", sink, "--yes", "--address", "http://" + c.listen, "--admin-bearer-file", filepath.Join(root, "admin-bearer")})
 		if err != nil {
 			return err
@@ -80,21 +99,23 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 	c.require(contentIs(c.call(agents["Reader"], "demo_workshop.echo", object{"text": "Reader access works"}), "Reader access works"), "restricted allow failed")
 	c.require(text(c.call(agents["Reader"], "demo_workshop.add", object{"a": 1, "b": 2}), "error", "data", "code") == "call_rejected", "restricted call was not denied")
 	c.request("POST", "/mcp", object{}, http.Header{"Accept": {"application/json, text/event-stream"}, "Mcp-Protocol-Version": {protocol}}, 401, agents["Disabled"])
-	result := c.call(agents["Reader"], "mcp_gateway.create_grant_request", object{"policy": object{"scope": "tool", "target": "demo_workshop.add", "constraint": nil, "duration_seconds": nil, "future_tools_acknowledged": false}})
-	c.require(value(result, "error") == nil && value(result, "result", "isError") != true, "grant request failed")
+	// Separate principals keep each approval independent of other demo grants and DENYs.
+	for _, request := range pendingDemoRequests {
+		result := c.call(agents[request.label], "mcp_gateway.create_grant_request", object{"policy": request.policy})
+		c.require(value(result, "error") == nil && value(result, "result", "isError") != true, "grant request failed")
+	}
 	for _, collection := range []struct {
 		name  string
 		count int
-	}{{"servers", 2}, {"principals", 3}, {"grants", 8}} {
+	}{{"servers", 2}, {"principals", 8}, {"grants", 13}} {
 		c.require(len(rows(c.get(collection.name), "items")) == collection.count, collection.name+" verification failed")
 	}
 	requests := rows(c.get("grant-requests"), "items")
-	pending := false
-	if len(requests) == 1 {
-		row, _ := requests[0].(map[string]any)
-		pending = text(row, "state") == "pending"
+	c.require(len(requests) == len(pendingDemoRequests), "pending requests missing")
+	for _, item := range requests {
+		row, _ := item.(map[string]any)
+		c.require(text(row, "state") == "pending", "demo request is not pending")
 	}
-	c.require(pending, "pending request missing")
 	success, failure := false, false
 	for _, item := range rows(c.get("invocations"), "items") {
 		row, _ := item.(map[string]any)

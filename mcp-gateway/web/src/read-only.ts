@@ -1,5 +1,5 @@
 export const readOnlyExplanation =
-  "Read-only access includes current and future tools explicitly declaring readOnlyHint=true. These are trusted server declarations, not side-effect isolation. Other ALLOW grants may authorize writes; matching DENY still wins.";
+  "Includes current and future tools marked readOnlyHint=true. The Gateway does not verify that these tools are read-only; they may still change data.";
 
 export function readOnlyKeys(value: unknown): string[] {
   return typeof value === "object" &&
