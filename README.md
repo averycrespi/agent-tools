@@ -158,7 +158,7 @@ make -C local-gomod-proxy install
 make -C telegram-mcp install
 ```
 
-Each tool's README covers its configuration and runtime requirements. For Gateway stdio backends, explicitly configure the executable, working directory, environment, and secret bindings; Gateway does not inherit the host environment. See [upstream server configuration](mcp-gateway/docs/operators/upstream-servers.md).
+Each tool's README covers its configuration and runtime requirements.
 
 ## Development
 
