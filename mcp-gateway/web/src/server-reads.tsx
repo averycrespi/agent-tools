@@ -26,13 +26,14 @@ import { ServerCredentials } from "./server-credentials";
 import { ServerDestructiveActions } from "./server-destructive";
 import { ServerEditor } from "./server-editor";
 import {
+  decodeActiveOperations,
   decodeOperation,
   decodeOperationPage,
   operationIsTerminal,
   type OperationPage,
   type ServerOperationView,
 } from "./server-operation-model";
-import { ServerOperations } from "./server-operations";
+import { OperationRows, ServerOperations } from "./server-operations";
 import type { SessionClient } from "./session";
 import { CopyableValue } from "./sinks-ui";
 import type { SensitiveSinkCoordinator } from "./sinks";
@@ -606,6 +607,7 @@ interface ServerReadsSnapshot {
   catalogNext: string | null;
   operations: readonly ServerOperationView[];
   operationNext: string | null;
+  activeMore: boolean;
   operation: ServerOperationView | undefined;
   authFlows: readonly ServerAuthFlowView[];
   authFlowNext: string | null;
@@ -629,7 +631,7 @@ type ReadResult =
       viewKey: string;
       server: ServerView;
       etag: string;
-      page: OperationPage;
+      page: OperationPage & { hasMore: boolean };
       append: boolean;
       restarted: boolean;
     }
@@ -697,6 +699,7 @@ function emptySnapshot(viewKey = ""): ServerReadsSnapshot {
     catalogNext: null,
     operations: [],
     operationNext: null,
+    activeMore: false,
     operation: undefined,
     authFlows: [],
     authFlowNext: null,
@@ -717,13 +720,18 @@ function listPath(
   if (next !== null) query.set("cursor", next);
   if (kind === "servers") return `/api/v1/servers?${query.toString()}`;
   if (kind === "catalog") return `/api/v1/catalog?${query.toString()}`;
-  if (kind === "operations" || kind === "authFlows") {
+  if (kind === "operations") {
+    const id = serverIDFromViewKey(viewKey);
+    if (id === undefined) throw new Error("invalid server activity location");
+    return `/api/v1/servers/${id}/operations?projection=active`;
+  }
+  if (kind === "authFlows") {
     const match =
       /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:activity|authentication|status)$/.exec(
         viewKey,
       );
     if (match === null) throw new Error("invalid server history location");
-    const resource = kind === "operations" ? "operations" : "auth-flows";
+    const resource = "auth-flows";
     return `/api/v1/servers/${match[1]!}/${resource}?${query.toString()}`;
   }
   const match = /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=tools$/.exec(
@@ -743,7 +751,7 @@ function serverPanelID(viewKey: string): string {
   if (serverCollectionKind(viewKey) === "catalog") return "catalog-reads";
   if (serverCollectionKind(viewKey) === "descriptors")
     return "server-descriptor-reads";
-  if (/\?tab=activity$|\/operations\//.test(viewKey))
+  if (/\?tab=activity(?:&|$)|\/operations\//.test(viewKey))
     return "server-operation-reads";
   if (/\/auth-flows\//.test(viewKey)) return "server-oauth-reads";
   if (/\?tab=tools$|\/descriptors\//.test(viewKey))
@@ -780,7 +788,12 @@ export class ServerReadsController {
                   !operationIsTerminal(this.value.operation)) ||
                 (this.value.authFlow !== undefined &&
                   !authFlowIsTerminal(this.value.authFlow)) ||
-                this.value.authFlows.some((flow) => !authFlowIsTerminal(flow)),
+                this.value.authFlows.some(
+                  (flow) => !authFlowIsTerminal(flow),
+                ) ||
+                this.value.operations.some(
+                  (operation) => !operationIsTerminal(operation),
+                ),
             }
           : {}),
         read: (context) =>
@@ -808,7 +821,9 @@ export class ServerReadsController {
     register(
       "server-operation-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=activity$/.test(key) ||
+        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=activity(?:&|$)/.test(
+          key,
+        ) ||
         /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
@@ -1065,16 +1080,20 @@ export class ServerReadsController {
       const etag = historyServerResponse.headers.get("ETag");
       if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
         throw new Error("invalid server ETag");
-      if (kind === "operations")
+      if (kind === "operations") {
+        const page = decodeActiveOperations(await json(response));
+        if (page.items.some((item) => item.serverID !== server.id))
+          throw new Error("invalid active operation server");
         return {
           kind,
           viewKey: context.viewKey,
           server,
           etag,
-          page: decodeOperationPage(await json(response)),
-          append: next !== null && !restarted,
-          restarted,
+          page,
+          append: false,
+          restarted: false,
         };
+      }
       return {
         kind,
         viewKey: context.viewKey,
@@ -1123,6 +1142,7 @@ export class ServerReadsController {
           ? [...this.value.operations, ...result.page.items]
           : result.page.items,
         operationNext: result.page.nextCursor,
+        activeMore: result.page.hasMore,
         readVersion: this.value.readVersion + 1,
         restarted: result.restarted,
       };
@@ -1801,7 +1821,7 @@ function ServerCollectionTable<T>({
   session: SessionClient;
   resolved: ResolvedLocation;
   view: ViewSnapshot;
-  kind: "servers" | "descriptors" | "catalog";
+  kind: "servers" | "descriptors" | "catalog" | "operations";
   decodePage: (value: unknown) => Page<T>;
   render: (
     items: T[],
@@ -1810,12 +1830,14 @@ function ServerCollectionTable<T>({
 }) {
   const navigate = useUnsavedChanges(false);
   const initialSort =
-    kind === "descriptors"
-      ? { key: "last-seen", direction: "descending" as const }
-      : {
-          key: kind === "servers" ? "name" : "tool",
-          direction: "ascending" as const,
-        };
+    kind === "operations"
+      ? { key: "started", direction: "descending" as const }
+      : kind === "descriptors"
+        ? { key: "last-seen", direction: "descending" as const }
+        : {
+            key: kind === "servers" ? "name" : "tool",
+            direction: "ascending" as const,
+          };
   const { items, controls } = useCollectionPage<T>(
     session,
     resolved,
@@ -1832,9 +1854,21 @@ function ServerCollectionTable<T>({
         if (key.startsWith("filter_")) params.set(key.slice(7), value);
       if (cursor !== null) params.set("cursor", cursor);
       const route =
-        kind === "descriptors"
-          ? `/api/v1/servers/${resolved.location.segments[1]!}/descriptors`
+        kind === "descriptors" || kind === "operations"
+          ? `/api/v1/servers/${resolved.location.segments[1]!}/${kind}`
           : `/api/v1/${kind}`;
+      if (kind === "operations")
+        return readCollectionPage<T>(
+          session,
+          `${route}?${params}`,
+          (value) => {
+            const operation = decodeOperation(value);
+            if (operation.serverID !== resolved.location.segments[1])
+              throw new Error("Invalid operation server.");
+            return operation as T;
+          },
+          signal,
+        );
       return readCollectionPage<T>(
         session,
         `${route}?${params}`,
@@ -1893,7 +1927,7 @@ export function ServerReads({
       view.viewKey,
     );
   const activityTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=activity$/.exec(
+    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=activity(?:&|$)/.exec(
       view.viewKey,
     );
   const operationItem =
@@ -2091,10 +2125,30 @@ export function ServerReads({
                 readVersion={snapshot.readVersion}
                 operations={snapshot.operations}
                 operation={undefined}
-                nextCursor={snapshot.operationNext}
-                loadingMore={snapshot.loadingMore}
-                restarted={snapshot.restarted}
-                onLoadMore={() => void controller.loadMore("operations")}
+                activeCurrent={
+                  operationPanel?.status === "current" &&
+                  operationPanel.refreshing !== true
+                }
+                activeRefreshing={operationPanel?.refreshing === true}
+                multipleActive={
+                  snapshot.activeMore || snapshot.operations.length > 1
+                }
+                history={
+                  <ServerCollectionTable
+                    session={session}
+                    resolved={resolved}
+                    view={view}
+                    kind="operations"
+                    decodePage={decodeOperationPage}
+                    render={(items, controls) => (
+                      <OperationRows
+                        serverID={activityTab[1]!}
+                        items={items}
+                        controls={controls}
+                      />
+                    )}
+                  />
+                }
               />
             )}
         </ReadPanel>
@@ -2119,10 +2173,6 @@ export function ServerReads({
                 readVersion={snapshot.readVersion}
                 operations={snapshot.operations}
                 operation={snapshot.operation}
-                nextCursor={snapshot.operationNext}
-                loadingMore={snapshot.loadingMore}
-                restarted={snapshot.restarted}
-                onLoadMore={() => void controller.loadMore("operations")}
               />
             )}
         </ReadPanel>

@@ -93,6 +93,9 @@ func (handler *Handler) listOperations(writer http.ResponseWriter, request *http
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
+	if handler.operationQuery(writer, request, serverID) {
+		return
+	}
 	limit, cursor, problem := parseServerQuery(request.URL.Query())
 	if problem != "" {
 		writeProblem(writer, problem)

@@ -47,13 +47,23 @@ function words(value: string): string {
 function FlowRows({
   serverID,
   items,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   serverID: string;
   items: readonly ServerAuthFlowView[];
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }) {
   return (
     <CollectionTable
       caption="OAuth activity"
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onLoadMore={onLoadMore}
+      loadMoreLabel="Load more flows"
       items={items}
       rowKey={(flow) => flow.id}
       rowTestID="auth-flow-row"
@@ -533,12 +543,13 @@ export function ServerAuthFlows({
         {flows.length === 0 ? (
           <StateNotice state="empty" title="No retained OAuth flows" />
         ) : (
-          <FlowRows serverID={server.id} items={flows} />
-        )}
-        {nextCursor !== null && (
-          <button type="button" disabled={loadingMore} onClick={onLoadMore}>
-            {loadingMore ? "Loading…" : "Load more flows"}
-          </button>
+          <FlowRows
+            serverID={server.id}
+            items={flows}
+            hasMore={nextCursor !== null}
+            loadingMore={loadingMore}
+            onLoadMore={onLoadMore}
+          />
         )}
       </section>
       {mode === "full" && (

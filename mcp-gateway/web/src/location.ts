@@ -178,6 +178,39 @@ function serverCollectionQuery(
   );
 }
 
+function operationCollectionQuery(query: Record<string, string>): boolean {
+  const values: Record<string, readonly string[]> = {
+    tab: ["activity"],
+    sort: ["action", "status", "started", "outcome"],
+    direction: ["ascending", "descending"],
+    filter_action: [
+      "activate",
+      "reload",
+      "retry",
+      "refresh_catalog",
+      "credential_replace",
+      "disable",
+      "delete",
+      "disconnect_credentials",
+    ],
+    filter_status: [
+      "scheduled",
+      "running",
+      "succeeded",
+      "failed",
+      "cancelled",
+      "superseded",
+      "interrupted",
+    ],
+  };
+  return (
+    !(query.direction !== undefined && query.sort === undefined) &&
+    Object.entries(query).every(
+      ([key, value]) => values[key]?.includes(value) === true,
+    )
+  );
+}
+
 function location(
   destination: Destination,
   segments: readonly string[],
@@ -239,7 +272,9 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       if (
         query.tab === "tools"
           ? serverCollectionQuery(query, "descriptors")
-          : exactQuery(query, { tab: (value) => serverTabs.has(value) })
+          : query.tab === "activity"
+            ? operationCollectionQuery(query)
+            : exactQuery(query, { tab: (value) => serverTabs.has(value) })
       ) {
         return location("servers", segments, query);
       }
@@ -361,7 +396,7 @@ export function serializeLocation(value: ApplicationLocation): string {
   if (path === "system" && query.tab === "status") delete query.tab;
   const fixedKeys =
     queryOrder[path] ??
-    (query.tab === "tools"
+    (query.tab === "tools" || query.tab === "activity"
       ? ["tab", "sort", "direction"]
       : Object.hasOwn(query, "tab")
         ? ["tab"]

@@ -52,13 +52,14 @@ func TestBrowserServerOperations(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
-		Event             string `json:"event"`
-		ChromiumVersion   string `json:"chromium_version"`
-		PlaywrightVersion string `json:"playwright_version"`
-		Requests          int    `json:"requests"`
-		OperationReads    int    `json:"operation_reads"`
-		Starts            int    `json:"starts"`
-		EventRefreshes    int    `json:"event_refreshes"`
+		Event             string   `json:"event"`
+		ChromiumVersion   string   `json:"chromium_version"`
+		PlaywrightVersion string   `json:"playwright_version"`
+		Requests          int      `json:"requests"`
+		OperationReads    int      `json:"operation_reads"`
+		Starts            int      `json:"starts"`
+		EventRefreshes    int      `json:"event_refreshes"`
+		Screenshots       []string `json:"screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "server_operations_complete", event.Event)
@@ -68,6 +69,8 @@ func TestBrowserServerOperations(t *testing.T) {
 	assert.GreaterOrEqual(t, event.OperationReads, 5)
 	assert.GreaterOrEqual(t, event.Starts, 6)
 	assert.Positive(t, event.EventRefreshes)
+	require.Len(t, event.Screenshots, 18)
+	t.Logf("operation pagination screenshots: %v", event.Screenshots)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "T25 must own one Gateway lifecycle")

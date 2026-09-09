@@ -125,6 +125,23 @@ function cursor(value: unknown): string | null {
     throw new Error("invalid operation response");
   return result;
 }
+export function decodeActiveOperations(
+  value: unknown,
+): OperationPage & { hasMore: boolean } {
+  const item = record(value, ["items", "has_more"]);
+  if (
+    !Array.isArray(item.items) ||
+    item.items.length > 2 ||
+    typeof item.has_more !== "boolean" ||
+    (item.has_more && item.items.length !== 2)
+  )
+    throw new Error("invalid active operation response");
+  const items = item.items.map(decodeOperation);
+  if (items.some(operationIsTerminal))
+    throw new Error("invalid active operation response");
+  return { items, hasMore: item.has_more, nextCursor: null };
+}
+
 export function decodeOperation(value: unknown): ServerOperationView {
   const item = record(value, [
     "id",

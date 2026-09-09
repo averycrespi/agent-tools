@@ -27,13 +27,57 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
-	for _, mode := range []string{"warn", "debug", "stalled"} {
+	for _, mode := range []string{"warn", "debug", "stalled", "expired"} {
 		t.Run(mode, func(t *testing.T) { runIngressDiagnosticWorkload(t, mode) })
+	}
+}
+
+// Retain lossless storage evidence separately from the intentionally lossy diagnostic sink.
+type workloadTerminalEvidence struct {
+	delegate    diagnostics.StorageObserver
+	ctx         context.Context
+	forceExpiry bool
+	enabled     atomic.Bool
+	mu          sync.Mutex
+	attempts    []diagnostics.Facts
+	held        bool
+	expired     int
+	release     chan struct{}
+}
+
+func (*workloadTerminalEvidence) DebugEnabled() bool { return true }
+
+func (evidence *workloadTerminalEvidence) Storage(facts diagnostics.Facts) {
+	evidence.delegate.Storage(facts)
+	if !evidence.enabled.Load() || facts.Writer != diagnostics.TerminalWriter ||
+		(facts.Event != diagnostics.StorageAcquire && facts.Event != diagnostics.StorageReject) {
+		return
+	}
+	evidence.mu.Lock()
+	evidence.attempts = append(evidence.attempts, facts)
+	hold := evidence.forceExpiry && !evidence.held && facts.Event == diagnostics.StorageAcquire
+	if hold {
+		evidence.held = true
+	}
+	if facts.Event == diagnostics.StorageReject && facts.Cause == diagnostics.Expired {
+		evidence.expired++
+		if evidence.expired == 3 {
+			close(evidence.release)
+		}
+	}
+	evidence.mu.Unlock()
+	if hold {
+		// The other three barrier participants must actually expire, not merely sleep.
+		select {
+		case <-evidence.release:
+		case <-evidence.ctx.Done():
+		}
 	}
 }
 
@@ -164,8 +208,12 @@ func runIngressDiagnosticWorkload(t *testing.T, mode string) {
 	defer cleanup()
 	store = options.Store
 	options.Diagnostics = diagnostic
+	// Keep the real catalog timer beyond the fixture lifetime even though its clock is frozen.
+	options.Clock = testutil.NewFakeClock(compositionTime.Add(30 * time.Second))
 	built, err := New(options)
 	require.NoError(t, err)
+	terminalEvidence := &workloadTerminalEvidence{delegate: diagnostic, ctx: ctx, forceExpiry: mode == "expired", release: make(chan struct{})}
+	store.SetDiagnostics(terminalEvidence)
 	defer built.shutdownConstructed()
 	server := enableCompositionServer(t, built.servers, createServerWithTransport(t, built.servers, "parallel", contract.StreamableHTTPTransport{
 		Kind: contract.TransportStreamableHTTP, URL: downstreamServer.URL + "/mcp", ProtocolMode: contract.ProtocolModern,
@@ -228,6 +276,7 @@ func runIngressDiagnosticWorkload(t *testing.T, mode string) {
 		}
 		return nil
 	}
+	terminalEvidence.enabled.Store(true)
 	probe.Store(true)
 	finished := make(chan error, 4)
 	for range 4 {
@@ -249,6 +298,7 @@ func runIngressDiagnosticWorkload(t *testing.T, mode string) {
 		require.NoError(t, <-finished)
 	}
 	probe.Store(false)
+	terminalEvidence.enabled.Store(false)
 	require.EqualValues(t, 32, calls.Load())
 	require.EqualValues(t, 4, peak.Load(), "real downstream HTTP calls overlapped")
 	var admitted, completed int
@@ -256,13 +306,37 @@ func runIngressDiagnosticWorkload(t *testing.T, mode string) {
 		return tx.QueryRowContext(ctx, `SELECT count(*), count(terminal_class) FROM invocations WHERE decision = 'allow'`).Scan(&admitted, &completed)
 	}))
 	require.Equal(t, 32, admitted)
-	require.Equal(t, 32, completed)
-	require.EqualValues(t, 64, foreignRejected.Load())
+	terminalEvidence.mu.Lock()
+	attempts := append([]diagnostics.Facts(nil), terminalEvidence.attempts...)
+	terminalEvidence.mu.Unlock()
+	require.Len(t, attempts, 32, "exactly one synchronous terminal attempt per successful call")
+	seen := make(map[uint64]bool)
+	acquired, expired := 0, 0
+	for _, attempt := range attempts {
+		require.NotZero(t, attempt.Call)
+		require.False(t, seen[attempt.Call], "terminal attempts must not replay")
+		seen[attempt.Call] = true
+		if attempt.Event == diagnostics.StorageAcquire {
+			require.Equal(t, diagnostics.Success, attempt.Cause)
+			acquired++
+		} else {
+			require.Equal(t, diagnostics.Expired, attempt.Cause, "only bounded acquisition expiry may omit a terminal")
+			expired++
+		}
+	}
+	require.Equal(t, acquired, completed, "every acquired terminal mutation must persist")
+	require.Equal(t, 32, completed+expired, "every missing terminal needs observed acquisition expiry")
+	if mode == "expired" {
+		require.GreaterOrEqual(t, expired, 3, "held terminal owner forces the other barrier participants to expire")
+	}
+	initialCompleted := completed
+	commitWindows := int32(32 + completed)
+	require.Equal(t, commitWindows, foreignRejected.Load())
 	owned, waiting := store.MutationOccupancy()
 	require.False(t, owned)
 	require.Zero(t, waiting)
 	require.False(t, store.Latched())
-	t.Logf("32 calls / concurrency 4 / 32 preceding tools/list: max authentication %s; foreign probes during 64 owned commit-cleanup windows rejected %d/64 (conditional samples, not a general rejection rate)", time.Duration(authMax.Load()), foreignRejected.Load())
+	t.Logf("32 calls / concurrency 4 / 32 preceding tools/list: %d terminals persisted, %d acquisitions expired; max authentication %s; foreign probes rejected %d/%d owned commit-cleanup windows (conditional samples, not a general rejection rate)", completed, expired, time.Duration(authMax.Load()), foreignRejected.Load(), commitWindows)
 
 	// All four additional calls must reach the downstream barrier before any
 	// terminal fault is armed, proving acknowledged audit precedes this wave.
@@ -287,7 +361,7 @@ func runIngressDiagnosticWorkload(t *testing.T, mode string) {
 		return tx.QueryRowContext(ctx, `SELECT count(*), count(terminal_class) FROM invocations WHERE decision = 'allow'`).Scan(&admitted, &completed)
 	}))
 	require.Equal(t, 36, admitted)
-	require.Equal(t, 33, completed, "only the first terminal row committed before latch; remaining evidence stays unknown")
+	require.Equal(t, initialCompleted+1, completed, "only the first terminal row committed before latch; remaining evidence stays unknown")
 	owned, waiting = store.MutationOccupancy()
 	require.False(t, owned)
 	require.Zero(t, waiting)
@@ -309,7 +383,7 @@ func runIngressDiagnosticWorkload(t *testing.T, mode string) {
 		return tx.QueryRowContext(ctx, `SELECT count(*), count(terminal_class) FROM invocations WHERE decision = 'allow'`).Scan(&admitted, &completed)
 	}))
 	require.Equal(t, 36, admitted)
-	require.Equal(t, 33, completed)
+	require.Equal(t, initialCompleted+1, completed)
 	require.EqualValues(t, 36, calls.Load(), "stopped recovery never resumes live calls or annotations")
 	canaries = append(canaries, "terminal-ack-secret-canary")
 	t.Log("additional concurrency-four failure wave: 3 known results, 1 unknown, terminal latch, stopped verification/reopen; no replay")

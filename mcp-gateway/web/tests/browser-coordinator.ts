@@ -302,7 +302,7 @@ try {
         ) &&
         !(
           input.scenario === "server-operations" &&
-          [412, 502].some((status) =>
+          [409, 412, 502, 503].some((status) =>
             message
               .text()
               .startsWith(

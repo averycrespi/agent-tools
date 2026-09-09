@@ -37,6 +37,8 @@ export interface ViewReadContext extends ProtectedContext {
 export interface PanelSnapshot {
   status: PanelStatus;
   hasValue: boolean;
+  // Preserve matching content during refresh while authority-sensitive controls wait.
+  refreshing?: boolean;
 }
 
 export interface ViewSnapshot {
@@ -590,6 +592,7 @@ export class ViewCoordinator {
               : "stale"
             : "loading",
         hasValue: previous?.hasValue === true,
+        refreshing: true,
       });
     }
     this.freshness = this.streamConnected ? "current" : "reconnecting";
