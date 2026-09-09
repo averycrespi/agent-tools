@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
 import {
+  decodeReadOnly,
+  readOnlyKeys,
+  readOnlyMember,
+  readOnlyExplanation,
+} from "./read-only";
+import {
   matcherSchemaSuggestions,
   readMatcherDescriptor,
   readMatcherDescriptors,
@@ -51,6 +57,7 @@ type JSONRecord = Record<string, unknown>;
 type Effect = "allow" | "deny";
 type GrantState = "active" | "expired";
 interface Grant {
+  readOnly: boolean;
   id: string;
   description: string | null;
   revision: string;
@@ -82,6 +89,7 @@ function id(value: unknown): string {
 }
 function decodeGrant(value: unknown): Grant {
   const item = record(value, [
+    ...readOnlyKeys(value),
     "id",
     "description",
     "revision",
@@ -94,6 +102,14 @@ function decodeGrant(value: unknown): Grant {
     "state",
     "created_at",
   ]);
+  const readOnly = decodeReadOnly(item);
+  if (
+    readOnly &&
+    (item.effect !== "allow" ||
+      item.upstream_name !== null ||
+      item.constraint !== null)
+  )
+    throw new Error("invalid response");
   if (
     (item.effect !== "allow" && item.effect !== "deny") ||
     (item.state !== "active" && item.state !== "expired") ||
@@ -104,6 +120,7 @@ function decodeGrant(value: unknown): Grant {
   )
     throw new Error("invalid response");
   return {
+    readOnly,
     id: id(item.id),
     description: item.description === null ? null : text(item.description),
     revision: text(item.revision),
@@ -212,6 +229,7 @@ function GrantCreate({
     description: "",
     principalID: query.principal_id ?? "",
     effect: "allow" as Effect,
+    readOnly: false,
     serverID: query.server_id ?? "",
     scope: "server" as "server" | "tool",
     upstreamName: "",
@@ -225,6 +243,7 @@ function GrantCreate({
     initialDraft.current.principalID,
   );
   const [effect, setEffect] = useState<Effect>(initialDraft.current.effect);
+  const [readOnly, setReadOnly] = useState(false);
   const [serverID, setServerID] = useState(initialDraft.current.serverID);
   const [scope, setScope] = useState<"server" | "tool">(
     initialDraft.current.scope,
@@ -283,7 +302,7 @@ function GrantCreate({
             : null;
   const reviewPolicy = (() => {
     try {
-      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}}`;
+      return `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${matcherConstraintText(atoms)},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}${readOnlyMember(readOnly)}}`;
     } catch {
       return "Complete the policy to review its serialized form.";
     }
@@ -292,6 +311,7 @@ function GrantCreate({
     description,
     principalID,
     effect,
+    readOnly,
     serverID,
     scope,
     upstreamName,
@@ -358,6 +378,8 @@ function GrantCreate({
         throw new Error(
           "Principal and server IDs must be complete Gateway IDs.",
         );
+      if (readOnly && (scope !== "server" || effect !== "allow"))
+        throw new Error("Read-only access requires server-wide ALLOW scope.");
       if (scope === "tool" && upstreamName.length === 0)
         throw new Error("Exact-tool scope requires an upstream tool name.");
       if (scope === "server" && atoms.length !== 0)
@@ -400,7 +422,7 @@ function GrantCreate({
           return;
         if (diagnostic !== null) throw new Error(diagnostic);
       }
-      const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}}`;
+      const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}${readOnlyMember(readOnly)}}`;
       const spec: MutationSpec<Grant> = {
         route: "/api/v1/grants",
         method: "POST",
@@ -409,7 +431,12 @@ function GrantCreate({
         requiresPrecondition: false,
         idempotency: "none",
         successStatuses: [201],
-        decode: decodeMutation,
+        decode: async (response) => {
+          const created = await decodeMutation(response);
+          if (created.readOnly !== readOnly)
+            throw new Error("invalid response");
+          return created;
+        },
       };
       controller.begin(spec);
       setConfirming(true);
@@ -483,9 +510,10 @@ function GrantCreate({
                 {...attributes}
                 data-testid="grant-effect"
                 value={effect}
-                onChange={(event) =>
-                  setEffect(event.currentTarget.value as Effect)
-                }
+                onChange={(event) => {
+                  setEffect(event.currentTarget.value as Effect);
+                  if (event.currentTarget.value !== "allow") setReadOnly(false);
+                }}
               >
                 <option value="allow">ALLOW</option>
                 <option value="deny">DENY</option>
@@ -525,6 +553,7 @@ function GrantCreate({
                 onChange={(event) => {
                   const next = event.currentTarget.value as "server" | "tool";
                   setScope(next);
+                  if (next === "tool") setReadOnly(false);
                   if (next === "server") setAtoms([]);
                 }}
               >
@@ -533,6 +562,20 @@ function GrantCreate({
               </select>
             )}
           </FormField>
+          {scope === "server" && effect === "allow" && (
+            <div>
+              <label class="checkbox-field">
+                <input
+                  type="checkbox"
+                  data-testid="grant-read-only"
+                  checked={readOnly}
+                  onChange={(event) => setReadOnly(event.currentTarget.checked)}
+                />
+                Read-only tools only
+              </label>
+              <p class="muted">{readOnlyExplanation}</p>
+            </div>
+          )}
           {scope === "tool" && (
             <div>
               <FormField
@@ -676,6 +719,7 @@ function GrantCreate({
                 atom is required (AND), and any matching DENY takes precedence
                 over ALLOW.
               </p>
+              {readOnly && <p>{readOnlyExplanation}</p>}
               {atoms.length === 0 && (
                 <StateNotice
                   state="warning"
@@ -706,7 +750,11 @@ function GrantCreate({
                     {servers.find((server) => server.id === serverID)
                       ?.displayName ?? "Gateway self-service tools"}{" "}
                     · {serverID}
-                    {scope === "tool" ? ` · ${upstreamName}` : " · All tools"}
+                    {scope === "tool"
+                      ? ` · ${upstreamName}`
+                      : readOnly
+                        ? " · Read-only tools"
+                        : " · All tools (unrestricted)"}
                   </dd>
                 </div>
                 <div>
@@ -753,6 +801,7 @@ function GrantCreate({
                 <textarea
                   class="inert-json matcher-policy-review"
                   data-testid="grant-review-policy"
+                  aria-label="Read-only serialized policy"
                   readOnly
                   rows={8}
                   value={reviewPolicy}
@@ -947,6 +996,7 @@ function GrantActions({
   const [notice, setNotice] = useState<string>();
   const actionButton = useRef<HTMLButtonElement>(null);
   const defaultGrant =
+    !grant.readOnly &&
     grant.effect === "allow" &&
     grant.serverID === "00000000000000000000000000" &&
     grant.upstreamName === null &&
@@ -966,10 +1016,12 @@ function GrantActions({
   }, [grant.principalID, defaultGrant]);
 
   const createSpec = (): MutationSpec<GrantActionResult> => {
+    const readOnly = grant.readOnly && replacementEffect === "allow";
     const body = JSON.stringify({
       description: grant.description,
       principal_id: grant.principalID,
       effect: replacementEffect,
+      ...(readOnly ? { read_only: true } : {}),
       server_id: grant.serverID,
       upstream_name: grant.upstreamName,
       constraint: null,
@@ -983,10 +1035,11 @@ function GrantActions({
       requiresPrecondition: false,
       idempotency: "none",
       successStatuses: [201],
-      decode: async (response) => ({
-        kind: "created",
-        grant: await decodeMutation(response),
-      }),
+      decode: async (response) => {
+        const created = await decodeMutation(response);
+        if (created.readOnly !== readOnly) throw new Error("invalid response");
+        return { kind: "created", grant: created };
+      },
     };
   };
   const deleteSpec = (): MutationSpec<GrantActionResult> => ({
@@ -1125,6 +1178,12 @@ function GrantActions({
         </div>
       ) : (
         <div data-testid="grant-correction">
+          {grant.readOnly && (
+            <p>
+              Replacement ALLOW retains read-only server access. Replacement
+              DENY applies to all tools on this server.
+            </p>
+          )}
           {phase === "configure" && (
             <>
               <FormField id="correction-order" label="Replacement order">
@@ -1206,7 +1265,7 @@ function GrantActions({
         consequence={
           <p>
             {action === "create"
-              ? "This creates one independent immutable policy record. It does not delete or modify the current grant."
+              ? `This creates one independent immutable policy record. It does not delete or modify the current grant.${grant.readOnly ? (replacementEffect === "allow" ? " The replacement ALLOW retains read-only server access." : " The replacement DENY applies to all tools on this server.") : ""}`
               : "This permanently removes this policy record. No replacement or later step is automatic."}
           </p>
         }
@@ -1377,8 +1436,11 @@ export function Grants({
               <dt>Scope</dt>
               <dd>
                 {detail.upstreamName === null
-                  ? "Entire server"
+                  ? detail.readOnly
+                    ? "Entire server — read-only tools"
+                    : "Entire server — unrestricted"
                   : `Exact tool ${detail.upstreamName}`}
+                {detail.readOnly && <p>{readOnlyExplanation}</p>}
               </dd>
             </div>
             <div>
@@ -1583,13 +1645,15 @@ function GrantCollection({
                 serverNames.get(grant.serverID) ?? grant.serverID,
               render: (grant) =>
                 grant.serverID === "00000000000000000000000000" ? (
-                  "Gateway self-service tools"
+                  `Gateway self-service tools${grant.readOnly ? " — Read-only tools" : ""}`
                 ) : (
                   <a href={`#/servers/${grant.serverID}?tab=tools`}>
                     {serverNames.get(grant.serverID) ??
                       `Server ${grant.serverID}`}
                     {grant.upstreamName === null
-                      ? " — All tools"
+                      ? grant.readOnly
+                        ? " — Read-only tools"
+                        : " — All tools (unrestricted)"
                       : ` — ${grant.upstreamName}`}
                   </a>
                 ),

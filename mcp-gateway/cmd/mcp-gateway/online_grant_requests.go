@@ -39,17 +39,37 @@ func runGrantRequestApprove(command *cobra.Command, options *onlineOptions, args
 	}
 	body, policy, err := readGrantRequestApproval(command, options)
 	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant-request approval input is invalid."))
+		return writeOnlineFailure(command, options.output, preparedIntentError(err, "The grant-request approval input is invalid."))
 	}
 	consequence := "Approve this request and atomically create one immutable ALLOW grant? This closes the request but executes, resumes, and replays no motivating call."
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: consequence}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	etag, failure := resolveMutationETag(command, options, onlineItemGrantRequest, requestID)
+	etag, failure := resolveApprovalETag(command, options, requestID, policy)
 	if failure != nil {
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	return runGrantRequestAdjudication(command, options, grantRequestAdjudication{requestID: requestID, action: "approve", body: body, etag: etag, approvedPolicy: &policy})
+}
+
+func resolveApprovalETag(command *cobra.Command, options *onlineOptions, requestID string, approved contract.Policy) (string, *controlclient.OnlineError) {
+	// Approval must inspect the submitted restriction even with an explicit ETag.
+	// That ETag is never refreshed: a mismatch stops before any mutation.
+	item, failure := loadValidatedItem(command, options, onlineItemGrantRequest, requestID, controlclient.RequestPhasePreflight)
+	if failure != nil {
+		return "", failure
+	}
+	if options.etag != "" && options.etag != item.ETag {
+		return "", controlclient.NewInputError("The supplied ETag is stale. Inspect the request before a new approval; nothing was submitted.")
+	}
+	var request contract.GrantRequest
+	if controlclient.DecodeResponse(item.Body, &request) != nil {
+		return "", controlclient.ClassifyClientError(controlclient.ErrResponseInvalid)
+	}
+	if request.RequestedPolicy.ReadOnly && (!approved.ReadOnly || approved.Scope != contract.PolicyServer) {
+		return "", controlclient.NewInputError("A read-only server request must retain --read-only and server scope; nothing was submitted.")
+	}
+	return item.ETag, nil
 }
 
 func runGrantRequestReject(command *cobra.Command, options *onlineOptions, args []string) error {
@@ -97,7 +117,7 @@ func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([
 		description = &value
 	}
 	var raw map[string]json.RawMessage
-	if json.Unmarshal(outer["approved_policy"], &raw) != nil || len(raw) != 5 {
+	if json.Unmarshal(outer["approved_policy"], &raw) != nil || (len(raw) != 5 && len(raw) != 6) {
 		return nil, contract.Policy{}, controlclient.ErrInvalidInput
 	}
 	for _, member := range []string{"scope", "target", "constraint", "duration_seconds", "future_tools_acknowledged"} {
@@ -105,12 +125,24 @@ func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([
 			return nil, contract.Policy{}, controlclient.ErrInvalidInput
 		}
 	}
-	var policy contract.Policy
+	for member := range raw {
+		if member != "scope" && member != "target" && member != "constraint" && member != "duration_seconds" && member != "future_tools_acknowledged" && member != "read_only" {
+			return nil, contract.Policy{}, controlclient.ErrInvalidInput
+		}
+	}
+	readOnly, valid := optionalReadOnly(raw)
+	if !valid {
+		return nil, contract.Policy{}, controlclient.NewInputError("read_only must be Boolean.")
+	}
+	policy := contract.Policy{ReadOnly: readOnly}
 	if json.Unmarshal(raw["scope"], &policy.Scope) != nil || json.Unmarshal(raw["target"], &policy.Target) != nil || json.Unmarshal(raw["future_tools_acknowledged"], &policy.FutureToolsAcknowledged) != nil || policy.Target == "" || len(policy.Target) > 256 || !utf8.ValidString(policy.Target) || containsControl(policy.Target) {
 		return nil, contract.Policy{}, controlclient.ErrInvalidInput
 	}
 	if _, err := contract.ParsePolicyScope(string(policy.Scope)); err != nil {
 		return nil, contract.Policy{}, controlclient.ErrInvalidInput
+	}
+	if readOnly && (policy.Scope != contract.PolicyServer || string(raw["constraint"]) != "null" || !policy.FutureToolsAcknowledged) {
+		return nil, contract.Policy{}, controlclient.NewInputError("read_only=true requires server scope, null constraints, and future-tool acknowledgement.")
 	}
 	if string(raw["constraint"]) != "null" {
 		if !validGrantConstraint(raw["constraint"]) {
@@ -130,7 +162,7 @@ func readGrantRequestApproval(command *cobra.Command, options *onlineOptions) ([
 		}
 		policy.DurationSeconds = &value
 	}
-	if (policy.Scope == contract.PolicyTool && policy.FutureToolsAcknowledged) || (policy.Scope == contract.PolicyServer && (!policy.FutureToolsAcknowledged || policy.Constraint != nil)) {
+	if (policy.Scope == contract.PolicyTool && (policy.FutureToolsAcknowledged || policy.ReadOnly)) || (policy.Scope == contract.PolicyServer && (!policy.FutureToolsAcknowledged || policy.Constraint != nil)) {
 		return nil, contract.Policy{}, controlclient.ErrInvalidInput
 	}
 	canonical, err := marshalGrantJSON(contract.GrantRequestApproval{Description: description, ApprovedPolicy: policy})
@@ -237,6 +269,16 @@ func grantRequestItemTable(body []byte) (controlclient.Table, error) {
 	return grantRequestTable([]contract.GrantRequestSummary{request.GrantRequestSummary}, &request.CurrentTarget), nil
 }
 
+func policyAccessSummary(policy contract.Policy) string {
+	if policy.ReadOnly {
+		return "read-only server tools"
+	}
+	if policy.Scope == contract.PolicyServer {
+		return "unrestricted server tools"
+	}
+	return "exact tool"
+}
+
 func grantRequestTable(requests []contract.GrantRequestSummary, target *contract.TargetComparison) controlclient.Table {
 	rows := make([][]string, 0, len(requests))
 	for _, request := range requests {
@@ -257,7 +299,11 @@ func grantRequestTable(requests []contract.GrantRequestSummary, target *contract
 				targetState += "/" + string(*target.DurableState)
 			}
 		}
-		rows = append(rows, []string{request.ID, request.PrincipalID, string(request.State), request.Revision, string(policy.Scope), policy.Target, constraint, approvedGrant, reason, targetState, request.UpdatedAt})
+		approvedAccess := "-"
+		if request.ApprovedPolicy != nil {
+			approvedAccess = policyAccessSummary(*request.ApprovedPolicy)
+		}
+		rows = append(rows, []string{request.ID, request.PrincipalID, string(request.State), request.Revision, string(policy.Scope), policy.Target, constraint, approvedGrant, reason, targetState, request.UpdatedAt, policyAccessSummary(request.RequestedPolicy), approvedAccess})
 	}
-	return controlclient.Table{Headers: []string{"ID", "PRINCIPAL", "STATE", "REVISION", "SCOPE", "TARGET", "CONSTRAINT", "GRANT", "REASON", "CURRENT_TARGET", "UPDATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"ID", "PRINCIPAL", "STATE", "REVISION", "SCOPE", "TARGET", "CONSTRAINT", "GRANT", "REASON", "CURRENT_TARGET", "UPDATED", "REQUESTED_ACCESS", "APPROVED_ACCESS"}, Rows: rows}
 }

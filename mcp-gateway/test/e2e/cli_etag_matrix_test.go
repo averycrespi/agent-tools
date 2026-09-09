@@ -54,7 +54,7 @@ func TestCLIETagMatrix(t *testing.T) {
 			return []string{"principal", "credential", "rotate", id, "--secret-output", filepath.Join(t.TempDir(), "rotated"), "--yes"}
 		}},
 		{name: "principal revoke", resource: "principal", occupied: true, args: func(*testing.T) []string { return []string{"principal", "credential", "revoke", id, "--yes"} }},
-		{name: "grant request approve", resource: "grant-request", args: func(*testing.T) []string {
+		{name: "grant request approve", resource: "grant-request", explicitStillGET: true, args: func(*testing.T) []string {
 			return []string{"grant-request", "approve", id, "--file", approveInput, "--yes"}
 		}},
 		{name: "grant request reject", resource: "grant-request", args: func(*testing.T) []string {

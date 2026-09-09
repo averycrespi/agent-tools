@@ -90,6 +90,89 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
     );
 }
 
+export async function runReadOnlyBackendFlow(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  // No route fixtures: all domain reads and mutations reach the real Gateway.
+  await page.evaluate(() => {
+    window.location.hash = "#/requests";
+  });
+  await waitForLifecycle(page, "signed_out");
+  await page.getByTestId("admin-bearer-input").fill(bearer);
+  await page.getByTestId("sign-in-submit").click();
+  await waitForLifecycle(page, "authenticated");
+  await page.getByRole("link", { name: "Review", exact: true }).click();
+  await page.getByTestId("request-actions").waitFor();
+  await page
+    .getByRole("button", { name: "Customize approval", exact: true })
+    .click();
+  await page.getByTestId("approval-read-only").check();
+  await expect(
+    page.getByRole("region", { name: "Approval preview" }),
+  ).toContainText("Read-only server tools");
+  await page.getByTestId("request-approve").click();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Read-only server tools",
+  );
+  await captureRequestState(page, "backend-read-only-approval");
+  await page.getByTestId("request-adjudication-confirm-submit").click();
+  await page
+    .getByText("Request adjudication is closed", { exact: true })
+    .waitFor();
+  await expect(
+    page.getByRole("region", {
+      name: "Requested versus approved",
+      exact: true,
+    }),
+  ).toContainText("Unrestricted server tools → Read-only server tools");
+  await captureRequestState(page, "backend-read-only-approved");
+  const createdGrant = page
+    .getByTestId("request-detail")
+    .locator('a[href^="#/grants/"]')
+    .first();
+  await createdGrant.click();
+  await expect(page.getByTestId("grant-detail")).toContainText(
+    "Entire server — read-only tools",
+  );
+  await captureRequestState(page, "backend-read-only-grant");
+  await page.evaluate(() => {
+    window.location.hash = "#/access/grants/new";
+  });
+  await page.getByTestId("grant-create-view").waitFor();
+  await page.getByTestId("grant-description").fill("Browser read-only grant");
+  const principal = await page
+    .getByTestId("grant-principal")
+    .locator("option")
+    .filter({ hasText: "Read-only client agent" })
+    .getAttribute("value");
+  const server = await page
+    .getByTestId("grant-server")
+    .locator("option")
+    .filter({ hasText: "readonlyclients" })
+    .first()
+    .getAttribute("value");
+  if (principal === null || server === null)
+    fail("real read-only fixture selectors missing");
+  await page.getByTestId("grant-principal").selectOption(principal);
+  await page.getByTestId("grant-server").selectOption(server);
+  await page.getByTestId("grant-read-only").check();
+  await page.getByTestId("grant-create-submit").click();
+  await expect(page.getByRole("dialog")).toContainText("Read-only tools");
+  await page.getByTestId("grant-create-confirm-submit").click();
+  await expect(page.getByTestId("grant-detail")).toContainText(
+    "Entire server — read-only tools",
+  );
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "read_only_backend_complete", chromium_version: browserVersion, requests: requestCount() })}\n`,
+  );
+}
+
 export async function runAccessManagementReadCanary(
   browserVersion: string,
   context: BrowserContext,
@@ -1197,7 +1280,9 @@ export async function runGrantReadsCreate(
     upstreamName: string | null,
     constraint: unknown | null,
     expiresAt: string | null,
+    readOnly = false,
   ) => ({
+    ...(readOnly ? { read_only: true } : {}),
     id,
     description: (id === firstGrantID
       ? "Reporting access"
@@ -1212,7 +1297,7 @@ export async function runGrantReadsCreate(
     state,
     created_at: "2026-08-28T12:00:00Z",
   });
-  const active = grant(firstGrantID, "allow", "active", null, null, null);
+  const active = grant(firstGrantID, "allow", "active", null, null, null, true);
   const expired = grant(
     secondGrantID,
     "deny",
@@ -1569,7 +1654,7 @@ export async function runGrantReadsCreate(
       id === secondGrantID
         ? expired
         : id === createdIDs[0]
-          ? grant(id!, "allow", "active", null, null, null)
+          ? grant(id!, "allow", "active", null, null, null, true)
           : id === createdIDs[1]
             ? grant(
                 id!,
@@ -1596,7 +1681,7 @@ export async function runGrantReadsCreate(
     const body = JSON.parse(raw) as Record<string, unknown>;
     if (
       Object.keys(body).join(",") !==
-        "description,principal_id,effect,server_id,upstream_name,constraint,expires_at" ||
+        `description,principal_id,effect,server_id,upstream_name,constraint,expires_at${attempts <= 2 ? ",read_only" : ""}` ||
       body.description !== "New access" ||
       body.principal_id !== principalID ||
       body.server_id !== serverID
@@ -1617,6 +1702,7 @@ export async function runGrantReadsCreate(
     creates += 1;
     if (creates === 1) {
       if (
+        body.read_only !== true ||
         body.effect !== "allow" ||
         body.upstream_name !== null ||
         body.constraint !== null ||
@@ -1642,6 +1728,7 @@ export async function runGrantReadsCreate(
       body.upstream_name as string | null,
       body.constraint,
       body.expires_at as string | null,
+      body.read_only === true,
     );
     await route.fulfill({
       status: 201,
@@ -1865,6 +1952,13 @@ export async function runGrantReadsCreate(
   if (Number(attempts) !== 0)
     fail("control-character grant description reached the API");
   await page.locator('[data-testid="grant-description"]').fill("New access");
+  await page.getByTestId("grant-read-only").check();
+  await page.getByTestId("grant-effect").selectOption("deny");
+  await expect(page.getByTestId("grant-read-only")).toHaveCount(0);
+  await page.getByTestId("grant-effect").selectOption("allow");
+  await expect(page.getByTestId("grant-read-only")).not.toBeChecked();
+  await page.getByTestId("grant-read-only").check();
+  await captureRequestState(page, "read-only-grant-create");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page
     .getByRole("heading", { name: "Review grant", exact: true })
@@ -1889,12 +1983,21 @@ export async function runGrantReadsCreate(
     ).includes('"constraint":null')
   )
     fail("grant creation review omitted submitted values");
+  await expect(page.getByTestId("grant-review-policy")).toHaveValue(
+    /"read_only":true/,
+  );
+  await expect(page.getByRole("dialog")).toContainText("readOnlyHint=true");
+  await captureRequestState(page, "read-only-grant-confirmation");
   await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.getByText("The grant is invalid.", { exact: true }).waitFor();
   if (attempts !== 1) fail("rejected grant creation was replayed");
   await page.locator('[data-testid="grant-create-submit"]').click();
   await page.locator('[data-testid="grant-create-confirm-submit"]').click();
   await page.locator('[data-testid="grant-detail"]').waitFor();
+  await expect(page.getByTestId("grant-detail")).toContainText(
+    "Entire server — read-only tools",
+  );
+  await captureRequestState(page, "read-only-grant-detail");
 
   await page.evaluate(
     ({ principal, server }) => {
@@ -2477,7 +2580,9 @@ export async function runGrantCorrection(
     effect: "allow" | "deny",
     target: string = serverID,
     state: "active" | "expired" = "active",
+    readOnly = false,
   ) => ({
+    ...(readOnly ? { read_only: true } : {}),
     id,
     description: target === zero ? "Default Gateway access" : `Grant ${id}`,
     revision: "1",
@@ -2491,7 +2596,10 @@ export async function runGrantCorrection(
     created_at: "2026-08-28T12:00:00Z",
   });
   const grants = new Map<string, ReturnType<typeof grant>>([
-    [grantIDs[0]!, grant(grantIDs[0]!, principalIDs[0]!, "allow")],
+    [
+      grantIDs[0]!,
+      grant(grantIDs[0]!, principalIDs[0]!, "allow", serverID, "active", true),
+    ],
     [grantIDs[1]!, grant(grantIDs[1]!, principalIDs[1]!, "deny")],
     [grantIDs[2]!, grant(grantIDs[2]!, principalIDs[2]!, "allow")],
     [grantIDs[3]!, grant(grantIDs[3]!, principalIDs[3]!, "allow")],
@@ -2659,6 +2767,8 @@ export async function runGrantCorrection(
       unknown
     >;
     const principalID = body.principal_id as string;
+    if (principalID === principalIDs[0] && body.read_only !== true)
+      fail("replacement ALLOW lost read-only access");
     if (
       body.description !== null &&
       (typeof body.description !== "string" || body.description.length === 0)
@@ -2694,6 +2804,8 @@ export async function runGrantCorrection(
       principalID,
       body.effect as "allow" | "deny",
       body.server_id as string,
+      "active",
+      body.read_only === true,
     );
     item.description = body.description as string;
     grants.set(replacementID, item);
@@ -2735,6 +2847,7 @@ export async function runGrantCorrection(
   await navigate(grantIDs[0]!);
 
   await page.locator('[data-testid="grant-correct"]').click();
+  await page.getByTestId("correction-effect").selectOption("allow");
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
   await page.getByText(/replacement now overlaps/).waitFor();
@@ -3434,7 +3547,7 @@ export async function runRequestAdjudication(
   const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
   const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
   const ids = Array.from(
-    { length: 11 },
+    { length: 13 },
     (_, index) => `01ARZ3NDEKTSV4RRFFQ69J${String(index).padStart(4, "0")}`,
   );
   const policy = (
@@ -3508,9 +3621,14 @@ export async function runRequestAdjudication(
       ids[index]!,
       detail(ids[index]!, policy("tool", "demo.safe", null, null)),
     );
-  states.set(ids[6]!, detail(ids[6]!, policy("tool", "demo.safe", null, null)));
-  states.set(ids[7]!, detail(ids[7]!, policy("tool", "demo.safe", null, null)));
-  states.set(ids[8]!, detail(ids[8]!, policy("tool", "demo.safe", null, null)));
+  for (const index of [6, 7, 8, 11, 12])
+    states.set(
+      ids[index]!,
+      detail(ids[index]!, {
+        ...policy("server", "demo", null, "1200"),
+        read_only: true,
+      } as ReturnType<typeof policy>),
+    );
   states.set(ids[9]!, detail(ids[9]!, policy("server", "demo", null, null)));
   states.set(
     ids[10]!,
@@ -3724,7 +3842,21 @@ export async function runRequestAdjudication(
         (body.description !== null && typeof body.description !== "string")
       )
         fail("approval body changed shape");
-      const approved = body.approved_policy as ReturnType<typeof policy>;
+      const approved = body.approved_policy as ReturnType<typeof policy> & {
+        read_only?: boolean;
+      };
+      if (
+        [ids[9], ids[11], ids[12]].includes(id) &&
+        (approved.read_only !== true ||
+          approved.scope !== "server" ||
+          approved.constraint !== null ||
+          !approved.future_tools_acknowledged)
+      )
+        fail("read-only approval lost its server restriction");
+      if (id === ids[11] && approved.duration_seconds !== "1200")
+        fail("as-requested read-only duration changed");
+      if (id === ids[12] && approved.duration_seconds !== "600")
+        fail("custom read-only duration changed");
       const expectedSeconds =
         id === ids[0]
           ? "600"
@@ -4241,6 +4373,7 @@ export async function runRequestAdjudication(
     fail("duration boundary review mutated");
   await page.getByTestId("approval-duration-unit").selectOption("minutes");
   await page.locator('[data-testid="approval-duration"]').fill("1");
+  await page.getByTestId("approval-read-only").check();
   await reviewApproval();
   await page
     .getByText("Not applicable to server-wide authority", { exact: true })
@@ -4250,6 +4383,40 @@ export async function runRequestAdjudication(
   await page
     .getByText("Request adjudication is closed", { exact: true })
     .waitFor();
+
+  for (const index of [11, 12]) {
+    await navigate(ids[index]!);
+    await expect(page.getByTestId("approval-read-only")).toBeChecked();
+    await expect(page.getByTestId("approval-read-only")).toBeDisabled();
+    await expect(page.getByTestId("approval-scope")).toBeDisabled();
+    if (index === 12) {
+      await page.getByTestId("approval-duration-unit").selectOption("minutes");
+      await page.getByTestId("approval-duration").fill("10");
+      await reviewApproval();
+    } else {
+      await page
+        .getByRole("button", { name: "Approve as requested", exact: true })
+        .first()
+        .click();
+    }
+    await expect(page.getByRole("dialog")).toContainText(
+      "Read-only server tools",
+    );
+    await expect(page.getByTestId("approval-review-policy")).toHaveValue(
+      /"read_only":true/,
+    );
+    if (index === 11)
+      await captureRequestState(page, "read-only-request-confirmation");
+    await confirm();
+    await page
+      .getByText("Request adjudication is closed", { exact: true })
+      .waitFor();
+    await expect(terminalComparison).toContainText(
+      "Read-only server tools → Read-only server tools",
+    );
+    if (index === 11)
+      await captureRequestState(page, "read-only-request-approved");
+  }
 
   await navigate(ids[6]!);
   await reviewApproval();

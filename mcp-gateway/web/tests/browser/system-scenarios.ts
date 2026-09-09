@@ -1045,6 +1045,7 @@ export async function runOverview(
                 created_at: `2026-08-${[28, 26, 29, 25, 27][index]}T00:00:00Z`,
                 requested_policy: {
                   ...overviewRequestFixture().requested_policy,
+                  ...(index === 0 ? { read_only: true } : {}),
                   target:
                     index === 0
                       ? `requested-${"T".repeat(180)}`

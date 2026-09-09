@@ -10,6 +10,7 @@ import {
   runPrincipalCredentials,
   runPrincipals,
   runRequestAdjudication,
+  runReadOnlyBackendFlow,
   runRequestReads,
 } from "./browser/access-scenarios.ts";
 import {
@@ -83,6 +84,7 @@ interface BridgeInput {
     | "grant-correction"
     | "request-reads"
     | "request-adjudication"
+    | "read-only-backend"
     | "overview"
     | "invocations"
     | "audit"
@@ -160,6 +162,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "grant-correction" &&
       value.scenario !== "request-reads" &&
       value.scenario !== "request-adjudication" &&
+      value.scenario !== "read-only-backend" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
       value.scenario !== "audit" &&
@@ -573,6 +576,15 @@ try {
       );
     } else if (input.scenario === "request-reads") {
       await runRequestReads(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "read-only-backend") {
+      await runReadOnlyBackendFlow(
         browser.version(),
         context,
         page,
