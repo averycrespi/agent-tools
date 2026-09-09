@@ -10,7 +10,7 @@ This repo is opinionated. It provides sandboxed execution and broker-backed exte
 
 - **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
 - **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
-- **[MCP Gateway](#mcp-gateway)** — Locally secure, deny-by-default MCP service foundation
+- **[MCP Gateway](#mcp-gateway)** — Agent-first MCP access with scoped permissions, host-held credentials, and browser-based administration
 - **[HTTP Broker](#http-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
@@ -107,9 +107,17 @@ See the [mcp-broker README](mcp-broker/README.md) for more information.
 
 ### MCP Gateway
 
-`mcp-gateway` is a locally secure, deny-by-default service for governing MCP access. It combines a strict loopback HTTP/MCP boundary with dynamic downstream runtimes and catalogs, principal credentials and grants, governed tool invocation, bounded redacted evidence, browser and CLI administration, and verified recovery.
+Coding agents need external tools, but they shouldn't need your API keys or unrestricted access to every connected service. What you want is one place to connect MCP servers, decide what each agent can do, and see what happened.
 
-Gateway permits at most one automatic authorized attempt and never queues or automatically replays a tool call. Uncertain handoff remains explicit because an effect may already have occurred. Start with the [Gateway README](mcp-gateway/README.md), then use the [documentation map](mcp-gateway/docs/README.md) to find operator and maintainer procedures or [DESIGN](mcp-gateway/DESIGN.md) for normative behavior and security boundaries.
+`mcp-gateway` runs locally and exposes your MCP servers through a single controlled endpoint:
+
+- **Agent-first** — Agents discover tools, inspect their access, and request additional permissions through MCP.
+- **Credentials stay outside the sandbox** — Gateway manages upstream credentials and OAuth; agents receive a separate Gateway credential, not your service secrets.
+- **Scoped by default** — Access is denied unless granted. Give each agent permissions for specific servers, tools, or matching tool arguments, with optional expiry.
+- **Sandbox-agnostic** — No dependency on Lima, containers, or a particular agent harness. Connect local clients directly or sandboxed clients through trusted local forwarding.
+- **Operator-friendly** — Manage servers, agents, grants, and access requests through an embedded web application or CLI, with redacted invocation history and control-plane audit records.
+
+See the [mcp-gateway README](mcp-gateway/README.md) for more information.
 
 ### HTTP Broker
 

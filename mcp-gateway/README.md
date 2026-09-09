@@ -1,8 +1,46 @@
 # MCP Gateway
 
-MCP Gateway is a locally secure, deny-by-default service for governing access to MCP servers. It runs on an exact numeric loopback address, keeps administrator and agent credentials separate, applies principal-specific grants before tool execution, and retains bounded redacted invocation evidence.
+**Connect your agents to external tools without handing them your service credentials.**
 
-Gateway is installed and operated independently beside MCP Broker. It does not read or migrate Broker configuration or state.
+MCP Gateway brings your MCP servers behind one local endpoint, with separate identities and scoped permissions for each agent. It holds upstream credentials, checks access before every tool call, and gives you a browser application and CLI to manage the system.
+
+Agents get the tools they need. You keep control over what they can do.
+
+## Why Gateway?
+
+### Agent-first
+
+Agents can discover available tools, inspect their permissions, and request additional access without leaving MCP. Discovery is configurable per agent, so you can expose only authorized tools or let agents find tools they may need to request.
+
+Access requests change permissions; they do not queue tool calls. After approval, the agent makes a new call.
+
+### Scoped access, not shared authority
+
+Give each agent its own identity and credential instead of sharing one all-access token. Grant access to a whole server or a specific tool, narrow it with argument constraints, and set an expiry when access should be temporary.
+
+Gateway denies calls by default and checks current policy before execution. Rotate or revoke an agent's access without distributing new upstream credentials.
+
+### Service credentials stay with Gateway
+
+Gateway manages upstream authentication, including server credentials and OAuth. Agents authenticate with a separate Gateway credential; they never need your upstream API keys or OAuth tokens.
+
+Administrator and agent credentials are separate, and Gateway uses the operating-system keyring for server secrets rather than falling back to plaintext storage.
+
+### Sandbox-agnostic
+
+Use Gateway with your preferred MCP client and sandbox setup. It does not require Sandbox Manager, Lima, or a particular agent harness.
+
+Gateway listens on loopback. Local clients connect directly; VMs and containers need a trusted local forwarding path. It is a local access-control service, not an internet-facing gateway or a replacement for sandbox isolation.
+
+### Operator-friendly
+
+Use the embedded browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Invocation history provides bounded, redacted evidence; a separate audit history records control-plane changes.
+
+Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
+
+### Explicit about uncertain outcomes
+
+Gateway never queues or automatically replays tool calls. If a handoff leaves the outcome unknown, it reports that uncertainty rather than retrying an operation that may already have taken effect.
 
 ## Installation
 
@@ -37,26 +75,12 @@ For an interactive checkout-only sandbox, use `make -C mcp-gateway serve-demo` f
 
 For trusted local VM/container forwarding, `mcp-gateway serve --allowed-host host.lima.internal` admits that exact hostname without changing the numeric-loopback listener or browser Origin policy. Online `--address http://host.lima.internal:8210` explicitly selects the forwarding destination; plain HTTP is not secure arbitrary-remote administration. Follow [sandbox administration](docs/operators/administration.md#trusted-local-forwarding-and-sandbox-administration) to provision and revoke a separate administrator credential. Removing a hostname is not credential revocation.
 
-## Current capabilities
-
-Gateway provides:
-
-- strict local HTTP control and modern/legacy MCP ingress;
-- durable server configuration, credential and OAuth authority, runtime supervision, and active catalog publication;
-- per-server OAuth `callback_uri`, `auth_server_metadata_url`, and `scopes` overrides for provider compatibility, including exact `http://localhost:3118/callback`; omission preserves defaults. See the [configuration example](docs/operators/upstream-servers.md#oauth-compatibility-settings).
-- permanent principals, one current agent credential per principal, immutable grants, and self-service grant requests;
-- governed tool calls with at most one automatic attempt and bounded redacted invocation evidence;
-- an embedded browser application and a matching public-HTTP administration CLI;
-- verified backups, stopped-process restore and recovery, and ordered shutdown.
-
-The [DESIGN](DESIGN.md) overview and its linked domain chapters are the source of truth for architecture, behavior, limits, failure semantics, and security decisions.
-
 ## Common workflows
 
 Generated `mcp-gateway --help` and subcommand help are the exact command reference.
 
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
-- Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md).
+- Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
 - Create principals, issue agent credentials, and manage grants or requests with [Access control](docs/operators/access-control.md). For Pi in a Lima guest, follow [agent provisioning](docs/operators/access-control.md#provision-a-pi-agent-in-a-lima-sandbox).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
 - Inspect control-plane history with `mcp-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Audit destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
