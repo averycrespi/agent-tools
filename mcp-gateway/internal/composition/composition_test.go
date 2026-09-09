@@ -404,11 +404,11 @@ func TestDrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
 	count, err := built.invocationRepository.Count(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count)
-	var terminal string
+	var terminal sql.NullString
 	require.NoError(t, options.Store.View(t.Context(), func(transaction *sql.Tx) error {
 		return transaction.QueryRowContext(t.Context(), `SELECT terminal_class FROM invocations`).Scan(&terminal)
 	}))
-	assert.Equal(t, string(contract.TerminalSucceeded), terminal)
+	assert.False(t, terminal.Valid, "drain fences new best-effort annotation, not the known live result")
 }
 
 func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t *testing.T) {

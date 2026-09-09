@@ -69,9 +69,14 @@ type Repository struct {
 	invalidate func(contract.Invalidation)
 	limit      int64
 	entropyMu  sync.Mutex
+	waitStop   <-chan struct{}
 }
 
 func NewRepository(store *storage.Store, clock Clock, entropy io.Reader, invalidators ...func(contract.Invalidation)) (*Repository, error) {
+	return NewRepositoryWithWaitStop(store, clock, entropy, nil, invalidators...)
+}
+
+func NewRepositoryWithWaitStop(store *storage.Store, clock Clock, entropy io.Reader, waitStop <-chan struct{}, invalidators ...func(contract.Invalidation)) (*Repository, error) {
 	if store == nil || clock == nil || entropy == nil || len(invalidators) > 1 || len(invalidators) == 1 && invalidators[0] == nil {
 		return nil, errors.New("invocation repository dependencies are incomplete")
 	}
@@ -79,7 +84,7 @@ func NewRepository(store *storage.Store, clock Clock, entropy io.Reader, invalid
 	if len(invalidators) == 1 {
 		invalidate = invalidators[0]
 	}
-	return &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate, limit: invocationLimit()}, nil
+	return &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate, limit: invocationLimit(), waitStop: waitStop}, nil
 }
 
 func (repository *Repository) Prepare(admission Admission) (PreparedAdmission, error) {
@@ -261,7 +266,7 @@ func (repository *Repository) Count(ctx context.Context) (int64, error) {
 }
 
 func (repository *Repository) mutate(ctx context.Context, callback func(*sql.Tx) error) error {
-	err := repository.store.Mutate(ctx, callback)
+	err := repository.store.MutateInvocation(ctx, repository.waitStop, callback)
 	if err == nil || isInvocationError(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}

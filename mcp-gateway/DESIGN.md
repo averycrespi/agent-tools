@@ -2,7 +2,7 @@
 
 ## Purpose
 
-MCP Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one durable audit transaction before one immediate attempt on a pinned downstream capability or fixed local handler. Gateway retains no queue, replay state, successful result, or raw downstream error.
+MCP Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one durable audit transaction before one immediate attempt on a pinned downstream capability or fixed local handler. Gateway retains no durable call queue, replay state, successful result, or raw downstream error; narrowly bounded process-local authority and invocation-storage acquisition waits do not schedule downstream work.
 
 This document is the normative architecture overview and index. The linked design chapters own detailed product behavior. The [documentation map](docs/README.md) routes readers to operator and maintainer procedures, while maintainer commands, package layout, and editing invariants belong to [`CLAUDE.md`](CLAUDE.md).
 
@@ -45,7 +45,7 @@ If summaries disagree, the owning normative chapter controls product intent and 
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation paths separate. Raw secrets may appear only at approved one-time sinks.
 - Treat SQLite availability and integrity as security state. Security-critical writes fail closed, uncertain durability latches storage, and recovery is stopped-process only.
 - Treat OS keyring support as an explicit typed capability with no plaintext fallback.
-- Keep registries and admission controls bounded and nonblocking. Restart discards sessions, streams, subscribers, runtime publications, and in-flight work.
+- Keep registries and admission controls bounded and nonblocking except for the compiled authority-gate and invocation-only storage acquisition waits. Restart discards sessions, streams, subscribers, runtime publications, and in-flight work.
 - Supply at most one automatic downstream attempt. Uncertain handoff never causes retry, reroute, or replay.
 
 Exact authorities, limits, states, and failure vocabularies are owned by the relevant design chapters rather than repeated here.

@@ -122,13 +122,28 @@ func (store *Store) MutateAgentCredentialCandidate(
 	return store.mutate(ctx, &recovery, mutate)
 }
 
-func (store *Store) mutate(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) error {
-	select {
-	case store.mutationSlot <- struct{}{}:
-		defer func() { <-store.mutationSlot }()
-	default:
-		return ErrMutationBusy
+// MutateInvocation is the bounded-wait exception for invocation admission and
+// synchronous terminal annotation only. stop fences acquisition, not settlement.
+func (store *Store) MutateInvocation(ctx context.Context, stop <-chan struct{}, mutate func(*sql.Tx) error) error {
+	if err := store.acquireMutation(ctx, stop, true); err != nil {
+		return err
 	}
+	defer store.releaseMutation()
+	if err := store.invocationWaitError(ctx, stop); err != nil {
+		return err
+	}
+	return store.mutateOwned(ctx, nil, mutate)
+}
+
+func (store *Store) mutate(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) error {
+	if err := store.acquireMutation(ctx, nil, false); err != nil {
+		return err
+	}
+	defer store.releaseMutation()
+	return store.mutateOwned(ctx, recovery, mutate)
+}
+
+func (store *Store) mutateOwned(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) error {
 	if store.Latched() {
 		return ErrStorageLatched
 	}
