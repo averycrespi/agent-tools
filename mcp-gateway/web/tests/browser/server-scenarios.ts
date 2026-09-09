@@ -1,5 +1,6 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { exerciseCatalogPagination } from "./catalog-pagination.ts";
+import { exerciseOperationPagination } from "./operation-pagination.ts";
 import { exerciseUpstreamHeaders } from "./upstream-headers.ts";
 import {
   assertClosedStorage,
@@ -13,6 +14,12 @@ import {
   serverReadFixture,
   serverReadIDs,
 } from "./fixtures.ts";
+
+function emptyOperationResponse(url: string) {
+  return new URL(url).searchParams.has("projection")
+    ? { items: [], has_more: false }
+    : { items: [], next_cursor: null, total_count: 0, offset: 0 };
+}
 
 export async function runServerManagementCanary(
   browserVersion: string,
@@ -65,7 +72,11 @@ export async function runServerManagementCanary(
         route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ items: [], next_cursor: null }),
+          body: JSON.stringify(
+            resource === "operations"
+              ? emptyOperationResponse(route.request().url())
+              : { items: [], next_cursor: null },
+          ),
         }),
     );
   }
@@ -1126,6 +1137,7 @@ export async function runServerOperations(
   let listReads = 0;
   let listBlocked = false;
   let detailPollReads = 0;
+  let detailState = "scheduled";
   let starts = 0;
   const startKeys: string[] = [];
   const startBodies: string[] = [];
@@ -1172,20 +1184,40 @@ export async function runServerOperations(
       }
       operationReads += 1;
       listReads += 1;
-      if (new URL(route.request().url()).search !== "?limit=50")
-        fail("operation list query changed");
+      const query = new URL(route.request().url()).searchParams;
+      const active = query.get("projection") === "active";
+      if (
+        !active &&
+        (query.get("sort") !== "started" ||
+          query.get("direction") !== "descending")
+      )
+        fail("operation history query changed");
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          items: listBlocked
-            ? [operation(operationIDs[4], "reload", "scheduled")]
-            : [
-                operation(operationIDs[4], "disable", "succeeded"),
-                operation(operationIDs[5], "reload", "failed", "connectivity"),
-              ],
-          next_cursor: null,
-        }),
+        body: JSON.stringify(
+          active
+            ? {
+                items: listBlocked
+                  ? [operation(operationIDs[4], "reload", "scheduled")]
+                  : [],
+                has_more: false,
+              }
+            : {
+                items: [
+                  operation(
+                    operationIDs[5],
+                    "reload",
+                    "failed",
+                    "connectivity",
+                  ),
+                  operation(operationIDs[4], "disable", "succeeded"),
+                ],
+                next_cursor: null,
+                total_count: 2,
+                offset: 0,
+              },
+        ),
       });
     },
   );
@@ -1197,15 +1229,7 @@ export async function runServerOperations(
       let item = operation(id, "refresh_catalog", "succeeded");
       if (id === operationIDs[0]) {
         detailPollReads += 1;
-        item = operation(
-          id,
-          "refresh_catalog",
-          detailPollReads <= 2
-            ? "scheduled"
-            : detailPollReads === 3
-              ? "running"
-              : "succeeded",
-        );
+        item = operation(id, "refresh_catalog", detailState);
       }
       await route.fulfill({
         status: 200,
@@ -1339,6 +1363,7 @@ export async function runServerOperations(
   );
   await page.waitForTimeout(100);
   const beforePoll = detailPollReads;
+  detailState = "running";
   await page.waitForTimeout(2100);
   if (detailPollReads !== beforePoll + 1)
     fail(
@@ -1355,6 +1380,7 @@ export async function runServerOperations(
   await page.waitForTimeout(2100);
   if (detailPollReads !== hiddenReads)
     fail("operation detail polled while hidden");
+  detailState = "succeeded";
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
@@ -1368,7 +1394,9 @@ export async function runServerOperations(
   const terminalReads = detailPollReads;
   await page.waitForTimeout(2100);
   if (detailPollReads !== terminalReads)
-    fail("terminal operation continued polling");
+    fail(
+      `terminal operation continued polling (${beforePoll}, ${hiddenReads}, ${terminalReads} -> ${detailPollReads})`,
+    );
   const detailText =
     (await page.locator('[data-testid="operation-detail"]').textContent()) ??
     "";
@@ -1462,10 +1490,18 @@ export async function runServerOperations(
   if ((await page.locator('[data-testid^="start-operation-"]').count()) !== 0)
     fail("operation controls were offered during conflicting work");
 
+  const screenshots = await exerciseOperationPagination(
+    page,
+    baseURL,
+    serverID,
+    currentServer,
+    operation,
+  );
   assertClosedStorage(await browserStorage(page));
   process.stdout.write(
     `${JSON.stringify({
       event: "server_operations_complete",
+      screenshots,
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),
@@ -1583,7 +1619,7 @@ export async function runServerDisconnectDelete(
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ items: [], next_cursor: null }),
+        body: JSON.stringify(emptyOperationResponse(route.request().url())),
       }),
   );
   await page.route(
@@ -1884,7 +1920,7 @@ export async function runAuthFlows(
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ items: [], next_cursor: null }),
+        body: JSON.stringify(emptyOperationResponse(route.request().url())),
       }),
   );
   await page.route(
@@ -1904,7 +1940,7 @@ export async function runAuthFlows(
               : flow(activeID, "preparing"),
             flow(terminalID, "failed", "oauth_rejected"),
           ],
-          next_cursor: null,
+          next_cursor: "retained-page-two",
         }),
       });
     },
@@ -2162,6 +2198,12 @@ export async function runAuthFlows(
   await page.locator('[data-testid="auth-flow-list"]').waitFor();
   if ((await page.locator('[data-testid="auth-flow-row"]').count()) !== 2)
     fail("authentication omitted OAuth activity history");
+  await expect(
+    page.getByRole("button", { name: "Load more flows", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Showing 2 of 2 loaded", { exact: true }),
+  ).toBeVisible();
   if ((await page.locator('[data-testid="start-auth-flow"]').count()) !== 0)
     fail("authentication offered a second active OAuth flow");
 

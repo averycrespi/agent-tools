@@ -129,6 +129,12 @@ type Server struct {
 	DeletedAt           *string               `json:"deleted_at"`
 }
 
+// ActiveServerOperations is a bounded current observation, not mutation authority.
+type ActiveServerOperations struct {
+	Items   []ServerOperation `json:"items"`
+	HasMore bool              `json:"has_more"`
+}
+
 type ServerOperation struct {
 	ID                        string               `json:"id"`
 	ServerID                  string               `json:"server_id"`

@@ -1,4 +1,5 @@
-import type { RefObject } from "preact";
+import type { ComponentChildren, RefObject } from "preact";
+import type { CollectionControls } from "./view";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type {
   MutationController,
@@ -105,16 +106,21 @@ function consequence(kind: ExplicitOperationKind): string {
     ? "Reload withdraws current routing while the server restarts. Calls already handed downstream may have unknown outcomes."
     : "Disconnect invalidates local credential authority and withdraws affected routing. Remote revocation is best effort and is not guaranteed.";
 }
-function OperationRows({
+export function OperationRows({
   serverID,
   items,
+  controls,
 }: {
   serverID: string;
   items: readonly ServerOperationView[];
+  controls: CollectionControls;
 }) {
   return (
     <CollectionTable
       caption="Server activity"
+      remote={controls}
+      itemNames={{ singular: "operation", plural: "operations" }}
+      emptyTitle="No retained operations"
       items={items}
       rowKey={(operation) => operation.id}
       rowTestID="operation-row"
@@ -202,12 +208,18 @@ function OperationStarter({
   etag,
   readVersion,
   activeOperation,
+  activeCurrent,
+  activeRefreshing,
+  multipleActive,
 }: {
   mutations: MutationCoordinator;
   server: ServerView;
   etag: string;
   readVersion: number;
   activeOperation: ServerOperationView | undefined;
+  activeCurrent: boolean;
+  activeRefreshing: boolean;
+  multipleActive: boolean;
 }) {
   const [controller] = useState<MutationController<ServerOperationView>>(() =>
     mutations.create<ServerOperationView>(),
@@ -258,17 +270,48 @@ function OperationStarter({
   const waitingForRead =
     blockedReadVersion !== undefined && readVersion <= blockedReadVersion;
   const disabled =
+    !activeCurrent ||
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched" ||
     waitingForRead;
-  const eligible = eligibleKinds(server, activeOperation);
+  const eligible = multipleActive ? [] : eligibleKinds(server, activeOperation);
   return (
-    <section class="panel domain-panel" aria-labelledby="operation-start-title">
+    <section
+      class="panel domain-panel"
+      aria-labelledby="operation-start-title"
+      aria-busy={activeRefreshing ? "true" : undefined}
+    >
       <div class="panel-heading">
         <div>
           <h2 id="operation-start-title">Available actions</h2>
         </div>
       </div>
+      {activeOperation !== undefined && (
+        <StateNotice
+          state="warning"
+          title={
+            activeCurrent || activeRefreshing
+              ? "Active server work"
+              : "Last observed active work"
+          }
+        >
+          <p>
+            <a
+              data-testid="active-operation-link"
+              href={`#/servers/${server.id}/operations/${activeOperation.id}`}
+            >
+              {label(activeOperation.kind)} — {words(activeOperation.state)}
+            </a>
+            {multipleActive ? " and additional active work" : ""}. This work may
+            block new actions.
+          </p>
+        </StateNotice>
+      )}
+      {!activeCurrent && !activeRefreshing && (
+        <StateNotice state="loading" title="Active-work status is not current">
+          Actions require a successful authoritative refresh.
+        </StateNotice>
+      )}
       {eligible.length === 0 ? (
         <StateNotice state="empty" title="No actions are currently available" />
       ) : (
@@ -301,6 +344,15 @@ function OperationStarter({
           )}
         </StateNotice>
       )}
+      {blockedReadVersion !== undefined &&
+        !waitingForRead &&
+        (activeCurrent || activeRefreshing) && (
+          <p class="session-message" role="status">
+            {activeOperation === undefined
+              ? "Refreshed state: no active operation remains. Review available actions before starting a new intent."
+              : "Refreshed state: active work is identified above."}
+          </p>
+        )}
       {waitingForRead && (
         <p class="session-message" role="status">
           Waiting for a newer authoritative operation snapshot.
@@ -352,10 +404,10 @@ export function ServerOperations({
   readVersion,
   operations,
   operation,
-  nextCursor,
-  loadingMore,
-  restarted,
-  onLoadMore,
+  activeCurrent = false,
+  activeRefreshing = false,
+  multipleActive = false,
+  history,
 }: {
   mutations: MutationCoordinator;
   server: ServerView;
@@ -363,10 +415,10 @@ export function ServerOperations({
   readVersion: number;
   operations: readonly ServerOperationView[];
   operation: ServerOperationView | undefined;
-  nextCursor: string | null;
-  loadingMore: boolean;
-  restarted: boolean;
-  onLoadMore: () => void;
+  activeCurrent?: boolean;
+  activeRefreshing?: boolean;
+  multipleActive?: boolean;
+  history?: ComponentChildren;
 }) {
   if (operation !== undefined)
     return (
@@ -436,6 +488,9 @@ export function ServerOperations({
         activeOperation={operations.find(
           (candidate) => !operationIsTerminal(candidate),
         )}
+        activeCurrent={activeCurrent}
+        activeRefreshing={activeRefreshing}
+        multipleActive={multipleActive}
       />
       <section
         class="panel domain-panel"
@@ -447,26 +502,7 @@ export function ServerOperations({
             <h2 id="operation-list-title">Operation history</h2>
           </div>
         </div>
-        {operations.length === 0 ? (
-          <StateNotice state="empty" title="No retained operations" />
-        ) : (
-          <OperationRows serverID={server.id} items={operations} />
-        )}
-        {restarted && (
-          <p class="bounded-note">
-            A stale cursor restarted this traversal; prior pages were discarded.
-          </p>
-        )}
-        {nextCursor !== null && (
-          <button
-            type="button"
-            data-testid="load-more-operations"
-            disabled={loadingMore}
-            onClick={onLoadMore}
-          >
-            Load more operations
-          </button>
-        )}
+        {history}
       </section>
     </>
   );

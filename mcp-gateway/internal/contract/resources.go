@@ -48,7 +48,7 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v1/servers/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Server", SuccessStatuses: []int{200}, ETag: true},
 	{Pattern: "/api/v1/servers/{id}", Method: "PATCH", RequestSchema: "ServerPatch", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v1/servers/{id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200, 202}, Precondition: true, ETag: true},
-	{Pattern: "/api/v1/servers/{id}/operations", Method: "GET", RequestSchema: "ServerOperationListQuery", SuccessSchema: "Page<ServerOperation>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v1/servers/{id}/operations", Method: "GET", RequestSchema: "ServerOperationListQuery|ServerOperationTableQuery|ActiveServerOperationsQuery", SuccessSchema: "Page<ServerOperation>|QueryPage<ServerOperation>|ActiveServerOperations", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v1/servers/{id}/operations", Method: "POST", RequestSchema: "ServerOperationCreate", SuccessSchema: "ServerOperationMutation", SuccessStatuses: []int{200, 202}, Idempotency: true, Precondition: true},
 	{Pattern: "/api/v1/servers/{id}/operations/{operation_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerOperation", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v1/servers/{id}/credential-replacements", Method: "POST", RequestSchema: "CredentialReplacement", SuccessSchema: "CredentialReplacementResult", SuccessStatuses: []int{202}, Precondition: true},

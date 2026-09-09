@@ -129,7 +129,9 @@ Deterministic fixtures are not live Slack qualification. Use actual provider con
 
 ## Start and monitor operations
 
-Inspect operation history before starting more work:
+The browser's Operations tab shows globally newest-first retained history, with Action/Status filters and Previous/Next controls beside an exact matching range. Filters search all retained operations, not just the loaded page. Active work is identified separately with a link, even if it is older than the page or hidden by filters. Interrupted history is terminal and does not block new actions. Loading or unavailable active status disables submission until refreshed. If a start races new work, the rejection refreshes current state without automatically retrying or repairing the blocker; if the work settled, no blocker is invented.
+
+The CLI retains its existing insertion-order list defaults and one-page behavior. Inspect operation history before starting more work:
 
 ```bash
 mcp-gateway server operation list SERVER_ID
