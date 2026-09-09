@@ -20,59 +20,14 @@ This repo is opinionated. It provides sandboxed execution and broker-backed exte
 
 ![Diagram showing how the tools connect to each other](assets/tool-relationships.svg)
 
-## Getting Started
+### MCP Broker or MCP Gateway?
 
-Requirements:
+Both keep upstream credentials outside the sandbox and control access to MCP tools, but they use different permission models:
 
-- Go 1.25+
-- Node.js and npm for development hooks and document formatting
-- GNU Make
-- Python 3 for CI selection and gate tests
-- macOS for `sandbox-manager` (requires Lima)
+- **MCP Broker** uses rules to allow, deny, or send individual tool calls for human approval.
+- **MCP Gateway** uses per-agent identities and scoped grants. Agents can request additional permissions; approval changes access rather than queuing a tool call.
 
-```bash
-# First-time setup on macOS: install Homebrew deps, dev deps/hooks, and all Go tools
-make setup
-
-# Or run the steps separately
-brew bundle       # macOS system dependencies
-make install-dev  # npm install for formatter deps and Git hooks
-make install      # install all Go tool binaries
-
-# Verify formatting, linting, and ordinary tool correctness
-make check
-
-# CI checks and focused broader entry points (not an additive checklist)
-make test-ci
-make test-integration
-make test-e2e
-make vulncheck
-
-# Or, to install individual tools
-cd sandbox-manager && make install
-cd mcp-broker && make install
-cd mcp-gateway && make install
-cd http-broker && make install
-cd local-git-mcp && make install
-cd local-gomod-proxy && make install
-cd telegram-mcp && make install
-```
-
-Root `test` runs Gateway alone, then at most two other tool suites concurrently. Use `LOCAL_TEST_JOBS=1` for serial comparison; only `1` and `2` are accepted. Gateway stays isolated because its harness releases and rebinds listener ports. Public root goals, linters, integration, and E2E aggregates remain serial. `check-other-tools` runs serial lint followed by the bounded non-Gateway test phase. A failed worker stops new work while active workers finish their cleanup, even if the caller passed Make's keep-going flag.
-
-Gateway's `test` already includes its integration, harness, material, and demo-runner owners. Do not add its integration leaf—or root `test-integration`—after `make check` as part of the same coverage set. Run focused integration targets in the other modules when needed. Their checked `TestIntegration` namespace and package selection exclude ordinary-test reselection. `TEST_JSON=1` enables structured events for Gateway's planned Go commands; other tools and non-Go wrappers retain their normal output.
-
-## CI
-
-Pull requests run Go lint, unit tests, supported integration/E2E suites, and blocking Go vulnerability scans in independent tool-scoped jobs. Gateway lint runs independently of its unit, integration, harness/material, E2E, and demo-runner leaves. Its dependency-light unit path no longer runs component databases, while the integration and harness/material jobs retain that moved coverage without repeating it under another name. Both Gateway lint and correctness remain mandatory in Required. Gateway's Go demo runner is checked on Linux and macOS; Sandbox Manager retains its macOS unit tests. Formatting and CI selection/gate tests always run.
-
-Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames. Pushes to `main`, manual runs, and the weekly scheduled run check every tool; scheduled vulnerability scans can catch new advisories without code changes.
-
-Configure branch protection to require the stable **Required** check from the **CI** workflow rather than individual matrix jobs. When migrating from the old workflow, replace the old Unit tests (Linux), Integration tests, End-to-end tests, and Vulnerability scan requirements; conditional Sandbox Manager checks should also be covered by Required. The gate rejects failed, cancelled, missing, or unexpectedly skipped checks. Repository commits do not update GitHub branch-protection settings.
-
-Go module, build, and linter caches are owned by tool and execution role, with workspace/module dependencies, linter configuration, resolved toolchain, OS, and architecture in the compatibility identity. Each workflow run/attempt saves under a fresh key while restoring the latest compatible entry, so an incomplete restore can acquire and retain missing material. Build caches may span source revisions; they never replace exact-head correctness checks. Role isolation trades some cache duplication for independent writers and avoids a lint or ordinary-test cache blocking E2E material from being saved.
-
-Run `make test-ci` to verify classification, merge-base handling, required-gate policy, cache identity, workflow wiring, bounded root execution, and non-Gateway integration ownership locally. Actual cache-hit effectiveness, runner cost, and critical-path timing require authorized CI execution; local tests do not simulate GitHub's cache service. Tool inventories come from the root Makefile. This CI profile is development feedback, not Gateway's complete [exact-revision release acceptance](mcp-gateway/docs/maintainers/release-verification.md).
+Choose the model that fits your workflow. They are independent services with separate configuration and state; Gateway does not migrate Broker settings.
 
 ## Tools
 
@@ -98,9 +53,9 @@ AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandbox
 `mcp-broker` runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint:
 
 - The user connects their individual MCP servers to the MCP Broker.
-- Agents connect to the broker as their only MCP server, with no secrets exposed to the agent.
+- Agents connect to the broker as their only MCP server, without receiving upstream service credentials.
 - Rules control which MCP tools are auto-allowed, auto-denied, or sent for human approval.
-- Every tool call is audit-logged in SQLite for maximum observability.
+- Tool calls are recorded in a searchable SQLite audit log.
 - A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
 
 See the [mcp-broker README](mcp-broker/README.md) for more information.
@@ -121,7 +76,7 @@ See the [mcp-gateway README](mcp-gateway/README.md) for more information.
 
 ### HTTP Broker
 
-`mcp-broker` keeps secrets out of the sandbox for MCP tool calls. An agent that reaches for `curl`, an SDK, or any ordinary HTTP client is back to holding its own.
+MCP Broker and MCP Gateway keep upstream credentials out of the sandbox for MCP tool calls. An agent that reaches for `curl`, an SDK, or any ordinary HTTP client is back to holding its own.
 
 `http-broker` applies the same premise to raw HTTP. It is a host-native forward proxy that decides per connection whether to intercept, tunnel, or deny, injects credentials the sandbox never holds, and records every request to an audit log surfaced through a read-only dashboard.
 
@@ -147,7 +102,7 @@ Sandboxed agents can do most git operations locally — staging, committing, dif
 
 - Six tools — `push`, `pull`, `fetch`, `clone_github_repo`, `list_remote_refs`, and `list_remotes` — cover every remote operation an agent typically needs.
 - Uses the host's existing SSH keys and credential helpers; no tokens or keys ever cross into the sandbox.
-- Designed to sit behind `mcp-broker`, so the broker's rules and audit log apply to every push and pull.
+- Runs as a stdio backend behind MCP Broker or MCP Gateway, so remote operations go through the chosen service's access controls and invocation history.
 - No config, no state, no network listener — spawned as a subprocess over stdio.
 
 See the [local-git-mcp README](local-git-mcp/README.md) for more information.
@@ -158,7 +113,7 @@ Sandboxed agents often work in Go projects that depend on private modules hosted
 
 `local-gomod-proxy` is a minimal HTTP Go module proxy that runs on the host and bridges the gap:
 
-- Public modules are reverse-proxied to `proxy.golang.org` with zero host CPU overhead.
+- Public modules are reverse-proxied to `proxy.golang.org`.
 - Private modules (matched by `GOPRIVATE`) are fetched via `go mod download` on the host, inheriting its git credentials, and streamed back to the sandbox.
 - Git credentials stay on the host; the sandbox reaches the proxy over Lima's host-local bridge and carries none.
 
@@ -172,12 +127,57 @@ Agents sometimes need a direct way to notify the human operator when work finish
 
 - Exposes a single MCP tool, `send_message`, for notifications.
 - Uses its own Telegram bot token and chat ID; credentials stay on the host.
-- Designed to sit behind `mcp-broker`, so broker rules and audit logging still apply.
+- Runs as a stdio backend behind MCP Broker or MCP Gateway, so notifications go through the chosen service's access controls and invocation history.
 - No general Telegram client features — no arbitrary recipients, media upload, receiving messages, or chat administration.
 
 See the [telegram-mcp README](telegram-mcp/README.md) for more information.
 
+## Installation
+
+Requirements:
+
+- Go 1.25.13 or later and GNU Make
+- macOS and Lima for Sandbox Manager (`brew bundle` installs Lima from the repository root)
+- A supported operating-system keyring for MCP Gateway server credentials
+
+From the repository root, install all tools:
+
+```bash
+make install
+```
+
+Or install only the tools you need:
+
+```bash
+make -C sandbox-manager install
+make -C mcp-broker install
+make -C mcp-gateway install
+make -C http-broker install
+make -C local-git-mcp install
+make -C local-gomod-proxy install
+make -C telegram-mcp install
+```
+
+Each tool's README covers its configuration and runtime requirements. For Gateway stdio backends, explicitly configure the executable, working directory, environment, and secret bindings; Gateway does not inherit the host environment. See [upstream server configuration](mcp-gateway/docs/operators/upstream-servers.md).
+
+## Development
+
+In addition to the installation requirements, development uses Node.js/npm for hooks and formatting, and Python 3 for CI selection and gate tests.
+
+```bash
+npm install  # install development dependencies and Git hooks
+make build  # build all Go tools
+make check  # check CI selection, formatting, lint, and ordinary tool correctness
+```
+
+On macOS, `make setup` combines Homebrew dependencies, development dependencies, and installation of all tools.
+
+GitHub Actions checks affected tools on pull requests and all tools on `main`, manual runs, and a weekly schedule. See the [contributor guidance](CLAUDE.md#development) for test ownership and focused checks, and [CI guidance](CLAUDE.md#ci) for selection, caching, and required checks.
+
 ## Deprecated Tools
+
+<details>
+<summary>Unmaintained tools and their final versions</summary>
 
 These tools are no longer maintained, but their final versions remain available in the repository history.
 
@@ -192,6 +192,8 @@ These tools are no longer maintained, but their final versions remain available 
 | `local-gh-mcp`        | [`1f7cfd126f`](https://github.com/averycrespi/agent-tools/tree/1f7cfd126fe10f5f3107db771a06450c2adc0d92/local-gh-mcp)        | Deprecated in favor of the official GitHub MCP server.              |
 | `broker-cli`          | [`0251368f3b`](https://github.com/averycrespi/agent-tools/tree/0251368f3b209242d6edcc7b916f476f810cb584/broker-cli)          | Replaced by the `mcp-broker` Pi extension.                          |
 | `hindsight`           | [`164ffccbc0`](https://github.com/averycrespi/agent-tools/tree/164ffccbc010cc41c0a1330f8f1a5570ae61199f/hindsight)           | An experimental memory solution that was ultimately abandoned.      |
+
+</details>
 
 ## Related
 
