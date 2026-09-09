@@ -49,7 +49,12 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 			server, requests := newPrincipalRequestETagServer(t, id)
 			output, err := executePrincipalRequestETagCommand(t, server.URL, append(test.args, "--etag", test.etag)...)
 			require.NoError(t, err, "%s", output)
-			require.Len(t, requests, 1)
+			if test.name == "grant request approve" {
+				require.Len(t, requests, 2)
+				assert.Equal(t, http.MethodGet, (<-requests).method)
+			} else {
+				require.Len(t, requests, 1)
+			}
 			assert.Equal(t, test.etag, (<-requests).etag)
 		})
 	}

@@ -133,6 +133,18 @@ mcp-gateway grant create --file PATH
 
 Every grant has a stable ID and may have a non-unique human-readable description. The description is display metadata: update or clear it with `grant update GRANT_ID --description TEXT` (an empty value clears it) and an automatic or explicit exact ETag. A description-only patch advances the grant's metadata revision without advancing policy revision or cancelling leases. The direct create form creates an ordinary unconstrained grant and may add `--description`, `--upstream-name`, or `--expires-at`. Use the mutually exclusive strict file form for a constraint; it supplies the complete closed shape, including explicit nullable `description`, `upstream_name`, `constraint`, and `expires_at` members. Grants are immutable for identity and policy; each remains an `ALLOW` or `DENY` row even when its optional description changes. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
 
+### Read-only server access
+
+Add `--read-only` to direct server ALLOW creation, or select **Only tools marked read-only** in the browser's **Allowed tools** dropdown for a server ALLOW:
+
+```bash
+mcp-gateway grant create --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID --read-only
+```
+
+The strict grant file accepts optional Boolean `"read_only":true` alongside the existing required members, with `upstream_name:null` and `constraint:null`. Omission or false preserves unrestricted behavior. True is invalid for DENY, exact-tool, or argument-constrained grants; direct flags (including `--read-only=false`) cannot be combined with `--file`.
+
+Only tools explicitly declaring `annotations.readOnlyHint=true` qualify, including future qualifying tools. Missing, null, or false hints do not qualify. Annotations are trusted server declarations, not side-effect isolation. This restricts one ALLOW, not the whole principal: other ALLOW grants may authorize writes, and matching DENY still wins. CLI and browser grant/request reads distinguish read-only from unrestricted server access. Browser replacement ALLOWs retain the restriction; replacement DENYs cover all tools on the server.
+
 Untagged constraints use the permanent v1 equality form `{"equals":{"/object/path":value}}`. V2 uses the closed `{"version":2,"equals":{...},"regex":{...}}` form with at least one and at most 16 total atoms. For example, a strict exact-tool grant file can combine equality and regex while retaining lexical tokens:
 
 ```json
@@ -207,7 +219,7 @@ Requests move once from `pending` to `approved`, `rejected`, or `cancelled`. The
 
 ## Approve or reject a request
 
-Approval may only narrow scope, exact constraint tokens, and duration. **Approve as requested** opens final confirmation directly; an optional grant description does not alter authority. **Customize approval** opens Tools, Conditions, and Duration with an **Approval preview** showing requested and proposed values. **Hide customization** preserves edits; a collapsed edited draft is labeled **Custom approval edited**. **Approve as requested** always uses the original request, even with hidden edits. The green **Approve as narrowed** action opens final confirmation for a changed draft; an unchanged draft instead says **Approve as requested**. Submitted conditions are locked, with exact source inspectable; only additive conjunctive conditions, a tool on the same requested server, and shorter duration are permitted. **Reject request** opens its own reason dialog without validating the approval draft. Rejection creates no grant, does not revoke access, and does not create a DENY. For approval, enter a whole-number duration and select minutes, hours, days, or seconds; the selected duration cannot exceed the submitted request, and a temporary request cannot become permanent. Omit `--etag` for one validated item preflight, or provide an explicit exact value. Use direct flags for an unconstrained approval or the mutually exclusive strict file form for a constraint:
+Approval may only narrow scope, exact constraint tokens, and duration. **Approve as requested** opens final confirmation directly; an optional grant description does not alter authority. **Customize approval** opens Tools, Conditions, and Duration with an **Approval preview** showing requested and proposed values. **Hide customization** preserves edits; a collapsed edited draft is labeled **Custom approval edited**. **Approve as requested** always uses the original request, even with hidden edits. The green **Approve as narrowed** action opens final confirmation for a changed draft; an unchanged draft instead says **Approve as requested**. Submitted conditions are locked, with exact source inspectable; only additive conjunctive conditions, a tool on the same requested server, and shorter duration are permitted. **Reject request** opens its own reason dialog without validating the approval draft. Rejection creates no grant, does not revoke access, and does not create a DENY. For approval, enter a whole-number duration and select minutes, hours, days, or seconds; the selected duration cannot exceed the submitted request, and a temporary request cannot become permanent. Approval always reads the submitted policy before mutation to prevent removing read-only restrictions. Omit `--etag` to use that read's exact ETag, or supply an explicit exact value; a mismatch stops without refreshing the supplied ETag or submitting the approval. Use direct flags for an unconstrained approval or the mutually exclusive strict file form for a constraint:
 
 ```bash
 mcp-gateway grant-request approve REQUEST_ID \
@@ -218,7 +230,17 @@ mcp-gateway grant-request approve REQUEST_ID \
 mcp-gateway grant-request approve REQUEST_ID --etag ETAG --file PATH --yes
 ```
 
-The strict approval file contains the complete closed approval body; an additive v2 narrowing looks like:
+For read-only server requests, retain server scope, `--read-only`, and future-tool acknowledgement. An unrestricted server request can also narrow to read-only:
+
+```bash
+mcp-gateway grant-request approve REQUEST_ID \
+  --scope server --target SERVER_NAMESPACE --read-only \
+  --acknowledge-future-tools --duration-seconds 600 --yes
+```
+
+In the browser, **Approve as requested** preserves the submitted restriction. **Customize approval** can change **Allowed tools** from **All tools** to **Only tools marked read-only** for a server request; a requested read-only restriction locks the dropdown and disables exact-tool narrowing. Both requested and approved restrictions remain visible after approval. Duration may only shorten, and future-tool acknowledgement remains required. A read-only server request cannot narrow to an unrestricted exact-tool grant, even if that tool currently declares itself read-only. Conservative active-DENY conflicts remain safe errors; neither client replays rejected, stale, or uncertain mutations.
+
+The strict approval file accepts optional Boolean `read_only` inside `approved_policy` with the same server-only semantics. It contains the complete closed approval body; an additive v2 narrowing looks like:
 
 ```json
 {

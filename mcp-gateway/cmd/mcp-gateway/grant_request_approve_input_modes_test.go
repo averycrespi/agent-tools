@@ -29,6 +29,12 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 	const resourceID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	requests := make(chan []byte, 6)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet {
+			response.Header().Set("Content-Type", contract.MediaTypeJSON)
+			response.Header().Set("ETag", contract.GrantRequestETag(resourceID, "1"))
+			_, _ = response.Write([]byte(grantRequestETagBody(resourceID, "pending", "1", nil, nil)))
+			return
+		}
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			response.WriteHeader(http.StatusInternalServerError)

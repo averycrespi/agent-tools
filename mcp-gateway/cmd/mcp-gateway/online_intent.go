@@ -127,6 +127,10 @@ func preparedIntentError(err error, fallback string) *controlclient.OnlineError 
 	if errors.As(err, &inputError) {
 		return controlclient.NewServerConfigurationInputError(string(inputError.field), string(inputError.rule))
 	}
+	var diagnostic *controlclient.OnlineError
+	if errors.As(err, &diagnostic) && diagnostic.Code == "client_invalid_input" && diagnostic.Status == nil {
+		return controlclient.NewInputError(diagnostic.Title)
+	}
 	return controlclient.NewInputError(fallback)
 }
 
@@ -333,13 +337,16 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		},
 	},
 	"grant create": {
-		fileMembers: []string{"description", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"},
+		fileMembers: []string{"description", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "read_only"},
 		direct: []onlineDirectFlag{
-			{name: "description"}, {name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"},
+			{name: "description"}, {name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"}, {name: "read-only", toggle: true},
 		},
 		defaultDirect: true,
-		buildBody: func(values map[string]string, _ map[string]bool, changed map[string]bool) ([]byte, error) {
+		buildBody: func(values map[string]string, toggles map[string]bool, changed map[string]bool) ([]byte, error) {
 			body := map[string]any{"description": nil, "principal_id": values["principal-id"], "effect": values["effect"], "server_id": values["server-id"], "upstream_name": nil, "constraint": nil, "expires_at": nil}
+			if changed["read-only"] {
+				body["read_only"] = toggles["read-only"]
+			}
 			if changed["description"] {
 				body["description"] = values["description"]
 			}
@@ -365,11 +372,14 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 	"grant-request approve": {
 		fileMembers: []string{"description", "approved_policy"},
 		direct: []onlineDirectFlag{
-			{name: "description"}, {name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true},
+			{name: "description"}, {name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true}, {name: "read-only", toggle: true},
 		},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, toggles map[string]bool, changed map[string]bool) ([]byte, error) {
 			policy := map[string]any{"scope": values["scope"], "target": values["target"], "constraint": nil, "duration_seconds": nil, "future_tools_acknowledged": false}
+			if changed["read-only"] {
+				policy["read_only"] = toggles["read-only"]
+			}
 			if changed["duration-seconds"] {
 				policy["duration_seconds"] = values["duration-seconds"]
 			}

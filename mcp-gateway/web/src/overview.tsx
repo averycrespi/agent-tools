@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { decodeReadOnly, readOnlyKeys } from "./read-only";
 import { useEffect, useState } from "preact/hooks";
 import { type PrincipalDirectory } from "./principals";
 import { sentenceCase, StateNotice, StatusLabel } from "./primitives";
@@ -431,6 +432,7 @@ function decodeServerPage(value: unknown): {
 }
 function validatePolicy(value: unknown): string {
   const policy = record(value, [
+    ...readOnlyKeys(value),
     "scope",
     "target",
     "constraint",
@@ -441,6 +443,13 @@ function validatePolicy(value: unknown): string {
   const target = stringValue(policy.target);
   nullableString(policy.duration_seconds);
   booleanValue(policy.future_tools_acknowledged);
+  if (
+    decodeReadOnly(policy) &&
+    (policy.scope !== "server" ||
+      policy.constraint !== null ||
+      policy.future_tools_acknowledged !== true)
+  )
+    throw new Error("invalid response");
   if (
     policy.constraint !== null &&
     (typeof policy.constraint !== "object" || Array.isArray(policy.constraint))

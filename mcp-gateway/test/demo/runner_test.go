@@ -282,17 +282,19 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Len(t, manifest.Fixtures, 2)
 		c := testClient(t, s.listen, root)
 		require.Len(t, rows(c.get("servers"), "items"), 2)
-		require.Len(t, rows(c.get("grants"), "items"), 8)
+		require.Len(t, rows(c.get("grants"), "items"), 13)
 		names := []string{}
 		for _, item := range rows(c.get("principals"), "items") {
 			row, _ := item.(map[string]any)
 			names = append(names, text(row, "display_name"))
 		}
-		require.ElementsMatch(t, []string{"Demo Explorer", "Demo Reader", "Demo Disabled"}, names)
+		require.ElementsMatch(t, []string{"Demo Explorer", "Demo Reader", "Demo Disabled", "Demo Request Tool", "Demo Request Constraints", "Demo Request Duration", "Demo Request Server", "Demo Request Read-only"}, names)
 		requests := rows(c.get("grant-requests"), "items")
-		require.Len(t, requests, 1)
-		request, _ := requests[0].(map[string]any)
-		require.Equal(t, "pending", text(request, "state"))
+		require.Len(t, requests, 5)
+		for _, item := range requests {
+			request, _ := item.(map[string]any)
+			require.Equal(t, "pending", text(request, "state"))
+		}
 		explorer, err := readBearer(filepath.Join(root, "explorer-bearer"))
 		require.NoError(t, err)
 		reader, err := readBearer(filepath.Join(root, "reader-bearer"))
@@ -313,12 +315,13 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Equal(t, "downstream_failure", text(c.call(explorer, "demo_workshop.controlled_error", object{}), "error", "data", "code"))
 		require.True(t, contentIs(c.call(reader, "demo_library.lookup", object{"document": "welcome"}), documents["welcome"]))
 		require.NoError(t, c.err)
+		verifyDemoRequestApprovals(t, c, root)
 		info, err := os.Stat(root)
 		require.NoError(t, err)
 		require.Equal(t, os.FileMode(0700), info.Mode().Perm())
 		sinks, err := filepath.Glob(filepath.Join(root, "*-bearer"))
 		require.NoError(t, err)
-		require.Len(t, sinks, 4)
+		require.Len(t, sinks, 9)
 		secrets := [][]byte{}
 		for _, sink := range sinks {
 			info, err = os.Stat(sink)

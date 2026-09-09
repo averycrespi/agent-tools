@@ -35,19 +35,19 @@ func grantListPath(options *onlineOptions) (string, error) {
 func runGrantCreate(command *cobra.Command, options *onlineOptions) error {
 	body, err := readGrantCreateInput(command, options)
 	if err != nil {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant create input is invalid."))
+		return writeOnlineFailure(command, options.output, preparedIntentError(err, "The grant create input is invalid."))
 	}
 	return runGrantCreateRequest(command, options, body)
 }
 
 func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byte, error) {
 	allowed := []string{"description", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"}
-	body, err := readOnlineJSONInput(command, options, allowed)
+	body, err := readOnlineJSONInput(command, options, append(allowed, "read_only"))
 	if err != nil {
 		return nil, err
 	}
 	var object map[string]json.RawMessage
-	if json.Unmarshal(body, &object) != nil || len(object) != len(allowed) {
+	if json.Unmarshal(body, &object) != nil || (len(object) != len(allowed) && len(object) != len(allowed)+1) {
 		return nil, controlclient.ErrInvalidInput
 	}
 	for _, member := range allowed {
@@ -77,7 +77,14 @@ func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byt
 		}
 		upstream = &value
 	}
+	readOnly, valid := optionalReadOnly(object)
+	if !valid {
+		return nil, controlclient.NewInputError("read_only must be Boolean.")
+	}
 	constraintNull := string(object["constraint"]) == "null"
+	if readOnly && (effect != contract.GrantAllow || upstream != nil || !constraintNull) {
+		return nil, controlclient.NewInputError("read_only=true requires server ALLOW scope with no upstream tool or argument constraints.")
+	}
 	if (upstream == nil && !constraintNull) || (!constraintNull && !validGrantConstraint(object["constraint"])) {
 		return nil, controlclient.ErrInvalidInput
 	}
@@ -92,6 +99,21 @@ func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byt
 		}
 	}
 	return marshalGrantJSON(object)
+}
+
+func optionalReadOnly(object map[string]json.RawMessage) (bool, bool) {
+	raw, present := object["read_only"]
+	if !present {
+		return false, true
+	}
+	switch string(raw) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func marshalGrantJSON(value any) ([]byte, error) {
@@ -278,7 +300,10 @@ func runGrantCreateRequest(command *cobra.Command, options *onlineOptions, body 
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	var grant contract.Grant
-	if response.Header.Get("Content-Type") != contract.MediaTypeJSON || controlclient.DecodeResponse(response.Body, &grant) != nil || !validGrant(grant) {
+	var submitted struct {
+		ReadOnly bool `json:"read_only"`
+	}
+	if json.Unmarshal(body, &submitted) != nil || response.Header.Get("Content-Type") != contract.MediaTypeJSON || controlclient.DecodeResponse(response.Body, &grant) != nil || !validGrant(grant) || grant.ReadOnly != submitted.ReadOnly {
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: grantCreateUncertainTitle(), Exit: 8, Uncertain: true})
 	}
 	if mode == controlclient.OutputJSON {
@@ -378,7 +403,7 @@ func validGrant(grant contract.Grant) bool {
 	}
 	_, effectErr := contract.ParseGrantEffect(string(grant.Effect))
 	_, stateErr := contract.ParseGrantState(string(grant.State))
-	return effectErr == nil && stateErr == nil && (grant.UpstreamName != nil || grant.Constraint == nil) && grantConstraintSummary(grant.Constraint) != "invalid"
+	return effectErr == nil && stateErr == nil && (!grant.ReadOnly || grant.Effect == contract.GrantAllow && grant.UpstreamName == nil && grant.Constraint == nil) && (grant.UpstreamName != nil || grant.Constraint == nil) && grantConstraintSummary(grant.Constraint) != "invalid"
 }
 
 func validGrantDescription(value string) bool {
@@ -404,7 +429,10 @@ func grantItemTable(body []byte) (controlclient.Table, error) {
 func grantTable(grants []contract.Grant, truncateDescriptions bool) controlclient.Table {
 	rows := make([][]string, 0, len(grants))
 	for _, grant := range grants {
-		upstream := "all tools"
+		upstream := "all tools (unrestricted)"
+		if grant.ReadOnly {
+			upstream = "read-only tools"
+		}
 		if grant.UpstreamName != nil {
 			upstream = *grant.UpstreamName
 		}

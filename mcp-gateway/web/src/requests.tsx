@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
 import {
+  decodeReadOnly,
+  readOnlyKeys,
+  readOnlyMember,
+  readOnlyExplanation,
+} from "./read-only";
+import {
   matcherSchemaSuggestions,
   readMatcherDescriptor,
   readMatcherDescriptors,
@@ -49,6 +55,7 @@ type JSONRecord = Record<string, unknown>;
 export type RequestState = "pending" | "approved" | "rejected" | "cancelled";
 type Scope = "tool" | "server";
 interface Policy {
+  readOnly: boolean;
   scope: Scope;
   target: string;
   constraint: unknown | null;
@@ -138,6 +145,7 @@ function nullableClosed<T extends string>(
 }
 function decodePolicy(value: unknown): Policy {
   const item = record(value, [
+    ...readOnlyKeys(value),
     "scope",
     "target",
     "constraint",
@@ -151,7 +159,16 @@ function decodePolicy(value: unknown): Policy {
     throw new Error("invalid response");
   if (typeof item.future_tools_acknowledged !== "boolean")
     throw new Error("invalid response");
+  const readOnly = decodeReadOnly(item);
+  if (
+    readOnly &&
+    (item.scope !== "server" ||
+      item.constraint !== null ||
+      item.future_tools_acknowledged !== true)
+  )
+    throw new Error("invalid response");
   return {
+    readOnly,
     scope: closed(item.scope, ["tool", "server"]),
     target: text(item.target),
     constraint: item.constraint,
@@ -500,6 +517,7 @@ function AccessSummary({
 }) {
   return (
     <div class="request-access-summary">
+      {policy.readOnly && <p>{readOnlyExplanation}</p>}
       <dl class="request-access-facts">
         <div>
           <dt>Duration</dt>
@@ -553,12 +571,22 @@ function descriptorComparison(detail: RequestDetail): string {
   );
 }
 
+function policyAccess(policy: Policy): string {
+  return policy.readOnly
+    ? "Read-only server tools"
+    : policy.scope === "server"
+      ? "All tools"
+      : "Exact tool";
+}
+
 function policyFacts(policy: Policy) {
   return (
     <dl class="fact-grid">
       <div>
         <dt>Scope</dt>
-        <dd>{sentenceCase(policy.scope)}</dd>
+        <dd>
+          {sentenceCase(policy.scope)} — {policyAccess(policy)}
+        </dd>
       </div>
       <div>
         <dt>Target</dt>
@@ -579,6 +607,12 @@ function policyFacts(policy: Policy) {
 function policyComparisonFacts(requested: Policy, approved: Policy) {
   return (
     <dl class="fact-grid">
+      <div>
+        <dt>Access</dt>
+        <dd>
+          {policyAccess(requested)} → {policyAccess(approved)}
+        </dd>
+      </div>
       <div>
         <dt>Scope</dt>
         <dd>
@@ -806,6 +840,7 @@ function RequestActions({
   const defaultDescription = "";
   const [description, setDescription] = useState(defaultDescription);
   const [scope, setScope] = useState<Scope>(submitted.scope);
+  const [readOnly, setReadOnly] = useState(submitted.readOnly);
   const [target, setTarget] = useState(submitted.target);
   const [approvalDescriptors, setApprovalDescriptors] =
     useState<MatcherDescriptorSummary[]>();
@@ -838,6 +873,7 @@ function RequestActions({
   const initialDraft = useRef({
     description: defaultDescription,
     scope: submitted.scope,
+    readOnly: submitted.readOnly,
     target: submitted.target,
     additionalAtoms: [] as MatcherAtom[],
     duration: submitted.durationSeconds ?? "",
@@ -846,6 +882,7 @@ function RequestActions({
   const draftFingerprint = JSON.stringify({
     description,
     scope,
+    readOnly,
     target,
     additionalAtoms,
     duration,
@@ -953,6 +990,12 @@ function RequestActions({
   const additionalConstraintSource = () =>
     additionalAtoms.length === 0 ? "" : matcherConstraintText(additionalAtoms);
   const approvedPolicy = (): Policy => {
+    if (submitted.readOnly && (!readOnly || scope !== "server"))
+      throw new Error(
+        "A read-only server request must retain read-only server scope.",
+      );
+    if (readOnly && scope !== "server")
+      throw new Error("Read-only access requires server scope.");
     if (
       submitted.scope === "tool" &&
       (scope !== "tool" || target !== submitted.target)
@@ -1016,6 +1059,7 @@ function RequestActions({
     }
     return {
       scope,
+      readOnly,
       target,
       constraint: parsedConstraint,
       durationSeconds: duration === "" ? null : duration,
@@ -1035,7 +1079,7 @@ function RequestActions({
       return "";
     }
   })();
-  const reviewBody = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(scope)},"target":${JSON.stringify(target)},"constraint":${reviewedConstraint === "" ? "null" : reviewedConstraint},"duration_seconds":${duration === "" ? "null" : JSON.stringify(duration)},"future_tools_acknowledged":${String(scope === "server")}}}`;
+  const reviewBody = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(scope)},"target":${JSON.stringify(target)},"constraint":${reviewedConstraint === "" ? "null" : reviewedConstraint},"duration_seconds":${duration === "" ? "null" : JSON.stringify(duration)},"future_tools_acknowledged":${String(scope === "server")}${readOnlyMember(readOnly)}}}`;
   const review = async (next: "approve" | "reject", asRequested = false) => {
     const reviewedDraft = currentDraft.current;
     setMode(next);
@@ -1076,7 +1120,7 @@ function RequestActions({
         }
         const constraintToken =
           constraintSource === "" ? "null" : constraintSource;
-        body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}}}`;
+        body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}${readOnlyMember(policy.readOnly)}}}`;
       } else body = JSON.stringify({ reason });
       const spec: MutationSpec<RequestDetail> = {
         route: `/api/v1/grant-requests/${detail.id}/${next}`,
@@ -1086,7 +1130,17 @@ function RequestActions({
         requiresPrecondition: true,
         idempotency: "none",
         successStatuses: [200],
-        decode: decodeMutation,
+        decode: async (response) => {
+          const result = await decodeMutation(response);
+          if (
+            next === "approve" &&
+            (result.approvedPolicy === null ||
+              result.approvedPolicy.readOnly !==
+                (asRequested ? submitted.readOnly : readOnly))
+          )
+            throw new Error("invalid response");
+          return result;
+        },
       };
       reviewedDraftRef.current = reviewedDraft;
       controller.begin(spec);
@@ -1114,6 +1168,7 @@ function RequestActions({
       initialDraft.current = {
         description,
         scope,
+        readOnly,
         target,
         additionalAtoms,
         duration,
@@ -1151,6 +1206,7 @@ function RequestActions({
     ? submitted
     : {
         scope,
+        readOnly,
         target,
         constraint:
           reviewedConstraint === ""
@@ -1171,6 +1227,7 @@ function RequestActions({
     ? mergeConstraintSource(detail.submittedConstraintSource, "")
     : reviewedConstraint;
   const draftChanged =
+    readOnly !== submitted.readOnly ||
     scope !== submitted.scope ||
     target !== submitted.target ||
     additionalAtoms.length > 0 ||
@@ -1265,10 +1322,13 @@ function RequestActions({
                 {...attributes}
                 data-testid="approval-scope"
                 value={scope}
-                disabled={submitted.scope === "tool" || disabled}
+                disabled={
+                  submitted.scope === "tool" || submitted.readOnly || disabled
+                }
                 onChange={(event) => {
                   const next = event.currentTarget.value as Scope;
                   setScope(next);
+                  if (next === "tool") setReadOnly(false);
                   if (next === "server") {
                     setTarget(submitted.target);
                     setAdditionalAtoms([]);
@@ -1280,6 +1340,38 @@ function RequestActions({
               </select>
             )}
           </FormField>
+          {scope === "server" && (
+            <div>
+              <FormField
+                id="approval-read-only"
+                label="Allowed tools"
+                {...(readOnly ? { hint: readOnlyExplanation } : {})}
+              >
+                {(attributes) => (
+                  <select
+                    {...attributes}
+                    data-testid="approval-read-only"
+                    value={readOnly ? "read-only" : "all"}
+                    disabled={submitted.readOnly || disabled}
+                    onChange={(event) =>
+                      setReadOnly(event.currentTarget.value === "read-only")
+                    }
+                  >
+                    <option value="all">All tools</option>
+                    <option value="read-only">
+                      Only tools marked read-only
+                    </option>
+                  </select>
+                )}
+              </FormField>
+              {submitted.readOnly && (
+                <p>
+                  The requested read-only server restriction cannot be removed
+                  or narrowed to an exact tool.
+                </p>
+              )}
+            </div>
+          )}
           <FormField id="approval-target" label="Approved target">
             {(attributes) =>
               narrowsServerToTool ? (
@@ -1422,7 +1514,9 @@ function RequestActions({
               </div>
               <div
                 class={
-                  scope !== submitted.scope || target !== submitted.target
+                  scope !== submitted.scope ||
+                  target !== submitted.target ||
+                  readOnly !== submitted.readOnly
                     ? "preview-row changed"
                     : "preview-row"
                 }
@@ -1431,12 +1525,16 @@ function RequestActions({
                 <div>
                   <span class="preview-label">Requested</span>
                   {submitted.scope === "server"
-                    ? "All tools"
+                    ? policyAccess(submitted)
                     : submitted.target}
                 </div>
                 <div>
                   <span class="preview-label">Proposed approval</span>
-                  {scope === "server" ? "All tools" : target}
+                  {scope === "server"
+                    ? readOnly
+                      ? "Read-only server tools"
+                      : "All tools"
+                    : target}
                 </div>
               </div>
               <div
@@ -1586,7 +1684,7 @@ function RequestActions({
                   <dd>
                     {confirmationPolicy.scope === "tool"
                       ? confirmationPolicy.target
-                      : "All tools"}
+                      : policyAccess(confirmationPolicy)}
                   </dd>
                 </div>
                 {description !== "" && (
@@ -1622,7 +1720,7 @@ function RequestActions({
                   rows={8}
                   value={
                     unchanged
-                      ? `{"description":${JSON.stringify(description === "" ? null : description)},"approved_policy":{"scope":${JSON.stringify(submitted.scope)},"target":${JSON.stringify(submitted.target)},"constraint":${confirmationSource === "" ? "null" : confirmationSource},"duration_seconds":${JSON.stringify(submitted.durationSeconds)},"future_tools_acknowledged":${String(submitted.futureToolsAcknowledged)}}}`
+                      ? `{"description":${JSON.stringify(description === "" ? null : description)},"approved_policy":{"scope":${JSON.stringify(submitted.scope)},"target":${JSON.stringify(submitted.target)},"constraint":${confirmationSource === "" ? "null" : confirmationSource},"duration_seconds":${JSON.stringify(submitted.durationSeconds)},"future_tools_acknowledged":${String(submitted.futureToolsAcknowledged)}${readOnlyMember(submitted.readOnly)}}}`
                       : reviewBody
                   }
                 />
@@ -1838,7 +1936,10 @@ export function Requests({
             </div>
             <div>
               <dt>Tools</dt>
-              <dd>{detail.resolvedUpstreamName ?? "All tools"}</dd>
+              <dd>
+                {detail.resolvedUpstreamName ??
+                  policyAccess(detail.requestedPolicy)}
+              </dd>
             </div>
           </dl>
           <AccessSummary
@@ -2175,7 +2276,11 @@ export function Requests({
                   href={`#/servers/${item.serverID}?tab=tools`}
                   title={item.requestedPolicy.target}
                 >
-                  {item.serverName} · {item.upstreamName ?? "All tools"}
+                  {item.serverName} ·{" "}
+                  {item.upstreamName ??
+                    (item.requestedPolicy.readOnly
+                      ? "Read-only tools"
+                      : "All tools")}
                 </a>
               ),
               sortValue: (item) => item.requestedPolicy.target,

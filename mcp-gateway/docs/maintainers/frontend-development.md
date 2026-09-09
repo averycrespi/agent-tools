@@ -47,7 +47,19 @@ Curated data includes:
 
 - **Demo Workshop:** `demo_workshop.echo` (`text`, at most 256 characters), `demo_workshop.add` (`a`/`b`, finite numbers between -1,000,000 and 1,000,000), and `demo_workshop.controlled_error` (empty arguments; expected safe `downstream_failure`).
 - **Demo Library:** `demo_library.lookup` with `document` set to `welcome` or `permissions`; it never reads arbitrary files.
-- **Demo Explorer:** all demo tools. **Demo Reader:** echo and lookup; arithmetic is discoverable but calls are rejected, with a pending request ready for administrator approval. An explicit deny hides the controlled-error tool from Reader discovery. **Demo Disabled:** its credential cannot authenticate.
+- **Demo Explorer:** all demo tools. **Demo Reader:** echo and lookup; arithmetic is discoverable but calls are rejected until access is approved. An explicit deny hides the controlled-error tool from Reader discovery. **Demo Disabled:** its credential cannot authenticate.
+- Five additional requestable principals, each with one pending request and no existing demo-server grants or DENYs, so approvals are independent:
+
+  | Principal                | Pending request                                            |
+  | ------------------------ | ---------------------------------------------------------- |
+  | Demo Request Tool        | `demo_workshop.add`, no constraints or expiration          |
+  | Demo Request Constraints | `demo_workshop.add`, argument `a` must equal `1`           |
+  | Demo Request Duration    | `demo_workshop.add`, one hour from approval                |
+  | Demo Request Server      | Entire `demo_workshop` server, all tools                   |
+  | Demo Request Read-only   | Entire `demo_workshop` server, only tools marked read-only |
+
+  Open **Requests** to approve as requested or customize; follow each resulting grant to inspect it. The runner prints a protected agent-bearer file path for each principal. Workshop `echo` and Library `lookup` explicitly declare `readOnlyHint=true`; Workshop `add` omits the hint and `controlled_error` declares false. After read-only approval, `echo` succeeds while the other Workshop tools remain blocked. These fixtures are all harmless; the mixed labels demonstrate filtering rather than actual write effects. Restart the demo for fresh pending requests.
+
 - Real successful and controlled-error invocation history, plus the normal audit records emitted by those public mutations. No recurring synthetic activity runs after seeding.
 
 Configure a test MCP client's existing authenticated HTTP transport for `http://127.0.0.1:8211/mcp`, reading the selected agent bearer from the printed protected file into its Authorization header at request time. Use modern protocol `2026-07-28` or the supported legacy handshake; do not put bearer values in command arguments, environment variables, URLs, or browser storage. These agent credentials have no administrator authority. The fixtures remain callable until shutdown; an unexpected fixture exit fails and closes the demo.
