@@ -554,7 +554,8 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("invocation_repository"); err != nil {
 		return nil, err
 	}
-	built.invocationRepository, err = invocation.NewRepository(options.Store, options.Clock, options.Entropy, options.Invalidate)
+	built.invocationPipelines = invocation.NewPipelineFence()
+	built.invocationRepository, err = invocation.NewRepositoryWithWaitStop(options.Store, options.Clock, options.Entropy, built.invocationPipelines.WaitStop(), options.Invalidate)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_repository: %w", err)
 	}
@@ -567,7 +568,6 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("invocation_pipeline"); err != nil {
 		return nil, err
 	}
-	built.invocationPipelines = invocation.NewPipelineFence()
 	if err := check("invocation_service"); err != nil {
 		return nil, err
 	}

@@ -49,7 +49,7 @@ func TestInvocationReadCompositionIntegration(t *testing.T) {
 		assert.NotContains(t, apiSource, forbidden, forbidden)
 	}
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
-	assert.Equal(t, 1, strings.Count(compositionSource, "invocation.NewRepository("))
+	assert.Equal(t, 1, strings.Count(compositionSource, "invocation.NewRepositoryWithWaitStop("))
 	rootSource := readProductionSource(t, root, "cmd/mcp-gateway/root.go")
 	assert.Contains(t, rootSource, "Invocations:   controlAPI.Invocations")
 	assert.NotContains(t, rootSource, "/internal/invocation")

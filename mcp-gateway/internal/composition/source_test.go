@@ -283,6 +283,11 @@ var _ = mcp.NewClient
 			want:     "internal/audit/reads.go: prohibited control audit SQL",
 		},
 		{
+			name: "foreign storage wait", path: "internal/catalog/bad.go",
+			contents: "package catalog\nfunc mutate() { store.MutateInvocation(ctx, nil, callback) }\n",
+			want:     "internal/catalog/bad.go: invocation-only storage waiting outside audit repository",
+		},
+		{
 			name: "duplicate invocation", path: "internal/api/bad.go",
 			contents: "package api\nfunc build() { _ = invocation.NewRepository(nil, nil, nil) }\n",
 			want:     "internal/api/bad.go: prohibited duplicate invocation constructor invocation.NewRepository(",
@@ -431,7 +436,10 @@ func productionSliceViolations(source productionSource) []string {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate discovery constructor %s", source.path, symbol))
 		}
 	}
-	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
+	if strings.Contains(source.contents, ".MutateInvocation(") && source.path != "internal/invocation/repository.go" {
+		violations = append(violations, fmt.Sprintf("%s: invocation-only storage waiting outside audit repository", source.path))
+	}
+	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewRepositoryWithWaitStop(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
 		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate invocation constructor %s", source.path, symbol))
 		}
@@ -450,6 +458,7 @@ func productionSliceViolations(source productionSource) []string {
 		for _, symbol := range []string{
 			"grantrequests.New(", "built.requests.ValidateStartup(", "grantrequests.NewAdminService(", "authorization.NewSelfProjectionService(",
 			"selfservice.NewCursorCodec(", "selfservice.NewService(", "discovery.NewWithSyntheticCatalog(", "invocation.NewServiceWithLocal(",
+			"invocation.NewRepositoryWithWaitStop(", "built.invocationPipelines.WaitStop()",
 			"type AgentIngressDependencies struct", "func (built *Composition) AgentIngress()",
 			"type ControlAPIDependencies struct", "func (built *Composition) ControlAPI()",
 			"Authenticator: built.authorization", "ListTools:     built.listTools", "CallTools:     built.callTools",

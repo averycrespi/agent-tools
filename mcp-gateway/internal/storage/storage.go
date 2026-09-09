@@ -60,7 +60,7 @@ type Store struct {
 	database      *sql.DB
 	path          string
 	marker        mutationMarker
-	mutationSlot  chan struct{}
+	mutations     mutationAdmission
 	fault         func(FaultPoint) error
 	databaseLimit int64
 	latched       atomic.Bool
@@ -683,7 +683,6 @@ func openConfigured(ctx context.Context, layout gatewaypaths.Layout, options tes
 		database:      database,
 		path:          layout.Database,
 		marker:        newMutationMarker(layout, options.fault),
-		mutationSlot:  make(chan struct{}, 1),
 		fault:         options.fault,
 		databaseLimit: limit,
 	}, nil
