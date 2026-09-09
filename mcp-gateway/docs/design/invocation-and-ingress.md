@@ -86,6 +86,12 @@ The internal invocation service is the only capability consumer. Production comp
 
 ## MCP ingress and governed invocation
 
+### Process diagnostics and correlation
+
+Debug observations cover admission results, execution start/result, and terminal-annotation results separately. The service assigns a process-local diagnostic call counter before audit identity preparation (and the composition pipeline fence); it does not consume audit entropy or change dispatch availability. Rejected pre-ack attempts have a call ID but no invocation ID. An actual invocation ID is linked only after the audit mutation acknowledges. Execution evidence never implies a successful terminal annotation; missing annotation still means unknown durable outcome. Diagnostic counters saturate by dropping further records that require the exhausted correlation ID, never by rejecting a call or reusing a counter.
+
+Authority observations distinguish wait, acquisition, release and rejection, with closed capacity, expiry, cancellation and drain causes. Occupancy samples come from the actual owners; they are point-in-time observations, not summed status placeholders. Authority samples the actual gate channel while its mutex freezes outstanding work, and retires gate ownership and outstanding work together under that mutex, so a departing owner cannot become a phantom waiter. Durations are monotonic elapsed milliseconds, not deadlines for active work. Diagnostic call IDs are unrelated to client JSON-RPC IDs, headers, tool names, arguments or credential fingerprints. Mutation counters are scoped to the storage or authority owner within a process instance. The [serve diagnostic contract](administrative-control-plane.md#serve-diagnostics) owns privacy, loss, and sink lifecycle.
+
 ### Agent authentication and leases
 
 The internal agent authenticator accepts only the canonical `mgw_agent_` encoding, derives one agent-domain verifier, and scans every complete active current slot in one bounded coherent transaction with constant-time comparison and no verifier predicate or early match return. Success exposes only principal ID/revision/visibility and credential ID/revision/fingerprint. Admin-domain bearers are a domain mismatch; missing, malformed, unknown, replaced, revoked, disabled, or cleared authority is one non-enumerating authentication failure. Invalid loaded candidate state, capacity overflow, or a latch before, during, or after a match fails unavailable with no partial binding.

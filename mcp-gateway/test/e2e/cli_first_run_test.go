@@ -254,7 +254,14 @@ func TestCLIServeOutputLifecycle(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	require.NoError(t, json.Unmarshal(failed.Stderr, &problem))
+	lines := strings.Split(strings.TrimSpace(string(failed.Stderr)), "\n")
+	require.Len(t, lines, 2)
+	var diagnostic struct {
+		Event string `json:"event"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &diagnostic))
+	require.Equal(t, "lifecycle_failure", diagnostic.Event)
+	require.NoError(t, json.Unmarshal([]byte(lines[1]), &problem))
 	assert.Equal(t, "storage_unavailable", problem.Code)
 }
 

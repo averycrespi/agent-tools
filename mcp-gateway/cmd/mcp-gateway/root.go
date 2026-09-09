@@ -19,6 +19,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
@@ -40,6 +41,7 @@ type offlineDependencies struct {
 	clock          admin.Clock
 	entropy        io.Reader
 	newComposition func(composition.Options) (*composition.Composition, error)
+	diagnostics    *diagnostics.Adapter
 }
 
 func newRootCmd() *cobra.Command {
@@ -71,7 +73,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 }
 
 func newServeCmd(dependencies offlineDependencies) *cobra.Command {
-	var dataDir, authority, output string
+	var dataDir, authority, output, logLevel string
 	var allowedHosts []string
 	var jsonOutput bool
 	command := &cobra.Command{
@@ -93,23 +95,26 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 			if err != nil {
 				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
 			}
-			renderer, err := controlclient.NewRenderer(options.Output, command.OutOrStdout(), command.ErrOrStderr())
+			level, valid := diagnostics.ParseLevel(logLevel)
+			if !valid {
+				return writeOfflineProblem(command, options.Output, offlineUsageProblem("Choose --log-level warn, info, or debug.", "mcp-gateway serve"))
+			}
+			diagnostic := diagnostics.New(command.ErrOrStderr(), level)
+			runDependencies := dependencies
+			runDependencies.diagnostics = diagnostic
+			renderer, err := controlclient.NewRenderer(options.Output, command.OutOrStdout(), diagnostic.TerminalOutput())
 			if err != nil {
+				diagnostic.Finish(nil)
 				return commandFailure{}
 			}
 			phases := controlclient.NewServePhases(renderer)
-			acknowledged, err := executeServe(command, layout.Root, authority, allowedHosts, dependencies, phases)
-			if err == nil {
-				return nil
-			}
-			problem := serveCommandProblem(err, acknowledged, layout.Root)
-			if phases.WriteProblem(problem) != nil {
-				return commandFailure{}
-			}
-			return problem
+			diagnostic.Observe(diagnostics.Facts{Event: diagnostics.Startup})
+			acknowledged, err := executeServe(command, layout.Root, authority, allowedHosts, runDependencies, phases)
+			return finishServe(diagnostic, phases, acknowledged, layout.Root, err)
 		},
 	}
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
+	command.Flags().StringVar(&logLevel, "log-level", "warn", "serve diagnostic level: warn, info, or debug (JSON stderr)")
 	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
 	command.Flags().StringArrayVar(&allowedHosts, "allowed-host", nil, "additional exact ASCII DNS hostname for trusted local forwarding (repeatable; no port; does not trust browser Origins)")
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
@@ -118,6 +123,20 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A serve flag is invalid or incomplete.", "mcp-gateway serve"))
 	})
 	return command
+}
+
+// finishServe retains terminal problem ownership while sharing the single
+// bounded stderr writer. Delivery loss never changes the selected exit code.
+func finishServe(diagnostic *diagnostics.Adapter, phases *controlclient.ServePhases, acknowledged bool, root string, err error) error {
+	if err == nil {
+		diagnostic.Observe(diagnostics.Facts{Event: diagnostics.Shutdown, Cause: diagnostics.Success})
+		diagnostic.Finish(nil)
+		return nil
+	}
+	diagnostic.Observe(diagnostics.Facts{Event: diagnostics.LifecycleFailure, Cause: diagnostics.Unavailable})
+	problem := serveCommandProblem(err, acknowledged, root)
+	diagnostic.Finish(func(io.Writer) { _ = phases.WriteProblem(problem) })
+	return problem
 }
 
 func selectedDataDir(command *cobra.Command, local string) string {
@@ -150,6 +169,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		return false, err
 	}
 	defer func() { _ = store.Close() }()
+	store.SetDiagnostics(dependencies.diagnostics)
 	identity, err := store.Identity(ctx)
 	if err != nil {
 		return false, err
@@ -164,6 +184,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	runtime, err := newComposition(composition.Options{
 		Store: store, InstallationID: identity.InstallationID, CallbackURL: "http://" + authority + "/oauth/callback",
 		Clock: dependencies.clock, Entropy: dependencies.entropy, Invalidate: eventHub.Publish, Ready: ready.Load,
+		Diagnostics: dependencies.diagnostics,
 	})
 	if err != nil {
 		return false, err
@@ -334,6 +355,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	defer func() { _ = listener.Close() }()
 	capabilitySnapshot = capability
 	server := &http.Server{
+		ErrorLog:          diagnostics.HTTPErrorLog(),
 		Handler:           boundary,
 		ReadHeaderTimeout: contract.HeaderReadDeadline,
 		ReadTimeout:       contract.APIHandlerDeadline,
@@ -380,6 +402,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		stopBeforeAcknowledgement()
 		return false, err
 	}
+	dependencies.diagnostics.Observe(diagnostics.Facts{Event: diagnostics.Readiness})
 	runtimeClean := true
 	select {
 	case err := <-serveDone:
@@ -387,6 +410,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			return true, err
 		}
 	case <-ctx.Done():
+		dependencies.diagnostics.Observe(diagnostics.Facts{Event: diagnostics.Drain})
 		draining.Store(true)
 		ready.Store(false)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), contract.GracefulShutdownDeadline)

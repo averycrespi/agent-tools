@@ -99,11 +99,26 @@ mcp-gateway --data-dir /path/to/gateway-data \
 
 See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-authority workflows.
 
+## Safe serve diagnostics
+
+Warnings and errors are enabled by default. Use `serve --log-level info` for lifecycle summaries or `debug` for payload-free invocation, authority and storage timing. Diagnostics are always JSON lines on stderr; result/problem formatting still follows `--output`/`--json`. For a deliberately started foreground service:
+
+```bash
+mcp-gateway serve --log-level debug --output json 2>gateway-diagnostics.jsonl
+# Inspect complete diagnostic lines; terminal problems have no schema_version.
+jq -R 'fromjson? | select(.schema_version == 1)' gateway-diagnostics.jsonl
+jq -R 'fromjson? | select(.event == "storage_reject" or .event == "diagnostic_loss")' gateway-diagnostics.jsonl
+```
+
+Use `process_id` plus `call_id` to correlate a live attempt; `invocation_id` appears only after audit acknowledgment. Storage/authority mutation counters are owner-local. `storage_wait` followed by `storage_acquire` is ordinary contention. Rejection causes distinguish `capacity`, `expired`, `cancelled`, `stopped`, and `latched`; durability failures carry a closed `stage`. `writer_kind` distinguishes invocation admission, terminal annotation and coarse foreign work. Occupancy is a sample, and elapsed milliseconds are not a guarantee of throughput or an active transaction deadline.
+
+Logs omit credentials, headers, URLs, tool names, argument keys/values, downstream content/errors and subprocess output even at debug. They are lossy diagnostics, never audit evidence or permission to replay. Full queues drop newest; aggregate `diagnostic_loss` counts may themselves be unavailable on a broken sink. Shutdown waits at most one additional second for output. A stalled/broken destination can lose any severity or the terminal problem; a short write or forced exit can leave an incomplete final line. `fromjson?` above intentionally skips malformed lines—inspect the original file when investigating loss. Diagnostic loss alone does not make clean storage unclean or change a successful service exit. No rotation or retention service is included; manage any captured files separately.
+
 ## Output and failures
 
 Human output is the default. Use `--output json` or the `--json` shorthand for the exact JSON projection. Conflicting output selectors fail before work begins.
 
-Finite successes write to stdout. Finite and pre-start failures leave stdout empty and write one bounded problem to stderr. Problems retain stable codes and typed exit classes so automation can distinguish invalid input, authentication, conflict, unavailable storage, and uncertain outcomes without parsing prose.
+Finite successes write to stdout. Finite and pre-start failures leave stdout empty and write one bounded problem to stderr; serve may additionally emit the separate diagnostic lines described above. Problems retain stable codes and typed exit classes so automation can distinguish invalid input, authentication, conflict, unavailable storage, and uncertain outcomes without parsing prose.
 
 Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. When another page exists, human output ends with `NEXT_CURSOR`; JSON retains the exact `next_cursor` member. Supply that cursor explicitly for the next page. Closed JSON requests reject duplicate, unknown, missing, or trailing values. Command input is intentionally split:
 

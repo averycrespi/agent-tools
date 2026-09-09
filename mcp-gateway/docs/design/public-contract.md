@@ -12,6 +12,10 @@ The `internal/contract` package is the single executable source consumed by API,
 
 `NormalizeHostname` owns the ASCII DNS hostname grammar shared by startup Host configuration and explicit CLI destinations. Early Host classification admits only the canonical numeric listener authority or an explicitly configured `--allowed-host` hostname; the latter ignores an absent or valid nonzero decimal request port. Matching folds ASCII case only and never consults DNS. This does not alter route/method authority, the exact numeric browser Origin, or OAuth callback construction. See [HTTP administration](administrative-control-plane.md#http-administration) for validation and security semantics.
 
+### Diagnostic event contract
+
+`DiagnosticEvents`, `DiagnosticLevels`, and the `DiagnosticQueueRecords`, `DiagnosticRecordBytes`, and `DiagnosticFlushDeadline` constants own the version-one serve diagnostic inventory and bounds. Each JSON diagnostic has `schema_version`, UTC `time`, `level`, fixed `event`, and a generated `process_id`; only its event-specific typed subset may accompany these. Each definition separates required and optional fields and lists exact causes, durability stages, and conditional requirements. Execution start/result and terminal annotation require both call and acknowledged invocation IDs; successful admission requires an invocation ID, whereas unavailable/stopped pre-ack admission forbids it. Authority/storage observations require mutation IDs and the exact owner limit; non-foreign storage writers additionally require call correlation. Wait events have no cause or duration, and durability/latch events require a closed nonempty stage. Invalid and unknown data is omitted by dropping the record, never generic serialization or regex-only redaction. The [administrative control-plane chapter](administrative-control-plane.md#serve-diagnostics) owns delivery and lifecycle. These lossy stderr observations do not add HTTP/MCP fields, change public problem representations, or extend durable audit schemas.
+
 ### Route ownership
 
 Methods are lexicographically ordered and become the exact `Allow` value. `HEAD` is never inherited from `GET`.

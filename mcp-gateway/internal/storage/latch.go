@@ -14,6 +14,7 @@ import (
 	"strconv"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 	"github.com/ncruces/go-sqlite3"
@@ -125,55 +126,76 @@ func (store *Store) MutateAgentCredentialCandidate(
 // MutateInvocation is the bounded-wait exception for invocation admission and
 // synchronous terminal annotation only. stop fences acquisition, not settlement.
 func (store *Store) MutateInvocation(ctx context.Context, stop <-chan struct{}, mutate func(*sql.Tx) error) error {
-	if err := store.acquireMutation(ctx, stop, true); err != nil {
+	ctx = store.mutationContext(ctx)
+	if err := store.observedAcquire(ctx, stop, true); err != nil {
 		return err
 	}
-	defer store.releaseMutation()
+	defer store.observedRelease(ctx, store.diagnosticStart())
 	if err := store.invocationWaitError(ctx, stop); err != nil {
+		store.mutationEvent(ctx, diagnostics.StorageReject, mutationCause(err), diagnostics.NoStage, 0)
 		return err
 	}
 	return store.mutateOwned(ctx, nil, mutate)
 }
 
 func (store *Store) mutate(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) error {
-	if err := store.acquireMutation(ctx, nil, false); err != nil {
+	ctx = store.mutationContext(ctx)
+	if err := store.observedAcquire(ctx, nil, false); err != nil {
 		return err
 	}
-	defer store.releaseMutation()
+	defer store.observedRelease(ctx, store.diagnosticStart())
 	return store.mutateOwned(ctx, recovery, mutate)
 }
 
-func (store *Store) mutateOwned(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) error {
+func (store *Store) mutateOwned(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) (result error) {
+	stage := diagnostics.SizeCheck
+	wasLatched := store.Latched()
+	defer func() {
+		if result != nil && !wasLatched && store.Latched() {
+			store.mutationEvent(ctx, diagnostics.DurabilityFailure, diagnostics.Latched, stage, 0)
+			store.mutationEvent(ctx, diagnostics.StorageLatch, diagnostics.Latched, stage, 0)
+		}
+	}()
 	if store.Latched() {
+		store.mutationEvent(ctx, diagnostics.StorageReject, diagnostics.Latched, diagnostics.NoStage, 0)
 		return ErrStorageLatched
 	}
 	overLimit, err := store.overDatabaseLimit(ctx)
 	if err != nil || overLimit {
 		return store.latch(fmt.Errorf("database size check failed: %w", errorForLimit(err, overLimit)))
 	}
+	stage = diagnostics.IdentityCheck
 	identity, err := store.Identity(ctx)
 	if err != nil {
 		return store.latch(err)
 	}
+	stage = diagnostics.IntentArm
 	if err := store.marker.arm(identity.InstallationID, recovery); err != nil {
 		return store.latch(err)
 	}
 
+	stage = diagnostics.TransactionBegin
 	transaction, err := store.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return store.latch(fmt.Errorf("begin security mutation: %w", err))
 	}
+	stage = diagnostics.TransactionBody
 	mutationErr := mutate(transaction)
 	if mutationErr != nil {
 		rollbackErr := transaction.Rollback()
 		if rollbackErr != nil || isStorageFailure(mutationErr) {
+			if rollbackErr != nil {
+				stage = diagnostics.TransactionRollback
+			}
 			return store.latch(errors.Join(mutationErr, rollbackErr))
 		}
+		stage = diagnostics.IntentCleanup
 		if err := store.marker.disarm(false); err != nil {
 			return store.latch(errors.Join(mutationErr, err))
 		}
 		return mutationErr
 	}
+	stage = diagnostics.TransactionCommit
 	if err := transaction.Commit(); err != nil {
 		_ = transaction.Rollback()
 		return store.latch(fmt.Errorf("commit security mutation: %w", err))
@@ -181,6 +203,7 @@ func (store *Store) mutateOwned(ctx context.Context, recovery *recoveryAction, m
 	if err := store.inject(FaultAfterCommit); err != nil {
 		return store.latch(err)
 	}
+	stage = diagnostics.IntentCleanup
 	if err := store.marker.disarm(recovery != nil); err != nil {
 		return store.latch(err)
 	}

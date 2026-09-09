@@ -75,6 +75,8 @@ mcp-gateway status
 
 For an interactive checkout-only sandbox, use `make -C mcp-gateway serve-demo` from the repository root. It provides local echo/arithmetic/document tools, sample agents and grants, a pending request, and real invocation history without the normal installation or native keyring. `DEMO_DATASET=empty` selects a fresh empty environment; `DEMO_LISTEN=127.0.0.1:PORT` overrides its default port 8211. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for protected credentials, separate Vite, requirements, and Ctrl-C cleanup. This is not an installed CLI command.
 
+Use `mcp-gateway serve --log-level debug` for bounded, payload-free lifecycle and contention diagnostics on stderr. The default `warn` level includes warnings/errors; `info` adds lifecycle summaries. See [safe serve diagnostics](docs/operators/administration.md#safe-serve-diagnostics) for JSON filtering, correlation, and loss semantics.
+
 For trusted local VM/container forwarding, `mcp-gateway serve --allowed-host host.lima.internal` admits that exact hostname without changing the numeric-loopback listener or browser Origin policy. Online `--address http://host.lima.internal:8210` explicitly selects the forwarding destination; plain HTTP is not secure arbitrary-remote administration. Follow [sandbox administration](docs/operators/administration.md#trusted-local-forwarding-and-sandbox-administration) to provision and revoke a separate administrator credential. Removing a hostname is not credential revocation.
 
 ## Common workflows

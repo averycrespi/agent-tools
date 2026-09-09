@@ -3,8 +3,12 @@ package authorization
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -79,9 +83,11 @@ type authorityHooks struct {
 }
 
 type authorityRegistry struct {
-	store    *storage.Store
-	gate     chan struct{}
-	draining atomic.Bool
+	diagnostics   diagnostics.AuthorityObserver
+	diagnosticIDs atomic.Uint64
+	store         *storage.Store
+	gate          chan struct{}
+	draining      atomic.Bool
 
 	mu       sync.Mutex
 	work     int64
@@ -100,22 +106,76 @@ func newAuthorityRegistry(store *storage.Store) *authorityRegistry {
 	}
 }
 
-func (registry *authorityRegistry) acquire(ctx context.Context) (func(), error) {
+// SetDiagnostics binds the startup-owned authority observer before concurrent use.
+func (repository *Repository) SetDiagnostics(observer diagnostics.AuthorityObserver) {
+	repository.authority.diagnostics = observer
+}
+
+func (registry *authorityRegistry) authorityEvent(ctx context.Context, event diagnostics.Event, cause diagnostics.Cause, id uint64, duration time.Duration) {
+	if registry.diagnostics == nil || !registry.diagnostics.DebugEnabled() {
+		return
+	}
+	owned, waiting := registry.authorityOccupancy()
+	registry.diagnostics.Authority(diagnostics.Facts{Event: event, Cause: cause, Call: diagnostics.FromContext(ctx).Call, Mutation: id, Duration: duration, Owned: owned, Waiting: waiting, Limit: 32})
+}
+
+// The channel remains the actual exclusive owner, not a duplicate diagnostic
+// counter. While mu freezes work, its length is the snapshot's linearization
+// point. Gate retirement and work retirement hold mu together.
+func (registry *authorityRegistry) authorityOccupancy() (owned, waiting int) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	owned = len(registry.gate)
+	return owned, int(registry.work) - owned
+}
+
+func (registry *authorityRegistry) acquire(ctx context.Context) (released func(), result error) {
+	var started time.Time
+	var id uint64
+	cause := diagnostics.Capacity
+	if registry.diagnostics != nil && registry.diagnostics.DebugEnabled() {
+		started = time.Now()
+		id = diagnostics.NextID(&registry.diagnosticIDs)
+		defer func() {
+			if result != nil {
+				switch {
+				case errors.Is(result, context.Canceled), errors.Is(result, context.DeadlineExceeded):
+					cause = diagnostics.Cancelled
+				case errors.Is(result, ErrShuttingDown):
+					cause = diagnostics.Stopped
+				case errors.Is(result, ErrStorageUnavailable):
+					cause = diagnostics.Latched
+				}
+				registry.authorityEvent(ctx, diagnostics.AuthorityReject, cause, id, time.Since(started))
+			} else {
+				acquired := time.Now()
+				registry.authorityEvent(ctx, diagnostics.AuthorityAcquire, diagnostics.Success, id, acquired.Sub(started))
+				original := released
+				released = func() {
+					original()
+					registry.authorityEvent(ctx, diagnostics.AuthorityRelease, diagnostics.Success, id, time.Since(acquired))
+				}
+			}
+		}()
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := registry.reserveWork(); err != nil {
 		return nil, err
 	}
+	if !started.IsZero() {
+		owned, _ := registry.authorityOccupancy()
+		if owned > 0 {
+			registry.authorityEvent(ctx, diagnostics.AuthorityWait, diagnostics.None, id, 0)
+		}
+	}
 	wait, cancel := context.WithTimeout(ctx, contract.AuthorityWaitDeadline)
 	defer cancel()
 	release := registry.releaseWork
 	select {
 	case registry.gate <- struct{}{}:
-		release = func() {
-			<-registry.gate
-			registry.releaseWork()
-		}
+		release = registry.releaseGate
 	case <-wait.Done():
 	case <-registry.stopping:
 	}
@@ -128,6 +188,7 @@ func (registry *authorityRegistry) acquire(ctx context.Context) (func(), error) 
 		return nil, ErrShuttingDown
 	}
 	if wait.Err() != nil {
+		cause = diagnostics.Expired
 		release()
 		return nil, ErrResourceLimit
 	}
@@ -161,9 +222,22 @@ func (registry *authorityRegistry) reserveWork() error {
 	return nil
 }
 
+func (registry *authorityRegistry) releaseGate() {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	// Only the acquired owner receives this already-present token; this cannot
+	// wait for application work and permits the next sender's bounded handoff.
+	<-registry.gate
+	registry.releaseWorkLocked()
+}
+
 func (registry *authorityRegistry) releaseWork() {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	registry.releaseWorkLocked()
+}
+
+func (registry *authorityRegistry) releaseWorkLocked() {
 	registry.work--
 	if registry.work == 0 {
 		close(registry.idle)

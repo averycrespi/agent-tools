@@ -16,6 +16,7 @@ import (
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/credentialauthority"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/grantrequests"
@@ -36,6 +37,7 @@ type Clock interface {
 }
 
 type Options struct {
+	Diagnostics    diagnostics.Observer
 	Store          *storage.Store
 	InstallationID string
 	CallbackURL    string
@@ -385,8 +387,10 @@ func (adapter *invocationCallAdapter) Call(
 	if adapter == nil || adapter.service == nil || adapter.pipelines == nil {
 		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
 	}
+	ctx = adapter.service.DiagnosticCall(ctx)
 	release, ok := adapter.pipelines.TryEnter()
 	if !ok {
+		adapter.service.DiagnosticStopped(ctx)
 		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
 	}
 	defer release()
@@ -470,6 +474,8 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct authorization_repository: %w", err)
 	}
+	options.Store.SetDiagnostics(options.Diagnostics)
+	built.authorization.SetDiagnostics(options.Diagnostics)
 	if err := check("authorization_collections"); err != nil {
 		return nil, err
 	}
@@ -575,6 +581,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_service: %w", err)
 	}
+	built.invocationService.SetDiagnostics(options.Diagnostics)
 	if err := check("invocation_adapter"); err != nil {
 		return nil, err
 	}

@@ -106,8 +106,15 @@ func TestServeUsesResolvedDefaultAndLeavesPreStartStdoutEmpty(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 7, commandExitCode(err))
 	assert.Empty(t, stdout.String())
+	lines := bytes.Split(bytes.TrimSpace(stderr.Bytes()), []byte{'\n'})
+	require.Len(t, lines, 2)
+	var diagnostic struct {
+		Event string `json:"event"`
+	}
+	require.NoError(t, json.Unmarshal(lines[0], &diagnostic))
+	require.Equal(t, "lifecycle_failure", diagnostic.Event)
 	var problem controlclient.Problem
-	require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+	require.NoError(t, json.Unmarshal(lines[1], &problem))
 	assert.Equal(t, "storage_unavailable", problem.Code)
 	_, statErr := os.Lstat(filepath.Join(xdg, gatewaypaths.InstallationName))
 	require.NoError(t, statErr)
@@ -150,8 +157,15 @@ func TestRootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 7, commandExitCode(err))
 	assert.Empty(t, stdout.String())
+	lines := bytes.Split(bytes.TrimSpace(stderr.Bytes()), []byte{'\n'})
+	require.Len(t, lines, 2)
+	var diagnostic struct {
+		Event string `json:"event"`
+	}
+	require.NoError(t, json.Unmarshal(lines[0], &diagnostic))
+	require.Equal(t, "lifecycle_failure", diagnostic.Event)
 	var problem controlclient.Problem
-	require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+	require.NoError(t, json.Unmarshal(lines[1], &problem))
 	assert.Equal(t, "storage_unavailable", problem.Code)
 }
 

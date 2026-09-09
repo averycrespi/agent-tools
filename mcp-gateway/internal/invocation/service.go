@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
+	"time"
+
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
@@ -83,9 +87,11 @@ type callTarget struct {
 type resolveCall func(string) (callTarget, bool)
 
 type Service struct {
-	audits     *Repository
-	admissions *AdmissionCoordinator
-	resolve    resolveCall
+	diagnostics   diagnostics.InvocationObserver
+	diagnosticIDs atomic.Uint64
+	audits        *Repository
+	admissions    *AdmissionCoordinator
+	resolve       resolveCall
 }
 
 func NewService(audits *Repository, authority *authorization.Repository, routes *catalog.RouteRegistry) (*Service, error) {
@@ -144,7 +150,35 @@ func newService(audits *Repository, authority *authorization.Repository, resolve
 	return &Service{audits: audits, admissions: admissions, resolve: resolve}, nil
 }
 
-func (service *Service) Call(ctx context.Context, lease *authorization.Lease, request CallRequest) CallResponse {
+// SetDiagnostics binds the startup-owned observer before concurrent calls.
+func (service *Service) SetDiagnostics(observer diagnostics.InvocationObserver) {
+	service.diagnostics = observer
+}
+
+func (service *Service) DiagnosticCall(ctx context.Context) context.Context {
+	if service.diagnostics == nil {
+		return ctx
+	}
+	return diagnostics.WithCall(ctx, diagnostics.NextID(&service.diagnosticIDs))
+}
+func (service *Service) DiagnosticStopped(ctx context.Context) {
+	service.callEvent(ctx, diagnostics.InvocationAdmission, diagnostics.Stopped, "", 0)
+}
+
+func (service *Service) Call(ctx context.Context, lease *authorization.Lease, request CallRequest) (response CallResponse) {
+	var started time.Time
+	admissionObserved := false
+	if diagnostics.FromContext(ctx).Writer == diagnostics.Foreign {
+		ctx = service.DiagnosticCall(ctx)
+	}
+	if service.diagnostics != nil && service.diagnostics.DebugEnabled() {
+		started = time.Now()
+		defer func() {
+			if !admissionObserved {
+				service.callEvent(ctx, diagnostics.InvocationAdmission, diagnostics.Unavailable, "", time.Since(started))
+			}
+		}()
+	}
 	classified := classifyCallParameters(request.Params, request.WireValid)
 	admissionRequest := AuditAdmissionRequest{
 		Class:             contract.AdmissionInvalidParams,
@@ -178,6 +212,18 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 	}
 	admission, err := service.admissions.Admit(ctx, lease, identity, admissionRequest)
 	code, reason, mayRun := ClassifyAdmission(admission.Committed, admission.Class, admission.Decision)
+	if !started.IsZero() {
+		cause := diagnostics.Rejected
+		acknowledgedID := ""
+		if admission.Committed {
+			acknowledgedID = identity.InvocationID
+		}
+		if admission.Committed && err == nil && mayRun && admission.DispatchAuthorized && admission.Subject != nil {
+			cause = diagnostics.Success
+		}
+		service.callEvent(ctx, diagnostics.InvocationAdmission, cause, acknowledgedID, time.Since(started))
+		admissionObserved = true
+	}
 	if !admission.Committed {
 		return CallResponse{ErrorCode: code}
 	}
@@ -191,6 +237,10 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 			BlockedSelfService: reason == contract.RejectionBlock && target.local != nil,
 		}
 	}
+	if !started.IsZero() {
+		ctx = context.WithValue(ctx, executionDiagnosticKey{}, time.Now())
+	}
+	service.callEvent(ctx, diagnostics.ExecutionStart, diagnostics.None, identity.InvocationID, 0)
 	if target.local != nil {
 		return service.finish(ctx, identity.InvocationID, SanitizeLocalCallResult(target.local(ctx, *admission.Subject, *classified.arguments)))
 	}
@@ -208,14 +258,52 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 	return service.finish(ctx, identity.InvocationID, SanitizeCallResult(dispatch.Execute(ctx, json.RawMessage(arguments))))
 }
 
+type executionDiagnosticKey struct{}
+
 func (service *Service) finish(ctx context.Context, invocationID string, outcome CallOutcome) CallResponse {
+	cause := diagnostics.Rejected
+	if outcome.TerminalClass == contract.TerminalSucceeded {
+		cause = diagnostics.Success
+	}
+	if outcome.TerminalClass == contract.TerminalOutcomeUnknown {
+		cause = diagnostics.UnknownOutcome
+	}
+	var duration time.Duration
+	if started, ok := ctx.Value(executionDiagnosticKey{}).(time.Time); ok {
+		duration = time.Since(started)
+	}
+	service.callEvent(ctx, diagnostics.ExecutionResult, cause, invocationID, duration)
 	if outcome.TerminalClass != "" {
-		_ = service.audits.AnnotateTerminal(ctx, invocationID, outcome.TerminalClass)
+		var started time.Time
+		if service.diagnostics != nil && service.diagnostics.DebugEnabled() {
+			started = time.Now()
+		}
+		terminalContext := ctx
+		if service.diagnostics != nil {
+			terminalContext = diagnostics.WithTerminal(ctx)
+		}
+		err := service.audits.AnnotateTerminal(terminalContext, invocationID, outcome.TerminalClass)
+		cause := diagnostics.Success
+		if err != nil {
+			cause = diagnostics.Unavailable
+		}
+		duration = 0
+		if !started.IsZero() {
+			duration = time.Since(started)
+		}
+		service.callEvent(ctx, diagnostics.TerminalAnnotation, cause, invocationID, duration)
 	}
 	if outcome.Result != nil {
 		return CallResponse{Result: outcome.Result}
 	}
 	return CallResponse{ErrorCode: outcome.ErrorCode, InvocationID: invocationID}
+}
+
+func (service *Service) callEvent(ctx context.Context, event diagnostics.Event, cause diagnostics.Cause, id string, duration time.Duration) {
+	if service.diagnostics == nil || !service.diagnostics.DebugEnabled() {
+		return
+	}
+	service.diagnostics.Invocation(diagnostics.Facts{Event: event, Cause: cause, Call: diagnostics.FromContext(ctx).Call, InvocationID: id, Duration: duration})
 }
 
 type classifiedCallParameters struct {

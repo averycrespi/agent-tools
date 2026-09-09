@@ -86,6 +86,7 @@ internal/mcpingress/         Auth-first modern and legacy MCP adapters
 internal/admin/              Administrator bearer and in-memory browser sessions
 internal/api/                Strict control resources and embedded static allowlist
 internal/httpboundary/       Listener, route classification, and early validation
+internal/diagnostics/        Typed, bounded serve-only stderr diagnostics and sole slog adapter
 internal/events/             Bounded invalidation-only delivery
 internal/keyring/            Typed provider capability and opaque generations
 internal/backup/             Verified backup and stopped restore
@@ -119,7 +120,11 @@ docs/                       Role-oriented operator, maintainer, and design docum
 - `internal/composition` is the sole production constructor and lifecycle owner for the authorization, discovery, invocation, runtime, catalog, OAuth, and keyring graph. Root consumes narrow complete bundles; it must not create a second authenticator, repository, route consumer, or active-capability path.
 - Preserve package SQL ownership. Server SQL stays in `internal/servers`, catalog SQL in `internal/catalog`, online principal/grant SQL in `internal/authorization`, request SQL in `internal/grantrequests`, invocation SQL in `internal/invocation`, control-plane audit SQL in `internal/audit`, and migration DDL in `internal/storage`. Cross-owner mutations use existing supplied-transaction seams rather than nested mutation admission.
 - Keep storage/keyring/network/process work outside unrelated locks and admissions. Mutations that may expose authority must arm durable intent before uncertain external work and fail closed; never add online repair or automatic replay.
-- Limits are compiled and acquired in the documented order. Authority admission permits bounded waiting: 32 outstanding operations, one exclusive executor, and a one-second gate wait shortened by caller cancellation/deadline. Invocation admission and synchronous terminal annotation alone may additionally wait for the single storage owner: at most 31 FIFO waiters, with a 250 ms acquisition-only bound shortened by cancellation/deadline or the composition-owned invocation fence. Ordinary and recovery-bearing storage APIs remain nonqueueing, including during reserved FIFO handoff. Recheck cancellation, invocation drain, and latch before intent/SQL; active owners retain the slot through marker settlement. Never give active SQL the acquisition timer's deadline. Other admissions remain nonqueueing. Never wait for authority while holding a storage transaction or mutation slot. Preserve actual-owner occupancy rather than placeholders or summed duplicates.
+- Preserve the [authority](docs/design/invocation-and-ingress.md#agent-authentication-and-leases) and [storage admission](docs/design/storage-and-recovery.md) contracts: never wait for authority while holding storage, extend acquisition deadlines into active SQL, or duplicate actual-owner occupancy.
+
+### Diagnostic ownership
+
+Follow the [serve diagnostic contract](docs/design/administrative-control-plane.md#serve-diagnostics). Retain the exact-path logging import guard and sole `diagnostics.New` AST guard in `newServeCmd`. Blocked fixtures must release their owned sink and join `Done`; never close inherited stderr or replace an outstanding writer.
 
 ### Runtime, transport, and cleanup
 
