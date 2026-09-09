@@ -10,6 +10,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -25,6 +26,7 @@ type Repository interface {
 	InterruptNonterminal(context.Context) error
 	RecordReconciliation(context.Context, contract.AuditEvent) error
 	CompleteReconciliation(context.Context, string, contract.ServerOperationState, *contract.PublicReason, contract.AuditEvent) (servers.Operation, error)
+	SettleDisplacedReconciliation(context.Context, string, *contract.AuditEvent) (servers.Operation, bool, error)
 	NewID() (string, error)
 }
 
@@ -184,6 +186,7 @@ type Status struct {
 }
 
 type Options struct {
+	Diagnostics  diagnostics.ReconciliationObserver
 	Repository   Repository
 	Driver       Driver
 	Authority    AuthorityResolver
@@ -202,6 +205,7 @@ type DrainResult struct {
 }
 
 type Manager struct {
+	diagnostics  diagnostics.ReconciliationObserver
 	mu           sync.Mutex
 	repository   Repository
 	driver       Driver
@@ -229,7 +233,22 @@ type candidateStop struct {
 	verified bool
 }
 
+type reconciliationWork struct {
+	generation  uint64
+	operationID *string
+	cause       audit.Cause
+	attempt     *contract.AuditEvent
+	cleanupOnly bool
+	displaced   bool
+	returned    bool
+	settled     bool
+	failed      bool
+}
+
 type entry struct {
+	work               *reconciliationWork
+	unsettled          *reconciliationWork
+	pendingDisplaced   bool
 	cause              audit.Cause
 	reconcileAttempt   *contract.AuditEvent
 	generation         uint64
@@ -322,7 +341,7 @@ func New(options Options) (*Manager, error) {
 		return nil, errors.New("server reconciliation limit is missing")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, oauthRefresh: options.OAuthRefresh, oauthStepUp: options.OAuthStepUp, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
+	return &Manager{diagnostics: options.Diagnostics, repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, oauthRefresh: options.OAuthRefresh, oauthStepUp: options.OAuthStepUp, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
 }
 
 func (manager *Manager) Start(ctx context.Context) error {
@@ -454,12 +473,25 @@ func (manager *Manager) TriggerWithCause(cause audit.Cause, serverID string, ope
 		return
 	}
 	current := manager.entryLocked(serverID)
+	if current.work != nil && current.work.operationID != nil && !current.work.displaced && !current.work.settled {
+		current.work.displaced = true
+		manager.observeReconciliation(diagnostics.ReconciliationDisplaced, diagnostics.None)
+	}
 	current.generation++
 	manager.publisher.Fence(serverID, current.generation)
 	previous := []*Candidate{cloneCandidate(current.active), cloneCandidate(current.activating)}
 	current.pending = true
 	current.cause = cause
-	current.operationID = cloneString(operationID)
+	if operationID == nil && current.operationID != nil {
+		// Keep the queued operation as cleanup-only work, not as the replacement's operation.
+		if !current.pendingDisplaced {
+			manager.observeReconciliation(diagnostics.ReconciliationDisplaced, diagnostics.None)
+		}
+		current.pendingDisplaced = true
+	} else {
+		current.operationID = cloneString(operationID)
+		current.pendingDisplaced = false
+	}
 	if current.timer != nil {
 		current.timer.Stop()
 		current.timer = nil
@@ -578,15 +610,22 @@ func (manager *Manager) HandleCatalogCompletion(candidate Candidate, outcome Cat
 	key := candidate.Key()
 	current.catalogHandoff = &key
 	current.handoffOperationID = cloneString(operationID)
+	work := &reconciliationWork{generation: candidate.Generation, operationID: cloneString(operationID), cause: candidate.Cause}
+	current.work = work
 	current.running = true
 	manager.globalInUse++
 	current.status.Reconciliation = contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true}
 	current.status.CatalogState = contract.ActiveCatalogRefreshing
 	manager.publish(contract.InvalidationServers, &candidate.Server.ID)
 	manager.publish(contract.InvalidationSystemStatus, nil)
+	manager.workers.Add(1)
 	manager.mu.Unlock()
 	attached := cloneString(operationID)
-	go manager.catalogChallengeHandoff(candidate, outcome.OAuthChallenge, attached)
+	go func() {
+		defer manager.workers.Done()
+		defer manager.finishWork(candidate.Server.ID, work)
+		manager.catalogChallengeHandoff(candidate, outcome.OAuthChallenge, attached)
+	}()
 	return true
 }
 
@@ -717,9 +756,6 @@ func (manager *Manager) stopStaleCatalogHandoff(candidate Candidate, operationID
 		}
 	}
 	manager.mu.Unlock()
-	if operationID != nil {
-		manager.transitionSupersededUnlessDraining(*operationID)
-	}
 	manager.finishStale(candidate.Server.ID, candidate.Generation)
 }
 
@@ -747,7 +783,7 @@ func (manager *Manager) startAvailableLocked() {
 		if manager.globalInUse >= manager.globalLimit {
 			return
 		}
-		if current.running || !current.pending {
+		if current.running || current.unsettled != nil || !current.pending {
 			continue
 		}
 		current.running = true
@@ -757,6 +793,9 @@ func (manager *Manager) startAvailableLocked() {
 		cause := current.cause
 		operationID := cloneString(current.operationID)
 		current.operationID = nil
+		work := &reconciliationWork{generation: generation, operationID: operationID, cause: cause, cleanupOnly: current.pendingDisplaced, displaced: current.pendingDisplaced}
+		current.pendingDisplaced = false
+		current.work = work
 		current.status.State = contract.RuntimeActivating
 		if current.active != nil || current.blockedStop != nil {
 			current.status.State = contract.RuntimeStopping
@@ -767,6 +806,13 @@ func (manager *Manager) startAvailableLocked() {
 		manager.workers.Add(1)
 		go func() {
 			defer manager.workers.Done()
+			defer manager.finishWork(serverID, work)
+			if work.cleanupOnly {
+				if !manager.stopPrevious(serverID) {
+					work.failed = true
+				}
+				return
+			}
 			manager.reconcile(serverID, generation, operationID, cause)
 		}()
 	}
@@ -788,6 +834,14 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 	}
 	manager.mu.Lock()
 	current := manager.entries[serverID]
+	if current != nil && current.work != nil && current.work.generation == generation {
+		current.work.cause = audit.Capture(ctx)
+		if err == nil {
+			current.work.attempt = &attempt
+		} else if !errors.Is(err, storage.ErrMutationBusy) {
+			current.work.failed = true
+		}
+	}
 	if err != nil {
 		if current != nil && current.generation == generation {
 			current.pending = false
@@ -1281,11 +1335,6 @@ func (manager *Manager) finishDurableOnly(serverID string, generation uint64, op
 	if catalog.Cause != CatalogPostCommitDrain {
 		manager.publish(contract.InvalidationCatalog, &serverID)
 	}
-	if catalog.Cause == CatalogPostCommitStale && operationID != nil {
-		if _, err := manager.repository.TransitionOperation(context.Background(), *operationID, contract.OperationSuperseded, &reason); err == nil {
-			manager.publish(contract.InvalidationServerOperations, operationID)
-		}
-	}
 	manager.abandonCandidate(candidate)
 	stopped := manager.driver.Stop(context.Background(), candidate)
 
@@ -1471,12 +1520,19 @@ func (manager *Manager) finishFailure(serverID string, generation uint64, operat
 // The lifecycle lock fences generation changes and failure reports through
 // the completion commit, just as it does for operation transitions.
 func (manager *Manager) completeReconciliation(current entry, operationID *string, state contract.ServerOperationState, reason *contract.PublicReason) error {
+	if current.work != nil {
+		current.cause = current.work.cause
+		current.reconcileAttempt = current.work.attempt
+	}
 	ctx := audit.WithSystem(audit.WithCause(context.Background(), current.cause))
 	if current.reconcileAttempt == nil {
 		if operationID == nil {
 			return nil
 		}
 		_, err := manager.repository.TransitionOperation(ctx, *operationID, state, reason)
+		if current.work != nil {
+			current.work.settled, current.work.failed = err == nil, err != nil
+		}
 		return err
 	}
 	result := "failed"
@@ -1496,6 +1552,9 @@ func (manager *Manager) completeReconciliation(current entry, operationID *strin
 	} else {
 		_, err = manager.repository.CompleteReconciliation(ctx, *operationID, state, reason, event)
 	}
+	if current.work != nil {
+		current.work.settled, current.work.failed = err == nil, err != nil
+	}
 	return err
 }
 
@@ -1514,18 +1573,6 @@ func (manager *Manager) transitionCurrent(serverID string, generation uint64, op
 	return operation, err
 }
 
-func (manager *Manager) transitionSupersededUnlessDraining(operationID string) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if manager.draining {
-		return
-	}
-	reason := contract.ReasonSuperseded
-	if _, err := manager.repository.TransitionOperation(context.Background(), operationID, contract.OperationSuperseded, &reason); err == nil {
-		manager.publish(contract.InvalidationServerOperations, &operationID)
-	}
-}
-
 func (manager *Manager) generationCurrent(serverID string, generation uint64) bool {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -1542,6 +1589,12 @@ func (manager *Manager) finishStale(serverID string, generation uint64) {
 		manager.startAvailableLocked()
 		return
 	}
+	if current.work != nil && current.work.generation == generation && !current.work.displaced {
+		current.work.displaced = true
+		if current.work.operationID != nil && !current.work.settled {
+			manager.observeReconciliation(diagnostics.ReconciliationDisplaced, diagnostics.None)
+		}
+	}
 	if current.generation == generation {
 		current.pending = true
 	}
@@ -1549,6 +1602,11 @@ func (manager *Manager) finishStale(serverID string, generation uint64) {
 }
 
 func (manager *Manager) releaseLocked(current *entry) {
+	// A completion helper is not the execution owner: deferred candidate cleanup
+	// must finish before occupancy can be reused or displaced work can settle.
+	if current != nil && current.work != nil && !current.work.returned {
+		return
+	}
 	if current != nil {
 		current.running = false
 		current.catalogHandoff = nil

@@ -1809,9 +1809,7 @@ func TestSupersededCandidateWithUnconfirmedStopCannotStartLatestReplacement(t *t
 	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
 	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
 	driver.stopResult <- false
-	assert.Equal(t, "withdraw", receivePublisherEvent(t, publisher.events).step)
-	assert.Equal(t, candidate.RuntimeID, receiveCandidate(t, driver.stopping).RuntimeID)
-	driver.stopResult <- false
+	// The displaced owner remains retained; a replacement must not retry its stop.
 	require.Eventually(t, func() bool {
 		status := manager.Status(serverID)
 		return status.State == contract.RuntimeDegraded && status.Reason != nil && *status.Reason == contract.ReasonStopUnconfirmed

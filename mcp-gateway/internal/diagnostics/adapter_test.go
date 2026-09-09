@@ -218,10 +218,10 @@ func TestDiagnosticExecutableEventManifest(t *testing.T) {
 func validEventExample(event Event) Facts {
 	f := Facts{Event: event}
 	switch {
-	case event == Startup || event == Readiness || event == Drain || event == Loss:
+	case event == Startup || event == Readiness || event == Drain || event == Loss || event == ReconciliationDisplaced:
 	case event == Shutdown:
 		f.Cause = Success
-	case event == LifecycleFailure:
+	case event == LifecycleFailure || event == ReconciliationSettlementFailure:
 		f.Cause = Unavailable
 	case event <= TerminalAnnotation:
 		f.Call = 1
