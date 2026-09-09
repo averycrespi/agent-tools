@@ -45,6 +45,7 @@ type PatchPrincipalRequest struct {
 }
 
 type CreateGrantRequest struct {
+	ReadOnly     bool
 	Description  *string
 	PrincipalID  string
 	Effect       contract.GrantEffect
@@ -69,6 +70,7 @@ type EvaluationRequest struct {
 }
 
 type ResolvedVerification struct {
+	ReadOnlyHint                  bool
 	ServerID                      string
 	UpstreamName                  string
 	Arguments                     strictjson.Value

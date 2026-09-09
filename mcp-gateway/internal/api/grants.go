@@ -21,6 +21,7 @@ type rawGrantConstraintValidation struct {
 }
 
 type rawGrantCreate struct {
+	ReadOnly     json.RawMessage `json:"read_only"`
 	Description  json.RawMessage `json:"description"`
 	PrincipalID  json.RawMessage `json:"principal_id"`
 	Effect       json.RawMessage `json:"effect"`
@@ -201,6 +202,10 @@ func decodeGrantCreate(writer http.ResponseWriter, raw rawGrantCreate) (authoriz
 		!decodeRequiredGrantMember(raw.Effect, &request.Effect) ||
 		!decodeRequiredGrantMember(raw.ServerID, &request.ServerID) ||
 		!decodeNullableGrantMember(raw.UpstreamName, &request.UpstreamName) {
+		writeProblem(writer, contract.ProblemInvalidGrant)
+		return authorization.CreateGrantRequest{}, false
+	}
+	if raw.ReadOnly != nil && !decodeRequiredGrantMember(raw.ReadOnly, &request.ReadOnly) {
 		writeProblem(writer, contract.ProblemInvalidGrant)
 		return authorization.CreateGrantRequest{}, false
 	}

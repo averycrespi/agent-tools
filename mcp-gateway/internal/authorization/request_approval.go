@@ -21,6 +21,7 @@ type GrantRequestApproval interface {
 
 // ApprovalGrantMaterial is the closed ordinary ALLOW material prepared from one request.
 type ApprovalGrantMaterial struct {
+	ReadOnly        bool
 	Description     *string
 	PrincipalID     string
 	ServerID        string
@@ -105,11 +106,11 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 		}
 		if _, insertErr := transaction.ExecContext(ctx, `INSERT INTO grants (
 			id, description, principal_id, effect, server_id, upstream_name,
-			constraint_json, expires_at, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			constraint_json, expires_at, created_at, read_only
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			grantID, nullableGrantString(material.Description), material.PrincipalID, contract.GrantAllow, material.ServerID,
 			nullableGrantString(material.UpstreamName), nullableGrantBytes(constraintJSON),
-			nullableGrantTime(expiresAt), formatAuthorizationTime(now)); insertErr != nil {
+			nullableGrantTime(expiresAt), formatAuthorizationTime(now), material.ReadOnly); insertErr != nil {
 			return fmt.Errorf("insert request approval grant: %w", insertErr)
 		}
 		approved, transitionErr := transition.CommitGrantRequestApproval(ctx, transaction, grantID, now)
@@ -138,7 +139,8 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 func validateApprovalGrantMaterial(material ApprovalGrantMaterial) ([]byte, error) {
 	if !validGrantDescription(material.Description) || !validOpaqueID(material.PrincipalID) || !validOpaqueID(material.ServerID) ||
 		material.UpstreamName != nil && !validUpstreamName(*material.UpstreamName) ||
-		material.UpstreamName == nil && material.Constraint != nil {
+		material.UpstreamName == nil && material.Constraint != nil ||
+		material.ReadOnly && (material.UpstreamName != nil || material.Constraint != nil) {
 		return nil, ErrInvalidState
 	}
 	if material.DurationSeconds != nil && (*material.DurationSeconds < contract.GrantRequestDurationMinimumSeconds ||

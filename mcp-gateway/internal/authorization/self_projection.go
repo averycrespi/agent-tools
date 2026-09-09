@@ -140,7 +140,7 @@ func (service *SelfProjectionService) ListSelfGrants(
 			}
 			projected = append(projected, contract.AgentGrant{
 				ID: row.id, Description: row.description, Effect: row.effect,
-				Policy:    contract.GrantPolicy{Scope: scope, Target: target, Constraint: row.constraint},
+				Policy:    contract.GrantPolicy{Scope: scope, Target: target, Constraint: row.constraint, ReadOnly: row.readOnly},
 				ExpiresAt: row.expiresAt, State: row.state, CreatedAt: row.createdAt,
 			})
 		}
@@ -202,6 +202,7 @@ func readSelfIdentityTx(ctx context.Context, transaction *sql.Tx, subject Admitt
 }
 
 type selfGrantRow struct {
+	readOnly     bool
 	sequence     int64
 	id           string
 	description  *string
@@ -222,8 +223,11 @@ func (repository *Repository) scanSelfGrant(scanner grantScanner, principalID st
 		description, upstreamName, constraintJSON, expiresAt sql.NullString
 	)
 	if err := scanner.Scan(&row.sequence, &row.id, &description, &row.revision, &storedPrincipalID, &row.effect, &row.serverID,
-		&upstreamName, &constraintJSON, &expiresAt, &row.createdAt); err != nil {
+		&upstreamName, &constraintJSON, &expiresAt, &row.createdAt, &row.readOnly); err != nil {
 		return selfGrantRow{}, fmt.Errorf("scan self grant: %w", err)
+	}
+	if row.readOnly && (row.effect != contract.GrantAllow || upstreamName.Valid || constraintJSON.Valid) {
+		return selfGrantRow{}, errorsInvalidState("read-only self grant is malformed")
 	}
 	if description.Valid {
 		value := description.String

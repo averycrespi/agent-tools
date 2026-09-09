@@ -251,11 +251,11 @@ func insertPendingRequest(
 		requested_future_tools_acknowledged, dedupe_version, dedupe_bytes, submitted_evidence,
 		approved_scope, approved_target, approved_constraint, approved_duration_seconds,
 		approved_future_tools_acknowledged, approved_grant_id, rejection_reason, approved_evidence,
-		created_at, updated_at, closed_at
+		created_at, updated_at, closed_at, requested_read_only
 	) VALUES (?, ?, 'pending', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL)`,
+		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, ?)`,
 		requestID, principalID, resolved.ServerID, resolved.UpstreamName, policy.Scope(), policy.Target(), constraint, duration,
-		policy.FutureToolsAcknowledged(), identity.Version, identity.Bytes, nullableEvidence(evidence), timestamp, timestamp)
+		policy.FutureToolsAcknowledged(), identity.Version, identity.Bytes, nullableEvidence(evidence), timestamp, timestamp, policy.value.ReadOnly)
 	if err != nil {
 		return fmt.Errorf("insert pending grant request: %w", err)
 	}
@@ -281,6 +281,7 @@ func loadPendingByIdentity(
 		revision, dedupeVersion                                          int64
 		requestedConstraint, requestedDuration                           sql.NullString
 		requestedAcknowledged                                            bool
+		requestedReadOnly, approvedReadOnly                              bool
 		dedupeBytes                                                      []byte
 		approvedScope, approvedTarget, approvedConstraint                sql.NullString
 		approvedDuration, approvedGrantID, rejectionReason               sql.NullString
@@ -293,7 +294,7 @@ func loadPendingByIdentity(
 		dedupe_version, dedupe_bytes,
 		approved_scope, approved_target, approved_constraint, approved_duration_seconds,
 		approved_future_tools_acknowledged, approved_grant_id, rejection_reason,
-		created_at, updated_at, closed_at
+		created_at, updated_at, closed_at, requested_read_only, approved_read_only
 	FROM grant_requests
 	WHERE principal_id = ? AND state = 'pending' AND dedupe_version = ? AND dedupe_bytes = ?`,
 		principalID, identity.Version, identity.Bytes).Scan(
@@ -301,7 +302,7 @@ func loadPendingByIdentity(
 		&requestedDuration, &requestedAcknowledged, &dedupeVersion, &dedupeBytes,
 		&approvedScope, &approvedTarget, &approvedConstraint, &approvedDuration,
 		&approvedAcknowledged, &approvedGrantID, &rejectionReason,
-		&createdAt, &updatedAt, &closedAt,
+		&createdAt, &updatedAt, &closedAt, &requestedReadOnly, &approvedReadOnly,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -311,11 +312,11 @@ func loadPendingByIdentity(
 	}
 	if state != string(contract.RequestPending) || revision != 1 || dedupeVersion != identity.Version || !bytes.Equal(dedupeBytes, identity.Bytes) ||
 		approvedScope.Valid || approvedTarget.Valid || approvedConstraint.Valid || approvedDuration.Valid || approvedAcknowledged.Valid ||
-		approvedGrantID.Valid || rejectionReason.Valid || closedAt.Valid || createdAt != updatedAt || !validStoredRequestTime(createdAt) {
+		approvedGrantID.Valid || rejectionReason.Valid || approvedReadOnly || closedAt.Valid || createdAt != updatedAt || !validStoredRequestTime(createdAt) {
 		return nil, ErrInvalidState
 	}
 	storedPolicy := contract.Policy{
-		Scope: contract.PolicyScope(requestedScope), Target: requestedTarget,
+		Scope: contract.PolicyScope(requestedScope), Target: requestedTarget, ReadOnly: requestedReadOnly,
 		FutureToolsAcknowledged: requestedAcknowledged,
 	}
 	if requestedConstraint.Valid {

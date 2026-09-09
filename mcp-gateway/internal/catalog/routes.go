@@ -13,6 +13,7 @@ import (
 )
 
 type CallTarget struct {
+	ReadOnlyHint          bool
 	ExternalName          string
 	ServerID              string
 	ToolID                string
@@ -94,6 +95,7 @@ func (registry *RouteRegistry) replace(publication Publication, tools []ActiveTo
 				return nil, err
 			}
 			target := CallTarget{
+				ReadOnlyHint: tool.Record.Resource.Descriptor.Annotations.ReadOnlyHint,
 				ExternalName: tool.Record.Resource.ExternalName, ServerID: binding.ServerID, ToolID: binding.ToolID,
 				UpstreamName: binding.UpstreamName, DescriptorRevision: tool.Record.Resource.CatalogRevision,
 				DescriptorFingerprint: tool.Record.Resource.Fingerprint, Validator: tool.validator, Capability: capability,

@@ -32,9 +32,10 @@ type executionLease interface {
 type LocalHandler func(context.Context, authorization.AdmittedSubject, strictjson.Value) LocalCallResult
 
 type LocalTarget struct {
-	evidence RouteEvidence
-	validate func(strictjson.Value) error
-	handle   LocalHandler
+	readOnlyHint bool
+	evidence     RouteEvidence
+	validate     func(strictjson.Value) error
+	handle       LocalHandler
 }
 
 type LocalResolver func(string) (LocalTarget, bool)
@@ -68,14 +69,15 @@ func NewLocalTargetWithValidation(target catalog.SyntheticCallTarget, additional
 			return additional(arguments)
 		}
 	}
-	return LocalTarget{evidence: evidence, validate: validate, handle: handler}, nil
+	return LocalTarget{evidence: evidence, validate: validate, handle: handler, readOnlyHint: descriptor.Descriptor.Annotations.ReadOnlyHint}, nil
 }
 
 type callTarget struct {
-	evidence RouteEvidence
-	validate func(strictjson.Value) error
-	acquire  func(context.Context) (executionLease, error)
-	local    LocalHandler
+	readOnlyHint bool
+	evidence     RouteEvidence
+	validate     func(strictjson.Value) error
+	acquire      func(context.Context) (executionLease, error)
+	local        LocalHandler
 }
 
 type resolveCall func(string) (callTarget, bool)
@@ -107,7 +109,7 @@ func NewServiceWithLocal(audits *Repository, authority *authorization.Repository
 		if downstreamFound {
 			return downstreamTarget, true
 		}
-		return callTarget{evidence: localTarget.evidence, validate: localTarget.validate, local: localTarget.handle}, true
+		return callTarget{evidence: localTarget.evidence, validate: localTarget.validate, local: localTarget.handle, readOnlyHint: localTarget.readOnlyHint}, true
 	})
 }
 
@@ -118,6 +120,7 @@ func downstreamResolver(routes *catalog.RouteRegistry) resolveCall {
 			return callTarget{}, false
 		}
 		return callTarget{
+			readOnlyHint: resolved.ReadOnlyHint,
 			evidence: RouteEvidence{
 				ServerID: resolved.ServerID, ToolID: resolved.ToolID, UpstreamName: resolved.UpstreamName,
 				DescriptorRevision: resolved.DescriptorRevision, DescriptorFingerprint: resolved.DescriptorFingerprint,
@@ -162,6 +165,7 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 			} else {
 				admissionRequest.Class = contract.AdmissionEvaluated
 				admissionRequest.Arguments = *classified.arguments
+				admissionRequest.ReadOnlyHint = resolved.readOnlyHint
 			}
 		}
 	}

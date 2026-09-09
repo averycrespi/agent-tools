@@ -118,7 +118,7 @@ func assertSchemaEightFoundation(t *testing.T, ctx context.Context, database *sq
 			"insertion_sequence", "id", "display_name", "state", "visibility", "revision", "credential_revision",
 			"credential_id", "credential_verifier", "credential_fingerprint", "credential_created_at", "created_at", "updated_at",
 		},
-		"grants": {"insertion_sequence", "id", "principal_id", "effect", "server_id", "upstream_name", "constraint_json", "expires_at", "created_at", "description", "revision"},
+		"grants": {"insertion_sequence", "id", "principal_id", "effect", "server_id", "upstream_name", "constraint_json", "expires_at", "created_at", "description", "revision", "read_only"},
 	}
 	for table, expected := range expectedColumns {
 		rows, err := database.QueryContext(ctx, `SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)

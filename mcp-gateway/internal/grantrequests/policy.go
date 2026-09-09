@@ -17,6 +17,7 @@ import (
 const (
 	DedupeVersionV1 int64 = 1
 	DedupeVersionV2 int64 = 2
+	DedupeVersionV3 int64 = 3
 )
 
 const maximumDedupeBytes = 16384
@@ -72,7 +73,7 @@ func CompilePolicy(input contract.Policy) (CompiledPolicy, error) {
 	}
 	switch input.Scope {
 	case contract.PolicyTool:
-		if input.FutureToolsAcknowledged {
+		if input.FutureToolsAcknowledged || input.ReadOnly {
 			return CompiledPolicy{}, ErrInvalidPolicy
 		}
 	case contract.PolicyServer:
@@ -138,10 +139,16 @@ func CanonicalDedupeIdentity(policy CompiledPolicy, target ResolvedTarget) (Dedu
 	if policy.constraint != nil && policy.constraint.Version() == 2 {
 		version = DedupeVersionV2
 	}
+	if policy.value.ReadOnly {
+		version = DedupeVersionV3
+	}
 	var output bytes.Buffer
-	if version == DedupeVersionV1 {
+	switch version {
+	case DedupeVersionV3:
+		output.WriteString("MGWGRQ3\x00")
+	case DedupeVersionV1:
 		output.WriteString("MGWGRQ1\x00")
-	} else {
+	default:
 		output.WriteString("MGWGRQ2\x00")
 	}
 	writeBytes(&output, []byte(target.ServerID))
@@ -225,6 +232,9 @@ func writeDedupeAtom(output *bytes.Buffer, atom authorization.ConstraintAtom) er
 func ValidateNarrowing(submitted CompiledPolicy, submittedTarget ResolvedTarget, approved CompiledPolicy, approvedTarget ResolvedTarget) error {
 	if !validResolvedTarget(submitted, submittedTarget) || !validResolvedTarget(approved, approvedTarget) ||
 		submittedTarget.ServerID != approvedTarget.ServerID {
+		return ErrPolicyBroadening
+	}
+	if submitted.value.ReadOnly && (!approved.value.ReadOnly || approved.Scope() != contract.PolicyServer) {
 		return ErrPolicyBroadening
 	}
 	switch submitted.Scope() {

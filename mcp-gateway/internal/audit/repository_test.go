@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,8 +93,8 @@ func TestAuditAppendOrderingCorrelationAndAtomicFailure(t *testing.T) {
 	outcome.Initiator = attempt.Actor.Credential
 	second, err := repository.Append(ctx, outcome)
 	require.NoError(t, err)
-	assert.Equal(t, "3", first.Sequence)
-	assert.Equal(t, "4", second.Sequence)
+	assert.Equal(t, strconv.Itoa(2*(storage.CurrentSchema-14)+1), first.Sequence)
+	assert.Equal(t, strconv.Itoa(2*(storage.CurrentSchema-14)+2), second.Sequence)
 	assert.Equal(t, first.Timestamp, second.Timestamp)
 	assert.Equal(t, first.CorrelationID, second.CorrelationID)
 	assert.Equal(t, first.Actor.Credential, second.Initiator)
@@ -137,14 +138,14 @@ func TestAuditAuthoritativeFiltersAndSnapshotCursor(t *testing.T) {
 	page, err := repository.List(ctx, audit.Query{Limit: 1, Filters: contract.AuditFilters{Category: "grant"}})
 	require.NoError(t, err)
 	require.NotNil(t, page.NextCursor)
-	assert.Equal(t, "5", page.Items[0].Sequence)
+	assert.Equal(t, strconv.Itoa(2*(storage.CurrentSchema-14)+3), page.Items[0].Sequence)
 	_, err = repository.Append(ctx, event(4))
 	require.NoError(t, err)
 	next, err := repository.List(ctx, audit.Query{Limit: 100, Cursor: *page.NextCursor, Generation: page.History.Generation, Filters: contract.AuditFilters{Category: "grant"}})
 	require.NoError(t, err)
 	require.Len(t, next.Items, 2)
-	assert.Equal(t, "4", next.Items[0].Sequence)
-	assert.Equal(t, "3", next.Items[1].Sequence)
+	assert.Equal(t, strconv.Itoa(2*(storage.CurrentSchema-14)+2), next.Items[0].Sequence)
+	assert.Equal(t, strconv.Itoa(2*(storage.CurrentSchema-14)+1), next.Items[1].Sequence)
 	assert.Nil(t, next.NextCursor)
 
 	filters := contract.AuditFilters{ActorType: contract.AuditOperator, CredentialID: credentialID, Category: "grant", Action: "create", TargetType: "grant", TargetID: credentialID, Outcome: "succeeded", CorrelationID: credentialID, From: event(1).Timestamp, Until: event(4).Timestamp}
@@ -223,5 +224,5 @@ func TestAuditRollbackDoesNotConsumeSequence(t *testing.T) {
 	require.ErrorIs(t, err, injected)
 	result, err := repository.Append(context.Background(), event(2))
 	require.NoError(t, err)
-	assert.Equal(t, "3", result.Sequence)
+	assert.Equal(t, strconv.Itoa(2*(storage.CurrentSchema-14)+1), result.Sequence)
 }

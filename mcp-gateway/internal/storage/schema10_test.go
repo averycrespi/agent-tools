@@ -200,7 +200,7 @@ func assertSchemaTenRequestFoundation(t *testing.T, ctx context.Context, databas
 		"requested_scope", "requested_target", "requested_constraint", "requested_duration_seconds", "requested_future_tools_acknowledged",
 		"dedupe_version", "dedupe_bytes", "submitted_evidence", "approved_scope", "approved_target", "approved_constraint",
 		"approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence",
-		"created_at", "updated_at", "closed_at",
+		"created_at", "updated_at", "closed_at", "requested_read_only", "approved_read_only",
 	}
 	assert.Equal(t, []string{"id", "created_at"}, tableColumns(t, ctx, database, "grant_request_identities"))
 	assert.Equal(t, expected, tableColumns(t, ctx, database, "grant_requests"))

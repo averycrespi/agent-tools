@@ -11,6 +11,7 @@ import (
 )
 
 type AuditAdmissionRequest struct {
+	ReadOnlyHint                  bool
 	Class                         contract.InvocationAdmissionClass
 	RequestedName                 *string
 	RedactedArguments             []byte
@@ -76,7 +77,7 @@ func (coordinator *AdmissionCoordinator) Admit(
 			}
 
 			authorizationResult, detachment, phase, err := admission.VerifyResolvedTx(ctx, transaction, authorization.ResolvedVerification{
-				ServerID: request.Route.ServerID, UpstreamName: request.Route.UpstreamName,
+				ServerID: request.Route.ServerID, UpstreamName: request.Route.UpstreamName, ReadOnlyHint: request.ReadOnlyHint,
 				Arguments: request.Arguments, ObservedAuthorizationRevision: request.ObservedAuthorizationRevision,
 			})
 			if err != nil {

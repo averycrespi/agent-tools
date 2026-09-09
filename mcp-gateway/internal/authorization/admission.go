@@ -77,6 +77,7 @@ func (admission *Admission) VerifyResolvedTx(
 		request.UpstreamName,
 		request.Arguments,
 		evaluatedAt,
+		request.ReadOnlyHint,
 	)
 	if err != nil {
 		return contract.AuthorizationResult{}, nil, ResolvedBindingVerified, err

@@ -34,7 +34,7 @@ func (repository *Repository) HasActiveDenyConflictTx(
 	}
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT id, principal_id, effect, server_id, upstream_name,
-		       constraint_json, expires_at, created_at
+		       constraint_json, expires_at, created_at, read_only
 		FROM grants
 		WHERE principal_id = ? AND effect = ? AND server_id = ?
 		ORDER BY id

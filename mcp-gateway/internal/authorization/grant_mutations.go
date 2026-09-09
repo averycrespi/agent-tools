@@ -19,7 +19,8 @@ func (repository *Repository) CreateGrant(
 	validateTarget CurrentGrantTargetValidator,
 ) (contract.Grant, error) {
 	if validateTarget == nil || !validGrantDescription(request.Description) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.ServerID) || !validGrantEffect(request.Effect) ||
-		request.UpstreamName != nil && !validUpstreamName(*request.UpstreamName) || request.UpstreamName == nil && request.Constraint != nil {
+		request.UpstreamName != nil && !validUpstreamName(*request.UpstreamName) || request.UpstreamName == nil && request.Constraint != nil ||
+		request.ReadOnly && (request.Effect != contract.GrantAllow || request.UpstreamName != nil || request.Constraint != nil) {
 		return contract.Grant{}, ErrInvalidInput
 	}
 	var constraintJSON []byte
@@ -71,11 +72,11 @@ func (repository *Repository) CreateGrant(
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO grants (
 				id, description, principal_id, effect, server_id, upstream_name,
-				constraint_json, expires_at, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				constraint_json, expires_at, created_at, read_only
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			grantID, nullableGrantString(request.Description), request.PrincipalID, request.Effect, request.ServerID,
 			nullableGrantString(request.UpstreamName), nullableGrantBytes(constraintJSON),
-			nullableGrantTime(request.ExpiresAt), createdAt); err != nil {
+			nullableGrantTime(request.ExpiresAt), createdAt, request.ReadOnly); err != nil {
 			return fmt.Errorf("insert grant: %w", err)
 		}
 		if err := advanceAuthorizationRevisionTx(ctx, transaction); err != nil {

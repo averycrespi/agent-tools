@@ -18,7 +18,7 @@ const agentRequestSelect = `SELECT
 	requested_future_tools_acknowledged,
 	approved_scope, approved_target, approved_constraint, approved_duration_seconds,
 	approved_future_tools_acknowledged, approved_grant_id, rejection_reason,
-	created_at, updated_at, closed_at
+	created_at, updated_at, closed_at, requested_read_only, approved_read_only
 FROM grant_requests`
 
 // SelfCursor is an owner-scoped request insertion watermark and position.
@@ -162,6 +162,7 @@ func scanAgentRequest(scanner requestScanner) (int64, contract.AgentGrantRequest
 		requestedScope, requestedTarget            string
 		requestedConstraint, requestedDuration     sql.NullString
 		requestedAcknowledged                      bool
+		requestedReadOnly, approvedReadOnly        bool
 		approvedScope, approvedTarget              sql.NullString
 		approvedConstraint, approvedDuration       sql.NullString
 		approvedAcknowledged                       sql.NullBool
@@ -173,7 +174,7 @@ func scanAgentRequest(scanner requestScanner) (int64, contract.AgentGrantRequest
 		&requestedScope, &requestedTarget, &requestedConstraint, &requestedDuration, &requestedAcknowledged,
 		&approvedScope, &approvedTarget, &approvedConstraint, &approvedDuration,
 		&approvedAcknowledged, &approvedGrantID, &rejectionReason,
-		&createdAt, &updatedAt, &closedAt,
+		&createdAt, &updatedAt, &closedAt, &requestedReadOnly, &approvedReadOnly,
 	); err != nil {
 		return 0, contract.AgentGrantRequest{}, err
 	}
@@ -184,7 +185,7 @@ func scanAgentRequest(scanner requestScanner) (int64, contract.AgentGrantRequest
 		return 0, contract.AgentGrantRequest{}, ErrInvalidState
 	}
 	requested, requestedTargetFact, err := compileStoredPolicy(
-		contract.PolicyScope(requestedScope), requestedTarget, requestedConstraint, requestedDuration, requestedAcknowledged,
+		contract.PolicyScope(requestedScope), requestedTarget, requestedConstraint, requestedDuration, requestedAcknowledged, requestedReadOnly,
 	)
 	if err != nil {
 		return 0, contract.AgentGrantRequest{}, ErrInvalidState
@@ -207,12 +208,15 @@ func scanAgentRequest(scanner requestScanner) (int64, contract.AgentGrantRequest
 	}
 
 	hasApprovedPolicy := approvedScope.Valid || approvedTarget.Valid || approvedConstraint.Valid || approvedDuration.Valid || approvedAcknowledged.Valid
+	if approvedReadOnly && !hasApprovedPolicy {
+		return 0, contract.AgentGrantRequest{}, ErrInvalidState
+	}
 	if hasApprovedPolicy {
 		if !approvedScope.Valid || !approvedTarget.Valid || !approvedAcknowledged.Valid {
 			return 0, contract.AgentGrantRequest{}, ErrInvalidState
 		}
 		approved, approvedTargetFact, compileErr := compileStoredPolicy(
-			contract.PolicyScope(approvedScope.String), approvedTarget.String, approvedConstraint, approvedDuration, approvedAcknowledged.Bool,
+			contract.PolicyScope(approvedScope.String), approvedTarget.String, approvedConstraint, approvedDuration, approvedAcknowledged.Bool, approvedReadOnly,
 		)
 		if compileErr != nil || requestedTargetFact.namespace != approvedTargetFact.namespace {
 			return 0, contract.AgentGrantRequest{}, ErrInvalidState
@@ -269,8 +273,9 @@ func compileStoredPolicy(
 	target string,
 	constraint, duration sql.NullString,
 	acknowledged bool,
+	readOnly bool,
 ) (CompiledPolicy, normalizedTarget, error) {
-	policy := contract.Policy{Scope: scope, Target: target, FutureToolsAcknowledged: acknowledged}
+	policy := contract.Policy{Scope: scope, Target: target, FutureToolsAcknowledged: acknowledged, ReadOnly: readOnly}
 	if constraint.Valid {
 		value := jsonRaw(constraint.String)
 		policy.Constraint = &value

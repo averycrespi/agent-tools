@@ -167,7 +167,7 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 	maximum := mustLimit("grants")
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT insertion_sequence, id, description, revision, principal_id, effect, server_id, upstream_name,
-		       constraint_json, expires_at, created_at
+		       constraint_json, expires_at, created_at, read_only
 		FROM grants ORDER BY insertion_sequence, id LIMIT ?`, maximum+1)
 	if err != nil {
 		return fmt.Errorf("read grants for validation: %w", err)
@@ -178,12 +178,13 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 	var previousSequence int64
 	for rows.Next() {
 		var (
+			readOnly                                             bool
 			sequence                                             int64
 			id, revision, principalID, effect, serverID          string
 			description, upstreamName, constraintJSON, expiresAt sql.NullString
 			createdAt                                            string
 		)
-		if err := rows.Scan(&sequence, &id, &description, &revision, &principalID, &effect, &serverID, &upstreamName, &constraintJSON, &expiresAt, &createdAt); err != nil {
+		if err := rows.Scan(&sequence, &id, &description, &revision, &principalID, &effect, &serverID, &upstreamName, &constraintJSON, &expiresAt, &createdAt, &readOnly); err != nil {
 			return fmt.Errorf("scan grant for validation: %w", err)
 		}
 		if count >= maximum {
@@ -203,6 +204,9 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 		}
 		if upstreamName.Valid && !validUpstreamName(upstreamName.String) {
 			return errorsInvalidState("grant upstream name is malformed")
+		}
+		if readOnly && (effect != string(contract.GrantAllow) || upstreamName.Valid || constraintJSON.Valid) {
+			return errorsInvalidState("read-only grant is malformed")
 		}
 		if !upstreamName.Valid && constraintJSON.Valid {
 			return errorsInvalidState("server-wide grant has a constraint")

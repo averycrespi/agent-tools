@@ -29,6 +29,7 @@ type rawGrantRequestApproval struct {
 }
 
 type rawPolicy struct {
+	ReadOnly                json.RawMessage `json:"read_only"`
 	Scope                   json.RawMessage `json:"scope"`
 	Target                  json.RawMessage `json:"target"`
 	Constraint              json.RawMessage `json:"constraint"`
@@ -220,6 +221,9 @@ func decodeApprovalPolicy(contents json.RawMessage) (contract.Policy, bool) {
 		return contract.Policy{}, false
 	}
 	var policy contract.Policy
+	if raw.ReadOnly != nil && !decodeRequiredGrantMember(raw.ReadOnly, &policy.ReadOnly) {
+		return contract.Policy{}, false
+	}
 	if !decodeRequiredGrantMember(raw.Scope, &policy.Scope) || !decodeRequiredGrantMember(raw.Target, &policy.Target) ||
 		!decodeRequiredGrantMember(raw.FutureToolsAcknowledged, &policy.FutureToolsAcknowledged) || raw.Constraint == nil || raw.DurationSeconds == nil {
 		return contract.Policy{}, false
