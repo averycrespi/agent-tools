@@ -32,6 +32,23 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
       path: join(directory, `${label}.png`),
       fullPage: !modal,
     });
+    if (state.endsWith("-table")) {
+      const table = page.locator(".table-region");
+      await table.evaluate((node) => {
+        node.scrollLeft = node.scrollWidth;
+      });
+      await page.screenshot({ path: join(directory, `${label}-columns.png`) });
+      const countCell = table.locator('[data-label="Constraints"]').first();
+      const cellBounds = (await countCell.boundingBox())!;
+      const tableBounds = (await table.boundingBox())!;
+      expect(cellBounds.x).toBeGreaterThanOrEqual(tableBounds.x);
+      expect(cellBounds.x + cellBounds.width).toBeLessThanOrEqual(
+        tableBounds.x + tableBounds.width,
+      );
+      await table.evaluate((node) => {
+        node.scrollLeft = 0;
+      });
+    }
     if (modal) {
       await dialog.locator('[data-testid$="-submit"]').scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(directory, `${label}-actions.png`) });
@@ -46,6 +63,20 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
     path: join(directory, "dark-desktop.png"),
     fullPage: (await page.locator("dialog[open]").count()) === 0,
   });
+  if (state.endsWith("-table")) {
+    await page.locator(".table-region").evaluate((node) => {
+      node.scrollLeft = node.scrollWidth;
+    });
+    await page.screenshot({
+      path: join(directory, "dark-desktop-columns.png"),
+    });
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.locator(".table-region").evaluate((node) => {
+      node.scrollLeft = 0;
+    });
+    await page.screenshot({ path: join(directory, "wide-desktop.png") });
+    await page.setViewportSize({ width: 1280, height: 900 });
+  }
   await page.emulateMedia({ colorScheme: "light" });
   const audit = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
@@ -1187,7 +1218,11 @@ export async function runGrantReadsCreate(
     "deny",
     "expired",
     "dangerous.tool",
-    { equals: { "/mode": "blocked" } },
+    {
+      version: 2,
+      equals: { "/mode": "blocked", "/enabled": true },
+      regex: { "/mode": "^blocked$", "/path": "^/safe/" },
+    },
     "2026-08-28T12:30:00Z",
   );
   let staleRestarted = false;
@@ -1663,7 +1698,31 @@ export async function runGrantReadsCreate(
     headers.includes("Action")
   )
     fail(`grant table identity columns changed: ${headers.join("|")}`);
+  expect(headers.map((header) => header.replace(/[↕↑↓]/g, ""))).toEqual([
+    "ID",
+    "Description",
+    "Principal",
+    "Target",
+    "Effect",
+    "Status",
+    "Expiry",
+    "Constraints",
+  ]);
   const firstGrantRow = page.locator('[data-testid="grant-row"]').first();
+  await expect(firstGrantRow.locator('[data-label="Expiry"]')).toHaveText(
+    "No expiry",
+  );
+  await expect(firstGrantRow.locator('[data-label="Constraints"]')).toHaveText(
+    "0",
+  );
+  const expiredRow = page.getByTestId("grant-row").nth(1);
+  await expect(
+    expiredRow.locator('[data-label="Expiry"] time'),
+  ).toHaveAttribute("datetime", expired.expires_at!);
+  await expect(expiredRow.locator('[data-label="Constraints"]')).toHaveText(
+    "4",
+  );
+  await captureRequestState(page, "grant-table");
   if (
     (await firstGrantRow
       .locator(`a[href="#/grants/${firstGrantID}"]`)
@@ -2970,13 +3029,26 @@ export async function runRequestReads(
       });
       return;
     }
-    let rows = Array.from({ length: 128 }, (_, index) =>
-      summary(
+    let rows = Array.from({ length: 128 }, (_, index) => ({
+      ...summary(
         requestIDs[index] ??
           `01ARZ3NDEKTSV4RRFFQ69K${String(index).padStart(4, "0")}`,
-        index % 4 === 0 ? "pending" : "approved",
+        index === 3 ? "cancelled" : index % 4 === 0 ? "pending" : "approved",
       ),
-    );
+      requested_policy: {
+        ...policy("demo.safe", index === 3 ? null : "600"),
+        constraint:
+          index === 3
+            ? null
+            : index === 1
+              ? {
+                  version: 2,
+                  equals: { "/mode": "safe", "/enabled": true },
+                  regex: { "/mode": "^safe$", "/path": "^/safe/" },
+                }
+              : { equals: { "/mode": "safe" } },
+      },
+    }));
     rows = rows.filter(
       (item) =>
         (!query.has("state") || item.state === query.get("state")) &&
@@ -3173,7 +3245,7 @@ export async function runRequestReads(
   const requestHeaders = await page.locator("thead th").allTextContents();
   if (
     requestHeaders.map((header) => header.replace(/[↕↑↓]/g, "")).join("|") !==
-    "Action|Request ID|Principal|Target|State|Access requested|Submitted"
+    "Action|Request ID|Principal|Target|State|Requested duration|Constraints|Submitted"
   )
     fail(`request table columns changed: ${requestHeaders.join("|")}`);
   if (
@@ -3183,10 +3255,55 @@ export async function runRequestReads(
     detailReads !== 1
   )
     fail("request collection omitted shared metadata or expanded evidence");
+  await page.getByRole("button", { name: "Submitted", exact: true }).click();
+  const requestRows = page.getByTestId("request-row");
+  await expect(requestRows.first()).toContainText(requestIDs[0]!);
+  await expect(
+    requestRows.nth(0).locator('[data-label="Requested duration"]'),
+  ).toHaveText("10 minutes");
+  await expect(
+    requestRows.nth(0).locator('[data-label="Constraints"]'),
+  ).toHaveText("1");
+  await expect(requestRows.nth(0).locator(".status-label")).toHaveAttribute(
+    "data-state",
+    "warning",
+  );
+  await expect(
+    requestRows.nth(1).locator('[data-label="Constraints"]'),
+  ).toHaveText("4");
+  await expect(requestRows.nth(1).locator(".status-label")).toHaveAttribute(
+    "data-state",
+    "current",
+  );
+  await expect(
+    requestRows.nth(3).locator('[data-label="Requested duration"]'),
+  ).toHaveText("No expiry");
+  await expect(
+    requestRows.nth(3).locator('[data-label="Constraints"]'),
+  ).toHaveText("0");
+  const cancelledStatus = requestRows.nth(3).locator(".status-label");
+  await expect(cancelledStatus).toHaveText("Cancelled");
+  await expect(cancelledStatus).toHaveAttribute("data-state", "neutral");
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    expect(
+      await cancelledStatus.evaluate((node) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--muted)";
+        node.append(probe);
+        const matches =
+          getComputedStyle(node).color === getComputedStyle(probe).color;
+        probe.remove();
+        return matches;
+      }),
+    ).toBe(true);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+  await captureRequestState(page, "request-table");
   const stateFilter = page.getByLabel("State", { exact: true });
   await stateFilter.selectOption("approved");
   await page
-    .getByText("Showing 1–50 of 96 matching requests", { exact: true })
+    .getByText("Showing 1–50 of 95 matching requests", { exact: true })
     .waitFor();
   if (
     (await page.locator('[data-testid="request-row"]').count()) !== 50 ||
@@ -3296,6 +3413,9 @@ export async function runRequestReads(
   await expect(
     page.getByRole("heading", { name: "Cancelled request", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByTestId("request-detail").locator(".panel-heading .status-label"),
+  ).toHaveAttribute("data-state", "neutral");
   await captureRequestState(page, "cancelled");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(

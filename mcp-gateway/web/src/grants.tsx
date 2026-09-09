@@ -9,6 +9,7 @@ import {
 import {
   MatcherAtomEditor,
   MatcherRecognition,
+  matcherConstraintCount,
   matcherConstraintText,
   validMatcherPointer,
 } from "./matcher-editor";
@@ -1612,6 +1613,18 @@ function GrantCollection({
                   {grant.state === "active" ? "Active" : "Expired"}
                 </StatusLabel>
               ),
+            },
+            {
+              key: "expiry",
+              label: "Expiry",
+              render: (grant) => (
+                <UserTime value={grant.expiresAt} fallback="No expiry" />
+              ),
+            },
+            {
+              key: "constraints",
+              label: "Constraints",
+              render: (grant) => matcherConstraintCount(grant.constraint),
             },
           ]}
         />

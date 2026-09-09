@@ -440,7 +440,8 @@ p {
 }
 
 .status-label.loading,
-.status-label.empty {
+.status-label.empty,
+.status-label.neutral {
   color: var(--muted);
 }
 

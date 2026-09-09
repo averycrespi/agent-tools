@@ -36,6 +36,8 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 Use the embedded browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Invocation history provides bounded, redacted evidence; a separate audit history records control-plane changes.
 
+The Grants table shows expiry and numeric constraint counts; Requests shows requested duration and constraint counts in separate columns. Both use **No expiry** for non-expiring access and **0** for no argument constraints. Cancelled requests use a neutral grey state label.
+
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
 ### Explicit about uncertain outcomes

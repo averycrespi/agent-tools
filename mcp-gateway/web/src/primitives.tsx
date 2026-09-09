@@ -20,6 +20,7 @@ export function sentenceCase(value: string): string {
 
 export type OperationalState =
   | "current"
+  | "neutral"
   | "stale"
   | "loading"
   | "reconnecting"

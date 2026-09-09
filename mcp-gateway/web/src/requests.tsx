@@ -11,6 +11,7 @@ import type { DescriptorView } from "./server-reads";
 import {
   MatcherAtomEditor,
   MatcherRecognition,
+  matcherConstraintCount,
   matcherConstraintText,
 } from "./matcher-editor";
 import type { MatcherAtom } from "./matcher-editor";
@@ -1801,7 +1802,13 @@ export function Requests({
           <div class="panel-heading">
             <h2 id="request-title">Request details</h2>
             <StatusLabel
-              state={detail.state === "pending" ? "warning" : "current"}
+              state={
+                detail.state === "pending"
+                  ? "warning"
+                  : detail.state === "cancelled"
+                    ? "neutral"
+                    : "current"
+              }
             >
               {sentenceCase(detail.state)}
             </StatusLabel>
@@ -2178,7 +2185,13 @@ export function Requests({
               label: "State",
               render: (item) => (
                 <StatusLabel
-                  state={item.state === "pending" ? "warning" : "current"}
+                  state={
+                    item.state === "pending"
+                      ? "warning"
+                      : item.state === "cancelled"
+                        ? "neutral"
+                        : "current"
+                  }
                 >
                   {sentenceCase(item.state)}
                 </StatusLabel>
@@ -2186,22 +2199,20 @@ export function Requests({
               sortValue: (item) => item.state,
             },
             {
-              key: "access",
-              label: "Access requested",
-              render: (item) => {
-                const constraint = item.requestedPolicy.constraint;
-                const count =
-                  constraint === null
-                    ? 0
-                    : (() => {
-                        const shape = matcherShape(constraint);
-                        return (
-                          Object.keys(shape.equals).length +
-                          Object.keys(shape.regex).length
-                        );
-                      })();
-                return `${readableDuration(item.requestedPolicy.durationSeconds)} · ${count === 0 ? "Unrestricted" : `${count} condition${count === 1 ? "" : "s"}`}`;
-              },
+              key: "duration",
+              label: "Requested duration",
+              render: (item) =>
+                readableDuration(item.requestedPolicy.durationSeconds),
+            },
+            {
+              key: "constraints",
+              label: "Constraints",
+              render: (item) =>
+                matcherConstraintCount(
+                  item.requestedPolicy.constraint === null
+                    ? null
+                    : matcherShape(item.requestedPolicy.constraint),
+                ),
             },
             {
               key: "submitted",

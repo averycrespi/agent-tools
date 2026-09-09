@@ -41,6 +41,18 @@ export function validMatcherPointer(pointer: string): boolean {
   );
 }
 
+export function matcherConstraintCount(value: unknown | null): number {
+  if (value === null) return 0;
+  const constraint = value as {
+    equals?: Record<string, unknown>;
+    regex?: Record<string, unknown>;
+  };
+  return (
+    Object.keys(constraint.equals ?? {}).length +
+    Object.keys(constraint.regex ?? {}).length
+  );
+}
+
 export function matcherConstraintText(atoms: readonly MatcherAtom[]): string {
   if (atoms.length === 0) return "null";
   const members = (operator: MatcherAtom["operator"]) =>
