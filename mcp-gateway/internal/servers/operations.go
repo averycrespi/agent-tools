@@ -330,7 +330,20 @@ func (repository *Repository) CompleteReconciliation(ctx context.Context, operat
 	return repository.transitionOperation(ctx, operationID, state, reason, &event)
 }
 
+// SettleDisplacedReconciliation preserves a terminal winner while atomically
+// settling the exact displaced operation and its original reconciliation attempt.
+func (repository *Repository) SettleDisplacedReconciliation(ctx context.Context, operationID string, event *contract.AuditEvent) (Operation, bool, error) {
+	reason := contract.ReasonSuperseded
+	changed := false
+	operation, err := repository.transitionOperationResult(ctx, operationID, contract.OperationSuperseded, &reason, event, &changed)
+	return operation, changed && err == nil, err
+}
+
 func (repository *Repository) transitionOperation(ctx context.Context, operationID string, state contract.ServerOperationState, reason *contract.PublicReason, event *contract.AuditEvent) (Operation, error) {
+	return repository.transitionOperationResult(ctx, operationID, state, reason, event, nil)
+}
+
+func (repository *Repository) transitionOperationResult(ctx context.Context, operationID string, state contract.ServerOperationState, reason *contract.PublicReason, event *contract.AuditEvent, changed *bool) (Operation, error) {
 	if !validID(operationID) {
 		return Operation{}, ErrNotFound
 	}
@@ -347,6 +360,20 @@ func (repository *Repository) transitionOperation(ctx context.Context, operation
 		current, err := operationByIDTx(ctx, transaction, operationID)
 		if err != nil {
 			return err
+		}
+		appendOutcome := func() error {
+			if event == nil {
+				return nil
+			}
+			if event.Category != "server" || event.Action != "reconcile" || event.Target.Type != "server" || event.Target.ID != current.ServerID || event.Phase != "outcome" {
+				return ErrInvalidInput
+			}
+			_, err := audit.AppendTx(ctx, transaction, *event)
+			return err
+		}
+		if changed != nil && operationTerminal(current.State) {
+			updated = current
+			return appendOutcome()
 		}
 		if !operationTransitionAllowed(current.State, state) {
 			return ErrInvalidTransition
@@ -377,13 +404,11 @@ func (repository *Repository) transitionOperation(ctx context.Context, operation
 		if err := auditOperationTransitionTx(ctx, transaction, updated, repository.clock.Now(), false); err != nil {
 			return err
 		}
-		if event != nil {
-			if event.Category != "server" || event.Action != "reconcile" || event.Target.Type != "server" || event.Target.ID != current.ServerID || event.Phase != "outcome" {
-				return ErrInvalidInput
-			}
-			if _, err := audit.AppendTx(ctx, transaction, *event); err != nil {
-				return err
-			}
+		if err := appendOutcome(); err != nil {
+			return err
+		}
+		if changed != nil {
+			*changed = true
 		}
 		if operationTerminal(state) {
 			return pruneTerminalOperationsTx(ctx, transaction, current.ServerID)

@@ -50,6 +50,8 @@ func DiagnosticEvents() []DiagnosticEvent {
 		{Name: "storage_reject", Level: "debug", RequiredFields: append([]string{"cause"}, storageFields...), OptionalFields: []string{"call_id", "duration_ms"}, Causes: rejection, Conditions: storageConditions},
 		{Name: "durability_failure", Level: "error", RequiredFields: []string{"mutation_id", "writer_kind", "cause", "stage"}, OptionalFields: []string{"call_id", "duration_ms"}, Causes: []string{"latched"}, Stages: stages, Conditions: []string{"non-foreign writer requires call_id"}},
 		{Name: "storage_latch", Level: "error", RequiredFields: []string{"mutation_id", "writer_kind", "cause", "stage"}, OptionalFields: []string{"call_id", "duration_ms"}, Causes: []string{"latched"}, Stages: stages, Conditions: []string{"non-foreign writer requires call_id"}},
+		{Name: "reconciliation_displaced", Level: "info", Causes: []string{""}},
+		{Name: "reconciliation_settlement_failure", Level: "warn", RequiredFields: []string{"cause"}, Causes: []string{"capacity", "unavailable", "stopped"}},
 		{Name: "diagnostic_loss", Level: "warn", RequiredFields: []string{"dropped", "invalid"}, Causes: []string{""}},
 	}
 }

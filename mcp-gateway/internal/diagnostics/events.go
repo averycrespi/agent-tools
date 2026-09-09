@@ -57,10 +57,12 @@ const (
 	StorageReject
 	DurabilityFailure
 	StorageLatch
+	ReconciliationDisplaced
+	ReconciliationSettlementFailure
 	Loss
 )
 
-var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "diagnostic_loss"}
+var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "diagnostic_loss"}
 
 type Cause uint8
 
@@ -133,7 +135,12 @@ type InvocationObserver interface {
 	DebugEnabled() bool
 	Invocation(Facts)
 }
+type ReconciliationObserver interface {
+	Reconciliation(Facts)
+}
+
 type Observer interface {
+	ReconciliationObserver
 	StorageObserver
 	AuthorityObserver
 	InvocationObserver

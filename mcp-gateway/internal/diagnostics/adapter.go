@@ -75,6 +75,17 @@ func (adapter *Adapter) Invocation(facts Facts) {
 	adapter.Observe(facts)
 }
 
+func (adapter *Adapter) Reconciliation(facts Facts) {
+	if adapter == nil {
+		return
+	}
+	if facts.Event != ReconciliationDisplaced && facts.Event != ReconciliationSettlementFailure {
+		increment(&adapter.invalid)
+		return
+	}
+	adapter.Observe(facts)
+}
+
 func (adapter *Adapter) Observe(facts Facts) {
 	if adapter == nil {
 		return
@@ -86,7 +97,7 @@ func (adapter *Adapter) Observe(facts Facts) {
 	if facts.Event >= InvocationAdmission && facts.Event <= StorageReject && adapter.level != Debug {
 		return
 	}
-	if facts.Event <= Shutdown && adapter.level < Info {
+	if (facts.Event <= Shutdown || facts.Event == ReconciliationDisplaced) && adapter.level < Info {
 		return
 	}
 	// Lock contention is also loss: producers never wait for another producer.
@@ -160,12 +171,14 @@ func validFacts(f Facts) bool {
 		return false
 	}
 	switch f.Event {
-	case Startup, Readiness, Drain:
+	case Startup, Readiness, Drain, ReconciliationDisplaced:
 		return f.Cause == None && f.Duration == 0
 	case Shutdown:
 		return f.Cause == Success
 	case LifecycleFailure:
 		return f.Cause == Unavailable
+	case ReconciliationSettlementFailure:
+		return f.Duration == 0 && (f.Cause == Capacity || f.Cause == Unavailable || f.Cause == Stopped)
 	case InvocationAdmission:
 		switch f.Cause {
 		case Success:
@@ -198,7 +211,7 @@ func validFacts(f Facts) bool {
 
 func validFieldSubset(f Facts) bool {
 	switch {
-	case f.Event <= LifecycleFailure:
+	case f.Event <= LifecycleFailure || f.Event == ReconciliationDisplaced || f.Event == ReconciliationSettlementFailure:
 		return f.Call == 0 && f.Mutation == 0 && f.InvocationID == "" && f.Stage == NoStage && f.Writer == Foreign && f.Owned == 0 && f.Waiting == 0 && f.Limit == 0
 	case f.Event <= TerminalAnnotation:
 		return f.Call != 0 && f.Mutation == 0 && f.Stage == NoStage && f.Writer == Foreign && f.Owned == 0 && f.Waiting == 0 && f.Limit == 0
@@ -301,13 +314,13 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 		return attr
 	}})
 	level := slog.LevelDebug
-	if f.Event <= Shutdown {
+	if f.Event <= Shutdown || f.Event == ReconciliationDisplaced {
 		level = slog.LevelInfo
 	}
 	if f.Event == LifecycleFailure || f.Event == DurabilityFailure || f.Event == StorageLatch {
 		level = slog.LevelError
 	}
-	if f.Event == Loss {
+	if f.Event == Loss || f.Event == ReconciliationSettlementFailure {
 		level = slog.LevelWarn
 	}
 	record := slog.NewRecord(time.Now().UTC(), level, eventNames[f.Event], 0)

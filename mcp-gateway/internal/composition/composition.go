@@ -737,6 +737,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, err
 	}
 	built.manager, err = runtimes.New(runtimes.Options{
+		Diagnostics:  options.Diagnostics,
 		Repository:   built.servers,
 		Driver:       built.driver,
 		Authority:    built.authority,
