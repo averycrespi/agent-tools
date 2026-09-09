@@ -165,7 +165,7 @@ func (transition *approvalTransition) PrepareGrantRequestApproval(ctx context.Co
 		duration = &value
 	}
 	return authorization.ApprovalGrantMaterial{
-		Description: transition.request.Description, PrincipalID: transition.principalID, ServerID: transition.serverID,
+		Description: transition.request.Description, PrincipalID: transition.principalID, ServerID: transition.serverID, ReadOnly: transition.approved.value.ReadOnly,
 		UpstreamName: approvedTarget.UpstreamName, Constraint: transition.approved.ConstraintJSON(), DurationSeconds: duration,
 	}, nil
 }
@@ -216,10 +216,10 @@ func (transition *approvalTransition) CommitGrantRequestApproval(
 		state = 'approved', revision = 2,
 		approved_scope = ?, approved_target = ?, approved_constraint = ?, approved_duration_seconds = ?,
 		approved_future_tools_acknowledged = ?, approved_grant_id = ?, approved_evidence = ?,
-		updated_at = ?, closed_at = ?
+		updated_at = ?, closed_at = ?, approved_read_only = ?
 		WHERE id = ? AND state = 'pending' AND revision = 1`,
 		approvedPolicy.Scope, approvedPolicy.Target, constraint, duration, approvedPolicy.FutureToolsAcknowledged,
-		grantID, nullableEvidence(evidence), timestamp, timestamp, transition.request.ID)
+		grantID, nullableEvidence(evidence), timestamp, timestamp, approvedPolicy.ReadOnly, transition.request.ID)
 	if err != nil {
 		return contract.AgentGrantRequest{}, fmt.Errorf("approve grant request: %w", err)
 	}

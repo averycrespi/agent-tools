@@ -166,6 +166,7 @@ type AgentCredentialCreation struct {
 }
 
 type Grant struct {
+	ReadOnly     bool             `json:"read_only,omitempty"`
 	ID           string           `json:"id"`
 	Description  *string          `json:"description"`
 	Revision     string           `json:"revision"`

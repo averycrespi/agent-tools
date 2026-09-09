@@ -23,7 +23,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 15
+	CurrentSchema           = 16
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -39,7 +39,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql"}
 
 type Identity struct {
 	InstallationID string
@@ -388,6 +388,9 @@ func (store *Store) verify(ctx context.Context) error {
 	if err := store.verifyGrantRequestStructure(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
+	if err := store.verifyMigrationStructure(ctx, "016_read_only_grants.sql"); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
 	if err := store.verifyControlAuditStructure(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
@@ -483,7 +486,7 @@ func (store *Store) verifyGrantRequestStructure(ctx context.Context) error {
 		"requested_scope", "requested_target", "requested_constraint", "requested_duration_seconds", "requested_future_tools_acknowledged",
 		"dedupe_version", "dedupe_bytes", "submitted_evidence", "approved_scope", "approved_target", "approved_constraint",
 		"approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence",
-		"created_at", "updated_at", "closed_at",
+		"created_at", "updated_at", "closed_at", "requested_read_only", "approved_read_only",
 	}
 	if err := store.verifyTableColumns(ctx, "grant_request_identities", []string{"id", "created_at"}); err != nil {
 		return err
@@ -595,7 +598,7 @@ func (store *Store) verifyGrantRequestStructure(ctx context.Context) error {
 	}
 	for _, column := range expectedColumns {
 		switch column {
-		case "state", "revision", "approved_scope", "approved_target", "approved_constraint", "approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence", "updated_at", "closed_at":
+		case "state", "revision", "approved_read_only", "approved_scope", "approved_target", "approved_constraint", "approved_duration_seconds", "approved_future_tools_acknowledged", "approved_grant_id", "rejection_reason", "approved_evidence", "updated_at", "closed_at":
 			continue
 		}
 		if !strings.Contains(normalizedTerminalTrigger, "new."+column+" is old."+column) {

@@ -62,6 +62,7 @@ type httpFixtureBarrier struct {
 func (barrier *httpFixtureBarrier) Release() { barrier.once.Do(func() { close(barrier.release) }) }
 
 type fixtureTool struct {
+	Annotations  json.RawMessage `json:"annotations,omitempty"`
 	Name         string          `json:"name"`
 	Description  string          `json:"description,omitempty"`
 	InputSchema  json.RawMessage `json:"inputSchema"`

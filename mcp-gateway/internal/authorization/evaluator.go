@@ -25,7 +25,7 @@ func (repository *Repository) Evaluate(ctx context.Context, request EvaluationRe
 	var result contract.AuthorizationResult
 	err = repository.view(ctx, func(transaction *sql.Tx) error {
 		var evaluateErr error
-		result, evaluateErr = evaluateTx(repository, ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt)
+		result, evaluateErr = evaluateTx(repository, ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt, false)
 		return evaluateErr
 	})
 	return result, err
@@ -40,6 +40,7 @@ func evaluateTx(
 	upstreamName string,
 	arguments strictjson.Value,
 	evaluatedAt time.Time,
+	readOnlyHint bool,
 ) (contract.AuthorizationResult, error) {
 	revision, err := authorizationRevisionTx(ctx, transaction)
 	if err != nil {
@@ -51,7 +52,7 @@ func evaluateTx(
 	}
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT id, principal_id, effect, server_id, upstream_name,
-		       constraint_json, expires_at, created_at
+		       constraint_json, expires_at, created_at, read_only
 		FROM grants
 		WHERE principal_id = ? AND server_id = ?
 		  AND (upstream_name IS NULL OR upstream_name = ?)
@@ -79,7 +80,7 @@ func evaluateTx(
 		if appliesErr != nil {
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
-		if !applies {
+		if !applies || grant.readOnly && !readOnlyHint {
 			continue
 		}
 		switch grant.effect {
@@ -107,6 +108,7 @@ func evaluateTx(
 }
 
 type evaluationGrant struct {
+	readOnly     bool
 	id           string
 	effect       contract.GrantEffect
 	serverID     string
@@ -121,12 +123,13 @@ func loadEvaluationGrant(scanner grantScanner, compile func(string) (CompiledCon
 		principalID, effect, createdAt string
 		constraintJSON, expiresAt      sql.NullString
 	)
-	if err := scanner.Scan(&grant.id, &principalID, &effect, &grant.serverID, &grant.upstreamName, &constraintJSON, &expiresAt, &createdAt); err != nil {
+	if err := scanner.Scan(&grant.id, &principalID, &effect, &grant.serverID, &grant.upstreamName, &constraintJSON, &expiresAt, &createdAt, &grant.readOnly); err != nil {
 		return evaluationGrant{}, err
 	}
 	grant.effect = contract.GrantEffect(effect)
 	if !validOpaqueID(grant.id) || !validOpaqueID(principalID) || !validGrantEffect(grant.effect) || !validOpaqueID(grant.serverID) ||
-		grant.upstreamName.Valid && !validUpstreamName(grant.upstreamName.String) || !grant.upstreamName.Valid && constraintJSON.Valid {
+		grant.upstreamName.Valid && !validUpstreamName(grant.upstreamName.String) || !grant.upstreamName.Valid && constraintJSON.Valid ||
+		grant.readOnly && (grant.effect != contract.GrantAllow || grant.upstreamName.Valid || constraintJSON.Valid) {
 		return evaluationGrant{}, ErrAuthorizationUnavailable
 	}
 	created, valid := canonicalTimestamp(createdAt)

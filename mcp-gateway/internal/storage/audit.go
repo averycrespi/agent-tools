@@ -7,7 +7,11 @@ import (
 )
 
 func (store *Store) verifyControlAuditStructure(ctx context.Context) error {
-	contents, err := migrationFiles.ReadFile("migrations/015_control_audit.sql")
+	return store.verifyMigrationStructure(ctx, "015_control_audit.sql")
+}
+
+func (store *Store) verifyMigrationStructure(ctx context.Context, name string) error {
+	contents, err := migrationFiles.ReadFile("migrations/" + name)
 	if err != nil {
 		return fmt.Errorf("read control audit schema: %w", err)
 	}

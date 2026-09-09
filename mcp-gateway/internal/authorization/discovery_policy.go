@@ -10,6 +10,7 @@ import (
 )
 
 type StructuralGrant struct {
+	ReadOnly     bool
 	Effect       contract.GrantEffect
 	ServerID     string
 	UpstreamName *string
@@ -63,7 +64,7 @@ func (repository *Repository) LoadDiscoveryPolicy(ctx context.Context, lease *Le
 func (repository *Repository) loadStructuralGrants(ctx context.Context, transaction *sql.Tx, principalID, revision string, evaluatedAt time.Time) ([]StructuralGrant, error) {
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT id, principal_id, effect, server_id, upstream_name,
-		       constraint_json, expires_at, created_at
+		       constraint_json, expires_at, created_at, read_only
 		FROM grants
 		WHERE principal_id = ?
 		ORDER BY id
@@ -89,7 +90,7 @@ func (repository *Repository) loadStructuralGrants(ctx context.Context, transact
 			continue
 		}
 		structural := StructuralGrant{
-			Effect: grant.effect, ServerID: grant.serverID, Constrained: grant.constraint != nil,
+			Effect: grant.effect, ServerID: grant.serverID, Constrained: grant.constraint != nil, ReadOnly: grant.readOnly,
 		}
 		if grant.upstreamName.Valid {
 			upstreamName := grant.upstreamName.String

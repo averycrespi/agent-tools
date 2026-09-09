@@ -12,7 +12,7 @@ import (
 
 const grantSelect = `
 	SELECT insertion_sequence, id, description, revision, principal_id, effect, server_id, upstream_name,
-	       constraint_json, expires_at, created_at
+	       constraint_json, expires_at, created_at, read_only
 	FROM grants`
 
 type grantScanner interface {
@@ -100,9 +100,12 @@ func (repository *Repository) scanGrant(scanner grantScanner, now time.Time) (in
 	)
 	if err := scanner.Scan(
 		&sequence, &grant.ID, &description, &grant.Revision, &grant.PrincipalID, &grant.Effect, &grant.ServerID,
-		&upstreamName, &constraintJSON, &expiresAt, &grant.CreatedAt,
+		&upstreamName, &constraintJSON, &expiresAt, &grant.CreatedAt, &grant.ReadOnly,
 	); err != nil {
 		return 0, contract.Grant{}, err
+	}
+	if grant.ReadOnly && (grant.Effect != contract.GrantAllow || upstreamName.Valid || constraintJSON.Valid) {
+		return 0, contract.Grant{}, errorsInvalidState("read-only grant is malformed")
 	}
 	if description.Valid {
 		value := description.String

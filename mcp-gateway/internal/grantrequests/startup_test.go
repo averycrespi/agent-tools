@@ -135,6 +135,18 @@ func TestStartupRejectsMissingOwnerTargetIdentityDedupeAndEvidence(t *testing.T)
 				return err
 			}))
 		}},
+		{name: "restriction without matching dedupe", prepare: func(t *testing.T, _ *Repository, fixture *sqlStoreFixture, _ *fakeStoredPrincipalInspector, _ *fakeStoredTargetInspector) {
+			require.NoError(t, fixture.mutate(func(transaction *sql.Tx) error {
+				_, err := transaction.Exec(`DROP TRIGGER grant_requests_terminal_once; UPDATE grant_requests SET requested_read_only = 1`)
+				return err
+			}))
+		}},
+		{name: "approved restriction on pending request", prepare: func(t *testing.T, _ *Repository, fixture *sqlStoreFixture, _ *fakeStoredPrincipalInspector, _ *fakeStoredTargetInspector) {
+			require.NoError(t, fixture.mutate(func(transaction *sql.Tx) error {
+				_, err := transaction.Exec(`PRAGMA ignore_check_constraints = ON; DROP TRIGGER grant_requests_terminal_once; UPDATE grant_requests SET approved_read_only = 1`)
+				return err
+			}))
+		}},
 		{name: "wrong dedupe", prepare: func(t *testing.T, _ *Repository, fixture *sqlStoreFixture, _ *fakeStoredPrincipalInspector, _ *fakeStoredTargetInspector) {
 			require.NoError(t, fixture.mutate(func(transaction *sql.Tx) error {
 				return insertStartupPending(transaction, requestID(11), requestID(200), contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}, []byte("wrong"), nil, requestID(400), nil)

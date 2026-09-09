@@ -210,7 +210,7 @@ func structurallyVisible(visibility contract.PrincipalVisibility, descriptor con
 		}
 		switch grant.Effect {
 		case contract.GrantAllow:
-			allowed = true
+			allowed = allowed || !grant.ReadOnly || descriptor.Descriptor.Annotations.ReadOnlyHint
 		case contract.GrantDeny:
 			unconstrainedDeny = unconstrainedDeny || !grant.Constrained
 		default:

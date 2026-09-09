@@ -67,6 +67,8 @@ The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for
 
 The non-mutating grant matcher validation mechanic is `GrantConstraintValidation` → `GrantConstraintValidationResult`. The request is exactly `{constraint}`, where `constraint` must be a non-null object; missing, null, or non-object members are malformed requests. A well-formed request always returns `200`: valid constraints return an empty diagnostics array, while compiler-invalid constraint objects return one safe `GrantConstraintDiagnostic` with a JSON Pointer field and fixed message. The endpoint uses the production compiler, writes no durable state, publishes no invalidation, and grant creation and request approval still compile authoritatively in their own mutation paths.
 
+`GrantCreate` additionally accepts optional Boolean `read_only`; request and approval `Policy` accept the same field. Omitted or false retains unrestricted behavior; null and non-Booleans are invalid. True is restricted to server-wide ALLOWs/server requests with null argument constraints, never DENY or exact-tool policy. `Grant` and agent `GrantPolicy` reads emit `read_only:true` only for restricted grants; requested/approved policies preserve it on administrator and agent reads. Legacy unrestricted representations are unchanged. The [read-only policy contract](identity-and-authorization.md#read-only-server-allows) owns descriptor trust, lifecycle, dedupe compatibility, and the approval matrix.
+
 ### Control-plane audit reads
 
 `GET /api/v1/audit-events` and `GET /api/v1/audit-events/{id}` accept administrator bearer or session authority, remain bodyless and `no-store`, and have exact `Allow` value `GET`. There are no audit mutation, replay, export, or ordinary read-access-log endpoints.

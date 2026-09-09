@@ -165,7 +165,7 @@ func TestMatcherCacheOlderSnapshotAndMalformedReads(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			result, err := evaluateTx(repository, context.Background(), tx, principal.ID, id(51), "echo", args, testNow)
+			result, err := evaluateTx(repository, context.Background(), tx, principal.ID, id(51), "echo", args, testNow, false)
 			results <- result
 			return err
 		})

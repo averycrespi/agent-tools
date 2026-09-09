@@ -64,6 +64,8 @@ func TestValidateStartupRejectsMalformedDurableRows(t *testing.T) {
 		{name: "partial credential slot", mutate: uncheckedMutation(`UPDATE principals SET credential_verifier = NULL`), fixture: principalFixture},
 		{name: "disabled current credential", mutate: uncheckedMutation(`UPDATE principals SET state = 'disabled'`), fixture: principalFixture},
 		{name: "invalid credential fingerprint", mutate: uncheckedMutation(`UPDATE principals SET credential_fingerprint = 'ABCDEF0123456789'`), fixture: principalFixture},
+		{name: "read-only exact grant", mutate: uncheckedMutation(`DROP TRIGGER grants_read_only_immutable; UPDATE grants SET read_only = 1`), fixture: grantFixture},
+		{name: "read-only deny", mutate: uncheckedMutation(`DROP TRIGGER grants_read_only_immutable; UPDATE grants SET read_only = 1, effect = 'deny', upstream_name = NULL, constraint_json = NULL`), fixture: grantFixture},
 		{name: "invalid grant effect", mutate: uncheckedMutation(`UPDATE grants SET effect = 'foreign'`), fixture: grantFixture},
 		{name: "invalid grant target ID", mutate: uncheckedMutation(`UPDATE grants SET server_id = 'malformed'`), fixture: grantFixture},
 		{name: "missing grant target", mutate: noMutation, inspector: targetInspector{missing: map[string]bool{id(51): true}}, fixture: grantFixture},

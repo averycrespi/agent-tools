@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestControlAuditMigrationPreservesPredecessorFacts(t *testing.T) {
 	defer func() { require.NoError(t, store.Close()) }()
 	after, err := store.Identity(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 15, after.SchemaVersion)
+	assert.Equal(t, CurrentSchema, after.SchemaVersion)
 	assert.Equal(t, before.InstallationID, after.InstallationID)
 	assert.Equal(t, before.Revision, after.Revision)
 	assertPopulatedSchemaNineFacts(t, ctx, store.database)
@@ -36,12 +37,12 @@ func TestControlAuditMigrationPreservesPredecessorFacts(t *testing.T) {
 	require.NoError(t, store.database.QueryRowContext(ctx, `SELECT generation, pruned, (SELECT count(*) FROM control_audit_events) FROM control_audit_history WHERE singleton = 1`).Scan(&generation, &pruned, &count))
 	assert.Len(t, generation, 64)
 	assert.Zero(t, pruned)
-	assert.Equal(t, 2, count)
+	assert.Equal(t, 2*(CurrentSchema-14), count)
 	reader, err := audit.NewRepository(store)
 	require.NoError(t, err)
 	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "storage", Action: "migrate"}})
 	require.NoError(t, err)
-	require.Len(t, page.Items, 2)
+	require.Len(t, page.Items, 2*(CurrentSchema-14))
 	assert.Equal(t, contract.AuditSystem, page.Items[0].Actor.Type)
 	assert.Equal(t, "succeeded", page.Items[0].Outcome)
 	assert.Equal(t, "pending", page.Items[1].Outcome)
@@ -63,13 +64,15 @@ func TestControlAuditStartupRejectsMalformedHistory(t *testing.T) {
 			case "missing history":
 				_, err = raw.ExecContext(ctx, `DELETE FROM control_audit_history`)
 			case "malformed event":
+				var sequence int
+				require.NoError(t, raw.QueryRowContext(ctx, `SELECT max(insertion_sequence) + 1 FROM control_audit_events`).Scan(&sequence))
 				contents, encodeErr := json.Marshal(contract.AuditEvent{AuditSummary: contract.AuditSummary{
-					ID: testInstallationID, Sequence: "3", Timestamp: time.Now().UTC().Add(time.Minute).Format(contract.AuditTimestampLayout), Category: "storage", Action: "verify",
+					ID: testInstallationID, Sequence: strconv.Itoa(sequence), Timestamp: time.Now().UTC().Add(time.Minute).Format(contract.AuditTimestampLayout), Category: "storage", Action: "verify",
 					Phase: "outcome", Outcome: "succeeded", Actor: contract.AuditActor{Type: contract.AuditSystem}, CorrelationID: testInstallationID,
 					Target: contract.AuditTarget{Type: "installation", ID: testInstallationID},
 				}})
 				require.NoError(t, encodeErr)
-				_, err = raw.ExecContext(ctx, `INSERT INTO control_audit_events (insertion_sequence, event) VALUES (3, json_set(?, '$.unrestricted', 'canary'))`, string(contents))
+				_, err = raw.ExecContext(ctx, `INSERT INTO control_audit_events (insertion_sequence, event) VALUES (?, json_set(?, '$.unrestricted', 'canary'))`, sequence, string(contents))
 			}
 			require.NoError(t, err)
 			require.NoError(t, raw.Close())

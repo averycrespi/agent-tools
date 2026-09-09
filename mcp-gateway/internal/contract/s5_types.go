@@ -12,6 +12,7 @@ const (
 )
 
 type Policy struct {
+	ReadOnly                bool             `json:"read_only,omitempty"`
 	Scope                   PolicyScope      `json:"scope"`
 	Target                  string           `json:"target"`
 	Constraint              *json.RawMessage `json:"constraint"`
@@ -20,6 +21,7 @@ type Policy struct {
 }
 
 type GrantPolicy struct {
+	ReadOnly   bool             `json:"read_only,omitempty"`
 	Scope      PolicyScope      `json:"scope"`
 	Target     string           `json:"target"`
 	Constraint *json.RawMessage `json:"constraint"`
