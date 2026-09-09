@@ -29,6 +29,7 @@ import (
 
 func TestE2EInvocationReadPrivacy(t *testing.T) {
 	harness := newGatewayHarness(t)
+	harness.serveArgs = append(harness.serveArgs, "--log-level", "debug")
 	harness.Start()
 	strictSchema := json.RawMessage(`{"type":"object","properties":{"note":{"type":"string"},"token":{"type":"string"}},"additionalProperties":false}`)
 	catalog := harness.SetupCurrentCatalog("invocation-read", []fixtureTool{
@@ -165,6 +166,16 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 		backupResponse.Body, backupEvent, statusEvent, fixtureEvidence,
 	}
 	result := harness.Stop(syscall.SIGTERM)
+	require.Contains(t, string(result.Stderr), `"event":"invocation_admission"`)
+	require.Contains(t, string(result.Stderr), `"event":"shutdown"`)
+	for _, canary := range []string{inertCapture, "invocation-read.allowed", `"note"`, `"token"`} {
+		require.NotContains(t, string(result.Stderr), canary)
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(result.Stderr), []byte{'\n'}) {
+		var record map[string]any
+		require.NoError(t, json.Unmarshal(line, &record))
+		require.EqualValues(t, 1, record["schema_version"])
+	}
 	assertBackupArtifactModes(t, harness.root, artifact.ID)
 	scanInvocationPrivacySinks(t, harness, issued.Bearer, []string{argumentCanary, fixturePrivateSuccessText, fixtureToolErrorText}, evidence, result)
 }

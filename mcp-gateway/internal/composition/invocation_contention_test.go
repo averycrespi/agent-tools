@@ -1,7 +1,11 @@
 package composition
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"os"
+
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,10 +17,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
+
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/mcpingress"
+	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
@@ -25,9 +32,66 @@ import (
 )
 
 func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
+	for _, mode := range []string{"warn", "debug", "stalled"} {
+		t.Run(mode, func(t *testing.T) { runIngressDiagnosticWorkload(t, mode) })
+	}
+}
+
+func runIngressDiagnosticWorkload(t *testing.T, mode string) {
+	startedWorkload := time.Now()
+	var output bytes.Buffer
+	canaries := []string{"parallel.read", "argument-secret-canary", "downstream-secret-canary"}
+	var sink io.Writer = &output
+	var pipeReader, pipeWriter *os.File
+	level := diagnostics.Debug
+	if mode == "warn" {
+		level = diagnostics.Warn
+	}
+	if mode == "stalled" {
+		var err error
+		pipeReader, pipeWriter, err = os.Pipe()
+		require.NoError(t, err)
+		sink = pipeWriter
+	}
+	diagnostic := diagnostics.New(sink, level)
+	defer func() {
+		diagnostic.Finish(nil)
+		if pipeReader != nil {
+			require.NoError(t, pipeReader.Close())
+		}
+		<-diagnostic.Done()
+		if pipeWriter != nil {
+			require.NoError(t, pipeWriter.Close())
+		}
+		for _, canary := range canaries {
+			require.NotContains(t, output.String(), canary)
+		}
+		if mode == "debug" {
+			seen := make(map[uint64]string)
+			for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte{'\n'}) {
+				var record struct {
+					Event      string `json:"event"`
+					Call       uint64 `json:"call_id"`
+					Invocation string `json:"invocation_id"`
+				}
+				require.NoError(t, json.Unmarshal(line, &record))
+				if record.Event == "invocation_admission" && record.Invocation != "" {
+					require.NotZero(t, record.Call)
+					seen[record.Call] = record.Invocation
+				}
+				if record.Event == "execution_start" {
+					require.Equal(t, seen[record.Call], record.Invocation)
+				}
+			}
+			require.NotEmpty(t, seen)
+		}
+		t.Logf("diagnostics=%s elapsed=%s encoded bytes=%d (fixture observation, not throughput guarantee)", mode, time.Since(startedWorkload), output.Len())
+	}()
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	var calls, active, peak atomic.Int32
+	var failureWave, terminalFault atomic.Bool
+	var unknown, known atomic.Int32
 	var barrierMu sync.Mutex
 	arrived := 0
 	barrier := make(chan struct{})
@@ -46,7 +110,7 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 		case "tools/list":
 			result = `{"tools":[{"name":"read","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":true}}]}`
 		case "tools/call":
-			calls.Add(1)
+			callIndex := calls.Add(1)
 			current := active.Add(1)
 			defer active.Add(-1)
 			for prior := peak.Load(); current > prior && !peak.CompareAndSwap(prior, current); prior = peak.Load() {
@@ -55,6 +119,9 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			group := barrier
 			arrived++
 			if arrived == 4 {
+				if failureWave.Load() {
+					terminalFault.Store(true)
+				}
 				close(group)
 				arrived = 0
 				barrier = make(chan struct{})
@@ -65,7 +132,16 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			case <-ctx.Done():
 				return
 			}
-			result = `{"content":[]}`
+			if failureWave.Load() && callIndex == 33 {
+				connection, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				_ = connection.Close() // Accepted request with no response: outcome remains unknown, never retried.
+				return
+			}
+			result = `{"content":[{"type":"text","text":"downstream-secret-canary"}]}`
 		}
 		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":%s}`, message.ID, result)
 	}))
@@ -73,17 +149,21 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 	var probe atomic.Bool
 	var foreignRejected atomic.Int32
 	var store *storage.Store
-	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
+	options, recoveryRoot, cleanup := newCompositionOptionsWithRecoveryRoot(t, func(point storage.FaultPoint) error {
 		if point == storage.FaultAfterCommit && probe.Load() {
 			// Conditional probe: foreign writes during actual owner cleanup must reject.
 			if err := store.Mutate(ctx, func(*sql.Tx) error { return nil }); errors.Is(err, storage.ErrMutationBusy) {
 				foreignRejected.Add(1)
 			}
 		}
+		if point == storage.FaultAfterCommit && terminalFault.CompareAndSwap(true, false) {
+			return errors.New("terminal-ack-secret-canary")
+		}
 		return nil
 	})
 	defer cleanup()
 	store = options.Store
+	options.Diagnostics = diagnostic
 	built, err := New(options)
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
@@ -95,6 +175,7 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 	require.NoError(t, err)
 	credential, err := built.authorization.IssueCredential(ctx, principal.Principal.ID, principal.Principal.Revision)
 	require.NoError(t, err)
+	canaries = append(canaries, credential.Bearer)
 	_, err = built.authorization.CreateGrant(ctx, authorization.CreateGrantRequest{PrincipalID: principal.Principal.ID, ServerID: server.ID, Effect: contract.GrantAllow}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	require.NoError(t, built.Start(ctx))
@@ -108,7 +189,7 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 	request := func(method string) error {
 		params := `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"fixture","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}`
 		if method == "tools/call" {
-			params += `,"name":"parallel.read","arguments":{}`
+			params += `,"name":"parallel.read","arguments":{"argument-secret-canary":"argument-secret-canary"}`
 		}
 		r := newAgentRequest(credential.Bearer, fmt.Sprintf(`{"jsonrpc":"2.0","id":"fixture","method":%q,"params":{%s}}`, method, params)).WithContext(ctx)
 		started := time.Now()
@@ -128,8 +209,22 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
 			return err
 		}
+		if failureWave.Load() && method == "tools/call" && len(envelope.Error) != 0 {
+			var rpcError struct {
+				Data struct {
+					Code string `json:"code"`
+				} `json:"data"`
+			}
+			if json.Unmarshal(envelope.Error, &rpcError) == nil && rpcError.Data.Code == string(contract.OutcomeUnknown) {
+				unknown.Add(1)
+				return nil
+			}
+		}
 		if response.Code != http.StatusOK || len(envelope.Error) != 0 || len(envelope.Result) == 0 {
 			return fmt.Errorf("fixture request failed: %s", response.Body.String())
+		}
+		if failureWave.Load() && method == "tools/call" {
+			known.Add(1)
 		}
 		return nil
 	}
@@ -168,6 +263,56 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 	require.Zero(t, waiting)
 	require.False(t, store.Latched())
 	t.Logf("32 calls / concurrency 4 / 32 preceding tools/list: max authentication %s; foreign probes during 64 owned commit-cleanup windows rejected %d/64 (conditional samples, not a general rejection rate)", time.Duration(authMax.Load()), foreignRejected.Load())
+
+	// All four additional calls must reach the downstream barrier before any
+	// terminal fault is armed, proving acknowledged audit precedes this wave.
+	failureWave.Store(true)
+	for range 4 {
+		go func() {
+			if err := request("tools/list"); err != nil {
+				finished <- err
+				return
+			}
+			finished <- request("tools/call")
+		}()
+	}
+	for range 4 {
+		require.NoError(t, <-finished)
+	}
+	require.EqualValues(t, 1, unknown.Load())
+	require.EqualValues(t, 3, known.Load(), "known live results survive failed terminal acknowledgment")
+	require.EqualValues(t, 36, calls.Load(), "unknown outcomes are never replayed")
+	require.True(t, store.Latched())
+	require.NoError(t, store.View(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT count(*), count(terminal_class) FROM invocations WHERE decision = 'allow'`).Scan(&admitted, &completed)
+	}))
+	require.Equal(t, 36, admitted)
+	require.Equal(t, 33, completed, "only the first terminal row committed before latch; remaining evidence stays unknown")
+	owned, waiting = store.MutationOccupancy()
+	require.False(t, owned)
+	require.Zero(t, waiting)
+	_, err = built.authorization.Authenticate(ctx, credential.Bearer)
+	require.ErrorIs(t, err, authorization.ErrStorageUnavailable)
+	ingress.Shutdown()
+	built.shutdownConstructed()
+	cleanup() // No active producer or storage owner remains before stopped recovery.
+	_, err = storage.VerifyCurrent(ctx, recoveryRoot)
+	require.NoError(t, err)
+	recoveredOwnership, err := gatewaypaths.Acquire(recoveryRoot)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, recoveredOwnership.Close()) }()
+	recovered, err := storage.Open(ctx, recoveredOwnership)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, recovered.Close()) }()
+	require.False(t, recovered.Latched())
+	require.NoError(t, recovered.View(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT count(*), count(terminal_class) FROM invocations WHERE decision = 'allow'`).Scan(&admitted, &completed)
+	}))
+	require.Equal(t, 36, admitted)
+	require.Equal(t, 33, completed)
+	require.EqualValues(t, 36, calls.Load(), "stopped recovery never resumes live calls or annotations")
+	canaries = append(canaries, "terminal-ack-secret-canary")
+	t.Log("additional concurrency-four failure wave: 3 known results, 1 unknown, terminal latch, stopped verification/reopen; no replay")
 }
 
 func TestInvocationOverloadBehindCatalogDelaysAuthorityButNotForeignRejection(t *testing.T) {
@@ -190,6 +335,33 @@ func TestInvocationOverloadBehindCatalogDelaysAuthorityButNotForeignRejection(t 
 		return nil
 	})
 	defer cleanup()
+	var output bytes.Buffer
+	diagnostic := diagnostics.New(&output, diagnostics.Debug)
+	options.Diagnostics = diagnostic
+	defer func() {
+		require.True(t, diagnostic.Finish(nil))
+		<-diagnostic.Done()
+		var rejectedCall uint64
+		var expiredCall uint64
+		for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte{'\n'}) {
+			var record struct {
+				Event      string `json:"event"`
+				Cause      string `json:"cause"`
+				Call       uint64 `json:"call_id"`
+				Invocation string `json:"invocation_id"`
+			}
+			require.NoError(t, json.Unmarshal(line, &record))
+			if record.Event == "invocation_admission" {
+				require.Empty(t, record.Invocation)
+				rejectedCall = record.Call
+			}
+			if record.Event == "storage_reject" && record.Cause == "expired" {
+				expiredCall = record.Call
+			}
+		}
+		require.NotZero(t, rejectedCall)
+		require.Equal(t, rejectedCall, expiredCall)
+	}()
 	built, err := New(options)
 	require.NoError(t, err)
 	defer built.shutdownConstructed()

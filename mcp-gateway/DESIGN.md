@@ -54,6 +54,8 @@ Exact authorities, limits, states, and failure vocabularies are owned by the rel
 
 `cmd/mcp-gateway` constructs one `composition` graph before opening the listener. Domain packages own their SQL, process-local state, transport, protocol, and lifecycle behavior behind narrow interfaces. The command root composes those owners but does not become an alternate authority.
 
+Serve diagnostics use one startup-owned typed `log/slog` adapter, independently of mandatory durable audit writes. Narrow injected observers supply only the closed privacy-safe lifecycle, invocation, authority and storage inventory; [serve diagnostics](docs/design/administrative-control-plane.md#serve-diagnostics) owns bounded buffering and best-effort stderr shutdown.
+
 Durable desired state remains separate from process-local runtime and active publication. Administrator authority remains separate from agent authority. Authentication remains separate from authorization; discovery remains separate from capability acquisition; audit admission completes before execution; and one-time secret ingress and output remain separate from reusable state.
 
 Dependencies flow from the command composition root into domain packages. Domain packages do not import `cmd`, share authority across credential domains, introduce a cross-module internal library, or bypass the owning storage, keyring, network, process, or protocol boundary. The complete package inventory and dependency conventions live in [`CLAUDE.md`](CLAUDE.md).

@@ -706,6 +706,12 @@ func newCompositionOptions(t *testing.T) (Options, func()) {
 
 func newCompositionOptionsWithFault(t *testing.T, fault func(storage.FaultPoint) error) (Options, func()) {
 	t.Helper()
+	options, _, cleanup := newCompositionOptionsWithRecoveryRoot(t, fault)
+	return options, cleanup
+}
+
+func newCompositionOptionsWithRecoveryRoot(t *testing.T, fault func(storage.FaultPoint) error) (Options, string, func()) {
+	t.Helper()
 	dataDir := t.TempDir()
 	require.NoError(t, os.Chmod(dataDir, 0o700))
 	ownership, err := gatewaypaths.Acquire(dataDir)
@@ -726,7 +732,7 @@ func newCompositionOptionsWithFault(t *testing.T, fault func(storage.FaultPoint)
 			Entropy:        testutil.NewFakeEntropy(entropy),
 			Invalidate:     func(contract.Invalidation) {},
 			Ready:          func() bool { return true },
-		}, func() {
+		}, dataDir, func() {
 			require.NoError(t, store.Close())
 			require.NoError(t, ownership.Close())
 		}

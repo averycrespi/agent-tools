@@ -86,6 +86,7 @@ internal/mcpingress/         Auth-first modern and legacy MCP adapters
 internal/admin/              Administrator bearer and in-memory browser sessions
 internal/api/                Strict control resources and embedded static allowlist
 internal/httpboundary/       Listener, route classification, and early validation
+internal/diagnostics/        Typed, bounded serve-only stderr diagnostics and sole slog adapter
 internal/events/             Bounded invalidation-only delivery
 internal/keyring/            Typed provider capability and opaque generations
 internal/backup/             Verified backup and stopped restore
@@ -120,6 +121,12 @@ docs/                       Role-oriented operator, maintainer, and design docum
 - Preserve package SQL ownership. Server SQL stays in `internal/servers`, catalog SQL in `internal/catalog`, online principal/grant SQL in `internal/authorization`, request SQL in `internal/grantrequests`, invocation SQL in `internal/invocation`, control-plane audit SQL in `internal/audit`, and migration DDL in `internal/storage`. Cross-owner mutations use existing supplied-transaction seams rather than nested mutation admission.
 - Keep storage/keyring/network/process work outside unrelated locks and admissions. Mutations that may expose authority must arm durable intent before uncertain external work and fail closed; never add online repair or automatic replay.
 - Limits are compiled and acquired in the documented order. Authority admission permits bounded waiting: 32 outstanding operations, one exclusive executor, and a one-second gate wait shortened by caller cancellation/deadline. Invocation admission and synchronous terminal annotation alone may additionally wait for the single storage owner: at most 31 FIFO waiters, with a 250 ms acquisition-only bound shortened by cancellation/deadline or the composition-owned invocation fence. Ordinary and recovery-bearing storage APIs remain nonqueueing, including during reserved FIFO handoff. Recheck cancellation, invocation drain, and latch before intent/SQL; active owners retain the slot through marker settlement. Never give active SQL the acquisition timer's deadline. Other admissions remain nonqueueing. Never wait for authority while holding a storage transaction or mutation slot. Preserve actual-owner occupancy rather than placeholders or summed duplicates.
+
+### Diagnostic ownership
+
+- Only `internal/diagnostics/adapter.go` imports `log`/`log/slog`; retain the exact-path import guard and the AST guard allowing exactly one production `diagnostics.New` reference inside `newServeCmd`. The `log` bridge suppresses main HTTP-server raw text, not a general logging escape hatch. Root owns one serve adapter and composition binds narrow observers before concurrent use. Never inject an unrestricted logger or serialize errors/payloads.
+- Producer facts and counters are bounded; debug-disabled owners skip detailed timings and event construction; cheap correlation remains available for failures. Formatting and sink writes belong to the single worker, outside domain locks. Keep diagnostic IDs independent of audit entropy and attach invocation IDs only after acknowledgment.
+- `Finish` allows one second total but does not cancel arbitrary Write. Retain ownership until `Done`, never create a replacement writer on an unresolved sink, and never close inherited stderr. Every blocked fixture must release its own sink and join `Done`. Route the terminal problem through the same bounded writer; diagnostic loss cannot alter audit results or clean-storage decisions.
 
 ### Runtime, transport, and cleanup
 

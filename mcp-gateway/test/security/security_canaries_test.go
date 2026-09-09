@@ -27,6 +27,65 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDiagnosticSinkConstructionHasOneProductionOwner(t *testing.T) {
+	root := filepath.Join(repositoryRoot(t), "mcp-gateway")
+	constructors := 0
+	require.NoError(t, filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			if info.Name() == "test" || info.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		for _, imported := range parsed.Imports {
+			if imported.Path.Value != `"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"` {
+				continue
+			}
+			alias := "diagnostics"
+			if imported.Name != nil {
+				alias = imported.Name.Name
+			}
+			require.NotEqual(t, ".", alias, "diagnostic ownership must be statically visible")
+			for _, declaration := range parsed.Decls {
+				ast.Inspect(declaration, func(node ast.Node) bool {
+					selector, ok := node.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					receiver, ok := selector.X.(*ast.Ident)
+					if !ok || receiver.Name != alias || selector.Sel.Name != "New" {
+						return true
+					}
+					constructors++
+					require.Equal(t, "cmd/mcp-gateway/root.go", filepath.ToSlash(relative))
+					function, ok := declaration.(*ast.FuncDecl)
+					require.True(t, ok, "constructor must not escape through package state")
+					if ok {
+						require.Equal(t, "newServeCmd", function.Name.Name)
+					}
+					return true
+				})
+			}
+		}
+		return nil
+	}))
+	require.Equal(t, 1, constructors, "exactly one production sink constructor; no replacement owners")
+}
+
 func TestDurableSecretSinkBoundaries(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
@@ -74,12 +133,13 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 		{"user-gesture clipboard", "./test/e2e", "TestBrowserSecretSinks"}, {"OAuth opener and referrer", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
 		{"stale authentication epoch", "./test/e2e", "TestBrowserSecretSinks"}, {"post-response sink loss", "./test/e2e", "TestBrowserSecretSinks"},
 		{"CLI argv and environment", "./cmd/mcp-gateway", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "./cmd/mcp-gateway", "TestCLISensitiveSinks"},
+		{"serve debug diagnostics", "./internal/invocation", "TestInvocationDiagnosticPrivacyAndUnknownOutcome"},
 		{"logs and acceptance reports", "./test/acceptance", "TestReleaseReportSecretSinkBoundaries"}, {"events", "./test/e2e", "TestE2EInvocationReadPrivacy"},
 		{"audit capture", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "./test/security", "TestDurableSecretSinkBoundaries"},
 		{"generated frontend assets", "./test/security", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
 		{"process output", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "./test/security", "TestSecurityEvidenceOwnerManifest"},
 	}
-	require.Len(t, owners, 18)
+	require.Len(t, owners, 19)
 	moduleRoot := filepath.Join(repositoryRoot(t), "mcp-gateway")
 	inventory, err := acceptance.DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
 	require.NoError(t, err)
@@ -197,7 +257,10 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 				return parseErr
 			}
 			for _, imported := range parsed.Imports {
-				assert.NotContains(t, []string{`"log"`, `"log/slog"`}, imported.Path.Value, path)
+				if imported.Path.Value == `"log"` || imported.Path.Value == `"log/slog"` {
+					relative := filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "mcp-gateway")+string(filepath.Separator)))
+					assert.Equal(t, "internal/diagnostics/adapter.go", relative, "only the typed diagnostic adapter owns logging imports")
+				}
 			}
 			return nil
 		}))

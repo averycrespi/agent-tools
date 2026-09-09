@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 )
 
 var (
@@ -65,6 +66,7 @@ func (store *Store) acquireMutation(ctx context.Context, stop <-chan struct{}, w
 	}
 	admission.waiters = append(admission.waiters, waiter)
 	admission.mu.Unlock()
+	store.mutationEvent(ctx, diagnostics.StorageWait, diagnostics.None, diagnostics.NoStage, 0)
 	timer := time.NewTimer(time.Until(waiter.deadline))
 	defer timer.Stop()
 	select {

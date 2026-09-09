@@ -16,6 +16,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/ncruces/go-sqlite3"
 	sqliteDriver "github.com/ncruces/go-sqlite3/driver"
@@ -57,6 +58,8 @@ type Settings struct {
 }
 
 type Store struct {
+	diagnostics   diagnostics.StorageObserver
+	diagnosticIDs atomic.Uint64
 	database      *sql.DB
 	path          string
 	marker        mutationMarker

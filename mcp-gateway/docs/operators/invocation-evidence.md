@@ -87,4 +87,6 @@ Polling never submits, completes, resumes, or replays a call. The browser can re
 
 When a cursor becomes stale, restart the read from the newest page. When a record is evicted, do not infer an outcome from absence. When current policy or catalog state differs from retained evidence, treat the row as historical evidence for that attempt and use current owner reads for present state.
 
+For live contention investigation, [safe serve diagnostics](administration.md#safe-serve-diagnostics) explains debug call correlation, wait causes and loss summaries. A diagnostic call ID is not an invocation ID, and an execution-result diagnostic does not prove terminal audit acknowledgment. Missing logs never establish nonexecution or safe replay.
+
 Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for common workflows, or use [Upstream server configuration](upstream-servers.md) to inspect current runtime and catalog state.

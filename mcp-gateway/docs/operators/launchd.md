@@ -111,7 +111,7 @@ Check launchd's state, program arguments, PID, and last exit status. `plutil -p 
 
 `status` authenticates through the public loopback API using `$DATA_DIR/admin-bearer` without displaying its value. If rotation, reset, or restore gave you a replacement file, add `--admin-bearer-file /absolute/path/to/replacement` as described in [administration](administration.md#administrator-authentication); never `cat` the bearer into a header argument. Check keyring capability and storage posture separately from readiness. Native capability status is not proof of successful credential access across restarts.
 
-Stdout carries the safe startup acknowledgement; stderr carries bounded failure diagnostics. For continued observation use `tail -f` on those same files and Ctrl-C to stop tailing, not Gateway. Review logs locally and share only necessary non-secret diagnostics.
+Stdout carries the safe startup acknowledgement; stderr carries JSON diagnostic lines and the existing terminal-problem representation. The unchanged plist uses the default `warn` diagnostic level. For deliberately enabling `--log-level debug` and interpreting contention/loss, follow [safe serve diagnostics](administration.md#safe-serve-diagnostics); adding the two flag/value arguments deliberately changes the six-entry default argument inventory above. For continued observation use `tail -f` on those same files and Ctrl-C to stop tailing, not Gateway. Review logs locally and share only necessary non-secret diagnostics.
 
 ## Manage
 
@@ -123,7 +123,7 @@ Unload to stop without KeepAlive immediately relaunching the process:
 launchctl bootout "$SERVICE"
 ```
 
-bootout requests termination and removes the job from the domain. Gateway handles the first `SIGTERM` by making readiness false and draining owned work within its ten-second shutdown bound. The plist sets `ExitTimeOut` to 30 seconds so launchd's deadline leaves room for that drain. A second signal or forced termination can interrupt cleanup. Confirm the job is absent with `launchctl print "$SERVICE"` (expected service-not-found), inspect stderr, and confirm its old process has exited before offline maintenance or replacement. If removal fails or shutdown remains uncertain, investigate rather than sending repeated signals, deleting locks, or assuming the data directory is free.
+bootout requests termination and removes the job from the domain. Gateway handles the first `SIGTERM` by making readiness false and draining owned work within its ten-second shutdown bound, followed by at most one second of best-effort diagnostic flush. A blocked log write may remain pending until process exit without changing settled storage cleanliness. The plist sets `ExitTimeOut` to 30 seconds so launchd's deadline leaves room for that drain. A second signal or forced termination can interrupt cleanup. Confirm the job is absent with `launchctl print "$SERVICE"` (expected service-not-found), inspect stderr, and confirm its old process has exited before offline maintenance or replacement. If removal fails or shutdown remains uncertain, investigate rather than sending repeated signals, deleting locks, or assuming the data directory is free.
 
 For a binary upgrade, first bootout and confirm stop, then install the replacement at the same absolute executable path and reload. Run the following from this repository's `mcp-gateway/` directory; `make install` targets `$(go env GOPATH)/bin`, so use your original installation method instead for a custom binary path:
 

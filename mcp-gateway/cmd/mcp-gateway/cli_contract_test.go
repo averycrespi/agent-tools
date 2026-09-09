@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:d6241200811c03499fe676b427fb8897547d571c0412c6d2375cdc9f369115e8", digest)
+	assert.Equal(t, "sha256:0903075e13a4a3f05ecd2629861a681f64ac78b5b9a11aa1363eca8c9d3b5377", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -66,6 +66,7 @@ func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, contract.DefaultAuthority, serve.Flags().Lookup("listen").DefValue)
 	assert.Equal(t, "human", serve.Flags().Lookup("output").DefValue)
+	assert.Equal(t, "warn", serve.Flags().Lookup("log-level").DefValue)
 	status, _, err := root.Find([]string{"status"})
 	require.NoError(t, err)
 	assert.Equal(t, controlclient.DefaultAddress, status.Flags().Lookup("address").DefValue)
@@ -114,7 +115,7 @@ func TestCLIContract(t *testing.T) {
 			{path: []string{"initialize"}, use: "initialize", flags: []string{"data-dir", "json", "output", "secret-output"}},
 			{path: []string{"admin", "reset"}, use: "reset", flags: []string{"data-dir", "json", "output", "secret-output"}},
 			{path: []string{"restore"}, use: "restore [backup-id]", flags: []string{"data-dir", "json", "output", "secret-output", "verify-current"}},
-			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "data-dir", "json", "listen", "output"}},
+			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "data-dir", "json", "listen", "log-level", "output"}},
 		}
 		for _, test := range cases {
 			name := strings.Join(test.path, " ")
