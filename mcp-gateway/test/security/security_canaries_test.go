@@ -19,6 +19,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/testutil"
@@ -26,6 +27,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDiagnosticFactsHaveOnlyClosedScalarSlots(t *testing.T) {
+	shape := reflect.TypeOf(diagnostics.Facts{})
+	require.Equal(t, []string{"Attempt", "Call", "Cause", "Delay", "Disposition", "Duration", "Event", "InvocationID", "Limit", "Mutation", "Owned", "Phase", "Reason", "Retry", "Stage", "Suppressed", "Upstream", "Waiting", "Writer"}, exportedFields(shape))
+	for index := range shape.NumField() {
+		field := shape.Field(index)
+		if field.Name == "InvocationID" {
+			require.Equal(t, reflect.String, field.Type.Kind())
+			continue
+		}
+		require.Contains(t, []reflect.Kind{reflect.Uint8, reflect.Uint64, reflect.Int, reflect.Int64}, field.Type.Kind(), field.Name)
+	}
+	require.NotContains(t, contract.ApprovedSecretSinks(), contract.SecretSink("stderr"))
+}
 
 func TestDiagnosticSinkConstructionHasOneProductionOwner(t *testing.T) {
 	root := filepath.Join(repositoryRoot(t), "mcp-gateway")
@@ -134,12 +149,15 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 		{"stale authentication epoch", "./test/e2e", "TestBrowserSecretSinks"}, {"post-response sink loss", "./test/e2e", "TestBrowserSecretSinks"},
 		{"CLI argv and environment", "./cmd/mcp-gateway", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "./cmd/mcp-gateway", "TestCLISensitiveSinks"},
 		{"serve debug diagnostics", "./internal/invocation", "TestInvocationDiagnosticPrivacyAndUnknownOutcome"},
+		{"upstream diagnostic scalar boundary", "./internal/diagnostics", "TestUpstreamMalformedFactsAndSecretCanaries"},
+		{"foreground OAuth failure diagnostics", "./internal/oauth", "TestForegroundOAuthDiagnosticsObserveRealServiceOutcomes"},
+		{"upstream producer stderr wiring", "./test/e2e", "TestUpstreamDiagnosticsRealBinaryRetryAndRecovery"},
 		{"logs and acceptance reports", "./test/acceptance", "TestReleaseReportSecretSinkBoundaries"}, {"events", "./test/e2e", "TestE2EInvocationReadPrivacy"},
 		{"audit capture", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "./test/security", "TestDurableSecretSinkBoundaries"},
 		{"generated frontend assets", "./test/security", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
 		{"process output", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "./test/security", "TestSecurityEvidenceOwnerManifest"},
 	}
-	require.Len(t, owners, 19)
+	require.Len(t, owners, 22)
 	moduleRoot := filepath.Join(repositoryRoot(t), "mcp-gateway")
 	inventory, err := acceptance.DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
 	require.NoError(t, err)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/runtimes"
@@ -88,14 +89,16 @@ type refreshCall struct {
 }
 
 type RefreshService struct {
-	store          refreshStore
-	coordinator    refreshCoordinator
-	resolver       refreshResolver
-	requester      refreshRequester
-	installationID string
-	now            func() time.Time
-	state          func(string, contract.ServerCredentialState, bool)
-	trigger        func(string)
+	diagnostics         diagnostics.ReconciliationObserver
+	diagnosticReference func(string) uint64
+	store               refreshStore
+	coordinator         refreshCoordinator
+	resolver            refreshResolver
+	requester           refreshRequester
+	installationID      string
+	now                 func() time.Time
+	state               func(string, contract.ServerCredentialState, bool)
+	trigger             func(string)
 
 	mu       sync.Mutex
 	calls    map[string]*refreshCall
@@ -191,7 +194,9 @@ func (service *RefreshService) runRefresh(ctx context.Context, request RefreshRe
 	service.mu.Unlock()
 	workCtx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(serviceCtx, cancel)
+	diagnosticStart := service.now()
 	call.result, call.err = service.refresh(workCtx, request, expected, !owned)
+	service.observeRefresh(request.ServerID, diagnosticStart, call.result, call.err)
 	stop()
 	cancel()
 	service.mu.Lock()

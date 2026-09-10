@@ -145,14 +145,17 @@ const (
 )
 
 type CatalogOutcome struct {
-	State          contract.ActiveCatalogState
-	Reason         *contract.PublicReason
-	Phase          CatalogPublicationPhase
-	Cause          CatalogPostCommitCause
-	Intent         CatalogTraversalIntent
-	RuntimeHealth  CatalogRuntimeHealth
-	RuntimeFailure *FailureDisposition
-	OAuthChallenge *downstream.OAuthChallengeDisposition
+	DiagnosticJoined     bool
+	DiagnosticRetryDelay time.Duration
+	DiagnosticReason     diagnostics.Reason
+	State                contract.ActiveCatalogState
+	Reason               *contract.PublicReason
+	Phase                CatalogPublicationPhase
+	Cause                CatalogPostCommitCause
+	Intent               CatalogTraversalIntent
+	RuntimeHealth        CatalogRuntimeHealth
+	RuntimeFailure       *FailureDisposition
+	OAuthChallenge       *downstream.OAuthChallengeDisposition
 }
 
 type Candidate struct {
@@ -167,12 +170,14 @@ type Candidate struct {
 }
 
 type Outcome struct {
-	State           contract.RuntimeState
-	CredentialState contract.ServerCredentialState
-	CatalogState    contract.ActiveCatalogState
-	Reason          *contract.PublicReason
-	Retryable       bool
-	OAuthChallenge  *downstream.OAuthChallengeDisposition
+	DiagnosticPhase  diagnostics.Phase
+	DiagnosticReason diagnostics.Reason
+	State            contract.RuntimeState
+	CredentialState  contract.ServerCredentialState
+	CatalogState     contract.ActiveCatalogState
+	Reason           *contract.PublicReason
+	Retryable        bool
+	OAuthChallenge   *downstream.OAuthChallengeDisposition
 }
 
 type Status struct {
@@ -186,17 +191,19 @@ type Status struct {
 }
 
 type Options struct {
-	Diagnostics  diagnostics.ReconciliationObserver
-	Repository   Repository
-	Driver       Driver
-	Authority    AuthorityResolver
-	Catalog      CatalogCoordinator
-	Credentials  CredentialLifecycle
-	OAuthRefresh OAuthChallengeRefresher
-	OAuthStepUp  OAuthStepUpper
-	Scheduler    Scheduler
-	Invalidate   func(contract.Invalidation)
-	Publisher    ActivePublisher
+	DiagnosticReference func(string) uint64
+	DiagnosticNow       func() time.Time
+	Diagnostics         diagnostics.ReconciliationObserver
+	Repository          Repository
+	Driver              Driver
+	Authority           AuthorityResolver
+	Catalog             CatalogCoordinator
+	Credentials         CredentialLifecycle
+	OAuthRefresh        OAuthChallengeRefresher
+	OAuthStepUp         OAuthStepUpper
+	Scheduler           Scheduler
+	Invalidate          func(contract.Invalidation)
+	Publisher           ActivePublisher
 }
 
 type DrainResult struct {
@@ -205,27 +212,29 @@ type DrainResult struct {
 }
 
 type Manager struct {
-	diagnostics  diagnostics.ReconciliationObserver
-	mu           sync.Mutex
-	repository   Repository
-	driver       Driver
-	authority    AuthorityResolver
-	catalog      CatalogCoordinator
-	credentials  CredentialLifecycle
-	oauthRefresh OAuthChallengeRefresher
-	oauthStepUp  OAuthStepUpper
-	scheduler    Scheduler
-	invalidate   func(contract.Invalidation)
-	publisher    ActivePublisher
-	ctx          context.Context
-	cancel       context.CancelFunc
-	entries      map[string]*entry
-	globalInUse  int64
-	globalLimit  int64
-	drainEpoch   uint64
-	draining     bool
-	drainDone    chan DrainResult
-	workers      sync.WaitGroup
+	diagnosticReference func(string) uint64
+	diagnosticNow       func() time.Time
+	diagnostics         diagnostics.ReconciliationObserver
+	mu                  sync.Mutex
+	repository          Repository
+	driver              Driver
+	authority           AuthorityResolver
+	catalog             CatalogCoordinator
+	credentials         CredentialLifecycle
+	oauthRefresh        OAuthChallengeRefresher
+	oauthStepUp         OAuthStepUpper
+	scheduler           Scheduler
+	invalidate          func(contract.Invalidation)
+	publisher           ActivePublisher
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	entries             map[string]*entry
+	globalInUse         int64
+	globalLimit         int64
+	drainEpoch          uint64
+	draining            bool
+	drainDone           chan DrainResult
+	workers             sync.WaitGroup
 }
 
 type candidateStop struct {
@@ -234,39 +243,46 @@ type candidateStop struct {
 }
 
 type reconciliationWork struct {
-	generation  uint64
-	operationID *string
-	cause       audit.Cause
-	attempt     *contract.AuditEvent
-	cleanupOnly bool
-	displaced   bool
-	returned    bool
-	settled     bool
-	failed      bool
+	diagnosticAttempt    uint64
+	diagnosticStart      time.Time
+	diagnosticPhase      diagnostics.Phase
+	diagnosticReason     diagnostics.Reason
+	diagnosticRetryDelay time.Duration
+	generation           uint64
+	operationID          *string
+	cause                audit.Cause
+	attempt              *contract.AuditEvent
+	cleanupOnly          bool
+	displaced            bool
+	returned             bool
+	settled              bool
+	failed               bool
 }
 
 type entry struct {
-	work               *reconciliationWork
-	unsettled          *reconciliationWork
-	pendingDisplaced   bool
-	cause              audit.Cause
-	reconcileAttempt   *contract.AuditEvent
-	generation         uint64
-	activating         *Candidate
-	active             *Candidate
-	blockedStop        *Candidate
-	stopping           *Candidate
-	stopAttempt        *candidateStop
-	runtimeFailure     *FailureDisposition
-	catalogHandoff     *CandidateKey
-	handoffOperationID *string
-	running            bool
-	pending            bool
-	operationID        *string
-	timer              Timer
-	timerVersion       uint64
-	retryAttempt       int
-	status             Status
+	diagnosticReference uint64
+	diagnosticRetries   uint64
+	work                *reconciliationWork
+	unsettled           *reconciliationWork
+	pendingDisplaced    bool
+	cause               audit.Cause
+	reconcileAttempt    *contract.AuditEvent
+	generation          uint64
+	activating          *Candidate
+	active              *Candidate
+	blockedStop         *Candidate
+	stopping            *Candidate
+	stopAttempt         *candidateStop
+	runtimeFailure      *FailureDisposition
+	catalogHandoff      *CandidateKey
+	handoffOperationID  *string
+	running             bool
+	pending             bool
+	operationID         *string
+	timer               Timer
+	timerVersion        uint64
+	retryAttempt        int
+	status              Status
 }
 
 type systemScheduler struct{}
@@ -340,8 +356,14 @@ func New(options Options) (*Manager, error) {
 	if !ok {
 		return nil, errors.New("server reconciliation limit is missing")
 	}
+	if options.DiagnosticNow == nil {
+		options.DiagnosticNow = time.Now
+	}
+	if options.DiagnosticReference == nil {
+		options.DiagnosticReference = func(string) uint64 { return diagnostics.UpstreamReference() }
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{diagnostics: options.Diagnostics, repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, oauthRefresh: options.OAuthRefresh, oauthStepUp: options.OAuthStepUp, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
+	return &Manager{diagnosticReference: options.DiagnosticReference, diagnosticNow: options.DiagnosticNow, diagnostics: options.Diagnostics, repository: options.Repository, driver: options.Driver, authority: options.Authority, catalog: options.Catalog, credentials: options.Credentials, oauthRefresh: options.OAuthRefresh, oauthStepUp: options.OAuthStepUp, scheduler: options.Scheduler, invalidate: options.Invalidate, publisher: options.Publisher, ctx: ctx, cancel: cancel, entries: make(map[string]*entry), globalLimit: limit.Maximum}, nil
 }
 
 func (manager *Manager) Start(ctx context.Context) error {
@@ -475,7 +497,7 @@ func (manager *Manager) TriggerWithCause(cause audit.Cause, serverID string, ope
 	current := manager.entryLocked(serverID)
 	if current.work != nil && current.work.operationID != nil && !current.work.displaced && !current.work.settled {
 		current.work.displaced = true
-		manager.observeReconciliation(diagnostics.ReconciliationDisplaced, diagnostics.None)
+		manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.ReconciliationDisplaced})
 	}
 	current.generation++
 	manager.publisher.Fence(serverID, current.generation)
@@ -485,7 +507,7 @@ func (manager *Manager) TriggerWithCause(cause audit.Cause, serverID string, ope
 	if operationID == nil && current.operationID != nil {
 		// Keep the queued operation as cleanup-only work, not as the replacement's operation.
 		if !current.pendingDisplaced {
-			manager.observeReconciliation(diagnostics.ReconciliationDisplaced, diagnostics.None)
+			manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.ReconciliationDisplaced})
 		}
 		current.pendingDisplaced = true
 	} else {
@@ -493,11 +515,15 @@ func (manager *Manager) TriggerWithCause(cause audit.Cause, serverID string, ope
 		current.pendingDisplaced = false
 	}
 	if current.timer != nil {
+		manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.UpstreamRetryReset, Phase: diagnostics.PhaseReconciliation, Reason: diagnostics.ReasonSuperseded, Disposition: diagnostics.DispositionSuperseded})
 		current.timer.Stop()
 		current.timer = nil
 		current.timerVersion++
+	} else if resetBackoff && current.diagnosticRetries != 0 {
+		manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.UpstreamRetryReset, Phase: diagnostics.PhaseReconciliation, Reason: diagnostics.ReasonSuperseded, Disposition: diagnostics.DispositionSuperseded})
 	}
 	if resetBackoff {
+		current.diagnosticRetries = 0
 		current.retryAttempt = 0
 	}
 	manager.mu.Unlock()
@@ -552,6 +578,7 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 		}
 		return
 	}
+	manager.observeCatalog(candidate, outcome)
 	if outcome.RuntimeFailure != nil {
 		manager.ReportRuntimeFailure(candidate, *outcome.RuntimeFailure)
 	}
@@ -589,6 +616,7 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 }
 
 func (manager *Manager) HandleCatalogCompletion(candidate Candidate, outcome CatalogOutcome, operationID *string) bool {
+	manager.observeCatalog(candidate, outcome)
 	if outcome.OAuthChallenge == nil {
 		return false
 	}
@@ -610,7 +638,7 @@ func (manager *Manager) HandleCatalogCompletion(candidate Candidate, outcome Cat
 	key := candidate.Key()
 	current.catalogHandoff = &key
 	current.handoffOperationID = cloneString(operationID)
-	work := &reconciliationWork{generation: candidate.Generation, operationID: cloneString(operationID), cause: candidate.Cause}
+	work := &reconciliationWork{diagnosticAttempt: diagnostics.AttemptReference(), diagnosticPhase: diagnostics.PhaseToolDiscovery, generation: candidate.Generation, operationID: cloneString(operationID), cause: candidate.Cause}
 	current.work = work
 	current.running = true
 	manager.globalInUse++
@@ -624,6 +652,7 @@ func (manager *Manager) HandleCatalogCompletion(candidate Candidate, outcome Cat
 	go func() {
 		defer manager.workers.Done()
 		defer manager.finishWork(candidate.Server.ID, work)
+		manager.startDiagnosticAttempt(candidate.Server.ID, work)
 		manager.catalogChallengeHandoff(candidate, outcome.OAuthChallenge, attached)
 	}()
 	return true
@@ -769,7 +798,7 @@ func sameOptionalString(left, right *string) bool {
 func (manager *Manager) entryLocked(serverID string) *entry {
 	current := manager.entries[serverID]
 	if current == nil {
-		current = &entry{status: Status{State: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}}
+		current = &entry{diagnosticReference: manager.diagnosticReference(serverID), status: Status{State: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}}
 		manager.entries[serverID] = current
 	}
 	return current
@@ -793,7 +822,7 @@ func (manager *Manager) startAvailableLocked() {
 		cause := current.cause
 		operationID := cloneString(current.operationID)
 		current.operationID = nil
-		work := &reconciliationWork{generation: generation, operationID: operationID, cause: cause, cleanupOnly: current.pendingDisplaced, displaced: current.pendingDisplaced}
+		work := &reconciliationWork{diagnosticAttempt: diagnostics.AttemptReference(), diagnosticPhase: diagnostics.PhaseReconciliation, generation: generation, operationID: operationID, cause: cause, cleanupOnly: current.pendingDisplaced, displaced: current.pendingDisplaced}
 		current.pendingDisplaced = false
 		current.work = work
 		current.status.State = contract.RuntimeActivating
@@ -807,6 +836,7 @@ func (manager *Manager) startAvailableLocked() {
 		go func() {
 			defer manager.workers.Done()
 			defer manager.finishWork(serverID, work)
+			manager.startDiagnosticAttempt(serverID, work)
 			if work.cleanupOnly {
 				if !manager.stopPrevious(serverID) {
 					work.failed = true
@@ -973,6 +1003,7 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 	var outcome Outcome
 	started := false
 	for {
+		manager.diagnosticPhase(serverID, generation, diagnostics.PhaseCredentials, diagnostics.ReasonUnknown, 0)
 		authorityOutcome := manager.authority.Resolve(candidateContext(manager.ctx, candidate), candidate)
 		outcome = Outcome{State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
 		started = false
@@ -985,12 +1016,14 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 				return
 			}
 			outcome = manager.driver.Reconcile(candidateContext(manager.ctx, candidate), candidate, authorityOutcome.Lease)
+			manager.diagnosticPhase(serverID, generation, outcome.DiagnosticPhase, outcome.DiagnosticReason, 0)
 			started = true
 			if outcome.CredentialState == "" {
 				outcome.CredentialState = authorityOutcome.CredentialState
 			}
 			if outcome.State == contract.RuntimeActive {
 				catalog := manager.catalog.Activate(candidateContext(manager.ctx, candidate), candidate)
+				manager.diagnosticPhase(serverID, generation, diagnostics.PhaseToolDiscovery, catalog.DiagnosticReason, catalog.DiagnosticRetryDelay)
 				outcome.CatalogState = catalog.State
 				outcome.OAuthChallenge = catalog.OAuthChallenge
 				if outcome.CatalogState == "" {
@@ -1222,6 +1255,7 @@ func (manager *Manager) rememberBlockedStop(serverID string, candidate Candidate
 	defer manager.mu.Unlock()
 	current := manager.entryLocked(serverID)
 	current.blockedStop = cloneCandidate(&candidate)
+	manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.UpstreamUnhealthy, Phase: diagnostics.PhaseCleanup, Reason: diagnostics.ReasonStopUnconfirmed, Disposition: diagnostics.DispositionCleanupUncertain})
 }
 
 func (manager *Manager) stageOAuthStepUp(candidate Candidate, challenge *downstream.OAuthChallengeDisposition) {
@@ -1414,6 +1448,14 @@ func (manager *Manager) finishWithOperationState(serverID string, generation uin
 	if candidate != nil && outcome.State == contract.RuntimeActive {
 		current.status.RuntimeID = cloneString(&candidate.RuntimeID)
 	}
+	if current.diagnosticRetries != 0 {
+		disposition := diagnostics.DispositionStopped
+		if outcome.State == contract.RuntimeActive && outcome.CatalogState == contract.ActiveCatalogCurrent {
+			disposition = diagnostics.DispositionHealthy
+		}
+		manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.UpstreamRetryReset, Phase: diagnostics.PhaseReconciliation, Reason: diagnostics.ReasonNone, Disposition: disposition})
+	}
+	current.diagnosticRetries = 0
 	current.retryAttempt = 0
 	// Failure callbacks can run during publication and must see one cleanup owner.
 	if candidate != nil && current.activating != nil && current.activating.Key() == candidate.Key() {
@@ -1592,7 +1634,7 @@ func (manager *Manager) finishStale(serverID string, generation uint64) {
 	if current.work != nil && current.work.generation == generation && !current.work.displaced {
 		current.work.displaced = true
 		if current.work.operationID != nil && !current.work.settled {
-			manager.observeReconciliation(diagnostics.ReconciliationDisplaced, diagnostics.None)
+			manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.ReconciliationDisplaced})
 		}
 	}
 	if current.generation == generation {
@@ -1626,6 +1668,10 @@ func (manager *Manager) scheduleRetryLocked(serverID string, current *entry) {
 		index = len(delays) - 1
 	}
 	delay := delays[index]
+	if current.diagnosticRetries != ^uint64(0) {
+		current.diagnosticRetries++
+	}
+	manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.UpstreamRetryScheduled, Phase: diagnostics.PhaseReconciliation, Reason: diagnostics.PublicReason(current.status.Reason), Disposition: diagnostics.DispositionRetryScheduled, Retry: current.diagnosticRetries, Delay: delay})
 	if current.retryAttempt < len(delays)-1 {
 		current.retryAttempt++
 	}
@@ -1734,6 +1780,9 @@ func (manager *Manager) finishRuntimeFailure(serverID string, generation uint64,
 		current.status.State = contract.RuntimeRetryWait
 		manager.scheduleRetryLocked(serverID, current)
 	}
+	facts := diagnosticStatus(current)
+	facts.Event, facts.Phase = diagnostics.UpstreamUnhealthy, diagnostics.PhaseConnection
+	manager.observeUpstreamLocked(current, facts)
 	manager.publish(contract.InvalidationServers, &serverID)
 	manager.publish(contract.InvalidationSystemStatus, nil)
 }
@@ -1780,6 +1829,7 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 		manager.publisher.Fence(serverID, current.generation)
 		current.pending = false
 		if current.timer != nil {
+			manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.UpstreamRetryReset, Phase: diagnostics.PhaseReconciliation, Reason: diagnostics.ReasonCancelled, Disposition: diagnostics.DispositionCancelled})
 			current.timer.Stop()
 			current.timer = nil
 		}
@@ -1855,6 +1905,9 @@ func (manager *Manager) Drain(ctx context.Context) <-chan DrainResult {
 				result.Verified++
 			} else {
 				result.Unconfirmed++
+				manager.mu.Lock()
+				manager.observeUpstreamLocked(manager.entries[stopped.candidate.Server.ID], diagnostics.Facts{Event: diagnostics.UpstreamUnhealthy, Phase: diagnostics.PhaseCleanup, Reason: diagnostics.ReasonStopUnconfirmed, Disposition: diagnostics.DispositionCleanupUncertain})
+				manager.mu.Unlock()
 			}
 		}
 		done <- result

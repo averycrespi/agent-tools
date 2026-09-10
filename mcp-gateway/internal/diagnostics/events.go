@@ -59,10 +59,24 @@ const (
 	StorageLatch
 	ReconciliationDisplaced
 	ReconciliationSettlementFailure
+	UpstreamAttemptStart
+	UpstreamAttemptComplete
+	UpstreamRetryScheduled
+	UpstreamRetryReset
+	UpstreamUnhealthy
+	UpstreamRecovered
+	OAuthRequired
+	OAuthCompleted
+	OAuthExpired
+	OAuthFailed
+	OAuthRefreshComplete
+	OAuthRefreshFailed
+	OAuthStage
+	CatalogPollScheduled
 	Loss
 )
 
-var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "diagnostic_loss"}
+var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "diagnostic_loss"}
 
 type Cause uint8
 
@@ -110,6 +124,14 @@ var writerNames = [...]string{"foreign", "invocation_admission", "terminal_annot
 // Facts has no arbitrary keys, error, payload, or resource identity slots. The
 // adapter validates event-specific subsets before retaining even these fields.
 type Facts struct {
+	Upstream     uint64
+	Attempt      uint64
+	Phase        Phase
+	Reason       Reason
+	Disposition  Disposition
+	Retry        uint64
+	Delay        time.Duration
+	Suppressed   uint64
 	Event        Event
 	Cause        Cause
 	Stage        Stage

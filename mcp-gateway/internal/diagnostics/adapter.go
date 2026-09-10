@@ -13,24 +13,26 @@ import (
 // Adapter is the sole diagnostic encoder and sink writer. Callers retain it
 // until Done closes, even if Finish's bounded wait expires.
 type Adapter struct {
-	level    Level
-	sink     io.Writer
-	queue    chan Facts
-	done     chan struct{}
-	abort    chan struct{}
-	mu       sync.Mutex
-	stopped  bool
-	finish   sync.Once
-	terminal boundedBytes
-	dropped  atomic.Uint64
-	invalid  atomic.Uint64
-	failed   atomic.Bool
-	calls    atomic.Uint64
-	process  string
+	level       Level
+	sink        io.Writer
+	queue       chan Facts
+	done        chan struct{}
+	abort       chan struct{}
+	mu          sync.Mutex
+	stopped     bool
+	finish      sync.Once
+	terminal    boundedBytes
+	dropped     atomic.Uint64
+	invalid     atomic.Uint64
+	failed      atomic.Bool
+	calls       atomic.Uint64
+	process     string
+	now         func() time.Time
+	suppression map[suppressionKey]suppressionState
 }
 
 func New(sink io.Writer, level Level) *Adapter {
-	adapter := &Adapter{level: level, sink: sink, queue: make(chan Facts, QueueRecords-1), done: make(chan struct{}), abort: make(chan struct{}), process: time.Now().UTC().Format("20060102T150405.000000000")}
+	adapter := &Adapter{now: time.Now, suppression: make(map[suppressionKey]suppressionState), level: level, sink: sink, queue: make(chan Facts, QueueRecords-1), done: make(chan struct{}), abort: make(chan struct{}), process: time.Now().UTC().Format("20060102T150405.000000000")}
 	go adapter.run()
 	return adapter
 }
@@ -79,7 +81,7 @@ func (adapter *Adapter) Reconciliation(facts Facts) {
 	if adapter == nil {
 		return
 	}
-	if facts.Event != ReconciliationDisplaced && facts.Event != ReconciliationSettlementFailure {
+	if facts.Event != ReconciliationDisplaced && facts.Event != ReconciliationSettlementFailure && !upstreamEvent(facts.Event) {
 		increment(&adapter.invalid)
 		return
 	}
@@ -100,6 +102,9 @@ func (adapter *Adapter) Observe(facts Facts) {
 	if (facts.Event <= Shutdown || facts.Event == ReconciliationDisplaced) && adapter.level < Info {
 		return
 	}
+	if upstreamEvent(facts.Event) && facts.Event != UpstreamRecovered && facts.Event != OAuthRefreshComplete && adapter.level < upstreamLevel(facts.Event) {
+		return
+	}
 	// Lock contention is also loss: producers never wait for another producer.
 	if !adapter.mu.TryLock() {
 		increment(&adapter.dropped)
@@ -107,6 +112,9 @@ func (adapter *Adapter) Observe(facts Facts) {
 	}
 	defer adapter.mu.Unlock()
 	if adapter.stopped {
+		return
+	}
+	if adapter.suppress(&facts) || upstreamEvent(facts.Event) && adapter.level < upstreamLevel(facts.Event) {
 		return
 	}
 	select {
@@ -126,6 +134,7 @@ func (adapter *Adapter) Finish(terminal func(io.Writer)) bool {
 		defer timer.Stop()
 		adapter.mu.Lock()
 		adapter.stopped = true
+		clear(adapter.suppression)
 		adapter.mu.Unlock()
 		if terminal != nil {
 			terminal(&adapter.terminal)
@@ -153,6 +162,15 @@ func HTTPErrorLog() *log.Logger { return log.New(io.Discard, "", 0) }
 func increment(counter *atomic.Uint64) { _ = NextID(counter) }
 
 func validFacts(f Facts) bool {
+	if upstreamEvent(f.Event) {
+		return validUpstream(f)
+	}
+	if f.Phase != PhaseUnknown || f.Reason != ReasonUnknown || f.Disposition != DispositionUnknown || f.Retry != 0 || f.Delay != 0 || f.Suppressed != 0 {
+		return false
+	}
+	if f.Event != ReconciliationDisplaced && f.Event != ReconciliationSettlementFailure && (f.Upstream != 0 || f.Attempt != 0) {
+		return false
+	}
 	if f.Event < Startup || f.Event >= Loss || f.Cause > UnknownOutcome || f.Stage > IntentCleanup || f.Writer > TerminalWriter || f.Duration < 0 || f.Owned < 0 || f.Owned > 1 || f.Waiting < 0 || f.Waiting > 32 || f.Limit < 0 || f.Limit > 32 {
 		return false
 	}
@@ -323,8 +341,36 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 	if f.Event == Loss || f.Event == ReconciliationSettlementFailure {
 		level = slog.LevelWarn
 	}
+	if upstreamEvent(f.Event) {
+		switch upstreamLevel(f.Event) {
+		case Warn:
+			level = slog.LevelWarn
+		case Info:
+			level = slog.LevelInfo
+		case Debug:
+			level = slog.LevelDebug
+		}
+	}
 	record := slog.NewRecord(time.Now().UTC(), level, eventNames[f.Event], 0)
 	record.AddAttrs(slog.Int("schema_version", 1), slog.String("process_id", adapter.process))
+	if f.Upstream != 0 {
+		record.AddAttrs(slog.Uint64("upstream_ref", f.Upstream))
+	}
+	if f.Attempt != 0 {
+		record.AddAttrs(slog.Uint64("attempt_ref", f.Attempt))
+	}
+	if upstreamEvent(f.Event) {
+		record.AddAttrs(slog.String("phase", phaseNames[f.Phase]), slog.String("reason", reasonNames[f.Reason]), slog.String("disposition", dispositionNames[f.Disposition]))
+		if f.Event == UpstreamRetryScheduled {
+			record.AddAttrs(slog.Uint64("retry_attempt", f.Retry))
+		}
+		if f.Event == UpstreamRetryScheduled || f.Event == CatalogPollScheduled {
+			record.AddAttrs(slog.Int64("delay_ms", f.Delay.Milliseconds()))
+		}
+		if f.Suppressed != 0 {
+			record.AddAttrs(slog.Uint64("suppressed", f.Suppressed))
+		}
+	}
 	if f.Cause != None {
 		record.AddAttrs(slog.String("cause", causeNames[f.Cause]))
 	}
