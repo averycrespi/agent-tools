@@ -117,6 +117,16 @@ Stdout carries the safe startup acknowledgement; stderr carries JSON diagnostic 
 
 ### Graceful stop and restart
 
+For a routine restart of the default LaunchAgent, run from `mcp-gateway/` as the intended logged-in user, without `sudo`:
+
+```bash
+./scripts/restart-launchd-agent.sh
+```
+
+The [restart script](../../scripts/restart-launchd-agent.sh) resolves the OS-account home, validates the installed plist and default label before stopping, and loads the service if it is already absent. For a loaded service it uses `bootout`, confirms removal, and waits up to 30 seconds for the observed old PID to disappear before `bootstrap`. Unexpected inspection errors or an unconfirmed stop abort without launching a replacement; it never force-kills or retries a mutation. Run it serially, not alongside other service management. It does not install binaries, edit the plist, or support custom labels. Successful launch is not proof of readiness: rerun [verification](#verify). Restart loses browser sessions and process-local state; do not automatically replay interrupted mutations.
+
+For upgrades, plist changes, custom labels, or a manual restart, use the steps below.
+
 Unload to stop without KeepAlive immediately relaunching the process:
 
 ```bash

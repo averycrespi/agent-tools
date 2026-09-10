@@ -67,6 +67,12 @@ func TestIntegrationLaunchdPlutilFixture(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, args)
+	if args[0] == "-extract" && len(args) == 6 && args[1] == "Label" {
+		require.Equal(t, []string{"-extract", "Label", "raw", "-o", "-"}, args[:5])
+		dict := readPlist(t, args[5])
+		fmt.Print(dict.member(t, "Label").Text)
+		os.Exit(0)
+	}
 	if args[0] == "-extract" {
 		require.Equal(t, []string{"-extract", "dsAttrTypeStandard:NFSHomeDirectory.0", "raw", "-o", "-", "-"}, args)
 		dict := readPlist(t, "-")
