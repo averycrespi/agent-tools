@@ -7,5 +7,4 @@ use (
 	./mcp-broker
 	./mcp-gateway
 	./sandbox-manager
-	./telegram-mcp
 )

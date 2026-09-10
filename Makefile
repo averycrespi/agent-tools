@@ -1,4 +1,4 @@
-TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp local-gomod-proxy telegram-mcp http-broker
+TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp local-gomod-proxy http-broker
 OTHER_TOOLS := $(filter-out mcp-gateway,$(TOOLS))
 INTEGRATION_TOOLS := mcp-broker mcp-gateway local-git-mcp local-gomod-proxy
 E2E_TOOLS := mcp-broker mcp-gateway local-gomod-proxy http-broker

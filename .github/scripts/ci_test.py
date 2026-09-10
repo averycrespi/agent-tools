@@ -13,7 +13,7 @@ from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = [
     "mcp-broker", "mcp-gateway", "sandbox-manager", "local-git-mcp",
-    "local-gomod-proxy", "telegram-mcp", "http-broker",
+    "local-gomod-proxy", "http-broker",
 ]
 
 
@@ -141,7 +141,7 @@ class GateTests(unittest.TestCase):
         return needs
 
     def test_success_and_only_intentional_skips_pass(self):
-        for paths in ([], ["telegram-mcp/main.go"], ["README.md"]):
+        for paths in ([], ["http-broker/main.go"], ["README.md"]):
             check_gate(self.needs(paths))
 
     def test_failures_cancellation_and_unexpected_skips_block(self):

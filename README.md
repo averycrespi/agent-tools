@@ -14,7 +14,6 @@ This repo is opinionated. It provides sandboxed execution and broker-backed exte
 - **[HTTP Broker](#http-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
 - **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
 - **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
-- **[Telegram MCP](#telegram-mcp)** — Minimal stdio MCP server for sending Telegram notifications
 
 ## How the Tools Fit Together
 
@@ -119,19 +118,6 @@ Sandboxed agents often work in Go projects that depend on private modules hosted
 
 See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more information.
 
-### Telegram MCP
-
-Agents sometimes need a direct way to notify the human operator when work finishes or attention is needed. The broker's Telegram integration is for approval requests; `telegram-mcp` is a separate, minimal stdio MCP server for agent-to-human notifications.
-
-`telegram-mcp` sends text messages to one configured Telegram chat:
-
-- Exposes a single MCP tool, `send_message`, for notifications.
-- Uses its own Telegram bot token and chat ID; credentials stay on the host.
-- Runs as a stdio backend behind MCP Broker or MCP Gateway, so notifications go through the chosen service's access controls and invocation history.
-- No general Telegram client features — no arbitrary recipients, media upload, receiving messages, or chat administration.
-
-See the [telegram-mcp README](telegram-mcp/README.md) for more information.
-
 ## Installation
 
 Requirements:
@@ -155,7 +141,6 @@ make -C mcp-gateway install
 make -C http-broker install
 make -C local-git-mcp install
 make -C local-gomod-proxy install
-make -C telegram-mcp install
 ```
 
 Each tool's README covers its configuration and runtime requirements.
@@ -181,17 +166,18 @@ GitHub Actions checks affected tools on pull requests and all tools on `main`, m
 
 These tools are no longer maintained, but their final versions remain available in the repository history.
 
-| Tool                  | Last commit                                                                                                                  | Reason                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `worktree-manager`    | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-manager)    | Deprecated in favor of Herdr for workspace and worktree management. |
-| `worktree-sync`       | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-sync)       | Deprecated in favor of Herdr for workspace and worktree management. |
-| `pi-session-analyzer` | [`7f52e38085`](https://github.com/averycrespi/agent-tools/tree/7f52e380857a435b25ba85a6c3c7e8865e04cd1d/pi-session-analyzer) | Built as an experiment and not carried forward.                     |
-| `pi-dispatcher`       | [`d1f7ae3da4`](https://github.com/averycrespi/agent-tools/tree/d1f7ae3da4aa70616ee2ee6161eaf22e81cd4c51/pi-dispatcher)       | Replaced by the scheduled-tasks Pi extension.                       |
-| `pi-orchestrator`     | [`3e799fa7c1`](https://github.com/averycrespi/agent-tools/tree/3e799fa7c1b568f8d5abe1faf9335f7ba18ad0b1/pi-orchestrator)     | Replaced by the scheduled-tasks Pi extension.                       |
-| `agent-mailbox`       | [`4378f6ef71`](https://github.com/averycrespi/agent-tools/tree/4378f6ef71ea25961b3bb8e08053dfc8ff0302eb/agent-mailbox)       | Replaced by `telegram-mcp`.                                         |
-| `local-gh-mcp`        | [`1f7cfd126f`](https://github.com/averycrespi/agent-tools/tree/1f7cfd126fe10f5f3107db771a06450c2adc0d92/local-gh-mcp)        | Deprecated in favor of the official GitHub MCP server.              |
-| `broker-cli`          | [`0251368f3b`](https://github.com/averycrespi/agent-tools/tree/0251368f3b209242d6edcc7b916f476f810cb584/broker-cli)          | Replaced by the `mcp-broker` Pi extension.                          |
-| `hindsight`           | [`164ffccbc0`](https://github.com/averycrespi/agent-tools/tree/164ffccbc010cc41c0a1330f8f1a5570ae61199f/hindsight)           | An experimental memory solution that was ultimately abandoned.      |
+| Tool                  | Last commit                                                                                                                  | Reason                                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `worktree-manager`    | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-manager)    | Deprecated in favor of Herdr for workspace and worktree management.  |
+| `worktree-sync`       | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-sync)       | Deprecated in favor of Herdr for workspace and worktree management.  |
+| `pi-session-analyzer` | [`7f52e38085`](https://github.com/averycrespi/agent-tools/tree/7f52e380857a435b25ba85a6c3c7e8865e04cd1d/pi-session-analyzer) | Built as an experiment and not carried forward.                      |
+| `pi-dispatcher`       | [`d1f7ae3da4`](https://github.com/averycrespi/agent-tools/tree/d1f7ae3da4aa70616ee2ee6161eaf22e81cd4c51/pi-dispatcher)       | Replaced by the scheduled-tasks Pi extension.                        |
+| `pi-orchestrator`     | [`3e799fa7c1`](https://github.com/averycrespi/agent-tools/tree/3e799fa7c1b568f8d5abe1faf9335f7ba18ad0b1/pi-orchestrator)     | Replaced by the scheduled-tasks Pi extension.                        |
+| `telegram-mcp`        | [`3d9dc4338b`](https://github.com/averycrespi/agent-tools/tree/3d9dc4338b27123184783c80ada6a6aa5e5b7f0f/telegram-mcp)        | Retired; the standalone notification server is no longer maintained. |
+| `agent-mailbox`       | [`4378f6ef71`](https://github.com/averycrespi/agent-tools/tree/4378f6ef71ea25961b3bb8e08053dfc8ff0302eb/agent-mailbox)       | Replaced by `telegram-mcp`.                                          |
+| `local-gh-mcp`        | [`1f7cfd126f`](https://github.com/averycrespi/agent-tools/tree/1f7cfd126fe10f5f3107db771a06450c2adc0d92/local-gh-mcp)        | Deprecated in favor of the official GitHub MCP server.               |
+| `broker-cli`          | [`0251368f3b`](https://github.com/averycrespi/agent-tools/tree/0251368f3b209242d6edcc7b916f476f810cb584/broker-cli)          | Replaced by the `mcp-broker` Pi extension.                           |
+| `hindsight`           | [`164ffccbc0`](https://github.com/averycrespi/agent-tools/tree/164ffccbc010cc41c0a1330f8f1a5570ae61199f/hindsight)           | An experimental memory solution that was ultimately abandoned.       |
 
 </details>
 

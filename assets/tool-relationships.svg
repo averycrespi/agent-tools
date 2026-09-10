@@ -58,9 +58,6 @@
   <rect class="node host-node" x="700" y="385" width="150" height="50" />
   <text class="label" x="775" y="410">Local Git MCP</text>
 
-  <rect class="node host-node" x="700" y="475" width="150" height="50" />
-  <text class="label" x="775" y="500">Telegram MCP</text>
-
   <rect class="node host-node" x="700" y="585" width="150" height="58" />
   <text class="label" x="775" y="614">Local Gomod Proxy</text>
 
@@ -69,9 +66,6 @@
 
   <rect class="node external-node" x="895" y="385" width="115" height="50" />
   <text class="label" x="952" y="410">Git remotes</text>
-
-  <rect class="node external-node" x="895" y="475" width="115" height="50" />
-  <text class="label" x="952" y="500">Telegram</text>
 
   <rect class="node external-node" x="895" y="589" width="115" height="50" />
   <text class="label" x="952" y="614">Go modules</text>
@@ -91,7 +85,6 @@
   <rect class="label-bg" x="572" y="316" width="70" height="18" />
   <text class="edge-label" x="607" y="329">MCP calls</text>
   <path class="mcp" d="M775 333 L775 382" />
-  <path class="mcp" d="M750 333 L660 333 L660 500 L697 500" />
 
   <path class="proxy" d="M480 395 L640 395 L640 614 L697 614" />
   <rect class="label-bg" x="527" y="366" width="66" height="18" />
@@ -102,7 +95,6 @@
   <text class="edge-label" x="648" y="684">HTTP_PROXY</text>
 
   <path class="edge" d="M850 410 L892 410" />
-  <path class="edge" d="M850 500 L892 500" />
   <path class="edge" d="M850 614 L892 614" />
   <path class="edge" d="M850 700 L892 700" />
   </g>
