@@ -21,6 +21,20 @@ func TestInvocationReadRoutes(t *testing.T) {
 	assert.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v1/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}})
 }
 
+func TestInvocationDecisionFilterDoesNotExpandEvidence(t *testing.T) {
+	for _, value := range []string{"allow", "deny", "block", "not_evaluated"} {
+		decision, err := ParseInvocationDecisionFilter(value)
+		require.NoError(t, err)
+		assert.Equal(t, value, string(decision))
+	}
+	_, err := ParseAuthorizationDecision("not_evaluated")
+	assert.Error(t, err, "absence of evaluation is not a stored authorization decision")
+	for _, value := range []string{"", "ALLOW", "pending", "null"} {
+		_, err := ParseInvocationDecisionFilter(value)
+		assert.Error(t, err)
+	}
+}
+
 func TestInvocationReadProjectionContract(t *testing.T) {
 	assert.Equal(t, []InvocationTargetKind{InvocationTargetDownstream, InvocationTargetGateway}, InvocationTargetKinds())
 	assert.Equal(t, []InvocationOutcomeClass{
@@ -84,6 +98,7 @@ func TestInvocationReadProjectionContract(t *testing.T) {
 	assert.NotContains(t, string(encodedPage), "redacted_arguments")
 
 	filters := InvocationFilters{
+		Tool: "retired lokoup", Principal: "cafe investigator", SearchLocale: "en-US",
 		PrincipalID: pointer("principal"), ServerID: pointer("server"), RequestedName: pointer("requested"),
 		AdmissionClass: pointer(AdmissionEvaluated), Decision: pointer(DecisionAllow), Outcome: pointer(InvocationOutcomeSucceeded),
 	}

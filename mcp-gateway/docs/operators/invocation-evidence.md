@@ -31,6 +31,12 @@ Use `--admission-class`, `--decision`, and `--outcome` only with values shown by
 
 Collections omit argument captures and return summary evidence only. `mcp-gateway invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output remains summary-only. A missing item can mean the ID never existed or that bounded retention evicted it.
 
+## Filter browser history
+
+Tool, Principal, Decision and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Principal searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
+
+Text changes apply after a short typing pause; dropdowns and Clear filters apply immediately. Filters remain available for empty history and errors. Load older retrieves older matches under the same query; the count reports loaded matches, not the total retained history. Opening a detail and returning keeps the query and live preference but restarts at newest with a notice rather than silently restoring an unsafe older traversal.
+
 ## Read the evidence shape
 
 A summary identifies the admitted principal and credential revision, request time, admission class, requested name when classifiable, resolved target when present, authorization evidence when evaluated, and one outcome class plus basis.
@@ -83,7 +89,11 @@ Successful content, `structuredContent`, unsuccessful content, raw errors, downs
 
 ## Follow live updates safely
 
-Polling never submits, completes, resumes, or replays a call. The browser can refresh the newest visible invocation snapshot from ID-only authenticated invalidation hints while live mode is enabled. Pausing live mode keeps the displayed snapshot stable for inspection. Neither event handling nor repeated operator reads submit, complete, resume, or replay a call, and reads do not alter audit rows, policy, routes, or request state.
+Live mode refreshes the newest matching page from coalesced, ID-only authenticated invalidation hints; it does not poll each invocation. Load older first pauses automatic replacement so you can keep reading. With Live enabled, **Live paused while viewing older results** and **Resume live** make that pause explicit. Updates available means activity was observed, not that a new matching row was verified.
+
+**Resume live** returns to newest matching results and resumes automatic updates. With Live disabled, **Return to newest** returns without enabling it. The header Refresh also reads newest without changing your preference. Changing or clearing filters starts a new matching traversal but keeps an existing older-reading pause; use Resume live separately. A failed continuation leaves your rows intact and offers a read-only retry beside Load older. A failed refresh labels compatible prior results stale rather than claiming no matches.
+
+Live preference, pause and navigation context last only for the authenticated browser session; cursors are not saved. Neither event handling nor repeated operator reads submit, complete, resume, or replay a call, and reads do not alter audit rows, policy, routes, or request state.
 
 When a cursor becomes stale, restart the read from the newest page. When a record is evicted, do not infer an outcome from absence. When current policy or catalog state differs from retained evidence, treat the row as historical evidence for that attempt and use current owner reads for present state.
 

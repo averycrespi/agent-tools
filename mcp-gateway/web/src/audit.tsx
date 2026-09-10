@@ -56,6 +56,7 @@ export interface AuditSnapshot {
   item: AuditEvent | undefined;
   missing: boolean;
   loadingOlder: boolean;
+  olderError: boolean;
   notice: string | undefined;
   targetLink: string | undefined;
   targetUnavailable: boolean;
@@ -69,6 +70,7 @@ function empty(viewKey = ""): AuditSnapshot {
     item: undefined,
     missing: false,
     loadingOlder: false,
+    olderError: false,
     notice: undefined,
     targetLink: undefined,
     targetUnavailable: false,
@@ -156,7 +158,21 @@ export class AuditController {
       id: "audit",
       matches: (key) => parseFragment(key)?.destination === "audit",
       invalidations: [],
-      read: (context) => this.read(context),
+      read: async (context) => {
+        const cursor = this.continuation;
+        try {
+          return await this.read(context);
+        } catch (error) {
+          if (
+            cursor !== null &&
+            !context.signal.aborted &&
+            this.value.viewKey === context.viewKey &&
+            this.value.nextCursor === cursor
+          )
+            return { ...this.value, loadingOlder: false, olderError: true };
+          throw error;
+        }
+      },
       publish: (result) => {
         if (
           result.history !== undefined &&
@@ -210,7 +226,7 @@ export class AuditController {
     )
       return;
     this.continuation = this.value.nextCursor;
-    this.value = { ...this.value, loadingOlder: true };
+    this.value = { ...this.value, loadingOlder: true, olderError: false };
     this.emit();
     const key = this.value.viewKey;
     const pending = this.views.refreshPanel("audit");
@@ -958,6 +974,12 @@ export function Audit({
               loadMoreLabel="Load older audit events"
             />
           ) : null}
+          {snapshot.olderError && (
+            <p role="alert">
+              Older audit results unavailable. Loaded rows were retained; use
+              Load older audit events to retry.
+            </p>
+          )}
         </section>
       )}
       {snapshot.history !== undefined && <History value={snapshot.history} />}

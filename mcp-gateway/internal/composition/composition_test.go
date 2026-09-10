@@ -42,7 +42,7 @@ func TestInvocationReadComposition(t *testing.T) {
 	defer built.shutdownConstructed()
 	controlAPI, ok := built.ControlAPI()
 	require.True(t, ok)
-	assert.Same(t, built.invocationRepository, controlAPI.Invocations)
+	assert.Same(t, built.invocationReads, controlAPI.Invocations)
 	page, err := controlAPI.Invocations.List(t.Context(), contract.InvocationListQuery{Limit: 1})
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)

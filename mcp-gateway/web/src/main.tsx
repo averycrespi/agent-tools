@@ -708,6 +708,7 @@ function App() {
               controller={invocationsController}
               principals={principalDirectory}
               view={view}
+              navigate={navigate}
             />
           ) : destination === "system" ? (
             <System

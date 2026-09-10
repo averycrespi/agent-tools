@@ -216,7 +216,7 @@ func TestSourceOwnershipGuards(t *testing.T) {
 	for _, symbol := range []string{
 		"type AgentIngressDependencies struct", "Authenticator mcpingress.AgentAuthenticator",
 		"ListTools     mcpingress.ToolsListService", "CallTools     mcpingress.ToolsCallService",
-		"type ControlAPIDependencies struct", "GrantRequests *grantrequests.AdminService", "Invocations   *invocation.Repository",
+		"type ControlAPIDependencies struct", "GrantRequests *grantrequests.AdminService", "Invocations   *invocation.ReadService",
 		"AuthMode:      contract.AgentAuthPrincipalCredentials",
 	} {
 		assert.Contains(t, compositionSource, symbol, "internal/composition/composition.go: missing atomic production ingress symbol %s", symbol)
@@ -319,6 +319,11 @@ var _ invocation.Service
 			name: "S4 mutation in read owner", path: "internal/invocation/reads.go",
 			contents: "package invocation\nfunc mutate() { _ = `UPDATE invocations SET terminal_class = NULL` }\n",
 			want:     "internal/invocation/reads.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "S4 mutation in search owner", path: "internal/invocation/search.go",
+			contents: "package invocation\nfunc mutate() { _ = `UPDATE invocations SET terminal_class = NULL` }\n",
+			want:     "internal/invocation/search.go: prohibited S4 SQL table invocations",
 		},
 		{
 			name: "S4 join in read owner", path: "internal/invocation/reads.go",
@@ -439,7 +444,7 @@ func productionSliceViolations(source productionSource) []string {
 	if strings.Contains(source.contents, ".MutateInvocation(") && source.path != "internal/invocation/repository.go" {
 		violations = append(violations, fmt.Sprintf("%s: invocation-only storage waiting outside audit repository", source.path))
 	}
-	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewRepositoryWithWaitStop(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
+	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewRepositoryWithWaitStop(", "invocation.NewReadService(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
 		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate invocation constructor %s", source.path, symbol))
 		}
@@ -462,7 +467,7 @@ func productionSliceViolations(source productionSource) []string {
 			"type AgentIngressDependencies struct", "func (built *Composition) AgentIngress()",
 			"type ControlAPIDependencies struct", "func (built *Composition) ControlAPI()",
 			"Authenticator: built.authorization", "ListTools:     built.listTools", "CallTools:     built.callTools",
-			"GrantRequests: built.requestAdmin", "Invocations: built.invocationRepository", "AuthMode:      contract.AgentAuthPrincipalCredentials",
+			"GrantRequests: built.requestAdmin", "Invocations: built.invocationReads", "AuthMode:      contract.AgentAuthPrincipalCredentials",
 		} {
 			if strings.Count(source.contents, symbol) != 1 {
 				violations = append(violations, fmt.Sprintf("%s: composition ingress symbol %s must occur exactly once", source.path, symbol))
@@ -621,7 +626,7 @@ func s4SQLViolations(source productionSource) []string {
 		switch source.path {
 		case "internal/invocation/repository.go":
 			return true
-		case "internal/invocation/reads.go":
+		case "internal/invocation/reads.go", "internal/invocation/search.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}

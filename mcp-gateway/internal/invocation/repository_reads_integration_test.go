@@ -123,12 +123,12 @@ func TestInvocationRepositoryReadsIntegration(t *testing.T) {
 			AdmissionClass: pointer(contract.AdmissionAuthorizationUnavailable), Decision: pointer(contract.DecisionAllow),
 			Outcome: pointer(contract.InvocationOutcomeDownstreamFailure),
 		}
-		maximumCursor, err := encodeInvocationCursor(contract.InvocationCursorBinding{Filters: maximumFilters, UpperSequence: invocationLimit(), NextSequence: 1})
+		maximumCursor, err := repository.encodeInvocationCursor(contract.InvocationCursorBinding{Filters: maximumFilters, UpperSequence: invocationLimit(), NextSequence: 1})
 		require.NoError(t, err)
 		assert.LessOrEqual(t, int64(len(maximumCursor)), invocationCursorLimit())
-		decoded, err := decodeInvocationCursor(maximumCursor)
+		decoded, err := repository.decodeInvocationCursor(maximumCursor)
 		require.NoError(t, err)
-		assert.True(t, sameInvocationFilters(maximumFilters, decoded.Filters))
+		assert.Equal(t, searchDigest(maximumFilters), decoded.QueryDigest)
 	})
 
 	t.Run("terminal filter entry and exit", func(t *testing.T) {

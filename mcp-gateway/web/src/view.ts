@@ -29,7 +29,16 @@ export interface Invalidation {
   resourceID: string | null;
 }
 
+export type ViewRefreshReason =
+  | "navigation"
+  | "manual"
+  | "panel"
+  | "invalidation"
+  | "reconnect"
+  | "poll";
+
 export interface ViewReadContext extends ProtectedContext {
+  reason?: ViewRefreshReason;
   viewKey: string;
   generation: number;
 }
@@ -53,6 +62,7 @@ export interface ViewPanel<T> {
   matches: (viewKey: string) => boolean;
   invalidations: readonly InvalidationKind[];
   onInvalidation?: (invalidation: Invalidation) => boolean;
+  shouldRefresh?: (reason: ViewRefreshReason) => boolean;
   pollMilliseconds?: number;
   shouldPoll?: () => boolean;
   read: (context: ViewReadContext) => Promise<T>;
@@ -523,17 +533,17 @@ export class ViewCoordinator {
     this.abortReads();
     this.clearPolls();
     this.markVisiblePanelsLoading();
-    if (this.active) void this.refresh();
+    if (this.active) void this.refresh(undefined, "navigation");
     else this.emit();
   }
 
   manualRefresh(): void {
-    if (this.active) void this.refresh();
+    if (this.active) void this.refresh(undefined, "manual");
   }
 
   refreshPanel(panelID: string): Promise<void> {
     if (!this.active) return Promise.resolve();
-    return this.refresh([panelID]);
+    return this.refresh([panelID], "panel");
   }
 
   invalidate(invalidation: Invalidation): void {
@@ -554,7 +564,7 @@ export class ViewCoordinator {
       this.invalidationTimer = undefined;
       const panels = [...this.pendingInvalidations];
       this.pendingInvalidations.clear();
-      void this.refresh(panels);
+      void this.refresh(panels, "invalidation");
     }, coalesceMilliseconds);
   }
 
@@ -566,9 +576,12 @@ export class ViewCoordinator {
     this.listeners.clear();
   }
 
-  private async refresh(panelIDs?: readonly string[]): Promise<void> {
+  private async refresh(
+    panelIDs?: readonly string[],
+    reason: ViewRefreshReason = "navigation",
+  ): Promise<void> {
     if (!this.active) return;
-    const selected =
+    const candidates =
       panelIDs === undefined
         ? this.visiblePanels()
         : panelIDs
@@ -577,6 +590,9 @@ export class ViewCoordinator {
               (panel): panel is RegisteredPanel =>
                 panel !== undefined && panel.matches(this.viewKey),
             );
+    const selected = candidates.filter(
+      (panel) => panel.shouldRefresh?.(reason) ?? true,
+    );
     const generation = this.generation + 1;
     this.generation = generation;
     const viewKey = this.viewKey;
@@ -603,7 +619,9 @@ export class ViewCoordinator {
       return;
     }
     await Promise.all(
-      selected.map((panel) => this.readPanel(panel, viewKey, generation)),
+      selected.map((panel) =>
+        this.readPanel(panel, viewKey, generation, reason),
+      ),
     );
     if (this.current(viewKey, generation) && this.streamConnected) {
       this.freshness = "current";
@@ -615,6 +633,7 @@ export class ViewCoordinator {
     panel: RegisteredPanel,
     viewKey: string,
     generation: number,
+    reason: ViewRefreshReason,
   ): Promise<void> {
     const controller = new AbortController();
     this.readControllers.set(panel.id, controller);
@@ -627,6 +646,7 @@ export class ViewCoordinator {
             signal: joined.signal,
             viewKey,
             generation,
+            reason,
           });
         } finally {
           joined.release();
@@ -703,7 +723,7 @@ export class ViewCoordinator {
             throw new Error("event stream rejected");
           }
           this.streamConnected = true;
-          void this.refresh();
+          void this.refresh(undefined, "reconnect");
           await this.consumeEvents(response.body, joined.signal);
         } finally {
           joined.release();
@@ -826,7 +846,7 @@ export class ViewCoordinator {
             candidate.shouldPoll?.() !== false,
         )
         .map((candidate) => candidate.id);
-      if (due.length > 0) void this.refresh(due);
+      if (due.length > 0) void this.refresh(due, "poll");
     }, interval);
     this.pollTimers.set(interval, timer);
   }

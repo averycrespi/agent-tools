@@ -23,7 +23,7 @@ func TestInvocationReadCompositionIntegration(t *testing.T) {
 
 	control, ok := built.ControlAPI()
 	require.True(t, ok)
-	assert.Same(t, built.invocationRepository, control.Invocations)
+	assert.Same(t, built.invocationReads, control.Invocations)
 	page, err := control.Invocations.List(context.Background(), contract.InvocationListQuery{Limit: 1})
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)
