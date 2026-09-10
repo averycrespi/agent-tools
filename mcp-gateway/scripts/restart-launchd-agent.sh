@@ -48,11 +48,16 @@ if service_loaded; then
   pid="$(awk '$1 == "pid" && $2 == "=" { print $3; exit }' <<<"$state")"
   [[ -z "$pid" || "$pid" =~ ^[1-9][0-9]*$ ]] || fail 'Cannot parse Gateway PID; refusing to stop.'
   launchctl bootout "$service"
-  if service_loaded; then
-    fail 'Service is still loaded; refusing to bootstrap.'
-  fi
+  # Removal can remain visible after bootout returns. Share the wait budget
+  # between job removal and process exit; never repeat the stop mutation.
+  i=0
+  while service_loaded; do
+    [[ "$i" -lt 30 ]] || fail 'Service is still loaded after waiting 30 seconds; refusing to bootstrap. Inspect logs.'
+    sleep 1
+    i=$((i + 1))
+  done
   if [[ -n "$pid" ]]; then
-    for ((i = 0; i <= 30; i++)); do
+    for ((; i <= 30; i++)); do
       if ps -p "$pid" -o pid= >/dev/null; then
         [[ "$i" -lt 30 ]] || fail "Gateway PID $pid has not exited; refusing to bootstrap. Inspect logs."
         sleep 1
