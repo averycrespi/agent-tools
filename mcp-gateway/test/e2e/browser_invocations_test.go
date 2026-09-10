@@ -52,13 +52,14 @@ func TestBrowserInvocations(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
-		Event             string `json:"event"`
-		ChromiumVersion   string `json:"chromium_version"`
-		PlaywrightVersion string `json:"playwright_version"`
-		Requests          int    `json:"requests"`
-		ListReads         int    `json:"list_reads"`
-		ContinuationReads int    `json:"continuation_reads"`
-		ItemReads         int    `json:"item_reads"`
+		Event              string   `json:"event"`
+		ChromiumVersion    string   `json:"chromium_version"`
+		PlaywrightVersion  string   `json:"playwright_version"`
+		Requests           int      `json:"requests"`
+		ListReads          int      `json:"list_reads"`
+		ContinuationReads  int      `json:"continuation_reads"`
+		ItemReads          int      `json:"item_reads"`
+		HistoryScreenshots []string `json:"history_screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "invocations_complete", event.Event)
@@ -68,6 +69,8 @@ func TestBrowserInvocations(t *testing.T) {
 	assert.GreaterOrEqual(t, event.ListReads, 4)
 	assert.Positive(t, event.ContinuationReads)
 	assert.Equal(t, 4, event.ItemReads)
+	assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 21)
+	t.Logf("History visual artifacts: %v", event.HistoryScreenshots)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "T21 must own one Gateway lifecycle")

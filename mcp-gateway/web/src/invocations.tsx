@@ -1,8 +1,11 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useState } from "preact/hooks";
+import { parseFragment, serializeLocation } from "./location";
+import { invocationOptions } from "./invocation-query";
 import type { PrincipalDirectory } from "./principals";
 import {
   BinaryToggle,
   CollectionTable,
+  useDebouncedInput,
   InertJSON,
   sentenceCase,
   StateNotice,
@@ -257,19 +260,45 @@ async function problemCode(
     return undefined;
   }
 }
-function listPath(nextCursor: string | null): string {
+function listPath(
+  filters: Readonly<Record<string, string>>,
+  nextCursor: string | null,
+): string {
   const query = new URLSearchParams({ limit: "50" });
+  for (const [key, value] of Object.entries(filters))
+    query.set(key.slice(7), value);
+  if (filters.filter_tool || filters.filter_principal)
+    query.set("search_locale", Intl.DateTimeFormat().resolvedOptions().locale);
   if (nextCursor !== null) query.set("cursor", nextCursor);
   return `/api/v1/invocations?${query.toString()}`;
 }
 
 type ReadResult =
-  | { kind: "list"; viewKey: string; page: InvocationPageView; append: boolean }
+  | {
+      kind: "list";
+      viewKey: string;
+      page: InvocationPageView;
+      append: boolean;
+      automatic: boolean;
+      serial: number;
+    }
+  | {
+      kind: "failure";
+      viewKey: string;
+      append: boolean;
+      automatic: boolean;
+      serial: number;
+    }
   | { kind: "item"; viewKey: string; item: InvocationItemView }
   | { kind: "missing"; viewKey: string };
 export interface InvocationsSnapshot {
   viewKey: string;
   live: boolean;
+  paused: boolean;
+  successful: boolean;
+  refreshError: boolean;
+  olderError: boolean;
+  notice: string | undefined;
   updatesAvailable: boolean;
   items: readonly InvocationSummaryView[];
   nextCursor: string | null;
@@ -285,6 +314,11 @@ export class InvocationsController {
   private value: InvocationsSnapshot = {
     viewKey: "",
     live: true,
+    paused: false,
+    successful: false,
+    refreshError: false,
+    olderError: false,
+    notice: undefined,
     updatesAvailable: false,
     items: [],
     nextCursor: null,
@@ -294,17 +328,26 @@ export class InvocationsController {
   };
   private continuation: string | null = null;
   private continuationPending = false;
+  private serial = 0;
+  private continuationSerial = 0;
   constructor(session: SessionClient, views: ViewCoordinator) {
     this.views = views;
     views.registerPanel({
       id: "invocations",
-      matches: (key) =>
-        key === "#/invocations" ||
-        key.startsWith("#/invocations?") ||
-        /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
-      invalidations: ["invocations"],
+      matches: (key) => parseFragment(key)?.destination === "invocations",
+      invalidations: ["invocations", "authorization"],
+      shouldRefresh: (reason) => {
+        const automatic = ["invalidation", "reconnect", "poll"].includes(
+          reason,
+        );
+        return (
+          !automatic ||
+          parseFragment(this.views.snapshot().viewKey)?.segments.length === 2 ||
+          (this.value.live && !this.value.paused)
+        );
+      },
       onInvalidation: () => {
-        if (this.value.live) return true;
+        if (this.value.live && !this.value.paused) return true;
         if (!this.value.updatesAvailable) {
           this.value = { ...this.value, updatesAvailable: true };
           this.emit();
@@ -317,9 +360,16 @@ export class InvocationsController {
     session.registerProtectedState(() => {
       this.continuation = null;
       this.continuationPending = false;
+      this.serial += 1;
+      this.continuationSerial += 1;
       this.value = {
         viewKey: "",
         live: true,
+        paused: false,
+        successful: false,
+        refreshError: false,
+        olderError: false,
+        notice: undefined,
         updatesAvailable: false,
         items: [],
         nextCursor: null,
@@ -339,12 +389,19 @@ export class InvocationsController {
     return () => this.listeners.delete(listener);
   }
   setLive(live: boolean): void {
-    this.value = { ...this.value, live, updatesAvailable: false };
+    this.serial += 1;
+    this.value = { ...this.value, live };
     this.emit();
-    if (live) {
+    if (live && !this.value.paused) {
       this.continuation = null;
       void this.views.refreshPanel("invocations");
     }
+  }
+  resume(): void {
+    this.serial += 1;
+    this.value = { ...this.value, paused: false };
+    this.emit();
+    this.refresh();
   }
   refresh(): void {
     this.continuation = null;
@@ -354,27 +411,53 @@ export class InvocationsController {
     if (
       this.continuationPending ||
       this.value.nextCursor === null ||
-      !this.value.viewKey.startsWith("#/invocations")
+      this.views.snapshot().viewKey !== this.value.viewKey ||
+      this.views.snapshot().panels.invocations?.refreshing === true
     )
       return;
+    this.serial += 1;
+    const continuationSerial = ++this.continuationSerial;
     this.continuationPending = true;
     this.continuation = this.value.nextCursor;
-    this.value = { ...this.value, loadingOlder: true };
+    this.value = {
+      ...this.value,
+      paused: true,
+      loadingOlder: true,
+      olderError: false,
+    };
     this.emit();
     try {
       await this.views.refreshPanel("invocations");
     } finally {
-      this.continuationPending = false;
-      this.value = { ...this.value, loadingOlder: false };
-      this.emit();
+      if (continuationSerial === this.continuationSerial) {
+        this.continuationPending = false;
+        this.value = { ...this.value, loadingOlder: false };
+        this.emit();
+      }
     }
   }
   private async read(context: ViewReadContext): Promise<ReadResult> {
+    const location = parseFragment(context.viewKey);
+    if (location?.destination !== "invocations")
+      throw new Error("Invalid invocation location");
     if (context.viewKey !== this.value.viewKey) {
+      const returning =
+        parseFragment(this.value.viewKey)?.segments.length === 2 &&
+        location.segments.length === 1;
+      this.serial += 1;
+      this.continuationSerial += 1;
+      this.continuationPending = false;
       this.continuation = null;
       this.value = {
         viewKey: context.viewKey,
         live: this.value.live,
+        paused: this.value.paused,
+        successful: false,
+        refreshError: false,
+        olderError: false,
+        notice: returning
+          ? "Returned to the newest matching invocations; the previous traversal was discarded."
+          : undefined,
         updatesAvailable: false,
         items: [],
         nextCursor: null,
@@ -384,14 +467,9 @@ export class InvocationsController {
       };
       this.emit();
     }
-    const itemMatch = /^#\/invocations\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
-      context.viewKey,
-    );
-    if (itemMatch !== null) {
-      const response = await get(
-        context,
-        `/api/v1/invocations/${itemMatch[1]}`,
-      );
+    const itemID = location.segments[1];
+    if (itemID !== undefined) {
+      const response = await get(context, `/api/v1/invocations/${itemID}`);
       if ((await problemCode(response, 404)) === "not_found")
         return { kind: "missing", viewKey: context.viewKey };
       return {
@@ -400,29 +478,65 @@ export class InvocationsController {
         item: decodeInvocationItem(await json(response)),
       };
     }
-    const continuation = this.continuation;
+    const continuation = context.reason === "panel" ? this.continuation : null;
     this.continuation = null;
-    let response = await get(context, listPath(continuation));
-    if (
-      continuation !== null &&
-      (await problemCode(response, 409)) === "stale_cursor"
-    ) {
-      response = await get(context, listPath(null));
+    const serial = this.serial;
+    const automatic = ["invalidation", "reconnect", "poll"].includes(
+      context.reason ?? "navigation",
+    );
+    let append = continuation !== null;
+    try {
+      let response = await get(context, listPath(location.query, continuation));
+      if (append && (await problemCode(response, 409)) === "stale_cursor") {
+        if (context.signal.aborted) throw new Error("Superseded");
+        append = false;
+        this.value = {
+          ...this.value,
+          items: [],
+          nextCursor: null,
+          successful: false,
+          notice:
+            "The previous traversal expired. Restarted at the newest matching invocations.",
+        };
+        this.emit();
+        response = await get(context, listPath(location.query, null));
+      }
       return {
         kind: "list",
         viewKey: context.viewKey,
         page: decodeInvocationPage(await json(response)),
-        append: false,
+        append,
+        automatic,
+        serial,
+      };
+    } catch (error) {
+      if (context.signal.aborted) throw error;
+      return {
+        kind: "failure",
+        viewKey: context.viewKey,
+        append,
+        automatic,
+        serial,
       };
     }
-    return {
-      kind: "list",
-      viewKey: context.viewKey,
-      page: decodeInvocationPage(await json(response)),
-      append: continuation !== null,
-    };
   }
   private publish(result: ReadResult): void {
+    if (
+      (result.kind === "list" || result.kind === "failure") &&
+      result.automatic &&
+      (result.serial !== this.serial || !this.value.live || this.value.paused)
+    )
+      return;
+    if (result.kind === "failure") {
+      this.value = {
+        ...this.value,
+        loadingOlder: false,
+        olderError: result.append,
+        refreshError: !result.append,
+      };
+      this.emit();
+      return;
+    }
     if (result.kind === "missing")
       this.value = {
         ...this.value,
@@ -437,8 +551,6 @@ export class InvocationsController {
         item: result.item,
         missing: false,
       };
-    else if (!this.value.live && !(result.append && this.continuationPending))
-      this.value = { ...this.value, updatesAvailable: true };
     else
       this.value = {
         ...this.value,
@@ -447,6 +559,9 @@ export class InvocationsController {
           ? [...this.value.items, ...result.page.items]
           : result.page.items,
         nextCursor: result.page.nextCursor,
+        successful: true,
+        refreshError: false,
+        olderError: false,
         item: undefined,
         missing: false,
         updatesAvailable: false,
@@ -566,32 +681,62 @@ export function Invocations({
   controller,
   principals,
   view,
+  navigate,
 }: {
   controller: InvocationsController;
   principals: PrincipalDirectory;
   view: ViewSnapshot;
+  navigate: (fragment: string) => void;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
   const [principalNames, setPrincipalNames] = useState(principals.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
   useEffect(() => principals.subscribe(setPrincipalNames), [principals]);
   const panel: PanelSnapshot | undefined = view.panels.invocations;
-  const detail = /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
-    view.viewKey,
-  );
+  const location = parseFragment(view.viewKey);
+  const detail = location?.segments.length === 2;
+  const query = location?.query ?? {};
+  const listLink = serializeLocation({
+    destination: "invocations",
+    segments: ["invocations"],
+    query,
+  });
+  const current =
+    snapshot.viewKey === view.viewKey
+      ? snapshot
+      : {
+          ...snapshot,
+          items: [],
+          item: undefined,
+          successful: false,
+          missing: false,
+          refreshError: false,
+          olderError: false,
+          notice: undefined,
+          nextCursor: null,
+        };
   if (detail)
     return (
-      <InvocationDetail
-        snapshot={snapshot}
-        panel={panel}
-        principalNames={principalNames}
-      />
+      <>
+        <nav class="detail-navigation" aria-label="Invocation navigation">
+          <a href={listLink}>Back to invocations</a>
+        </nav>
+        <InvocationDetail
+          snapshot={current}
+          panel={panel}
+          principalNames={principalNames}
+        />
+      </>
     );
   return (
     <div class="invocations-view" data-testid="invocations-view">
       <InvocationList
-        snapshot={snapshot}
+        snapshot={current}
         panel={panel}
+        query={query}
+        navigate={navigate}
+        resume={() => controller.resume()}
+        refresh={() => controller.refresh()}
         setLive={(live) => controller.setLive(live)}
         loadOlder={() => void controller.loadOlder()}
         principalNames={principalNames}
@@ -605,7 +750,15 @@ function InvocationList({
   setLive,
   loadOlder,
   principalNames,
+  query,
+  navigate,
+  resume,
+  refresh,
 }: {
+  query: Readonly<Record<string, string>>;
+  navigate: (fragment: string) => void;
+  resume: () => void;
+  refresh: () => void;
   snapshot: InvocationsSnapshot;
   panel: PanelSnapshot | undefined;
   setLive: (live: boolean) => void;
@@ -626,82 +779,85 @@ function InvocationList({
           <StatusLabel state="warning">Updates available</StatusLabel>
         )}
       </div>
-      {panel?.status === "error" && panel.hasValue !== true ? (
-        <StateNotice state="error" title="Invocation list unavailable" />
+      <InvocationFilters query={query} navigate={navigate} />
+      {snapshot.paused && (
+        <div class="inline-actions">
+          {snapshot.live && (
+            <StatusLabel state="warning">
+              Live paused while viewing older results
+            </StatusLabel>
+          )}
+          <button type="button" onClick={resume}>
+            {snapshot.live ? "Resume live" : "Return to newest"}
+          </button>
+        </div>
+      )}
+      {snapshot.notice && (
+        <StateNotice state="warning" title={snapshot.notice} />
+      )}
+      {snapshot.refreshError && (
+        <StateNotice
+          state="error"
+          title={
+            snapshot.successful
+              ? "Refresh failed; shown results are stale"
+              : "Invocation list unavailable"
+          }
+        >
+          <button type="button" onClick={refresh}>
+            Retry refresh
+          </button>
+        </StateNotice>
+      )}
+      {!snapshot.successful && !snapshot.refreshError ? (
+        <StateNotice state="loading" title="Loading invocations" />
       ) : snapshot.items.length === 0 ? (
-        <StateNotice state="empty" title="No retained invocations match" />
+        snapshot.successful &&
+        !snapshot.refreshError && (
+          <StateNotice
+            state="empty"
+            title={
+              Object.keys(query).length
+                ? "No matching invocations"
+                : "No retained invocations"
+            }
+          />
+        )
       ) : (
         <CollectionTable
           caption="Invocation history"
           items={snapshot.items}
           rowKey={(item) => item.id}
           rowTestID="invocation-row"
-          filters={[
-            {
-              key: "tool",
-              label: "Tool",
-              type: "text",
-              value: (item) =>
-                invocationTargetLabel(item.target, item.requestedName),
-            },
-            {
-              key: "principal",
-              label: "Principal",
-              type: "text",
-              value: (item) => principalNames.get(item.principalID) ?? "",
-              literalValues: (item) => [item.principalID],
-            },
-            {
-              key: "decision",
-              label: "Decision",
-              type: "select",
-              value: (item) => item.authorization?.decision ?? "not_evaluated",
-              options: [
-                { value: "allow", label: "Allow" },
-                { value: "deny", label: "Deny" },
-                { value: "block", label: "Block" },
-                { value: "not_evaluated", label: "Not evaluated" },
-              ],
-            },
-            {
-              key: "outcome",
-              label: "Outcome",
-              type: "select",
-              value: (item) => item.outcome,
-              options: [
-                { value: "succeeded", label: "Succeeded" },
-                { value: "downstream_failure", label: "Downstream failure" },
-                { value: "outcome_unknown", label: "Outcome unknown" },
-                { value: "deny", label: "Deny" },
-                { value: "block", label: "Block" },
-                { value: "invalid_params", label: "Invalid parameters" },
-                { value: "unknown_tool", label: "Unknown tool" },
-                { value: "invalid_arguments", label: "Invalid arguments" },
-                {
-                  value: "authorization_unavailable",
-                  label: "Authorization unavailable",
-                },
-                { value: "prestart_failure", label: "Prestart failure" },
-              ],
-            },
-          ]}
-          hasMore={snapshot.nextCursor !== null}
-          loadingMore={snapshot.loadingOlder}
-          onLoadMore={loadOlder}
-          loadMoreLabel="Load older invocations"
           columns={[
             {
               key: "invocation",
               label: "Invocation",
               render: (item) => (
-                <a href={`#/invocations/${item.id}`}>{item.id}</a>
+                <a
+                  href={serializeLocation({
+                    destination: "invocations",
+                    segments: ["invocations", item.id],
+                    query,
+                  })}
+                >
+                  {item.id}
+                </a>
               ),
             },
             {
               key: "tool",
               label: "Tool",
               render: (item) =>
-                invocationTargetLabel(item.target, item.requestedName),
+                item.target?.kind === "downstream" ? (
+                  <a
+                    href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+                  >
+                    {invocationTargetLabel(item.target, item.requestedName)}
+                  </a>
+                ) : (
+                  invocationTargetLabel(item.target, item.requestedName)
+                ),
             },
             {
               key: "principal",
@@ -745,7 +901,127 @@ function InvocationList({
           ]}
         />
       )}
+      {snapshot.successful && (
+        <output class="table-filter-summary" aria-live="polite">
+          {snapshot.items.length} {Object.keys(query).length ? "matching " : ""}
+          {snapshot.items.length === 1 ? "invocation" : "invocations"} loaded
+          {snapshot.refreshError ? " (stale)" : ""}
+        </output>
+      )}
+      {snapshot.nextCursor !== null && (
+        <div class="inline-actions">
+          <button
+            type="button"
+            onClick={loadOlder}
+            disabled={snapshot.loadingOlder || panel?.refreshing === true}
+          >
+            Load older invocations
+          </button>
+          {snapshot.olderError && (
+            <span role="alert">
+              Older results unavailable. Loaded rows were retained; use Load
+              older invocations to retry.
+            </span>
+          )}
+        </div>
+      )}
     </section>
+  );
+}
+function InvocationTextFilter({
+  name,
+  value,
+  change,
+}: {
+  name: string;
+  value: string;
+  change: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useLayoutEffect(() => setDraft(value), [value]);
+  useDebouncedInput(draft, (next) => {
+    if (next !== value) change(next);
+  });
+  return (
+    <input
+      type="search"
+      aria-label={name}
+      placeholder={`${name}…`}
+      value={draft}
+      onInput={(event) => setDraft(event.currentTarget.value)}
+    />
+  );
+}
+function InvocationFilters({
+  query,
+  navigate,
+}: {
+  query: Readonly<Record<string, string>>;
+  navigate: (fragment: string) => void;
+}) {
+  const [error, setError] = useState<string>();
+  const [reset, setReset] = useState(0);
+  const apply = (next: Record<string, string>) => {
+    const fragment = serializeLocation({
+      destination: "invocations",
+      segments: ["invocations"],
+      query: next,
+    });
+    if (!parseFragment(fragment)) {
+      setError(
+        "Filters must fit 256 UTF-8 bytes each and contain no control characters.",
+      );
+      return;
+    }
+    setError(undefined);
+    navigate(fragment);
+  };
+  const change = (key: string, value: string) => {
+    const next = { ...query };
+    if (value.trim() === "") delete next[`filter_${key}`];
+    else next[`filter_${key}`] = value;
+    apply(next);
+  };
+  return (
+    <>
+      <div
+        class="table-filters collection-query-filters"
+        role="group"
+        aria-label="Invocation history filters"
+      >
+        {["tool", "principal"].map((key) => (
+          <InvocationTextFilter
+            key={`${key}:${reset}`}
+            name={sentenceCase(key)}
+            value={query[`filter_${key}`] ?? ""}
+            change={(value) => change(key, value)}
+          />
+        ))}
+        {(["decision", "outcome"] as const).map((key) => (
+          <select
+            key={key}
+            aria-label={sentenceCase(key)}
+            value={query[`filter_${key}`] ?? ""}
+            onChange={(event) => change(key, event.currentTarget.value)}
+          >
+            <option value="">{sentenceCase(key)}: any</option>
+            {invocationOptions[key].map(([value, label]) => (
+              <option value={value}>{label}</option>
+            ))}
+          </select>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            setReset(reset + 1);
+            apply({});
+          }}
+        >
+          Clear filters
+        </button>
+      </div>
+      {error && <StateNotice state="error" title={error} />}
+    </>
   );
 }
 function RetainedArgumentCapture({ value }: { value: unknown }) {
@@ -808,9 +1084,6 @@ function InvocationDetail({
   const item = snapshot.item;
   return (
     <div class="domain-view" data-testid="invocation-detail">
-      <nav class="detail-navigation" aria-label="Invocation navigation">
-        <a href="#/invocations">Back to invocations</a>
-      </nav>
       <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 id="invocation-page-title" tabindex={-1}>

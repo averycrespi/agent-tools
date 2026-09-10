@@ -28,6 +28,7 @@ func TestInvocationReadAPI(t *testing.T) {
 	query := url.Values{
 		"limit": {"1"}, "cursor": {"opaque"}, "principal_id": {testID}, "server_id": {testServerID},
 		"requested_name": {"namespace.tool"}, "admission_class": {"evaluated"}, "decision": {"allow"}, "outcome": {"succeeded"},
+		"tool": {"retired lokoup"}, "principal": {"cafe investgiator"}, "search_locale": {"en-US"},
 	}
 	listed := perform(handler, http.MethodGet, "/api/v1/invocations?"+query.Encode(), "", bearer)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
@@ -43,6 +44,9 @@ func TestInvocationReadAPI(t *testing.T) {
 	assert.Equal(t, contract.AdmissionEvaluated, *service.query.Filters.AdmissionClass)
 	assert.Equal(t, contract.DecisionAllow, *service.query.Filters.Decision)
 	assert.Equal(t, contract.InvocationOutcomeSucceeded, *service.query.Filters.Outcome)
+	assert.Equal(t, "retired lokoup", service.query.Filters.Tool)
+	assert.Equal(t, "cafe investgiator", service.query.Filters.Principal)
+	assert.Equal(t, "en-US", service.query.Filters.SearchLocale)
 
 	item := perform(handler, http.MethodGet, "/api/v1/invocations/"+service.item.ID, "", bearer)
 	require.Equal(t, http.StatusOK, item.Code, item.Body.String())
@@ -66,6 +70,19 @@ func TestInvocationReadAPI(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, response.Code, target+": "+response.Body.String())
 		assert.Contains(t, response.Body.String(), "malformed_request", target)
 	}
+	for _, decision := range []string{"allow", "deny", "block", "not_evaluated"} {
+		response := perform(handler, http.MethodGet, "/api/v1/invocations?decision="+decision, "", bearer)
+		assert.Equal(t, http.StatusOK, response.Code)
+		assert.Equal(t, decision, string(*service.query.Filters.Decision))
+	}
+	for _, outcome := range contract.InvocationOutcomeClasses() {
+		response := perform(handler, http.MethodGet, "/api/v1/invocations?outcome="+string(outcome), "", bearer)
+		assert.Equal(t, http.StatusOK, response.Code)
+		assert.Equal(t, outcome, *service.query.Filters.Outcome)
+	}
+	literalResponse := perform(handler, http.MethodGet, "/api/v1/invocations?tool=null&principal=null", "", bearer)
+	assert.Equal(t, http.StatusOK, literalResponse.Code)
+	assert.Equal(t, "null", service.query.Filters.Tool)
 	tooLongCursor := perform(handler, http.MethodGet, "/api/v1/invocations?cursor="+strings.Repeat("x", 513), "", bearer)
 	assert.Equal(t, http.StatusBadRequest, tooLongCursor.Code)
 	assert.Contains(t, tooLongCursor.Body.String(), "invalid_cursor")

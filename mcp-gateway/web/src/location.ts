@@ -1,4 +1,5 @@
 import { validAuditQuery } from "./audit-contract.ts";
+import { validInvocationQuery } from "./invocation-query.ts";
 
 export const MAX_FRAGMENT_BYTES = 2048;
 
@@ -351,14 +352,14 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("audit", segments, query);
   }
   if (first === "invocations") {
-    if (segments.length === 1 && exactQuery(query, {})) {
+    if (segments.length === 1 && validInvocationQuery(query)) {
       return location("invocations", segments, query);
     }
     if (
       segments.length === 2 &&
       second !== undefined &&
       isGatewayID(second) &&
-      noQuery
+      validInvocationQuery(query)
     ) {
       return location("invocations", segments, query);
     }

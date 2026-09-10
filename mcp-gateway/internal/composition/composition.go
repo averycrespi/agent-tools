@@ -64,7 +64,7 @@ type ControlAPIDependencies struct {
 	AuthorizationCollections *authorization.CollectionService
 
 	GrantRequests *grantrequests.AdminService
-	Invocations   *invocation.Repository
+	Invocations   *invocation.ReadService
 	Audit         *audit.Repository
 }
 
@@ -85,6 +85,7 @@ type Composition struct {
 	listTools            *discoveryListAdapter
 	auditRepository      *audit.Repository
 	invocationRepository *invocation.Repository
+	invocationReads      *invocation.ReadService
 	invocationPipelines  *invocation.PipelineFence
 	invocationService    *invocation.Service
 	callTools            *invocationCallAdapter
@@ -153,11 +154,11 @@ func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
 	if built == nil || !built.s5Complete() || built.auditRepository == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationRepository, Audit: built.auditRepository}, true
+	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, Audit: built.auditRepository}, true
 }
 func (built *Composition) s5Complete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
-		built.discovery != nil && built.listTools != nil && built.invocationRepository != nil && built.invocationService != nil && built.callTools != nil
+		built.discovery != nil && built.listTools != nil && built.invocationRepository != nil && built.invocationReads != nil && built.invocationService != nil && built.callTools != nil
 }
 func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
 func (built *Composition) Provider() *keyring.Provider                 { return built.provider }
@@ -568,6 +569,10 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	}
 	if err := check("invocation_validation"); err != nil {
 		return nil, err
+	}
+	built.invocationReads, err = invocation.NewReadService(built.invocationRepository, built.authorization)
+	if err != nil {
+		return nil, fmt.Errorf("construct invocation reads: %w", err)
 	}
 	if err := built.invocationRepository.ValidateStartup(context.Background()); err != nil {
 		return nil, fmt.Errorf("validate invocation startup: %w", err)

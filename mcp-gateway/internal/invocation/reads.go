@@ -44,16 +44,20 @@ func (repository *Repository) Get(ctx context.Context, invocationID string) (con
 }
 
 func (repository *Repository) List(ctx context.Context, query contract.InvocationListQuery) (contract.InvocationPage, error) {
+	return repository.list(ctx, query, nil)
+}
+
+func (repository *Repository) list(ctx context.Context, query contract.InvocationListQuery, nameSource PrincipalDisplayNames) (contract.InvocationPage, error) {
 	if query.Limit < 1 || query.Limit > 100 || !validInvocationFilters(query.Filters) {
 		return contract.InvocationPage{}, ErrInvalidInput
 	}
 	var binding contract.InvocationCursorBinding
 	if query.Cursor != nil {
-		decoded, err := decodeInvocationCursor(*query.Cursor)
+		decoded, err := repository.decodeInvocationCursor(*query.Cursor)
 		if err != nil {
 			return contract.InvocationPage{}, err
 		}
-		if !sameInvocationFilters(decoded.Filters, query.Filters) {
+		if decoded.QueryDigest != searchDigest(query.Filters) {
 			return contract.InvocationPage{}, ErrStaleCursor
 		}
 		binding = decoded
@@ -61,6 +65,28 @@ func (repository *Repository) List(ctx context.Context, query contract.Invocatio
 
 	page := contract.InvocationPage{Items: make([]contract.InvocationSummary, 0, query.Limit)}
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
+		names := map[string]string{}
+		if query.Filters.Principal != "" {
+			if nameSource == nil {
+				return ErrStorageUnavailable
+			}
+			var err error
+			names, err = nameSource.PrincipalDisplayNamesTx(ctx, transaction)
+			if err != nil {
+				return fmt.Errorf("read invocation principal names: %w", err)
+			}
+		}
+		namesDigest := searchDigest(names)
+		if query.Cursor != nil && binding.NamesDigest != namesDigest {
+			return ErrStaleCursor
+		}
+		toolSearch := newHistorySearch(query.Filters.Tool, query.Filters.SearchLocale)
+		principalSearch := newHistorySearch(query.Filters.Principal, query.Filters.SearchLocale)
+		principalQuery := strings.TrimSpace(query.Filters.Principal)
+		principalMatches := make(map[string]bool, len(names))
+		for id, name := range names {
+			principalMatches[id] = principalSearch.matches(name)
+		}
 		if query.Cursor == nil {
 			if err := transaction.QueryRowContext(ctx, `SELECT COALESCE(MAX(insertion_sequence), 0) FROM invocations`).Scan(&binding.UpperSequence); err != nil {
 				return fmt.Errorf("capture invocation upper sequence: %w", err)
@@ -80,32 +106,68 @@ func (repository *Repository) List(ctx context.Context, query contract.Invocatio
 			}
 		}
 
-		statement, arguments := invocationListStatement(binding.NextSequence, query.Filters, query.Limit+1)
+		selectionLimit := query.Limit + 1
+		searching := query.Filters.Tool != "" || query.Filters.Principal != ""
+		if searching {
+			selectionLimit = int(invocationLimit()) + 1
+		}
+		statement, arguments := invocationListStatement(binding.NextSequence, query.Filters, selectionLimit)
+		if searching {
+			statement = strings.Replace(statement, invocationSummarySelect, invocationSearchSelect, 1)
+		}
 		rows, err := transaction.QueryContext(ctx, statement, arguments...)
 		if err != nil {
 			return fmt.Errorf("list invocations: %w", err)
 		}
 		defer func() { _ = rows.Close() }()
 		records := make([]contract.InvocationAuditRecord, 0, query.Limit+1)
+		scanned := int64(0)
 		for rows.Next() {
-			record, scanErr := scanInvocation(rows)
+			scanned++
+			if scanned > invocationLimit() {
+				return invalidInvocationState("invocation history exceeds capacity")
+			}
+			var record contract.InvocationAuditRecord
+			var scanErr error
+			if searching {
+				record, scanErr = scanInvocationSearch(rows)
+			} else {
+				record, scanErr = scanInvocation(rows)
+			}
 			if scanErr != nil {
 				return fmt.Errorf("scan invocation list row: %w", scanErr)
 			}
-			if !validStoredInvocation(record) {
+			if !searching && !validStoredInvocation(record) {
 				return invalidInvocationState("invocation row is malformed")
 			}
+			if !toolSearch.matches(invocationSearchLabel(record)) ||
+				(principalQuery != "" && !strings.Contains(record.PrincipalID, principalQuery) && len(principalSearch.tokens) != 0 && !principalMatches[record.PrincipalID]) {
+				continue
+			}
 			records = append(records, record)
+			if len(records) == query.Limit+1 {
+				break
+			}
 		}
 		if err := rows.Err(); err != nil {
 			return fmt.Errorf("iterate invocation list: %w", err)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if searching {
+			var err error
+			records, err = hydrateInvocationSelection(ctx, transaction, records)
+			if err != nil {
+				return err
+			}
 		}
 		visible := len(records)
 		if visible > query.Limit {
 			visible = query.Limit
 			next := records[query.Limit].Sequence
-			cursor, encodeErr := encodeInvocationCursor(contract.InvocationCursorBinding{
-				Filters: query.Filters, UpperSequence: binding.UpperSequence, NextSequence: next,
+			cursor, encodeErr := repository.encodeInvocationCursor(contract.InvocationCursorBinding{
+				Filters: query.Filters, NamesDigest: namesDigest, UpperSequence: binding.UpperSequence, NextSequence: next,
 			})
 			if encodeErr != nil {
 				return invalidInvocationState("invocation cursor cannot be encoded")
@@ -147,8 +209,12 @@ func invocationListStatement(nextSequence int64, filters contract.InvocationFilt
 		arguments = append(arguments, string(*filters.AdmissionClass))
 	}
 	if filters.Decision != nil {
-		clauses = append(clauses, "decision = ?")
-		arguments = append(arguments, string(*filters.Decision))
+		if *filters.Decision == "not_evaluated" {
+			clauses = append(clauses, "decision IS NULL")
+		} else {
+			clauses = append(clauses, "decision = ?")
+			arguments = append(arguments, string(*filters.Decision))
+		}
 	}
 	if filters.Outcome != nil {
 		clause, values := invocationOutcomeClause(*filters.Outcome)
@@ -176,6 +242,9 @@ func invocationOutcomeClause(outcome contract.InvocationOutcomeClass) (string, [
 }
 
 func validInvocationFilters(filters contract.InvocationFilters) bool {
+	if !validSearchText(filters.Tool) || !validSearchText(filters.Principal) || !validSearchLocale(filters.SearchLocale) {
+		return false
+	}
 	if filters.PrincipalID != nil && !validOpaqueInvocationID(*filters.PrincipalID) ||
 		filters.ServerID != nil && !validOpaqueInvocationID(*filters.ServerID) ||
 		filters.RequestedName != nil && !validInvocationName(*filters.RequestedName) {
@@ -187,7 +256,7 @@ func validInvocationFilters(filters contract.InvocationFilters) bool {
 		}
 	}
 	if filters.Decision != nil {
-		if _, err := contract.ParseAuthorizationDecision(string(*filters.Decision)); err != nil {
+		if _, err := contract.ParseInvocationDecisionFilter(string(*filters.Decision)); err != nil {
 			return false
 		}
 	}

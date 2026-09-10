@@ -2,6 +2,7 @@ package invocation
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -70,6 +71,7 @@ type Repository struct {
 	limit      int64
 	entropyMu  sync.Mutex
 	waitStop   <-chan struct{}
+	cursorKey  [32]byte
 }
 
 func NewRepository(store *storage.Store, clock Clock, entropy io.Reader, invalidators ...func(contract.Invalidation)) (*Repository, error) {
@@ -84,7 +86,11 @@ func NewRepositoryWithWaitStop(store *storage.Store, clock Clock, entropy io.Rea
 	if len(invalidators) == 1 {
 		invalidate = invalidators[0]
 	}
-	return &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate, limit: invocationLimit(), waitStop: waitStop}, nil
+	repository := &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate, limit: invocationLimit(), waitStop: waitStop}
+	if _, err := rand.Read(repository.cursorKey[:]); err != nil {
+		return nil, fmt.Errorf("initialize invocation cursor key: %w", err)
+	}
+	return repository, nil
 }
 
 func (repository *Repository) Prepare(admission Admission) (PreparedAdmission, error) {

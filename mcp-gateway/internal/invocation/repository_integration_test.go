@@ -22,7 +22,7 @@ func TestRepositoryRetainsNewest65536ByMonotonicSequence(t *testing.T) {
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 		return insertInvocationCapacityFixtures(context.Background(), transaction, invocationLimit())
 	}))
-	cursor, err := encodeInvocationCursor(contract.InvocationCursorBinding{UpperSequence: invocationLimit(), NextSequence: 1})
+	cursor, err := repository.encodeInvocationCursor(contract.InvocationCursorBinding{UpperSequence: invocationLimit(), NextSequence: 1})
 	require.NoError(t, err)
 	prepared, err := repository.Prepare(testEvaluatedAdmission())
 	require.NoError(t, err)

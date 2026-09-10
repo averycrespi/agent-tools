@@ -269,16 +269,13 @@ try {
         ) &&
         !(
           input.scenario === "invocations" &&
-          (message
-            .text()
-            .startsWith(
-              "Failed to load resource: the server responded with a status of 409",
-            ) ||
+          [404, 409, 503].some((status) =>
             message
               .text()
               .startsWith(
-                "Failed to load resource: the server responded with a status of 404",
-              ))
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+          )
         ) &&
         !(
           input.scenario === "server-catalog-reads" &&

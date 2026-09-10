@@ -11,6 +11,7 @@ import {
   waitForLifecycle,
 } from "./shared.ts";
 import { assertViewGenerationFoundation } from "./foundations.ts";
+import { assertAuthoritativeHistory } from "./history-scenarios.ts";
 import {
   invocationFixture,
   invocationIDs,
@@ -66,7 +67,7 @@ export async function runOverviewInvocationSystemCanary(
     () =>
       document
         .querySelector('[data-testid="invocations-view"]')
-        ?.textContent?.includes("No retained invocations match") === true,
+        ?.textContent?.includes("No retained invocations") === true,
   );
   body = (await page.locator("body").textContent()) ?? "";
   if (
@@ -1570,6 +1571,12 @@ export async function runInvocations(
         ?.getAttribute("data-freshness") === "current",
   );
 
+  const historyScreenshots = await assertAuthoritativeHistory(
+    context,
+    page,
+    baseURL,
+    bearer,
+  );
   const captureCanary = `INVOCATION_CAPTURE_<script>${"C".repeat(64)}`;
   let argumentCapture: unknown = {
     note: captureCanary,
@@ -1626,13 +1633,42 @@ export async function runInvocations(
       return;
     }
     const query = url.searchParams;
-    const allowed = new Set(["limit", "cursor"]);
+    const allowed = new Set([
+      "limit",
+      "cursor",
+      "tool",
+      "principal",
+      "decision",
+      "outcome",
+      "search_locale",
+    ]);
     if (
       query.get("limit") !== "50" ||
       [...query.keys()].some((key) => !allowed.has(key)) ||
       [...query.keys()].some((key) => query.getAll(key).length !== 1)
     )
       fail("invocation list request changed shape");
+    if (query.get("tool") === "namespace.allowed") {
+      if (query.has("cursor") || !query.has("search_locale"))
+        fail("Invocation filter reused cursor or omitted search locale");
+      listReads += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            invocationFixture(
+              invocationIDs.terminal,
+              "terminal",
+              "succeeded",
+              "downstream",
+            ),
+          ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
     const cursor = query.get("cursor");
     if (cursor !== null) continuationReads += 1;
     else listReads += 1;
@@ -1682,7 +1718,6 @@ export async function runInvocations(
       return;
     }
     if (cursor === "page-2") {
-      await new Promise((resolve) => setTimeout(resolve, 80));
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -1780,6 +1815,8 @@ export async function runInvocations(
     "retains at most 4,096 recent rows",
     "Filtered pages are independently coherent",
     "gateway:get_identity",
+    "Tool searches recorded names",
+    "Names ignore accents and tolerate one typo",
   ])
     if (body.includes(phrase)) fail(`invocation list retained ${phrase}`);
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
@@ -1813,6 +1850,26 @@ export async function runInvocations(
     body.includes("Recorded credential")
   )
     fail("invocation collection exposed item capture or internal identities");
+
+  const toolCell = (id: string) =>
+    page
+      .locator('[data-testid="invocation-row"]')
+      .filter({ hasText: id })
+      .getByRole("cell")
+      .first();
+  await expect(toolCell(invocationIDs.policy).getByRole("link")).toHaveText(
+    "namespace.allowed",
+  );
+  await expect(
+    toolCell(invocationIDs.policy).getByRole("link"),
+  ).toHaveAttribute(
+    "href",
+    `#/servers/${invocationIDs.server}/descriptors/${invocationIDs.tool}`,
+  );
+  await expect(toolCell(invocationIDs.admission)).toHaveText("Not resolved");
+  await expect(toolCell(invocationIDs.admission).getByRole("link")).toHaveCount(
+    0,
+  );
 
   const beforeWait = listReads;
   await page.waitForTimeout(5100);
@@ -1849,6 +1906,23 @@ export async function runInvocations(
   if (body.includes("missing_terminal") || body.includes("basis"))
     fail("invocation collection exposed internal outcome semantics");
 
+  await expect(toolCell(invocationIDs.missing)).toHaveText(
+    "mcp_gateway.get_identity",
+  );
+  await expect(toolCell(invocationIDs.missing).getByRole("link")).toHaveCount(
+    0,
+  );
+  const linkScreenshots = await mkdtemp(
+    join(tmpdir(), "gateway-history-links-"),
+  );
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `tools-${width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    historyScreenshots.push(path);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   const toolFilter = page.getByLabel("Tool", { exact: true });
   await toolFilter.fill("namespace.allowed");
   await page
@@ -1864,9 +1938,10 @@ export async function runInvocations(
     )
   )
     fail("invocation tool filter was not persisted in the URL");
-  await page.getByRole("button", { name: "Reset" }).click();
-  if ((await toolFilter.inputValue()) !== "")
-    fail("invocation filter Reset did not clear the field");
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .click();
+  await expect(toolFilter).toHaveValue("");
   const storage = await browserStorage(page);
   if (JSON.stringify(storage).includes("namespace.allowed"))
     fail("invocation filter entered browser storage");
@@ -1991,7 +2066,7 @@ export async function runInvocations(
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "invocations_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, continuation_reads: continuationReads, item_reads: itemReads })}\n`,
+    `${JSON.stringify({ event: "invocations_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, continuation_reads: continuationReads, item_reads: itemReads, history_screenshots: historyScreenshots })}\n`,
   );
 }
 

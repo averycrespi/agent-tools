@@ -113,7 +113,19 @@ type Invocation struct {
 	RedactedArguments json.RawMessage `json:"redacted_arguments"`
 }
 
+// ParseInvocationDecisionFilter includes absence of evaluation without expanding
+// the authorization decision vocabulary stored in invocation evidence.
+func ParseInvocationDecisionFilter(value string) (AuthorizationDecision, error) {
+	if value == "not_evaluated" {
+		return AuthorizationDecision(value), nil
+	}
+	return ParseAuthorizationDecision(value)
+}
+
 type InvocationFilters struct {
+	Tool           string                    `json:"tool,omitempty"`
+	Principal      string                    `json:"principal,omitempty"`
+	SearchLocale   string                    `json:"search_locale,omitempty"`
 	PrincipalID    *string                   `json:"principal_id"`
 	ServerID       *string                   `json:"server_id"`
 	RequestedName  *string                   `json:"requested_name"`
@@ -135,6 +147,8 @@ type InvocationPage struct {
 
 type InvocationCursorBinding struct {
 	Filters       InvocationFilters
+	QueryDigest   string
+	NamesDigest   string
 	UpperSequence int64
 	NextSequence  int64
 }

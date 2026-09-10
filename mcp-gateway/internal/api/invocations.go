@@ -63,13 +63,15 @@ func parseInvocationQuery(rawQuery string) (contract.InvocationListQuery, contra
 	allowed := map[string]bool{
 		"cursor": true, "limit": true, "principal_id": true, "server_id": true, "requested_name": true,
 		"admission_class": true, "decision": true, "outcome": true,
+		"tool": true, "principal": true, "search_locale": true,
 	}
 	for key, values := range query {
-		if !allowed[key] || len(values) != 1 || values[0] == "" || values[0] == "null" {
+		if !allowed[key] || len(values) != 1 || values[0] == "" || values[0] == "null" && key != "tool" && key != "principal" {
 			return contract.InvocationListQuery{}, contract.ProblemMalformedRequest
 		}
 	}
-	result := contract.InvocationListQuery{Limit: contract.AdminListPageDefault}
+	result := contract.InvocationListQuery{Limit: contract.AdminListPageDefault,
+		Filters: contract.InvocationFilters{Tool: query.Get("tool"), Principal: query.Get("principal"), SearchLocale: query.Get("search_locale")}}
 	if values, ok := query["limit"]; ok {
 		limit, parseErr := strconv.Atoi(values[0])
 		if parseErr != nil || limit < 1 || limit > limitValue("admin_list_page") {
@@ -100,7 +102,7 @@ func parseInvocationQuery(rawQuery string) (contract.InvocationListQuery, contra
 		result.Filters.AdmissionClass = &value
 	}
 	if values, ok := query["decision"]; ok {
-		value, parseErr := contract.ParseAuthorizationDecision(values[0])
+		value, parseErr := contract.ParseInvocationDecisionFilter(values[0])
 		if parseErr != nil {
 			return contract.InvocationListQuery{}, contract.ProblemMalformedRequest
 		}
