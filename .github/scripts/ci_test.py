@@ -43,7 +43,7 @@ class SelectionTests(unittest.TestCase):
     def test_shared_and_unknown_paths_select_everything(self):
         for path in ("go.work", "go.work.sum", "Makefile", "package.json", "package-lock.json",
                      ".github/workflows/ci.yml", ".github/scripts/ci.py", ".github/actions/go-cache/action.yml", ".prettierignore",
-                     "README.md", "assets/tool-relationships.svg", "new-tool/main.go",
+                     "README.md", "assets/example.svg", "new-tool/main.go",
                      "mcp-gateway-lookalike/main.go"):
             with self.subTest(path=path):
                 self.assertEqual(self.select([path])["tools"], TOOLS)

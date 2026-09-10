@@ -2,121 +2,107 @@
 
 [![CI](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml)
 
-My tools for working with AI coding agents. Pairs well with my [agent-config](https://github.com/averycrespi/agent-config).
+My tools for working with AI coding agents: sandboxed execution and controlled external access that keeps upstream credentials on the host. Use individual tools or combine them to fit your workflow.
 
-This repo is opinionated. It provides sandboxed execution and broker-backed external access that make coding agents safer and easier to run day to day. Use it as-is, fork it, or cherry-pick the tools that fit your setup.
+## Tools at a Glance
 
-## Overview
+| Tool                                          | Purpose                                              | Runs on         |
+| --------------------------------------------- | ---------------------------------------------------- | --------------- |
+| [Sandbox Manager (`sb`)](#sandbox-manager-sb) | Manage a Lima VM for agent execution                 | macOS host      |
+| [MCP Broker](#mcp-broker)                     | Apply rules and per-call human approval to MCP tools | Host            |
+| [MCP Gateway](#mcp-gateway)                   | Give agents scoped access to MCP tools               | Host            |
+| [HTTP Broker](#http-broker)                   | Inject credentials into proxied HTTP/HTTPS requests  | Host            |
+| [Local Git MCP](#local-git-mcp)               | Perform authenticated Git remote operations over MCP | Host subprocess |
+| [Local Gomod Proxy](#local-gomod-proxy)       | Fetch private Go dependencies for sandboxed clients  | Host            |
 
-- **[Sandbox Manager](#sandbox-manager-sb)** — Manage a Lima VM sandbox for isolated agent environments
-- **[MCP Broker](#mcp-broker)** — Proxy that lets sandboxed agents use external tools without holding secrets
-- **[MCP Gateway](#mcp-gateway)** — Agent-first MCP access with scoped permissions, host-held credentials, and browser-based administration
-- **[HTTP Broker](#http-broker)** — MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents
-- **[Local Git MCP](#local-git-mcp)** — Stdio MCP server for authenticated git remote operations
-- **[Local Gomod Proxy](#local-gomod-proxy)** — Host-side Go module proxy for sandboxed agents
+## Choosing and Combining Tools
 
-## How the Tools Fit Together
+These tools are independent, not a mandatory stack:
 
-![Diagram showing how the tools connect to each other](assets/tool-relationships.svg)
+- **Execution:** Sandbox Manager provides an optional Lima VM. The access tools do not require the Pi coding agent, and MCP Gateway does not depend on Lima or a particular agent harness.
+- **MCP access:** Choose MCP Broker or MCP Gateway based on the permission model below. Both connect agents to backend MCP servers.
+- **Git access:** Run Local Git MCP as a stdio backend behind either Broker or Gateway, using that service's access controls and invocation history.
+- **Non-MCP traffic:** HTTP Broker handles ordinary HTTP/HTTPS clients; Local Gomod Proxy handles Go module downloads. They complement MCP access rather than routing through it.
 
 ### MCP Broker or MCP Gateway?
 
-Both keep upstream credentials outside the sandbox and control access to MCP tools, but they use different permission models:
+Both keep upstream credentials outside the sandbox, but approval means different things:
 
-- **MCP Broker** uses rules to allow, deny, or send individual tool calls for human approval.
-- **MCP Gateway** uses per-agent identities and scoped grants. Agents can request additional permissions; approval changes access rather than queuing a tool call.
+|                | MCP Broker                                                   | MCP Gateway                                                            |
+| -------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Access model   | Rules allow, deny, or require human approval for a tool call | Per-agent grants scope access to servers, tools, or matching arguments |
+| Human approval | Resolves an individual waiting call                          | Grants permissions; does not approve a queued tool call                |
+| Agent workflow | Call tools under operator-defined rules                      | Discover tools, inspect access, and request additional permissions     |
 
-Choose the model that fits your workflow. They are independent services with separate configuration and state; Gateway does not migrate Broker settings.
+They have separate configuration and state; Gateway does not migrate Broker settings.
 
-## Tools
+## Tool Summaries
 
 ### Sandbox Manager (sb)
 
-Running AI agents with full host access is risky — one bad command can trash your environment. Containers help, but they're optimized for application isolation, not interactive development. What you want is a full VM that feels like a real development machine, is cheap to create and destroy, and can be provisioned to match your workflow.
+`sb` manages a lightweight Lima VM on macOS for running agents in a separate development environment.
 
-`sb` wraps Lima to manage a lightweight Linux VM on macOS:
+- Creates an Ubuntu VM with a host-matching UID and writable workspace mounts.
+- Applies repeatable provisioning scripts to install and configure the tools your agents need.
+- Provides commands to enter, provision, and destroy the sandbox.
 
-- `sb create` spins up a provisioned Ubuntu VM with a host-matching UID, writable mounts, and any tools your provisioning scripts install.
-- `sb shell` drops you in.
-- `sb provision` re-provisions a running VM.
-- `sb destroy` tears it down.
+The sandbox protects host integrity and credential custody; it is not a data-loss-prevention boundary. Guest network egress is allowed by default, so do not put secrets or sensitive private data in the VM unless you accept that an agent can transmit them.
 
-The sandbox protects host integrity and credential custody; it is not a data-loss-prevention boundary. Guest network egress is intentionally allowed by default, so keep secrets and sensitive private data out of the VM unless you accept that the agent can transmit them.
-
-See the [sandbox-manager README](sandbox-manager/README.md) for more information.
+See the [Sandbox Manager README](sandbox-manager/README.md) for setup and usage.
 
 ### MCP Broker
 
-AI agents need to call external APIs (GitHub, Jira, Slack), but giving a sandboxed agent credentials or direct MCP access defeats the point of the sandbox. What you want is a single broker that holds the credentials, enforces policy on every tool call, and gives you a place to see and approve what the agent is doing.
+`mcp-broker` proxies MCP servers through a single host-side endpoint when you want rule-based access with optional per-call human approval.
 
-`mcp-broker` runs on the host, holds the secrets, and exposes backend MCP servers through a single endpoint:
+- Applies allow, deny, or require-approval rules to tool calls.
+- Collects human decisions through a web dashboard, with optional Telegram approval.
+- Records tool calls in a searchable SQLite audit log and displays discovered tools and rules.
 
-- The user connects their individual MCP servers to the MCP Broker.
-- Agents connect to the broker as their only MCP server, without receiving upstream service credentials.
-- Rules control which MCP tools are auto-allowed, auto-denied, or sent for human approval.
-- Tool calls are recorded in a searchable SQLite audit log.
-- A web dashboard handles approval requests in real time and surfaces the configured rules, discovered tools, and searchable audit log.
-
-See the [mcp-broker README](mcp-broker/README.md) for more information.
+See the [MCP Broker README](mcp-broker/README.md) for setup and usage.
 
 ### MCP Gateway
 
-Coding agents need external tools, but they shouldn't need your API keys or unrestricted access to every connected service. What you want is one place to connect MCP servers, decide what each agent can do, and see what happened.
+`mcp-gateway` provides a local MCP endpoint when you want separate agent identities and scoped permissions that agents can request through MCP.
 
-`mcp-gateway` runs locally and exposes your MCP servers through a single controlled endpoint:
+- Denies access unless granted, with scopes for servers, tools, or matching arguments and optional expiry.
+- Manages upstream credentials and OAuth; agents receive a separate Gateway credential, not upstream service secrets.
+- Provides a web application and CLI for administration, with redacted invocation history and control-plane audit records.
 
-- **Agent-first** — Agents discover tools, inspect their access, and request additional permissions through MCP.
-- **Credentials stay outside the sandbox** — Gateway manages upstream credentials and OAuth; agents receive a separate Gateway credential, not your service secrets.
-- **Scoped by default** — Access is denied unless granted. Give each agent permissions for specific servers, tools, or matching tool arguments, with optional expiry.
-- **Sandbox-agnostic** — No dependency on Lima, containers, or a particular agent harness. Connect local clients directly or sandboxed clients through trusted local forwarding.
-- **Operator-friendly** — Manage servers, agents, grants, and access requests through an embedded web application or CLI, with redacted invocation history and control-plane audit records.
-
-See the [mcp-gateway README](mcp-gateway/README.md) for more information.
+See the [MCP Gateway README](mcp-gateway/README.md) for setup and usage.
 
 ### HTTP Broker
 
-MCP Broker and MCP Gateway keep upstream credentials out of the sandbox for MCP tool calls. An agent that reaches for `curl`, an SDK, or any ordinary HTTP client is back to holding its own.
+`http-broker` is a host-side HTTP/HTTPS forward proxy for clients such as `curl` and SDKs that need authenticated access outside MCP.
 
-`http-broker` applies the same premise to raw HTTP. It is a host-native forward proxy that decides per connection whether to intercept, tunnel, or deny, injects credentials the sandbox never holds, and records every request to an audit log surfaced through a read-only dashboard.
+- Applies rules to intercept, tunnel, or deny traffic, injecting host-held credentials into intercepted requests.
+- Binds each credential to allowed destination hosts, independently of request rules.
+- Records proxy traffic in an audit log with a read-only web dashboard.
 
-```json
-{
-  "name": "github-issues",
-  "host": "api.github.com",
-  "path": "/repos/*/*/issues",
-  "mode": "intercept",
-  "inject": { "set": { "Authorization": "Bearer ${cred.gh_bot}" } }
-}
-```
+Enforcement is **cooperative**: clients must honour `HTTP_PROXY`/`HTTPS_PROXY`. Clients can bypass the proxy, so it is not a containment boundary. See the [security model](http-broker/docs/security-model.md) for details.
 
-Every credential carries bound hosts, so a rule-authoring slip cannot send a token somewhere it does not belong.
-
-Enforcement is **cooperative** — it rests on the sandbox honouring `HTTP_PROXY`/`HTTPS_PROXY`, so it is not a containment boundary. See the [http-broker README](http-broker/README.md) and its [security model](http-broker/docs/security-model.md) for what it does and does not guarantee.
+See the [HTTP Broker README](http-broker/README.md) for setup and usage.
 
 ### Local Git MCP
 
-Sandboxed agents can do most git operations locally — staging, committing, diffing, rebasing — because those don't need authentication. But pushing, pulling, and fetching require credentials that the sandbox intentionally doesn't have. What you want is a host-side helper that performs just the credentialed operations on the agent's behalf, without ever exposing your SSH keys or credential store to the sandbox.
+`local-git-mcp` exposes authenticated Git remote operations to agents through a host-side stdio MCP server.
 
-`local-git-mcp` is a stdio MCP server that runs on the host and shells out to the user's existing `git` setup:
+- Supports pushing, pulling, fetching, cloning GitHub repositories, and inspecting remotes and remote refs.
+- Uses the host's existing Git, SSH keys, and credential helpers without copying those credentials into the sandbox.
+- Runs as a subprocess behind MCP Broker or MCP Gateway, with no separate config, persistent state, or network listener.
 
-- Six tools — `push`, `pull`, `fetch`, `clone_github_repo`, `list_remote_refs`, and `list_remotes` — cover every remote operation an agent typically needs.
-- Uses the host's existing SSH keys and credential helpers; no tokens or keys ever cross into the sandbox.
-- Runs as a stdio backend behind MCP Broker or MCP Gateway, so remote operations go through the chosen service's access controls and invocation history.
-- No config, no state, no network listener — spawned as a subprocess over stdio.
-
-See the [local-git-mcp README](local-git-mcp/README.md) for more information.
+See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
 
 ### Local Gomod Proxy
 
-Sandboxed agents often work in Go projects that depend on private modules hosted in private GitHub repositories. On the host, those dependencies resolve transparently via the user's git credentials. Inside the sandbox, those credentials are intentionally absent — so `go mod download` fails for any private dependency.
+`local-gomod-proxy` serves Go modules from the host so sandboxed clients can resolve private dependencies without the host's Git credentials.
 
-`local-gomod-proxy` is a minimal HTTP Go module proxy that runs on the host and bridges the gap:
+- Forwards public module requests to `proxy.golang.org` by default.
+- Fetches private modules matched by `GOPRIVATE` through the host's Go toolchain and Git credentials.
+- Serves sandbox clients over TLS with separate proxy authentication, configured through `GOPROXY`.
 
-- Public modules are reverse-proxied to `proxy.golang.org`.
-- Private modules (matched by `GOPRIVATE`) are fetched via `go mod download` on the host, inheriting its git credentials, and streamed back to the sandbox.
-- Git credentials stay on the host; the sandbox reaches the proxy over Lima's host-local bridge and carries none.
+Keep the proxy local and share its client credentials only with trusted sandboxes; do not expose it to the public internet.
 
-See the [local-gomod-proxy README](local-gomod-proxy/README.md) for more information.
+See the [Local Gomod Proxy README](local-gomod-proxy/README.md) for setup and usage.
 
 ## Installation
 
@@ -126,13 +112,7 @@ Requirements:
 - macOS and Lima for Sandbox Manager (`brew bundle` installs Lima from the repository root)
 - A supported operating-system keyring for MCP Gateway server credentials
 
-From the repository root, install all tools:
-
-```bash
-make install
-```
-
-Or install only the tools you need:
+From the repository root, run the install command for the tools you need:
 
 ```bash
 make -C sandbox-manager install
@@ -141,6 +121,12 @@ make -C mcp-gateway install
 make -C http-broker install
 make -C local-git-mcp install
 make -C local-gomod-proxy install
+```
+
+Or install all tools:
+
+```bash
+make install
 ```
 
 Each tool's README covers its configuration and runtime requirements.
@@ -174,7 +160,7 @@ These tools are no longer maintained, but their final versions remain available 
 | `pi-dispatcher`       | [`d1f7ae3da4`](https://github.com/averycrespi/agent-tools/tree/d1f7ae3da4aa70616ee2ee6161eaf22e81cd4c51/pi-dispatcher)       | Replaced by the scheduled-tasks Pi extension.                        |
 | `pi-orchestrator`     | [`3e799fa7c1`](https://github.com/averycrespi/agent-tools/tree/3e799fa7c1b568f8d5abe1faf9335f7ba18ad0b1/pi-orchestrator)     | Replaced by the scheduled-tasks Pi extension.                        |
 | `telegram-mcp`        | [`3d9dc4338b`](https://github.com/averycrespi/agent-tools/tree/3d9dc4338b27123184783c80ada6a6aa5e5b7f0f/telegram-mcp)        | Retired; the standalone notification server is no longer maintained. |
-| `agent-mailbox`       | [`4378f6ef71`](https://github.com/averycrespi/agent-tools/tree/4378f6ef71ea25961b3bb8e08053dfc8ff0302eb/agent-mailbox)       | Replaced by `telegram-mcp`.                                          |
+| `agent-mailbox`       | [`4378f6ef71`](https://github.com/averycrespi/agent-tools/tree/4378f6ef71ea25961b3bb8e08053dfc8ff0302eb/agent-mailbox)       | Replaced by `telegram-mcp`, which is now also retired.               |
 | `local-gh-mcp`        | [`1f7cfd126f`](https://github.com/averycrespi/agent-tools/tree/1f7cfd126fe10f5f3107db771a06450c2adc0d92/local-gh-mcp)        | Deprecated in favor of the official GitHub MCP server.               |
 | `broker-cli`          | [`0251368f3b`](https://github.com/averycrespi/agent-tools/tree/0251368f3b209242d6edcc7b916f476f810cb584/broker-cli)          | Replaced by the `mcp-broker` Pi extension.                           |
 | `hindsight`           | [`164ffccbc0`](https://github.com/averycrespi/agent-tools/tree/164ffccbc010cc41c0a1330f8f1a5570ae61199f/hindsight)           | An experimental memory solution that was ultimately abandoned.       |

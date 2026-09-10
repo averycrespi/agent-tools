@@ -135,7 +135,6 @@ When adding or removing a Go tool, update every repo-level index that describes 
 4. For additions, write `README.md`, `DESIGN.md`, `CLAUDE.md` (see purposes above), and add an `AGENTS.md` symlink to `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`)
 5. Update the root `TOOLS` list in `Makefile`
 6. Update `go.work`
-7. Update the root `README.md` overview, install examples, and tool section
+7. Update the root `README.md` tool table, selection guidance, summaries, and install examples
 8. Update the root `CLAUDE.md` / `AGENTS.md` structure list
-9. Update `assets/tool-relationships.svg` so the architecture diagram matches the current tool set, then validate and render it using the Diagrams and SVGs checklist above
-10. Run `go mod tidy` for affected modules
+9. Run `go mod tidy` for affected modules
