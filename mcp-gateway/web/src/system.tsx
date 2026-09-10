@@ -9,6 +9,7 @@ import type {
 } from "./mutation";
 import {
   CollectionTable,
+  TableIdentity,
   ComparisonTable,
   ConfirmationDialog,
   FormField,
@@ -642,9 +643,15 @@ function ResourceLimits({
         <thead>
           <tr>
             <th scope="col">Resource</th>
-            <th scope="col">In use</th>
-            <th scope="col">Limit</th>
-            <th scope="col">Status</th>
+            <th scope="col" class="column-count">
+              In use
+            </th>
+            <th scope="col" class="column-count">
+              Limit
+            </th>
+            <th scope="col" class="column-status">
+              Status
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -653,9 +660,9 @@ function ResourceLimits({
               <th class="system-limit-name" scope="row">
                 {limit.name}
               </th>
-              <td>{limit.inUse}</td>
-              <td>{limit.limit}</td>
-              <td>
+              <td class="column-count">{limit.inUse}</td>
+              <td class="column-count">{limit.limit}</td>
+              <td class="column-status">
                 <StatusLabel state={stateForLimit(limit)}>
                   {limit.saturated ? "Saturated" : "Available"}
                 </StatusLabel>
@@ -915,54 +922,77 @@ function Backups({
       ) : backups.length === 0 ? (
         <StateNotice state="empty" title="No backups" />
       ) : (
-        <ComparisonTable caption="Published backup artifacts">
-          <thead>
-            <tr>
-              <th scope="col">Backup</th>
-              <th scope="col">Source</th>
-              <th scope="col">Size</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...backups]
-              .sort((left, right) =>
-                right.createdAt.localeCompare(left.createdAt),
-              )
-              .map((backup) => (
-                <tr key={backup.id} data-testid="backup-row">
-                  <th scope="row">
-                    <code>{backup.id}</code> ·{" "}
-                    <UserTime value={backup.createdAt} />
-                  </th>
-                  <td>
-                    Schema {backup.schemaVersion} · revision{" "}
-                    {backup.sourceRevision}
-                  </td>
-                  <td>{backup.sizeBytes} bytes</td>
-                  <td class="inline-actions">
-                    <button
-                      data-testid="backup-inspect"
-                      type="button"
-                      onClick={() => void inspect(backup.id)}
-                    >
-                      Inspect
-                    </button>
-                    <button
-                      ref={deleteButton}
-                      class="danger-action"
-                      data-testid="backup-delete"
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => beginDelete(backup)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </ComparisonTable>
+        <CollectionTable
+          caption="Published backup artifacts"
+          rowHeaderKey="backup"
+          items={backups}
+          rowKey={(backup) => backup.id}
+          rowTestID="backup-row"
+          initialSort={{ key: "created", direction: "descending" }}
+          columns={[
+            {
+              key: "backup",
+              label: "Backup",
+              role: "identity",
+              render: (backup) => (
+                <TableIdentity primary="Gateway backup" secondary={backup.id} />
+              ),
+            },
+            {
+              key: "source",
+              label: "Source",
+              role: "text",
+              render: (backup) => (
+                <>
+                  Schema {backup.schemaVersion}
+                  <span class="table-secondary">
+                    Revision {backup.sourceRevision}
+                  </span>
+                </>
+              ),
+            },
+            {
+              key: "size",
+              label: "Size",
+              role: "measure",
+              sortValue: (backup) => backup.sizeBytes,
+              render: (backup) => `${backup.sizeBytes.toLocaleString()} bytes`,
+            },
+            {
+              key: "created",
+              label: "Created",
+              role: "time",
+              sortValue: (backup) => backup.createdAt,
+              render: (backup) => <UserTime value={backup.createdAt} />,
+            },
+            {
+              key: "actions",
+              label: "Actions",
+              role: "actions",
+              render: (backup) => (
+                <div class="inline-actions">
+                  <button
+                    data-testid="backup-inspect"
+                    type="button"
+                    onClick={() => void inspect(backup.id)}
+                  >
+                    Inspect
+                  </button>
+                  <button
+                    ref={deleteButton}
+                    class="danger-action"
+                    data-testid="backup-delete"
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => beginDelete(backup)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+        />
       )}
       {detail !== undefined && (
         <section class="subpanel" data-testid="backup-detail">
@@ -1182,7 +1212,7 @@ function AdminCredentials({
         </p>
         <FormField
           id="admin-credential-expiry"
-          label="Expiry"
+          label="Expires"
           hint="Choose a date and time in your local timezone, from 5 minutes through 365 days ahead. Leave blank for a non-expiring credential."
           optional
           {...(expiryError === undefined ? {} : { error: expiryError })}
@@ -1241,10 +1271,10 @@ function AdminCredentials({
                 once.
               </p>
               <dl>
-                <dt>Expiry</dt>
+                <dt>Expires</dt>
                 <dd>
                   {expiry === "" ? (
-                    "Non-expiring"
+                    "No expiry"
                   ) : (
                     <UserTime
                       value={
@@ -1322,6 +1352,15 @@ function AdminCredentials({
       ) : (
         <CollectionTable
           caption="Admin credentials"
+          rowHeaderKey="fingerprint"
+          initialSort={{ key: "created", direction: "descending" }}
+          additionalSorts={[
+            {
+              key: "id",
+              label: "Credential ID",
+              sortValue: (credential) => credential.id,
+            },
+          ]}
           items={[...credentials].sort((left, right) =>
             right.createdAt.localeCompare(left.createdAt),
           )}
@@ -1353,24 +1392,23 @@ function AdminCredentials({
           columns={[
             {
               key: "fingerprint",
-              label: "Fingerprint",
-              render: (credential) => <code>{credential.fingerprint}</code>,
+              label: "Credential",
+              role: "identity",
+              render: (credential) => (
+                <TableIdentity
+                  primary={<code>{credential.fingerprint}</code>}
+                  secondary={credential.id}
+                />
+              ),
               sortValue: (credential) => credential.fingerprint,
-            },
-            {
-              key: "id",
-              label: "ID",
-              render: (credential) => <code>{credential.id}</code>,
-              sortValue: (credential) => credential.id,
             },
             {
               key: "status",
               label: "Status",
+              role: "status",
               render: (credential) => (
                 <StatusLabel
-                  state={
-                    credential.status === "active" ? "current" : "unavailable"
-                  }
+                  state={credential.status === "active" ? "current" : "neutral"}
                 >
                   {sentenceCase(credential.status)}
                 </StatusLabel>
@@ -1380,23 +1418,23 @@ function AdminCredentials({
             {
               key: "created",
               label: "Created",
+              role: "time",
               render: (credential) => <UserTime value={credential.createdAt} />,
               sortValue: (credential) => credential.createdAt,
             },
             {
               key: "expires",
               label: "Expires",
+              role: "time",
               render: (credential) => (
-                <UserTime
-                  value={credential.expiresAt}
-                  fallback="Non-expiring"
-                />
+                <UserTime value={credential.expiresAt} fallback="No expiry" />
               ),
               sortValue: (credential) => credential.expiresAt ?? "",
             },
             {
               key: "actions",
               label: "Actions",
+              role: "actions",
               render: (credential) => {
                 const protectedLast =
                   credential.status === "active" &&
@@ -1421,7 +1459,7 @@ function AdminCredentials({
                     Revoke
                   </button>
                 ) : (
-                  "Terminal"
+                  "—"
                 );
               },
             },

@@ -10,6 +10,7 @@ import type {
 } from "./mutation";
 import {
   CollectionTable,
+  TableIdentity,
   ConfirmationDialog,
   StateNotice,
   StatusLabel,
@@ -92,11 +93,11 @@ function words(value: string): string {
 }
 function operationState(
   operation: ServerOperationView,
-): "current" | "loading" | "warning" {
+): "current" | "loading" | "warning" | "error" | "neutral" {
   if (!operationIsTerminal(operation)) return "loading";
-  return operation.state === "failed" || operation.state === "interrupted"
-    ? "warning"
-    : "current";
+  if (operation.state === "succeeded") return "current";
+  if (operation.state === "failed") return "error";
+  return operation.state === "interrupted" ? "warning" : "neutral";
 }
 function requiresConfirmation(kind: ExplicitOperationKind): boolean {
   return kind === "reload" || kind === "disconnect_credentials";
@@ -118,6 +119,15 @@ export function OperationRows({
   return (
     <CollectionTable
       caption="Server activity"
+      layout="activity"
+      rowHeaderKey="action"
+      additionalSorts={[
+        {
+          key: "started",
+          label: "Started (created if queued)",
+          sortValue: (operation) => operation.startedAt ?? operation.createdAt,
+        },
+      ]}
       remote={controls}
       itemNames={{ singular: "operation", plural: "operations" }}
       emptyTitle="No retained operations"
@@ -127,7 +137,7 @@ export function OperationRows({
       filters={[
         {
           key: "action",
-          label: "Action",
+          label: "Operation",
           type: "select",
           value: (operation) => operation.kind,
           options: [
@@ -160,21 +170,35 @@ export function OperationRows({
           ],
         },
       ]}
-      initialSort={{ key: "started", direction: "descending" }}
+      initialSort={{ key: "created", direction: "descending" }}
       columns={[
         {
+          key: "created",
+          label: "Created",
+          role: "time",
+          sortValue: (operation) => operation.createdAt,
+          render: (operation) => <UserTime value={operation.createdAt} />,
+        },
+        {
           key: "action",
-          label: "Action",
+          label: "Operation",
+          role: "identity",
           sortValue: (operation) => label(operation.kind),
           render: (operation) => (
-            <a href={`#/servers/${serverID}/operations/${operation.id}`}>
-              {label(operation.kind)}
-            </a>
+            <TableIdentity
+              primary={
+                <a href={`#/servers/${serverID}/operations/${operation.id}`}>
+                  {label(operation.kind)}
+                </a>
+              }
+              secondary={operation.id}
+            />
           ),
         },
         {
           key: "status",
           label: "Status",
+          role: "status",
           sortValue: (operation) => operation.state,
           render: (operation) => (
             <StatusLabel state={operationState(operation)}>
@@ -183,16 +207,9 @@ export function OperationRows({
           ),
         },
         {
-          key: "started",
-          label: "Started",
-          sortValue: (operation) => operation.startedAt ?? operation.createdAt,
-          render: (operation) => (
-            <UserTime value={operation.startedAt ?? operation.createdAt} />
-          ),
-        },
-        {
           key: "outcome",
-          label: "Outcome",
+          label: "Reason",
+          role: "text",
           sortValue: (operation) => operation.reason ?? "",
           render: (operation) =>
             operation.reason === null ? "—" : words(operation.reason),
@@ -462,7 +479,7 @@ export function ServerOperations({
               </dd>
             </div>
             <div>
-              <dt>Outcome</dt>
+              <dt>Reason</dt>
               <dd>
                 {operation.reason === null ? "—" : words(operation.reason)}
               </dd>

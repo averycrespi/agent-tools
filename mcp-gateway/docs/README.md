@@ -20,6 +20,7 @@ Generated `mcp-gateway --help` and subcommand help are the exact command and fla
 Human maintainers and coding agents should begin with [maintainer and agent guidance](../CLAUDE.md), then use the focused workflow when applicable:
 
 - [Frontend development](maintainers/frontend-development.md) — trusted live reload, visual inspection, and focused frontend checks.
+- [Table conventions](design/administrative-control-plane.md#table-conventions) — activity/resource column order, names, sizing, identity, status, and responsive behavior.
 - [Release verification](maintainers/release-verification.md) — exact-revision acceptance evidence and report adoption for release owners.
 
 `AGENTS.md` links to `CLAUDE.md` so compatible coding agents discover the same repository-local constraints. Maintainer guides explain development procedures; product behavior remains owned by the design documentation.

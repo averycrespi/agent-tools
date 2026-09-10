@@ -25,7 +25,7 @@ func (q OperationQuery) Validate() bool {
 			return false
 		}
 	}
-	return slices.Contains([]string{"", "action", "status", "started", "outcome"}, q.Sort) && (q.Direction == "" || q.Sort != "" && slices.Contains([]string{"ascending", "descending"}, q.Direction))
+	return slices.Contains([]string{"", "action", "status", "created", "started", "outcome"}, q.Sort) && (q.Direction == "" || q.Sort != "" && slices.Contains([]string{"ascending", "descending"}, q.Direction))
 }
 
 func (q OperationQuery) binding() string {
@@ -138,6 +138,8 @@ func (repository *Repository) QueryOperations(ctx context.Context, serverID stri
 		}
 		key, direction := "coalesce(started_at, created_at)", "ASC"
 		switch q.Sort {
+		case "created":
+			key = "created_at"
 		case "action":
 			key = "kind"
 		case "status":

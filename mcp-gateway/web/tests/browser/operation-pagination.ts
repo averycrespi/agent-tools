@@ -54,13 +54,19 @@ export async function exerciseOperationPagination(
     }
     await page.setViewportSize({ width: 1280, height: 900 });
   };
-  const make = (index: number, kind: string, state: string) => ({
+  const make = (
+    index: number,
+    kind: string,
+    state: string,
+  ): OperationFixture => ({
     ...operation(String(index + 100).padStart(26, "0"), kind, state),
     created_at: new Date(Date.UTC(2026, 8, 1, 0, index)).toISOString(),
     started_at: null,
   });
   const old = make(0, "retry", "running"),
     newest = make(61, "reload", "scheduled");
+  old.started_at = "2026-09-02T00:00:00.000Z";
+  let lastSort: string | null = null;
   const history = [
     old,
     ...Array.from({ length: 60 }, (_, i) =>
@@ -102,6 +108,7 @@ export async function exerciseOperationPagination(
       }
       expect(query.get("limit")).toBe("50");
       expect(query.has("sort")).toBe(true);
+      lastSort = query.get("sort");
       let items = history.filter(
         (item) =>
           (!query.has("action") || item.kind === query.get("action")) &&
@@ -116,7 +123,9 @@ export async function exerciseOperationPagination(
             ? item.state
             : sort === "outcome"
               ? (item.reason ?? "")
-              : (item.started_at ?? item.created_at);
+              : sort === "created"
+                ? item.created_at
+                : (item.started_at ?? item.created_at);
       items.sort(
         (a, b) =>
           direction * key(a).localeCompare(key(b)) || a.id.localeCompare(b.id),
@@ -181,14 +190,30 @@ export async function exerciseOperationPagination(
   await expect(page.locator('[data-testid^="start-operation-"]')).toHaveCount(
     0,
   );
+  expect(lastSort).toBe("created");
+  expect(
+    (await table.locator("thead th").allInnerTexts()).map((text) =>
+      text.replace(/[↑↓↕]/g, "").trim(),
+    ),
+  ).toEqual(["Created", "Operation", "Status", "Reason"]);
   await capture("off-page-blocker");
+  await navigate("&sort=started&direction=descending");
+  await expect(
+    table.getByTestId("operation-row").first().locator(".table-identifier"),
+  ).toHaveText(old.id);
+  expect(lastSort).toBe("started");
+  await navigate();
+  await expect(
+    table.getByTestId("operation-row").first().locator(".table-identifier"),
+  ).toHaveText(newest.id);
+  expect(lastSort).toBe("created");
   await expect(table.locator(".collection-pagination")).toHaveCount(2);
   await table.getByRole("button", { name: "Next", exact: true }).last().click();
   await expect(
     table.getByText("Showing 51–62 of 62 operations", { exact: true }).first(),
   ).toBeVisible();
   await expect(table.locator(`a[href$="/${old.id}"]`)).toBeVisible();
-  await table.locator('select[aria-label="Action"]').selectOption("retry");
+  await table.locator('select[aria-label="Operation"]').selectOption("retry");
   await expect(
     table
       .getByText("Showing 1–1 of 1 matching operation", { exact: true })

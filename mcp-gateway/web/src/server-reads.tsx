@@ -9,6 +9,7 @@ import {
 import type { MutationCoordinator } from "./mutation";
 import {
   CollectionTable,
+  TableIdentity,
   ComparisonTable,
   sentenceCase,
   StateNotice,
@@ -1261,7 +1262,7 @@ function ServerTabs({
 }
 interface ServerPresentation {
   label: string;
-  state: "current" | "loading" | "warning" | "unavailable" | "empty";
+  state: "current" | "loading" | "warning" | "neutral";
   action?: string;
   href?: string;
 }
@@ -1283,11 +1284,11 @@ function serverUsesOAuth(server: ServerView): boolean {
 function serverPresentation(server: ServerView): ServerPresentation {
   const root = `#/servers/${server.id}`;
   if (server.desiredState === "deleted")
-    return { label: "Deleted", state: "unavailable" };
+    return { label: "Deleted", state: "neutral" };
   if (server.desiredState === "disabled")
     return {
       label: "Disabled",
-      state: "empty",
+      state: "neutral",
       action: "Configure",
       href: `${root}?tab=settings`,
     };
@@ -1422,6 +1423,10 @@ function ServerRows({
   return (
     <CollectionTable
       caption="Servers"
+      rowHeaderKey="name"
+      additionalSorts={[
+        { key: "id", label: "Server ID", sortValue: (server) => server.id },
+      ]}
       remote={controls}
       itemNames={{ singular: "server", plural: "servers" }}
       items={items}
@@ -1472,31 +1477,29 @@ function ServerRows({
       columns={[
         {
           key: "name",
-          label: "Name",
+          label: "Server",
+          role: "identity",
           sortValue: (server) => server.displayName,
           render: (server) => (
-            <a class="primary-table-link" href={`#/servers/${server.id}`}>
-              {server.displayName}
-            </a>
-          ),
-        },
-        {
-          key: "id",
-          label: "ID",
-          sortValue: (server) => server.id,
-          render: (server) => (
-            <a href={`#/servers/${server.id}`}>{server.id}</a>
+            <TableIdentity
+              primary={
+                <a href={`#/servers/${server.id}`}>{server.displayName}</a>
+              }
+              secondary={server.id}
+            />
           ),
         },
         {
           key: "namespace",
           label: "Namespace",
+          role: "text",
           sortValue: (server) => server.namespace,
           render: (server) => server.namespace,
         },
         {
           key: "status",
           label: "Status",
+          role: "status",
           sortValue: (server) => serverPresentation(server).label,
           render: (server) => {
             const presentation = serverPresentation(server);
@@ -1509,7 +1512,8 @@ function ServerRows({
         },
         {
           key: "tools",
-          label: "Tools",
+          label: "Active tools",
+          role: "count",
           sortValue: (server) => server.activeToolCount,
           render: (server) => server.activeToolCount,
         },
@@ -1664,6 +1668,7 @@ function CatalogRows({
   return (
     <CollectionTable
       caption="Available tools"
+      rowHeaderKey="tool"
       remote={controls}
       itemNames={{ singular: "tool", plural: "tools" }}
       emptyTitle="No catalog tools"
@@ -1700,19 +1705,25 @@ function CatalogRows({
         {
           key: "tool",
           label: "Tool",
+          role: "identity",
           sortValue: (descriptor) => descriptor.externalName,
           render: (descriptor) => (
-            <a
-              href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
-              data-tool-name={descriptor.upstreamName}
-            >
-              {descriptor.externalName}
-            </a>
+            <TableIdentity
+              primary={
+                <a
+                  href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+                  data-tool-name={descriptor.upstreamName}
+                >
+                  {descriptor.externalName}
+                </a>
+              }
+            />
           ),
         },
         {
           key: "server",
           label: "Server",
+          role: "relation",
           sortValue: (descriptor) => descriptor.serverDisplayName,
           render: (descriptor) => (
             <a href={`#/servers/${descriptor.serverID}?tab=tools`}>
@@ -1723,6 +1734,7 @@ function CatalogRows({
         {
           key: "status",
           label: "Status",
+          role: "status",
           render: (descriptor) => {
             const available = descriptor.serverCatalogState === "current";
             return (
@@ -1746,6 +1758,7 @@ function DescriptorRows({
   return (
     <CollectionTable
       caption="Server tools"
+      rowHeaderKey="tool"
       remote={controls}
       itemNames={{ singular: "tool", plural: "tools" }}
       emptyTitle="No server tools"
@@ -1776,24 +1789,30 @@ function DescriptorRows({
         {
           key: "tool",
           label: "Tool",
+          role: "identity",
           sortValue: (descriptor) => descriptor.externalName,
           render: (descriptor) => (
-            <a
-              href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
-              data-tool-name={descriptor.upstreamName}
-            >
-              {descriptor.externalName}
-            </a>
+            <TableIdentity
+              primary={
+                <a
+                  href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+                  data-tool-name={descriptor.upstreamName}
+                >
+                  {descriptor.externalName}
+                </a>
+              }
+            />
           ),
         },
         {
           key: "status",
           label: "Status",
+          role: "status",
           sortValue: (descriptor) =>
             descriptor.retiredAt === null ? "available" : "retired",
           render: (descriptor) => (
             <StatusLabel
-              state={descriptor.retiredAt === null ? "current" : "unavailable"}
+              state={descriptor.retiredAt === null ? "current" : "neutral"}
             >
               {descriptor.retiredAt === null ? "Available" : "Retired"}
             </StatusLabel>
@@ -1802,6 +1821,7 @@ function DescriptorRows({
         {
           key: "last-seen",
           label: "Last seen",
+          role: "time",
           sortValue: (descriptor) => descriptor.lastSeenAt,
           render: (descriptor) => <UserTime value={descriptor.lastSeenAt} />,
         },
@@ -1831,7 +1851,7 @@ function ServerCollectionTable<T>({
   const navigate = useUnsavedChanges(false);
   const initialSort =
     kind === "operations"
-      ? { key: "started", direction: "descending" as const }
+      ? { key: "created", direction: "descending" as const }
       : kind === "descriptors"
         ? { key: "last-seen", direction: "descending" as const }
         : {

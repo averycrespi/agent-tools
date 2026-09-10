@@ -8,6 +8,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestOperationQueryCreationOrderDiffersFromStartOrder(t *testing.T) {
+	clock := &mutableClock{now: testTime}
+	repository, _, _ := newRepositoryWithClock(t, clock, new(sequenceReader))
+	server := mustCreateServer(t, repository, "creation-order", false)
+	ctx := t.Context()
+	older, err := repository.CreateOperation(ctx, OperationRequest{ServerID: server.ID, Kind: contract.OperationRetry})
+	require.NoError(t, err)
+	clock.now = clock.now.Add(time.Hour)
+	newer, err := repository.CreateOperation(ctx, OperationRequest{ServerID: server.ID, Kind: contract.OperationReload})
+	require.NoError(t, err)
+	clock.now = clock.now.Add(time.Hour)
+	_, err = repository.TransitionOperation(ctx, older.Operation.ID, contract.OperationRunning, nil)
+	require.NoError(t, err)
+	for _, test := range []struct{ sort, first string }{
+		{"created", newer.Operation.ID},
+		{"started", older.Operation.ID},
+	} {
+		t.Run(test.sort, func(t *testing.T) {
+			query := OperationQuery{Sort: test.sort, Direction: "descending"}
+			require.True(t, query.Validate())
+			page, err := repository.QueryOperations(ctx, server.ID, query, nil, 1)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			require.Equal(t, test.first, page.Items[0].ID)
+			require.NotNil(t, page.Next)
+			next, err := repository.QueryOperations(ctx, server.ID, query, page.Next, 1)
+			require.NoError(t, err)
+			require.Len(t, next.Items, 1)
+			require.NotEqual(t, test.first, next.Items[0].ID)
+			require.Nil(t, next.Next)
+		})
+	}
+}
+
 func TestOperationQueryActiveHistoryAndMutableSnapshot(t *testing.T) {
 	clock := &mutableClock{now: testTime}
 	repository, _, _ := newRepositoryWithClock(t, clock, new(sequenceReader))
@@ -47,7 +81,7 @@ func TestOperationQueryActiveHistoryAndMutableSnapshot(t *testing.T) {
 		require.NotEqual(t, old.ID, item.ID)
 		seen[item.ID] = true
 	}
-	for _, sortKey := range []string{"action", "status", "started", "outcome"} {
+	for _, sortKey := range []string{"action", "status", "created", "started", "outcome"} {
 		for _, direction := range []string{"ascending", "descending"} {
 			q := OperationQuery{Sort: sortKey, Direction: direction}
 			var cursor *OperationQueryCursor

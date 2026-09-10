@@ -1,4 +1,5 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { assertTableConventions } from "./table-conventions.ts";
 import { exerciseCatalogPagination } from "./catalog-pagination.ts";
 import { exerciseOperationPagination } from "./operation-pagination.ts";
 import { exerciseUpstreamHeaders } from "./upstream-headers.ts";
@@ -1188,7 +1189,7 @@ export async function runServerOperations(
       const active = query.get("projection") === "active";
       if (
         !active &&
-        (query.get("sort") !== "started" ||
+        (query.get("sort") !== "created" ||
           query.get("direction") !== "descending")
       )
         fail("operation history query changed");
@@ -1303,6 +1304,12 @@ export async function runServerOperations(
   await page.waitForFunction(() =>
     document.body.textContent?.includes("Available actions"),
   );
+  await assertTableConventions(
+    page,
+    "Server activity",
+    ["Created", "Operation", "Status", "Reason"],
+    "Operation",
+  );
   const operationsView = page.locator('[data-testid="server-activity-view"]');
   if (
     (await operationsView
@@ -1326,7 +1333,7 @@ export async function runServerOperations(
   if ((await operationsView.locator(".status-symbol").count()) !== 0)
     fail("operation statuses retained decorative symbols");
   if (
-    (await operationsView.locator('select[aria-label="Action"]').count()) !==
+    (await operationsView.locator('select[aria-label="Operation"]').count()) !==
       1 ||
     (await operationsView.locator('select[aria-label="Status"]').count()) !==
       1 ||
@@ -2034,6 +2041,12 @@ export async function runAuthFlows(
   );
   await page.waitForTimeout(350);
   if (listReads < 2) fail("auth-flow event did not trigger snapshot reread");
+  await assertTableConventions(
+    page,
+    "OAuth activity",
+    ["Created", "Flow", "Status", "Reason"],
+    "Flow",
+  );
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=authentication`;
   }, serverID);
@@ -2199,7 +2212,7 @@ export async function runAuthFlows(
   if ((await page.locator('[data-testid="auth-flow-row"]').count()) !== 2)
     fail("authentication omitted OAuth activity history");
   await expect(
-    page.getByRole("button", { name: "Load more flows", exact: true }),
+    page.getByRole("button", { name: "Load older flows", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("Showing 2 of 2 loaded", { exact: true }),
@@ -3066,7 +3079,7 @@ export async function runServerCatalogReads(
     fail("server inventory was not presented on a panel surface");
   let body = (await page.locator("body").textContent()) ?? "";
   const serverNames = await page
-    .locator('[data-testid="server-row"] th[scope="row"]')
+    .locator('[data-testid="server-row"] th[scope="row"] .table-primary')
     .allTextContents();
   if (
     serverNames.map((name) => name.trim()).join("|") !==
@@ -3088,19 +3101,25 @@ export async function runServerCatalogReads(
     if (!body.includes(phrase)) fail(`server inventory omitted ${phrase}`);
   const serverHeaders = await page
     .locator('[data-testid="servers-view"] thead th')
-    .allTextContents();
+    .allInnerTexts();
   if (
     serverHeaders.map((value) => value.replace(/\s?[↑↓↕]$/, "")).join("|") !==
-    "Name|ID|Namespace|Status|Tools"
+    "Server|Namespace|Status|Active tools"
   )
     fail(`server inventory columns drifted: ${serverHeaders.join("|")}`);
+  await assertTableConventions(
+    page,
+    "Servers",
+    ["Server", "Namespace", "Status", "Active tools"],
+    "Server",
+  );
   for (const id of [serverReadIDs.active, serverReadIDs.degraded]) {
-    const idLink = page.getByRole("link", { name: id, exact: true });
-    if (
-      (await idLink.count()) !== 1 ||
-      (await idLink.getAttribute("href")) !== `#/servers/${id}`
-    )
-      fail(`server inventory ID ${id} did not target Status`);
+    const row = page.getByTestId("server-row").filter({ hasText: id });
+    await expect(row.locator(".table-identifier")).toHaveText(id);
+    await expect(row.locator(".table-primary a")).toHaveAttribute(
+      "href",
+      `#/servers/${id}`,
+    );
   }
   if (
     (await page
@@ -3276,6 +3295,12 @@ export async function runServerCatalogReads(
   body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Available") || !body.includes("Retired"))
     fail("tool list omitted available/retired labels");
+  await assertTableConventions(
+    page,
+    "Server tools",
+    ["Tool", "Status", "Last seen"],
+    "Tool",
+  );
   if (
     !body.includes("server.current-tool") ||
     !body.includes("server.retired-tool")
@@ -3334,6 +3359,12 @@ export async function runServerCatalogReads(
   await page.locator('[data-testid="catalog-view"]').waitFor();
   await page.locator('[data-testid="catalog-row"]').first().waitFor();
   body = (await page.locator("body").textContent()) ?? "";
+  await assertTableConventions(
+    page,
+    "Available tools",
+    ["Tool", "Server", "Status"],
+    "Tool",
+  );
   const toolNames = await page
     .locator('[data-testid="catalog-row"] th[scope="row"]')
     .allTextContents();

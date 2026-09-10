@@ -30,6 +30,7 @@ import {
 } from "./mutation";
 import {
   CollectionTable,
+  TableIdentity,
   ConfirmationDialog,
   containsControlCharacters,
   FormField,
@@ -296,7 +297,7 @@ function GrantCreate({
       : selectedDescriptorSummary === undefined
         ? null
         : descriptorError
-          ? "Schema unavailable. Manual constraints are still available."
+          ? "Schema unavailable. Manual conditions are still available."
           : schemaSuggestions === undefined
             ? "Loading schema…"
             : null;
@@ -383,7 +384,7 @@ function GrantCreate({
       if (scope === "tool" && upstreamName.length === 0)
         throw new Error("Exact-tool scope requires an upstream tool name.");
       if (scope === "server" && atoms.length !== 0)
-        throw new Error("Server-wide grants cannot have argument constraints.");
+        throw new Error("Server-wide grants cannot have argument conditions.");
       if (atoms.length > 16)
         throw new Error("At most 16 matcher atoms are allowed.");
       if (atoms.some((atom) => !validMatcherPointer(atom.pointer)))
@@ -460,7 +461,7 @@ function GrantCreate({
           </div>
         </div>
         <p class="bounded-note">
-          The effect, target, scope, constraints, and expiry cannot be edited
+          The effect, target, scope, conditions, and expiry cannot be edited
           after creation. You can update the optional description later.
         </p>
         <form
@@ -639,7 +640,7 @@ function GrantCreate({
           )}
           {scope === "tool" && (
             <section class="subpanel" aria-labelledby="constraint-title">
-              <h3 id="constraint-title">Constraints — All must match</h3>
+              <h3 id="constraint-title">Conditions — All must match</h3>
               <p class="field-hint">
                 Choose suggested fields or enter custom JSON pointers.
               </p>
@@ -674,7 +675,7 @@ function GrantCreate({
           )}
           <FormField
             id="grant-expiry"
-            label="Expiry"
+            label="Expires"
             hint="Choose a future date and time in your local timezone. Leave blank for permanent access."
             optional
           >
@@ -783,7 +784,7 @@ function GrantCreate({
                   </dd>
                 </div>
                 <div>
-                  <dt>Expiry</dt>
+                  <dt>Expires</dt>
                   <dd>
                     {expiresAt === "" ? (
                       "Permanent"
@@ -1405,7 +1406,7 @@ export function Grants({
           <div class="panel-heading">
             <h2 id="grant-title">Grant details</h2>
             <StatusLabel
-              state={detail.state === "active" ? "current" : "warning"}
+              state={detail.state === "active" ? "current" : "neutral"}
             >
               {detail.state === "active" ? "Active" : "Expired"}
             </StatusLabel>
@@ -1455,7 +1456,7 @@ export function Grants({
               </dd>
             </div>
             <div>
-              <dt>Expiry</dt>
+              <dt>Expires</dt>
               <dd>
                 <UserTime value={detail.expiresAt} fallback="Permanent" />
               </dd>
@@ -1512,6 +1513,8 @@ function GrantCollection({
       const params = new URLSearchParams({
         limit: "50",
         representation: "table",
+        sort: query.sort ?? "description",
+        direction: query.direction ?? "ascending",
       });
       for (const key of [
         "identity",
@@ -1523,9 +1526,6 @@ function GrantCollection({
         const value = query[`filter_${key}`];
         if (value !== undefined) params.set(key, value);
       }
-      if (query.sort !== undefined) params.set("sort", query.sort);
-      if (query.direction !== undefined)
-        params.set("direction", query.direction);
       if (cursor !== null) params.set("cursor", cursor);
       return readCollectionPage(
         session,
@@ -1546,6 +1546,7 @@ function GrantCollection({
       );
     },
     navigate,
+    { key: "description", direction: "ascending" },
   );
   const principalNames = new Map(
     items.map((grant) => [grant.principalID, grant.principalDisplayName]),
@@ -1567,6 +1568,11 @@ function GrantCollection({
       <section class="panel domain-panel" aria-labelledby="page-title">
         <CollectionTable
           caption="Grant policy records"
+          rowHeaderKey="description"
+          initialSort={{ key: "description", direction: "ascending" }}
+          additionalSorts={[
+            { key: "id", label: "Grant ID", sortValue: (grant) => grant.id },
+          ]}
           remote={controls}
           itemNames={{ singular: "grant", plural: "grants" }}
           emptyTitle="No grants"
@@ -1608,7 +1614,7 @@ function GrantCollection({
             },
             {
               key: "state",
-              label: "State",
+              label: "Status",
               type: "select",
               value: (grant) => grant.state,
               options: [
@@ -1619,27 +1625,25 @@ function GrantCollection({
           ]}
           columns={[
             {
-              key: "id",
-              label: "ID",
-              sortValue: (grant) => grant.id,
-              render: (grant) => (
-                <a href={`#/grants/${grant.id}`}>{grant.id}</a>
-              ),
-            },
-            {
               key: "description",
-              label: "Description",
+              label: "Grant",
+              role: "identity",
               sortValue: (grant) => grant.description ?? "",
-              render: (grant) =>
-                grant.description === null
-                  ? "—"
-                  : grant.description.length > 64
-                    ? `${grant.description.slice(0, 61)}…`
-                    : grant.description,
+              render: (grant) => (
+                <TableIdentity
+                  primary={
+                    <a href={`#/grants/${grant.id}`}>
+                      {grant.description ?? "Unnamed grant"}
+                    </a>
+                  }
+                  secondary={grant.id}
+                />
+              ),
             },
             {
               key: "principal",
               label: "Principal",
+              role: "relation",
               sortValue: (grant) =>
                 principalNames.get(grant.principalID) ?? grant.principalID,
               render: (grant) => (
@@ -1652,6 +1656,7 @@ function GrantCollection({
             {
               key: "target",
               label: "Target",
+              role: "relation",
               sortValue: (grant) =>
                 serverNames.get(grant.serverID) ?? grant.serverID,
               render: (grant) =>
@@ -1672,6 +1677,7 @@ function GrantCollection({
             {
               key: "effect",
               label: "Effect",
+              role: "status",
               sortValue: (grant) => grant.effect,
               render: (grant) => (
                 <strong>{grant.effect === "allow" ? "Allow" : "Deny"}</strong>
@@ -1680,26 +1686,29 @@ function GrantCollection({
             {
               key: "state",
               label: "Status",
+              role: "status",
               sortValue: (grant) => grant.state,
               render: (grant) => (
                 <StatusLabel
-                  state={grant.state === "active" ? "current" : "warning"}
+                  state={grant.state === "active" ? "current" : "neutral"}
                 >
                   {grant.state === "active" ? "Active" : "Expired"}
                 </StatusLabel>
               ),
             },
             {
+              key: "constraints",
+              label: "Conditions",
+              role: "count",
+              render: (grant) => matcherConstraintCount(grant.constraint),
+            },
+            {
               key: "expiry",
-              label: "Expiry",
+              label: "Expires",
+              role: "time",
               render: (grant) => (
                 <UserTime value={grant.expiresAt} fallback="No expiry" />
               ),
-            },
-            {
-              key: "constraints",
-              label: "Constraints",
-              render: (grant) => matcherConstraintCount(grant.constraint),
             },
           ]}
         />

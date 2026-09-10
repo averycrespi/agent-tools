@@ -11,6 +11,7 @@ import {
 import {
   BinaryToggle,
   CollectionTable,
+  TableIdentity,
   ConfirmationDialog,
   FormField,
   StateNotice,
@@ -971,7 +972,7 @@ export function Principals({
               <h2 id="principal-title">Principal details</h2>
             </div>
             <StatusLabel
-              state={principal.state === "active" ? "current" : "warning"}
+              state={principal.state === "active" ? "current" : "neutral"}
             >
               {principal.state === "active" ? "Active" : "Disabled"}
             </StatusLabel>
@@ -1065,6 +1066,14 @@ function PrincipalCollection({
       <section class="panel domain-panel" aria-labelledby="page-title">
         <CollectionTable
           caption="Principal identities"
+          rowHeaderKey="name"
+          additionalSorts={[
+            {
+              key: "id",
+              label: "Principal ID",
+              sortValue: (principal) => principal.id,
+            },
+          ]}
           remote={controls}
           itemNames={{ singular: "principal", plural: "principals" }}
           emptyTitle="No principals"
@@ -1105,32 +1114,28 @@ function PrincipalCollection({
           columns={[
             {
               key: "name",
-              label: "Name",
+              label: "Principal",
+              role: "identity",
               sortValue: (principal) => principal.displayName,
               render: (principal) => (
-                <a
-                  class="primary-table-link"
-                  href={`#/principals/${principal.id}`}
-                >
-                  {principal.displayName}
-                </a>
-              ),
-            },
-            {
-              key: "id",
-              label: "ID",
-              sortValue: (principal) => principal.id,
-              render: (principal) => (
-                <a href={`#/principals/${principal.id}`}>{principal.id}</a>
+                <TableIdentity
+                  primary={
+                    <a href={`#/principals/${principal.id}`}>
+                      {principal.displayName}
+                    </a>
+                  }
+                  secondary={principal.id}
+                />
               ),
             },
             {
               key: "state",
               label: "Status",
+              role: "status",
               sortValue: (principal) => principal.state,
               render: (principal) => (
                 <StatusLabel
-                  state={principal.state === "active" ? "current" : "warning"}
+                  state={principal.state === "active" ? "current" : "neutral"}
                 >
                   {principal.state === "active" ? "Active" : "Disabled"}
                 </StatusLabel>
@@ -1139,6 +1144,7 @@ function PrincipalCollection({
             {
               key: "visibility",
               label: "Visibility",
+              role: "status",
               sortValue: (principal) => principal.visibility,
               render: (principal) => visibilityText(principal.visibility),
             },

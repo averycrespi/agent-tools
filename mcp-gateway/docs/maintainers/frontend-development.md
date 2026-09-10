@@ -127,6 +127,12 @@ Press `Ctrl-C` in the frontend terminal and the Gateway terminal to stop each in
 - **The browser returns to sign-in:** confirm both selectors still name the intended origins. A session cookie belongs to the selected frontend host, and Gateway restart or authority revocation can invalidate the session.
 - **OAuth completion fails:** confirm the provider redirects to the exact configured callback URI (or Gateway's default `/oauth/callback`), not the frontend development origin.
 
+## Table implementation
+
+Follow the normative [table conventions](../design/administrative-control-plane.md#table-conventions) for column order, vocabulary, identity, sizing, status colors, and responsive behavior. Compose `CollectionTable` with an explicit `rowHeaderKey`, semantic column `role`s, and `layout="activity"` for history (resource is the default). Use `TableIdentity` for recognition plus secondary identifiers and `UserTime` for dates. Keep related-resource link destinations with their page owner. Use `additionalSorts` only to interpret legacy non-column sort URLs, not to expose dedicated ID-sort options. Desktop headers own sorting; the shared selector appears only in stacked narrow layouts. Column roles keep compact content intrinsic-sized and give spare space to identities and descriptions; do not add fixed width totals. Declare `loadedSubset` when local filtering/sorting covers only loaded history. Use `ComparisonTable` only for genuine cross-row comparison such as resource limits.
+
+Add observable browser assertions beside the existing domain scenario, including primary/secondary identity, column order, semantic row heading, narrow sorting and action reachability, and full long-value recovery. Do not substitute source-string assertions or screenshots alone for interaction tests. An operation creation-time sort change also requires the repository/API ordering tests because browser-local sorting cannot establish global history order.
+
 ## Visual verification
 
 Human maintainers and coding agents must use a real browser to exercise each affected state for every change that can affect rendered UI or browser interaction before reporting the work complete. Prefer Playwright so the interaction and evidence are reproducible. Inspect the rendered result at representative desktop and narrow viewports; include loading, empty, error, confirmation, overflow, or populated states when the change can affect them.

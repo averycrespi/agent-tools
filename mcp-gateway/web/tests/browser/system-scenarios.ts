@@ -2,6 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
+import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
   assertSecretAbsent,
@@ -377,6 +378,12 @@ export async function runBackups(
     )
   )
     fail("backup inventory retained redundant recovery guidance");
+  await assertTableConventions(
+    page,
+    "Published backup artifacts",
+    ["Backup", "Source", "Size", "Created", "Actions"],
+    "Backup",
+  );
   await page.locator('[data-testid="backup-inspect"]').click();
   await page.locator('[data-testid="backup-detail"]').waitFor();
   await page.locator('[data-testid="backup-create"]').click();
@@ -568,12 +575,18 @@ export async function runAdminCredentials(
     fail("Admin credentials title was inconsistent");
   const adminHeaders = await page
     .locator('[data-testid="admin-credentials-view"] thead th')
-    .allTextContents();
+    .allInnerTexts();
   if (
     adminHeaders.map((value) => value.replace(/\s?[↑↓↕]$/, "")).join("|") !==
-    "Fingerprint|ID|Status|Created|Expires|Actions"
+    "Credential|Status|Created|Expires|Actions"
   )
     fail(`Admin credential columns drifted: ${adminHeaders.join("|")}`);
+  await assertTableConventions(
+    page,
+    "Admin credentials",
+    ["Credential", "Status", "Created", "Expires", "Actions"],
+    "Credential",
+  );
   if (
     (await page.locator('[data-testid="admin-credential-inspect"]').count()) !==
       0 ||
@@ -625,7 +638,7 @@ export async function runAdminCredentials(
   await page.getByTestId("admin-credential-create").click();
   await page
     .locator("dialog[open]")
-    .getByText("Non-expiring", { exact: true })
+    .getByText("No expiry", { exact: true })
     .waitFor();
   await page.getByTestId("admin-credential-create-confirm-cancel").click();
   await page
@@ -1801,15 +1814,13 @@ export async function runInvocations(
       document.querySelectorAll('[data-testid="invocation-row"]').length === 2,
   );
   let body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of [
-    "Invocation",
-    "Tool",
-    "Principal",
-    "Decision",
-    "Outcome",
+  expect(await page.locator("thead th").allTextContents()).toEqual([
     "Admitted",
-  ])
-    if (!body.includes(phrase)) fail(`invocation list omitted ${phrase}`);
+    "Invocation",
+    "Principal",
+    "Authorization",
+    "Outcome",
+  ]);
   for (const phrase of [
     "Invocation evidence",
     "retains at most 4,096 recent rows",
@@ -1819,6 +1830,12 @@ export async function runInvocations(
     "Names ignore accents and tolerate one typo",
   ])
     if (body.includes(phrase)) fail(`invocation list retained ${phrase}`);
+  await assertTableConventions(
+    page,
+    "Invocation history",
+    ["Admitted", "Invocation", "Principal", "Authorization", "Outcome"],
+    "Invocation",
+  );
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
   if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
     fail("invocation live mode was not enabled by default");
@@ -1855,8 +1872,7 @@ export async function runInvocations(
     page
       .locator('[data-testid="invocation-row"]')
       .filter({ hasText: id })
-      .getByRole("cell")
-      .first();
+      .locator('[data-label="Invocation"] .table-primary');
   await expect(toolCell(invocationIDs.policy).getByRole("link")).toHaveText(
     "namespace.allowed",
   );
@@ -1870,6 +1886,18 @@ export async function runInvocations(
   await expect(toolCell(invocationIDs.admission).getByRole("link")).toHaveCount(
     0,
   );
+
+  const invocationIdentity = page
+    .getByTestId("invocation-row")
+    .filter({ hasText: invocationIDs.policy })
+    .locator(".table-identifier");
+  await expect(invocationIdentity).toHaveText(invocationIDs.policy);
+  await expect(
+    invocationIdentity.getByRole("link", {
+      name: `Invocation ${invocationIDs.policy}`,
+      exact: true,
+    }),
+  ).toHaveAttribute("href", `#/invocations/${invocationIDs.policy}`);
 
   const beforeWait = listReads;
   await page.waitForTimeout(5100);
@@ -2276,6 +2304,13 @@ export async function runSystemStatus(
     .count();
   if (limitRows !== overviewLimitNames.length)
     fail("Resource limits did not render every closed limit");
+  await assertTableConventions(
+    page,
+    "Gateway resource occupancy and hard limits",
+    ["Resource", "In use", "Limit", "Status"],
+    "Resource",
+    true,
+  );
   if (
     (
       (await page

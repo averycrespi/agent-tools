@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
   assertSecretAbsent,
@@ -38,7 +39,7 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
         node.scrollLeft = node.scrollWidth;
       });
       await page.screenshot({ path: join(directory, `${label}-columns.png`) });
-      const countCell = table.locator('[data-label="Constraints"]').first();
+      const countCell = table.locator('[data-label="Conditions"]').first();
       const cellBounds = (await countCell.boundingBox())!;
       const tableBounds = (await table.boundingBox())!;
       expect(cellBounds.x).toBeGreaterThanOrEqual(tableBounds.x);
@@ -611,7 +612,7 @@ export async function runPrincipals(
   if (!body.includes("Disabled agent"))
     fail("principal list omitted a principal");
   const principalNames = await page
-    .locator('[data-testid="principal-row"] th[scope="row"]')
+    .locator('[data-testid="principal-row"] th[scope="row"] .table-primary')
     .allTextContents();
   if (
     principalNames.map((name) => name.trim()).join("|") !==
@@ -623,6 +624,12 @@ export async function runPrincipals(
   )
     fail(`principals did not default to Name ascending: ${principalNames}`);
   if (staleListRestarted) fail("principal list traversed without navigation");
+  await assertTableConventions(
+    page,
+    "Principal identities",
+    ["Principal", "Status", "Visibility"],
+    "Principal",
+  );
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page
     .getByText(
@@ -670,11 +677,11 @@ export async function runPrincipals(
     if (body.includes(phrase)) fail(`principal list retained ${phrase}`);
   const principalHeaders = await page
     .locator('[data-testid="principals-view"] thead th')
-    .allTextContents();
+    .allInnerTexts();
   if (
     principalHeaders
       .map((value) => value.replace(/\s?[↑↓↕]$/, ""))
-      .join("|") !== "Name|ID|Status|Visibility"
+      .join("|") !== "Principal|Status|Visibility"
   )
     fail(`principal columns drifted: ${principalHeaders.join("|")}`);
   if (
@@ -868,7 +875,7 @@ export async function runPrincipals(
   await page.locator('[data-testid="principal-editor-submit"]').click();
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page
-    .locator(".status-label.warning", { hasText: "Disabled" })
+    .locator(".status-label.neutral", { hasText: "Disabled" })
     .waitFor();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -1289,7 +1296,7 @@ export async function runGrantReadsCreate(
     ...(readOnly ? { read_only: true } : {}),
     id,
     description: (id === firstGrantID
-      ? "Reporting access"
+      ? "Reporting access for quarterly compliance exports across every regional reporting workspace — retain this complete description"
       : "Restricted access") as string | null,
     revision: "1",
     principal_id: principalID,
@@ -1782,45 +1789,57 @@ export async function runGrantReadsCreate(
     "Create grant",
   ])
     if (!body.includes(phrase)) fail(`grant list omitted ${phrase}`);
-  const headers = await page.locator("thead th").allTextContents();
-  if (
-    headers[0] !== "ID↕" ||
-    headers[1] !== "Description↕" ||
-    headers.includes("Action")
-  )
-    fail(`grant table identity columns changed: ${headers.join("|")}`);
-  expect(headers.map((header) => header.replace(/[↕↑↓]/g, ""))).toEqual([
-    "ID",
-    "Description",
+  const headers = await page.locator("thead th").allInnerTexts();
+  expect(headers.map((header) => header.replace(/[↕↑↓]/g, "").trim())).toEqual([
+    "Grant",
     "Principal",
     "Target",
     "Effect",
     "Status",
-    "Expiry",
-    "Constraints",
+    "Conditions",
+    "Expires",
   ]);
   const firstGrantRow = page.locator('[data-testid="grant-row"]').first();
-  await expect(firstGrantRow.locator('[data-label="Expiry"]')).toHaveText(
+  await expect(firstGrantRow.locator('[data-label="Expires"]')).toHaveText(
     "No expiry",
   );
-  await expect(firstGrantRow.locator('[data-label="Constraints"]')).toHaveText(
+  await expect(firstGrantRow.locator('[data-label="Conditions"]')).toHaveText(
     "0",
   );
   const expiredRow = page.getByTestId("grant-row").nth(1);
   await expect(
-    expiredRow.locator('[data-label="Expiry"] time'),
+    expiredRow.locator('[data-label="Expires"] time'),
   ).toHaveAttribute("datetime", expired.expires_at!);
-  await expect(expiredRow.locator('[data-label="Constraints"]')).toHaveText(
-    "4",
+  await expect(expiredRow.locator('[data-label="Conditions"]')).toHaveText("4");
+  await assertTableConventions(
+    page,
+    "Grant policy records",
+    [
+      "Grant",
+      "Principal",
+      "Target",
+      "Effect",
+      "Status",
+      "Conditions",
+      "Expires",
+    ],
+    "Grant",
+  );
+  await expect(firstGrantRow.locator(".table-primary")).toHaveText(
+    active.description!,
   );
   await captureRequestState(page, "grant-table");
   if (
     (await firstGrantRow
       .locator(`a[href="#/grants/${firstGrantID}"]`)
       .count()) !== 1 ||
-    (await firstGrantRow.locator("td").first().locator("a").count()) !== 0
+    (await firstGrantRow.locator("th .table-primary a").textContent()) !==
+      active.description
   )
-    fail("grant description remained navigational metadata");
+    fail("grant identity did not link its complete description");
+  await expect(firstGrantRow.locator(".table-identifier")).toHaveText(
+    firstGrantID,
+  );
   if (
     body.includes("Open grant") ||
     body.includes("Synthetic default namespace")
@@ -3288,7 +3307,7 @@ export async function runRequestReads(
     .first();
   const requestIDLink = decisionLink
     .locator("xpath=ancestor::tr")
-    .locator('[data-label="Request ID"] a');
+    .locator('[data-label="Request"] a');
   await expect(requestIDLink).toHaveAttribute(
     "href",
     (await decisionLink.getAttribute("href"))!,
@@ -3348,10 +3367,10 @@ export async function runRequestReads(
     page
       .getByTestId("request-row")
       .first()
-      .locator('[data-label="Request ID"] a'),
+      .locator('[data-label="Request"] .table-identifier'),
   ).toHaveText(/^[0-9A-HJKMNP-TV-Z]{26}$/);
   await expect(
-    page.getByTestId("request-row").first().locator("th").locator("a"),
+    page.getByTestId("request-row").first().locator('[data-label="Actions"] a'),
   ).toHaveClass(/button-link/);
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
@@ -3359,7 +3378,7 @@ export async function runRequestReads(
       .getByTestId("request-row")
       .first()
       .evaluate((row) => {
-        return ["Request ID", "Principal", "Target"].map((label) => {
+        return ["Request", "Principal", "Target"].map((label) => {
           const style = getComputedStyle(
             row.querySelector(`[data-label="${label}"] a`)!,
           );
@@ -3370,20 +3389,40 @@ export async function runRequestReads(
           };
         });
       });
-    expect(linkStyles[0]).toEqual(linkStyles[1]);
-    expect(linkStyles[0]).toEqual(linkStyles[2]);
+    expect(linkStyles[0]!.color).toEqual(linkStyles[1]!.color);
+    expect(Number(linkStyles[0]!.weight)).toBeGreaterThan(
+      Number(linkStyles[1]!.weight),
+    );
+    expect(linkStyles[1]).toEqual(linkStyles[2]);
   }
   await page.emulateMedia({ colorScheme: "light" });
   const queueGap = await page
     .getByRole("navigation", { name: "Request queues" })
     .evaluate((node) => parseFloat(getComputedStyle(node).marginBottom));
   if (queueGap < 24) fail("queue tabs are cramped against filters");
-  const requestHeaders = await page.locator("thead th").allTextContents();
+  const requestHeaders = await page.locator("thead th").allInnerTexts();
   if (
-    requestHeaders.map((header) => header.replace(/[↕↑↓]/g, "")).join("|") !==
-    "Action|Request ID|Principal|Target|State|Requested duration|Constraints|Submitted"
+    requestHeaders
+      .map((header) => header.replace(/[↕↑↓]/g, "").trim())
+      .join("|") !==
+    "Submitted|Request|Principal|Target|Status|Requested duration|Conditions|Actions"
   )
     fail(`request table columns changed: ${requestHeaders.join("|")}`);
+  await assertTableConventions(
+    page,
+    "Grant request summaries",
+    [
+      "Submitted",
+      "Request",
+      "Principal",
+      "Target",
+      "Status",
+      "Requested duration",
+      "Conditions",
+      "Actions",
+    ],
+    "Request",
+  );
   if (
     !body.includes("Requesting agent") ||
     !body.includes("Showing 1–50 of 128 requests") ||
@@ -3398,14 +3437,14 @@ export async function runRequestReads(
     requestRows.nth(0).locator('[data-label="Requested duration"]'),
   ).toHaveText("10 minutes");
   await expect(
-    requestRows.nth(0).locator('[data-label="Constraints"]'),
+    requestRows.nth(0).locator('[data-label="Conditions"]'),
   ).toHaveText("1");
   await expect(requestRows.nth(0).locator(".status-label")).toHaveAttribute(
     "data-state",
     "warning",
   );
   await expect(
-    requestRows.nth(1).locator('[data-label="Constraints"]'),
+    requestRows.nth(1).locator('[data-label="Conditions"]'),
   ).toHaveText("4");
   await expect(requestRows.nth(1).locator(".status-label")).toHaveAttribute(
     "data-state",
@@ -3415,7 +3454,7 @@ export async function runRequestReads(
     requestRows.nth(3).locator('[data-label="Requested duration"]'),
   ).toHaveText("No expiry");
   await expect(
-    requestRows.nth(3).locator('[data-label="Constraints"]'),
+    requestRows.nth(3).locator('[data-label="Conditions"]'),
   ).toHaveText("0");
   const cancelledStatus = requestRows.nth(3).locator(".status-label");
   await expect(cancelledStatus).toHaveText("Cancelled");
@@ -3436,7 +3475,7 @@ export async function runRequestReads(
   }
   await page.emulateMedia({ colorScheme: "light" });
   await captureRequestState(page, "request-table");
-  const stateFilter = page.getByLabel("State", { exact: true });
+  const stateFilter = page.getByLabel("Status", { exact: true });
   await stateFilter.selectOption("approved");
   await page
     .getByText("Showing 1–50 of 95 matching requests", { exact: true })

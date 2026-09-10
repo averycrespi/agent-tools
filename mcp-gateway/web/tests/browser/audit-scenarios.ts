@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -248,6 +249,17 @@ export async function runAudit(
     )
       fail("Audit document overflow");
   };
+  await assertTableConventions(
+    page,
+    "Control-plane audit history",
+    ["Time", "Event", "Performer", "Target", "Outcome"],
+    "Event",
+  );
+  expect(
+    await page
+      .getByRole("combobox", { name: "Add filter", exact: true })
+      .evaluate((control) => control.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(38);
   await capture("desktop-list", 1440);
   await capture("narrow-list", 390);
   await capture("small-list", 320);
@@ -263,12 +275,14 @@ export async function runAudit(
     ),
   ).toBe(true);
   await expect(
-    page.getByTestId("audit-row").first().locator('[data-label="Event ID"]'),
+    page
+      .getByTestId("audit-row")
+      .first()
+      .locator('[data-label="Event"] .table-identifier'),
   ).toHaveText(id(3));
   expect(await page.locator(".audit-view thead th").allTextContents()).toEqual([
     "Time",
-    "Event type",
-    "Event ID",
+    "Event",
     "Performer",
     "Target",
     "Outcome",
@@ -365,7 +379,14 @@ export async function runAudit(
   await page
     .getByRole("button", { name: "Clear filters", exact: true })
     .click();
-  await page.getByText("More filters", { exact: true }).click();
+  await expect(page.getByText("More filters", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Target ID", { exact: true })).toHaveCount(0);
+  const addFilter = async (key: string, label: string) => {
+    await page
+      .getByRole("combobox", { name: "Add filter", exact: true })
+      .selectOption(key);
+    await expect(page.getByLabel(label, { exact: true })).toBeFocused();
+  };
   const from = page.getByLabel("From (inclusive, local time)", { exact: true });
   const until = page.getByLabel("Until (exclusive, local time)", {
     exact: true,
@@ -384,6 +405,7 @@ export async function runAudit(
       { exact: true },
     ),
   ).toHaveCount(0);
+  await expect.poll(() => queries.at(-1)?.has("outcome")).toBe(false);
   const beforeInvalid = queries.length;
   await from.fill("2026-09-03T20:00");
   for (const [value, message] of [
@@ -403,6 +425,7 @@ export async function runAudit(
       "Invalid drafts must not issue queries",
     ).toEqual([]);
   }
+  await addFilter("target_id", "Target ID");
   await page.getByLabel("Target ID", { exact: true }).fill("invalid");
   await page.getByLabel("Category", { exact: true }).selectOption("server");
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("server");
@@ -417,12 +440,18 @@ export async function runAudit(
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("principal");
   expect(queries.at(-1)?.has("action")).toBe(false);
   await expect(page.getByLabel("Action", { exact: true })).toHaveValue("");
-  await capture("invalid-advanced", 320);
-  await page.getByText(/More filters.*check draft values/).click();
+  await capture("invalid-filters", 320);
+  await page
+    .getByRole("button", { name: "Remove Target ID filter", exact: true })
+    .click();
+  await expect(page.getByLabel("Target ID", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: "Add filter", exact: true }),
+  ).toBeFocused();
   await expect(
     page.getByText(/Draft changes are not yet applied/),
   ).toBeVisible();
-  await capture("collapsed-invalid", 390);
+  await capture("removed-invalid-filter", 390);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => {
     window.location.hash =
@@ -443,6 +472,18 @@ export async function runAudit(
   await expect(from).toHaveValue("");
   await expect(until).toHaveValue("");
   await expect.poll(() => queries.at(-1)?.has("from")).toBe(false);
+  for (const [key, label] of [
+    ["actor_type", "Actor type"],
+    ["credential_id", "Credential ID"],
+    ["target_type", "Target type"],
+    ["target_id", "Target ID"],
+    ["correlation_id", "Correlation ID"],
+  ]) {
+    await addFilter(key!, label!);
+  }
+  await expect(
+    page.getByRole("combobox", { name: "Add filter", exact: true }),
+  ).toBeDisabled();
   await page.getByLabel("Actor type", { exact: true }).selectOption("system");
   await expect.poll(() => queries.at(-1)?.get("actor_type")).toBe("system");
   const beforeText = queries.length;
@@ -458,6 +499,18 @@ export async function runAudit(
   await page.getByLabel("Target ID", { exact: true }).fill(id(7));
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
   await page.getByLabel("Correlation ID", { exact: true }).fill(id(8));
+  await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
+  await page
+    .getByRole("button", { name: "Remove Correlation ID filter", exact: true })
+    .click();
+  await expect.poll(() => queries.at(-1)?.has("correlation_id")).toBe(false);
+  await expect(page.getByLabel("Correlation ID", { exact: true })).toHaveCount(
+    0,
+  );
+  await page.goBack();
+  await expect(page.getByLabel("Correlation ID", { exact: true })).toHaveValue(
+    id(8),
+  );
   await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
   await from.fill("2026-09-03T20:00");
   mode = "loading";
@@ -534,7 +587,7 @@ export async function runAudit(
       .evaluateAll((labels) =>
         labels.map((label) => label.getAttribute("data-state")),
       ),
-  ).toEqual(["neutral", "current", "error", "warning", "warning"]);
+  ).toEqual(["neutral", "current", "error", "neutral", "warning"]);
   for (const route of ["principals", "grants", "requests"])
     await expect(page.locator(`a[href="#/${route}/${id(7)}"]`)).toBeVisible();
   await expect(

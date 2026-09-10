@@ -8,6 +8,8 @@ import type {
 } from "./mutation";
 import {
   CollectionTable,
+  TableIdentity,
+  type OperationalState,
   ConfirmationDialog,
   StateNotice,
   StatusLabel,
@@ -44,6 +46,13 @@ function words(value: string): string {
   return result.charAt(0).toLocaleUpperCase() + result.slice(1);
 }
 
+function flowState(flow: ServerAuthFlowView): OperationalState {
+  if (!authFlowIsTerminal(flow)) return "loading";
+  if (flow.state === "succeeded") return "current";
+  if (flow.state === "failed") return "error";
+  return flow.state === "interrupted" ? "warning" : "neutral";
+}
+
 function FlowRows({
   serverID,
   items,
@@ -60,10 +69,13 @@ function FlowRows({
   return (
     <CollectionTable
       caption="OAuth activity"
+      layout="activity"
+      rowHeaderKey="action"
+      loadedSubset
       hasMore={hasMore}
       loadingMore={loadingMore}
       onLoadMore={onLoadMore}
-      loadMoreLabel="Load more flows"
+      loadMoreLabel="Load older flows"
       items={items}
       rowKey={(flow) => flow.id}
       rowTestID="auth-flow-row"
@@ -86,44 +98,45 @@ function FlowRows({
           ],
         },
       ]}
-      initialSort={{ key: "started", direction: "descending" }}
+      initialSort={{ key: "created", direction: "descending" }}
       columns={[
         {
+          key: "created",
+          label: "Created",
+          role: "time",
+          sortValue: (flow) => flow.createdAt,
+          render: (flow) => <UserTime value={flow.createdAt} />,
+        },
+        {
           key: "action",
-          label: "Action",
+          label: "Flow",
+          role: "identity",
           render: (flow) => (
-            <a href={`#/servers/${serverID}/auth-flows/${flow.id}`}>
-              OAuth authorization
-            </a>
+            <TableIdentity
+              primary={
+                <a href={`#/servers/${serverID}/auth-flows/${flow.id}`}>
+                  OAuth authorization
+                </a>
+              }
+              secondary={flow.id}
+            />
           ),
         },
         {
           key: "status",
           label: "Status",
+          role: "status",
           sortValue: (flow) => flow.state,
           render: (flow) => (
-            <StatusLabel
-              state={
-                flow.state === "failed" || flow.state === "interrupted"
-                  ? "warning"
-                  : authFlowIsTerminal(flow)
-                    ? "current"
-                    : "loading"
-              }
-            >
+            <StatusLabel state={flowState(flow)}>
               {words(flow.state)}
             </StatusLabel>
           ),
         },
         {
-          key: "started",
-          label: "Started",
-          sortValue: (flow) => flow.createdAt,
-          render: (flow) => <UserTime value={flow.createdAt} />,
-        },
-        {
           key: "outcome",
-          label: "Outcome",
+          label: "Reason",
+          role: "text",
           sortValue: (flow) => flow.reason ?? "",
           render: (flow) => (flow.reason === null ? "—" : words(flow.reason)),
         },
@@ -434,15 +447,7 @@ export function ServerAuthFlows({
               <h2 id="auth-flow-detail-title">OAuth flow {flow.id}</h2>
               <span class="table-secondary">OAuth authorization</span>
             </div>
-            <StatusLabel
-              state={
-                authFlowIsTerminal(flow)
-                  ? flow.state === "failed" || flow.state === "interrupted"
-                    ? "warning"
-                    : "current"
-                  : "loading"
-              }
-            >
+            <StatusLabel state={flowState(flow)}>
               {words(flow.state)}
             </StatusLabel>
           </div>
@@ -471,7 +476,7 @@ export function ServerAuthFlows({
               </dd>
             </div>
             <div>
-              <dt>Outcome</dt>
+              <dt>Reason</dt>
               <dd>{flow.reason === null ? "—" : words(flow.reason)}</dd>
             </div>
           </dl>

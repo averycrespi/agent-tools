@@ -510,7 +510,7 @@ export async function runAccessibilityKeyboardResponsive(
     '.table-region[role="region"][aria-label="Admin credentials"]',
   );
   if (
-    (await table.locator('th[scope="col"]').count()) !== 6 ||
+    (await table.locator('th[scope="col"]').count()) !== 5 ||
     (await table.locator('th[scope="row"]').count()) !== 2
   )
     fail("credential table semantics changed");

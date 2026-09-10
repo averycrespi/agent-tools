@@ -31,6 +31,7 @@ import {
 } from "./mutation";
 import {
   CollectionTable,
+  TableIdentity,
   ConfirmationDialog,
   containsControlCharacters,
   FormField,
@@ -983,7 +984,7 @@ function RequestActions({
     : selectedApprovalDescriptorSummary === undefined
       ? null
       : approvalDescriptorError
-        ? "Schema unavailable. Manual constraints are still available."
+        ? "Schema unavailable. Manual conditions are still available."
         : approvalSuggestions === undefined
           ? "Loading schema…"
           : null;
@@ -1422,7 +1423,7 @@ function RequestActions({
               <Conditions source={detail.submittedConstraintSource} locked />
               <div aria-labelledby="approval-additional-matchers-title">
                 <h3 id="approval-additional-matchers-title">
-                  Additional constraints — All must match
+                  Additional conditions — All must match
                   <span class="optional-label"> (optional)</span>
                 </h3>
                 <p class="field-hint">
@@ -1903,9 +1904,9 @@ export function Requests({
               state={
                 detail.state === "pending"
                   ? "warning"
-                  : detail.state === "cancelled"
-                    ? "neutral"
-                    : "current"
+                  : detail.state === "approved"
+                    ? "current"
+                    : "neutral"
               }
             >
               {sentenceCase(detail.state)}
@@ -2184,6 +2185,7 @@ export function Requests({
         </nav>
         <CollectionTable
           caption="Grant request summaries"
+          rowHeaderKey="request"
           items={items}
           rowKey={(item) => item.id}
           rowTestID="request-row"
@@ -2225,7 +2227,7 @@ export function Requests({
               ? [
                   {
                     key: "state",
-                    label: "State",
+                    label: "Status",
                     type: "select" as const,
                     value: (item: RequestRow) => item.state,
                     options: [
@@ -2240,27 +2242,28 @@ export function Requests({
           ]}
           columns={[
             {
-              key: "decision",
-              label: "Action",
-              render: (item) => (
-                <a class="button-link" href={`#/requests/${item.id}`}>
-                  {item.state === "pending" ? "Review" : "View decision"}
-                </a>
-              ),
+              key: "submitted",
+              label: "Submitted",
+              role: "time",
+              render: (item) => <UserTime value={item.createdAt} />,
+              sortValue: (item) => item.createdAt,
             },
             {
               key: "request",
-              label: "Request ID",
+              label: "Request",
+              role: "identity",
               render: (item) => (
-                <a class="technical-value" href={`#/requests/${item.id}`}>
-                  {item.id}
-                </a>
+                <TableIdentity
+                  primary={<a href={`#/requests/${item.id}`}>Access request</a>}
+                  secondary={item.id}
+                />
               ),
               sortValue: (item) => item.id,
             },
             {
               key: "principal",
               label: "Principal",
+              role: "relation",
               render: (item) => (
                 <a href={`#/principals/${item.principalID}`}>
                   {item.principalName}
@@ -2271,6 +2274,7 @@ export function Requests({
             {
               key: "target",
               label: "Target",
+              role: "relation",
               render: (item) => (
                 <a
                   href={`#/servers/${item.serverID}?tab=tools`}
@@ -2287,15 +2291,16 @@ export function Requests({
             },
             {
               key: "state",
-              label: "State",
+              label: "Status",
+              role: "status",
               render: (item) => (
                 <StatusLabel
                   state={
                     item.state === "pending"
                       ? "warning"
-                      : item.state === "cancelled"
-                        ? "neutral"
-                        : "current"
+                      : item.state === "approved"
+                        ? "current"
+                        : "neutral"
                   }
                 >
                   {sentenceCase(item.state)}
@@ -2306,12 +2311,14 @@ export function Requests({
             {
               key: "duration",
               label: "Requested duration",
+              role: "measure",
               render: (item) =>
                 readableDuration(item.requestedPolicy.durationSeconds),
             },
             {
               key: "constraints",
-              label: "Constraints",
+              label: "Conditions",
+              role: "count",
               render: (item) =>
                 matcherConstraintCount(
                   item.requestedPolicy.constraint === null
@@ -2320,10 +2327,17 @@ export function Requests({
                 ),
             },
             {
-              key: "submitted",
-              label: "Submitted",
-              render: (item) => <UserTime value={item.createdAt} />,
-              sortValue: (item) => item.createdAt,
+              key: "decision",
+              label: "Actions",
+              role: "actions",
+              render: (item) => (
+                <a
+                  class={`button-link${item.state === "pending" ? " primary-action" : ""}`}
+                  href={`#/requests/${item.id}`}
+                >
+                  {item.state === "pending" ? "Review" : "View decision"}
+                </a>
+              ),
             },
           ]}
         />

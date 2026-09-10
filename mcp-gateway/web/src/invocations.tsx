@@ -5,11 +5,13 @@ import type { PrincipalDirectory } from "./principals";
 import {
   BinaryToggle,
   CollectionTable,
+  TableIdentity,
   useDebouncedInput,
   InertJSON,
   sentenceCase,
   StateNotice,
   StatusLabel,
+  type OperationalState,
 } from "./primitives";
 import type { SessionClient } from "./session";
 import { UserTime } from "./time";
@@ -19,6 +21,13 @@ import type {
   ViewReadContext,
   ViewSnapshot,
 } from "./view";
+
+function invocationState(outcome: string): OperationalState {
+  if (outcome === "succeeded") return "current";
+  if (outcome === "outcome_unknown") return "warning";
+  if (outcome === "deny" || outcome === "block") return "neutral";
+  return "error";
+}
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 type JSONRecord = Record<string, unknown>;
@@ -826,42 +835,54 @@ function InvocationList({
       ) : (
         <CollectionTable
           caption="Invocation history"
+          layout="activity"
+          rowHeaderKey="tool"
           items={snapshot.items}
           rowKey={(item) => item.id}
           rowTestID="invocation-row"
           columns={[
             {
-              key: "invocation",
-              label: "Invocation",
-              render: (item) => (
-                <a
-                  href={serializeLocation({
-                    destination: "invocations",
-                    segments: ["invocations", item.id],
-                    query,
-                  })}
-                >
-                  {item.id}
-                </a>
-              ),
+              key: "admitted",
+              label: "Admitted",
+              role: "time",
+              render: (item) => <UserTime value={item.admittedAt} />,
             },
             {
               key: "tool",
-              label: "Tool",
-              render: (item) =>
-                item.target?.kind === "downstream" ? (
-                  <a
-                    href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
-                  >
-                    {invocationTargetLabel(item.target, item.requestedName)}
-                  </a>
-                ) : (
-                  invocationTargetLabel(item.target, item.requestedName)
-                ),
+              label: "Invocation",
+              role: "identity",
+              render: (item) => (
+                <TableIdentity
+                  primary={
+                    item.target?.kind === "downstream" ? (
+                      <a
+                        href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+                      >
+                        {invocationTargetLabel(item.target, item.requestedName)}
+                      </a>
+                    ) : (
+                      invocationTargetLabel(item.target, item.requestedName)
+                    )
+                  }
+                  secondary={
+                    <a
+                      aria-label={`Invocation ${item.id}`}
+                      href={serializeLocation({
+                        destination: "invocations",
+                        segments: ["invocations", item.id],
+                        query,
+                      })}
+                    >
+                      {item.id}
+                    </a>
+                  }
+                />
+              ),
             },
             {
               key: "principal",
               label: "Principal",
+              role: "relation",
               render: (item) => (
                 <a href={`#/principals/${item.principalID}`}>
                   {principalNames.get(item.principalID) ?? item.principalID}
@@ -870,7 +891,8 @@ function InvocationList({
             },
             {
               key: "decision",
-              label: "Decision",
+              label: "Authorization",
+              role: "status",
               render: (item) =>
                 item.authorization === null
                   ? "Not evaluated"
@@ -879,24 +901,12 @@ function InvocationList({
             {
               key: "outcome",
               label: "Outcome",
+              role: "status",
               render: (item) => (
-                <StatusLabel
-                  state={
-                    item.outcome === "succeeded"
-                      ? "current"
-                      : item.outcome === "outcome_unknown"
-                        ? "warning"
-                        : "empty"
-                  }
-                >
+                <StatusLabel state={invocationState(item.outcome)}>
                   {sentenceCase(item.outcome)}
                 </StatusLabel>
               ),
-            },
-            {
-              key: "admitted",
-              label: "Admitted",
-              render: (item) => <UserTime value={item.admittedAt} />,
             },
           ]}
         />
@@ -1000,11 +1010,13 @@ function InvocationFilters({
         {(["decision", "outcome"] as const).map((key) => (
           <select
             key={key}
-            aria-label={sentenceCase(key)}
+            aria-label={key === "decision" ? "Authorization" : "Outcome"}
             value={query[`filter_${key}`] ?? ""}
             onChange={(event) => change(key, event.currentTarget.value)}
           >
-            <option value="">{sentenceCase(key)}: any</option>
+            <option value="">
+              {key === "decision" ? "Authorization" : "Outcome"}: any
+            </option>
             {invocationOptions[key].map(([value, label]) => (
               <option value={value}>{label}</option>
             ))}
@@ -1097,9 +1109,7 @@ function InvocationDetail({
       >
         <div class="panel-heading">
           <h2 id="invocation-detail-title">Invocation details</h2>
-          <StatusLabel
-            state={item.outcome === "outcome_unknown" ? "warning" : "current"}
-          >
+          <StatusLabel state={invocationState(item.outcome)}>
             {sentenceCase(item.outcome)}
           </StatusLabel>
         </div>

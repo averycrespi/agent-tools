@@ -182,7 +182,7 @@ function serverCollectionQuery(
 function operationCollectionQuery(query: Record<string, string>): boolean {
   const values: Record<string, readonly string[]> = {
     tab: ["activity"],
-    sort: ["action", "status", "started", "outcome"],
+    sort: ["action", "status", "created", "started", "outcome"],
     direction: ["ascending", "descending"],
     filter_action: [
       "activate",

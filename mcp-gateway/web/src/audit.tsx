@@ -18,6 +18,7 @@ import {
 } from "./location";
 import {
   CollectionTable,
+  TableIdentity,
   FormField,
   sentenceCase,
   StateNotice,
@@ -42,7 +43,7 @@ function outcomeState(outcome: string): OperationalState {
     ? "current"
     : outcome === "failed"
       ? "error"
-      : outcome === "pending"
+      : outcome === "pending" || outcome === "rejected"
         ? "neutral"
         : "warning";
 }
@@ -465,7 +466,11 @@ function localAuditTime(value: string): string {
     .toISOString()
     .slice(0, 19);
 }
-const primaryFilters = ["category", "action", "outcome"];
+const primaryFilters = ["category", "action", "outcome", "from", "until"];
+const optionalFilters = auditFilterKeys.filter(
+  (key) => !primaryFilters.includes(key),
+);
+const filterLabel = (key: string) => sentenceCase(key).replace(/\bid\b/g, "ID");
 const idFilters = ["credential_id", "target_id", "correlation_id"];
 function compactQuery(query: Readonly<Record<string, string>>) {
   return Object.fromEntries(
@@ -497,20 +502,26 @@ function Filters({
   });
   const applied = useRef(resolved.location.query);
   const ownNavigation = useRef<string>();
-  const [advanced, setAdvanced] = useState(
-    Object.keys(draft).some((key) => !primaryFilters.includes(key.slice(7))),
+  const [selectedFilters, setSelectedFilters] = useState<string[]>(
+    optionalFilters.filter((key) => Boolean(draft[`filter_${key}`])),
   );
+  const focusTarget = useRef<string>();
+  useLayoutEffect(() => {
+    if (focusTarget.current !== undefined) {
+      document.getElementById(focusTarget.current)?.focus();
+      focusTarget.current = undefined;
+    }
+  }, [selectedFilters]);
   useLayoutEffect(() => {
     applied.current = resolved.location.query;
     // Our own valid field update must not erase unrelated invalid drafts.
     if (ownNavigation.current !== resolved.canonicalFragment) {
       setDraft({ ...resolved.location.query });
-      if (
-        Object.keys(resolved.location.query).some(
-          (key) => !primaryFilters.includes(key.slice(7)),
-        )
-      )
-        setAdvanced(true);
+      setSelectedFilters(
+        optionalFilters.filter((key) =>
+          Boolean(resolved.location.query[`filter_${key}`]),
+        ),
+      );
     }
     ownNavigation.current = undefined;
   }, [resolved.canonicalFragment]);
@@ -546,14 +557,12 @@ function Filters({
         "Enter a complete 26-character Gateway ID, or clear this field.";
   }
   if (dates !== undefined) errors.from = errors.until = dates;
-  const activeAdvanced = Object.keys(applied.current).filter(
-    (key) => !primaryFilters.includes(key.slice(7)),
-  ).length;
   const pending =
     serializeLocation({ ...resolved.location, query: compactQuery(draft) }) !==
     serializeLocation({ ...resolved.location, query: applied.current });
   const clear = () => {
     setDraft({});
+    setSelectedFilters([]);
     applied.current = {};
     ownNavigation.current = "#/audit";
     navigate("#/audit");
@@ -567,12 +576,24 @@ function Filters({
         ? "From (inclusive, local time)"
         : key === "until"
           ? "Until (exclusive, local time)"
-          : sentenceCase(key).replace(/\bid\b/g, "ID");
+          : filterLabel(key);
+    const appliedValue = applied.current[name] ?? "";
+    const hint = [
+      key === "credential_id"
+        ? "Matches the performing operator or a known system initiator."
+        : "",
+      (draft[name] ?? "") !== appliedValue
+        ? `Current results: ${appliedValue === "" ? "Any" : timeBound ? localAuditTime(appliedValue) : appliedValue}.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     return (
       <FormField
         key={key}
         id={`audit-${key}`}
         label={label}
+        {...(hint === "" ? {} : { hint })}
         {...(errors[key] === undefined ? {} : { error: errors[key] })}
       >
         {(attributes) =>
@@ -639,51 +660,65 @@ function Filters({
       aria-label="Filter audit history"
       onSubmit={(event) => event.preventDefault()}
     >
-      <h2>Filter audit history</h2>
-      <p>
-        Filters apply automatically to all retained events, not just loaded
-        rows.
-      </p>
-      <div class="audit-filter-grid">{primaryFilters.map(field)}</div>
-      <details
-        open={advanced}
-        onToggle={(event) => setAdvanced(event.currentTarget.open)}
-      >
-        <summary>
-          More filters{activeAdvanced > 0 ? ` · ${activeAdvanced} active` : ""}
-          {Object.keys(errors).length > 0 ? " · check draft values" : ""}
-        </summary>
-        <p>
-          Credential ID matches the performing operator or a known system
-          initiator.
-        </p>
-        <div class="audit-filter-grid">
-          {auditFilterKeys
-            .filter((key) => !primaryFilters.includes(key))
-            .map(field)}
-        </div>
-      </details>
+      <div class="audit-filter-grid">
+        {primaryFilters.map(field)}
+        {selectedFilters.map((key) => (
+          <div class="audit-optional-filter" key={key}>
+            {field(key)}
+            <button
+              type="button"
+              aria-label={`Remove ${filterLabel(key)} filter`}
+              onClick={() => {
+                focusTarget.current = "audit-add-filter";
+                setSelectedFilters(
+                  selectedFilters.filter((selected) => selected !== key),
+                );
+                setDraft({ ...draft, [`filter_${key}`]: "" });
+                apply({ [`filter_${key}`]: "" });
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
       {pending && (
         <p role="status">
           Draft changes are not yet applied.{" "}
           {Object.keys(errors).length > 0
-            ? "Check the fields under More filters; valid independent changes still apply."
+            ? "Check the marked fields; valid independent changes still apply."
             : "Text filters apply after a short pause."}
         </p>
       )}
-      <p class="audit-applied" aria-label="Applied audit filters">
-        Applied filters:{" "}
-        {Object.entries(applied.current)
-          .map(
-            ([key, value]) =>
-              `${sentenceCase(key.slice(7)).replace(/\bid\b/g, "ID")}: ${value}`,
-          )
-          .join(" · ") || "None"}
-      </p>
-      <div class="form-actions">
+      <div class="audit-filter-actions">
+        <select
+          id="audit-add-filter"
+          aria-label="Add filter"
+          value=""
+          disabled={selectedFilters.length === optionalFilters.length}
+          onChange={(event) => {
+            const key = event.currentTarget.value;
+            if (!optionalFilters.includes(key) || selectedFilters.includes(key))
+              return;
+            focusTarget.current = `audit-${key}`;
+            setSelectedFilters([...selectedFilters, key]);
+          }}
+        >
+          <option value="" disabled>
+            Add filter…
+          </option>
+          {optionalFilters
+            .filter((key) => !selectedFilters.includes(key))
+            .map((key) => (
+              <option key={key} value={key}>
+                {filterLabel(key)}
+              </option>
+            ))}
+        </select>
         <button
           type="button"
           disabled={
+            selectedFilters.length === 0 &&
             Object.keys(compactQuery(draft)).length === 0 &&
             Object.keys(applied.current).length === 0
           }
@@ -691,6 +726,9 @@ function Filters({
         >
           Clear filters
         </button>
+        <p class="audit-filter-help">
+          Filters apply to all retained events, not just loaded rows.
+        </p>
       </div>
     </form>
   );
@@ -884,6 +922,8 @@ export function Audit({
           ) : snapshot.items.length > 0 ? (
             <CollectionTable
               caption="Control-plane audit history"
+              layout="activity"
+              rowHeaderKey="event"
               items={snapshot.items}
               rowKey={(item) => item.id}
               rowTestID="audit-row"
@@ -891,48 +931,48 @@ export function Audit({
                 {
                   key: "time",
                   label: "Time",
+                  role: "time",
                   render: (item) => <UserTime value={item.timestamp} />,
                 },
                 {
                   key: "event",
-                  label: "Event type",
+                  label: "Event",
+                  role: "identity",
                   render: (item) => (
-                    <>
-                      {item.category}.{item.action}
-                    </>
-                  ),
-                },
-                {
-                  key: "id",
-                  label: "Event ID",
-                  render: (item) => (
-                    <a
-                      href={serializeLocation({
-                        ...resolved.location,
-                        segments: ["audit", item.id],
-                      })}
-                    >
-                      {item.id}
-                    </a>
+                    <TableIdentity
+                      primary={
+                        <a
+                          href={serializeLocation({
+                            ...resolved.location,
+                            segments: ["audit", item.id],
+                          })}
+                        >
+                          {item.category}.{item.action}
+                        </a>
+                      }
+                      secondary={item.id}
+                    />
                   ),
                 },
                 {
                   key: "actor",
                   label: "Performer",
+                  role: "relation",
                   render: (item) => (
                     <>
                       {sentenceCase(item.actor.type)}
                       {item.actor.credential !== null && (
-                        <>
-                          <br />
+                        <span class="table-identifier">
                           {item.actor.credential.id}
-                        </>
+                        </span>
                       )}
                       {item.initiator !== null && (
-                        <>
-                          <br />
-                          <small>Initiated by {item.initiator.id}</small>
-                        </>
+                        <span class="table-secondary">
+                          Initiated by{" "}
+                          <span class="technical-value">
+                            {item.initiator.id}
+                          </span>
+                        </span>
                       )}
                     </>
                   ),
@@ -940,30 +980,34 @@ export function Audit({
                 {
                   key: "target",
                   label: "Target",
+                  role: "relation",
                   render: (item) => (
                     <>
                       {sentenceCase(item.target.type)}
-                      <br />
-                      {controller.listTarget(item) === undefined ? (
-                        item.target.id
-                      ) : (
-                        <a href={controller.listTarget(item)}>
-                          {item.target.id}
-                        </a>
-                      )}
+                      <span class="table-identifier">
+                        {controller.listTarget(item) === undefined ? (
+                          item.target.id
+                        ) : (
+                          <a href={controller.listTarget(item)}>
+                            {item.target.id}
+                          </a>
+                        )}
+                      </span>
                     </>
                   ),
                 },
                 {
                   key: "outcome",
                   label: "Outcome",
+                  role: "status",
                   render: (item) => (
                     <>
                       <StatusLabel state={outcomeState(item.outcome)}>
                         {sentenceCase(item.outcome)}
                       </StatusLabel>
-                      <br />
-                      <small>{sentenceCase(item.phase)}</small>
+                      <span class="table-secondary">
+                        {sentenceCase(item.phase)}
+                      </span>
                     </>
                   ),
                 },

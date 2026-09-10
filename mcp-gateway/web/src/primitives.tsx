@@ -107,12 +107,36 @@ export function InertJSON({
 export function ComparisonTable({
   caption,
   children,
+  layout = "comparison",
 }: {
   caption: string;
   children: ComponentChildren;
+  layout?: "comparison" | "resource" | "activity";
 }) {
   return (
-    <div class="table-region" role="region" aria-label={caption} tabindex={0}>
+    <div
+      class={`table-region table-${layout}`}
+      role="region"
+      aria-label={caption}
+      tabindex={0}
+      onFocusCapture={(event) => {
+        // Native focus scrolling can overlook a cell covered by pinned actions.
+        if (
+          event.target instanceof HTMLElement &&
+          event.target !== event.currentTarget &&
+          event.currentTarget.querySelector(".column-actions") !== null
+        ) {
+          const actions =
+            event.currentTarget.querySelector("th.column-actions");
+          const pinnedWidth =
+            actions !== null && getComputedStyle(actions).position === "sticky"
+              ? actions.getBoundingClientRect().width
+              : 0;
+          event.currentTarget.style.scrollPaddingRight = `${pinnedWidth}px`;
+          event.target.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+      }}
+    >
       <table>
         <caption class="visually-hidden">{caption}</caption>
         {children}
@@ -155,8 +179,36 @@ export function CompactRecord({
   );
 }
 
+export function TableIdentity({
+  primary,
+  secondary,
+}: {
+  primary: ComponentChildren;
+  secondary?: ComponentChildren;
+}) {
+  return (
+    <>
+      <span class="table-primary">{primary}</span>
+      {secondary !== undefined && (
+        <span class="table-identifier">{secondary}</span>
+      )}
+    </>
+  );
+}
+
+type ColumnRole =
+  | "identity"
+  | "relation"
+  | "text"
+  | "status"
+  | "time"
+  | "count"
+  | "measure"
+  | "actions";
+
 export interface CollectionColumn<T> {
   key: string;
+  role: ColumnRole;
   label: string;
   render: (item: T) => ComponentChildren;
   sortValue?: (item: T) => string | number;
@@ -272,8 +324,20 @@ export function CollectionTable<T>({
   loadMoreLabel = "Load more",
   itemNames = { singular: "item", plural: "items" },
   remote,
+  rowHeaderKey,
+  layout = "resource",
+  additionalSorts = [],
+  loadedSubset = false,
 }: {
   caption: string;
+  rowHeaderKey: string;
+  layout?: "resource" | "activity";
+  additionalSorts?: readonly {
+    key: string;
+    label: string;
+    sortValue: (item: T) => string | number;
+  }[];
+  loadedSubset?: boolean;
   items: readonly T[];
   columns: readonly CollectionColumn<T>[];
   rowKey: (item: T) => string;
@@ -300,6 +364,10 @@ export function CollectionTable<T>({
     window.addEventListener("hashchange", synchronize);
     return () => window.removeEventListener("hashchange", synchronize);
   }, [filters, remote]);
+  const sortOptions = [
+    ...columns.filter((column) => column.sortValue !== undefined),
+    ...additionalSorts,
+  ];
   const visible = useMemo(() => {
     if (remote !== undefined) return items;
     const filtered = items.filter((item) =>
@@ -317,7 +385,7 @@ export function CollectionTable<T>({
       }),
     );
     if (sort === undefined) return filtered;
-    const column = columns.find((candidate) => candidate.key === sort.key);
+    const column = sortOptions.find((candidate) => candidate.key === sort.key);
     if (column?.sortValue === undefined) return filtered;
     return filtered.sort((left, right) => {
       const a = column.sortValue!(left);
@@ -328,7 +396,7 @@ export function CollectionTable<T>({
           : String(a).localeCompare(String(b));
       return sort.direction === "ascending" ? order : -order;
     });
-  }, [columns, filterValues, filters, items, sort, remote]);
+  }, [columns, additionalSorts, filterValues, filters, items, sort, remote]);
   const changeSort = (key: string) => {
     if (remote !== undefined) {
       remote.changeSort(key);
@@ -481,18 +549,74 @@ export function CollectionTable<T>({
         <StateNotice state="error" title={remote.error} />
       )}
       {pagination("top")}
-      <ComparisonTable caption={caption}>
+      {loadedSubset && (
+        <p class="table-query-scope">
+          Filters and sorting apply to loaded rows only.
+        </p>
+      )}
+      {sortOptions.length > 0 && (
+        <div
+          class="table-sort-controls"
+          role="group"
+          aria-label={`${caption} sorting`}
+        >
+          <label>
+            Sort by{" "}
+            <select
+              aria-label={`${caption} sort column`}
+              value={sort?.key ?? ""}
+              onChange={(event) => changeSort(event.currentTarget.value)}
+            >
+              {(sort === undefined ||
+                !columns.some(
+                  (column) =>
+                    column.key === sort.key && column.sortValue !== undefined,
+                )) && (
+                <option value={sort?.key ?? ""} disabled>
+                  {sort === undefined
+                    ? "Default order"
+                    : "Custom order (from URL)"}
+                </option>
+              )}
+              {columns
+                .filter((column) => column.sortValue !== undefined)
+                .map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={sort === undefined}
+            onClick={() => sort !== undefined && changeSort(sort.key)}
+            aria-label={`${caption} sort direction`}
+          >
+            {sort?.direction === "descending" ? "Descending ↓" : "Ascending ↑"}
+          </button>
+        </div>
+      )}
+      <ComparisonTable caption={caption} layout={layout}>
+        <colgroup>
+          {columns.map((column) => (
+            <col key={column.key} class={`column-${column.role}`} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
             {columns.map((column) => (
               <th
                 key={column.key}
                 scope="col"
-                class={column.class}
+                class={`column-${column.role} ${column.class ?? ""}`}
                 aria-sort={
                   sort?.key === column.key ? sort.direction : undefined
                 }
               >
+                {column.sortValue !== undefined && (
+                  <span class="table-narrow-heading">{column.label}</span>
+                )}
                 {column.sortValue === undefined ? (
                   column.label
                 ) : (
@@ -518,12 +642,12 @@ export function CollectionTable<T>({
         <tbody>
           {visible.map((item) => (
             <tr key={rowKey(item)} data-testid={rowTestID}>
-              {columns.map((column, index) =>
-                index === 0 ? (
+              {columns.map((column) =>
+                column.key === rowHeaderKey ? (
                   <th
                     key={column.key}
                     scope="row"
-                    class={column.class}
+                    class={`column-${column.role} ${column.class ?? ""}`}
                     data-label={column.label}
                   >
                     {column.render(item)}
@@ -531,7 +655,7 @@ export function CollectionTable<T>({
                 ) : (
                   <td
                     key={column.key}
-                    class={column.class}
+                    class={`column-${column.role} ${column.class ?? ""}`}
                     data-label={column.label}
                   >
                     {column.render(item)}

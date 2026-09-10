@@ -138,7 +138,11 @@ export async function exerciseCollectionPagination(
       indices = indices.filter(
         (index) => grant(index).grant.effect === query.get("effect"),
       );
-    if (query.get("direction") === "descending")
+    if (query.get("sort") === "id") {
+      indices.sort((a, b) =>
+        query.get("direction") === "descending" ? b - a : a - b,
+      );
+    } else if (query.get("direction") === "descending")
       indices.sort((a, b) => Number(b === 127) - Number(a === 127) || a - b);
     const start = cursor === null ? 0 : Number(cursor.split("-")[1]);
     expect(Number.isInteger(start)).toBe(true);
@@ -255,6 +259,44 @@ export async function exerciseCollectionPagination(
         centered: true,
       });
       await capture?.(page, `${selected}-populated`);
+      const originalQuery = await page.evaluate(() => location.hash);
+      const viewport = page.viewportSize()!;
+      await page.setViewportSize({ width: 320, height: 900 });
+      const sortColumn = root.getByRole("combobox", {
+        name: `${selected === "principals" ? "Principal identities" : "Grant policy records"} sort column`,
+      });
+      await sortColumn.focus();
+      await expect(sortColumn).toBeFocused();
+      await expect(sortColumn.locator('option[value="id"]')).toHaveCount(0);
+      await sortColumn.selectOption(
+        selected === "principals" ? "name" : "description",
+      );
+      // Legacy ID-sort URLs remain usable without a dedicated ID-sort control.
+      await page.evaluate((selected) => {
+        location.hash = `#/${selected}?sort=id&direction=ascending`;
+      }, selected);
+      await expect(sortColumn.locator("option:checked")).toHaveText(
+        "Custom order (from URL)",
+      );
+      await expect.poll(() => requests.at(-1)?.query.get("sort")).toBe("id");
+      await settled(50);
+      expect(await links()).toEqual(first);
+      const direction = root.getByRole("button", { name: /sort direction$/ });
+      await direction.focus();
+      await page.keyboard.press("Enter");
+      await expect(direction).toHaveText("Descending ↓");
+      await expect
+        .poll(async () => (await links())[0])
+        .toBe(`#/${selected}/${id(selected === "principals" ? 127 : 327)}`);
+      await settled(50);
+      expect(requests.at(-1)?.query.get("direction")).toBe("descending");
+      await expect(direction).toBeFocused();
+      await page.evaluate((query) => {
+        location.hash = query;
+      }, originalQuery);
+      await expect.poll(links).toEqual(first);
+      await settled(50);
+      await page.setViewportSize(viewport);
       await next.click();
       await expect(summary).toHaveText(range(50));
       await settled(50);
@@ -297,7 +339,7 @@ export async function exerciseCollectionPagination(
       await expect(summary).toHaveText(range(50));
       await root
         .getByRole("button", {
-          name: selected === "principals" ? "Name" : "Description",
+          name: selected === "principals" ? "Principal" : "Grant",
           exact: true,
         })
         .click();
@@ -443,7 +485,7 @@ export async function exerciseCollectionPagination(
         await selectFilter("Visibility", "all", "visibility");
       } else {
         await selectFilter("Effect", "deny", "effect");
-        await selectFilter("State", "expired", "state");
+        await selectFilter("Status", "expired", "state");
         for (const [label, value, parameter] of [
           ["Principal", "needle", "principal"],
           ["Target", "Far", "target"],

@@ -47,6 +47,9 @@ func TestOperationQueryWireValidationAndLegacyCompatibility(t *testing.T) {
 	require.NotNil(t, fixture.cursor)
 	require.Equal(t, 61, int(fixture.cursor.Upper))
 	get("sort=status&cursor="+*first.NextCursor, 409)
+	get("sort=created&direction=descending", 200)
+	require.Equal(t, servers.OperationQuery{Sort: "created", Direction: "descending"}, fixture.query)
+	get("sort=created&cursor="+*first.NextCursor, 409)
 	for _, query := range []string{"projection=active&limit=2", "projection=other", "projection=active&status=running", "sort=unknown", "sort=started&limit=051", "sort=started&limit=51", "sort=started&limit=0", "status=unknown", "action=unknown", "sort=", "sort=status&sort=started", "direction=descending", "sort=status&cursor=", "sort=status&unknown=x"} {
 		get(query, 400)
 	}

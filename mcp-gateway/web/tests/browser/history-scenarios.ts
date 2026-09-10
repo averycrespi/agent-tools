@@ -195,7 +195,7 @@ export async function assertAuthoritativeHistory(
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
     await page
       .getByTestId("audit-row")
-      .getByRole("link", { name: auditData.items[0].id, exact: true })
+      .locator('[data-label="Event"] .table-primary a')
       .click();
     await page.getByRole("link", { name: "Back to audit history" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
@@ -225,7 +225,7 @@ export async function assertAuthoritativeHistory(
     await expect(page).toHaveURL(/filter_principal=cafe%20investgiator/);
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await page
-      .getByLabel("Decision", { exact: true })
+      .getByLabel("Authorization", { exact: true })
       .selectOption("not_evaluated");
     await page
       .getByLabel("Outcome", { exact: true })
@@ -273,7 +273,10 @@ export async function assertAuthoritativeHistory(
     await live.uncheck();
     await page
       .getByTestId("invocation-row")
-      .getByRole("link", { name: selected.items[0].id })
+      .getByRole("link", {
+        name: `Invocation ${selected.items[0].id}`,
+        exact: true,
+      })
       .click();
     await page.getByRole("link", { name: "Back to invocations" }).click();
     await expect(live).not.toBeChecked();
@@ -339,7 +342,8 @@ export async function assertAuthoritativeHistory(
         });
         return row
           ? {
-              id: row.querySelector("a")!.textContent!,
+              id: row.querySelector('a[aria-label^="Invocation "]')!
+                .textContent!,
               top: row.getBoundingClientRect().top,
             }
           : null;
@@ -357,7 +361,12 @@ export async function assertAuthoritativeHistory(
     ).toBeVisible();
     const anchorAfter = await page
       .getByTestId("invocation-row")
-      .filter({ has: page.getByRole("link", { name: anchor.id, exact: true }) })
+      .filter({
+        has: page.getByRole("link", {
+          name: `Invocation ${anchor.id}`,
+          exact: true,
+        }),
+      })
       .evaluate((row) => row.getBoundingClientRect().top);
     if (Math.abs(anchorAfter - anchor.top) > 80)
       fail("Older-reading pause displaced the retained row anchor");
@@ -400,7 +409,9 @@ export async function assertAuthoritativeHistory(
       page.getByText("Invocation list unavailable", { exact: true }),
     ).toBeVisible();
     await expect(page.getByTestId("invocation-row")).toHaveCount(0);
-    await expect(page.getByLabel("Decision", { exact: true })).toBeVisible();
+    await expect(
+      page.getByLabel("Authorization", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByText("No matching invocations", { exact: true }),
     ).toHaveCount(0);

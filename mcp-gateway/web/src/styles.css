@@ -1364,7 +1364,9 @@ p {
 }
 
 .table-filters input,
-.table-filters select {
+.table-filters select,
+.table-sort-controls select,
+.audit-filter-actions select {
   min-height: 38px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
@@ -1452,14 +1454,62 @@ button.sort-button:not(:disabled):hover {
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 450;
 }
 
-.action-column {
-  width: 1%;
-  white-space: nowrap;
+.table-identifier {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 450;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 701px) {
+  .table-identifier {
+    /* Measure the complete 26-character ID in its own monospace font. */
+    min-width: 27ch;
+    white-space: nowrap;
+  }
+}
+
+.table-primary {
+  display: block;
+  font-weight: 650;
+}
+
+.table-narrow-heading {
+  display: none;
+}
+
+.table-sort-controls {
+  display: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.table-sort-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.table-sort-controls select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.table-query-scope {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .intro:has(#page-title.visually-hidden) {
@@ -1704,13 +1754,11 @@ button.sort-button:not(:disabled):hover {
 
 .table-region th,
 .table-region td {
-  max-width: 28rem;
-  padding: 9px 10px;
-  overflow: hidden;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
-  text-overflow: ellipsis;
-  vertical-align: middle;
-  white-space: nowrap;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .table-region tr:last-child > * {
@@ -1724,6 +1772,7 @@ button.sort-button:not(:disabled):hover {
 }
 
 .table-region thead th {
+  overflow-wrap: normal;
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
@@ -1740,11 +1789,68 @@ button.sort-button:not(:disabled):hover {
   font-weight: 650;
 }
 
+.table-region .column-identity,
+.table-region .column-relation,
+.table-region .column-text {
+  min-width: 12rem;
+}
+
+/* Let descriptive columns use spare space; compact columns fit their content. */
+.table-region .column-status,
+.table-region .column-time,
+.table-region .column-count,
+.table-region .column-measure,
+.table-region .column-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* Keep queue decisions reachable while wide tables scroll through metadata. */
+.table-region th.column-actions,
+.table-region td.column-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  border-left: 1px solid var(--line);
+  box-shadow: -1px 0 0 var(--line);
+  background: var(--surface);
+}
+
+.table-region tbody tr:hover .column-actions {
+  background: var(--surface-subtle);
+}
+.table-region .column-count,
+.table-region .column-measure {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.table-region .column-count .sort-button,
+.table-region .column-measure .sort-button {
+  justify-content: flex-end;
+  width: 100%;
+}
+.table-region .status-label {
+  white-space: normal;
+  overflow-wrap: normal;
+}
+.table-region .user-time {
+  font-variant-numeric: tabular-nums;
+}
+.table-region .user-time-clock {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+.table-region .user-time-separator {
+  display: none;
+}
+
 .table-region tbody a {
   font-size: inherit;
 }
 
-.primary-table-link {
+.primary-table-link,
+.table-primary > a {
   display: inline-flex;
   min-height: 32px;
   align-items: center;
@@ -1759,7 +1865,7 @@ button.sort-button:not(:disabled):hover {
 
 .table-region .technical-value {
   display: inline;
-  margin: 0 0 0 6px;
+  margin: 0;
 }
 
 .inert-json {
@@ -2125,9 +2231,71 @@ button.sort-button:not(:disabled):hover {
 }
 
 .audit-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 12px;
+}
+
+.audit-filter-grid > .form-field {
+  flex: 1 1 9rem;
+}
+
+.audit-filter-grid > .form-field:has(input[type="datetime-local"]) {
+  flex-basis: 15rem;
+}
+
+.audit-filter-grid .form-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.audit-filter-grid .field-hint {
+  order: 1;
+}
+
+.audit-filter-grid .field-error {
+  order: 2;
+}
+
+.audit-optional-filter {
+  display: flex;
+  flex: 1 1 18rem;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.audit-optional-filter .form-field {
+  flex: 1;
+}
+
+.audit-optional-filter > button {
+  margin-top: 23px;
+}
+
+.audit-filter-grid input,
+.audit-filter-grid select {
+  width: 100%;
+  min-width: 0;
+}
+
+.audit-filter-grid input[type="datetime-local"] {
+  min-width: min(100%, 14rem);
+}
+
+.audit-filter-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audit-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
 }
 
 .audit-filter-grid .form-field {
@@ -2139,42 +2307,34 @@ button.sort-button:not(:disabled):hover {
   margin-bottom: 12px;
 }
 
-.audit-filters details {
-  margin-top: 16px;
-}
-
-.audit-filters summary,
 .audit-history summary {
   cursor: pointer;
 }
 
-.audit-filters details > p {
-  margin: 12px 0;
-}
-
 .audit-view dd,
 .audit-view th,
-.audit-view td,
-.audit-applied {
+.audit-view td {
   overflow-wrap: anywhere;
   white-space: normal;
 }
 
-.audit-applied {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.audit-view .table-region table {
-  table-layout: fixed;
-}
-
 @media (max-width: 700px) {
-  .audit-view .table-region table {
+  .table-sort-controls {
+    display: flex;
+  }
+
+  .table-resource table,
+  .table-activity table {
     min-width: 0;
   }
 
-  .audit-view .table-region thead {
+  .table-resource colgroup,
+  .table-activity colgroup {
+    display: none;
+  }
+
+  .table-resource thead,
+  .table-activity thead {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -2182,21 +2342,55 @@ button.sort-button:not(:disabled):hover {
     clip-path: inset(50%);
   }
 
-  .audit-view .table-region tr {
+  .table-resource thead button,
+  .table-activity thead button {
+    display: none;
+  }
+
+  .table-narrow-heading {
+    display: inline;
+  }
+
+  .table-resource tbody,
+  .table-activity tbody {
+    display: block;
+  }
+
+  .table-resource tr,
+  .table-activity tr {
     display: grid;
-    padding: 12px 0;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px 0;
     border-bottom: 1px solid var(--line-strong);
   }
 
-  .audit-view .table-region tbody th,
-  .audit-view .table-region tbody td {
-    display: block;
-    max-width: none;
-    border: 0;
-    padding: 6px 12px;
+  .table-resource tr:last-child,
+  .table-activity tr:last-child {
+    border-bottom: 0;
   }
 
-  .audit-view .table-region [data-label]::before {
+  .table-region.table-resource tbody th,
+  .table-region.table-resource tbody td,
+  .table-region.table-activity tbody th,
+  .table-region.table-activity tbody td {
+    display: block;
+    width: auto;
+    min-width: 0;
+    border: 0;
+    padding: 6px 12px;
+    text-align: left;
+    white-space: normal;
+    position: static;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .table-region:has(.column-actions) {
+    scroll-padding-right: 0;
+  }
+
+  .table-resource [data-label]::before,
+  .table-activity [data-label]::before {
     content: attr(data-label);
     display: block;
     margin-bottom: 4px;

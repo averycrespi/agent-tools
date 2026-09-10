@@ -296,36 +296,36 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
         );
     await column.getByRole("button").click();
     await expect(column).toHaveAttribute("aria-sort", "ascending");
-    await expect(row.locator('th[scope="row"]')).toHaveText(
+    await expect(row.locator('th[scope="row"] .table-primary')).toHaveText(
       expected("ascending").slice(0, 50),
     );
     const ascendingHash = await page.evaluate(() => window.location.hash);
     expect(ascendingHash).toContain(`sort=${sortKey}`);
     expect(ascendingHash).toContain("direction=ascending");
     await next.click();
-    await expect(row.locator('th[scope="row"]')).toHaveText(
+    await expect(row.locator('th[scope="row"] .table-primary')).toHaveText(
       expected("ascending").slice(50, 100),
     );
     await column.getByRole("button").click();
     await expect(previous).toBeDisabled();
     await expect(column).toHaveAttribute("aria-sort", "descending");
-    await expect(row.locator('th[scope="row"]')).toHaveText(
+    await expect(row.locator('th[scope="row"] .table-primary')).toHaveText(
       expected("descending").slice(0, 50),
     );
     const descendingHash = await page.evaluate(() => window.location.hash);
     expect(descendingHash).toContain("direction=descending");
     await next.click();
-    await expect(row.locator('th[scope="row"]')).toHaveText(
+    await expect(row.locator('th[scope="row"] .table-primary')).toHaveText(
       expected("descending").slice(50, 100),
     );
     await page.goBack();
-    await expect(row.locator('th[scope="row"]')).toHaveText(
+    await expect(row.locator('th[scope="row"] .table-primary')).toHaveText(
       expected("ascending").slice(0, 50),
     );
     expect(await page.evaluate(() => window.location.hash)).toBe(ascendingHash);
     await expect(column).toHaveAttribute("aria-sort", "ascending");
     await page.goForward();
-    await expect(row.locator('th[scope="row"]')).toHaveText(
+    await expect(row.locator('th[scope="row"] .table-primary')).toHaveText(
       expected("descending").slice(0, 50),
     );
     expect(await page.evaluate(() => window.location.hash)).toBe(
@@ -333,7 +333,7 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
     );
     await expect(column).toHaveAttribute("aria-sort", "descending");
     await page.reload();
-    await expect(row.locator('th[scope="row"]')).toHaveText(
+    await expect(row.locator('th[scope="row"] .table-primary')).toHaveText(
       expected("descending").slice(0, 50),
     );
     await expect(previous).toBeDisabled();
