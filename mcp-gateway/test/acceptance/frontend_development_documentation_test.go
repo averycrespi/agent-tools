@@ -3,8 +3,6 @@ package acceptance
 import (
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -66,13 +64,5 @@ func TestFrontendDevelopmentDocumentation(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(makefile), "test-frontend-development:")
 
-	links := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`).FindAllStringSubmatch(guide, -1)
-	for _, match := range links {
-		target := match[1]
-		if strings.HasPrefix(target, "#") || strings.Contains(target, "://") {
-			continue
-		}
-		_, statErr := os.Stat(filepath.Clean(filepath.Join(filepath.Dir(guidePath), target)))
-		require.NoError(t, statErr, target)
-	}
+	assertMarkdownLinksResolve(t, guidePath, guide)
 }
