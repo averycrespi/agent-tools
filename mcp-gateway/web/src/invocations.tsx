@@ -849,7 +849,15 @@ function InvocationList({
               key: "tool",
               label: "Tool",
               render: (item) =>
-                invocationTargetLabel(item.target, item.requestedName),
+                item.target?.kind === "downstream" ? (
+                  <a
+                    href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+                  >
+                    {invocationTargetLabel(item.target, item.requestedName)}
+                  </a>
+                ) : (
+                  invocationTargetLabel(item.target, item.requestedName)
+                ),
             },
             {
               key: "principal",
@@ -1012,11 +1020,6 @@ function InvocationFilters({
           Clear filters
         </button>
       </div>
-      <p class="field-help">
-        Tool searches recorded names, even when unavailable. Principal searches
-        current names or literal recorded IDs; former names are not retained.
-        Names ignore accents and tolerate one typo in longer nonnumeric words.
-      </p>
       {error && <StateNotice state="error" title={error} />}
     </>
   );

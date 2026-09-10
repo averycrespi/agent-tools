@@ -1815,6 +1815,8 @@ export async function runInvocations(
     "retains at most 4,096 recent rows",
     "Filtered pages are independently coherent",
     "gateway:get_identity",
+    "Tool searches recorded names",
+    "Names ignore accents and tolerate one typo",
   ])
     if (body.includes(phrase)) fail(`invocation list retained ${phrase}`);
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
@@ -1848,6 +1850,26 @@ export async function runInvocations(
     body.includes("Recorded credential")
   )
     fail("invocation collection exposed item capture or internal identities");
+
+  const toolCell = (id: string) =>
+    page
+      .locator('[data-testid="invocation-row"]')
+      .filter({ hasText: id })
+      .getByRole("cell")
+      .first();
+  await expect(toolCell(invocationIDs.policy).getByRole("link")).toHaveText(
+    "namespace.allowed",
+  );
+  await expect(
+    toolCell(invocationIDs.policy).getByRole("link"),
+  ).toHaveAttribute(
+    "href",
+    `#/servers/${invocationIDs.server}/descriptors/${invocationIDs.tool}`,
+  );
+  await expect(toolCell(invocationIDs.admission)).toHaveText("Not resolved");
+  await expect(toolCell(invocationIDs.admission).getByRole("link")).toHaveCount(
+    0,
+  );
 
   const beforeWait = listReads;
   await page.waitForTimeout(5100);
@@ -1883,6 +1905,23 @@ export async function runInvocations(
   body = (await page.locator("body").textContent()) ?? "";
   if (body.includes("missing_terminal") || body.includes("basis"))
     fail("invocation collection exposed internal outcome semantics");
+
+  await expect(toolCell(invocationIDs.missing)).toHaveText(
+    "mcp_gateway.get_identity",
+  );
+  await expect(toolCell(invocationIDs.missing).getByRole("link")).toHaveCount(
+    0,
+  );
+  const linkScreenshots = await mkdtemp(
+    join(tmpdir(), "gateway-history-links-"),
+  );
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `tools-${width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    historyScreenshots.push(path);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
 
   const toolFilter = page.getByLabel("Tool", { exact: true });
   await toolFilter.fill("namespace.allowed");
