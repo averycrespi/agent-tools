@@ -192,7 +192,7 @@ export function invocationTarget(kind: "downstream" | "gateway") {
   };
 }
 
-export function invocationAuthorization(decision: "allow" | "deny") {
+export function invocationAuthorization(decision: "allow" | "deny" | "block") {
   return {
     decision,
     revision: "9",
@@ -224,7 +224,13 @@ export function invocationFixture(
     target: kind === null ? null : invocationTarget(kind),
     authorization: !evaluated
       ? null
-      : invocationAuthorization(basis === "policy" ? "deny" : "allow"),
+      : invocationAuthorization(
+          basis === "policy"
+            ? outcome === "block"
+              ? "block"
+              : "deny"
+            : "allow",
+        ),
     outcome: {
       class: outcome,
       basis,

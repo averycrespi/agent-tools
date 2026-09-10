@@ -29,6 +29,18 @@ function invocationState(outcome: string): OperationalState {
   return "error";
 }
 
+function AuthorizationDecision({
+  decision,
+}: {
+  decision: InvocationAuthorizationView["decision"] | undefined;
+}) {
+  return (
+    <StatusLabel state={decision === "allow" ? "current" : "neutral"}>
+      {decision === undefined ? "Not evaluated" : sentenceCase(decision)}
+    </StatusLabel>
+  );
+}
+
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 type JSONRecord = Record<string, unknown>;
 function record(value: unknown, keys: readonly string[]): JSONRecord {
@@ -631,9 +643,7 @@ function InvocationFacts({
       <div>
         <dt>Authorization decision</dt>
         <dd>
-          {item.authorization === null
-            ? "Not evaluated"
-            : sentenceCase(item.authorization.decision)}
+          <AuthorizationDecision decision={item.authorization?.decision} />
         </dd>
       </div>
       {item.authorization?.grantID !== null &&
@@ -893,10 +903,11 @@ function InvocationList({
               key: "decision",
               label: "Authorization",
               role: "status",
-              render: (item) =>
-                item.authorization === null
-                  ? "Not evaluated"
-                  : sentenceCase(item.authorization.decision),
+              render: (item) => (
+                <AuthorizationDecision
+                  decision={item.authorization?.decision}
+                />
+              ),
             },
             {
               key: "outcome",

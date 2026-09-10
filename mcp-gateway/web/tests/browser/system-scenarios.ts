@@ -1661,6 +1661,25 @@ export async function runInvocations(
       [...query.keys()].some((key) => query.getAll(key).length !== 1)
     )
       fail("invocation list request changed shape");
+    if (query.get("decision") === "block") {
+      listReads += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            invocationFixture(
+              invocationIDs.policy,
+              "policy",
+              "block",
+              "downstream",
+            ),
+          ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
     if (query.get("tool") === "namespace.allowed") {
       if (query.has("cursor") || !query.has("search_locale"))
         fail("Invocation filter reused cursor or omitted search locale");
@@ -1899,6 +1918,24 @@ export async function runInvocations(
     }),
   ).toHaveAttribute("href", `#/invocations/${invocationIDs.policy}`);
 
+  const authorizationLabel = (id: string) =>
+    page
+      .getByTestId("invocation-row")
+      .filter({ hasText: id })
+      .locator('[data-label="Authorization"] .status-label');
+  await expect(authorizationLabel(invocationIDs.admission)).toHaveText(
+    "Not evaluated",
+  );
+  await expect(authorizationLabel(invocationIDs.admission)).toHaveAttribute(
+    "data-state",
+    "neutral",
+  );
+  await expect(authorizationLabel(invocationIDs.policy)).toHaveText("Deny");
+  await expect(authorizationLabel(invocationIDs.policy)).toHaveAttribute(
+    "data-state",
+    "neutral",
+  );
+
   const beforeWait = listReads;
   await page.waitForTimeout(5100);
   if (listReads !== beforeWait)
@@ -1940,6 +1977,20 @@ export async function runInvocations(
   await expect(toolCell(invocationIDs.missing).getByRole("link")).toHaveCount(
     0,
   );
+  await expect(authorizationLabel(invocationIDs.terminal)).toHaveText("Allow");
+  await expect(authorizationLabel(invocationIDs.terminal)).toHaveAttribute(
+    "data-state",
+    "current",
+  );
+  expect(
+    await authorizationLabel(invocationIDs.terminal).evaluate(
+      (label) => getComputedStyle(label).color,
+    ),
+  ).not.toBe(
+    await authorizationLabel(invocationIDs.policy).evaluate(
+      (label) => getComputedStyle(label).color,
+    ),
+  );
   const linkScreenshots = await mkdtemp(
     join(tmpdir(), "gateway-history-links-"),
   );
@@ -1950,6 +2001,24 @@ export async function runInvocations(
     historyScreenshots.push(path);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
+
+  const authorizationFilter = page.getByLabel("Authorization", { exact: true });
+  await authorizationFilter.selectOption("block");
+  await expect(authorizationLabel(invocationIDs.policy)).toHaveText("Block");
+  await expect(authorizationLabel(invocationIDs.policy)).toHaveAttribute(
+    "data-state",
+    "neutral",
+  );
+  await expect(
+    page
+      .getByTestId("invocation-row")
+      .locator('[data-label="Outcome"] .status-label'),
+  ).toHaveAttribute("data-state", "neutral");
+  const blockScreenshot = join(linkScreenshots, "authorization-block.png");
+  await page.screenshot({ path: blockScreenshot, fullPage: true });
+  historyScreenshots.push(blockScreenshot);
+  await authorizationFilter.selectOption("");
+  await expect(page.getByTestId("invocation-row")).toHaveCount(2);
 
   const toolFilter = page.getByLabel("Tool", { exact: true });
   await toolFilter.fill("namespace.allowed");
@@ -1991,6 +2060,15 @@ export async function runInvocations(
     .locator(`a[href="#/invocations/${invocationIDs.missing}"]`)
     .click();
   await page.locator('[data-testid="invocation-detail"]').waitFor();
+  const detailAuthorization = page
+    .getByTestId("invocation-detail")
+    .locator(".fact-grid > div")
+    .filter({
+      has: page.locator("dt").filter({ hasText: /^Authorization decision$/ }),
+    })
+    .locator(".status-label");
+  await expect(detailAuthorization).toHaveText("Allow");
+  await expect(detailAuthorization).toHaveAttribute("data-state", "current");
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     `Invocation ${invocationIDs.missing}`,
