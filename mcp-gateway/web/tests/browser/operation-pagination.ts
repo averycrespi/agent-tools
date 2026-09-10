@@ -30,9 +30,22 @@ export async function exerciseOperationPagination(
   const capture = async (state: string) => {
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
+      await page
+        .locator(".collection-pagination")
+        .first()
+        .scrollIntoViewIfNeeded();
       const path = join(artifacts, `${state}-${width}.png`);
       await page.screenshot({ path });
       screenshots.push(path);
+      if (state === "off-page-blocker") {
+        await page
+          .locator(".collection-pagination")
+          .last()
+          .scrollIntoViewIfNeeded();
+        const bottom = join(artifacts, `${state}-${width}-bottom.png`);
+        await page.screenshot({ path: bottom });
+        screenshots.push(bottom);
+      }
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -159,7 +172,7 @@ export async function exerciseOperationPagination(
   const table = page.locator('[data-testid="operation-list"]');
   await navigate();
   await expect(
-    table.getByText("Showing 1–50 of 62 operations", { exact: true }),
+    table.getByText("Showing 1–50 of 62 operations", { exact: true }).first(),
   ).toBeVisible();
   await expect(
     page.locator('[data-testid="active-operation-link"]'),
@@ -169,23 +182,26 @@ export async function exerciseOperationPagination(
     0,
   );
   await capture("off-page-blocker");
-  await table.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(table.locator(".collection-pagination")).toHaveCount(2);
+  await table.getByRole("button", { name: "Next", exact: true }).last().click();
   await expect(
-    table.getByText("Showing 51–62 of 62 operations", { exact: true }),
+    table.getByText("Showing 51–62 of 62 operations", { exact: true }).first(),
   ).toBeVisible();
   await expect(table.locator(`a[href$="/${old.id}"]`)).toBeVisible();
   await table.locator('select[aria-label="Action"]').selectOption("retry");
   await expect(
-    table.getByText("Showing 1–1 of 1 matching operation", { exact: true }),
+    table
+      .getByText("Showing 1–1 of 1 matching operation", { exact: true })
+      .first(),
   ).toBeVisible();
   await expect(
-    table.getByRole("button", { name: "Previous", exact: true }),
+    table.getByRole("button", { name: "Previous", exact: true }).first(),
   ).toBeDisabled();
   await table
     .locator('select[aria-label="Status"]')
     .selectOption("interrupted");
   await expect(
-    table.getByText("No matching operations", { exact: true }),
+    table.getByText("No matching operations", { exact: true }).first(),
   ).toBeVisible();
   await expect(
     page.locator('[data-testid="active-operation-link"]'),
@@ -194,7 +210,9 @@ export async function exerciseOperationPagination(
   active = [];
   await navigate("&filter_status=interrupted");
   await expect(
-    table.getByText("Showing 1–50 of 60 matching operations", { exact: true }),
+    table
+      .getByText("Showing 1–50 of 60 matching operations", { exact: true })
+      .first(),
   ).toBeVisible();
   await expect(
     page.locator('[data-testid="start-operation-refresh_catalog"]'),
