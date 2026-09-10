@@ -69,7 +69,7 @@ func TestBrowserServerCatalogReads(t *testing.T) {
 	assert.GreaterOrEqual(t, event.ServerReads, 4)
 	assert.GreaterOrEqual(t, event.DescriptorReads, 4)
 	assert.GreaterOrEqual(t, event.CatalogReads, 3)
-	assert.Len(t, event.Screenshots, 42)
+	assert.Len(t, event.Screenshots, 48)
 	t.Logf("catalog pagination screenshots: %v", event.Screenshots)
 
 	harness.Stop(os.Interrupt)

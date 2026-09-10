@@ -3191,18 +3191,21 @@ export async function runServerCatalogReads(
     fail("server ID search did not match");
   await page.getByRole("button", { name: "Reset" }).click();
   await expect(page.locator('[data-testid="server-row"]')).toHaveCount(2);
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await expect(page.locator('[data-testid="server-row"]')).toHaveCount(1);
   body = (await page.locator("body").textContent()) ?? "";
   if (!body.includes("Deleted history") || !body.includes("Deleted"))
     fail("server inventory omitted deleted server");
 
   serverStale = true;
-  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Previous", exact: true })
+    .first()
+    .click();
   await expect(
-    page.getByRole("button", { name: "Next", exact: true }),
+    page.getByRole("button", { name: "Next", exact: true }).last(),
   ).toBeEnabled();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page.waitForFunction(
     (id) => document.querySelector(`a[href="#/servers/${id}"]`) !== null,
     serverReadIDs.active,
@@ -3317,7 +3320,7 @@ export async function runServerCatalogReads(
   await page.evaluate((id) => {
     window.location.hash = `#/servers/${id}?tab=tools`;
   }, serverReadIDs.active);
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page.waitForFunction(
     () => document.querySelector('a[data-tool-name="durable-only"]') !== null,
   );
@@ -3401,7 +3404,7 @@ export async function runServerCatalogReads(
       .count()) === 0
   )
     fail("active catalog omitted reciprocal routes");
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page.waitForFunction(
     () =>
       document.querySelector('a[data-tool-name="active-restarted"]') !== null,

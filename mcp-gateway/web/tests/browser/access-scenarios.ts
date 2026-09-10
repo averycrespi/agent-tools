@@ -623,7 +623,7 @@ export async function runPrincipals(
   )
     fail(`principals did not default to Name ascending: ${principalNames}`);
   if (staleListRestarted) fail("principal list traversed without navigation");
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page
     .getByText(
       "The previous page expired or changed. Restarted at the first page.",
@@ -1753,7 +1753,7 @@ export async function runGrantReadsCreate(
   );
   let body = (await page.locator("body").textContent()) ?? "";
   if (staleRestarted) fail("grant list traversed without navigation");
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page
     .getByText(
       "The previous page expired or changed. Restarted at the first page.",
@@ -3252,6 +3252,7 @@ export async function runRequestReads(
   await waitForLifecycle(page, "authenticated");
   await page
     .getByText("Showing 1–32 of 32 requests", { exact: true })
+    .first()
     .waitFor();
   await captureRequestState(page, "pending-queue");
   if (
@@ -3267,17 +3268,19 @@ export async function runRequestReads(
   await page.getByRole("link", { name: "All requests", exact: true }).click();
   await page
     .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .first()
     .waitFor();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page
     .getByText(
       "The previous page expired or changed. Restarted at the first page.",
       { exact: true },
     )
     .waitFor();
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).first().click();
   await page
     .getByText("Showing 51–100 of 128 requests", { exact: true })
+    .first()
     .waitFor();
   await captureRequestState(page, "all-queue-page-two");
   const decisionLink = page
@@ -3297,20 +3300,27 @@ export async function runRequestReads(
     .click();
   await page
     .getByText("Showing 51–100 of 128 requests", { exact: true })
+    .first()
     .waitFor();
-  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Previous", exact: true })
+    .last()
+    .click();
   await page
     .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .first()
     .waitFor();
   await page.getByLabel("Request ID", { exact: true }).fill(requestIDs[0]!);
   await page
     .getByText("Showing 1–1 of 1 matching request", { exact: true })
+    .first()
     .waitFor();
   if (detailReads !== 1 || principalReads !== 0)
     fail("queue traversed identities or expanded per-row detail");
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await page
     .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .first()
     .waitFor();
   await page
     .getByText("Requesting agent", { exact: true })
@@ -3430,6 +3440,7 @@ export async function runRequestReads(
   await stateFilter.selectOption("approved");
   await page
     .getByText("Showing 1–50 of 95 matching requests", { exact: true })
+    .first()
     .waitFor();
   if (
     (await page.locator('[data-testid="request-row"]').count()) !== 50 ||
@@ -3441,6 +3452,7 @@ export async function runRequestReads(
   await page.getByRole("button", { name: "Reset" }).click();
   await page
     .getByText("Showing 1–50 of 128 requests", { exact: true })
+    .first()
     .waitFor();
 
   const beforeRefresh = listReads;

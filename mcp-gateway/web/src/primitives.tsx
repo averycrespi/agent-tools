@@ -9,6 +9,18 @@ import {
 import { parseFragment, serializeLocation } from "./location";
 import type { CollectionControls } from "./view";
 
+export function useDebouncedInput<T>(
+  value: T,
+  apply: (value: T) => void,
+): void {
+  const latest = useRef(apply);
+  latest.current = apply;
+  useEffect(() => {
+    const timer = setTimeout(() => latest.current(value), 300);
+    return () => clearTimeout(timer);
+  }, [value]);
+}
+
 export function containsControlCharacters(value: string): boolean {
   return /\p{Cc}/u.test(value);
 }
@@ -333,6 +345,47 @@ export function CollectionTable<T>({
   const hasActiveFilters = Object.values(filterValues).some(
     (value) => value.trim() !== "",
   );
+  const pagination = (position: "top" | "bottom") =>
+    remote !== undefined && (
+      <div class="collection-pagination">
+        <nav
+          class="inline-actions"
+          aria-label={`${caption} pagination ${position}`}
+        >
+          <button
+            type="button"
+            disabled={!remote.hasPrevious}
+            onClick={remote.previous}
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            disabled={!remote.hasNext}
+            onClick={remote.next}
+          >
+            Next
+          </button>
+        </nav>
+        <span
+          class="table-filter-summary"
+          role={position === "top" ? "status" : undefined}
+          aria-live={position === "top" ? "polite" : undefined}
+        >
+          {remote.status === "loading"
+            ? "Loading…"
+            : remote.status === "error"
+              ? "Unavailable"
+              : remote.totalCount === undefined
+                ? visible.length === 0
+                  ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
+                  : `Showing ${visible.length} ${hasActiveFilters ? "matching " : ""}${visible.length === 1 ? itemNames.singular : itemNames.plural}`
+                : remote.totalCount === 0
+                  ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
+                  : `Showing ${remote.offset + 1}–${remote.offset + visible.length} of ${remote.totalCount} ${hasActiveFilters ? "matching " : ""}${remote.totalCount === 1 ? itemNames.singular : itemNames.plural}`}
+        </span>
+      </div>
+    );
   return (
     <div
       class="collection-table"
@@ -427,39 +480,7 @@ export function CollectionTable<T>({
       {remote?.error !== undefined && (
         <StateNotice state="error" title={remote.error} />
       )}
-      {remote !== undefined && (
-        <div class="collection-pagination">
-          <nav class="inline-actions" aria-label={`${caption} pagination`}>
-            <button
-              type="button"
-              disabled={!remote.hasPrevious}
-              onClick={remote.previous}
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={!remote.hasNext}
-              onClick={remote.next}
-            >
-              Next
-            </button>
-          </nav>
-          <output class="table-filter-summary" aria-live="polite">
-            {remote.status === "loading"
-              ? "Loading…"
-              : remote.status === "error"
-                ? "Unavailable"
-                : remote.totalCount === undefined
-                  ? visible.length === 0
-                    ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
-                    : `Showing ${visible.length} ${hasActiveFilters ? "matching " : ""}${visible.length === 1 ? itemNames.singular : itemNames.plural}`
-                  : remote.totalCount === 0
-                    ? `No ${hasActiveFilters ? "matching " : ""}${itemNames.plural}`
-                    : `Showing ${remote.offset + 1}–${remote.offset + visible.length} of ${remote.totalCount} ${hasActiveFilters ? "matching " : ""}${remote.totalCount === 1 ? itemNames.singular : itemNames.plural}`}
-          </output>
-        </div>
-      )}
+      {pagination("top")}
       <ComparisonTable caption={caption}>
         <thead>
           <tr>
@@ -538,6 +559,7 @@ export function CollectionTable<T>({
             }
           />
         )}
+      {pagination("bottom")}
       {hasMore && onLoadMore !== undefined && (
         <button type="button" disabled={loadingMore} onClick={onLoadMore}>
           {loadingMore ? "Loading…" : loadMoreLabel}

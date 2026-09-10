@@ -70,6 +70,7 @@ export async function runAudit(
   let holdTarget: (() => void) | undefined;
   const queries: URLSearchParams[] = [];
   let itemReads = 0;
+  let expectedItemGeneration: string | null = generation;
   let delayedSettled = false;
   await page.route("**/api/v1/audit-events**", async (route) => {
     const request = route.request();
@@ -92,7 +93,7 @@ export async function runAudit(
       });
     if (url.pathname !== "/api/v1/audit-events") {
       itemReads++;
-      if (url.searchParams.get("generation") !== generation)
+      if (url.searchParams.get("generation") !== expectedItemGeneration)
         fail("Audit detail did not pin history generation");
       if (mode === "missing") return problem(404, "not_found");
       if (mode === "item-replaced")
@@ -140,15 +141,34 @@ export async function runAudit(
     if (mode === "replaced" && url.searchParams.get("generation") !== null)
       return problem(409, "audit_history_replaced");
     const items =
-      mode === "empty" || mode === "loading"
-        ? []
-        : mode === "replaced"
-          ? [fixture(5, "offline_maintenance")]
-          : mode === "stale" && restarted
-            ? [fixture(4)]
-            : url.searchParams.has("cursor")
-              ? [fixture(1, "operator")]
-              : [fixture(3), fixture(2, "offline_maintenance")];
+      mode === "presentation"
+        ? ["pending", "succeeded", "failed", "rejected", "unknown"].map(
+            (outcome, index) => ({
+              ...fixture(5 - index),
+              outcome,
+              phase: outcome === "pending" ? "attempt" : "outcome",
+              action: index === 1 ? "delete" : "reconcile",
+              target: {
+                type: [
+                  "installation",
+                  "server",
+                  "principal",
+                  "grant",
+                  "grant_request",
+                ][index]!,
+                id: id(7),
+              },
+            }),
+          )
+        : mode === "empty" || mode === "loading"
+          ? []
+          : mode === "replaced"
+            ? [fixture(5, "offline_maintenance")]
+            : mode === "stale" && restarted
+              ? [fixture(4)]
+              : url.searchParams.has("cursor")
+                ? [fixture(1, "operator")]
+                : [fixture(3), fixture(2, "offline_maintenance")];
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -164,11 +184,25 @@ export async function runAudit(
       await new Promise<void>((resolve) => {
         holdTarget = resolve;
       });
-    return mode === "target-current"
+    if (mode === "target-missing")
+      return route.fulfill({
+        status: 404,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 404,
+          code: "not_found",
+          title: "Not found",
+        }),
+      });
+    return mode === "target-current" || mode === "target-deleted"
       ? route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ id: id(7), deleted_at: null }),
+          body: JSON.stringify({
+            id: id(7),
+            deleted_at:
+              mode === "target-deleted" ? "2026-09-01T00:00:00Z" : null,
+          }),
         })
       : route.fulfill({
           status: 503,
@@ -196,10 +230,14 @@ export async function runAudit(
     fail("Audit sidebar order changed");
   const artifacts = await mkdtemp(join(tmpdir(), "gateway-audit-visual-"));
   const screenshots: string[] = [];
-  const capture = async (name: string, width: number) => {
+  const capture = async (name: string, width: number, fullPage = true) => {
     await page.setViewportSize({ width, height: 900 });
     const path = join(artifacts, `${name}.png`);
-    await page.screenshot({ path, fullPage: true, animations: "disabled" });
+    if (!fullPage)
+      await page
+        .getByText("Retention details", { exact: true })
+        .scrollIntoViewIfNeeded();
+    await page.screenshot({ path, fullPage, animations: "disabled" });
     screenshots.push(path);
     if (
       await page.evaluate(
@@ -218,10 +256,23 @@ export async function runAudit(
     exact: true,
   });
   await tableRegion.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect
-    .poll(() => tableRegion.evaluate((element) => element.scrollLeft))
-    .toBeGreaterThan(0);
+  await expect(tableRegion).toBeFocused();
+  expect(
+    await tableRegion.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  await expect(
+    page.getByTestId("audit-row").first().locator('[data-label="Event ID"]'),
+  ).toHaveText(id(3));
+  expect(await page.locator(".audit-view thead th").allTextContents()).toEqual([
+    "Time",
+    "Event type",
+    "Event ID",
+    "Performer",
+    "Target",
+    "Outcome",
+  ]);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "Load older audit events" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(3);
@@ -231,8 +282,12 @@ export async function runAudit(
     continuation.get("generation") !== generation
   )
     fail("Audit pagination transport lost its pin");
+  await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
+  await expect.poll(() => queries.at(-1)?.get("outcome")).toBe("unknown");
   mode = "target-delayed";
-  await page.locator(`a[href="#/audit/${id(3)}"]`).focus();
+  await page
+    .locator(`a[href="#/audit/${id(3)}?filter_outcome=unknown"]`)
+    .focus();
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("heading", { name: `Audit event ${id(3)}` }),
@@ -262,12 +317,36 @@ export async function runAudit(
     fail(
       `Audit accessibility: ${axe.violations.map((finding) => finding.id).join(",")}`,
     );
+  mode = "normal";
+  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await expect(page.locator(`a[href="#/servers/${id(7)}"]`)).toHaveCount(0);
+  await page.goBack();
+  await expect(
+    page.getByRole("heading", { name: `Audit event ${id(3)}` }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Current target unavailable", { exact: true }),
+  ).toBeVisible();
   mode = "target-current";
   await refresh();
   await expect(page.locator(`a[href="#/servers/${id(7)}"]`)).toBeVisible();
   await expect(
     page.getByText("Current target unavailable", { exact: true }),
   ).toHaveCount(0);
+  for (const targetMode of ["target-deleted", "target-missing"]) {
+    mode = targetMode;
+    const targetResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/api/v1/servers/${id(7)}`,
+    );
+    await refresh();
+    await targetResponse;
+    await expect(page.locator(`a[href="#/servers/${id(7)}"]`)).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "server.reconcile", exact: true }),
+    ).toBeVisible();
+  }
   mode = "missing";
   await refresh();
   await expect(
@@ -281,6 +360,12 @@ export async function runAudit(
   mode = "normal";
   await page.getByRole("link", { name: "Back to audit history" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await expect(page).toHaveURL(/#\/audit\?filter_outcome=unknown$/);
+  await expect(page.locator(`a[href="#/servers/${id(7)}"]`)).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .click();
+  await page.getByText("More filters", { exact: true }).click();
   const from = page.getByLabel("From (inclusive, local time)", { exact: true });
   const until = page.getByLabel("Until (exclusive, local time)", {
     exact: true,
@@ -304,25 +389,52 @@ export async function runAudit(
   for (const [value, message] of [
     ["", "Choose both From and Until, or clear both."],
     ["2026-09-03T19:00", "Until must be later than From."],
-    ["2028-09-03T20:00", "Choose a time range of at most 366 days."],
+    [
+      "2028-09-03T20:00",
+      "Choose valid dates and a time range of at most 366 days.",
+    ],
   ]) {
     await until.fill(value!);
-    await page.getByRole("button", { name: "Apply filters" }).click();
-    await expect(page.getByText(message!, { exact: true })).toBeVisible();
-    expect(queries.length).toBe(beforeInvalid);
+    await expect(
+      page.getByText(message!, { exact: true }).first(),
+    ).toBeVisible();
+    expect(
+      queries.slice(beforeInvalid).map((query) => query.toString()),
+      "Invalid drafts must not issue queries",
+    ).toEqual([]);
   }
+  await page.getByLabel("Target ID", { exact: true }).fill("invalid");
+  await page.getByLabel("Category", { exact: true }).selectOption("server");
+  await expect.poll(() => queries.at(-1)?.get("category")).toBe("server");
+  expect(queries.at(-1)?.has("from")).toBe(false);
+  expect(queries.at(-1)?.has("target_id")).toBe(false);
+  await expect(from).toHaveValue("2026-09-03T20:00");
+  await expect(page.getByLabel("Target ID", { exact: true })).toHaveValue(
+    "invalid",
+  );
+  await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
+  await page.getByLabel("Category", { exact: true }).selectOption("principal");
+  await expect.poll(() => queries.at(-1)?.get("category")).toBe("principal");
+  expect(queries.at(-1)?.has("action")).toBe(false);
+  await expect(page.getByLabel("Action", { exact: true })).toHaveValue("");
+  await capture("invalid-advanced", 320);
+  await page.getByText(/More filters.*check draft values/).click();
+  await expect(
+    page.getByText(/Draft changes are not yet applied/),
+  ).toBeVisible();
+  await capture("collapsed-invalid", 390);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => {
     window.location.hash =
       "#/audit?filter_from=2026-01-01T23%3A00%3A00.123456789Z&filter_until=2026-01-02T23%3A00%3A00.123456789Z";
   });
   await expect(from).toHaveValue("2026-01-01T18:00");
   await expect(until).toHaveValue("2026-01-02T18:00");
-  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
   await expect
     .poll(() => queries.at(-1)?.get("from"))
     .toBe("2026-01-01T23:00:00.123456789Z");
   await from.fill("2026-01-01T18:01");
-  await page.getByRole("button", { name: "Apply filters" }).click();
   await expect
     .poll(() => queries.at(-1)?.get("from"))
     .toBe("2026-01-01T23:01:00.000000000Z");
@@ -332,17 +444,24 @@ export async function runAudit(
   await expect(until).toHaveValue("");
   await expect.poll(() => queries.at(-1)?.has("from")).toBe(false);
   await page.getByLabel("Actor type", { exact: true }).selectOption("system");
+  await expect.poll(() => queries.at(-1)?.get("actor_type")).toBe("system");
+  const beforeText = queries.length;
   await page.getByLabel("Credential ID", { exact: true }).fill(id(9));
+  expect(
+    queries.slice(beforeText).map((query) => query.toString()),
+    "ID filtering must be debounced",
+  ).toEqual([]);
+  await expect.poll(() => queries.at(-1)?.get("credential_id")).toBe(id(9));
   await page.getByLabel("Category", { exact: true }).selectOption("server");
   await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
   await page.getByLabel("Target type", { exact: true }).selectOption("server");
   await page.getByLabel("Target ID", { exact: true }).fill(id(7));
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
   await page.getByLabel("Correlation ID", { exact: true }).fill(id(8));
+  await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
   await from.fill("2026-09-03T20:00");
-  await until.fill("2026-09-05T20:00");
   mode = "loading";
-  await page.getByRole("button", { name: "Apply filters" }).click();
+  await until.fill("2026-09-05T20:00");
   await expect(
     page.getByText("Loading audit history", { exact: true }),
   ).toBeVisible();
@@ -351,7 +470,7 @@ export async function runAudit(
   await capture("loading", 1440);
   hold();
   await expect(
-    page.getByText("No retained audit events match", { exact: true }),
+    page.getByText("No matching audit events", { exact: true }),
   ).toBeVisible();
   await capture("empty", 1440);
   for (const key of [
@@ -374,12 +493,11 @@ export async function runAudit(
   await expect(until).toHaveValue("2026-09-05T20:00");
   if (queries.at(-1)!.has("cursor")) fail("Query change retained cursor");
   mode = "normal";
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("button", { name: "Clear filters" }).first().click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   mode = "delayed";
   hold = undefined;
   await page.getByLabel("Outcome", { exact: true }).selectOption("failed");
-  await page.getByRole("button", { name: "Apply filters" }).click();
   await expect(
     page.getByText("Loading audit history", { exact: true }),
   ).toBeVisible();
@@ -406,6 +524,53 @@ export async function runAudit(
     page.getByText(/Previously loaded evidence is stale and may be partial/),
   ).toBeVisible();
   await capture("partial-error", 1440);
+  mode = "presentation";
+  await refresh();
+  await expect(page.getByTestId("audit-row")).toHaveCount(5);
+  expect(
+    await page
+      .getByTestId("audit-row")
+      .locator(".status-label")
+      .evaluateAll((labels) =>
+        labels.map((label) => label.getAttribute("data-state")),
+      ),
+  ).toEqual(["neutral", "current", "error", "warning", "warning"]);
+  for (const route of ["principals", "grants", "requests"])
+    await expect(page.locator(`a[href="#/${route}/${id(7)}"]`)).toBeVisible();
+  await expect(
+    page.getByTestId("audit-row").nth(0).locator('[data-label="Target"] a'),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId("audit-row").nth(1).locator('[data-label="Target"] a'),
+  ).toHaveCount(0);
+  await capture("outcomes-targets", 1440);
+  await page.getByTestId("theme-preference").selectOption("dark");
+  await capture("outcomes-targets-dark", 390);
+  await page.getByTestId("theme-preference").selectOption("system");
+  mode = "empty";
+  await refresh();
+  await expect(
+    page.getByText("No audit events yet", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Clear filters" }),
+  ).toBeDisabled();
+  await capture("unfiltered-empty", 320);
+  await page.getByLabel("Outcome", { exact: true }).selectOption("failed");
+  await expect(
+    page.getByText("No matching audit events", { exact: true }),
+  ).toBeVisible();
+  await capture("filtered-empty", 390);
+  await page.getByRole("button", { name: "Clear filters" }).last().click();
+  await expect(
+    page.getByText("No audit events yet", { exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(page.getByLabel("Outcome", { exact: true })).toHaveValue(
+    "failed",
+  );
+  await page.goForward();
+  await expect(page.getByLabel("Outcome", { exact: true })).toHaveValue("");
   mode = "stale";
   await refresh();
   await expect(
@@ -426,7 +591,16 @@ export async function runAudit(
   await expect(page.locator(`a[href="#/audit/${id(5)}"]`)).toBeVisible();
   await expect(page.locator(`a[href="#/audit/${id(4)}"]`)).toHaveCount(0);
   await capture("continuity-warning", 1440);
-  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  await page.getByText("Retention details", { exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByText("History generation", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Retention details", { exact: true }),
+  ).toBeFocused();
+  await capture("retention-expanded", 320, false);
+  await assertSecretAbsent(page, context, baseURL, [bearer], true, "system");
   mode = "delayed";
   delayedSettled = false;
   hold = undefined;
@@ -441,7 +615,29 @@ export async function runAudit(
   (hold as unknown as () => void)();
   await expect.poll(() => delayedSettled).toBe(true);
   await expect(page.getByTestId("audit-view")).toHaveCount(0);
-  await assertSecretAbsent(page, context, baseURL, [bearer], false);
+  await assertSecretAbsent(page, context, baseURL, [bearer], false, "system");
+  mode = "normal";
+  expectedItemGeneration = null;
+  await page.getByTestId("admin-bearer-input").fill(bearer);
+  await page.getByTestId("sign-in-submit").click();
+  await waitForLifecycle(page, "authenticated");
+  await page.evaluate((id) => {
+    window.location.hash = `#/audit/${id}?filter_outcome=unknown`;
+  }, id(3));
+  await expect(page.getByText("interrupted", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Current target unavailable", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await expect(page.getByLabel("Outcome", { exact: true })).toHaveValue(
+    "unknown",
+  );
+  expect(queries.at(-1)?.has("cursor")).toBe(false);
+  await expect(
+    page.getByText(/Newer local events may have been discarded/),
+  ).toHaveCount(0);
+  await assertSecretAbsent(page, context, baseURL, [bearer], true, "system");
   process.stdout.write(
     JSON.stringify({
       event: "audit_complete",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
   auditFilterKeys,
   auditFilterOptions,
@@ -22,6 +22,8 @@ import {
   sentenceCase,
   StateNotice,
   StatusLabel,
+  useDebouncedInput,
+  type OperationalState,
 } from "./primitives";
 import { parseProblem, type SessionClient } from "./session";
 import { UserTime } from "./time";
@@ -29,6 +31,21 @@ import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 
 const replacementNotice =
   "Audit history may have been replaced by restore. Newer local events may have been discarded. Previous-history state was discarded; these histories must not be combined.";
+const targetRoutes: Readonly<Record<string, readonly [string, string]>> = {
+  server: ["servers", "servers"],
+  principal: ["principals", "principals"],
+  grant: ["grants", "grants"],
+  grant_request: ["grant-requests", "requests"],
+};
+function outcomeState(outcome: string): OperationalState {
+  return outcome === "succeeded"
+    ? "current"
+    : outcome === "failed"
+      ? "error"
+      : outcome === "pending"
+        ? "neutral"
+        : "warning";
+}
 const staleNotice =
   "The audit cursor expired or history was pruned. The previous traversal was discarded and restarted at the newest matching page.";
 export interface AuditSnapshot {
@@ -130,6 +147,7 @@ export class AuditController {
   private readonly listeners = new Set<(value: AuditSnapshot) => void>();
   private continuation: string | null = null;
   private knownGeneration: string | undefined;
+  private readonly unavailableTargets = new Set<string>();
   constructor(
     session: SessionClient,
     private readonly views: ViewCoordinator,
@@ -140,6 +158,11 @@ export class AuditController {
       invalidations: [],
       read: (context) => this.read(context),
       publish: (result) => {
+        if (
+          result.history !== undefined &&
+          result.history.generation !== this.knownGeneration
+        )
+          this.unavailableTargets.clear();
         this.value = result;
         this.knownGeneration =
           result.history?.generation ?? this.knownGeneration;
@@ -150,8 +173,26 @@ export class AuditController {
       this.value = empty();
       this.continuation = null;
       this.knownGeneration = undefined;
+      this.unavailableTargets.clear();
       this.emit();
     });
+  }
+  listTarget(item: AuditSummary): string | undefined {
+    const route = targetRoutes[item.target.type];
+    const key = `${item.target.type}/${item.target.id}`;
+    if (
+      route === undefined ||
+      this.unavailableTargets.has(key) ||
+      this.value.items.some(
+        (event) =>
+          event.target.type === item.target.type &&
+          event.target.id === item.target.id &&
+          event.action === "delete" &&
+          event.outcome === "succeeded",
+      )
+    )
+      return undefined;
+    return `#/${route[1]}/${item.target.id}`;
   }
   snapshot(): AuditSnapshot {
     return this.value;
@@ -293,13 +334,15 @@ export class AuditController {
     context: ViewReadContext,
     item: AuditEvent,
   ): Promise<Pick<AuditSnapshot, "targetLink" | "targetUnavailable">> {
-    const routes: Record<string, [string, string]> = {
-      server: ["servers", "servers"],
-      principal: ["principals", "principals"],
-      grant: ["grants", "grants"],
-      grant_request: ["grant-requests", "requests"],
+    const route = targetRoutes[item.target.type];
+    const key = `${item.target.type}/${item.target.id}`;
+    const unavailable = () => {
+      if (
+        !context.signal.aborted &&
+        this.views.snapshot().viewKey === context.viewKey
+      )
+        this.unavailableTargets.add(key);
     };
-    const route = routes[item.target.type];
     if (route === undefined)
       return { targetLink: undefined, targetUnavailable: false };
     try {
@@ -307,8 +350,10 @@ export class AuditController {
         context,
         `/api/v1/${route[0]}/${item.target.id}`,
       );
-      if (response.status === 404)
+      if (response.status === 404) {
+        unavailable();
         return { targetLink: undefined, targetUnavailable: false };
+      }
       if (
         response.status !== 200 ||
         response.headers.get("Content-Type") !== "application/json"
@@ -322,13 +367,21 @@ export class AuditController {
         resource.id !== item.target.id
       )
         throw new Error("Target identity mismatch");
-      if ("deleted_at" in resource && resource.deleted_at !== null)
+      if ("deleted_at" in resource && resource.deleted_at !== null) {
+        unavailable();
         return { targetLink: undefined, targetUnavailable: false };
+      }
+      if (
+        !context.signal.aborted &&
+        this.views.snapshot().viewKey === context.viewKey
+      )
+        this.unavailableTargets.delete(key);
       return {
         targetLink: `#/${route[1]}/${item.target.id}`,
         targetUnavailable: false,
       };
     } catch {
+      unavailable();
       return { targetLink: undefined, targetUnavailable: true };
     }
   }
@@ -362,27 +415,30 @@ function History({ value }: { value: AuditHistory }) {
         history and discard newer events; this is not a permanent or complete
         record.
       </p>
-      <dl class="fact-grid">
-        <div>
-          <dt>Oldest retained boundary</dt>
-          <dd>
-            {value.oldest_retained === null ? (
-              "None — history is empty"
-            ) : (
-              <>
-                <UserTime value={value.oldest_retained.timestamp} /> · sequence{" "}
-                {value.oldest_retained.sequence}
-                <br />
-                {value.oldest_retained.id}
-              </>
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>History generation</dt>
-          <dd>{value.generation}</dd>
-        </div>
-      </dl>
+      <details>
+        <summary>Retention details</summary>
+        <dl class="fact-grid">
+          <div>
+            <dt>Oldest retained boundary</dt>
+            <dd>
+              {value.oldest_retained === null ? (
+                "None — history is empty"
+              ) : (
+                <>
+                  <UserTime value={value.oldest_retained.timestamp} /> ·
+                  sequence {value.oldest_retained.sequence}
+                  <br />
+                  {value.oldest_retained.id}
+                </>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>History generation</dt>
+            <dd>{value.generation}</dd>
+          </div>
+        </dl>
+      </details>
     </section>
   );
 }
@@ -392,6 +448,26 @@ function localAuditTime(value: string): string {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 19);
+}
+const primaryFilters = ["category", "action", "outcome"];
+const idFilters = ["credential_id", "target_id", "correlation_id"];
+function compactQuery(query: Readonly<Record<string, string>>) {
+  return Object.fromEntries(
+    Object.entries(query).filter(([, value]) => value !== ""),
+  );
+}
+function dateError(
+  draft: Readonly<Record<string, string>>,
+): string | undefined {
+  const from = draft.filter_from || undefined;
+  const until = draft.filter_until || undefined;
+  if ((from === undefined) !== (until === undefined))
+    return "Choose both From and Until, or clear both.";
+  if (from === undefined || until === undefined) return undefined;
+  if (from >= until) return "Until must be later than From.";
+  if (!validAuditQuery({ filter_from: from, filter_until: until }))
+    return "Choose valid dates and a time range of at most 366 days.";
+  return undefined;
 }
 function Filters({
   resolved,
@@ -403,126 +479,199 @@ function Filters({
   const [draft, setDraft] = useState<Record<string, string>>({
     ...resolved.location.query,
   });
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    setDraft({ ...resolved.location.query });
-    setError(undefined);
+  const applied = useRef(resolved.location.query);
+  const ownNavigation = useRef<string>();
+  const [advanced, setAdvanced] = useState(
+    Object.keys(draft).some((key) => !primaryFilters.includes(key.slice(7))),
+  );
+  useLayoutEffect(() => {
+    applied.current = resolved.location.query;
+    // Our own valid field update must not erase unrelated invalid drafts.
+    if (ownNavigation.current !== resolved.canonicalFragment) {
+      setDraft({ ...resolved.location.query });
+      if (
+        Object.keys(resolved.location.query).some(
+          (key) => !primaryFilters.includes(key.slice(7)),
+        )
+      )
+        setAdvanced(true);
+    }
+    ownNavigation.current = undefined;
   }, [resolved.canonicalFragment]);
+  const apply = (patch: Record<string, string>) => {
+    const query = compactQuery({ ...applied.current, ...patch });
+    const fragment = serializeLocation({ ...resolved.location, query });
+    if (
+      !validAuditQuery(query) ||
+      parseFragment(fragment) === undefined ||
+      fragment ===
+        serializeLocation({ ...resolved.location, query: applied.current })
+    )
+      return;
+    applied.current = query;
+    ownNavigation.current = fragment;
+    navigate(fragment);
+  };
+  useDebouncedInput(draft, (settled) => {
+    const patch: Record<string, string> = {};
+    for (const key of idFilters) {
+      const name = `filter_${key}`;
+      const value = settled[name] ?? "";
+      if (validAuditQuery(compactQuery({ [name]: value }))) patch[name] = value;
+    }
+    apply(patch);
+  });
+  const dates = dateError(draft);
+  const errors: Record<string, string> = {};
+  for (const key of idFilters) {
+    const value = draft[`filter_${key}`] ?? "";
+    if (!validAuditQuery(compactQuery({ [`filter_${key}`]: value })))
+      errors[key] =
+        "Enter a complete 26-character Gateway ID, or clear this field.";
+  }
+  if (dates !== undefined) errors.from = errors.until = dates;
+  const activeAdvanced = Object.keys(applied.current).filter(
+    (key) => !primaryFilters.includes(key.slice(7)),
+  ).length;
+  const pending =
+    serializeLocation({ ...resolved.location, query: compactQuery(draft) }) !==
+    serializeLocation({ ...resolved.location, query: applied.current });
+  const clear = () => {
+    setDraft({});
+    applied.current = {};
+    ownNavigation.current = "#/audit";
+    navigate("#/audit");
+  };
+  const field = (key: string) => {
+    const name = `filter_${key}`;
+    const choices = auditFilterOptions(key, draft.filter_category);
+    const timeBound = key === "from" || key === "until";
+    const label =
+      key === "from"
+        ? "From (inclusive, local time)"
+        : key === "until"
+          ? "Until (exclusive, local time)"
+          : sentenceCase(key).replace(/\bid\b/g, "ID");
+    return (
+      <FormField
+        key={key}
+        id={`audit-${key}`}
+        label={label}
+        {...(errors[key] === undefined ? {} : { error: errors[key] })}
+      >
+        {(attributes) =>
+          choices === undefined ? (
+            <input
+              {...attributes}
+              type={timeBound ? "datetime-local" : "text"}
+              step={timeBound ? "1" : undefined}
+              value={
+                timeBound
+                  ? localAuditTime(draft[name] ?? "")
+                  : (draft[name] ?? "")
+              }
+              maxLength={64}
+              onInput={(event) => {
+                const value = event.currentTarget.value;
+                const timestamp = timeBound ? Date.parse(value) : NaN;
+                const next = {
+                  ...draft,
+                  [name]: Number.isFinite(timestamp)
+                    ? new Date(timestamp).toISOString().replace("Z", "000000Z")
+                    : value,
+                };
+                setDraft(next);
+                if (timeBound && dateError(next) === undefined)
+                  apply({
+                    filter_from: next.filter_from ?? "",
+                    filter_until: next.filter_until ?? "",
+                  });
+              }}
+            />
+          ) : (
+            <select
+              {...attributes}
+              value={draft[name] ?? ""}
+              onChange={(event) => {
+                const patch = { [name]: event.currentTarget.value };
+                if (
+                  key === "category" &&
+                  !auditFilterOptions("action", patch[name])?.includes(
+                    draft.filter_action ?? "",
+                  )
+                )
+                  patch.filter_action = "";
+                setDraft({ ...draft, ...patch });
+                apply(patch);
+              }}
+            >
+              <option value="">Any</option>
+              {choices.map((choice) => (
+                <option key={choice} value={choice}>
+                  {sentenceCase(choice)}
+                </option>
+              ))}
+            </select>
+          )
+        }
+      </FormField>
+    );
+  };
   return (
     <form
       class="panel domain-panel audit-filters"
       aria-label="Filter audit history"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const query = Object.fromEntries(
-          Object.entries(draft).filter(([, value]) => value !== ""),
-        );
-        const { filter_from: from, filter_until: until } = query;
-        if ((from === undefined) !== (until === undefined)) {
-          setError("Choose both From and Until, or clear both.");
-          return;
-        }
-        if (from !== undefined && until !== undefined) {
-          if (from >= until) {
-            setError("Until must be later than From.");
-            return;
-          }
-          if (Date.parse(until) - Date.parse(from) > 366 * 86400000) {
-            setError("Choose a time range of at most 366 days.");
-            return;
-          }
-        }
-        const fragment = serializeLocation({ ...resolved.location, query });
-        if (!validAuditQuery(query) || parseFragment(fragment) === undefined) {
-          setError(
-            "Check IDs, category/action and the selected dates and times.",
-          );
-          return;
-        }
-        setError(undefined);
-        navigate(fragment);
-      }}
+      onSubmit={(event) => event.preventDefault()}
     >
       <h2>Filter audit history</h2>
       <p>
-        Filters apply to all retained events, not just loaded rows. Credential
-        ID matches the performing operator or a known system initiator.
+        Filters apply automatically to all retained events, not just loaded
+        rows.
       </p>
-      <div class="audit-filter-grid">
-        {auditFilterKeys.map((key) => {
-          const name = `filter_${key}`;
-          const choices = auditFilterOptions(key, draft.filter_category);
-          const timeBound = key === "from" || key === "until";
-          const label =
-            key === "from"
-              ? "From (inclusive, local time)"
-              : key === "until"
-                ? "Until (exclusive, local time)"
-                : sentenceCase(key).replace(/\bid\b/g, "ID");
-          return (
-            <FormField key={key} id={`audit-${key}`} label={label}>
-              {(attributes) =>
-                choices === undefined ? (
-                  <input
-                    {...attributes}
-                    type={timeBound ? "datetime-local" : "text"}
-                    step={timeBound ? "1" : undefined}
-                    value={
-                      timeBound
-                        ? localAuditTime(draft[name] ?? "")
-                        : (draft[name] ?? "")
-                    }
-                    maxLength={64}
-                    onInput={(event) => {
-                      const value = event.currentTarget.value;
-                      const timestamp = timeBound ? Date.parse(value) : NaN;
-                      setDraft({
-                        ...draft,
-                        [name]: Number.isFinite(timestamp)
-                          ? new Date(timestamp)
-                              .toISOString()
-                              .replace("Z", "000000Z")
-                          : value,
-                      });
-                    }}
-                  />
-                ) : (
-                  <select
-                    {...attributes}
-                    value={draft[name] ?? ""}
-                    onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        [name]: event.currentTarget.value,
-                        ...(key === "category" ? { filter_action: "" } : {}),
-                      })
-                    }
-                  >
-                    <option value="">Any</option>
-                    {choices.map((choice) => (
-                      <option value={choice}>{sentenceCase(choice)}</option>
-                    ))}
-                  </select>
-                )
-              }
-            </FormField>
-          );
-        })}
-      </div>
-      {error !== undefined && (
-        <StateNotice state="error" title="Invalid audit filters">
-          <p>{error}</p>
-        </StateNotice>
+      <div class="audit-filter-grid">{primaryFilters.map(field)}</div>
+      <details
+        open={advanced}
+        onToggle={(event) => setAdvanced(event.currentTarget.open)}
+      >
+        <summary>
+          More filters{activeAdvanced > 0 ? ` · ${activeAdvanced} active` : ""}
+          {Object.keys(errors).length > 0 ? " · check draft values" : ""}
+        </summary>
+        <p>
+          Credential ID matches the performing operator or a known system
+          initiator.
+        </p>
+        <div class="audit-filter-grid">
+          {auditFilterKeys
+            .filter((key) => !primaryFilters.includes(key))
+            .map(field)}
+        </div>
+      </details>
+      {pending && (
+        <p role="status">
+          Draft changes are not yet applied.{" "}
+          {Object.keys(errors).length > 0
+            ? "Check the fields under More filters; valid independent changes still apply."
+            : "Text filters apply after a short pause."}
+        </p>
       )}
+      <p class="audit-applied" aria-label="Applied audit filters">
+        Applied filters:{" "}
+        {Object.entries(applied.current)
+          .map(
+            ([key, value]) =>
+              `${sentenceCase(key.slice(7)).replace(/\bid\b/g, "ID")}: ${value}`,
+          )
+          .join(" · ") || "None"}
+      </p>
       <div class="form-actions">
-        <button type="submit">Apply filters</button>
         <button
           type="button"
-          onClick={() => {
-            setDraft({});
-            setError(undefined);
-            navigate("#/audit");
-          }}
+          disabled={
+            Object.keys(compactQuery(draft)).length === 0 &&
+            Object.keys(applied.current).length === 0
+          }
+          onClick={clear}
         >
           Clear filters
         </button>
@@ -554,7 +703,14 @@ export function Audit({
       {detail ? (
         <>
           <nav class="detail-navigation" aria-label="Audit navigation">
-            <a href="#/audit">Back to audit history</a>
+            <a
+              href={serializeLocation({
+                ...resolved.location,
+                segments: ["audit"],
+              })}
+            >
+              Back to audit history
+            </a>
           </nav>
           <header class="detail-context" data-testid="detail-context">
             <h1 tabindex={-1}>Audit event {resolved.location.segments[1]}</h1>
@@ -578,7 +734,6 @@ export function Audit({
           </p>
         </StateNotice>
       )}
-      {snapshot.history !== undefined && <History value={snapshot.history} />}
       {detail ? (
         snapshot.item !== undefined ? (
           <section class="panel domain-panel" aria-label="Audit event detail">
@@ -586,11 +741,7 @@ export function Audit({
               <h2>
                 {snapshot.item.category}.{snapshot.item.action}
               </h2>
-              <StatusLabel
-                state={
-                  snapshot.item.outcome === "succeeded" ? "current" : "warning"
-                }
-              >
+              <StatusLabel state={outcomeState(snapshot.item.outcome)}>
                 {sentenceCase(snapshot.item.outcome)}
               </StatusLabel>
             </div>
@@ -628,7 +779,7 @@ export function Audit({
               <div>
                 <dt>Target</dt>
                 <dd>
-                  {snapshot.item.target.type}:{" "}
+                  {sentenceCase(snapshot.item.target.type)}:{" "}
                   {snapshot.targetLink === undefined ? (
                     snapshot.item.target.id
                   ) : (
@@ -690,14 +841,30 @@ export function Audit({
             <h2>Control-plane events</h2>
             <span>Newest first · {snapshot.items.length} loaded</span>
           </div>
-          <p class="audit-overflow-note">
-            Scroll the table horizontally for performer, target and outcome, or
-            open an event for full detail.
-          </p>
           {snapshot.history === undefined && panel?.status !== "error" ? (
             <StateNotice state="loading" title="Loading audit history" />
-          ) : snapshot.history !== undefined && snapshot.items.length === 0 ? (
-            <StateNotice state="empty" title="No retained audit events match" />
+          ) : snapshot.history !== undefined &&
+            snapshot.items.length === 0 &&
+            panel?.status !== "error" ? (
+            <StateNotice
+              state="empty"
+              title={
+                Object.keys(resolved.location.query).length > 0
+                  ? "No matching audit events"
+                  : "No audit events yet"
+              }
+            >
+              {Object.keys(resolved.location.query).length > 0 ? (
+                <button type="button" onClick={() => navigate("#/audit")}>
+                  Clear filters
+                </button>
+              ) : (
+                <p>
+                  Retained history is bounded; this does not establish that no
+                  earlier actions occurred.
+                </p>
+              )}
+            </StateNotice>
           ) : snapshot.items.length > 0 ? (
             <CollectionTable
               caption="Control-plane audit history"
@@ -706,25 +873,31 @@ export function Audit({
               rowTestID="audit-row"
               columns={[
                 {
+                  key: "time",
+                  label: "Time",
+                  render: (item) => <UserTime value={item.timestamp} />,
+                },
+                {
                   key: "event",
-                  label: "Event",
+                  label: "Event type",
                   render: (item) => (
-                    <a href={`#/audit/${item.id}`}>
+                    <>
                       {item.category}.{item.action}
-                      <br />
-                      <small>{item.id}</small>
-                    </a>
+                    </>
                   ),
                 },
                 {
-                  key: "time",
-                  label: "Time / sequence",
+                  key: "id",
+                  label: "Event ID",
                   render: (item) => (
-                    <>
-                      <UserTime value={item.timestamp} />
-                      <br />
-                      {item.sequence}
-                    </>
+                    <a
+                      href={serializeLocation({
+                        ...resolved.location,
+                        segments: ["audit", item.id],
+                      })}
+                    >
+                      {item.id}
+                    </a>
                   ),
                 },
                 {
@@ -753,26 +926,28 @@ export function Audit({
                   label: "Target",
                   render: (item) => (
                     <>
-                      {item.target.type}
+                      {sentenceCase(item.target.type)}
                       <br />
-                      {item.target.id}
+                      {controller.listTarget(item) === undefined ? (
+                        item.target.id
+                      ) : (
+                        <a href={controller.listTarget(item)}>
+                          {item.target.id}
+                        </a>
+                      )}
                     </>
                   ),
                 },
                 {
                   key: "outcome",
-                  label: "Phase / outcome",
+                  label: "Outcome",
                   render: (item) => (
                     <>
-                      {item.phase}
-                      <br />
-                      <StatusLabel
-                        state={
-                          item.outcome === "succeeded" ? "current" : "warning"
-                        }
-                      >
+                      <StatusLabel state={outcomeState(item.outcome)}>
                         {sentenceCase(item.outcome)}
                       </StatusLabel>
+                      <br />
+                      <small>{sentenceCase(item.phase)}</small>
                     </>
                   ),
                 },
@@ -783,15 +958,9 @@ export function Audit({
               loadMoreLabel="Load older audit events"
             />
           ) : null}
-          {snapshot.history !== undefined && (
-            <p>
-              {snapshot.nextCursor !== null
-                ? "More matching retained events exist; loaded evidence is partial."
-                : "End of this matching retained traversal — not a complete or permanent record."}
-            </p>
-          )}
         </section>
       )}
+      {snapshot.history !== undefined && <History value={snapshot.history} />}
     </div>
   );
 }

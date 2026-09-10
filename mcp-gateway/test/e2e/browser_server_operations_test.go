@@ -69,7 +69,7 @@ func TestBrowserServerOperations(t *testing.T) {
 	assert.GreaterOrEqual(t, event.OperationReads, 5)
 	assert.GreaterOrEqual(t, event.Starts, 6)
 	assert.Positive(t, event.EventRefreshes)
-	require.Len(t, event.Screenshots, 18)
+	require.Len(t, event.Screenshots, 21)
 	t.Logf("operation pagination screenshots: %v", event.Screenshots)
 
 	harness.Stop(os.Interrupt)

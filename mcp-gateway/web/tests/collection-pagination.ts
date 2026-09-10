@@ -178,19 +178,41 @@ export async function exerciseCollectionPagination(
           "aria-busy",
           "true",
         );
+        await expect(root.locator(".collection-pagination")).toHaveCount(2);
+        await expect(
+          root.locator('.collection-pagination [aria-live="polite"]'),
+        ).toHaveCount(1);
+        const bars = await root
+          .locator(".collection-pagination")
+          .evaluateAll((bars) =>
+            bars.map((bar) => ({
+              label: bar.querySelector("nav")!.getAttribute("aria-label"),
+              summary: bar.querySelector(".table-filter-summary")!.textContent,
+              disabled: [...bar.querySelectorAll("button")].map(
+                (button) => button.disabled,
+              ),
+            })),
+          );
+        expect(bars[0]!.label).not.toBe(bars[1]!.label);
+        expect(bars[0]!.summary).toBe(bars[1]!.summary);
+        expect(bars[0]!.disabled).toEqual(bars[1]!.disabled);
       };
       const links = () =>
         rows.evaluateAll((rows) =>
           rows.map((row) => row.querySelector("a")?.getAttribute("href")),
         );
-      const summary = root.locator("output");
+      const summary = root.locator('.collection-pagination [role="status"]');
       const range = (offset: number) =>
         `Showing ${offset + 1}–${Math.min(offset + 50, 128)} of 128 ${selected}`;
-      const previous = root.getByRole("button", {
-        name: "Previous",
-        exact: true,
-      });
-      const next = root.getByRole("button", { name: "Next", exact: true });
+      const previous = root
+        .getByRole("button", {
+          name: "Previous",
+          exact: true,
+        })
+        .first();
+      const next = root
+        .getByRole("button", { name: "Next", exact: true })
+        .last();
       const search = root.getByLabel(
         selected === "principals" ? "Name or ID" : "Description or ID",
         { exact: true },
@@ -213,7 +235,9 @@ export async function exerciseCollectionPagination(
           .querySelector(".collection-pagination")!
           .getBoundingClientRect();
         const nav = root.querySelector("nav")!.getBoundingClientRect();
-        const summary = root.querySelector("output")!.getBoundingClientRect();
+        const summary = root
+          .querySelector('.collection-pagination [role="status"]')!
+          .getBoundingClientRect();
         return {
           filtersAbove: filters.bottom <= bar.top,
           navigationLeft: Math.abs(nav.left - bar.left) < 1,

@@ -11,9 +11,22 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
   const capture = async (kind: string, state: string) => {
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
+      await page
+        .locator(".collection-pagination")
+        .first()
+        .scrollIntoViewIfNeeded();
       const path = join(artifacts, `${kind}-${state}-${width}.png`);
       await page.screenshot({ path });
       screenshots.push(path);
+      if (state === "populated") {
+        await page
+          .locator(".collection-pagination")
+          .last()
+          .scrollIntoViewIfNeeded();
+        const bottom = join(artifacts, `${kind}-${state}-${width}-bottom.png`);
+        await page.screenshot({ path: bottom });
+        screenshots.push(bottom);
+      }
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -191,8 +204,10 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
   };
   await page.route("**/api/v1/servers**", fulfill);
   await page.route("**/api/v1/catalog**", fulfill);
-  const next = page.getByRole("button", { name: "Next", exact: true });
-  const previous = page.getByRole("button", { name: "Previous", exact: true });
+  const next = page.getByRole("button", { name: "Next", exact: true }).last();
+  const previous = page
+    .getByRole("button", { name: "Previous", exact: true })
+    .first();
   for (const kind of ["servers", "descriptors", "catalog"] as const) {
     const row = page.getByTestId(
       kind === "servers"
@@ -210,6 +225,10 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
       window.location.hash = hash;
     }, fragment);
     await expect(row).toHaveCount(50);
+    await expect(page.locator(".collection-pagination")).toHaveCount(2);
+    await expect(
+      page.locator('.collection-pagination [aria-live="polite"]'),
+    ).toHaveCount(1);
     await expect(next).toBeEnabled();
     await expect(previous).toBeDisabled();
     expect(counts[kind] - before).toBe(1);
@@ -392,7 +411,16 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
     delayed = false;
     await field.fill("delayed");
     await expect.poll(() => delayed).toBe(true);
-    await expect(page.getByText("Loading…", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Loading…", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(
+      page.locator(".collection-pagination .table-filter-summary"),
+    ).toHaveText(["Loading…", "Loading…"]);
+    for (const button of await page
+      .locator(".collection-pagination button")
+      .all())
+      await expect(button).toBeDisabled();
     await capture(kind, "loading");
     await field.fill(target);
     await expect(row).toHaveCount(1);

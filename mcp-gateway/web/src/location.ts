@@ -346,7 +346,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       segments.length === 2 &&
       second !== undefined &&
       isGatewayID(second) &&
-      noQuery
+      validAuditQuery(query)
     )
       return location("audit", segments, query);
   }
