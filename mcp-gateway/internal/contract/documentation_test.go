@@ -16,7 +16,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"Access is denied unless granted", "approval changes access rather than queuing a tool call", "mcp-gateway/README.md",
+			"Denies access unless granted", "Grants permissions; does not approve a queued tool call", "mcp-gateway/README.md",
 		},
 		"../../../CLAUDE.md": {
 			"mcp-gateway/docs/maintainers/release-verification.md", "Gateway release acceptance is a separate owner", "make frontend-verify-supply-chain", "make frontend-audit",
