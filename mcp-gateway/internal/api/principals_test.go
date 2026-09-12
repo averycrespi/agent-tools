@@ -140,7 +140,7 @@ func (service *fakePrincipalService) CreateGrant(_ context.Context, request auth
 	if validate == nil {
 		return contract.Grant{}, authorization.ErrInvalidInput
 	}
-	valid, err := validate(context.Background(), nil, request.ServerID)
+	valid, err := validate(context.Background(), nil, request.Target.ServerID)
 	if err != nil {
 		return contract.Grant{}, err
 	}
@@ -148,7 +148,7 @@ func (service *fakePrincipalService) CreateGrant(_ context.Context, request auth
 		return contract.Grant{}, authorization.ErrInvalidInput
 	}
 	service.grantCreate = request
-	grant := contract.Grant{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Description: request.Description, Revision: "1", PrincipalID: request.PrincipalID, Effect: request.Effect, ServerID: request.ServerID, UpstreamName: request.UpstreamName, Constraint: request.Constraint, State: contract.GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
+	grant := contract.Grant{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAY", Description: request.Description, Revision: "1", PrincipalID: request.PrincipalID, Effect: request.Effect, ServerID: request.Target.ServerID, UpstreamName: request.Target.UpstreamName, Constraint: request.Constraint, State: contract.GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
 	if request.ExpiresAt != nil {
 		value := request.ExpiresAt.UTC().Format(time.RFC3339Nano)
 		grant.ExpiresAt = &value

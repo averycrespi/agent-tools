@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -225,7 +226,7 @@ func validateStartupRequest(stored startupRequest, namespace string) error {
 	if err != nil || requestedName.namespace != namespace || !equalOptionalString(requestedName.upstreamName, stored.upstreamName) {
 		return ErrInvalidState
 	}
-	resolved := ResolvedTarget{ServerID: stored.serverID, UpstreamName: stored.upstreamName}
+	resolved := accesstarget.MCP{ServerID: stored.serverID, UpstreamName: stored.upstreamName}
 	identity, err := CanonicalDedupeIdentity(requested, resolved)
 	if err != nil || stored.dedupeVersion != identity.Version || !bytes.Equal(stored.dedupeBytes, identity.Bytes) {
 		return ErrInvalidState

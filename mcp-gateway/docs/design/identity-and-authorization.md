@@ -6,6 +6,14 @@ Authority: Normative product design
 
 This chapter owns the behavior and invariants described below. Operational procedures remain in the linked guides; exact executable contract values remain owned by `internal/contract` and must agree with this chapter.
 
+## Internal access target boundary
+
+`internal/accesstarget.MCP` is the single internal target vocabulary for grant creation and evaluation, resolved admission verification, structural discovery, conservative DENY checks, request dedupe/narrowing/approval, and self-grant projection. It carries an immutable server ID and a nullable exact upstream name: null means server-wide scope, not an unresolved call. MCP is the only supported domain. The value and its scope comparisons confer no authority, existence, validation, or read-only eligibility; callers do not mutate shared upstream-name pointers.
+
+Public administrator resources retain `server_id` and nullable `upstream_name`; self-service policy retains namespace-based `scope` and `target`. Package-owned SQL adapters retain the existing columns, nullability, schema, and exact versioned dedupe framing. Namespace and catalog resolution stay with the MCP owners through the existing supplied-transaction seams, outside shared identity ownership. Authorization remains the sole principal/credential/grant repository, authenticator, authority gate, and admission verifier.
+
+Validation remains purpose-specific: ordinary grants may be server-wide or name an uncatalogued tool, and synthetic grants and calls remain valid. Exact-call verification rejects server scope and malformed coordinates. Grant-request creation and approval still reject reserved synthetic targets; neither a target value nor a catalog hint makes them requestable. Pinned descriptor read-only facts remain separate from target coordinates. No protocol registry, additional target domain, migration, or credential-slot change is introduced.
+
 ## Principal and grant contract
 
 | Method and pattern                          | Closed request schema | Success schema/status                         | Cursor | Idempotency | Exact `If-Match` | Response ETag |

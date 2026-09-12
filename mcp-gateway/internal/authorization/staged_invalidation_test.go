@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -31,7 +32,7 @@ func TestInvalidateStagedCredentialsClearsManyThenNoopsAtZero(t *testing.T) {
 		second, secondBearer = issued.Principal, issued.Bearer
 		absent = mustCreatePrincipal(t, repository)
 		_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
-			PrincipalID: first.ID, Effect: contract.GrantDeny, ServerID: id(51),
+			PrincipalID: first.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: id(51)},
 		}, allowCurrentTarget)
 		require.NoError(t, err)
 	})

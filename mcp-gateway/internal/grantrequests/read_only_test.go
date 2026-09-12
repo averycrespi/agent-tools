@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -55,7 +56,7 @@ func TestReadOnlyRequestConservativeWriteDenyConflict(t *testing.T) {
 	fixture.requests.denies = fixture.authority
 	policy := contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true, ReadOnly: true}
 	created := fixture.createRequest(t, policy)
-	_, err := fixture.authority.CreateGrant(t.Context(), authorization.CreateGrantRequest{PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, ServerID: requestID(400), UpstreamName: stringPointer("write")}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
+	_, err := fixture.authority.CreateGrant(t.Context(), authorization.CreateGrantRequest{PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: requestID(400), UpstreamName: stringPointer("write")}}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	_, err = fixture.requests.Approve(t.Context(), fixture.authority, ApproveRequest{ID: created.ID, ExpectedRevision: "1", ApprovedPolicy: policy})
 	require.ErrorIs(t, err, ErrConflict)
@@ -74,7 +75,7 @@ func TestReadOnlyPolicyDedupeVersionAndNarrowing(t *testing.T) {
 	policy := contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}
 	legacy, err := CompilePolicy(policy)
 	require.NoError(t, err)
-	target := ResolvedTarget{ServerID: requestID(400)}
+	target := accesstarget.MCP{ServerID: requestID(400)}
 	old, err := CanonicalDedupeIdentity(legacy, target)
 	require.NoError(t, err)
 	require.Equal(t, DedupeVersionV1, old.Version)

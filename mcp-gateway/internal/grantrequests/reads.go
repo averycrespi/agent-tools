@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 )
@@ -222,8 +223,8 @@ func scanAgentRequest(scanner requestScanner) (int64, contract.AgentGrantRequest
 			return 0, contract.AgentGrantRequest{}, ErrInvalidState
 		}
 		if narrowingErr := ValidateNarrowing(
-			requested, ResolvedTarget{ServerID: contract.SyntheticServerID, UpstreamName: requestedTargetFact.upstreamName},
-			approved, ResolvedTarget{ServerID: contract.SyntheticServerID, UpstreamName: approvedTargetFact.upstreamName},
+			requested, accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: requestedTargetFact.upstreamName},
+			approved, accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: approvedTargetFact.upstreamName},
 		); narrowingErr != nil {
 			return 0, contract.AgentGrantRequest{}, ErrInvalidState
 		}

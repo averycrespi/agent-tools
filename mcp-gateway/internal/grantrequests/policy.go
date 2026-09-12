@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
@@ -27,11 +28,6 @@ var (
 	ErrPolicyBroadening = errors.New("approved policy is not a narrowing")
 	opaqueIDPattern     = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 )
-
-type ResolvedTarget struct {
-	ServerID     string
-	UpstreamName *string
-}
 
 type DedupeIdentity struct {
 	Version int64
@@ -131,7 +127,7 @@ func (policy CompiledPolicy) ExpiresAt(approvedAt time.Time) *time.Time {
 	return &expires
 }
 
-func CanonicalDedupeIdentity(policy CompiledPolicy, target ResolvedTarget) (DedupeIdentity, error) {
+func CanonicalDedupeIdentity(policy CompiledPolicy, target accesstarget.MCP) (DedupeIdentity, error) {
 	if !validResolvedTarget(policy, target) {
 		return DedupeIdentity{}, ErrInvalidPolicy
 	}
@@ -229,9 +225,9 @@ func writeDedupeAtom(output *bytes.Buffer, atom authorization.ConstraintAtom) er
 	return nil
 }
 
-func ValidateNarrowing(submitted CompiledPolicy, submittedTarget ResolvedTarget, approved CompiledPolicy, approvedTarget ResolvedTarget) error {
+func ValidateNarrowing(submitted CompiledPolicy, submittedTarget accesstarget.MCP, approved CompiledPolicy, approvedTarget accesstarget.MCP) error {
 	if !validResolvedTarget(submitted, submittedTarget) || !validResolvedTarget(approved, approvedTarget) ||
-		submittedTarget.ServerID != approvedTarget.ServerID {
+		!submittedTarget.Covers(approvedTarget) {
 		return ErrPolicyBroadening
 	}
 	if submitted.value.ReadOnly && (!approved.value.ReadOnly || approved.Scope() != contract.PolicyServer) {
@@ -247,8 +243,7 @@ func ValidateNarrowing(submitted CompiledPolicy, submittedTarget ResolvedTarget,
 			return ErrPolicyBroadening
 		}
 	case contract.PolicyTool:
-		if approved.Scope() != contract.PolicyTool || submittedTarget.UpstreamName == nil || approvedTarget.UpstreamName == nil ||
-			*submittedTarget.UpstreamName != *approvedTarget.UpstreamName {
+		if approved.Scope() != contract.PolicyTool {
 			return ErrPolicyBroadening
 		}
 		if !constraintRetained(submitted.constraint, approved.constraint) {
@@ -265,7 +260,7 @@ func ValidateNarrowing(submitted CompiledPolicy, submittedTarget ResolvedTarget,
 	return nil
 }
 
-func validResolvedTarget(policy CompiledPolicy, target ResolvedTarget) bool {
+func validResolvedTarget(policy CompiledPolicy, target accesstarget.MCP) bool {
 	if !opaqueIDPattern.MatchString(target.ServerID) {
 		return false
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
@@ -19,7 +20,7 @@ func TestReadOnlyInvocationBlocksWithoutDispatch(t *testing.T) {
 	for _, grant := range grants.Items {
 		require.NoError(t, authority.DeleteGrant(t.Context(), grant.ID))
 	}
-	_, err = authority.CreateGrant(t.Context(), authorization.CreateGrantRequest{PrincipalID: principal.ID, ServerID: contract.SyntheticServerID, Effect: contract.GrantAllow, ReadOnly: true}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
+	_, err = authority.CreateGrant(t.Context(), authorization.CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ReadOnly: true, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID}}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	acquisitions, executions := 0, 0
 	hint := false

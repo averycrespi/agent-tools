@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,12 +26,12 @@ func TestLoadDiscoveryPolicyReturnsOneCredentialBoundStructuralView(t *testing.T
 	constraint := json.RawMessage(`{"equals":{"/tenant":"one"}}`)
 	expires := testNow.Add(time.Hour)
 	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
-		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51),
+		PrincipalID: principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51)},
 	}, allowCurrentTarget)
 	require.NoError(t, err)
 	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
-		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(52),
-		UpstreamName: &tool, Constraint: &constraint, ExpiresAt: &expires,
+		PrincipalID: principal.ID, Effect: contract.GrantDeny,
+		Constraint: &constraint, ExpiresAt: &expires, Target: accesstarget.MCP{ServerID: id(52), UpstreamName: &tool},
 	}, allowCurrentTarget)
 	require.NoError(t, err)
 
@@ -42,9 +43,9 @@ func TestLoadDiscoveryPolicyReturnsOneCredentialBoundStructuralView(t *testing.T
 	assert.Equal(t, revision, view.AuthorizationRevision)
 	assert.Equal(t, testNow, view.EvaluatedAt)
 	assert.Equal(t, []StructuralGrant{
-		{Effect: contract.GrantAllow, ServerID: contract.SyntheticServerID},
-		{Effect: contract.GrantAllow, ServerID: id(51)},
-		{Effect: contract.GrantDeny, ServerID: id(52), UpstreamName: &tool, Constrained: true},
+		{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID}},
+		{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51)}},
+		{Effect: contract.GrantDeny, Constrained: true, Target: accesstarget.MCP{ServerID: id(52), UpstreamName: &tool}},
 	}, view.Grants)
 }
 
@@ -60,8 +61,8 @@ func TestLoadDiscoveryPolicyAppliesExpiryAtCallerTimestampAndFailsClosed(t *test
 	tool := "tool"
 	constraint := json.RawMessage(`{"equals":{"/x":"value"}}`)
 	_, err = repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
-		PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &tool,
-		Constraint: &constraint, ExpiresAt: &expires,
+		PrincipalID: principal.ID, Effect: contract.GrantAllow,
+		Constraint: &constraint, ExpiresAt: &expires, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: &tool},
 	}, allowCurrentTarget)
 	require.NoError(t, err)
 	before, err := repository.LoadDiscoveryPolicy(context.Background(), lease, testNow)
@@ -90,7 +91,7 @@ func TestLoadDiscoveryPolicyAppliesExpiryAtCallerTimestampAndFailsClosed(t *test
 
 func hasStructuralServer(grants []StructuralGrant, serverID string) bool {
 	for _, grant := range grants {
-		if grant.ServerID == serverID {
+		if grant.Target.ServerID == serverID {
 			return true
 		}
 	}

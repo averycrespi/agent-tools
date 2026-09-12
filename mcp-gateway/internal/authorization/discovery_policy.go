@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
 type StructuralGrant struct {
-	ReadOnly     bool
-	Effect       contract.GrantEffect
-	ServerID     string
-	UpstreamName *string
-	Constrained  bool
+	ReadOnly    bool
+	Effect      contract.GrantEffect
+	Target      accesstarget.MCP
+	Constrained bool
 }
 
 type DiscoveryPolicy struct {
@@ -90,11 +90,7 @@ func (repository *Repository) loadStructuralGrants(ctx context.Context, transact
 			continue
 		}
 		structural := StructuralGrant{
-			Effect: grant.effect, ServerID: grant.serverID, Constrained: grant.constraint != nil, ReadOnly: grant.readOnly,
-		}
-		if grant.upstreamName.Valid {
-			upstreamName := grant.upstreamName.String
-			structural.UpstreamName = &upstreamName
+			Effect: grant.effect, Constrained: grant.constraint != nil, ReadOnly: grant.readOnly, Target: grant.target,
 		}
 		grants = append(grants, structural)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
@@ -20,7 +21,7 @@ func TestApprovalAuthorityGateIsNonQueueing(t *testing.T) {
 	})
 	require.NoError(t, err)
 	transition := &blockingApprovalTransition{
-		material: ApprovalGrantMaterial{Description: stringPointer("Test grant"), PrincipalID: principal.Principal.ID, ServerID: id(51)},
+		material: ApprovalGrantMaterial{Description: stringPointer("Test grant"), PrincipalID: principal.Principal.ID, Target: accesstarget.MCP{ServerID: id(51)}},
 		entered:  make(chan struct{}), release: make(chan struct{}),
 	}
 	first := make(chan error, 1)
@@ -30,7 +31,7 @@ func TestApprovalAuthorityGateIsNonQueueing(t *testing.T) {
 	}()
 	<-transition.entered
 	_, err = repository.ApproveGrantRequest(context.Background(), &staticApprovalTransition{
-		material: ApprovalGrantMaterial{Description: stringPointer("Test grant"), PrincipalID: principal.Principal.ID, ServerID: id(51)},
+		material: ApprovalGrantMaterial{Description: stringPointer("Test grant"), PrincipalID: principal.Principal.ID, Target: accesstarget.MCP{ServerID: id(51)}},
 	})
 	assert.ErrorIs(t, err, ErrApprovalUnavailable)
 	close(transition.release)
@@ -48,7 +49,7 @@ func TestApprovalGrantCapacityRollsBackBeforeRequestTransition(t *testing.T) {
 	}))
 	before, err := repository.AuthorizationRevision(context.Background())
 	require.NoError(t, err)
-	transition := &staticApprovalTransition{material: ApprovalGrantMaterial{Description: stringPointer("Test grant"), PrincipalID: principal.Principal.ID, ServerID: id(51)}}
+	transition := &staticApprovalTransition{material: ApprovalGrantMaterial{Description: stringPointer("Test grant"), PrincipalID: principal.Principal.ID, Target: accesstarget.MCP{ServerID: id(51)}}}
 
 	_, err = repository.ApproveGrantRequest(context.Background(), transition)
 	assert.ErrorIs(t, err, ErrResourceLimit)

@@ -86,6 +86,34 @@ func TestRequestCreatePersistsBoundedEvidenceAndInvalidates(t *testing.T) {
 	}))
 }
 
+func TestSyntheticAccessTargetsCannotCreateGrantRequests(t *testing.T) {
+	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
+		contract.SyntheticServerNamespace: {ID: contract.SyntheticServerID, Namespace: contract.SyntheticServerNamespace, State: contract.DesiredServerDisabled},
+	}}
+	invalidations := 0
+	repository, store := newRequestRepository(t, requestRepositoryOptions{
+		namespaces: namespaces,
+		invalidate: func(contract.Invalidation) { invalidations++ },
+	})
+	for _, input := range []contract.Policy{
+		{Scope: contract.PolicyServer, Target: contract.SyntheticServerNamespace, FutureToolsAcknowledged: true},
+		{Scope: contract.PolicyTool, Target: contract.SyntheticServerNamespace + ".get_identity"},
+	} {
+		result, err := repository.CreateOrExisting(t.Context(), CreateRequest{PrincipalID: requestID(200), Policy: input})
+		require.ErrorIs(t, err, ErrStorageUnavailable, "a resolver must not make the reserved target requestable")
+		require.Nil(t, result.Request)
+	}
+	require.Zero(t, invalidations)
+	require.NoError(t, store.View(t.Context(), func(tx *sql.Tx) error {
+		var requests, identities int
+		require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM grant_requests`).Scan(&requests))
+		require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM grant_request_identities`).Scan(&identities))
+		require.Zero(t, requests)
+		require.Zero(t, identities)
+		return nil
+	}))
+}
+
 func TestSemanticDedupeWinsBeforeDeletedTargetDenyAndCapacity(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
 		"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},

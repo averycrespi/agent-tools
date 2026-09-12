@@ -54,7 +54,7 @@ func (admission *Admission) VerifyResolvedTx(
 	transaction *sql.Tx,
 	request ResolvedVerification,
 ) (contract.AuthorizationResult, *PendingDetachment, ResolvedVerificationPhase, error) {
-	if !validOpaqueID(request.ServerID) || !validUpstreamName(request.UpstreamName) ||
+	if !validOpaqueID(request.Target.ServerID) || !validUpstreamName(request.Target.ToolName()) ||
 		request.Arguments.Type != strictjson.ValueObject ||
 		!validObservedAuthorizationRevision(request.ObservedAuthorizationRevision) {
 		return contract.AuthorizationResult{}, nil, ResolvedUnverified, ErrInvalidInput
@@ -73,8 +73,7 @@ func (admission *Admission) VerifyResolvedTx(
 		ctx,
 		transaction,
 		admission.lease.binding.PrincipalID,
-		request.ServerID,
-		request.UpstreamName,
+		request.Target,
 		request.Arguments,
 		evaluatedAt,
 		request.ReadOnlyHint,

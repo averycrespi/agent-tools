@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,14 +58,14 @@ func TestDenyConflictTxUsesConservativeOwnerScopeAndExpiry(t *testing.T) {
 				denyPrincipal = mustCreatePrincipal(t, repository).ID
 			}
 			_, err := repository.CreateGrant(context.Background(), CreateGrantRequest{Description: stringPointer("Test grant"),
-				PrincipalID: denyPrincipal, Effect: contract.GrantDeny, ServerID: test.denyServer,
-				UpstreamName: test.denyUpstream, Constraint: test.constraint, ExpiresAt: test.expiresAt,
+				PrincipalID: denyPrincipal, Effect: contract.GrantDeny,
+				Constraint: test.constraint, ExpiresAt: test.expiresAt, Target: accesstarget.MCP{ServerID: test.denyServer, UpstreamName: test.denyUpstream},
 			}, allowCurrentTarget)
 			require.NoError(t, err)
 
 			require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 				conflict, inspectErr := repository.HasActiveDenyConflictTx(context.Background(), transaction, DenyConflictScope{
-					PrincipalID: principal.ID, ServerID: test.proposedServer, UpstreamName: test.proposedUpstream,
+					PrincipalID: principal.ID, Target: accesstarget.MCP{ServerID: test.proposedServer, UpstreamName: test.proposedUpstream},
 				}, test.evaluatedAt)
 				require.NoError(t, inspectErr)
 				assert.Equal(t, test.conflict, conflict)
@@ -98,7 +99,7 @@ func TestStoredPrincipalExistsTxUsesSuppliedTransaction(t *testing.T) {
 func TestDenyConflictTxRejectsInvalidOrExpiredTransaction(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
-	scope := DenyConflictScope{PrincipalID: principal.ID, ServerID: id(51)}
+	scope := DenyConflictScope{PrincipalID: principal.ID, Target: accesstarget.MCP{ServerID: id(51)}}
 	_, err := repository.HasActiveDenyConflictTx(context.Background(), nil, scope, testNow)
 	require.ErrorIs(t, err, ErrInvalidInput)
 	require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {

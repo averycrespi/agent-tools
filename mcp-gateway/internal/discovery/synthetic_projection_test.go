@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
@@ -27,12 +28,12 @@ func TestSyntheticDiscoveryObeysOrdinaryVisibilityAndDenyPrecedence(t *testing.T
 	}{
 		{name: "all", visibility: contract.VisibilityAll, want: allNames},
 		{name: "requestable", visibility: contract.VisibilityRequestable, want: allNames},
-		{name: "requestable exact deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &identity}}, want: []string{"mcp_gateway.cancel_grant_request", "mcp_gateway.create_grant_request", "mcp_gateway.get_grant_request", "mcp_gateway.list_grant_requests", "mcp_gateway.list_grants"}},
-		{name: "requestable constrained deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &identity, Constrained: true}}, want: allNames},
+		{name: "requestable exact deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &identity}}}, want: []string{"mcp_gateway.cancel_grant_request", "mcp_gateway.create_grant_request", "mcp_gateway.get_grant_request", "mcp_gateway.list_grant_requests", "mcp_gateway.list_grants"}},
+		{name: "requestable constrained deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, Constrained: true, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &identity}}}, want: allNames},
 		{name: "allowed only without grant", visibility: contract.VisibilityAllowedOnly, want: []string{}},
-		{name: "allowed only server grant", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: contract.SyntheticServerID}}, want: allNames},
-		{name: "allowed only exact grant", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: contract.SyntheticServerID, UpstreamName: &create}}, want: []string{"mcp_gateway.create_grant_request"}},
-		{name: "server deny wins", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: contract.SyntheticServerID}, {Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID}}, want: []string{}},
+		{name: "allowed only server grant", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID}}}, want: allNames},
+		{name: "allowed only exact grant", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &create}}}, want: []string{"mcp_gateway.create_grant_request"}},
+		{name: "server deny wins", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID}}, {Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID}}}, want: []string{}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

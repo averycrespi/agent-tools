@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -144,7 +145,7 @@ func TestMatcherCacheOlderSnapshotAndMalformedReads(t *testing.T) {
 	subject := admitSelfProjectionSubject(t, repository, credential.Bearer)
 	original := `{"version":2,"regex":{"/x":"old"}}`
 	seedProjectedGrant(t, store, projectedGrantRow{id: id(1000), principalID: principal.ID, effect: contract.GrantAllow, serverID: id(51), upstreamName: "echo", constraint: original})
-	request := EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "echo", Arguments: []byte(`{"x":"old"}`)}
+	request := EvaluationRequest{PrincipalID: principal.ID, Arguments: []byte(`{"x":"old"}`), Target: accesstarget.Tool(id(51), "echo")}
 	initial, err := repository.Evaluate(context.Background(), request)
 	require.NoError(t, err)
 	require.Equal(t, contract.DecisionAllow, initial.Decision)
@@ -165,7 +166,7 @@ func TestMatcherCacheOlderSnapshotAndMalformedReads(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			result, err := evaluateTx(repository, context.Background(), tx, principal.ID, id(51), "echo", args, testNow, false)
+			result, err := evaluateTx(repository, context.Background(), tx, principal.ID, accesstarget.Tool(id(51), "echo"), args, testNow, false)
 			results <- result
 			return err
 		})

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -97,7 +98,7 @@ func TestStartupAcceptsApprovedHistoricalGrantAfterLiveGrantDeletion(t *testing.
 	})
 	require.NoError(t, err)
 	grant, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-		PrincipalID: principal.Principal.ID, Effect: contract.GrantAllow, ServerID: requestID(400),
+		PrincipalID: principal.Principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: requestID(400)},
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	created, err := repository.CreateOrExisting(context.Background(), CreateRequest{PrincipalID: principal.Principal.ID, Policy: contract.Policy{
@@ -156,7 +157,7 @@ func TestStartupRejectsMissingOwnerTargetIdentityDedupeAndEvidence(t *testing.T)
 			require.NoError(t, fixture.mutate(func(transaction *sql.Tx) error {
 				upstream := "echo"
 				compiled := mustCompilePolicy(t, contract.Policy{Scope: contract.PolicyTool, Target: "sample.echo"})
-				identity, err := CanonicalDedupeIdentity(compiled, ResolvedTarget{ServerID: requestID(400), UpstreamName: &upstream})
+				identity, err := CanonicalDedupeIdentity(compiled, accesstarget.MCP{ServerID: requestID(400), UpstreamName: &upstream})
 				require.NoError(t, err)
 				return insertStartupPending(transaction, requestID(12), requestID(200), compiled.Contract(), identity.Bytes, []byte("x"), requestID(400), &upstream)
 			}))
@@ -165,7 +166,7 @@ func TestStartupRejectsMissingOwnerTargetIdentityDedupeAndEvidence(t *testing.T)
 			targets.namespaces[contract.SyntheticServerID] = contract.SyntheticServerNamespace
 			require.NoError(t, fixture.mutate(func(transaction *sql.Tx) error {
 				compiled := mustCompilePolicy(t, contract.Policy{Scope: contract.PolicyServer, Target: contract.SyntheticServerNamespace, FutureToolsAcknowledged: true})
-				identity, err := CanonicalDedupeIdentity(compiled, ResolvedTarget{ServerID: contract.SyntheticServerID})
+				identity, err := CanonicalDedupeIdentity(compiled, accesstarget.MCP{ServerID: contract.SyntheticServerID})
 				require.NoError(t, err)
 				return insertStartupPending(transaction, requestID(13), requestID(200), compiled.Contract(), identity.Bytes, nil, contract.SyntheticServerID, nil)
 			}))
@@ -179,7 +180,7 @@ func TestStartupRejectsMissingOwnerTargetIdentityDedupeAndEvidence(t *testing.T)
 			targets := &fakeStoredTargetInspector{namespaces: map[string]string{requestID(400): "sample"}}
 			require.NoError(t, fixture.mutate(func(transaction *sql.Tx) error {
 				compiled := mustCompilePolicy(t, contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true})
-				identity, err := CanonicalDedupeIdentity(compiled, ResolvedTarget{ServerID: requestID(400)})
+				identity, err := CanonicalDedupeIdentity(compiled, accesstarget.MCP{ServerID: requestID(400)})
 				require.NoError(t, err)
 				return insertStartupPending(transaction, requestID(10), requestID(200), compiled.Contract(), identity.Bytes, nil, requestID(400), nil)
 			}))
@@ -196,7 +197,7 @@ func TestStartupRejectsPendingPerPrincipalCapacityOverflow(t *testing.T) {
 		for index := int64(0); index <= fixedLimit("pending_grant_requests_per_principal"); index++ {
 			duration := fmt.Sprintf("%d", 60+index)
 			compiled := mustCompilePolicy(t, contract.Policy{Scope: contract.PolicyServer, Target: "sample", DurationSeconds: &duration, FutureToolsAcknowledged: true})
-			identity, err := CanonicalDedupeIdentity(compiled, ResolvedTarget{ServerID: requestID(400)})
+			identity, err := CanonicalDedupeIdentity(compiled, accesstarget.MCP{ServerID: requestID(400)})
 			if err != nil {
 				return err
 			}

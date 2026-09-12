@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
 type DenyConflictScope struct {
-	PrincipalID  string
-	ServerID     string
-	UpstreamName *string
+	PrincipalID string
+	Target      accesstarget.MCP
 }
 
 func (repository *Repository) HasActiveDenyConflictTx(
@@ -21,8 +21,8 @@ func (repository *Repository) HasActiveDenyConflictTx(
 	scope DenyConflictScope,
 	evaluatedAt time.Time,
 ) (bool, error) {
-	if transaction == nil || !validOpaqueID(scope.PrincipalID) || !validOpaqueID(scope.ServerID) || evaluatedAt.IsZero() ||
-		scope.UpstreamName != nil && !validUpstreamName(*scope.UpstreamName) {
+	if transaction == nil || !validOpaqueID(scope.PrincipalID) || !validOpaqueID(scope.Target.ServerID) || evaluatedAt.IsZero() ||
+		scope.Target.UpstreamName != nil && !validUpstreamName(*scope.Target.UpstreamName) {
 		return false, ErrInvalidInput
 	}
 	if repository.store.Latched() {
@@ -38,7 +38,7 @@ func (repository *Repository) HasActiveDenyConflictTx(
 		FROM grants
 		WHERE principal_id = ? AND effect = ? AND server_id = ?
 		ORDER BY id
-		LIMIT ?`, scope.PrincipalID, contract.GrantDeny, scope.ServerID, mustLimit("grants")+1)
+		LIMIT ?`, scope.PrincipalID, contract.GrantDeny, scope.Target.ServerID, mustLimit("grants")+1)
 	if err != nil {
 		return false, fmt.Errorf("%w: read DENY conflicts: %w", ErrStorageUnavailable, err)
 	}
@@ -60,7 +60,7 @@ func (repository *Repository) HasActiveDenyConflictTx(
 		if grant.expiresAt != nil && !grant.expiresAt.After(evaluatedAt) {
 			continue
 		}
-		if scope.UpstreamName == nil || !grant.upstreamName.Valid || grant.upstreamName.String == *scope.UpstreamName {
+		if scope.Target.Overlaps(grant.target) {
 			conflict = true
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -204,8 +205,9 @@ func structurallyVisible(visibility contract.PrincipalVisibility, descriptor con
 	}
 	allowed := false
 	unconstrainedDeny := false
+	target := accesstarget.Tool(descriptor.ServerID, descriptor.UpstreamName)
 	for _, grant := range grants {
-		if grant.ServerID != descriptor.ServerID || grant.UpstreamName != nil && *grant.UpstreamName != descriptor.UpstreamName {
+		if !grant.Target.Covers(target) {
 			continue
 		}
 		switch grant.Effect {

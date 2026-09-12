@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/grantrequests"
@@ -226,8 +227,7 @@ func admitSubject(t *testing.T, authority *authorization.Repository, store *stor
 	require.NoError(t, authority.WithAdmission(context.Background(), lease, func(admission *authorization.Admission) error {
 		if mutationErr := store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 			result, token, phase, verifyErr := admission.VerifyResolvedTx(context.Background(), transaction, authorization.ResolvedVerification{
-				ServerID: contract.SyntheticServerID, UpstreamName: "get_identity",
-				Arguments: strictjson.Value{Type: strictjson.ValueObject},
+				Target: accesstarget.Tool(contract.SyntheticServerID, "get_identity"), Arguments: strictjson.Value{Type: strictjson.ValueObject},
 			})
 			if verifyErr != nil {
 				return verifyErr

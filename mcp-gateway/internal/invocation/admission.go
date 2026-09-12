@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
@@ -77,7 +78,7 @@ func (coordinator *AdmissionCoordinator) Admit(
 			}
 
 			authorizationResult, detachment, phase, err := admission.VerifyResolvedTx(ctx, transaction, authorization.ResolvedVerification{
-				ServerID: request.Route.ServerID, UpstreamName: request.Route.UpstreamName, ReadOnlyHint: request.ReadOnlyHint,
+				Target: accesstarget.Tool(request.Route.ServerID, request.Route.UpstreamName), ReadOnlyHint: request.ReadOnlyHint,
 				Arguments: request.Arguments, ObservedAuthorizationRevision: request.ObservedAuthorizationRevision,
 			})
 			if err != nil {

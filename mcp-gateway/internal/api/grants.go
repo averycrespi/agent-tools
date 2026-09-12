@@ -200,8 +200,8 @@ func decodeGrantCreate(writer http.ResponseWriter, raw rawGrantCreate) (authoriz
 	if !decodeNullableGrantMember(raw.Description, &request.Description) ||
 		!decodeRequiredGrantMember(raw.PrincipalID, &request.PrincipalID) ||
 		!decodeRequiredGrantMember(raw.Effect, &request.Effect) ||
-		!decodeRequiredGrantMember(raw.ServerID, &request.ServerID) ||
-		!decodeNullableGrantMember(raw.UpstreamName, &request.UpstreamName) {
+		!decodeRequiredGrantMember(raw.ServerID, &request.Target.ServerID) ||
+		!decodeNullableGrantMember(raw.UpstreamName, &request.Target.UpstreamName) {
 		writeProblem(writer, contract.ProblemInvalidGrant)
 		return authorization.CreateGrantRequest{}, false
 	}

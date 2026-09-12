@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -63,7 +64,7 @@ func (repository *Repository) CreateOrExisting(ctx context.Context, request Crea
 		if _, stateErr := contract.ParseDesiredServerState(string(resolvedNamespace.State)); stateErr != nil {
 			return ErrInvalidState
 		}
-		resolved := ResolvedTarget{ServerID: resolvedNamespace.ID, UpstreamName: target.upstreamName}
+		resolved := accesstarget.MCP{ServerID: resolvedNamespace.ID, UpstreamName: target.upstreamName}
 		identity, identityErr := CanonicalDedupeIdentity(policy, resolved)
 		if identityErr != nil {
 			return ErrInvalidInput
@@ -103,7 +104,7 @@ func (repository *Repository) CreateOrExisting(ctx context.Context, request Crea
 			}
 		}
 		conflict, denyErr := repository.denies.HasActiveDenyConflictTx(ctx, transaction, authorization.DenyConflictScope{
-			PrincipalID: request.PrincipalID, ServerID: resolved.ServerID, UpstreamName: resolved.UpstreamName,
+			PrincipalID: request.PrincipalID, Target: resolved,
 		}, now.UTC())
 		if denyErr != nil {
 			return fmt.Errorf("inspect request DENY conflicts: %w", denyErr)
@@ -233,7 +234,7 @@ func insertPendingRequest(
 	transaction *sql.Tx,
 	requestID, principalID string,
 	policy CompiledPolicy,
-	resolved ResolvedTarget,
+	resolved accesstarget.MCP,
 	identity DedupeIdentity,
 	evidence []byte,
 	timestamp string,
@@ -274,7 +275,7 @@ func loadPendingByIdentity(
 	transaction *sql.Tx,
 	principalID string,
 	identity DedupeIdentity,
-	resolved ResolvedTarget,
+	resolved accesstarget.MCP,
 ) (*contract.AgentGrantRequest, error) {
 	var (
 		id, state, requestedScope, requestedTarget, createdAt, updatedAt string

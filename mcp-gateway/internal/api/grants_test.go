@@ -126,7 +126,7 @@ func TestGrantCreateRequiresAllMembersAndExactNullableShapes(t *testing.T) {
 	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
 	require.NotNil(t, service.grantCreate.Description)
 	assert.Equal(t, "Test grant", *service.grantCreate.Description)
-	assert.Nil(t, service.grantCreate.UpstreamName)
+	assert.Nil(t, service.grantCreate.Target.UpstreamName)
 	assert.Nil(t, service.grantCreate.Constraint)
 	assert.Nil(t, service.grantCreate.ExpiresAt)
 
