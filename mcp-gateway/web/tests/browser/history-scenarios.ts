@@ -199,7 +199,7 @@ export async function assertAuthoritativeHistory(
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
-    ).toHaveText("Administrative audit");
+    ).toHaveText("Administrators");
     await expect(page).toHaveURL(/filter_action=create/);
     await page.getByRole("link", { name: "Back to audit history" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
@@ -210,7 +210,7 @@ export async function assertAuthoritativeHistory(
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(
-      page.getByRole("heading", { name: "Agent activity", exact: true }),
+      page.getByRole("heading", { name: "Agents", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("region", { name: "MCP invocations", exact: true }),
@@ -297,7 +297,7 @@ export async function assertAuthoritativeHistory(
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
-    ).toHaveText("Agent activity");
+    ).toHaveText("Agents");
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
     await page.getByRole("link", { name: "Back to agent activity" }).click();
     await expect(live).not.toBeChecked();

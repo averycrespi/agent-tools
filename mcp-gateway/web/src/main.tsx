@@ -63,9 +63,9 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   catalog: "Tools",
   principals: "Principals",
   grants: "Grants",
-  requests: "Access requests",
-  invocations: "Agent activity",
-  audit: "Administrative audit",
+  requests: "Requests",
+  invocations: "Agents",
+  audit: "Administrators",
   system: "System",
   "sign-in": "Sign in",
 };

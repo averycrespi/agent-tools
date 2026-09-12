@@ -1094,11 +1094,11 @@ export async function runShellPrimitives(
     ["Overview", "#/overview"],
     ["Principals", "#/principals"],
     ["Grants", "#/grants"],
-    ["Access requests", "#/requests"],
+    ["Requests", "#/requests"],
     ["Servers", "#/servers"],
     ["Tools", "#/catalog"],
-    ["Agent activity", "#/invocations"],
-    ["Administrative audit", "#/audit"],
+    ["Agents", "#/invocations"],
+    ["Administrators", "#/audit"],
     ["System", "#/system"],
   ] as const;
   const primary = page.getByRole("navigation", {
@@ -1113,9 +1113,9 @@ export async function runShellPrimitives(
   if (JSON.stringify(navigationLinks) !== JSON.stringify(expectedNavigation))
     fail("domain navigation labels, order or legacy destinations changed");
   for (const [name, labels] of [
-    ["Access", ["Principals", "Grants", "Access requests"]],
+    ["Access", ["Principals", "Grants", "Requests"]],
     ["MCP", ["Servers", "Tools"]],
-    ["Activity", ["Agent activity", "Administrative audit"]],
+    ["Activity", ["Agents", "Administrators"]],
   ] as const) {
     const links = await primary
       .getByRole("group", { name, exact: true })

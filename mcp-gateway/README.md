@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Access requests); **MCP** (Servers, Tools); **Activity** (Agent activity, Administrative audit); **System**. Agent activity provides existing bounded, redacted MCP invocation evidence; Administrative audit separately records control-plane changes. Existing bookmarked routes and valid filters still work, including `#/catalog`, `#/requests`, `#/invocations`, and `#/audit`.
+Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Requests); **MCP** (Servers, Tools); **Activity** (Agents, Administrators); **System**. Agents shows existing bounded, redacted MCP invocation evidence; Administrators shows the separate administrative audit history of control-plane changes, including system and offline maintenance events. Existing bookmarked routes and valid filters still work, including `#/catalog`, `#/requests`, `#/invocations`, and `#/audit`.
 
 The Grants table shows expiry and numeric constraint counts; Requests shows requested duration and constraint counts in separate columns. Both use **No expiry** for non-expiring access and **0** for no argument constraints. Cancelled requests use a neutral grey state label.
 
@@ -87,7 +87,7 @@ Generated `agent-gateway --help` and subcommand help are the exact command refer
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
 - Create principals, issue agent credentials, and manage grants or requests with [Access control](docs/operators/access-control.md). For Pi in a Lima guest, follow [agent provisioning](docs/operators/access-control.md#provision-a-pi-agent-in-a-lima-sandbox).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
-- Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrative audit destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
+- Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrators destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
 - Create backups or perform stopped-process verification, restore, and administrator reset with [Backup, restore, and recovery](docs/operators/backup-and-recovery.md).
 
 Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.
