@@ -1,7 +1,7 @@
-TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp http-broker
-OTHER_TOOLS := $(filter-out mcp-gateway,$(TOOLS))
-INTEGRATION_TOOLS := mcp-broker mcp-gateway local-git-mcp
-E2E_TOOLS := mcp-broker mcp-gateway http-broker
+TOOLS := mcp-broker agent-gateway sandbox-manager local-git-mcp http-broker
+OTHER_TOOLS := $(filter-out agent-gateway,$(TOOLS))
+INTEGRATION_TOOLS := mcp-broker agent-gateway local-git-mcp
+E2E_TOOLS := mcp-broker agent-gateway http-broker
 UNAME_S := $(shell uname -s)
 LOCAL_TEST_JOBS ?= 2
 
@@ -20,7 +20,7 @@ endif
 
 help:
 	@printf '%s\n' 'LOCAL_TEST_JOBS=1|2 bounds non-Gateway ordinary tests; Gateway and linters stay isolated'
-	@$(MAKE) -s -C mcp-gateway help
+	@$(MAKE) -s -C agent-gateway help
 
 install:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir install; done
@@ -42,7 +42,7 @@ build:
 
 # Gateway's harness releases and rebinds ports, so it must not overlap other listeners.
 test:
-	$(MAKE) -C mcp-gateway test
+	$(MAKE) -C agent-gateway test
 	$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS))
 
 test-ci:
@@ -78,34 +78,34 @@ check-other-tools:
 	$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS))
 
 test-browser:
-	$(MAKE) -C mcp-gateway test-browser
+	$(MAKE) -C agent-gateway test-browser
 
 test-frontend-development:
-	$(MAKE) -C mcp-gateway test-frontend-development
+	$(MAKE) -C agent-gateway test-frontend-development
 
 frontend-typecheck:
-	$(MAKE) -C mcp-gateway frontend-typecheck
+	$(MAKE) -C agent-gateway frontend-typecheck
 
 frontend-build:
-	$(MAKE) -C mcp-gateway frontend-build
+	$(MAKE) -C agent-gateway frontend-build
 
 frontend-verify-generated:
-	$(MAKE) -C mcp-gateway frontend-verify-generated
+	$(MAKE) -C agent-gateway frontend-verify-generated
 
 frontend-verify-supply-chain:
-	$(MAKE) -C mcp-gateway frontend-verify-supply-chain
+	$(MAKE) -C agent-gateway frontend-verify-supply-chain
 
 frontend-audit:
-	$(MAKE) -C mcp-gateway frontend-audit
+	$(MAKE) -C agent-gateway frontend-audit
 
 qualify-external-evidence:
-	$(MAKE) -C mcp-gateway qualify-external-evidence
+	$(MAKE) -C agent-gateway qualify-external-evidence
 
 accept:
-	$(MAKE) -C mcp-gateway accept REPORT="$(REPORT)"
+	$(MAKE) -C agent-gateway accept REPORT="$(REPORT)"
 
 adopt-acceptance-report:
-	$(MAKE) -C mcp-gateway adopt-acceptance-report REPORT="$(REPORT)" ADOPTION="$(ADOPTION)"
+	$(MAKE) -C agent-gateway adopt-acceptance-report REPORT="$(REPORT)" ADOPTION="$(ADOPTION)"
 
 audit:
 	@set -e; for dir in $(TOOLS); do $(MAKE) -C $$dir audit; done

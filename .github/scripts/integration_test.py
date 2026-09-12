@@ -67,7 +67,7 @@ def integration_packages(module):
 class IntegrationOwnershipTests(unittest.TestCase):
     def test_selected_other_modules_match_checked_namespace_and_packages(self):
         for tool in inventory(ROOT)["integration"]:
-            if tool == "mcp-gateway":
+            if tool == "agent-gateway":
                 continue
             with self.subTest(tool=tool):
                 module = ROOT / tool

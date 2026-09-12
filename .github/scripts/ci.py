@@ -40,9 +40,9 @@ def classify(paths, event, suites):
         selected.add(tool)
         # Gateway acceptance definitions also inspect other tools' build metadata.
         if relative in {"Makefile", "go.mod", "go.sum", ".golangci.yml"}:
-            selected.add("mcp-gateway")
+            selected.add("agent-gateway")
     result = {key: [tool for tool in tools if tool in selected] for key, tools in suites.items()}
-    result["gateway"] = "mcp-gateway" in selected
+    result["gateway"] = "agent-gateway" in selected
     result["sandbox"] = "sandbox-manager" in selected
     return result
 

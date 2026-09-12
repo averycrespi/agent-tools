@@ -71,12 +71,12 @@ jobs:
           role: unit
           tool: ${{ matrix.tool }}
       - name: Lint
-        if: matrix.tool != 'mcp-gateway'
+        if: matrix.tool != 'agent-gateway'
         run: make -C "$TOOL" lint
       - name: Unit tests
         if: ${{ !cancelled() }}
         run: |
-          if [ "$TOOL" = mcp-gateway ]; then
+          if [ "$TOOL" = agent-gateway ]; then
             make -C "$TOOL" test-unit
           else
             make -C "$TOOL" test
@@ -93,8 +93,8 @@ jobs:
       - uses: ./.github/actions/go-cache
         with:
           role: lint
-          tool: mcp-gateway
-      - run: make -C mcp-gateway lint
+          tool: agent-gateway
+      - run: make -C agent-gateway lint
 
   gateway-harness:
     name: Gateway harness and material tests
@@ -107,11 +107,11 @@ jobs:
       - uses: ./.github/actions/go-cache
         with:
           role: harness
-          tool: mcp-gateway
+          tool: agent-gateway
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: make -C mcp-gateway test-harness test-material
+      - run: make -C agent-gateway test-harness test-material
 
   sandbox-manager-macos:
     name: Sandbox Manager tests (macOS)
@@ -166,9 +166,9 @@ jobs:
           role: e2e
           tool: ${{ matrix.tool }}
       - name: Prepare Gateway E2E build cache
-        if: matrix.tool == 'mcp-gateway'
+        if: matrix.tool == 'agent-gateway'
         timeout-minutes: 5
-        run: go -C "$TOOL" build -tags=e2e -o /dev/null ./cmd/mcp-gateway
+        run: go -C "$TOOL" build -tags=e2e -o /dev/null ./cmd/agent-gateway
       - run: make -C "$TOOL" test-e2e
 
   gateway-demo:
@@ -186,8 +186,8 @@ jobs:
       - uses: ./.github/actions/go-cache
         with:
           role: demo
-          tool: mcp-gateway
-      - run: make -C mcp-gateway test-serve-demo
+          tool: agent-gateway
+      - run: make -C agent-gateway test-serve-demo
 
   vulnerability-scan:
     name: Vulnerability scan (${{ matrix.tool }})

@@ -12,7 +12,7 @@ from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, 
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = [
-    "mcp-broker", "mcp-gateway", "sandbox-manager", "local-git-mcp",
+    "mcp-broker", "agent-gateway", "sandbox-manager", "local-git-mcp",
     "http-broker",
 ]
 
@@ -37,20 +37,31 @@ class SelectionTests(unittest.TestCase):
                     self.assertEqual(result["tools"], [tool])
                     for suite in ("integration", "e2e"):
                         self.assertEqual(result[suite], [tool] if tool in self.inventory[suite] else [])
-                    self.assertEqual(result["gateway"], tool == "mcp-gateway")
+                    self.assertEqual(result["gateway"], tool == "agent-gateway")
                     self.assertEqual(result["sandbox"], tool == "sandbox-manager")
 
     def test_shared_and_unknown_paths_select_everything(self):
         for path in ("go.work", "go.work.sum", "Makefile", "package.json", "package-lock.json",
                      ".github/workflows/ci.yml", ".github/scripts/ci.py", ".github/actions/go-cache/action.yml", ".prettierignore",
                      "README.md", "assets/example.svg", "new-tool/main.go",
-                     "mcp-gateway-lookalike/main.go"):
+                     "agent-gateway-lookalike/main.go"):
             with self.subTest(path=path):
                 self.assertEqual(self.select([path])["tools"], TOOLS)
 
+    def test_gateway_cutover_and_legacy_deletions_select_gateway(self):
+        for paths in (["mcp-gateway/deleted.go"],
+                      ["mcp-gateway/old.go", "agent-gateway/new.go"],
+                      ["agent-gateway/internal/paths/paths.go"]):
+            with self.subTest(paths=paths):
+                result = self.select(paths)
+                self.assertTrue(result["gateway"])
+                for owner in ("tools", "integration", "e2e"):
+                    self.assertIn("agent-gateway", result[owner])
+                    self.assertNotIn("mcp-gateway", result[owner])
+
     def test_tool_build_metadata_also_invalidates_gateway_contracts(self):
         for suffix in ("Makefile", "go.mod", "go.sum", ".golangci.yml"):
-            self.assertEqual(self.select([f"http-broker/{suffix}"])["tools"], ["mcp-gateway", "http-broker"])
+            self.assertEqual(self.select([f"http-broker/{suffix}"])["tools"], ["agent-gateway", "http-broker"])
 
     def test_multiple_tools_are_unique_and_stably_ordered(self):
         self.assertEqual(self.select(["http-broker/a.go", "mcp-broker/b.go", "http-broker/c.go"])["tools"],
@@ -177,7 +188,7 @@ class GateTests(unittest.TestCase):
 
 class CacheTests(unittest.TestCase):
     def identity(self, root=ROOT, **overrides):
-        values = dict(role="unit", tool="mcp-gateway", toolchain="go version go1.25.13 linux/arm64",
+        values = dict(role="unit", tool="agent-gateway", toolchain="go version go1.25.13 linux/arm64",
                       platform="Linux/ARM64", run="123", attempt="1")
         values.update(overrides)
         return cache_identity(root, **values)
@@ -204,8 +215,8 @@ class CacheTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "Makefile").write_text((ROOT / "Makefile").read_text())
-            paths = [root / "go.work", root / "mcp-gateway/go.mod", root / "mcp-gateway/go.sum",
-                     root / "mcp-broker/go.mod", root / "mcp-broker/go.sum", root / "mcp-gateway/.golangci.yml"]
+            paths = [root / "go.work", root / "agent-gateway/go.mod", root / "agent-gateway/go.sum",
+                     root / "mcp-broker/go.mod", root / "mcp-broker/go.sum", root / "agent-gateway/.golangci.yml"]
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("original\n")
@@ -214,7 +225,7 @@ class CacheTests(unittest.TestCase):
                 path.write_text("changed\n")
                 self.assertNotEqual(before, self.identity(root)["prefix"], str(path))
                 path.write_text("original\n")
-            (root / "mcp-gateway/main.go").write_text("changed source\n")
+            (root / "agent-gateway/main.go").write_text("changed source\n")
             self.assertEqual(before, self.identity(root)["prefix"], "build material is not correctness evidence")
 
     def test_workflow_wires_cache_and_mandatory_independent_gateway_lint(self):
@@ -230,15 +241,15 @@ class CacheTests(unittest.TestCase):
             self.assertEqual(jobs[job].count("uses: ./.github/actions/go-cache"), 1)
             self.assertIn(f"role: {role}\n", jobs[job])
         self.assertNotIn("actions/setup-go", workflow)
-        self.assertIn("if: matrix.tool != 'mcp-gateway'\n        run: make -C \"$TOOL\" lint", jobs["unit-tests"])
+        self.assertIn("if: matrix.tool != 'agent-gateway'\n        run: make -C \"$TOOL\" lint", jobs["unit-tests"])
         self.assertIn("if: needs.changes.outputs.gateway == 'true'", jobs["gateway-lint"])
-        self.assertIn("run: make -C mcp-gateway lint", jobs["gateway-lint"])
+        self.assertIn("run: make -C agent-gateway lint", jobs["gateway-lint"])
         self.assertIn("needs: changes\n", jobs["gateway-lint"])
-        self.assertIn("run: make -C mcp-gateway test-harness test-material", jobs["gateway-harness"])
+        self.assertIn("run: make -C agent-gateway test-harness test-material", jobs["gateway-harness"])
         self.assertIn("if: needs.changes.outputs.gateway == 'true'", jobs["gateway-harness"])
         self.assertIn("os: [ubuntu-latest, macos-latest]", jobs["gateway-demo"])
         self.assertIn("runs-on: ${{ matrix.os }}", jobs["gateway-demo"])
-        self.assertIn("run: make -C mcp-gateway test-serve-demo", jobs["gateway-demo"])
+        self.assertIn("run: make -C agent-gateway test-serve-demo", jobs["gateway-demo"])
         self.assertNotIn("actions/setup-node", jobs["gateway-demo"])
         self.assertNotIn("actions/setup-node", jobs["unit-tests"])
         self.assertIn('make -C "$TOOL" test-unit', jobs["unit-tests"])
