@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/mcp-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -82,13 +84,13 @@ func TestRepositoryInsertsEveryCoherentAdmissionShape(t *testing.T) {
 	deny := testAuthorization(contract.DecisionDeny, invocationID(71))
 	block := testAuthorization(contract.DecisionBlock, "")
 	inputs := []Admission{
-		{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1", Class: contract.AdmissionInvalidParams},
-		{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "2", Class: contract.AdmissionUnknownTool, RequestedName: &name, RedactedArguments: capture},
-		{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "3", Class: contract.AdmissionInvalidArguments, RequestedName: &name, RedactedArguments: capture, Route: &route},
-		{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "4", Class: contract.AdmissionAuthorizationUnavailable, RequestedName: &name, RedactedArguments: capture, Route: &route},
-		{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "5", Class: contract.AdmissionEvaluated, RequestedName: &name, RedactedArguments: capture, Route: &route, Authorization: &allow},
-		{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "6", Class: contract.AdmissionEvaluated, RequestedName: &name, RedactedArguments: capture, Route: &route, Authorization: &deny},
-		{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "7", Class: contract.AdmissionEvaluated, RequestedName: &name, RedactedArguments: capture, Route: &route, Authorization: &block},
+		{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1", Class: contract.AdmissionInvalidParams}},
+		{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "2", Class: contract.AdmissionUnknownTool}, MCP: MCPDetails{RequestedName: &name, RedactedArguments: capture}},
+		{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "3", Class: contract.AdmissionInvalidArguments}, MCP: MCPDetails{RequestedName: &name, RedactedArguments: capture, Route: &route}},
+		{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "4", Class: contract.AdmissionAuthorizationUnavailable}, MCP: MCPDetails{RequestedName: &name, RedactedArguments: capture, Route: &route}},
+		{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "5", Class: contract.AdmissionEvaluated, Authorization: &allow}, MCP: MCPDetails{RequestedName: &name, RedactedArguments: capture, Route: &route}},
+		{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "6", Class: contract.AdmissionEvaluated, Authorization: &deny}, MCP: MCPDetails{RequestedName: &name, RedactedArguments: capture, Route: &route}},
+		{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "7", Class: contract.AdmissionEvaluated, Authorization: &block}, MCP: MCPDetails{RequestedName: &name, RedactedArguments: capture, Route: &route}},
 	}
 	for index, input := range inputs {
 		prepared, err := repository.Prepare(input)
@@ -117,12 +119,14 @@ func TestRepositoryPrepareRejectsMalformedEvidenceBeforeMutation(t *testing.T) {
 		{name: "credential", mutate: func(value *Admission) { value.CredentialID = "bad" }},
 		{name: "fingerprint", mutate: func(value *Admission) { value.CredentialFingerprint = "ABC" }},
 		{name: "credential revision", mutate: func(value *Admission) { value.CredentialRevision = "01" }},
-		{name: "requested name", mutate: func(value *Admission) { value.RequestedName = &badName }},
-		{name: "capture whitespace", mutate: func(value *Admission) { value.RedactedArguments = []byte(`{ "x":1 }`) }},
-		{name: "capture duplicate", mutate: func(value *Admission) { value.RedactedArguments = []byte(`{"x":1,"x":2}`) }},
-		{name: "partial route", mutate: func(value *Admission) { value.Route.ToolID = "" }},
-		{name: "descriptor revision", mutate: func(value *Admission) { value.Route.DescriptorRevision = "0" }},
-		{name: "descriptor fingerprint", mutate: func(value *Admission) { value.Route.DescriptorFingerprint = "bad" }},
+		{name: "requested name", mutate: func(value *Admission) { value.MCP.RequestedName = &badName }},
+		{name: "capture whitespace", mutate: func(value *Admission) { value.MCP.RedactedArguments = []byte(`{ "x":1 }`) }},
+		{name: "capture duplicate", mutate: func(value *Admission) { value.MCP.RedactedArguments = []byte(`{"x":1,"x":2}`) }},
+		{name: "partial route", mutate: func(value *Admission) { value.MCP.Route.ToolID = "" }},
+		{name: "server scope is not resolved", mutate: func(value *Admission) { value.MCP.Route.Target.UpstreamName = nil }},
+		{name: "empty exact target", mutate: func(value *Admission) { value.MCP.Route.Target = accesstarget.Tool(invocationID(10), "") }},
+		{name: "descriptor revision", mutate: func(value *Admission) { value.MCP.Route.DescriptorRevision = "0" }},
+		{name: "descriptor fingerprint", mutate: func(value *Admission) { value.MCP.Route.DescriptorFingerprint = "bad" }},
 		{name: "missing authorization", mutate: func(value *Admission) { value.Authorization = nil }},
 		{name: "authorization revision", mutate: func(value *Admission) { value.Authorization.AuthorizationRevision = "-1" }},
 		{name: "evaluation before admission", mutate: func(value *Admission) {
@@ -292,10 +296,12 @@ func TestRepositoryPostCommitFaultLatchesWithoutRetry(t *testing.T) {
 }
 
 func TestAdmissionInputCannotCarryForbiddenPayloads(t *testing.T) {
-	typeOf := reflect.TypeOf(Admission{})
-	for _, forbidden := range []string{"Bearer", "Verifier", "DownstreamRequestID", "DispatchStarted", "Result", "RawError", "Retry", "Replay"} {
-		_, present := typeOf.FieldByName(forbidden)
-		assert.False(t, present, forbidden)
+	for _, value := range []any{Admission{}, activity.Envelope{}, activity.Identity{}, activity.Admission{}, activity.Authorization{}, activity.Completion{}, MCPDetails{}, RouteEvidence{}} {
+		typeOf := reflect.TypeOf(value)
+		for _, forbidden := range []string{"Bearer", "Verifier", "DownstreamRequestID", "DispatchStarted", "Result", "RawError", "Retry", "Replay"} {
+			_, present := typeOf.FieldByName(forbidden)
+			assert.False(t, present, "%s.%s", typeOf, forbidden)
+		}
 	}
 }
 
@@ -328,17 +334,20 @@ func testEvaluatedAdmission() Admission {
 	name, route := "namespace.tool", testRoute()
 	authorization := testAuthorization(contract.DecisionAllow, invocationID(70))
 	return Admission{
-		PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1",
-		Class: contract.AdmissionEvaluated, RequestedName: &name, RedactedArguments: []byte(`{"value":1e0}`), Route: &route, Authorization: &authorization,
+		Admission: activity.Admission{
+			PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1",
+			Class: contract.AdmissionEvaluated, Authorization: &authorization,
+		},
+		MCP: MCPDetails{RequestedName: &name, RedactedArguments: []byte(`{"value":1e0}`), Route: &route},
 	}
 }
 
 func testRoute() RouteEvidence {
-	return RouteEvidence{ServerID: invocationID(10), ToolID: invocationID(11), UpstreamName: "tool", DescriptorRevision: "2", DescriptorFingerprint: strings.Repeat("a", 64)}
+	return RouteEvidence{Target: accesstarget.Tool(invocationID(10), "tool"), ToolID: invocationID(11), DescriptorRevision: "2", DescriptorFingerprint: strings.Repeat("a", 64)}
 }
 
-func testAuthorization(decision contract.AuthorizationDecision, grantID string) AuthorizationEvidence {
-	result := AuthorizationEvidence{Decision: decision, AuthorizationRevision: "3", EvaluatedAt: canonicalInvocationTime(invocationTestTime)}
+func testAuthorization(decision contract.AuthorizationDecision, grantID string) activity.Authorization {
+	result := activity.Authorization{Decision: decision, AuthorizationRevision: "3", EvaluatedAt: canonicalInvocationTime(invocationTestTime)}
 	if grantID != "" {
 		result.GrantID = &grantID
 	}
@@ -347,11 +356,7 @@ func testAuthorization(decision contract.AuthorizationDecision, grantID string) 
 
 func cloneAdmission(value Admission) Admission {
 	clone := value
-	clone.RedactedArguments = append([]byte(nil), value.RedactedArguments...)
-	if value.Route != nil {
-		route := *value.Route
-		clone.Route = &route
-	}
+	clone.MCP = cloneMCPDetails(value.MCP)
 	if value.Authorization != nil {
 		authorization := *value.Authorization
 		if value.Authorization.GrantID != nil {

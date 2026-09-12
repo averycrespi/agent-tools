@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,13 +56,12 @@ func TestValidateStartupRejectsInvocationCapacityOverflow(t *testing.T) {
 	fixtures := make([]PreparedAdmission, limit+1)
 	for index := range fixtures {
 		fixtures[index] = PreparedAdmission{
-			InvocationID: invocationID(index + 100),
-			AdmittedAt:   canonicalInvocationTime(invocationTestTime),
-			admission: Admission{
+			Identity: activity.Identity{InvocationID: invocationID(index + 100), AdmittedAt: canonicalInvocationTime(invocationTestTime)},
+			admission: Admission{Admission: activity.Admission{
 				PrincipalID: invocationID(1), CredentialID: invocationID(2),
 				CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1",
 				Class: contract.AdmissionInvalidParams,
-			},
+			}},
 		}
 	}
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {

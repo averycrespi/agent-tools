@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,10 +15,10 @@ import (
 
 func TestInvocationReadPaginationIntegration(t *testing.T) {
 	repository, _, _ := newInvocationRepository(t, nil, uniqueInvocationEntropy(3))
-	older := insertReadFixture(t, repository, Admission{
+	older := insertReadFixture(t, repository, Admission{Admission: activity.Admission{
 		PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef",
 		CredentialRevision: "1", Class: contract.AdmissionInvalidParams,
-	}, nil)
+	}}, nil)
 	newer := insertReadFixture(t, repository, testEvaluatedAdmission(), pointer(contract.TerminalSucceeded))
 
 	page, err := repository.List(context.Background(), contract.InvocationListQuery{Limit: 1})

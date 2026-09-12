@@ -9,6 +9,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -58,7 +59,7 @@ func NewLocalTarget(target catalog.SyntheticCallTarget, handler LocalHandler) (L
 func NewLocalTargetWithValidation(target catalog.SyntheticCallTarget, additional func(strictjson.Value) error, handler LocalHandler) (LocalTarget, error) {
 	descriptor := target.Descriptor
 	evidence := RouteEvidence{
-		ServerID: descriptor.ServerID, ToolID: descriptor.ID, UpstreamName: descriptor.UpstreamName,
+		Target: accesstarget.Tool(descriptor.ServerID, descriptor.UpstreamName), ToolID: descriptor.ID,
 		DescriptorRevision: descriptor.CatalogRevision, DescriptorFingerprint: descriptor.Fingerprint,
 	}
 	if descriptor.ServerID != contract.SyntheticServerID || target.Validator == nil || handler == nil || !validRouteEvidence(&evidence) {
@@ -128,7 +129,7 @@ func downstreamResolver(routes *catalog.RouteRegistry) resolveCall {
 		return callTarget{
 			readOnlyHint: resolved.ReadOnlyHint,
 			evidence: RouteEvidence{
-				ServerID: resolved.ServerID, ToolID: resolved.ToolID, UpstreamName: resolved.UpstreamName,
+				Target: accesstarget.Tool(resolved.ServerID, resolved.UpstreamName), ToolID: resolved.ToolID,
 				DescriptorRevision: resolved.DescriptorRevision, DescriptorFingerprint: resolved.DescriptorFingerprint,
 			},
 			validate: resolved.Validator.Validate,
@@ -181,9 +182,11 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 	}
 	classified := classifyCallParameters(request.Params, request.WireValid)
 	admissionRequest := AuditAdmissionRequest{
-		Class:             contract.AdmissionInvalidParams,
-		RequestedName:     classified.name,
-		RedactedArguments: redactAvailableArguments(classified.arguments),
+		Class: contract.AdmissionInvalidParams,
+		MCP: MCPDetails{
+			RequestedName:     classified.name,
+			RedactedArguments: redactAvailableArguments(classified.arguments),
+		},
 	}
 	var target callTarget
 	if classified.valid {
@@ -193,7 +196,7 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 		} else {
 			target = resolved
 			route := resolved.evidence
-			admissionRequest.Route = &route
+			admissionRequest.MCP.Route = &route
 			if err := resolved.validate(*classified.arguments); err != nil {
 				admissionRequest.Class = contract.AdmissionInvalidArguments
 			} else {
@@ -203,7 +206,7 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 			}
 		}
 	}
-	if classified.arguments != nil && admissionRequest.RedactedArguments == nil {
+	if classified.arguments != nil && admissionRequest.MCP.RedactedArguments == nil {
 		return CallResponse{ErrorCode: contract.AuditUnavailable}
 	}
 	identity, err := service.audits.PrepareIdentity()

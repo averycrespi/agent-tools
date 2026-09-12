@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
@@ -14,9 +14,7 @@ import (
 type AuditAdmissionRequest struct {
 	ReadOnlyHint                  bool
 	Class                         contract.InvocationAdmissionClass
-	RequestedName                 *string
-	RedactedArguments             []byte
-	Route                         *RouteEvidence
+	MCP                           MCPDetails
 	Arguments                     strictjson.Value
 	ObservedAuthorizationRevision string
 }
@@ -57,10 +55,12 @@ func (coordinator *AdmissionCoordinator) Admit(
 		mutationErr := coordinator.audits.mutate(ctx, func(transaction *sql.Tx) error {
 			binding := lease.Binding()
 			evidence := Admission{
-				PrincipalID: binding.PrincipalID, CredentialID: binding.CredentialID,
-				CredentialFingerprint: binding.CredentialFingerprint, CredentialRevision: binding.CredentialRevision,
-				Class: request.Class, RequestedName: request.RequestedName,
-				RedactedArguments: request.RedactedArguments, Route: request.Route,
+				Admission: activity.Admission{
+					PrincipalID: binding.PrincipalID, CredentialID: binding.CredentialID,
+					CredentialFingerprint: binding.CredentialFingerprint, CredentialRevision: binding.CredentialRevision,
+					Class: request.Class,
+				},
+				MCP: request.MCP,
 			}
 			if request.Class != contract.AdmissionEvaluated {
 				if _, err := admission.VerifyBindingOnlyTx(ctx, transaction); err != nil {
@@ -78,7 +78,7 @@ func (coordinator *AdmissionCoordinator) Admit(
 			}
 
 			authorizationResult, detachment, phase, err := admission.VerifyResolvedTx(ctx, transaction, authorization.ResolvedVerification{
-				Target: accesstarget.Tool(request.Route.ServerID, request.Route.UpstreamName), ReadOnlyHint: request.ReadOnlyHint,
+				Target: request.MCP.Route.Target, ReadOnlyHint: request.ReadOnlyHint,
 				Arguments: request.Arguments, ObservedAuthorizationRevision: request.ObservedAuthorizationRevision,
 			})
 			if err != nil {
@@ -99,7 +99,7 @@ func (coordinator *AdmissionCoordinator) Admit(
 			if phase != authorization.ResolvedEvaluated {
 				return authorization.ErrAuthorizationUnavailable
 			}
-			evidence.Authorization = &AuthorizationEvidence{
+			evidence.Authorization = &activity.Authorization{
 				Decision: authorizationResult.Decision, AuthorizationRevision: authorizationResult.AuthorizationRevision,
 				EvaluatedAt: authorizationResult.EvaluatedAt, GrantID: authorizationResult.GrantID,
 			}
@@ -145,20 +145,20 @@ func validAdmissionIdentity(identity PreparedAdmission) bool {
 }
 
 func validAuditAdmissionRequest(request AuditAdmissionRequest) bool {
-	hasCall := request.RequestedName != nil && request.RedactedArguments != nil
-	if request.RequestedName != nil && !validInvocationName(*request.RequestedName) ||
-		request.RedactedArguments != nil && !validRedactedArguments(request.RedactedArguments) {
+	hasCall := request.MCP.RequestedName != nil && request.MCP.RedactedArguments != nil
+	if request.MCP.RequestedName != nil && !validInvocationName(*request.MCP.RequestedName) ||
+		request.MCP.RedactedArguments != nil && !validRedactedArguments(request.MCP.RedactedArguments) {
 		return false
 	}
 	switch request.Class {
 	case contract.AdmissionInvalidParams:
-		return request.Route == nil
+		return request.MCP.Route == nil
 	case contract.AdmissionUnknownTool:
-		return hasCall && request.Route == nil
+		return hasCall && request.MCP.Route == nil
 	case contract.AdmissionInvalidArguments:
-		return hasCall && validRouteEvidence(request.Route)
+		return hasCall && validRouteEvidence(request.MCP.Route)
 	case contract.AdmissionEvaluated:
-		return hasCall && validRouteEvidence(request.Route) && request.Arguments.Type == strictjson.ValueObject
+		return hasCall && validRouteEvidence(request.MCP.Route) && request.Arguments.Type == strictjson.ValueObject
 	default:
 		return false
 	}

@@ -10,7 +10,7 @@ See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](
 
 ## List and inspect evidence
 
-Invocation resources are read-only. They do not expose mutation, replay, result retrieval, or an event stream.
+Invocation resources are read-only. They do not expose mutation, replay, result retrieval, or an event stream. The internal separation of common activity evidence from MCP details changes neither these commands and representations nor existing retained history; no migration or operator action is required. Administrative audit history remains separate.
 
 ```bash
 agent-gateway invocation list --limit 50

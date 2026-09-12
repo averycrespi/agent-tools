@@ -10,6 +10,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -21,19 +22,19 @@ func TestInvocationRepositoryReadsIntegration(t *testing.T) {
 
 	t.Run("newest pages filters and item capture", func(t *testing.T) {
 		repository, store, _ := newInvocationRepository(t, nil, uniqueInvocationEntropy(8))
-		invalid := insertReadFixture(t, repository, Admission{
+		invalid := insertReadFixture(t, repository, Admission{Admission: activity.Admission{
 			PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef",
 			CredentialRevision: "1", Class: contract.AdmissionInvalidParams,
-		}, nil)
+		}}, nil)
 		allowedAdmission := testEvaluatedAdmission()
 		allowedName := "namespace.allowed"
-		allowedAdmission.RequestedName = &allowedName
+		allowedAdmission.MCP.RequestedName = &allowedName
 		allowed := insertReadFixture(t, repository, allowedAdmission, pointer(contract.TerminalSucceeded))
 		deniedAdmission := testEvaluatedAdmission()
 		deniedName := "namespace.denied"
-		deniedAdmission.RequestedName = &deniedName
+		deniedAdmission.MCP.RequestedName = &deniedName
 		deniedAdmission.PrincipalID = invocationID(3)
-		deniedAdmission.Route.ServerID = invocationID(12)
+		deniedAdmission.MCP.Route.Target.ServerID = invocationID(12)
 		deniedAdmission.Authorization.Decision = contract.DecisionDeny
 		deniedAdmission.Authorization.GrantID = pointer(invocationID(72))
 		denied := insertReadFixture(t, repository, deniedAdmission, nil)
@@ -64,7 +65,7 @@ func TestInvocationRepositoryReadsIntegration(t *testing.T) {
 			ids     []string
 		}{
 			"principal": {filters: contract.InvocationFilters{PrincipalID: pointer(deniedAdmission.PrincipalID)}, ids: []string{denied.InvocationID}},
-			"server":    {filters: contract.InvocationFilters{ServerID: pointer(deniedAdmission.Route.ServerID)}, ids: []string{denied.InvocationID}},
+			"server":    {filters: contract.InvocationFilters{ServerID: pointer(deniedAdmission.MCP.Route.Target.ServerID)}, ids: []string{denied.InvocationID}},
 			"name":      {filters: contract.InvocationFilters{RequestedName: &allowedName}, ids: []string{allowed.InvocationID}},
 			"admission": {filters: contract.InvocationFilters{AdmissionClass: pointer(contract.AdmissionInvalidParams)}, ids: []string{invalid.InvocationID}},
 			"decision":  {filters: contract.InvocationFilters{Decision: pointer(contract.DecisionDeny)}, ids: []string{denied.InvocationID}},

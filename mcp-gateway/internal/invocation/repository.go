@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -30,37 +31,14 @@ type Clock interface {
 	Now() time.Time
 }
 
-type RouteEvidence struct {
-	ServerID              string
-	ToolID                string
-	UpstreamName          string
-	DescriptorRevision    string
-	DescriptorFingerprint string
-}
-
-type AuthorizationEvidence struct {
-	Decision              contract.AuthorizationDecision
-	AuthorizationRevision string
-	EvaluatedAt           string
-	GrantID               *string
-}
-
 type Admission struct {
-	PrincipalID           string
-	CredentialID          string
-	CredentialFingerprint string
-	CredentialRevision    string
-	Class                 contract.InvocationAdmissionClass
-	RequestedName         *string
-	RedactedArguments     []byte
-	Route                 *RouteEvidence
-	Authorization         *AuthorizationEvidence
+	activity.Admission
+	MCP MCPDetails
 }
 
 type PreparedAdmission struct {
-	InvocationID string
-	AdmittedAt   string
-	admission    Admission
+	activity.Identity
+	admission Admission
 }
 
 type Repository struct {
@@ -127,7 +105,7 @@ func (repository *Repository) prepareIdentityAt(now time.Time, admittedAt string
 	if err != nil {
 		return PreparedAdmission{}, fmt.Errorf("%w: generate invocation ID", ErrIdentityUnavailable)
 	}
-	return PreparedAdmission{InvocationID: id, AdmittedAt: admittedAt}, nil
+	return PreparedAdmission{Identity: activity.Identity{InvocationID: id, AdmittedAt: admittedAt}}, nil
 }
 
 func (prepared PreparedAdmission) WithAdmission(admission Admission) (PreparedAdmission, error) {
@@ -198,6 +176,7 @@ func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID
 	if !ok {
 		return ErrInvalidInput
 	}
+	completion := activity.Completion{CompletedAt: completedAt, Class: terminal}
 	changed := false
 	err := repository.mutate(ctx, func(transaction *sql.Tx) error {
 		var admittedAt, evaluatedAt string
@@ -212,13 +191,13 @@ func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID
 		}
 		admitted, valid := parseCanonicalInvocationTimestamp(admittedAt)
 		evaluated, evaluationValid := parseCanonicalInvocationTimestamp(evaluatedAt)
-		completed, completeValid := parseCanonicalInvocationTimestamp(completedAt)
+		completed, completeValid := parseCanonicalInvocationTimestamp(completion.CompletedAt)
 		if !valid || !evaluationValid || !completeValid || completed.Before(admitted) || completed.Before(evaluated) {
 			return ErrInvalidInput
 		}
 		result, err := transaction.ExecContext(ctx, `UPDATE invocations
 			SET completed_at = ?, terminal_class = ?
-			WHERE id = ? AND completed_at IS NULL AND terminal_class IS NULL`, completedAt, string(terminal), invocationID)
+			WHERE id = ? AND completed_at IS NULL AND terminal_class IS NULL`, completion.CompletedAt, string(completion.Class), invocationID)
 		if err != nil {
 			return fmt.Errorf("annotate invocation terminal result: %w", err)
 		}
@@ -308,14 +287,15 @@ func admissionSQLValues(prepared PreparedAdmission) ([]any, error) {
 	values := []any{
 		prepared.InvocationID, prepared.admission.PrincipalID, prepared.admission.CredentialID,
 		prepared.admission.CredentialFingerprint, credentialRevision, prepared.AdmittedAt, string(prepared.admission.Class),
-		nullableString(prepared.admission.RequestedName), nullableBytes(prepared.admission.RedactedArguments),
+		nullableString(prepared.admission.MCP.RequestedName), nullableBytes(prepared.admission.MCP.RedactedArguments),
 	}
-	if prepared.admission.Route == nil {
+	if prepared.admission.MCP.Route == nil {
 		values = append(values, nil, nil, nil, nil, nil)
 	} else {
-		descriptorRevision, _ := strconv.ParseInt(prepared.admission.Route.DescriptorRevision, 10, 64)
-		values = append(values, prepared.admission.Route.ServerID, prepared.admission.Route.ToolID, prepared.admission.Route.UpstreamName,
-			descriptorRevision, prepared.admission.Route.DescriptorFingerprint)
+		route := prepared.admission.MCP.Route
+		descriptorRevision, _ := strconv.ParseInt(route.DescriptorRevision, 10, 64)
+		values = append(values, route.Target.ServerID, route.ToolID, route.Target.ToolName(),
+			descriptorRevision, route.DescriptorFingerprint)
 	}
 	if prepared.admission.Authorization == nil {
 		values = append(values, nil, nil, nil, nil)
@@ -343,15 +323,7 @@ func nullableBytes(value []byte) any {
 
 func cloneAdmissionEvidence(value Admission) Admission {
 	clone := value
-	clone.RedactedArguments = append([]byte(nil), value.RedactedArguments...)
-	if value.RequestedName != nil {
-		name := *value.RequestedName
-		clone.RequestedName = &name
-	}
-	if value.Route != nil {
-		route := *value.Route
-		clone.Route = &route
-	}
+	clone.MCP = cloneMCPDetails(value.MCP)
 	if value.Authorization != nil {
 		authorization := *value.Authorization
 		if value.Authorization.GrantID != nil {
