@@ -606,7 +606,11 @@ func TestProductionCompositionFinalizesStaticDisconnectCatalogLifecycle(t *testi
 	publishStaticCompositionCredential(t, built, server, []string{"token"}, map[string]string{"token": "canary"})
 	server = enableCompositionServer(t, built.servers, server)
 	require.NoError(t, built.Start(context.Background()))
-	require.Eventually(t, func() bool { return built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent }, 2*time.Second, time.Millisecond)
+	startupContext, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelStartup()
+	// Publication precedes durable completion; do not race its writer with disconnect.
+	require.True(t, built.manager.Wait(startupContext), "initial reconciliation did not complete")
+	require.Equal(t, contract.ActiveCatalogCurrent, built.RuntimeStatus(server.ID).CatalogState)
 	operation, err := built.servers.CreateOperation(context.Background(), servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationDisconnectCredentials, ExpectedDesiredRevision: server.DesiredRevision})
 	require.NoError(t, err)
 	built.manager.Trigger(server.ID, &operation.Operation.ID, false)
