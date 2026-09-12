@@ -139,9 +139,9 @@ export HTTPS_PROXY="\$HTTP_PROXY"
 export http_proxy="\$HTTP_PROXY"
 export https_proxy="\$HTTP_PROXY"
 
-# Carve out the host itself. mcp-broker (:8200) and local-gomod-proxy (:7070)
+# Carve out the host itself. Host MCP services such as mcp-broker (:8200)
 # are reached over the same loopback forward, and routing them through this
-# proxy would make it a single point of failure for both.
+# proxy would make it a single point of failure for those services.
 #
 # The two wildcard bind addresses are carved out because a server that listens
 # on every interface reports its address as [::]:port or 0.0.0.0:port, and

@@ -14,7 +14,7 @@ The key design goal: **the sandbox should feel like a fresh development machine,
 
 `sb` is not a data-loss-prevention boundary. Guest network egress is intentionally allowed by default so the VM behaves like a normal development machine: agents can fetch public packages, read public docs, and run ordinary development tools without routing every connection through a broker. A malicious agent or attacker with access to data inside the VM can transmit that data over the network.
 
-The intended pattern is to keep host credentials and sensitive host state outside the VM, then expose narrowly scoped host capabilities through brokered tools such as `mcp-broker`, `local-git-mcp`, and `local-gomod-proxy`. Mounts and `copy_paths` are explicit trust decisions: anything mounted or copied into the VM should be treated as readable by the agent and potentially sendable over the network.
+The intended pattern is to keep host credentials and sensitive host state outside the VM, then expose narrowly scoped host capabilities through brokered tools such as `mcp-broker` and `local-git-mcp`. Mounts and `copy_paths` are explicit trust decisions: anything mounted or copied into the VM should be treated as readable by the agent and potentially sendable over the network.
 
 ## Architecture
 

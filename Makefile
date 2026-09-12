@@ -1,7 +1,7 @@
-TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp local-gomod-proxy http-broker
+TOOLS := mcp-broker mcp-gateway sandbox-manager local-git-mcp http-broker
 OTHER_TOOLS := $(filter-out mcp-gateway,$(TOOLS))
-INTEGRATION_TOOLS := mcp-broker mcp-gateway local-git-mcp local-gomod-proxy
-E2E_TOOLS := mcp-broker mcp-gateway local-gomod-proxy http-broker
+INTEGRATION_TOOLS := mcp-broker mcp-gateway local-git-mcp
+E2E_TOOLS := mcp-broker mcp-gateway http-broker
 UNAME_S := $(shell uname -s)
 LOCAL_TEST_JOBS ?= 2
 

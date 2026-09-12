@@ -129,9 +129,8 @@ func TestProvisionScript(t *testing.T) {
 		}
 	}
 
-	// The NO_PROXY carve-out is what keeps mcp-broker and local-gomod-proxy
-	// reachable; without it this tool becomes a single point of failure for
-	// both.
+	// The NO_PROXY carve-out keeps host MCP services reachable; without it
+	// this tool becomes a single point of failure for those services.
 	for _, carveOut := range []string{"host.lima.internal", "localhost", "127.0.0.1"} {
 		if !strings.Contains(second, carveOut) {
 			t.Errorf("NO_PROXY does not carve out %s", carveOut)
@@ -334,18 +333,17 @@ func TestProvisionScriptFailsWithoutCopiedFiles(t *testing.T) {
 }
 
 // TestNeighbourToolsReachable is V-19 / AC-15: with the generated NO_PROXY
-// applied and fallthrough "deny", stub listeners standing in for mcp-broker
-// and local-gomod-proxy stay reachable.
+// applied and fallthrough "deny", stub listeners standing in for host MCP
+// services stay reachable.
 //
 // NOTE: this uses a Go client, so it proves the Go proxy semantics only. The
 // real MCP client is the agent's own HTTP stack (Node's undici), which honours
 // proxy variables inconsistently — the README records a manual check against
 // the real agent wiring after first provisioning.
 func TestNeighbourToolsReachable(t *testing.T) {
-	// Stand-ins for the two neighbouring tools, both on loopback exactly as
-	// they are in practice.
+	// Stand-ins for neighbouring host MCP services on separate loopback ports.
 	mcpBroker := newUpstream(t)
-	gomodProxy := newUpstream(t)
+	otherService := newUpstream(t)
 
 	s := startStack(t, stackOptions{Rules: rulesDoc("deny")})
 
@@ -365,8 +363,8 @@ func TestNeighbourToolsReachable(t *testing.T) {
 	client := proxiedClientHonouringNoProxy(t, s, noProxy)
 
 	for name, stub := range map[string]*upstream{
-		"mcp-broker stand-in":        mcpBroker,
-		"local-gomod-proxy stand-in": gomodProxy,
+		"mcp-broker stand-in":    mcpBroker,
+		"other host MCP service": otherService,
 	} {
 		host, port := stub.HostPort(t)
 		resp, body := requestThroughProxy(t, client, http.MethodGet,

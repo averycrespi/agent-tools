@@ -3,7 +3,6 @@ go 1.25.13
 use (
 	./http-broker
 	./local-git-mcp
-	./local-gomod-proxy
 	./mcp-broker
 	./mcp-gateway
 	./sandbox-manager

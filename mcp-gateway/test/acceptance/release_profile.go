@@ -238,7 +238,7 @@ func finalReleaseDefinitionFiles() ([]string, error) {
 		"mcp-gateway/internal/testutil/cleanup_ledger.go", "mcp-gateway/internal/testutil/cleanup_ledger_darwin.go", "mcp-gateway/internal/testutil/cleanup_ledger_linux.go",
 		"mcp-gateway/internal/testutil/cleanup_ledger_other.go", "mcp-gateway/internal/testutil/process_supervisor.go", "mcp-gateway/internal/testutil/process_supervisor_other.go", "mcp-gateway/internal/testutil/process_supervisor_unix.go",
 	)
-	for _, tool := range []string{"mcp-broker", "sandbox-manager", "local-git-mcp", "local-gomod-proxy", "http-broker"} {
+	for _, tool := range []string{"mcp-broker", "sandbox-manager", "local-git-mcp", "http-broker"} {
 		add(tool+"/Makefile", tool+"/.golangci.yml", tool+"/go.mod", tool+"/go.sum")
 	}
 	paths := make([]string, 0, len(set))

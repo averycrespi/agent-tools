@@ -9,7 +9,6 @@ mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
 mcp-gateway/         Locally secure MCP gateway — see mcp-gateway/CLAUDE.md
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
-local-gomod-proxy/  Host-side Go module proxy for sandboxed agents — see local-gomod-proxy/CLAUDE.md
 http-broker/         MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents — see http-broker/CLAUDE.md
 ```
 

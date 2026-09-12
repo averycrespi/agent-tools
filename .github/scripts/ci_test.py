@@ -13,7 +13,7 @@ from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = [
     "mcp-broker", "mcp-gateway", "sandbox-manager", "local-git-mcp",
-    "local-gomod-proxy", "http-broker",
+    "http-broker",
 ]
 
 

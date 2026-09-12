@@ -13,7 +13,6 @@ My tools for working with AI coding agents: sandboxed execution and controlled e
 | [MCP Gateway](#mcp-gateway)                   | Give agents scoped access to MCP tools               | Host            |
 | [HTTP Broker](#http-broker)                   | Inject credentials into proxied HTTP/HTTPS requests  | Host            |
 | [Local Git MCP](#local-git-mcp)               | Perform authenticated Git remote operations over MCP | Host subprocess |
-| [Local Gomod Proxy](#local-gomod-proxy)       | Fetch private Go dependencies for sandboxed clients  | Host            |
 
 ## Choosing and Combining Tools
 
@@ -22,7 +21,7 @@ These tools are independent, not a mandatory stack:
 - **Execution:** Sandbox Manager provides an optional Lima VM. The access tools do not require the Pi coding agent, and MCP Gateway does not depend on Lima or a particular agent harness.
 - **MCP access:** Choose MCP Broker or MCP Gateway based on the permission model below. Both connect agents to backend MCP servers.
 - **Git access:** Run Local Git MCP as a stdio backend behind either Broker or Gateway, using that service's access controls and invocation history.
-- **Non-MCP traffic:** HTTP Broker handles ordinary HTTP/HTTPS clients; Local Gomod Proxy handles Go module downloads. They complement MCP access rather than routing through it.
+- **Non-MCP traffic:** HTTP Broker handles ordinary HTTP/HTTPS clients. It complements MCP access rather than routing through it.
 
 ### MCP Broker or MCP Gateway?
 
@@ -92,18 +91,6 @@ See the [HTTP Broker README](http-broker/README.md) for setup and usage.
 
 See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
 
-### Local Gomod Proxy
-
-`local-gomod-proxy` serves Go modules from the host so sandboxed clients can resolve private dependencies without the host's Git credentials.
-
-- Forwards public module requests to `proxy.golang.org` by default.
-- Fetches private modules matched by `GOPRIVATE` through the host's Go toolchain and Git credentials.
-- Serves sandbox clients over TLS with separate proxy authentication, configured through `GOPROXY`.
-
-Keep the proxy local and share its client credentials only with trusted sandboxes; do not expose it to the public internet.
-
-See the [Local Gomod Proxy README](local-gomod-proxy/README.md) for setup and usage.
-
 ## Installation
 
 Requirements:
@@ -120,7 +107,6 @@ make -C mcp-broker install
 make -C mcp-gateway install
 make -C http-broker install
 make -C local-git-mcp install
-make -C local-gomod-proxy install
 ```
 
 Or install all tools:
@@ -154,6 +140,7 @@ These tools are no longer maintained, but their final versions remain available 
 
 | Tool                  | Last commit                                                                                                                  | Reason                                                               |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `local-gomod-proxy`   | [`586ed5d1aa`](https://github.com/averycrespi/agent-tools/tree/586ed5d1aa925778bf7a98e69a9308d1d4eaad94/local-gomod-proxy)   | No longer needed.                                                    |
 | `worktree-manager`    | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-manager)    | Deprecated in favor of Herdr for workspace and worktree management.  |
 | `worktree-sync`       | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-sync)       | Deprecated in favor of Herdr for workspace and worktree management.  |
 | `pi-session-analyzer` | [`7f52e38085`](https://github.com/averycrespi/agent-tools/tree/7f52e380857a435b25ba85a6c3c7e8865e04cd1d/pi-session-analyzer) | Built as an experiment and not carried forward.                      |

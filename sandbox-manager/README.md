@@ -8,7 +8,7 @@ Manage a Lima VM sandbox for running AI coding agents in isolation. One command 
 
 Guest network egress is intentionally allowed by default so agents can fetch public resources and use normal development workflows. Do not mount or copy secrets, credentials, or sensitive private data into the sandbox unless you are comfortable with the agent being able to transmit them over the network.
 
-Host credentials should stay on the host behind tools such as `mcp-broker`, `local-git-mcp`, and `local-gomod-proxy`, where access can be mediated and audited.
+Host credentials should stay on the host behind tools such as `mcp-broker` and `local-git-mcp`, where access can be mediated and audited.
 
 ## Install
 

@@ -250,7 +250,7 @@ an `intercept` rule fails — typically as an HTTP 200 where the client expected
 `NO_PROXY` is verified end to end against a Go client. The agent's own MCP
 client is Node's undici, which honours proxy variables only partially and
 version-dependently. **After first provisioning, manually confirm that
-`mcp-broker` and `local-gomod-proxy` are still reachable from inside the
+host MCP services such as `mcp-broker` are still reachable from inside the
 sandbox** — that check is not covered by the test suite.
 
 ### Headless Linux has no keychain
