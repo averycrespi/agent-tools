@@ -228,6 +228,18 @@ class CacheTests(unittest.TestCase):
             (root / "agent-gateway/main.go").write_text("changed source\n")
             self.assertEqual(before, self.identity(root)["prefix"], "build material is not correctness evidence")
 
+    def test_demo_prepares_exact_gateway_build_before_lifecycle_owner(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        demo = jobs["gateway-demo"]
+        self.assertIn("    timeout-minutes: 25\n", demo, "20-minute owner budget plus 5-minute preparation")
+        prepare = "timeout-minutes: 5\n        run: go -C agent-gateway build -mod=readonly -tags=e2e -o /dev/null ./cmd/agent-gateway"
+        self.assertIn(prepare, demo)
+        self.assertLess(demo.index("uses: ./.github/actions/go-cache"), demo.index(prepare))
+        self.assertLess(demo.index(prepare), demo.index("run: make -C agent-gateway test-serve-demo"))
+        self.assertEqual(demo.count("run: make -C agent-gateway test-serve-demo"), 1)
+        self.assertNotIn("continue-on-error", demo)
+
     def test_workflow_wires_cache_and_mandatory_independent_gateway_lint(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))

@@ -176,7 +176,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.gateway == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -187,6 +187,9 @@ jobs:
         with:
           role: demo
           tool: agent-gateway
+      - name: Prepare Gateway demo build cache
+        timeout-minutes: 5
+        run: go -C agent-gateway build -mod=readonly -tags=e2e -o /dev/null ./cmd/agent-gateway
       - run: make -C agent-gateway test-serve-demo
 
   vulnerability-scan:
