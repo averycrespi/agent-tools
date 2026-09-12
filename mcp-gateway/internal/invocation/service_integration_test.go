@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
 	"github.com/stretchr/testify/assert"
@@ -51,23 +52,22 @@ func TestInFlightAllowEvictionMakesTerminalAnnotationABenignMiss(t *testing.T) {
 	fixtures := make([]PreparedAdmission, limit-1)
 	for index := range fixtures {
 		fixtures[index] = PreparedAdmission{
-			InvocationID: invocationID(1000 + index),
-			AdmittedAt:   inFlight.AdmittedAt,
-			admission: Admission{
+			Identity: activity.Identity{InvocationID: invocationID(1000 + index), AdmittedAt: inFlight.AdmittedAt},
+			admission: Admission{Admission: activity.Admission{
 				PrincipalID: inFlight.PrincipalID, CredentialID: inFlight.CredentialID,
 				CredentialFingerprint: inFlight.CredentialFingerprint, CredentialRevision: inFlight.CredentialRevision,
 				Class: contract.AdmissionInvalidParams,
-			},
+			}},
 		}
 	}
 	require.NoError(t, audits.store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 		return insertInvocationFixtures(context.Background(), transaction, fixtures)
 	}))
-	prepared, err := audits.Prepare(Admission{
+	prepared, err := audits.Prepare(Admission{Admission: activity.Admission{
 		PrincipalID: inFlight.PrincipalID, CredentialID: inFlight.CredentialID,
 		CredentialFingerprint: inFlight.CredentialFingerprint, CredentialRevision: inFlight.CredentialRevision,
 		Class: contract.AdmissionInvalidParams,
-	})
+	}})
 	require.NoError(t, err)
 	require.NoError(t, audits.Insert(context.Background(), prepared), "the next insertion must evict the oldest in-flight ALLOW")
 	_, found, err = audits.Read(context.Background(), inFlightID)

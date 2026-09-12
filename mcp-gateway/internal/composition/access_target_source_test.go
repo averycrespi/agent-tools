@@ -21,6 +21,7 @@ func TestAccessTargetOwnership(t *testing.T) {
 		"internal/authorization/discovery_policy.go:StructuralGrant":       "Target",
 		"internal/authorization/evaluator.go:evaluationGrant":              "target",
 		"internal/authorization/self_projection.go:selfGrantRow":           "target",
+		"internal/invocation/evidence.go:RouteEvidence":                    "Target",
 	}
 	for _, source := range productionSources(t, root) {
 		assert.Empty(t, accessTargetOwnershipViolations(source), source.path)

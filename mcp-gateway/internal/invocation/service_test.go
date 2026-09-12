@@ -227,7 +227,7 @@ func TestServiceRejectionReasonsUseAcknowledgedEvidenceWithoutDispatch(t *testin
 					return nil, errors.New("must not acquire")
 				})
 				if scenario != "authorization failure" {
-					target.evidence.ServerID = invocationID(500)
+					target.evidence.Target.ServerID = invocationID(500)
 				}
 				target.validate = func(strictjson.Value) error { validations++; return nil }
 				return target, true
@@ -495,7 +495,7 @@ func (lease *serviceExecutionLease) Cancel(ctx context.Context) error {
 func serviceCallTarget(validationErr error, acquire func(context.Context) (executionLease, error)) callTarget {
 	return callTarget{
 		evidence: RouteEvidence{
-			ServerID: contract.SyntheticServerID, ToolID: invocationID(11), UpstreamName: "tool",
+			Target: accesstarget.Tool(contract.SyntheticServerID, "tool"), ToolID: invocationID(11),
 			DescriptorRevision: "2", DescriptorFingerprint: strings.Repeat("a", 64),
 		},
 		validate: func(strictjson.Value) error { return validationErr },

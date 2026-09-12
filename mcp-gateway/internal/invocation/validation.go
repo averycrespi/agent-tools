@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
@@ -70,30 +72,31 @@ func validAdmission(admission Admission, admittedAt string) bool {
 	if _, err := contract.ParseInvocationAdmissionClass(string(admission.Class)); err != nil {
 		return false
 	}
-	if admission.RequestedName != nil && !validInvocationName(*admission.RequestedName) || admission.RedactedArguments != nil && !validRedactedArguments(admission.RedactedArguments) {
+	details := admission.MCP
+	if details.RequestedName != nil && !validInvocationName(*details.RequestedName) || details.RedactedArguments != nil && !validRedactedArguments(details.RedactedArguments) {
 		return false
 	}
-	hasCall := admission.RequestedName != nil && admission.RedactedArguments != nil
+	hasCall := details.RequestedName != nil && details.RedactedArguments != nil
 	switch admission.Class {
 	case contract.AdmissionInvalidParams:
-		return admission.Route == nil && admission.Authorization == nil
+		return details.Route == nil && admission.Authorization == nil
 	case contract.AdmissionUnknownTool:
-		return hasCall && admission.Route == nil && admission.Authorization == nil
+		return hasCall && details.Route == nil && admission.Authorization == nil
 	case contract.AdmissionInvalidArguments, contract.AdmissionAuthorizationUnavailable:
-		return hasCall && validRouteEvidence(admission.Route) && admission.Authorization == nil
+		return hasCall && validRouteEvidence(details.Route) && admission.Authorization == nil
 	case contract.AdmissionEvaluated:
-		return hasCall && validRouteEvidence(admission.Route) && validAuthorizationEvidence(admission.Authorization, admitted)
+		return hasCall && validRouteEvidence(details.Route) && validAuthorizationEvidence(admission.Authorization, admitted)
 	default:
 		return false
 	}
 }
 
 func validRouteEvidence(route *RouteEvidence) bool {
-	return route != nil && validOpaqueInvocationID(route.ServerID) && validOpaqueInvocationID(route.ToolID) &&
-		validInvocationName(route.UpstreamName) && validPositiveRevision(route.DescriptorRevision) && validFingerprint(route.DescriptorFingerprint, 64)
+	return route != nil && validOpaqueInvocationID(route.Target.ServerID) && validOpaqueInvocationID(route.ToolID) &&
+		route.Target.UpstreamName != nil && validInvocationName(route.Target.ToolName()) && validPositiveRevision(route.DescriptorRevision) && validFingerprint(route.DescriptorFingerprint, 64)
 }
 
-func validAuthorizationEvidence(evidence *AuthorizationEvidence, admitted time.Time) bool {
+func validAuthorizationEvidence(evidence *activity.Authorization, admitted time.Time) bool {
 	if evidence == nil || !validNonnegativeRevision(evidence.AuthorizationRevision) {
 		return false
 	}
@@ -115,45 +118,62 @@ func validAuthorizationEvidence(evidence *AuthorizationEvidence, admitted time.T
 }
 
 func validStoredInvocation(record contract.InvocationAuditRecord) bool {
-	admission := Admission{
-		PrincipalID: record.PrincipalID, CredentialID: record.CredentialID, CredentialFingerprint: record.CredentialFingerprint,
-		CredentialRevision: record.CredentialRevision, Class: record.AdmissionClass, RequestedName: record.RequestedName,
+	envelope, details, ok := storedEvidence(record)
+	if !ok || !validOpaqueInvocationID(envelope.InvocationID) ||
+		!validAdmission(Admission{Admission: envelope.Admission, MCP: details}, envelope.AdmittedAt) {
+		return false
 	}
+	if envelope.Completion == nil {
+		return true
+	}
+	if envelope.Authorization == nil || envelope.Authorization.Decision != contract.DecisionAllow {
+		return false
+	}
+	if _, err := contract.ParseInvocationTerminalClass(string(envelope.Completion.Class)); err != nil {
+		return false
+	}
+	completed, ok := parseCanonicalInvocationTimestamp(envelope.Completion.CompletedAt)
+	evaluated, evaluatedOK := parseCanonicalInvocationTimestamp(envelope.Authorization.EvaluatedAt)
+	return ok && evaluatedOK && !completed.Before(evaluated)
+}
+
+// The flat storage/public adapter must reject partial nullable groups before
+// constructing typed evidence; normalization must never hide corrupt history.
+func storedEvidence(record contract.InvocationAuditRecord) (activity.Envelope, MCPDetails, bool) {
+	envelope := activity.Envelope{
+		Identity: activity.Identity{InvocationID: record.InvocationID, AdmittedAt: record.AdmittedAt},
+		Admission: activity.Admission{
+			PrincipalID: record.PrincipalID, CredentialID: record.CredentialID, CredentialFingerprint: record.CredentialFingerprint,
+			CredentialRevision: record.CredentialRevision, Class: record.AdmissionClass,
+		},
+	}
+	details := MCPDetails{RequestedName: record.RequestedName}
 	if record.RedactedArguments != nil {
-		admission.RedactedArguments = []byte(*record.RedactedArguments)
+		details.RedactedArguments = []byte(*record.RedactedArguments)
 	}
 	routePresent := record.ServerID != nil || record.ToolID != nil || record.UpstreamName != nil || record.DescriptorRevision != nil || record.DescriptorFingerprint != nil
 	if routePresent {
 		if record.ServerID == nil || record.ToolID == nil || record.UpstreamName == nil || record.DescriptorRevision == nil || record.DescriptorFingerprint == nil {
-			return false
+			return activity.Envelope{}, MCPDetails{}, false
 		}
-		admission.Route = &RouteEvidence{ServerID: *record.ServerID, ToolID: *record.ToolID, UpstreamName: *record.UpstreamName,
+		details.Route = &RouteEvidence{Target: accesstarget.Tool(*record.ServerID, *record.UpstreamName), ToolID: *record.ToolID,
 			DescriptorRevision: *record.DescriptorRevision, DescriptorFingerprint: *record.DescriptorFingerprint}
 	}
 	authorizationPresent := record.AuthorizationDecision != nil || record.AuthorizationRevision != nil || record.EvaluatedAt != nil || record.GrantID != nil
 	if authorizationPresent {
 		if record.AuthorizationDecision == nil || record.AuthorizationRevision == nil || record.EvaluatedAt == nil {
-			return false
+			return activity.Envelope{}, MCPDetails{}, false
 		}
-		admission.Authorization = &AuthorizationEvidence{Decision: *record.AuthorizationDecision, AuthorizationRevision: *record.AuthorizationRevision,
+		envelope.Authorization = &activity.Authorization{Decision: *record.AuthorizationDecision, AuthorizationRevision: *record.AuthorizationRevision,
 			EvaluatedAt: *record.EvaluatedAt, GrantID: record.GrantID}
 	}
-	if !validOpaqueInvocationID(record.InvocationID) || !validAdmission(admission, record.AdmittedAt) {
-		return false
+	if (record.CompletedAt == nil) != (record.TerminalClass == nil) {
+		return activity.Envelope{}, MCPDetails{}, false
 	}
-	terminalPresent := record.CompletedAt != nil || record.TerminalClass != nil
-	if !terminalPresent {
-		return true
+	if record.CompletedAt != nil {
+		envelope.Completion = &activity.Completion{CompletedAt: *record.CompletedAt, Class: *record.TerminalClass}
 	}
-	if record.CompletedAt == nil || record.TerminalClass == nil || admission.Authorization == nil || admission.Authorization.Decision != contract.DecisionAllow {
-		return false
-	}
-	if _, err := contract.ParseInvocationTerminalClass(string(*record.TerminalClass)); err != nil {
-		return false
-	}
-	completed, ok := parseCanonicalInvocationTimestamp(*record.CompletedAt)
-	evaluated, evaluatedOK := parseCanonicalInvocationTimestamp(admission.Authorization.EvaluatedAt)
-	return ok && evaluatedOK && !completed.Before(evaluated)
+	return envelope, details, true
 }
 
 func scanInvocation(scanner invocationScanner) (contract.InvocationAuditRecord, error) {

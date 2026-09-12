@@ -224,7 +224,7 @@ func TestLocalExtensionPreservesOneDownstreamAcquireAndExecute(t *testing.T) {
 func localServiceCallTarget(handler LocalHandler) callTarget {
 	return callTarget{
 		evidence: RouteEvidence{
-			ServerID: contract.SyntheticServerID, ToolID: "00000000000000000000000001", UpstreamName: "get_identity",
+			Target: accesstarget.Tool(contract.SyntheticServerID, "get_identity"), ToolID: "00000000000000000000000001",
 			DescriptorRevision: contract.SyntheticCatalogRevision, DescriptorFingerprint: "cc982af50fbc4873c57e89b5052a3c725f5e3898b2142dab096b99b0a4e656b9",
 		},
 		validate: func(strictjson.Value) error { return nil },

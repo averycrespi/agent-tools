@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,13 +34,13 @@ func TestInvocationAuthoritativeSearchIntegration(t *testing.T) {
 	require.NoError(t, err)
 	admission := testEvaluatedAdmission()
 	admission.PrincipalID = invocationID(1)
-	admission.RequestedName = pointer("retired_library.lookup")
+	admission.MCP.RequestedName = pointer("retired_library.lookup")
 	old := insertReadFixture(t, repository, admission, pointer(contract.TerminalSucceeded))
 	newer := insertReadFixture(t, repository, admission, pointer(contract.TerminalSucceeded))
 	for range 50 {
 		nonmatch := testEvaluatedAdmission()
 		nonmatch.PrincipalID = invocationID(3)
-		nonmatch.RequestedName = pointer("workshop.echo")
+		nonmatch.MCP.RequestedName = pointer("workshop.echo")
 		insertReadFixture(t, repository, nonmatch, pointer(contract.TerminalSucceeded))
 	}
 	ctx := context.Background()
@@ -81,7 +82,7 @@ func TestInvocationAuthoritativeSearchIntegration(t *testing.T) {
 
 func TestInvocationNotEvaluatedSearchIntegration(t *testing.T) {
 	repository, _, _ := newInvocationRepository(t, nil, uniqueInvocationEntropy(2))
-	invalid := insertReadFixture(t, repository, Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1", Class: contract.AdmissionInvalidParams}, nil)
+	invalid := insertReadFixture(t, repository, Admission{Admission: activity.Admission{PrincipalID: invocationID(1), CredentialID: invocationID(2), CredentialFingerprint: "0123456789abcdef", CredentialRevision: "1", Class: contract.AdmissionInvalidParams}}, nil)
 	insertReadFixture(t, repository, testEvaluatedAdmission(), nil)
 	page, err := repository.List(context.Background(), contract.InvocationListQuery{Limit: 50, Filters: contract.InvocationFilters{Decision: pointer(contract.AuthorizationDecision("not_evaluated")), Tool: "not resolved"}})
 	require.NoError(t, err)
@@ -123,7 +124,7 @@ func TestInvocationEveryFilterChoiceIntegration(t *testing.T) {
 			admission.Class = contract.InvocationAdmissionClass(outcome)
 			admission.Authorization = nil
 			if outcome == contract.InvocationOutcomeInvalidParams || outcome == contract.InvocationOutcomeUnknownTool {
-				admission.Route = nil
+				admission.MCP.Route = nil
 			}
 		case contract.InvocationOutcomeDeny, contract.InvocationOutcomeBlock:
 			admission.Authorization.Decision = contract.AuthorizationDecision(outcome)

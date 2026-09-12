@@ -109,7 +109,7 @@ func TestAuditAdmissionReevaluatesCurrentPolicyAndDetachesOnlyCommittedAllow(t *
 		identity, err := audits.PrepareIdentity()
 		require.NoError(t, err)
 		request := testAuditRequest(contract.AdmissionEvaluated)
-		request.Route.ServerID = invocationID(500)
+		request.MCP.Route.Target.ServerID = invocationID(500)
 
 		result, err := coordinator.Admit(context.Background(), lease, identity, request)
 
@@ -252,15 +252,15 @@ func newAdmissionCoordinator(t *testing.T, fault func(storage.FaultPoint) error)
 
 func testAuditRequest(class contract.InvocationAdmissionClass) AuditAdmissionRequest {
 	name := "namespace.tool"
-	request := AuditAdmissionRequest{Class: class, RequestedName: &name, RedactedArguments: []byte(`{}`)}
+	request := AuditAdmissionRequest{Class: class, MCP: MCPDetails{RequestedName: &name, RedactedArguments: []byte(`{}`)}}
 	if class == contract.AdmissionInvalidParams {
-		request.RequestedName = nil
-		request.RedactedArguments = nil
+		request.MCP.RequestedName = nil
+		request.MCP.RedactedArguments = nil
 	}
 	if class == contract.AdmissionInvalidArguments || class == contract.AdmissionEvaluated {
 		route := testRoute()
-		route.ServerID = contract.SyntheticServerID
-		request.Route = &route
+		route.Target.ServerID = contract.SyntheticServerID
+		request.MCP.Route = &route
 	}
 	if class == contract.AdmissionEvaluated {
 		request.Arguments = strictjson.Value{Type: strictjson.ValueObject}
