@@ -76,7 +76,7 @@ internal/runtimes/           Process-local reconciliation and stdio supervision
 internal/remote/             Hardened destination validation and HTTP transport construction
 internal/oauth/              Resource/issuer trust, registration, flows, callback, and refresh
 internal/downstream/         Raw bounded JSON-RPC and stdio/Streamable HTTP connections
-internal/accesstarget/       Internal MCP target value and structural scope comparisons only
+internal/accesstarget/       MCP target values and scope comparisons
 internal/authorization/      Principals, credentials, grants, policy SQL, and admission leases
 internal/discovery/          Principal-specific current-tool projection and cursors
 internal/grantrequests/      Durable request workflow, evidence, dedupe, and adjudication
@@ -119,8 +119,8 @@ docs/                       Role-oriented operator, maintainer, and design docum
 ### Ownership and composition
 
 - `internal/composition` is the sole production constructor and lifecycle owner for the authorization, discovery, invocation, runtime, catalog, OAuth, and keyring graph. Root consumes narrow complete bundles; it must not create a second authenticator, repository, route consumer, or active-capability path.
-- Access seams consume `accesstarget.MCP`, not parallel server/tool coordinate fields. Keep this value independent of authority, SQL, public representations, namespace/catalog resolution, and descriptor hints. Public/SQL adapters and purpose-specific validation stay with their existing owners; synthetic targets are valid for grants/calls but remain prohibited in requests. Exact-call validation must reject server scope. The target package's dependency-light tests belong to `test-unit`.
-- Preserve package SQL ownership. Server SQL stays in `internal/servers`, catalog SQL in `internal/catalog`, online principal/grant SQL in `internal/authorization`, request SQL in `internal/grantrequests`, invocation SQL in `internal/invocation`, control-plane audit SQL in `internal/audit`, and migration DDL in `internal/storage`. Cross-owner mutations use existing supplied-transaction seams rather than nested mutation admission.
+- Follow the [internal access target boundary](docs/design/identity-and-authorization.md#internal-access-target-boundary).
+- SQL owners: servers, catalog, authorization (online principal/grant), grantrequests, invocation, audit (control-plane), and storage (migration DDL). Cross-owner mutations use supplied transactions, never nested mutation admission.
 - Keep storage/keyring/network/process work outside unrelated locks and admissions. Mutations that may expose authority must arm durable intent before uncertain external work and fail closed; never add online repair or automatic replay.
 - Preserve the [authority](docs/design/invocation-and-ingress.md#agent-authentication-and-leases) and [storage admission](docs/design/storage-and-recovery.md) contracts: never wait for authority while holding storage, extend acquisition deadlines into active SQL, or duplicate actual-owner occupancy.
 
