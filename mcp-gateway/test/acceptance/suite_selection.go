@@ -108,7 +108,7 @@ func suiteOwner(path string, tags map[string]bool) (string, []string, error) {
 	}
 	pkg := filepath.ToSlash(filepath.Dir(path))
 	switch pkg {
-	case "internal/contract", "internal/strictjson", "internal/discovery", "internal/credentialauthority", "internal/events", "internal/lifecycle":
+	case "internal/accesstarget", "internal/contract", "internal/strictjson", "internal/discovery", "internal/credentialauthority", "internal/events", "internal/lifecycle":
 		return "test-unit", nil, nil
 	case "test/material":
 		return "test-material", nil, nil

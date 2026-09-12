@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
@@ -48,7 +49,7 @@ func TestServiceAdmissionCommitExcludesCredentialAndPolicyMutationUntilDispatch(
 
 	upstream := "tool"
 	_, err = authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
+		PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &upstream},
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	assert.ErrorIs(t, err, authorization.ErrResourceLimit)
 	_, err = authority.RevokeCredential(context.Background(), principal.ID, credential.Principal.Revision)
@@ -63,7 +64,7 @@ func TestServiceAdmissionCommitExcludesCredentialAndPolicyMutationUntilDispatch(
 	assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
 
 	_, err = authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
+		PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &upstream},
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err, "policy mutation must proceed after invocation admission and dispatch release the gate")
 	_, err = authority.RevokeCredential(context.Background(), principal.ID, credential.Principal.Revision)

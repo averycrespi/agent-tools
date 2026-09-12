@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
@@ -95,7 +96,7 @@ func TestPolicyValidationAndDurationConversion(t *testing.T) {
 }
 
 func TestCanonicalDedupePreservesLexicalIdentityAndNormalizesAtomOrder(t *testing.T) {
-	target := ResolvedTarget{ServerID: "01J60000000000000000000040", UpstreamName: stringPointer("echo")}
+	target := accesstarget.MCP{ServerID: "01J60000000000000000000040", UpstreamName: stringPointer("echo")}
 	left := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/b":true,"/a":1.0}}`), stringPointer("60"), false))
 	right := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/a":1.0,"/b":true}}`), stringPointer("60"), false))
 	leftIdentity, err := CanonicalDedupeIdentity(left, target)
@@ -125,16 +126,16 @@ func TestCanonicalDedupePreservesLexicalIdentityAndNormalizesAtomOrder(t *testin
 		}
 	}
 
-	changedTarget, err := CanonicalDedupeIdentity(left, ResolvedTarget{ServerID: "01J60000000000000000000041", UpstreamName: stringPointer("echo")})
+	changedTarget, err := CanonicalDedupeIdentity(left, accesstarget.MCP{ServerID: "01J60000000000000000000041", UpstreamName: stringPointer("echo")})
 	require.NoError(t, err)
 	assert.NotEqual(t, leftIdentity.Bytes, changedTarget.Bytes)
-	serverTarget, err := CanonicalDedupeIdentity(mustCompilePolicy(t, policy(contract.PolicyServer, "sample", nil, nil, true)), ResolvedTarget{ServerID: target.ServerID})
+	serverTarget, err := CanonicalDedupeIdentity(mustCompilePolicy(t, policy(contract.PolicyServer, "sample", nil, nil, true)), accesstarget.MCP{ServerID: target.ServerID})
 	require.NoError(t, err)
 	assert.NotEqual(t, leftIdentity.Bytes, serverTarget.Bytes)
 }
 
 func TestCanonicalDedupeUsesV2ForV2ConstraintsAndSeparatesOperators(t *testing.T) {
-	target := ResolvedTarget{ServerID: "01J60000000000000000000040", UpstreamName: stringPointer("echo")}
+	target := accesstarget.MCP{ServerID: "01J60000000000000000000040", UpstreamName: stringPointer("echo")}
 	v1 := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/x":"same"}}`), nil, false))
 	v2Equals := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"version":2,"equals":{"/x":"same"}}`), nil, false))
 	v2Regex := mustCompilePolicy(t, policy(contract.PolicyTool, "sample.echo", constraint(`{"version":2,"regex":{"/x":"same"}}`), nil, false))
@@ -156,11 +157,38 @@ func TestCanonicalDedupeUsesV2ForV2ConstraintsAndSeparatesOperators(t *testing.T
 	assert.Equal(t, identities[2].Bytes, identities[3].Bytes)
 }
 
+func TestCanonicalDedupeFramesRemainByteExact(t *testing.T) {
+	const serverID = "01J60000000000000000000040"
+	for _, test := range []struct {
+		name    string
+		policy  contract.Policy
+		target  accesstarget.MCP
+		version int64
+		frame   string
+	}{
+		{"legacy server", policy(contract.PolicyServer, "sample", nil, nil, true), accesstarget.MCP{ServerID: serverID}, 1,
+			"MGWGRQ1\x00" + "26:" + serverID + "\x00\x00\x00\x01"},
+		{"legacy lexical equality", policy(contract.PolicyTool, "sample.echo", constraint(`{"equals":{"/x":1.0}}`), stringPointer("60"), false), accesstarget.Tool(serverID, "echo"), 1,
+			"MGWGRQ1\x00" + "26:" + serverID + "\x01" + "4:echo" + "\x01" + "1:2:/x" + "\x03" + "3:1.0" + "\x01" + "60:" + "\x00"},
+		{"versioned regex", policy(contract.PolicyTool, "sample.echo", constraint(`{"version":2,"regex":{"/x":"[a-z]+"}}`), nil, false), accesstarget.Tool(serverID, "echo"), 2,
+			"MGWGRQ2\x00" + "26:" + serverID + "\x01" + "4:echo" + "\x01" + "1:" + "\x01" + "2:/x" + "\x02" + "6:[a-z]+" + "\x00\x00"},
+		{"read-only server", contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true, ReadOnly: true}, accesstarget.MCP{ServerID: serverID}, 3,
+			"MGWGRQ3\x00" + "26:" + serverID + "\x00\x00\x00\x01"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			identity, err := CanonicalDedupeIdentity(mustCompilePolicy(t, test.policy), test.target)
+			require.NoError(t, err)
+			assert.Equal(t, test.version, identity.Version)
+			assert.Equal(t, []byte(test.frame), identity.Bytes)
+		})
+	}
+}
+
 func TestPolicyNarrowingMatrix(t *testing.T) {
-	server := ResolvedTarget{ServerID: "01J60000000000000000000040"}
-	tool := ResolvedTarget{ServerID: server.ServerID, UpstreamName: stringPointer("echo")}
-	otherTool := ResolvedTarget{ServerID: server.ServerID, UpstreamName: stringPointer("other")}
-	otherServer := ResolvedTarget{ServerID: "01J60000000000000000000041"}
+	server := accesstarget.MCP{ServerID: "01J60000000000000000000040"}
+	tool := accesstarget.MCP{ServerID: server.ServerID, UpstreamName: stringPointer("echo")}
+	otherTool := accesstarget.MCP{ServerID: server.ServerID, UpstreamName: stringPointer("other")}
+	otherServer := accesstarget.MCP{ServerID: "01J60000000000000000000041"}
 	baseConstraint := constraint(`{"equals":{"/x":1,"/y":"a"}}`)
 	moreConstraint := constraint(`{"equals":{"/z":true,"/y":"a","/x":1}}`)
 	missingConstraint := constraint(`{"equals":{"/x":1}}`)
@@ -173,9 +201,9 @@ func TestPolicyNarrowingMatrix(t *testing.T) {
 	tests := []struct {
 		name      string
 		submitted contract.Policy
-		subTarget ResolvedTarget
+		subTarget accesstarget.MCP
 		approved  contract.Policy
-		appTarget ResolvedTarget
+		appTarget accesstarget.MCP
 		valid     bool
 	}{
 		{name: "server unchanged", submitted: policy(contract.PolicyServer, "sample", nil, nil, true), subTarget: server, approved: policy(contract.PolicyServer, "sample", nil, nil, true), appTarget: server, valid: true},

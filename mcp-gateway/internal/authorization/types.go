@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
@@ -45,14 +46,13 @@ type PatchPrincipalRequest struct {
 }
 
 type CreateGrantRequest struct {
-	ReadOnly     bool
-	Description  *string
-	PrincipalID  string
-	Effect       contract.GrantEffect
-	ServerID     string
-	UpstreamName *string
-	Constraint   *json.RawMessage
-	ExpiresAt    *time.Time
+	ReadOnly    bool
+	Description *string
+	PrincipalID string
+	Effect      contract.GrantEffect
+	Target      accesstarget.MCP
+	Constraint  *json.RawMessage
+	ExpiresAt   *time.Time
 }
 
 type PatchGrantRequest struct {
@@ -63,16 +63,14 @@ type PatchGrantRequest struct {
 type CurrentGrantTargetValidator func(context.Context, *sql.Tx, string) (bool, error)
 
 type EvaluationRequest struct {
-	PrincipalID  string
-	ServerID     string
-	UpstreamName string
-	Arguments    json.RawMessage
+	PrincipalID string
+	Target      accesstarget.MCP
+	Arguments   json.RawMessage
 }
 
 type ResolvedVerification struct {
 	ReadOnlyHint                  bool
-	ServerID                      string
-	UpstreamName                  string
+	Target                        accesstarget.MCP
 	Arguments                     strictjson.Value
 	ObservedAuthorizationRevision string
 }

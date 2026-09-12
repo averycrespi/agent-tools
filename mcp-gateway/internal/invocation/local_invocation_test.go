@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -84,7 +85,7 @@ func TestLocalInvocationRunsOnceAfterAuditWithMinimalAdmittedSubject(t *testing.
 			assert.Equal(t, "1e0", arguments.Object[0].Value.Number, "the unchanged token tree reaches the local handler")
 			upstream := "get_identity"
 			_, grantErr := authority.CreateGrant(ctx, authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-				PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
+				PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &upstream},
 			}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 			require.NoError(t, grantErr, "the authorization gate must be released before local execution")
 			return LocalSuccess(json.RawMessage(`{"content":[{"type":"text","text":"Identity returned."}],"structuredContent":{"ok":true}}`))
@@ -113,7 +114,7 @@ func TestLocalInvocationNeverExecutesWithoutAllow(t *testing.T) {
 	_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 	upstream := "get_identity"
 	_, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-		PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
+		PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &upstream},
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)

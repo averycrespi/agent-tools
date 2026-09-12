@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
@@ -178,7 +179,7 @@ func TestApprovalKnownFailuresLeavePendingWithoutGrantOrRevision(t *testing.T) {
 		{name: "deny conflict", revision: "1", policy: serverApprovalPolicy(), expected: ErrConflict,
 			arrange: func(t *testing.T, fixture *approvalFixture, _ contract.AgentGrantRequest) {
 				_, err := fixture.authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-					PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, ServerID: requestID(400),
+					PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: requestID(400)},
 				}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 				require.NoError(t, err)
 			}},
@@ -255,7 +256,7 @@ func TestApprovalConditionalBarriersHaveOneWinner(t *testing.T) {
 				assert.ErrorIs(t, err, ErrStorageUnavailable)
 			case "deny":
 				_, err := fixture.authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-					PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, ServerID: requestID(400),
+					PrincipalID: fixture.principal.Principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: requestID(400)},
 				}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 				assert.ErrorIs(t, err, authorization.ErrResourceLimit)
 			}

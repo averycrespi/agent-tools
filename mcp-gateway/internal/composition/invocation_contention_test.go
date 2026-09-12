@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/diagnostics"
 
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
@@ -224,7 +225,7 @@ func runIngressDiagnosticWorkload(t *testing.T, mode string) {
 	credential, err := built.authorization.IssueCredential(ctx, principal.Principal.ID, principal.Principal.Revision)
 	require.NoError(t, err)
 	canaries = append(canaries, credential.Bearer)
-	_, err = built.authorization.CreateGrant(ctx, authorization.CreateGrantRequest{PrincipalID: principal.Principal.ID, ServerID: server.ID, Effect: contract.GrantAllow}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
+	_, err = built.authorization.CreateGrant(ctx, authorization.CreateGrantRequest{PrincipalID: principal.Principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: server.ID}}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	require.NoError(t, built.Start(ctx))
 	require.True(t, built.manager.Wait(ctx), "settle reconciliation before workload")

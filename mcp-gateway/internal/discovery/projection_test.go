@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -72,12 +73,12 @@ func TestProjectAppliesEveryStructuralVisibilityMode(t *testing.T) {
 	}{
 		{name: "all without grants", visibility: contract.VisibilityAll, want: []string{"alpha.other", "alpha.same", "beta.same"}},
 		{name: "requestable without grants", visibility: contract.VisibilityRequestable, want: []string{"alpha.other", "alpha.same", "beta.same"}},
-		{name: "requestable excludes unconstrained deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, ServerID: serverOne, UpstreamName: &tool}}, want: []string{"alpha.other", "beta.same"}},
-		{name: "requestable keeps constrained deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, ServerID: serverOne, UpstreamName: &tool, Constrained: true}}, want: []string{"alpha.other", "alpha.same", "beta.same"}},
-		{name: "allowed only server allow", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: serverOne}}, want: []string{"alpha.other", "alpha.same"}},
-		{name: "allowed only constrained exact allow", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: serverOne, UpstreamName: &tool, Constrained: true}}, want: []string{"alpha.same"}},
-		{name: "allowed only deny wins structurally", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: serverOne}, {Effect: contract.GrantDeny, ServerID: serverOne, UpstreamName: &tool}}, want: []string{"alpha.other"}},
-		{name: "allowed only constrained deny does not hide", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: serverOne}, {Effect: contract.GrantDeny, ServerID: serverOne, UpstreamName: &tool, Constrained: true}}, want: []string{"alpha.other", "alpha.same"}},
+		{name: "requestable excludes unconstrained deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: serverOne, UpstreamName: &tool}}}, want: []string{"alpha.other", "beta.same"}},
+		{name: "requestable keeps constrained deny", visibility: contract.VisibilityRequestable, grants: []authorization.StructuralGrant{{Effect: contract.GrantDeny, Constrained: true, Target: accesstarget.MCP{ServerID: serverOne, UpstreamName: &tool}}}, want: []string{"alpha.other", "alpha.same", "beta.same"}},
+		{name: "allowed only server allow", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: serverOne}}}, want: []string{"alpha.other", "alpha.same"}},
+		{name: "allowed only constrained exact allow", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, Constrained: true, Target: accesstarget.MCP{ServerID: serverOne, UpstreamName: &tool}}}, want: []string{"alpha.same"}},
+		{name: "allowed only deny wins structurally", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: serverOne}}, {Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: serverOne, UpstreamName: &tool}}}, want: []string{"alpha.other"}},
+		{name: "allowed only constrained deny does not hide", visibility: contract.VisibilityAllowedOnly, grants: []authorization.StructuralGrant{{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: serverOne}}, {Effect: contract.GrantDeny, Constrained: true, Target: accesstarget.MCP{ServerID: serverOne, UpstreamName: &tool}}}, want: []string{"alpha.other", "alpha.same"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -134,7 +135,7 @@ func TestProjectContinuationPinsEvaluationTimeAcrossExpiry(t *testing.T) {
 	policy := &fakePolicySource{load: func(evaluatedAt time.Time) authorization.DiscoveryPolicy {
 		view := base
 		if evaluatedAt.Before(projectionNow) {
-			view.Grants = []authorization.StructuralGrant{{Effect: contract.GrantAllow, ServerID: serverID}}
+			view.Grants = []authorization.StructuralGrant{{Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: serverID}}}
 		}
 		return view
 	}}

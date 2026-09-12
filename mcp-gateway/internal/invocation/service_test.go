@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/downstream"
@@ -93,7 +94,7 @@ func TestServiceDispatchesPinnedAllowOnceAfterGateRelease(t *testing.T) {
 			acquisitions++
 			upstream := "tool"
 			_, grantErr := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-				PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
+				PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &upstream},
 			}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 			require.NoError(t, grantErr, "dispatch acquisition must run after the authority gate is released")
 			return &serviceExecutionLease{execute: func(arguments json.RawMessage) downstream.CallResult {
@@ -133,7 +134,7 @@ func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
 		_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 		upstream := "tool"
 		_, err := authority.CreateGrant(context.Background(), authorization.CreateGrantRequest{Description: stringPointer("Test grant"),
-			PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: contract.SyntheticServerID, UpstreamName: &upstream,
+			PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: &upstream},
 		}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 		require.NoError(t, err)
 		lease, err := authority.Authenticate(context.Background(), credential.Bearer)

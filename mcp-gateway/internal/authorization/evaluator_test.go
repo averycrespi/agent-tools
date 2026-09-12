@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 	"github.com/stretchr/testify/assert"
@@ -83,12 +84,12 @@ func TestCompiledConstraintCacheBoundsWeightAndDeduplicatesConcurrentMisses(t *t
 func TestEvaluateEnforcesDenyAllowBlockAndSmallestEvidence(t *testing.T) {
 	repository, _ := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
-	allowOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
-	allowTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool")})
-	denyOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51)})
-	denyTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("tool")})
+	allowOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51)}})
+	allowTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: stringPointer("tool")}})
+	denyOne := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: id(51)}})
+	denyTwo := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: stringPointer("tool")}})
 
-	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 	require.NoError(t, err)
 	denyIDs := []string{denyOne.ID, denyTwo.ID}
 	sort.Strings(denyIDs)
@@ -100,7 +101,7 @@ func TestEvaluateEnforcesDenyAllowBlockAndSmallestEvidence(t *testing.T) {
 
 	require.NoError(t, repository.DeleteGrant(context.Background(), denyOne.ID))
 	require.NoError(t, repository.DeleteGrant(context.Background(), denyTwo.ID))
-	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 	require.NoError(t, err)
 	allowIDs := []string{allowOne.ID, allowTwo.ID}
 	sort.Strings(allowIDs)
@@ -111,7 +112,7 @@ func TestEvaluateEnforcesDenyAllowBlockAndSmallestEvidence(t *testing.T) {
 
 	require.NoError(t, repository.DeleteGrant(context.Background(), allowOne.ID))
 	require.NoError(t, repository.DeleteGrant(context.Background(), allowTwo.ID))
-	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 	require.NoError(t, err)
 	assert.Equal(t, contract.DecisionBlock, result.Decision)
 	assert.Nil(t, result.GrantID)
@@ -124,22 +125,22 @@ func TestEvaluateAppliesServerExactAndExpiryScopeAtOneTimestamp(t *testing.T) {
 	repository.clock = clock
 	principal := mustCreatePrincipal(t, repository)
 	expiresAt := testNow.Add(time.Second)
-	serverWide := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &expiresAt})
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("other")})
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(52), UpstreamName: stringPointer("tool")})
+	serverWide := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ExpiresAt: &expiresAt, Target: accesstarget.MCP{ServerID: id(51)}})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: stringPointer("other")}})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: id(52), UpstreamName: stringPointer("tool")}})
 
-	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 	require.NoError(t, err)
 	assert.Equal(t, contract.DecisionAllow, result.Decision)
 	assert.Equal(t, serverWide.ID, *result.GrantID)
 
 	clock.now = expiresAt.Add(-time.Nanosecond)
-	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 	require.NoError(t, err)
 	assert.Equal(t, contract.DecisionAllow, result.Decision)
 
 	clock.now = expiresAt
-	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	result, err = repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 	require.NoError(t, err)
 	assert.Equal(t, contract.DecisionBlock, result.Decision)
 	assert.Nil(t, result.GrantID)
@@ -168,8 +169,8 @@ func TestEvaluateConstraintUsesObjectOnlyLexicalScalarEquality(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			upstreamName := fmt.Sprintf("tool-%d", index)
 			constraint := json.RawMessage(test.constraint)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &upstreamName, Constraint: &constraint})
-			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: upstreamName, Arguments: json.RawMessage(test.arguments)})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Constraint: &constraint, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: &upstreamName}})
+			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(test.arguments), Target: accesstarget.Tool(id(51), upstreamName)})
 			require.NoError(t, err)
 			assert.Equal(t, test.decision, result.Decision)
 		})
@@ -194,8 +195,8 @@ func TestEvaluateV2RegexUsesFullStringStringOnlyConjunction(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			upstreamName := fmt.Sprintf("regex-%d", index)
 			constraint := json.RawMessage(`{"version":2,"equals":{"/region":"us"},"regex":{"/resource":"item/[0-9]+"}}`)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &upstreamName, Constraint: &constraint})
-			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: upstreamName, Arguments: json.RawMessage(test.arguments)})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Constraint: &constraint, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: &upstreamName}})
+			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(test.arguments), Target: accesstarget.Tool(id(51), upstreamName)})
 			require.NoError(t, err)
 			assert.Equal(t, test.decision, result.Decision)
 		})
@@ -238,24 +239,24 @@ func TestEvaluateFailsClosedWhenCumulativeRegexWorkBudgetIsExhausted(t *testing.
 	value := strings.Repeat("x", int(mustLimit("constraint_regex_work_bytes")/2)+1)
 	firstConstraint := json.RawMessage(`{"version":2,"regex":{"/value":"y+"}}`)
 	secondConstraint := json.RawMessage(`{"version":2,"regex":{"/value":".*"}}`)
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &firstConstraint})
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(51), UpstreamName: stringPointer("tool"), Constraint: &secondConstraint})
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Constraint: &firstConstraint, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: stringPointer("tool")}})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, Constraint: &secondConstraint, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: stringPointer("tool")}})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51)}})
 
-	_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{"value":` + fmt.Sprintf("%q", value) + `}`)})
+	_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{"value":` + fmt.Sprintf("%q", value) + `}`), Target: accesstarget.Tool(id(51), "tool")})
 	assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
 }
 
 func TestEvaluateLoadsOnlyStructurallyApplicableGrantConstraints(t *testing.T) {
 	repository, store := newRepository(t, nil)
 	principal := mustCreatePrincipal(t, repository)
-	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Relevant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
-	irrelevant := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Irrelevant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, ServerID: id(52), UpstreamName: stringPointer("other")})
+	mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Relevant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51)}})
+	irrelevant := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Irrelevant"), PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: id(52), UpstreamName: stringPointer("other")}})
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 		_, err := transaction.Exec(`UPDATE grants SET constraint_json = '{"equals":{}}' WHERE id = ?`, irrelevant.ID)
 		return err
 	}))
-	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+	result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 	require.NoError(t, err)
 	assert.Equal(t, contract.DecisionAllow, result.Decision)
 }
@@ -264,9 +265,9 @@ func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(
 	t.Run("malformed arguments", func(t *testing.T) {
 		repository, _ := newRepository(t, nil)
 		principal := mustCreatePrincipal(t, repository)
-		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
+		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51)}})
 		for _, arguments := range []string{``, `[]`, `{"x":1,"x":2}`, `{"x":`} {
-			_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(arguments)})
+			_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(arguments), Target: accesstarget.Tool(id(51), "tool")})
 			assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
 		}
 	})
@@ -275,13 +276,13 @@ func TestEvaluateRejectsMalformedInputAndInvalidLoadedPolicyWithoutPartialAllow(
 		t.Run("corrupt "+string(effect), func(t *testing.T) {
 			repository, store := newRepository(t, nil)
 			principal := mustCreatePrincipal(t, repository)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51)})
-			corrupt := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: effect, ServerID: id(51), UpstreamName: stringPointer("tool")})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: id(51)}})
+			corrupt := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: effect, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: stringPointer("tool")}})
 			require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 				_, err := transaction.Exec(`UPDATE grants SET constraint_json = '{"equals":{}}' WHERE id = ?`, corrupt.ID)
 				return err
 			}))
-			_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: "tool", Arguments: json.RawMessage(`{}`)})
+			_, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{}`), Target: accesstarget.Tool(id(51), "tool")})
 			assert.ErrorIs(t, err, ErrAuthorizationUnavailable)
 		})
 	}
@@ -295,8 +296,8 @@ func TestEvaluateGeneratedScalarCorpus(t *testing.T) {
 		t.Run(scalar, func(t *testing.T) {
 			upstreamName := fmt.Sprintf("scalar-%d", index)
 			constraint := json.RawMessage(`{"equals":{"/value":` + scalar + `}}`)
-			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), UpstreamName: &upstreamName, Constraint: &constraint})
-			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, ServerID: id(51), UpstreamName: upstreamName, Arguments: json.RawMessage(`{"value":` + scalar + `}`)})
+			mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"), PrincipalID: principal.ID, Effect: contract.GrantAllow, Constraint: &constraint, Target: accesstarget.MCP{ServerID: id(51), UpstreamName: &upstreamName}})
+			result, err := repository.Evaluate(context.Background(), EvaluationRequest{PrincipalID: principal.ID, Arguments: json.RawMessage(`{"value":` + scalar + `}`), Target: accesstarget.Tool(id(51), upstreamName)})
 			require.NoError(t, err)
 			assert.Equal(t, contract.DecisionAllow, result.Decision)
 		})

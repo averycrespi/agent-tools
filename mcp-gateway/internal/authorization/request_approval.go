@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
@@ -24,8 +25,7 @@ type ApprovalGrantMaterial struct {
 	ReadOnly        bool
 	Description     *string
 	PrincipalID     string
-	ServerID        string
-	UpstreamName    *string
+	Target          accesstarget.MCP
 	Constraint      *json.RawMessage
 	DurationSeconds *int64
 }
@@ -80,7 +80,7 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 			return ErrIdentityUnavailable
 		}
 		conflict, conflictErr := repository.HasActiveDenyConflictTx(ctx, transaction, DenyConflictScope{
-			PrincipalID: material.PrincipalID, ServerID: material.ServerID, UpstreamName: material.UpstreamName,
+			PrincipalID: material.PrincipalID, Target: material.Target,
 		}, now)
 		if conflictErr != nil {
 			return conflictErr
@@ -108,8 +108,8 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 			id, description, principal_id, effect, server_id, upstream_name,
 			constraint_json, expires_at, created_at, read_only
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			grantID, nullableGrantString(material.Description), material.PrincipalID, contract.GrantAllow, material.ServerID,
-			nullableGrantString(material.UpstreamName), nullableGrantBytes(constraintJSON),
+			grantID, nullableGrantString(material.Description), material.PrincipalID, contract.GrantAllow, material.Target.ServerID,
+			nullableGrantString(material.Target.UpstreamName), nullableGrantBytes(constraintJSON),
 			nullableGrantTime(expiresAt), formatAuthorizationTime(now), material.ReadOnly); insertErr != nil {
 			return fmt.Errorf("insert request approval grant: %w", insertErr)
 		}
@@ -137,10 +137,10 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 }
 
 func validateApprovalGrantMaterial(material ApprovalGrantMaterial) ([]byte, error) {
-	if !validGrantDescription(material.Description) || !validOpaqueID(material.PrincipalID) || !validOpaqueID(material.ServerID) ||
-		material.UpstreamName != nil && !validUpstreamName(*material.UpstreamName) ||
-		material.UpstreamName == nil && material.Constraint != nil ||
-		material.ReadOnly && (material.UpstreamName != nil || material.Constraint != nil) {
+	if !validGrantDescription(material.Description) || !validOpaqueID(material.PrincipalID) || !validOpaqueID(material.Target.ServerID) ||
+		material.Target.UpstreamName != nil && !validUpstreamName(*material.Target.UpstreamName) ||
+		material.Target.UpstreamName == nil && material.Constraint != nil ||
+		material.ReadOnly && (material.Target.UpstreamName != nil || material.Constraint != nil) {
 		return nil, ErrInvalidState
 	}
 	if material.DurationSeconds != nil && (*material.DurationSeconds < contract.GrantRequestDurationMinimumSeconds ||

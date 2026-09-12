@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
@@ -135,8 +136,8 @@ func (transition *approvalTransition) PrepareGrantRequestApproval(ctx context.Co
 	if _, err := contract.ParseDesiredServerState(string(namespace.State)); err != nil {
 		return authorization.ApprovalGrantMaterial{}, authorization.ErrInvalidState
 	}
-	approvedTarget := ResolvedTarget{ServerID: namespace.ID, UpstreamName: approvedName.upstreamName}
-	if err := ValidateNarrowing(requested, ResolvedTarget{ServerID: transition.serverID, UpstreamName: submittedUpstream}, transition.approved, approvedTarget); err != nil {
+	approvedTarget := accesstarget.MCP{ServerID: namespace.ID, UpstreamName: approvedName.upstreamName}
+	if err := ValidateNarrowing(requested, accesstarget.MCP{ServerID: transition.serverID, UpstreamName: submittedUpstream}, transition.approved, approvedTarget); err != nil {
 		return authorization.ApprovalGrantMaterial{}, authorization.ErrInvalidInput
 	}
 	if namespace.State == contract.DesiredServerDeleted {
@@ -165,8 +166,8 @@ func (transition *approvalTransition) PrepareGrantRequestApproval(ctx context.Co
 		duration = &value
 	}
 	return authorization.ApprovalGrantMaterial{
-		Description: transition.request.Description, PrincipalID: transition.principalID, ServerID: transition.serverID, ReadOnly: transition.approved.value.ReadOnly,
-		UpstreamName: approvedTarget.UpstreamName, Constraint: transition.approved.ConstraintJSON(), DurationSeconds: duration,
+		Description: transition.request.Description, PrincipalID: transition.principalID, ReadOnly: transition.approved.value.ReadOnly,
+		Constraint: transition.approved.ConstraintJSON(), DurationSeconds: duration, Target: approvedTarget,
 	}, nil
 }
 

@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
 )
 
 func (repository *Repository) Evaluate(ctx context.Context, request EvaluationRequest) (contract.AuthorizationResult, error) {
-	if !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.ServerID) || !validUpstreamName(request.UpstreamName) {
+	if !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.Target.ServerID) || !validUpstreamName(request.Target.ToolName()) {
 		return contract.AuthorizationResult{}, ErrInvalidInput
 	}
 	arguments, err := strictjson.ParseValue(request.Arguments, strictjson.Options{
@@ -25,7 +26,7 @@ func (repository *Repository) Evaluate(ctx context.Context, request EvaluationRe
 	var result contract.AuthorizationResult
 	err = repository.view(ctx, func(transaction *sql.Tx) error {
 		var evaluateErr error
-		result, evaluateErr = evaluateTx(repository, ctx, transaction, request.PrincipalID, request.ServerID, request.UpstreamName, arguments, evaluatedAt, false)
+		result, evaluateErr = evaluateTx(repository, ctx, transaction, request.PrincipalID, request.Target, arguments, evaluatedAt, false)
 		return evaluateErr
 	})
 	return result, err
@@ -36,8 +37,7 @@ func evaluateTx(
 	ctx context.Context,
 	transaction *sql.Tx,
 	principalID string,
-	serverID string,
-	upstreamName string,
+	target accesstarget.MCP,
 	arguments strictjson.Value,
 	evaluatedAt time.Time,
 	readOnlyHint bool,
@@ -57,7 +57,7 @@ func evaluateTx(
 		WHERE principal_id = ? AND server_id = ?
 		  AND (upstream_name IS NULL OR upstream_name = ?)
 		ORDER BY id
-		LIMIT ?`, principalID, serverID, upstreamName, mustLimit("grants")+1)
+		LIMIT ?`, principalID, target.ServerID, target.ToolName(), mustLimit("grants")+1)
 	if err != nil {
 		return contract.AuthorizationResult{}, fmt.Errorf("%w: read grants for evaluation: %w", ErrStorageUnavailable, err)
 	}
@@ -76,7 +76,7 @@ func evaluateTx(
 		if loadErr != nil {
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
-		applies, appliesErr := grant.applies(serverID, upstreamName, evaluatedAt, arguments, &remainingRegexWork)
+		applies, appliesErr := grant.applies(target, evaluatedAt, arguments, &remainingRegexWork)
 		if appliesErr != nil {
 			return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
 		}
@@ -108,28 +108,30 @@ func evaluateTx(
 }
 
 type evaluationGrant struct {
-	readOnly     bool
-	id           string
-	effect       contract.GrantEffect
-	serverID     string
-	upstreamName sql.NullString
-	constraint   *CompiledConstraint
-	expiresAt    *time.Time
+	readOnly   bool
+	id         string
+	effect     contract.GrantEffect
+	target     accesstarget.MCP
+	constraint *CompiledConstraint
+	expiresAt  *time.Time
 }
 
 func loadEvaluationGrant(scanner grantScanner, compile func(string) (CompiledConstraint, error)) (evaluationGrant, error) {
 	var (
-		grant                          evaluationGrant
-		principalID, effect, createdAt string
-		constraintJSON, expiresAt      sql.NullString
+		grant                                   evaluationGrant
+		principalID, effect, createdAt          string
+		upstreamName, constraintJSON, expiresAt sql.NullString
 	)
-	if err := scanner.Scan(&grant.id, &principalID, &effect, &grant.serverID, &grant.upstreamName, &constraintJSON, &expiresAt, &createdAt, &grant.readOnly); err != nil {
+	if err := scanner.Scan(&grant.id, &principalID, &effect, &grant.target.ServerID, &upstreamName, &constraintJSON, &expiresAt, &createdAt, &grant.readOnly); err != nil {
 		return evaluationGrant{}, err
 	}
+	if upstreamName.Valid {
+		grant.target.UpstreamName = &upstreamName.String
+	}
 	grant.effect = contract.GrantEffect(effect)
-	if !validOpaqueID(grant.id) || !validOpaqueID(principalID) || !validGrantEffect(grant.effect) || !validOpaqueID(grant.serverID) ||
-		grant.upstreamName.Valid && !validUpstreamName(grant.upstreamName.String) || !grant.upstreamName.Valid && constraintJSON.Valid ||
-		grant.readOnly && (grant.effect != contract.GrantAllow || grant.upstreamName.Valid || constraintJSON.Valid) {
+	if !validOpaqueID(grant.id) || !validOpaqueID(principalID) || !validGrantEffect(grant.effect) || !validOpaqueID(grant.target.ServerID) ||
+		grant.target.UpstreamName != nil && !validUpstreamName(grant.target.ToolName()) || grant.target.UpstreamName == nil && constraintJSON.Valid ||
+		grant.readOnly && (grant.effect != contract.GrantAllow || grant.target.UpstreamName != nil || constraintJSON.Valid) {
 		return evaluationGrant{}, ErrAuthorizationUnavailable
 	}
 	created, valid := canonicalTimestamp(createdAt)
@@ -153,9 +155,8 @@ func loadEvaluationGrant(scanner grantScanner, compile func(string) (CompiledCon
 	return grant, nil
 }
 
-func (grant evaluationGrant) applies(serverID, upstreamName string, evaluatedAt time.Time, arguments strictjson.Value, remainingRegexWork *int64) (bool, error) {
-	if grant.serverID != serverID || grant.expiresAt != nil && !grant.expiresAt.After(evaluatedAt) ||
-		grant.upstreamName.Valid && grant.upstreamName.String != upstreamName {
+func (grant evaluationGrant) applies(target accesstarget.MCP, evaluatedAt time.Time, arguments strictjson.Value, remainingRegexWork *int64) (bool, error) {
+	if !grant.target.Covers(target) || grant.expiresAt != nil && !grant.expiresAt.After(evaluatedAt) {
 		return false, nil
 	}
 	if grant.constraint == nil {

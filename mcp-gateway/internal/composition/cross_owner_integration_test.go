@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
@@ -68,7 +69,7 @@ func TestCreateVsTargetAndPolicyIntegration(t *testing.T) {
 
 	policyServer := createCompositionServer(t, built.servers, "policy-first", false, "/bin/true")
 	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{
-		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, ServerID: policyServer.ID,
+		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: policyServer.ID},
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	result, err = built.requests.CreateOrExisting(context.Background(), grantrequests.CreateRequest{PrincipalID: principal.Principal.ID, Policy: contract.Policy{
@@ -110,7 +111,7 @@ func TestApprovalVsPolicyAndCapacityIntegration(t *testing.T) {
 	}()
 	<-entered
 	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{
-		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, ServerID: server.ID,
+		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: server.ID},
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	assert.Error(t, err, "policy/capacity admission must not cross an in-flight approval gate")
 	close(release)
@@ -130,7 +131,7 @@ func TestApprovalVsPolicyAndCapacityIntegration(t *testing.T) {
 	second, err := built.requests.CreateOrExisting(context.Background(), grantrequests.CreateRequest{PrincipalID: principal.Principal.ID, Policy: secondPolicy})
 	require.NoError(t, err)
 	_, err = built.authorization.CreateGrant(context.Background(), authorization.CreateGrantRequest{
-		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, ServerID: secondServer.ID,
+		PrincipalID: principal.Principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: secondServer.ID},
 	}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 	require.NoError(t, err)
 	_, err = built.requests.Approve(context.Background(), built.authorization, grantrequests.ApproveRequest{ID: second.Request.ID, ExpectedRevision: "1", ApprovedPolicy: secondPolicy})

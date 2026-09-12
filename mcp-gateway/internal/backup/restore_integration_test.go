@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/catalog"
@@ -122,7 +123,7 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 		require.NoError(t, err)
 		serverResult, err := requests.CreateOrExisting(ctx, grantrequests.CreateRequest{PrincipalID: principal.Principal.ID, Policy: contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}})
 		require.NoError(t, err)
-		grant, err := authority.CreateGrant(ctx, authorization.CreateGrantRequest{PrincipalID: principal.Principal.ID, Effect: contract.GrantAllow, ServerID: createdServer.Server.ID}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
+		grant, err := authority.CreateGrant(ctx, authorization.CreateGrantRequest{PrincipalID: principal.Principal.ID, Effect: contract.GrantAllow, Target: accesstarget.MCP{ServerID: createdServer.Server.ID}}, func(context.Context, *sql.Tx, string) (bool, error) { return true, nil })
 		require.NoError(t, err)
 		approvedAt := acceptedFixtureTime.Add(time.Second)
 		closedAt := approvedAt.Format("2006-01-02T15:04:05.000000000Z07:00")
@@ -252,7 +253,7 @@ func populateSchemaTenRestoreFixture(t *testing.T, database *sql.DB) (int64, int
 	policy := contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}
 	compiled, err := grantrequests.CompilePolicy(policy)
 	require.NoError(t, err)
-	dedupe, err := grantrequests.CanonicalDedupeIdentity(compiled, grantrequests.ResolvedTarget{ServerID: serverID})
+	dedupe, err := grantrequests.CanonicalDedupeIdentity(compiled, accesstarget.MCP{ServerID: serverID})
 	require.NoError(t, err)
 	descriptor := restoreDescriptor(t, serverID)
 	_, evidence, err := grantrequests.BuildDescriptorEvidence(descriptor, "sample", acceptedFixtureTime.Add(time.Second))

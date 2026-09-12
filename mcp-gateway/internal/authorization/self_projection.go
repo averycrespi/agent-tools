@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 )
 
@@ -120,23 +121,23 @@ func (service *SelfProjectionService) ListSelfGrants(
 			if index == limit {
 				break
 			}
-			namespace, exists := namespaces[row.serverID]
+			namespace, exists := namespaces[row.target.ServerID]
 			if !exists {
 				var found bool
-				namespace, found, err = service.targets.LookupStoredGrantNamespaceTx(ctx, transaction, row.serverID)
+				namespace, found, err = service.targets.LookupStoredGrantNamespaceTx(ctx, transaction, row.target.ServerID)
 				if err != nil {
 					return fmt.Errorf("inspect self grant target: %w", err)
 				}
-				if !found || !validProjectedNamespace(namespace, row.serverID == contract.SyntheticServerID) {
+				if !found || !validProjectedNamespace(namespace, row.target.ServerID == contract.SyntheticServerID) {
 					return errorsInvalidState("self grant target is malformed or missing")
 				}
-				namespaces[row.serverID] = namespace
+				namespaces[row.target.ServerID] = namespace
 			}
 			target := namespace
 			scope := contract.PolicyServer
-			if row.upstreamName != nil {
+			if row.target.UpstreamName != nil {
 				scope = contract.PolicyTool
-				target += "." + *row.upstreamName
+				target += "." + row.target.ToolName()
 			}
 			projected = append(projected, contract.AgentGrant{
 				ID: row.id, Description: row.description, Effect: row.effect,
@@ -202,18 +203,17 @@ func readSelfIdentityTx(ctx context.Context, transaction *sql.Tx, subject Admitt
 }
 
 type selfGrantRow struct {
-	readOnly     bool
-	sequence     int64
-	id           string
-	description  *string
-	revision     string
-	effect       contract.GrantEffect
-	serverID     string
-	upstreamName *string
-	constraint   *json.RawMessage
-	expiresAt    *string
-	state        contract.GrantState
-	createdAt    string
+	readOnly    bool
+	sequence    int64
+	id          string
+	description *string
+	revision    string
+	effect      contract.GrantEffect
+	target      accesstarget.MCP
+	constraint  *json.RawMessage
+	expiresAt   *string
+	state       contract.GrantState
+	createdAt   string
 }
 
 func (repository *Repository) scanSelfGrant(scanner grantScanner, principalID string, now time.Time) (selfGrantRow, error) {
@@ -222,7 +222,7 @@ func (repository *Repository) scanSelfGrant(scanner grantScanner, principalID st
 		storedPrincipalID                                    string
 		description, upstreamName, constraintJSON, expiresAt sql.NullString
 	)
-	if err := scanner.Scan(&row.sequence, &row.id, &description, &row.revision, &storedPrincipalID, &row.effect, &row.serverID,
+	if err := scanner.Scan(&row.sequence, &row.id, &description, &row.revision, &storedPrincipalID, &row.effect, &row.target.ServerID,
 		&upstreamName, &constraintJSON, &expiresAt, &row.createdAt, &row.readOnly); err != nil {
 		return selfGrantRow{}, fmt.Errorf("scan self grant: %w", err)
 	}
@@ -234,7 +234,7 @@ func (repository *Repository) scanSelfGrant(scanner grantScanner, principalID st
 		row.description = &value
 	}
 	created, createdValid := canonicalTimestamp(row.createdAt)
-	if row.sequence < 1 || !validOpaqueID(row.id) || !validGrantDescription(row.description) || !validRevision(row.revision) || storedPrincipalID != principalID || !validOpaqueID(row.serverID) ||
+	if row.sequence < 1 || !validOpaqueID(row.id) || !validGrantDescription(row.description) || !validRevision(row.revision) || storedPrincipalID != principalID || !validOpaqueID(row.target.ServerID) ||
 		(row.effect != contract.GrantAllow && row.effect != contract.GrantDeny) || !createdValid {
 		return selfGrantRow{}, errorsInvalidState("self grant row is malformed")
 	}
@@ -243,7 +243,7 @@ func (repository *Repository) scanSelfGrant(scanner grantScanner, principalID st
 			return selfGrantRow{}, errorsInvalidState("self grant target is malformed")
 		}
 		value := upstreamName.String
-		row.upstreamName = &value
+		row.target.UpstreamName = &value
 	}
 	if constraintJSON.Valid {
 		if !upstreamName.Valid {

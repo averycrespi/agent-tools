@@ -18,9 +18,9 @@ func (repository *Repository) CreateGrant(
 	request CreateGrantRequest,
 	validateTarget CurrentGrantTargetValidator,
 ) (contract.Grant, error) {
-	if validateTarget == nil || !validGrantDescription(request.Description) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.ServerID) || !validGrantEffect(request.Effect) ||
-		request.UpstreamName != nil && !validUpstreamName(*request.UpstreamName) || request.UpstreamName == nil && request.Constraint != nil ||
-		request.ReadOnly && (request.Effect != contract.GrantAllow || request.UpstreamName != nil || request.Constraint != nil) {
+	if validateTarget == nil || !validGrantDescription(request.Description) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.Target.ServerID) || !validGrantEffect(request.Effect) ||
+		request.Target.UpstreamName != nil && !validUpstreamName(*request.Target.UpstreamName) || request.Target.UpstreamName == nil && request.Constraint != nil ||
+		request.ReadOnly && (request.Effect != contract.GrantAllow || request.Target.UpstreamName != nil || request.Constraint != nil) {
 		return contract.Grant{}, ErrInvalidInput
 	}
 	var constraintJSON []byte
@@ -55,7 +55,7 @@ func (repository *Repository) CreateGrant(
 		if grants >= mustLimit("grants") {
 			return ErrResourceLimit
 		}
-		valid, err := validateTarget(ctx, transaction, request.ServerID)
+		valid, err := validateTarget(ctx, transaction, request.Target.ServerID)
 		if err != nil {
 			return fmt.Errorf("validate current grant target: %w", err)
 		}
@@ -74,8 +74,8 @@ func (repository *Repository) CreateGrant(
 				id, description, principal_id, effect, server_id, upstream_name,
 				constraint_json, expires_at, created_at, read_only
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			grantID, nullableGrantString(request.Description), request.PrincipalID, request.Effect, request.ServerID,
-			nullableGrantString(request.UpstreamName), nullableGrantBytes(constraintJSON),
+			grantID, nullableGrantString(request.Description), request.PrincipalID, request.Effect, request.Target.ServerID,
+			nullableGrantString(request.Target.UpstreamName), nullableGrantBytes(constraintJSON),
 			nullableGrantTime(request.ExpiresAt), createdAt, request.ReadOnly); err != nil {
 			return fmt.Errorf("insert grant: %w", err)
 		}

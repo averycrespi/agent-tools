@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/mcp-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/mcp-gateway/internal/strictjson"
@@ -23,8 +24,8 @@ func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
 		principal, credential := createAdmissionCredential(t, repository)
 		lease := mustAuthenticateLease(t, repository, credential.Bearer)
 		result, token, err := verifyResolvedMutation(repository, store, lease, ResolvedVerification{
-			ServerID: contract.SyntheticServerID, UpstreamName: "tool", Arguments: mustAdmissionArguments(t, `{}`),
-			ObservedAuthorizationRevision: "0",
+			Arguments:                     mustAdmissionArguments(t, `{}`),
+			ObservedAuthorizationRevision: "0", Target: accesstarget.Tool(contract.SyntheticServerID, "tool"),
 		}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, contract.DecisionAllow, result.Decision)
@@ -34,14 +35,13 @@ func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
 
 		pending := mustAuthenticateLease(t, repository, credential.Bearer)
 		deny := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"),
-			PrincipalID: principal.ID, Effect: contract.GrantDeny,
-			ServerID: contract.SyntheticServerID, UpstreamName: stringPointer("tool"),
+			PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: stringPointer("tool")},
 		})
 		assertLeaseOpen(t, lease)
 		assertLeaseOpen(t, pending)
 		result, token, err = verifyResolvedMutation(repository, store, pending, ResolvedVerification{
-			ServerID: contract.SyntheticServerID, UpstreamName: "tool", Arguments: mustAdmissionArguments(t, `{}`),
-			ObservedAuthorizationRevision: "1",
+			Arguments:                     mustAdmissionArguments(t, `{}`),
+			ObservedAuthorizationRevision: "1", Target: accesstarget.Tool(contract.SyntheticServerID, "tool"),
 		}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, contract.DecisionDeny, result.Decision)
@@ -55,12 +55,12 @@ func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
 		principal, credential := createAdmissionCredential(t, repository)
 		expiresAt := testNow.Add(time.Second)
 		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"),
-			PrincipalID: principal.ID, Effect: contract.GrantAllow, ServerID: id(51), ExpiresAt: &expiresAt,
+			PrincipalID: principal.ID, Effect: contract.GrantAllow, ExpiresAt: &expiresAt, Target: accesstarget.MCP{ServerID: id(51)},
 		})
 		expired := mustAuthenticateLease(t, repository, credential.Bearer)
 		repository.clock.(*fixedClock).now = expiresAt
 		result, token, err := verifyResolvedMutation(repository, store, expired, ResolvedVerification{
-			ServerID: id(51), UpstreamName: "tool", Arguments: mustAdmissionArguments(t, `{}`),
+			Arguments: mustAdmissionArguments(t, `{}`), Target: accesstarget.Tool(id(51), "tool"),
 		}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, contract.DecisionBlock, result.Decision)
@@ -71,7 +71,7 @@ func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
 		admitted := mustAuthenticateLease(t, repository, credential.Bearer)
 		repository.clock.(*fixedClock).now = expiresAt.Add(-time.Nanosecond)
 		result, token, err = verifyResolvedMutation(repository, store, admitted, ResolvedVerification{
-			ServerID: id(51), UpstreamName: "tool", Arguments: mustAdmissionArguments(t, `{}`),
+			Arguments: mustAdmissionArguments(t, `{}`), Target: accesstarget.Tool(id(51), "tool"),
 		}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, contract.DecisionAllow, result.Decision)
@@ -257,8 +257,7 @@ func createAdmissionCredential(t *testing.T, repository *Repository) (contract.P
 
 func defaultResolvedVerification() ResolvedVerification {
 	return ResolvedVerification{
-		ServerID: contract.SyntheticServerID, UpstreamName: "tool",
-		Arguments: strictjson.Value{Type: strictjson.ValueObject},
+		Target: accesstarget.Tool(contract.SyntheticServerID, "tool"), Arguments: strictjson.Value{Type: strictjson.ValueObject},
 	}
 }
 
