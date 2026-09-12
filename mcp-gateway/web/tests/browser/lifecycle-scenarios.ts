@@ -1090,17 +1090,55 @@ export async function runShellPrimitives(
       fail(`${choice} theme did not resolve semantic tokens`);
   }
 
-  const navigationHrefs = await page
-    .locator("aside nav a")
+  const expectedNavigation = [
+    ["Overview", "#/overview"],
+    ["Principals", "#/principals"],
+    ["Grants", "#/grants"],
+    ["Requests", "#/requests"],
+    ["Servers", "#/servers"],
+    ["Tools", "#/catalog"],
+    ["Agents", "#/invocations"],
+    ["Administrators", "#/audit"],
+    ["System", "#/system"],
+  ] as const;
+  const primary = page.getByRole("navigation", {
+    name: "Primary",
+    exact: true,
+  });
+  const navigationLinks = await primary
+    .getByRole("link")
     .evaluateAll((links) =>
-      links.map((link) => link.getAttribute("href") ?? ""),
+      links.map((link) => [link.textContent, link.getAttribute("href")]),
     );
-  if (
-    navigationHrefs.indexOf("#/catalog") < 0 ||
-    navigationHrefs.indexOf("#/servers") < 0 ||
-    navigationHrefs.indexOf("#/catalog") >= navigationHrefs.indexOf("#/servers")
-  )
-    fail("Catalog did not appear before Servers");
+  if (JSON.stringify(navigationLinks) !== JSON.stringify(expectedNavigation))
+    fail("domain navigation labels, order or legacy destinations changed");
+  for (const [name, labels] of [
+    ["Access", ["Principals", "Grants", "Requests"]],
+    ["MCP", ["Servers", "Tools"]],
+    ["Activity", ["Agents", "Administrators"]],
+  ] as const) {
+    const links = await primary
+      .getByRole("group", { name, exact: true })
+      .getByRole("link")
+      .allTextContents();
+    if (JSON.stringify(links) !== JSON.stringify(labels))
+      fail(`${name} navigation group lost its accessible membership`);
+  }
+  for (const [label, href] of expectedNavigation) {
+    await primary.getByRole("link", { name: label, exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      ({ label, href }) =>
+        window.location.hash === href &&
+        document.querySelector("#page-title")?.textContent === label &&
+        document
+          .querySelector("#primary-navigation a[aria-current=page]")
+          ?.getAttribute("href") === href,
+      { label, href },
+    );
+    if ((await primary.locator('[aria-current="page"]').count()) !== 1)
+      fail("navigation must have exactly one current destination");
+  }
 
   await page.locator('aside nav a[href="#/servers"]').focus();
   await page.keyboard.press("Enter");
@@ -1144,6 +1182,26 @@ export async function runShellPrimitives(
     !(await page.locator("#primary-navigation").isVisible())
   ) {
     fail("narrow navigation disclosure did not open from the keyboard");
+  }
+  for (const [label] of expectedNavigation) {
+    const link = primary.getByRole("link", { name: label, exact: true });
+    await link.focus();
+    const reachable = await link.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const rail = document
+        .querySelector("#primary-navigation")!
+        .getBoundingClientRect();
+      return (
+        rect.width >= 44 &&
+        rect.height >= 44 &&
+        rect.left >= rail.left &&
+        rect.right <= rail.right &&
+        rect.top >= rail.top &&
+        rect.bottom <= rail.bottom
+      );
+    });
+    if (!reachable)
+      fail(`${label} is clipped or too small in narrow navigation`);
   }
   await page.keyboard.press("Escape");
   try {

@@ -40,7 +40,7 @@ func TestBrowserShellPrimitives(t *testing.T) {
 		assert.NotContains(t, authoredText, forbidden)
 	}
 	assert.Equal(t, 3, strings.Count(mainText, "href="), "shell URLs must stay in the three fixed navigation owners")
-	for _, allowed := range []string{`href="#main-content"`, `href="#/overview"`, `href={item.href}`} {
+	for _, allowed := range []string{`href="#main-content"`, `href="#/overview"`, "href={`#/${item}`}"} {
 		assert.Contains(t, mainText, allowed)
 	}
 	assert.NotContains(t, mainText, "history.replaceState")

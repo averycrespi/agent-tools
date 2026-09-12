@@ -33,7 +33,14 @@ export async function loadShell(
         .querySelector('[data-testid="gateway-shell"]')
         ?.getAttribute("data-session-lifecycle") !== "bootstrapping",
   );
-  if ((await page.title()) !== "MCP Gateway") fail("unexpected shell title");
+  if ((await page.title()) !== "Agent Gateway") fail("unexpected shell title");
+  if (
+    (await page
+      .getByRole("link", { name: "Agent Gateway overview" })
+      .count()) !== 1 ||
+    (await page.locator(".wordmark").textContent()) !== "Agent Gateway"
+  )
+    fail("application branding changed");
   const mastheadMark = page.locator(
     '.wordmark > img.mark[src="/assets/favicon.svg"]',
   );

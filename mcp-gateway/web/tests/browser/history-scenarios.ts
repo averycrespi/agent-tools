@@ -197,6 +197,10 @@ export async function assertAuthoritativeHistory(
       .getByTestId("audit-row")
       .locator('[data-label="Event"] .table-primary a')
       .click();
+    await expect(
+      page.locator('#primary-navigation a[aria-current="page"]'),
+    ).toHaveText("Administrators");
+    await expect(page).toHaveURL(/filter_action=create/);
     await page.getByRole("link", { name: "Back to audit history" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
     await expect(page).toHaveURL(/filter_action=create/);
@@ -205,6 +209,19 @@ export async function assertAuthoritativeHistory(
       window.location.hash = "#/invocations";
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
+    await expect(
+      page.getByRole("heading", { name: "Agents", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "MCP invocations", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "Recorded MCP invocations, separate from administrative audit.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(page.getByTestId("audit-view")).toHaveCount(0);
     const filteredResponse = page.waitForResponse(
       (r) =>
         new URL(r.url()).pathname === "/api/v1/invocations" &&
@@ -278,7 +295,11 @@ export async function assertAuthoritativeHistory(
         exact: true,
       })
       .click();
-    await page.getByRole("link", { name: "Back to invocations" }).click();
+    await expect(
+      page.locator('#primary-navigation a[aria-current="page"]'),
+    ).toHaveText("Agents");
+    await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
+    await page.getByRole("link", { name: "Back to agent activity" }).click();
     await expect(live).not.toBeChecked();
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);

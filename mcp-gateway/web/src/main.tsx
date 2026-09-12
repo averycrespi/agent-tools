@@ -47,38 +47,25 @@ import {
 import "./styles.css";
 
 const navigation: ReadonlyArray<{
-  destination: Exclude<Destination, "sign-in">;
-  label: string;
-  href: string;
+  label?: string;
+  destinations: ReadonlyArray<Exclude<Destination, "sign-in">>;
 }> = [
-  { destination: "overview", label: "Overview", href: "#/overview" },
-  { destination: "catalog", label: "Catalog", href: "#/catalog" },
-  { destination: "servers", label: "Servers", href: "#/servers" },
-  {
-    destination: "principals",
-    label: "Principals",
-    href: "#/principals",
-  },
-  { destination: "grants", label: "Grants", href: "#/grants" },
-  { destination: "requests", label: "Requests", href: "#/requests" },
-  {
-    destination: "invocations",
-    label: "Invocations",
-    href: "#/invocations",
-  },
-  { destination: "audit", label: "Audit", href: "#/audit" },
-  { destination: "system", label: "System", href: "#/system" },
+  { destinations: ["overview"] },
+  { label: "Access", destinations: ["principals", "grants", "requests"] },
+  { label: "MCP", destinations: ["servers", "catalog"] },
+  { label: "Activity", destinations: ["invocations", "audit"] },
+  { destinations: ["system"] },
 ];
 
 const destinationLabels: Readonly<Record<Destination, string>> = {
   overview: "Overview",
   servers: "Servers",
-  catalog: "Catalog",
+  catalog: "Tools",
   principals: "Principals",
   grants: "Grants",
   requests: "Requests",
-  invocations: "Invocations",
-  audit: "Audit",
+  invocations: "Agents",
+  audit: "Administrators",
   system: "System",
   "sign-in": "Sign in",
 };
@@ -540,14 +527,18 @@ function App() {
           : `${destinationLabel}. Authentication required.`}
       </div>
       <header class="masthead">
-        <a class="wordmark" href="#/overview" aria-label="MCP Gateway overview">
+        <a
+          class="wordmark"
+          href="#/overview"
+          aria-label="Agent Gateway overview"
+        >
           <img
             aria-hidden="true"
             class="mark"
             src="/assets/favicon.svg"
             alt=""
           />
-          <span>MCP Gateway</span>
+          <span>Agent Gateway</span>
         </a>
         <div class="masthead-controls">
           {authenticated && (
@@ -617,21 +608,37 @@ function App() {
           class={`rail ${navigationOpen ? "open" : ""}`}
           aria-label="Primary navigation"
         >
-          <nav>
-            {navigation.map((item) => {
-              const active = destination === item.destination;
-              return (
-                <a
-                  key={item.destination}
-                  class={active ? "active" : undefined}
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  onClick={() => setNavigationOpen(false)}
-                >
-                  {item.label}
-                </a>
-              );
-            })}
+          <nav aria-label="Primary">
+            {navigation.map((group) => (
+              <div
+                key={group.label ?? group.destinations[0]}
+                class="navigation-group"
+                role={group.label ? "group" : undefined}
+                aria-label={group.label}
+              >
+                {group.label && (
+                  <span class="navigation-group-label" aria-hidden="true">
+                    {group.label}
+                  </span>
+                )}
+                <div class="navigation-links">
+                  {group.destinations.map((item) => {
+                    const active = destination === item;
+                    return (
+                      <a
+                        key={item}
+                        class={active ? "active" : undefined}
+                        href={`#/${item}`}
+                        aria-current={active ? "page" : undefined}
+                        onClick={() => setNavigationOpen(false)}
+                      >
+                        {destinationLabels[item]}
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
         </aside>
       )}

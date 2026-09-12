@@ -738,7 +738,7 @@ export function Invocations({
     return (
       <>
         <nav class="detail-navigation" aria-label="Invocation navigation">
-          <a href={listLink}>Back to invocations</a>
+          <a href={listLink}>Back to agent activity</a>
         </nav>
         <InvocationDetail
           snapshot={current}
@@ -785,7 +785,8 @@ function InvocationList({
   principalNames: ReadonlyMap<string, string>;
 }) {
   return (
-    <section class="panel domain-panel" aria-label="Invocations">
+    <section class="panel domain-panel" aria-label="MCP invocations">
+      <p>Recorded MCP invocations, separate from administrative audit.</p>
       <div class="collection-toolbar live-collection-toolbar">
         <label for="invocation-live-mode">Live mode</label>
         <BinaryToggle

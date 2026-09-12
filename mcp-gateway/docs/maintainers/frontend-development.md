@@ -58,7 +58,7 @@ Curated data includes:
   | Demo Request Server      | Entire `demo_workshop` server, all tools                   |
   | Demo Request Read-only   | Entire `demo_workshop` server, only tools marked read-only |
 
-  Open **Requests** to approve as requested or customize; follow each resulting grant to inspect it. The runner prints a protected agent-bearer file path for each principal. Workshop `echo` and Library `lookup` explicitly declare `readOnlyHint=true`; Workshop `add` omits the hint and `controlled_error` declares false. After read-only approval, `echo` succeeds while the other Workshop tools remain blocked. These fixtures are all harmless; the mixed labels demonstrate filtering rather than actual write effects. Restart the demo for fresh pending requests.
+  Open **Access → Requests** to approve as requested or customize; follow each resulting grant to inspect it. The runner prints a protected agent-bearer file path for each principal. Workshop `echo` and Library `lookup` explicitly declare `readOnlyHint=true`; Workshop `add` omits the hint and `controlled_error` declares false. After read-only approval, `echo` succeeds while the other Workshop tools remain blocked. These fixtures are all harmless; the mixed labels demonstrate filtering rather than actual write effects. Restart the demo for fresh pending requests.
 
 - Real successful and controlled-error invocation history, plus the normal audit records emitted by those public mutations. No recurring synthetic activity runs after seeding.
 
@@ -126,6 +126,14 @@ Press `Ctrl-C` in the frontend terminal and the Gateway terminal to stop each in
 - **A selector is rejected:** use a full numeric `127.x.x.x` address, an explicit valid port, and `http://` for the Gateway selector. Remove all command-line arguments after `ui:dev`.
 - **The browser returns to sign-in:** confirm both selectors still name the intended origins. A session cookie belongs to the selected frontend host, and Gateway restart or authority revocation can invalidate the session.
 - **OAuth completion fails:** confirm the provider redirects to the exact configured callback URI (or Gateway's default `/oauth/callback`), not the frontend development origin.
+
+## Navigation implementation
+
+The Agent Gateway shell in `web/src/main.tsx` owns one ordered navigation model: Overview; Access (Principals, Grants, Requests); MCP (Servers, Tools); Activity (Agents, Administrators); System. It renders the same named groups and ordinary links in the desktop rail and narrow Menu disclosure. Separate groups with inset dividers and spacing; use small uppercase, letterspaced section labels so noninteractive headings are distinct from destination links. Preserve the existing visual language and keyboard/focus behavior; groups do not introduce editors, routes, state owners, or protocol placeholders.
+
+Display names differ from stable route keys: Tools remains `#/catalog`, Requests `#/requests`, Agents `#/invocations`, and Administrators `#/audit`. Keep `location.ts` as the sole grammar owner, including legacy aliases and valid detail/filter/query state. Agents uses the existing MCP invocation controller and identifies its evidence scope; Administrators retains the separate administrative audit, including system and offline maintenance events. These labels change neither actor selection nor evidence coverage. Theme persistence, session clearing, refresh, pagination, mutation guards and one-time-secret handling stay with their existing shared owners.
+
+The shell lifecycle browser scenario checks accessible group membership, link order, every destination's keyboard activation/current state, and narrow target reachability. Domain history scenarios cover filtered detail returns and evidence separation. Inspect both the open Menu and settled destinations at desktop, narrow and 320px widths after navigation changes.
 
 ## Table implementation
 
