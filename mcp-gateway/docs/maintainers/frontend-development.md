@@ -129,7 +129,7 @@ Press `Ctrl-C` in the frontend terminal and the Gateway terminal to stop each in
 
 ## Navigation implementation
 
-The Agent Gateway shell in `web/src/main.tsx` owns one ordered navigation model: Overview; Access (Principals, Grants, Access requests); MCP (Servers, Tools); Activity (Agent activity, Administrative audit); System. It renders the same named groups and ordinary links in the desktop rail and narrow Menu disclosure. Preserve the existing visual language and keyboard/focus behavior; groups do not introduce editors, routes, state owners, or protocol placeholders.
+The Agent Gateway shell in `web/src/main.tsx` owns one ordered navigation model: Overview; Access (Principals, Grants, Access requests); MCP (Servers, Tools); Activity (Agent activity, Administrative audit); System. It renders the same named groups and ordinary links in the desktop rail and narrow Menu disclosure. Separate groups with inset dividers and spacing; use small uppercase, letterspaced section labels so noninteractive headings are distinct from destination links. Preserve the existing visual language and keyboard/focus behavior; groups do not introduce editors, routes, state owners, or protocol placeholders.
 
 Display names differ from stable route keys: Tools remains `#/catalog`, Access requests `#/requests`, Agent activity `#/invocations`, and Administrative audit `#/audit`. Keep `location.ts` as the sole grammar owner, including legacy aliases and valid detail/filter/query state. Agent activity uses the existing MCP invocation controller and identifies its evidence scope; administrative audit remains separate. Theme persistence, session clearing, refresh, pagination, mutation guards and one-time-secret handling stay with their existing shared owners.
 
