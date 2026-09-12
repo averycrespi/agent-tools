@@ -73,7 +73,7 @@ The official MCP SDK does not own Gateway authentication, protocol downgrade dec
 
 ## Operational composition and compatibility
 
-`agent-gateway` is the recommended executable name; `mcp-gateway` remains a supported compatibility name. Build and install publish the same command implementation from `cmd/mcp-gateway` under both names. The repository directory and Go module remain `mcp-gateway`; no second composition root or implemented domain is introduced.
+`agent-gateway` is the recommended executable name; `mcp-gateway` remains a supported compatibility name. Build and install publish the same command implementation from `cmd/mcp-gateway` under both names. The repository directory and Go module remain `mcp-gateway`; no second composition root or additional protocol domain is introduced.
 
 Naming changes do not change installation selection or process locking, credential prefixes/verifiers, native-keyring service identifiers or generation framing, database/backup lineage, ports, API routes, MCP self-service names, or existing launchd/provisioning identities. No state migration, reinitialization, or replacement of an installed service is required. CLI help uses Agent Gateway branding; existing machine-readable representations and legacy recovery spellings remain compatible.
 

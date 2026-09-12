@@ -1,4 +1,4 @@
-# Agent Gateway (`mcp-gateway/`)
+# Agent Gateway
 
 Audience: Human maintainers and coding agents changing Agent Gateway
 
@@ -9,7 +9,7 @@ Purpose: Provide repository-local commands, package ownership, editing constrain
 Run commands from `mcp-gateway/` unless noted:
 
 ```bash
-make build                 # build agent-gateway and mcp-gateway from ./cmd/mcp-gateway
+make build                 # build both names from ./cmd/mcp-gateway
 make install               # install both names into GOPATH/bin
 make serve-demo            # build and serve an interactive isolated seeded Gateway
 make test                  # disjoint unit/integration/harness/material/demo aggregate
@@ -57,8 +57,6 @@ The demo supervisor retains unreaped direct-child identities while signalling ow
 Use [frontend development](docs/maintainers/frontend-development.md) for the two-process live-reload trust boundary. Use [release verification](docs/maintainers/release-verification.md) for evidence tiers, acceptance, external qualification, and report adoption. Do not use a full acceptance run as the first integration or debugging loop.
 
 Run `make verify` before committing Go changes. Run focused race-enabled tests for changed behavior; reserve complete count-one suites for their integration or release owner. Repeat only the dedicated named stress scenarios, never an entire package containing migration, retention, protocol, browser, or real-binary matrices.
-
-Both executable names are published from the existing `cmd/mcp-gateway` implementation; do not add another command/composition owner. `GATEWAY_BUILD_DIR` and `GATEWAY_INSTALL_DIR` select isolated output directories for build/install verification (defaults: current directory and GOPATH/bin). They do not select runtime state. Installation, keyring, service, and MCP identifiers deliberately retain legacy names. Verify upgrades only in disposable fixtures, never by replacing a live installation.
 
 ## Package layout
 

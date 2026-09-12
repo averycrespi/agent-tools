@@ -90,7 +90,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	require.NotEqual(t, -1, quickStart)
 	require.NotEqual(t, -1, commonWorkflows)
 	require.Less(t, quickStart, commonWorkflows)
-	for _, phrase := range []string{"make install", "mcp-gateway initialize", "mcp-gateway serve", "mcp-gateway status"} {
+	for _, phrase := range []string{"make install", "agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "compatible `mcp-gateway`"} {
 		require.Contains(t, readme, phrase)
 	}
 	for _, detailed := range []string{"XDG_DATA_HOME", "--admin-bearer-stdin", "--verify-current", "schema 10"} {
