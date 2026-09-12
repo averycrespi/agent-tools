@@ -224,11 +224,16 @@ export async function runAudit(
   await expect(
     page.getByText("Older events pruned", { exact: true }),
   ).toBeVisible();
-  const nav = await page
-    .locator(".sidebar a")
-    .evaluateAll((links) => links.map((a) => a.textContent));
-  if (nav.length > 0 && nav.indexOf("Audit") + 1 !== nav.indexOf("System"))
-    fail("Audit sidebar order changed");
+  const activity = page
+    .getByRole("navigation", { name: "Primary", exact: true })
+    .getByRole("group", { name: "Activity", exact: true });
+  await expect(activity.getByRole("link")).toHaveText([
+    "Agent activity",
+    "Administrative audit",
+  ]);
+  await expect(
+    activity.getByRole("link", { name: "Administrative audit", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
   const artifacts = await mkdtemp(join(tmpdir(), "gateway-audit-visual-"));
   const screenshots: string[] = [];
   const capture = async (name: string, width: number, fullPage = true) => {

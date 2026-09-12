@@ -33,7 +33,9 @@ Collections omit argument captures and return summary evidence only. `mcp-gatewa
 
 ## Filter browser history
 
-Tool, Principal, Decision and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Principal searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
+Open **Activity → Agent activity** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Existing `#/invocations` collection/detail bookmarks and valid filters still resolve. **Back to agent activity** retains the applied query; **Activity → Administrative audit** remains a separate history.
+
+Tool, Principal, Authorization and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Principal searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
 
 Text changes apply after a short typing pause; dropdowns and Clear filters apply immediately. Filters remain available for empty history and errors. Load older retrieves older matches under the same query; the count reports loaded matches, not the total retained history. Opening a detail and returning keeps the query and live preference but restarts at newest with a notice rather than silently restoring an unsafe older traversal.
 
