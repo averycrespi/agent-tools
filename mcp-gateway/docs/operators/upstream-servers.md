@@ -4,7 +4,7 @@ Audience: Gateway operators configuring upstream MCP servers
 
 Purpose: Configure servers, credentials, and OAuth without broadening trust.
 
-This guide owns operator procedures for server configuration, durable catalog inspection, write-only static credentials, OAuth authorization, and runtime operations. Generated help owns exact syntax:
+This guide owns Agent Gateway operator procedures for server configuration, durable catalog inspection, write-only static credentials, OAuth authorization, and runtime operations. Prefer `agent-gateway` for new commands; the `mcp-gateway` compatibility examples below accept the same commands and flags. Existing native-keyring identifiers and credential generations are unchanged; no credential migration is required. Generated help owns exact syntax:
 
 - `mcp-gateway server --help`
 - `mcp-gateway catalog --help`
@@ -26,9 +26,9 @@ Do not infer callability from a desired `enabled` value or a durable descriptor.
 Prepare one strict JSON document and create the server:
 
 ```bash
-mcp-gateway server create --file PATH
-mcp-gateway server list --limit 50
-mcp-gateway server get SERVER_ID
+agent-gateway server create --file PATH
+agent-gateway server list --limit 50
+agent-gateway server get SERVER_ID
 ```
 
 Server definitions are secret-free. They select a closed stdio or Streamable HTTP transport, protocol policy, and safe configuration. Put static credentials or OAuth client secrets only through the separate write-only credential command.

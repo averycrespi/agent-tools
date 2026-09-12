@@ -4,7 +4,7 @@ Audience: Gateway administrators managing agent access
 
 Purpose: Manage principals, credentials, grants, and grant requests.
 
-This guide owns operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Generated help owns exact syntax:
+This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Prefer `agent-gateway` for new commands; the `mcp-gateway` compatibility examples below accept the same commands and flags. Neither name changes credentials or the fixed `mcp_gateway.*` self-service tools. Generated help owns exact syntax:
 
 - `mcp-gateway principal --help`
 - `mcp-gateway grant --help`
@@ -23,9 +23,9 @@ Filters and sorting are included in the URL. Browser Back/Forward restores those
 List or inspect permanent principals before changing policy:
 
 ```bash
-mcp-gateway principal list
-mcp-gateway principal get PRINCIPAL_ID
-mcp-gateway principal create --display-name NAME --visibility VISIBILITY
+agent-gateway principal list
+agent-gateway principal get PRINCIPAL_ID
+agent-gateway principal create --display-name NAME --visibility VISIBILITY
 ```
 
 Creation requires a display name and one visibility mode:
@@ -75,12 +75,14 @@ Issue, rotate, revoke, and disable never replay automatically. On an uncertain r
 
 ## Provision a Pi agent in a Lima sandbox
 
+The script name, `~/.config/mcp-gateway/agent-token` transfer path, `mcp-gateway` shell-block markers, and `MCP_GATEWAY_*` exports deliberately remain unchanged. Existing provisioned sandboxes need no migration for Agent Gateway naming.
+
 Use the [Gateway provisioning script](../../examples/provision/configure-mcp-gateway.sh) to configure the Pi MCP Gateway extension in a Linux guest. It configures the client only; it does not install Gateway, change grants, issue credentials, or test network connectivity.
 
 On the host, start the initialized Gateway with the trusted forwarding hostname allowed:
 
 ```bash
-mcp-gateway serve --allowed-host host.lima.internal
+agent-gateway serve --allowed-host host.lima.internal
 ```
 
 The listener remains `127.0.0.1:8210`. Lima must provide the trusted host-forwarding path separately. HTTP does not provide confidentiality or server authentication; use this only for trusted local forwarding. See [forwarding trust boundaries](administration.md#trusted-local-forwarding-and-sandbox-administration). Agent provisioning does **not** require the sandbox administrator credential described there.

@@ -123,7 +123,7 @@ func TestCLIHelpTree(t *testing.T) {
 	require.NoError(t, err, "%s", root.Stderr)
 	assertSettledResult(t, root)
 	assert.Empty(t, root.Stderr)
-	for _, example := range []string{"mcp-gateway initialize", "mcp-gateway serve", "mcp-gateway status"} {
+	for _, example := range []string{"agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "mcp-gateway executable remains supported"} {
 		assert.Contains(t, string(root.Stdout), example)
 	}
 	assert.NotContains(t, string(root.Stdout), "Online Gateway control commands")

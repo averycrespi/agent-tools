@@ -4,18 +4,20 @@ Audience: Gateway operators and automation authors
 
 Purpose: Run local administration safely through the public CLI.
 
-Generated `mcp-gateway --help` and subcommand help are the canonical command and flag reference. This guide owns operator procedures for installation roots, administrator authentication, output modes, and safe command execution. See [Administrative control plane](../design/administrative-control-plane.md) for normative defaults and trust boundaries.
+Agent Gateway's `agent-gateway --help` and subcommand help are the canonical command and flag reference. Prefer `agent-gateway` for new commands. The `mcp-gateway` name remains fully supported: compatibility examples and recovery output below use that spelling, and the same commands and flags work with either name. This guide owns operator procedures for installation roots, administrator authentication, output modes, and safe command execution. See [Administrative control plane](../design/administrative-control-plane.md) for normative defaults and trust boundaries.
 
 ## Installation root
+
+`make install` installs both names from one implementation. Switching names does not create a new installation: keep the existing root, administrator bearer, database, backups, and native-keyring entries. Credential prefixes, keyring identifiers, ports, API routes, and `mcp_gateway.*` self-service tools are unchanged. Do not reinitialize or migrate state for the rename. Existing launchd plists and provisioning scripts remain usable; do not replace an installed service solely to change its name.
 
 `--data-dir` has highest precedence. Without it, Gateway uses `$XDG_DATA_HOME/mcp-gateway` when `XDG_DATA_HOME` is an absolute path. Otherwise it resolves the operating-system account home and uses `~/.local/share/mcp-gateway`. A relative XDG value is rejected, and the `$HOME` environment variable is not an authority source.
 
 Use the same data directory for initialization, service startup, stopped-process recovery, and online commands:
 
 ```bash
-mcp-gateway initialize --data-dir /path/to/gateway-data
-mcp-gateway serve --data-dir /path/to/gateway-data
-mcp-gateway --data-dir /path/to/gateway-data status
+agent-gateway initialize --data-dir /path/to/gateway-data
+agent-gateway serve --data-dir /path/to/gateway-data
+agent-gateway --data-dir /path/to/gateway-data status
 ```
 
 The zero-argument installation uses the default root and stores its administrator bearer at `<effective-data-dir>/admin-bearer`. `initialize` creates owner-only paths, never overwrites an existing secret output, and prints safe next steps without printing the bearer.
@@ -34,10 +36,10 @@ Exact syntax and defaults:
 The default service authority is `http://127.0.0.1:8210`:
 
 ```bash
-mcp-gateway initialize
-mcp-gateway serve
+agent-gateway initialize
+agent-gateway serve
 # In another terminal:
-mcp-gateway status
+agent-gateway status
 ```
 
 `serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts a canonical numeric `127/8` HTTP URL or an explicitly trusted hostname HTTP URL with a canonical decimal port (1–65535). Wildcard and non-loopback numeric destinations, URL userinfo, paths (including a trailing slash), queries, fragments, forwarding headers, redirects, ambient proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `mcp-gateway serve` command for the selected address and explicit data directory. A hostname refusal instead directs you to check forwarding and the numeric-loopback service; a hostname is never a valid `--listen` value.

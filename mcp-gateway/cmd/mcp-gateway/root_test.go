@@ -82,7 +82,7 @@ func TestCLIExecutionOptionsResolveOnce(t *testing.T) {
 func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	cmd := newRootCmd()
 
-	require.Equal(t, "mcp-gateway", cmd.Use)
+	require.Equal(t, "agent-gateway", cmd.Use)
 	require.Contains(t, cmd.Short, "deny-by-default")
 	for _, path := range [][]string{{"admin", "reset"}, {"initialize"}, {"restore"}, {"serve"}} {
 		command, _, err := cmd.Find(path)

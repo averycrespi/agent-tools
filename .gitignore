@@ -24,6 +24,8 @@ profile.cov
 # vendor/
 node_modules/
 /mcp-gateway/.demo-bin/
+/mcp-gateway/agent-gateway
+/mcp-gateway/mcp-gateway
 
 # Go workspace file
 go.work

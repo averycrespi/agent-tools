@@ -1,8 +1,8 @@
-# MCP Gateway Design
+# Agent Gateway Design
 
 ## Purpose
 
-MCP Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one durable audit transaction before one immediate attempt on a pinned downstream capability or fixed local handler. Gateway retains no durable call queue, replay state, successful result, or raw downstream error; narrowly bounded process-local authority and invocation-storage acquisition waits do not schedule downstream work.
+Agent Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one durable audit transaction before one immediate attempt on a pinned downstream capability or fixed local handler. Gateway retains no durable call queue, replay state, successful result, or raw downstream error; narrowly bounded process-local authority and invocation-storage acquisition waits do not schedule downstream work.
 
 This document is the normative architecture overview and index. The linked design chapters own detailed product behavior. The [documentation map](docs/README.md) routes readers to operator and maintainer procedures, while maintainer commands, package layout, and editing invariants belong to [`CLAUDE.md`](CLAUDE.md).
 
@@ -72,6 +72,10 @@ Dependencies flow from the command composition root into domain packages. Domain
 The official MCP SDK does not own Gateway authentication, protocol downgrade decisions, limits, or lifecycle. SQLite defaults are not trusted in place of explicit per-connection setup and verification. Keyring errors are not collapsed into absence.
 
 ## Operational composition and compatibility
+
+`agent-gateway` is the recommended executable name; `mcp-gateway` remains a supported compatibility name. Build and install publish the same command implementation from `cmd/mcp-gateway` under both names. The repository directory and Go module remain `mcp-gateway`; no second composition root or additional protocol domain is introduced.
+
+Naming changes do not change installation selection or process locking, credential prefixes/verifiers, native-keyring service identifiers or generation framing, database/backup lineage, ports, API routes, MCP self-service names, or existing launchd/provisioning identities. No state migration, reinitialization, or replacement of an installed service is required. CLI help uses Agent Gateway branding; existing machine-readable representations and legacy recovery spellings remain compatible.
 
 The executable exposes stopped-process initialization, administrator reset, current-generation verification, and verified backup replacement. The serving process provides the verified HTTP/control composition, embedded browser application, online CLI API, server reconciliation, and production MCP ingress.
 

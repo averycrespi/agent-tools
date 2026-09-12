@@ -102,7 +102,9 @@ func configureNamespaceCommand(command *cobra.Command) {
 }
 
 func namespaceUsageProblem(command *cobra.Command, title string) *controlclient.OnlineError {
-	return controlclient.NewInputError(title + " Usage: " + command.CommandPath() + " --help")
+	// Keep the legacy recovery spelling in problem output, independently of help branding.
+	path := "mcp-gateway" + strings.TrimPrefix(command.CommandPath(), command.Root().Name())
+	return controlclient.NewInputError(title + " Usage: " + path + " --help")
 }
 
 func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {

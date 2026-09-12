@@ -4,7 +4,7 @@ Audience: Operators investigating governed tool calls
 
 Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
-This guide owns operator procedures for read-only invocation inspection and the response to unknown outcomes. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `mcp-gateway invocation --help` owns exact syntax.
+This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Prefer `agent-gateway` for new commands; the `mcp-gateway` compatibility examples below accept the same commands and flags. Naming does not change invocation evidence or MCP behavior. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `mcp-gateway invocation --help` owns exact syntax.
 
 See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for principals, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
 
@@ -13,8 +13,8 @@ See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](
 Invocation resources are read-only. They do not expose mutation, replay, result retrieval, or an event stream.
 
 ```bash
-mcp-gateway invocation list --limit 50
-mcp-gateway invocation get INVOCATION_ID
+agent-gateway invocation list --limit 50
+agent-gateway invocation get INVOCATION_ID
 ```
 
 Lists are newest-first and support closed principal, server, requested-name, admission, decision, and outcome filters:

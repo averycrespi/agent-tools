@@ -1,6 +1,6 @@
-# mcp-gateway
+# Agent Gateway
 
-Audience: Human maintainers and coding agents changing MCP Gateway
+Audience: Human maintainers and coding agents changing Agent Gateway
 
 Purpose: Provide repository-local commands, package ownership, editing constraints, and verification requirements. This is not an operator runbook; use the [documentation map](docs/README.md) to find operator procedures and normative product design.
 
@@ -9,8 +9,8 @@ Purpose: Provide repository-local commands, package ownership, editing constrain
 Run commands from `mcp-gateway/` unless noted:
 
 ```bash
-make build                 # build ./cmd/mcp-gateway
-make install               # install the binary into GOPATH/bin
+make build                 # build both names from ./cmd/mcp-gateway
+make install               # install both names into GOPATH/bin
 make serve-demo            # build and serve an interactive isolated seeded Gateway
 make test                  # disjoint unit/integration/harness/material/demo aggregate
 make test-unit             # count-one dependency-light contract and algorithm tests

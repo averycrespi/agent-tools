@@ -10,7 +10,7 @@ My tools for working with AI coding agents: sandboxed execution and controlled e
 | --------------------------------------------- | ---------------------------------------------------- | --------------- |
 | [Sandbox Manager (`sb`)](#sandbox-manager-sb) | Manage a Lima VM for agent execution                 | macOS host      |
 | [MCP Broker](#mcp-broker)                     | Apply rules and per-call human approval to MCP tools | Host            |
-| [MCP Gateway](#mcp-gateway)                   | Give agents scoped access to MCP tools               | Host            |
+| [Agent Gateway](#agent-gateway)               | Give agents scoped access to MCP tools               | Host            |
 | [HTTP Broker](#http-broker)                   | Inject credentials into proxied HTTP/HTTPS requests  | Host            |
 | [Local Git MCP](#local-git-mcp)               | Perform authenticated Git remote operations over MCP | Host subprocess |
 
@@ -18,16 +18,16 @@ My tools for working with AI coding agents: sandboxed execution and controlled e
 
 These tools are independent, not a mandatory stack:
 
-- **Execution:** Sandbox Manager provides an optional Lima VM. The access tools do not require the Pi coding agent, and MCP Gateway does not depend on Lima or a particular agent harness.
-- **MCP access:** Choose MCP Broker or MCP Gateway based on the permission model below. Both connect agents to backend MCP servers.
+- **Execution:** Sandbox Manager provides an optional Lima VM. The access tools do not require the Pi coding agent, and Agent Gateway does not depend on Lima or a particular agent harness.
+- **MCP access:** Choose MCP Broker or Agent Gateway based on the permission model below. Both connect agents to backend MCP servers.
 - **Git access:** Run Local Git MCP as a stdio backend behind either Broker or Gateway, using that service's access controls and invocation history.
 - **Non-MCP traffic:** HTTP Broker handles ordinary HTTP/HTTPS clients. It complements MCP access rather than routing through it.
 
-### MCP Broker or MCP Gateway?
+### MCP Broker or Agent Gateway?
 
 Both keep upstream credentials outside the sandbox, but approval means different things:
 
-|                | MCP Broker                                                   | MCP Gateway                                                            |
+|                | MCP Broker                                                   | Agent Gateway                                                          |
 | -------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | Access model   | Rules allow, deny, or require human approval for a tool call | Per-agent grants scope access to servers, tools, or matching arguments |
 | Human approval | Resolves an individual waiting call                          | Grants permissions; does not approve a queued tool call                |
@@ -59,15 +59,19 @@ See the [Sandbox Manager README](sandbox-manager/README.md) for setup and usage.
 
 See the [MCP Broker README](mcp-broker/README.md) for setup and usage.
 
-### MCP Gateway
+<a id="mcp-gateway"></a>
 
-`mcp-gateway` provides a local MCP endpoint when you want separate agent identities and scoped permissions that agents can request through MCP.
+### Agent Gateway
+
+`agent-gateway` (also available as `mcp-gateway`) provides a local MCP endpoint when you want separate agent identities and scoped permissions that agents can request through MCP.
 
 - Denies access unless granted, with scopes for servers, tools, or matching arguments and optional expiry.
 - Manages upstream credentials and OAuth; agents receive a separate Gateway credential, not upstream service secrets.
 - Provides a web application and CLI for administration, with redacted invocation history and control-plane audit records.
 
-See the [MCP Gateway README](mcp-gateway/README.md) for setup and usage.
+Both names share one implementation and the existing installation; no state or service migration is required. The directory and Go module remain `mcp-gateway`.
+
+See the [Agent Gateway README](mcp-gateway/README.md) for setup and usage.
 
 ### HTTP Broker
 
@@ -87,7 +91,7 @@ See the [HTTP Broker README](http-broker/README.md) for setup and usage.
 
 - Supports pushing, pulling, fetching, cloning GitHub repositories, and inspecting remotes and remote refs.
 - Uses the host's existing Git, SSH keys, and credential helpers without copying those credentials into the sandbox.
-- Runs as a subprocess behind MCP Broker or MCP Gateway, with no separate config, persistent state, or network listener.
+- Runs as a subprocess behind MCP Broker or Agent Gateway, with no separate config, persistent state, or network listener.
 
 See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
 
@@ -97,7 +101,7 @@ Requirements:
 
 - Go 1.25.13 or later and GNU Make
 - macOS and Lima for Sandbox Manager (`brew bundle` installs Lima from the repository root)
-- A supported operating-system keyring for MCP Gateway server credentials
+- A supported operating-system keyring for Agent Gateway server credentials
 
 From the repository root, run the install command for the tools you need:
 

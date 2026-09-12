@@ -226,7 +226,8 @@ func helpChildren(help string) []string {
 
 func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, index int) []string {
 	t.Helper()
-	fields := strings.Fields(strings.TrimPrefix(leaf.example, "mcp-gateway "))
+	require.True(t, strings.HasPrefix(leaf.example, "agent-gateway "), "expected branded help example for %v", leaf.path)
+	fields := strings.Fields(strings.TrimPrefix(leaf.example, "agent-gateway "))
 	name := strings.Join(leaf.path, " ")
 	args := make([]string, 0, len(fields)+6)
 	optional := false

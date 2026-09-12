@@ -4,7 +4,7 @@ Audience: Operators responsible for Gateway recovery
 
 Purpose: Create backups and perform restore or stopped-process recovery safely.
 
-This guide owns operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
+This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. Prefer `agent-gateway` for new commands; the `mcp-gateway` compatibility examples below accept the same commands and flags. Both names share the existing process lock, installation identity, database and backup lineage. Switching names is not a restore or migration and does not bypass a running owner. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
 
 - `mcp-gateway backup --help`
 - `mcp-gateway restore --help`
@@ -17,10 +17,10 @@ Gateway must be stopped for `restore`, `restore --verify-current`, and `admin re
 Create and inspect owner-only backup generations through the authenticated public control API:
 
 ```bash
-mcp-gateway backup create
-mcp-gateway backup list
-mcp-gateway backup get BACKUP_ID
-mcp-gateway backup delete BACKUP_ID --yes
+agent-gateway backup create
+agent-gateway backup list
+agent-gateway backup get BACKUP_ID
+agent-gateway backup delete BACKUP_ID --yes
 ```
 
 Backup creation uses SQLite's online backup facility, integrity-checks the staged database, records installation, schema, source-revision, size, and SHA-256 metadata, then publishes atomically. A backup contains safe durable Gateway state but no raw administrator bearer, agent bearer, keyring value, browser session, MCP session, runtime handle, or in-flight work.

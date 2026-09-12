@@ -10,6 +10,10 @@ This guide owns the purpose-based verification DAG, clean-revision acceptance, r
 
 See [maintainer and agent guidance](../../CLAUDE.md) for package ownership and editing invariants, the [DESIGN overview](../../DESIGN.md) for normative security and compatibility boundaries, and [frontend development](frontend-development.md) for the separate live-reload and production-asset workflows.
 
+## Isolated executable naming checks
+
+Build/install publishes both `agent-gateway` and compatible `mcp-gateway` from the sole `cmd/mcp-gateway` implementation; do not add a second command/composition owner. `GATEWAY_BUILD_DIR` and `GATEWAY_INSTALL_DIR` select isolated output directories (defaults: current directory and GOPATH/bin), not runtime state. Use disposable destinations to check both names, never a live installation. The E2E executable-name fixture exercises the real Make targets with the existing deterministic provider seam, including help/completions, shared installation and cross-name locking. Ordinary production builds remain native-provider builds. Installation, keyring, service and MCP identifiers retain legacy names; fixture evidence does not qualify native access.
+
 ## Purpose-based verification DAG
 
 The public verification interface is organized by evidence purpose:

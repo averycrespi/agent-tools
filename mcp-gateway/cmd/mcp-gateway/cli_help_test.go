@@ -19,9 +19,12 @@ import (
 
 func TestCLIHelpTree(t *testing.T) {
 	root := newRootCmd()
-	assert.Contains(t, root.Example, "mcp-gateway initialize")
-	assert.Contains(t, root.Example, "mcp-gateway serve")
-	assert.Contains(t, root.Example, "mcp-gateway status")
+	assert.Equal(t, "agent-gateway", root.Name())
+	assert.Contains(t, root.Long, "Agent Gateway")
+	assert.Contains(t, root.Long, "mcp-gateway executable remains supported")
+	assert.Contains(t, root.Example, "agent-gateway initialize")
+	assert.Contains(t, root.Example, "agent-gateway serve")
+	assert.Contains(t, root.Example, "agent-gateway status")
 	initialize, _, err := root.Find([]string{"initialize"})
 	require.NoError(t, err)
 	reset, _, err := root.Find([]string{"admin", "reset"})
@@ -38,6 +41,7 @@ func TestCLIHelpTree(t *testing.T) {
 	var walk func(*cobra.Command)
 	walk = func(command *cobra.Command) {
 		assert.NotEmpty(t, command.Short, command.CommandPath())
+		assert.NotContains(t, command.Example, "mcp-gateway ", command.CommandPath())
 		assert.NotContains(t, command.Short, "Online Gateway control commands", command.CommandPath())
 		assert.NotContains(t, command.Short, "Operate the local Gateway through its public control API", command.CommandPath())
 		output := new(bytes.Buffer)
@@ -52,7 +56,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:14c6fd5fba0fd277a283737768baa4b90dd09c0b4aa2ec35586ada21d9126bb7", digest)
+	assert.Equal(t, "sha256:29e2c7d6e70346f26464f25e19c2982f646b42db152fb8eee3239b32f7befa07", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -100,8 +104,9 @@ func testDocumentationCommandHelpProjection(t *testing.T) {
 		command, remaining, err := root.Find(strings.Fields(family.CommandPath))
 		require.NoError(t, err, family.ID)
 		assert.Empty(t, remaining, family.ID)
-		assert.Equal(t, "mcp-gateway "+family.CommandPath, command.CommandPath(), family.ID)
-		assert.Equal(t, command.CommandPath()+" --help", family.HelpInvocation, family.ID)
+		assert.Equal(t, "agent-gateway "+family.CommandPath, command.CommandPath(), family.ID)
+		// The manifest retains supported legacy invocations, not a second grammar.
+		assert.Equal(t, "mcp-gateway "+family.CommandPath+" --help", family.HelpInvocation, family.ID)
 		output := new(bytes.Buffer)
 		command.SetOut(output)
 		require.NoError(t, command.Help(), family.ID)
