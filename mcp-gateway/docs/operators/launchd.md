@@ -1,8 +1,20 @@
-# Run Gateway as a launchd agent (macOS)
+# Run Agent Gateway as a launchd agent (macOS)
 
 Audience: Gateway operators using a logged-in macOS desktop
 
 Purpose: Install, verify, and manage a per-user LaunchAgent with the [example plist](../../examples/launchd/mcp-gateway.plist). This supervises the foreground `mcp-gateway serve` process; it is not a system LaunchDaemon or an unattended credential-access solution.
+
+## Executable naming compatibility
+
+`make install` provides both `agent-gateway` (recommended for new commands) and `mcp-gateway` from the same implementation. Existing plists, the installer default, service label, log paths, data root, and native-keyring identifiers deliberately retain `mcp-gateway`. Do not replace an installed service or initialize another root solely for branding. The legacy executable continues working after an ordinary stopped binary upgrade.
+
+For a **new** LaunchAgent, select the recommended name explicitly:
+
+```bash
+./scripts/install-launchd-agent.sh --binary "$(go env GOPATH)/bin/agent-gateway"
+```
+
+Follow the prerequisites and stop/verification procedures below before installation. Compatibility commands below retain `mcp-gateway`; either name accepts the same CLI grammar. Custom build/install destinations require an explicit absolute `--binary` path. Native keyring permission prompts can depend on the selected executable; attend and verify expected prompts rather than changing credential identifiers or granting blanket access.
 
 ## GUI session and credentials
 
@@ -25,7 +37,7 @@ make install
 **New installation only:** after confirming the default root is fresh and unused:
 
 ```bash
-"$(go env GOPATH)/bin/mcp-gateway" initialize
+"$(go env GOPATH)/bin/agent-gateway" initialize
 ```
 
 Stop on any error. Initialization creates owner-only state and `<data-dir>/admin-bearer` without printing the bearer. If it fails or is interrupted, use [administration](administration.md#installation-root) and [recovery](backup-and-recovery.md), not repeated initialization or deletion of existing state.
@@ -37,7 +49,7 @@ Install the plist and load it:
   launchctl bootstrap "gui/$(id -u)" \
     "$HOME/Library/LaunchAgents/dev.agent-tools.mcp-gateway.plist"
 
-"$(go env GOPATH)/bin/mcp-gateway" status
+"$(go env GOPATH)/bin/agent-gateway" status
 ```
 
 The short commands assume your normal account `HOME` and unchanged `XDG_DATA_HOME`. The installer uses the **OS-account home**, not the `HOME` environment variable. It prints exact load and authenticated verification commands; use those if your shell overrides `HOME` or if you selected custom paths. A successful bootstrap alone is not a readiness check; continue with [verification](#verify).

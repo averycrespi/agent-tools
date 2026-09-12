@@ -1,4 +1,4 @@
-# MCP Gateway documentation
+# Agent Gateway documentation
 
 Choose documentation by the work you are doing. The same product and security contracts apply whether the reader is a human maintainer or a coding agent.
 
@@ -13,7 +13,7 @@ Start with the [Gateway README](../README.md) for installation and the quick sta
 - [Invocation evidence](operators/invocation-evidence.md) — retained evidence, redaction, and unknown outcomes.
 - [Backup and recovery](operators/backup-and-recovery.md) — backups, verification, restore, and administrator reset.
 
-Generated `mcp-gateway --help` and subcommand help are the exact command and flag reference. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
+Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. The compatible `mcp-gateway` name accepts the same grammar; legacy examples and recovery output remain valid. Prefer `agent-gateway` for new commands, without changing existing installation or service identities. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
 
 ## Change Gateway
 
@@ -37,7 +37,7 @@ Authority is divided deliberately:
 | Operator procedure and interpretation            | [`operators/`](operators/)                                |
 | Intended product behavior                        | [`DESIGN.md`](../DESIGN.md) and [`design/`](design/)      |
 | Exact routes, values, and closed wire vocabulary | `internal/contract`                                       |
-| Exact CLI syntax                                 | Generated `mcp-gateway --help`                            |
+| Exact CLI syntax                                 | Generated `agent-gateway --help`                          |
 | Repository editing constraints                   | [`AGENTS.md`](../AGENTS.md) / [`CLAUDE.md`](../CLAUDE.md) |
 | Development and release procedure                | [`maintainers/`](maintainers/)                            |
 

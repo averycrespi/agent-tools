@@ -50,8 +50,8 @@ func newRootCmd() *cobra.Command {
 
 func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{
-		Use:           "mcp-gateway",
-		Short:         "Run and administer the local deny-by-default MCP Gateway",
+		Use:           "agent-gateway",
+		Short:         "Run and administer the local deny-by-default Agent Gateway",
 		Example:       "  mcp-gateway initialize\n  mcp-gateway serve\n  mcp-gateway status",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -69,7 +69,18 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		}
 		command.AddCommand(online)
 	}
+	brandCommandHelp(command)
+	command.Long = command.Short + ".\n\nUse agent-gateway for new commands. The mcp-gateway executable remains supported,\nwith the same commands, installation, credentials, and process lock.\nLegacy names in machine-readable output and recovery guidance are retained."
 	return command
+}
+
+// Only help presentation changes; problem and result strings remain compatible.
+func brandCommandHelp(command *cobra.Command) {
+	command.Example = strings.ReplaceAll(command.Example, "mcp-gateway ", "agent-gateway ")
+	command.Long = strings.ReplaceAll(command.Long, "mcp-gateway ", "agent-gateway ")
+	for _, child := range command.Commands() {
+		brandCommandHelp(child)
+	}
 }
 
 func newServeCmd(dependencies offlineDependencies) *cobra.Command {

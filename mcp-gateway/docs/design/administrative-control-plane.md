@@ -221,6 +221,8 @@ The remaining browser projections apply those same owners to principal/credentia
 
 ### Installation and stopped commands
 
+Agent Gateway publishes `agent-gateway` and the compatible `mcp-gateway` executable from one command implementation. Both names resolve the same installation and exclusive process lock; neither uses its executable basename as disk or credential identity. Help recommends `agent-gateway`, while machine-readable results/problems and legacy recovery command spellings remain unchanged. Existing launchd and provisioning identities remain usable without state migration or service replacement.
+
 The executable resolves one installation root without mutation: explicit `--data-dir`, otherwise absolute `$XDG_DATA_HOME/mcp-gateway`, otherwise the operating-system account home at `~/.local/share/mcp-gateway`; relative XDG input fails and `$HOME` is not trusted as an account-home source. Zero-argument `initialize` securely prepares that root and publishes a fresh `0600` bearer at `<root>/admin-bearer` before activating authority; zero-argument `serve` uses the same root and `127.0.0.1:8210`. Initialization never overwrites. Stopped `admin reset` and backup restore require a fresh explicit `--secret-output`, do not replace the default bearer file, and direct subsequent online recovery to select that new file; `restore --verify-current` forbids replacement output. Administrator grammar is only `admin credential ...` and `admin reset`; the former hyphenated spellings have no aliases or compatibility path.
 
 ### Online transport and output

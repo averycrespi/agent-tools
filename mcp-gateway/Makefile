@@ -2,6 +2,8 @@ STRESS_COUNT ?= 20
 DEMO_LISTEN ?= 127.0.0.1:8211
 DEMO_DATASET ?= curated
 TEST_JSON ?= 0
+GATEWAY_BUILD_DIR ?= .
+GATEWAY_INSTALL_DIR ?= $(shell go env GOPATH)/bin
 
 ifneq ($(TEST_JSON),0)
 ifneq ($(TEST_JSON),1)
@@ -29,15 +31,18 @@ help:
 		'serve-demo [DEMO_DATASET=curated|empty] [DEMO_LISTEN=127.0.0.1:8211]' \
 		'build | install | lint | fmt | tidy | verify | audit'
 
+# Both names are the same command, not separate composition roots.
 build:
-	go build -o mcp-gateway ./cmd/mcp-gateway
+	go build -o "$(GATEWAY_BUILD_DIR)/agent-gateway" ./cmd/mcp-gateway
+	cp "$(GATEWAY_BUILD_DIR)/agent-gateway" "$(GATEWAY_BUILD_DIR)/mcp-gateway"
 
 export DEMO_LISTEN DEMO_DATASET
 serve-demo:
 	./scripts/serve-demo.sh --listen "$$DEMO_LISTEN" --dataset "$$DEMO_DATASET"
 
 install:
-	GOBIN=$(shell go env GOPATH)/bin go install ./cmd/mcp-gateway
+	GOBIN="$(GATEWAY_INSTALL_DIR)" go install ./cmd/mcp-gateway
+	cp "$(GATEWAY_INSTALL_DIR)/mcp-gateway" "$(GATEWAY_INSTALL_DIR)/agent-gateway"
 
 test: test-unit test-integration test-harness test-material test-serve-demo
 

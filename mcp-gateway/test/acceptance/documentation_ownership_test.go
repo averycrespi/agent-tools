@@ -91,7 +91,7 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	for _, heading := range []string{"## Installation", "## Quick start", "## Common workflows", "## Security", "## Documentation", "## Development"} {
 		assert.Contains(t, readme, heading)
 	}
-	for _, command := range []string{"make install", "mcp-gateway initialize", "mcp-gateway serve", "mcp-gateway status"} {
+	for _, command := range []string{"make install", "agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "compatible `mcp-gateway`"} {
 		assert.Contains(t, readme, command)
 	}
 	for _, guide := range contract.DocumentationGuideManifest() {
@@ -105,11 +105,11 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	rootReadmeBytes, err := os.ReadFile(filepath.Join(filepath.Dir(root), "README.md"))
 	require.NoError(t, err)
 	rootReadme := string(rootReadmeBytes)
-	start := strings.Index(rootReadme, "### MCP Gateway")
+	start := strings.Index(rootReadme, "### Agent Gateway")
 	require.NotEqual(t, -1, start)
-	end := strings.Index(rootReadme[start+len("### MCP Gateway"):], "\n### ")
+	end := strings.Index(rootReadme[start+len("### Agent Gateway"):], "\n### ")
 	require.NotEqual(t, -1, end)
-	gatewayOverview := rootReadme[start : start+len("### MCP Gateway")+end]
+	gatewayOverview := rootReadme[start : start+len("### Agent Gateway")+end]
 	assert.Less(t, len(gatewayOverview), 1800)
 	assert.NotContains(t, gatewayOverview, "being built")
 	assert.NotRegexp(t, regexp.MustCompile(`\bS[1-6]\b`), gatewayOverview)
@@ -136,7 +136,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	}
 	recovery := read("docs/operators/backup-and-recovery.md")
 	for _, phrase := range []string{
-		"mcp-gateway backup create", "mcp-gateway restore --verify-current", "mcp-gateway restore BACKUP_ID",
+		"agent-gateway backup create", "mcp-gateway restore --verify-current", "mcp-gateway restore BACKUP_ID",
 		"mcp-gateway admin reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
 		"invalidates every restored agent credential", "does not rewrite the default `admin-bearer`", "Failed commands leave stdout empty",
 	} {
@@ -168,7 +168,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 		"product.server_catalog.one_time_oauth_url":         "one-time authorization URL",
 		"product.server_catalog.active_vs_durable_catalog":  "evidence, not a callability claim",
 		"product.server_catalog.deletion_and_disconnect":    "Deletion is permanent",
-		"product.access_policy.principal_inventory":         "mcp-gateway principal list",
+		"product.access_policy.principal_inventory":         "agent-gateway principal list",
 		"product.access_policy.principal_creation_defaults": "synthetic default grant",
 		"product.access_policy.agent_credential_rotation":   "old bearer never overlaps",
 		"product.access_policy.immutable_grants":            "Grants are immutable",
