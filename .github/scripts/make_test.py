@@ -17,7 +17,7 @@ from ci import inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = inventory(ROOT)["tools"]
-OTHERS = [tool for tool in TOOLS if tool != "mcp-gateway"]
+OTHERS = [tool for tool in TOOLS if tool != "agent-gateway"]
 WORKER = '''import json, os, socket, sys, time
 from pathlib import Path
 root = Path(__file__).parent
@@ -69,7 +69,7 @@ class RootMakeTests(unittest.TestCase):
                                        env={**os.environ, "LC_ALL": "C", "ROOT_TEST_CONTROL": str(listener.getsockname()[1])},
                                        start_new_session=True)
             try:
-                initial = [("mcp-gateway", "test")] if target == "test" else [(tool, "lint") for tool in OTHERS]
+                initial = [("agent-gateway", "test")] if target == "test" else [(tool, "lint") for tool in OTHERS]
                 for tool, goal in initial:
                     connection, record = self.accept(listener)
                     self.assertEqual((record["tool"], record["goal"]), (tool, goal))
@@ -125,10 +125,10 @@ class RootMakeTests(unittest.TestCase):
         for record in tests:
             concurrent = [other for other in tests if other["started"] <= record["started"] < other["ended"]]
             self.assertLessEqual(len(concurrent), jobs)
-            if record["tool"] == "mcp-gateway":
+            if record["tool"] == "agent-gateway":
                 self.assertEqual(len(concurrent), 1)
             else:
-                self.assertFalse(any(other["tool"] == "mcp-gateway" for other in concurrent))
+                self.assertFalse(any(other["tool"] == "agent-gateway" for other in concurrent))
         for record in records:
             if record["goal"] == "lint":
                 self.assertFalse(any(other is not record and other["started"] <= record["started"] < other["ended"] for other in records))

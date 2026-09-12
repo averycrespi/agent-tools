@@ -1,0 +1,152 @@
+# Release verification and acceptance evidence
+
+Audience: Release owners and maintainers preparing release evidence
+
+Purpose: Prepare, run, and adopt exact-revision acceptance evidence without turning release acceptance into a development loop.
+
+Authority: Normative maintainer evidence procedure
+
+This guide owns the purpose-based verification DAG, clean-revision acceptance, report adoption, native and external evidence classification, and failure discipline. The Makefile and generated help are authoritative for available target definitions; this guide explains ownership and composition. Freezing a candidate, completing external qualification, and adopting a report are release-owner actions; coding agents should perform them only when the requested workflow authorizes those externally consequential steps.
+
+See [maintainer and agent guidance](../../CLAUDE.md) for package ownership and editing invariants, the [DESIGN overview](../../DESIGN.md) for normative security and compatibility boundaries, and [frontend development](frontend-development.md) for the separate live-reload and production-asset workflows.
+
+## Developer source and tooling cutover
+
+The source directory, Go module/import prefix, sole command source, CI tool/cache identity, and developer artifact prefix are now `agent-gateway`. There is no old-directory shim or old-module forwarding layer.
+
+| Previous developer interface                                                       | Replacement                                                                                                                                                    |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make -C mcp-gateway <target>`                                                     | `make -C agent-gateway <target>`                                                                                                                               |
+| `go -C mcp-gateway ...`                                                            | `go -C agent-gateway ...`                                                                                                                                      |
+| `github.com/averycrespi/agent-tools/mcp-gateway` imports                           | `github.com/averycrespi/agent-tools/agent-gateway`                                                                                                             |
+| `go install github.com/averycrespi/agent-tools/mcp-gateway/cmd/mcp-gateway@latest` | `go install github.com/averycrespi/agent-tools/agent-gateway/cmd/agent-gateway@latest` (one name); use checkout `make -C agent-gateway install` for both names |
+| `examples/launchd/mcp-gateway.plist`                                               | `agent-gateway/examples/launchd/agent-gateway.plist` from the repository root                                                                                  |
+| `MCP_GATEWAY_UI_LISTEN`, `MCP_GATEWAY_UI_GATEWAY`                                  | `AGENT_GATEWAY_UI_LISTEN`, `AGENT_GATEWAY_UI_GATEWAY`                                                                                                          |
+| `STRESS_COUNT`, `TEST_JSON`                                                        | `AGENT_GATEWAY_STRESS_COUNT`, `AGENT_GATEWAY_TEST_JSON`                                                                                                        |
+| `DEMO_LISTEN`, `DEMO_DATASET`                                                      | `AGENT_GATEWAY_DEMO_LISTEN`, `AGENT_GATEWAY_DEMO_DATASET`                                                                                                      |
+| `GATEWAY_BUILD_DIR`, `GATEWAY_INSTALL_DIR`                                         | `AGENT_GATEWAY_BUILD_DIR`, `AGENT_GATEWAY_INSTALL_DIR`                                                                                                         |
+| Other private `MCP_GATEWAY_*` test controls                                        | Corresponding `AGENT_GATEWAY_*` names                                                                                                                          |
+
+Retired controls are not aliases. Remove them from shell startup files, CI environment, and Make command lines; merely adding the new name does not resolve the diagnostic. Empty retired values also fail. Diagnostics name the setting and replacement, never its value. Native-keyring consent (`AGENT_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN`) still requires a disposable account; renaming it does not authorize native access. Private demo, launchd/restart and MCP fallback fixture controls also use the `AGENT_GATEWAY_` prefix. Neutral target arguments `REPORT` and `ADOPTION`, and neutral script names such as `serve-demo.sh` and `install-launchd-agent.sh`, are unchanged.
+
+Intentional remaining legacy names are installed executables and state paths, process locks, keyring service identifiers, credentials, database/backup lineage, installed launchd label/plist/log paths, and compatible CLI recovery/help examples. MCP client/server identities (including the fixed `mcp-gateway` client name), credential hash domains, cursor MAC domains, schema-validation identifiers, public cookies and self-service names remain compatibility contracts. The provisioning script remains `configure-mcp-gateway.sh`, with unchanged shell markers and token path. It still exports **`MCP_GATEWAY_ENDPOINT` and `MCP_GATEWAY_AGENT_TOKEN`**, including reading the current token file at shell startup. These two exports are not retired developer controls; removal requires separate coordination with the agent-config Pi extension. Do not migrate installed state or edit that external repository for this cutover.
+
+Temporary test roots, native disposable fixture artifacts, frontend caches, and release schema identifiers use the new product prefix. Historical acceptance reports remain untouched and definition-bound; regenerate candidate evidence rather than rewriting or adopting an old report as current.
+
+## Isolated executable naming checks
+
+Build/install publishes both `agent-gateway` and compatible `mcp-gateway` from the sole `cmd/agent-gateway` implementation; do not add a second command/composition owner. `AGENT_GATEWAY_BUILD_DIR` and `AGENT_GATEWAY_INSTALL_DIR` select isolated output directories (defaults: current directory and GOPATH/bin), not runtime state. Use disposable destinations to check both names, never a live installation. The E2E executable-name fixture exercises the real Make targets with the existing deterministic provider seam, including help/completions, shared installation and cross-name locking. Ordinary production builds remain native-provider builds. Installation, keyring, service and MCP identifiers retain legacy names; fixture evidence does not qualify native access.
+
+## Purpose-based verification DAG
+
+The public verification interface is organized by evidence purpose:
+
+- `test-unit` owns race-enabled dependency-light contract, parser, discovery, credential-authority, event, and lifecycle tests at count one, without initializing SQLite or launching Gateway processes.
+- `test-integration` owns component, real SQLite/filesystem, and compatibility boundaries at count one, including both ordinary and integration-tagged component tests in one execution.
+- `test-harness` owns runner, fixture, report, selector, and native-classifier self-tests at count one. These are not product E2E or native-provider evidence.
+- `test-material` owns deterministic credential-material composition at count one.
+- `test-serve-demo` owns real-process curated/empty public outcomes, post-readiness calls, privacy, failures, and disposable Go runner cleanup. CI executes this owner on both Linux and macOS to cover their non-reaping process-exit observers.
+- `test-e2e` owns nonbrowser real-binary and E2E-tagged composition-provider behavior at count one, excluding harness self-tests.
+- `test-security` owns source, secret-sink, durable-artifact, and privacy evidence at count one.
+- `test-stress` repeats only the five named stress scenarios at its configured repeat count.
+- `test-keyring-native` owns deterministic material checks plus typed native-provider evidence.
+- Browser workflow, privacy, visual, accessibility, and cross-browser leaves each have one owner; `test-browser` is their developer-facing aggregate.
+- Frontend typecheck, deterministic generated assets, supply-chain guards, and vulnerability audit remain separate explicit owners.
+
+`test` aggregates `test-unit`, `test-integration`, `test-harness`, `test-material`, and `test-serve-demo`. It is a developer convenience, not a release leaf. `test-browser` is also an aggregate: it expands all five browser leaves through one inventory/planner invocation, retaining separate race/count-one Go test commands, per-leaf deadlines, Gateway builds, and cleanup. Final acceptance selects the harness and demo leaves directly; material executes only inside its native wrapper, never a second time as a direct final leaf.
+
+`accept` invokes disjoint leaves directly and never invokes `test`, `test-browser`, `audit`, or another aggregate that would repeat evidence. The complete nonbrowser E2E suite runs once. Only the five named stress scenarios repeat; migration, retention, protocol, browser, and real-binary matrices remain count one. Transitive ownership keeps generated-asset verification from running under multiple names.
+
+Run `make help` for exact target spelling and required variables. `make suite-inventory` emits source/package/name ownership with build tags and platform applicability. From `agent-gateway/`, `go run ./test/acceptance/cmd suite-plan <owner>` emits the checked executable plan; `suite-plan test-browser` shows the aggregate's five disjoint leaf commands. Source/package ownership and Go build constraints generate exact selectors; Make, CI, and acceptance use that single planner rather than handwritten test-name registries. It rejects unknown/conflicting tags, missing owners, empty leaves, and omitted or duplicate/foreign selection. Platform-inapplicable identities remain visible rather than disappearing. Runnable examples and fuzz seeds are included. Do not preserve removed aliases in scripts; update CI to the purpose-based owner.
+
+For machine-readable timing, `run-suite <owner> --json` emits Go test events on stdout while diagnostics remain on stderr. `AGENT_GATEWAY_TEST_JSON=1` enables that mode for planned Make commands, including the browser aggregate. Make banners and non-Go wrappers are not JSON events. The same selectors, count-one/race flags, deadlines, four-MiB per-stream output bound, and cleanup apply; a truncated or undeliverable event stream fails. Test processes are race-instrumented; the spawned Gateway binary remains the default non-race `e2e` build unless build flags explicitly request instrumentation. Record both facts in timing evidence. JSON events describe executed tests; an inventory/plan alone is not execution evidence.
+
+Go's `-timeout` bounds each package's test binary, not cold compilation or all packages in a command. Suite execution preserves that per-binary limit and the caller's cancellation/deadline; the shared process supervisor independently bounds each complete command at 19 minutes (or the caller's earlier deadline). Do not derive a whole-command deadline from one package's timeout: package scheduling and cold setup can exhaust it while every individual test binary remains within its limit. Release-profile and CI-job bounds still apply.
+
+## CI mapping
+
+| CI intent                 | Owners                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Fast source feedback      | formatting, nonmutating Gateway verification, frontend typecheck                                                |
+| Ordinary correctness      | `test-unit`, `test-integration`, `test-harness`, and `test-material`                                            |
+| Runtime compatibility     | complete `test-e2e`                                                                                             |
+| Browser behavior          | disjoint workflow, privacy, visual, accessibility, and cross-browser leaves                                     |
+| Security and supply chain | `test-security`, direct Go vulnerability scan, frontend supply-chain verification, frontend vulnerability audit |
+| Scheduling sensitivity    | `test-stress` only; never repeat unrelated packages                                                             |
+| Platform capability       | `test-keyring-native` with explicit typed classification                                                        |
+| Release candidate         | external qualification followed by one clean `accept` run                                                       |
+
+Repository CI runs Gateway lint independently of its unit, integration, harness/material, E2E, and demo-runner leaves when Gateway is affected; all selected jobs remain mandatory in Required. Tool/role-owned compatible Go caches use fresh run/attempt save keys so newly filled dependency, build, and linter material can be retained. Cache reuse is setup optimization, not exact-revision evidence; `main`, manual, and scheduled runs select every tool. The stable required gate and conservative path-selection policy are described in the [repository CI guide](../../../CLAUDE.md#ci). The Gateway E2E job first warms the exact `e2e` command build cache under a separate five-minute setup bound, so cold module downloads and compilation do not consume the harness's 30-second per-process build budget. The harness still builds and owns its disposable binary; no prebuilt artifact is injected and no runtime or test deadline is relaxed. The demo job likewise prepares the exact read-only `e2e` Gateway build under a separate five-minute bound before its lifecycle owner. Its enclosing job allows 25 minutes: the existing 20-minute allowance plus five for preparation. This is required even on a cache miss (including renamed cache identities): cold compilation must not consume the first demo's 75-second readiness assertion. Preparation populates build material only; the demo still builds and owns its disposable binary, and runtime deadlines, cleanup and count-one scenario ownership are unchanged. This development profile does not replace browser, native, security, or other final-acceptance owners.
+
+Pull requests may run individual leaves in separate jobs, but the final acceptance profile remains the authority for exact multiplicity and report composition. Do not wrap leaf jobs in an aggregate that causes the same package or browser workflow to execute twice.
+
+Root `test` runs Gateway alone, then a bounded two-tool ordinary-test phase for the remaining modules (`LOCAL_TEST_JOBS=1` selects serial comparison). Gateway's close-and-rebind harness ports must not overlap other modules' listeners. Root linters and integration/E2E aggregates remain serial; `check-other-tools` finishes serial lint before its bounded test phase. Failures stop new workers while active workers drain their own cleanup. The non-Gateway integration selectors use checked package ownership and `TestIntegration*` names instead of reselecting ordinary tests.
+
+The root repository aggregate deliberately excludes Gateway acceptance. The Gateway `accept` profile includes `make check-other-tools` once as its disjoint `repository-other-tools` leaf; do not wrap `accept` in another aggregate or run that leaf separately as part of the same evidence set.
+
+## Harness safety invariants
+
+Shared tests use mutex-safe fake time and finite deterministic entropy, real owner-only `0700` temporary data roots with symlink/type/owner/mode validation, and a streaming canary scanner that detects cross-buffer leaks without returning the canary in errors.
+
+The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, owns an identity-revalidated process group, applies bounded TERM/KILL/reap cleanup when its context expires, and can signal a bounded started process for lifecycle tests. The single E2E harness and acceptance executor inherit that ownership through an outer cleanup ledger and fail on surviving processes, listeners, or temporary roots. Nested suite executors clean their owned command groups but leave the inherited ledger to the outer acceptance owner; cleaning that ledger inside a leaf would terminate its still-live parent. Component-specific fault hooks, protocol fixtures, and barriers remain with their owning packages.
+
+The retention E2E owner seeds the real 65,536-row boundary with one set-based transaction, then exercises real Gateway startup, one call, eviction, backup, events, shutdown, and private-artifact scanning. Its stopped artifact observation uses a read-only connection and the existing 65,537-row overflow bound rather than reconstructing storage authority a second time. Artifact observation is not startup/integrity evidence: production initialization, startup validation, and the dedicated integrity/migration/fault owners remain unchanged.
+
+`TestServeFirstSignalDeadlineRetainsUncleanMarker` owns the real compiled graceful-shutdown deadline, exit 7, listener closure, verified process cleanup, unclean marker, and recovery. `TestCLIServePostStartFailureOutput` in the CLI package owns human/JSON terminal-problem formatting and singular acknowledgement without waiting through that deadline again. `TestCLIServeOutputLifecycle` retains real-binary human/JSON startup and pre-start failure output; separate E2E owners retain second-signal forcing, active transport cancellation, and late-completion fencing.
+
+## Freeze the candidate
+
+Before producing release evidence:
+
+1. Finish focused repairs and integration checks.
+2. Commit every tracked definition and behavior change.
+3. Require a clean worktree and record the candidate revision.
+4. Freeze Make, npm, runner, profile, manifest, schema, and executable definitions.
+5. Prepare candidate-bound external evidence.
+6. Run `make qualify-external-evidence`, then run `make accept REPORT=/absolute/path/report.json` once.
+
+The report records the exact clean revision, command and profile hashes, immutable definition inputs, command timings, timeout/termination facts, artifacts, and cleanup results. Any tracked change after evidence preparation creates a new candidate and invalidates candidate-bound evidence.
+
+## Native and external evidence
+
+The native wrapper checks self-test mode before selecting real material, and destructive-isolation eligibility before selecting native-provider tests. Forced classifier self-tests never launch those suites. Real wrapper execution runs `test-material` once, then selects only native-tagged executable identities rather than reselecting ordinary keyring or material tests. Evidence command identities name the suite runner; old raw-command classifications are historical and rejected.
+
+Native keyring evidence is typed `passed`, `skipped`, or `failed`. `skipped` is an explicit additive gap, never success. `failed` blocks. Do not enable a destructive native prerequisite on a non-disposable user account merely to remove a gap.
+
+External browser and accessibility evidence is prepared for the exact candidate, executable digest, checklist, and artifact set. Run `make qualify-external-evidence` to create any missing deterministic templates and validate their schema, paths, digests, provenance, and policy classification before acceptance. Existing evidence is never overwritten. An available probe leaves a pending template for a named operator to complete with real evidence; a permitted unavailable probe can qualify immediately.
+
+A deterministic probe may emit only policy-permitted typed unavailability. Required blocking evidence cannot be synthesized. Additive unavailable evidence remains visible in the report; an available environment or human claim requires real artifacts and provenance. If required blocking evidence is unavailable, stop the release rather than writing a pass.
+
+Never carry an external sidecar forward after the candidate revision, executable, checklist, profile, or manifest changes.
+
+## Report compatibility
+
+Reports from superseded report definitions are incompatible with the current acceptance profile. They remain historical files only and are not upgraded, relabeled, or silently adopted.
+
+A report parser must reject a mismatched profile, schema, revision, definition hash, command set, native classification, external sidecar, or cleanup record. Product API and durable-data compatibility do not imply compatibility of maintainer-facing acceptance artifacts.
+
+## Failure discipline
+
+Treat acceptance as evidence production, not as the debugging loop.
+
+If a full run fails:
+
+1. Identify the failing leaf and build the narrowest deterministic reproduction.
+2. Reproduce the relevant concurrency, process, filesystem, browser, or timing boundary.
+3. Run only the affected named scenario at higher count when repetition is justified.
+4. Run the affected package or leaf once normally.
+5. Commit the correction at a clean checkpoint.
+6. Refresh candidate-bound native or external evidence if definitions or revision changed.
+7. Run full acceptance again only after the narrow owner is stable.
+
+Do not rerun `accept` unchanged after a failure. Do not raise timeouts instead of diagnosing the boundary, repeat package-wide fixtures, suppress vulnerability findings, fabricate unavailable evidence, or leave surviving processes/listeners/temp roots for another run.
+
+A second full failure in the same area requires reassessing the reproduction and ownership before another final attempt.
+
+## Report adoption
+
+`make adopt-acceptance-report REPORT=/absolute/path/report.json ADOPTION=/absolute/path/adoption.json` performs no-check adoption of one already-produced report. It reparses and hashes the immutable artifact, verifies the same candidate revision and clean worktree, rechecks profile/command/manifest definitions, native and external classifications, blocking results, and cleanup evidence, then writes a distinct adoption artifact.
+
+Adoption does not rerun product checks and never converts a failure, unavailable blocking cell, stale candidate, dirty revision, or mismatched definition into success. Use it only when no tracked state or acceptance definition changed after report production.
+
+Historical reports remain auditable through version control, but only a report for the exact current candidate and definition set can be adopted.

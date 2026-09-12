@@ -69,9 +69,9 @@ See the [MCP Broker README](mcp-broker/README.md) for setup and usage.
 - Manages upstream credentials and OAuth; agents receive a separate Gateway credential, not upstream service secrets.
 - Provides a web application and CLI for administration, with redacted invocation history and control-plane audit records.
 
-Both names share one implementation and the existing installation; no state or service migration is required. The directory and Go module remain `mcp-gateway`.
+Both names share one implementation and the existing installation; no state or service migration is required. The source directory and Go module are `agent-gateway`; installed identities remain unchanged.
 
-See the [Agent Gateway README](mcp-gateway/README.md) for setup and usage.
+See the [Agent Gateway README](agent-gateway/README.md) for setup and usage.
 
 ### HTTP Broker
 
@@ -108,7 +108,7 @@ From the repository root, run the install command for the tools you need:
 ```bash
 make -C sandbox-manager install
 make -C mcp-broker install
-make -C mcp-gateway install
+make -C agent-gateway install
 make -C http-broker install
 make -C local-git-mcp install
 ```
