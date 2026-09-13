@@ -136,7 +136,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	}
 	recovery := read("docs/operators/backup-and-recovery.md")
 	for _, phrase := range []string{
-		"agent-gateway backup create", "agent-gateway restore --verify-current", "agent-gateway restore BACKUP_ID",
+		"agent-gateway backup create", "agent-gateway storage verify", "agent-gateway backup restore BACKUP_ID",
 		"agent-gateway admin reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
 		"invalidates every restored agent credential", "does not rewrite the default `admin-bearer`", "Failed commands leave stdout empty",
 	} {

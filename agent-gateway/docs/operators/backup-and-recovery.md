@@ -7,10 +7,21 @@ Purpose: Create backups and perform restore or stopped-process recovery safely.
 This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. Prefer `agent-gateway` for new commands; the `mcp-gateway` binary accepts the same commands and flags. Both names share the existing process lock, installation identity, database and backup lineage. Switching names is not a restore or migration and does not bypass a running owner. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
 
 - `agent-gateway backup --help`
-- `agent-gateway restore --help`
+- `agent-gateway backup restore --help`
+- `agent-gateway storage --help`
+- `agent-gateway storage verify --help`
 - `agent-gateway admin reset --help`
 
-Gateway must be stopped for `restore`, `restore --verify-current`, and `admin reset`. Online backup commands require a running Gateway. The legacy hyphenated spelling has no alias and performs no work.
+Gateway must be stopped for `backup restore`, `storage verify`, and `admin reset`. Backup list/get/create/delete require a running Gateway; restore remains offline and never acquires an online administrator bearer.
+
+## Recovery command cutover
+
+| Retired command                              | Replacement under either executable name            |
+| -------------------------------------------- | --------------------------------------------------- |
+| `restore --verify-current`                   | `storage verify`                                    |
+| `restore BACKUP_ID --secret-output NEW_PATH` | `backup restore BACKUP_ID --secret-output NEW_PATH` |
+
+The retired top-level `restore` and `--verify-current` flag have no execution aliases or completions. Update scripts and use the matching binary's help when rolling operator tooling back. This command-only cutover changes no database schema, backup metadata, credential/keyring identity, root, process lock, service argv, or installed executable path. Switching binaries does not reinitialize or recover an installation. Older binaries must still reject schemas newer than they support; never force a downgrade or edit durable metadata to make one work. Historical acceptance reports are not current qualification.
 
 ## Create and manage backups
 
@@ -32,12 +43,12 @@ Creation generates an idempotency key unless one is supplied. If the response is
 After stopping every Gateway process that owns the installation, verify storage and clear a recoverable latch without replacing the database:
 
 ```bash
-agent-gateway restore --verify-current \
+agent-gateway storage verify \
   --data-dir /path/to/gateway-data \
   --output json
 ```
 
-`--verify-current` forbids `--secret-output`. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
+`storage verify` accepts neither a backup ID nor `--secret-output`. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
 
 A recognized uncertain agent-credential candidate is cleared only when its principal, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. The command does not start Gateway; return ownership to the service before any online read:
 
@@ -47,15 +58,15 @@ agent-gateway serve --data-dir /path/to/gateway-data
 
 ## Restore a backup
 
-Stop Gateway, choose one published generation, and prepare a fresh owner-only output path for replacement administrator authority:
+While Gateway is running, use `backup list` and `backup get BACKUP_ID` to select a published backup from the same installation and inspect its schema, revision, size, and digest. Retain that exact ID; there is no implicit latest-backup selection. Stop every owner (and any service supervisor that would restart it), then select a fresh owner-only output path for replacement administrator authority. Obtain authorization before stopping a live service:
 
 ```bash
-agent-gateway restore BACKUP_ID \
+agent-gateway backup restore BACKUP_ID \
   --data-dir /path/to/gateway-data \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It stages and immediately forward-migrates accepted schema lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `restore --verify-current` validates the current generation rather than providing an obsolete-form migration path.
+Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 16, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
 
 A successful restore preserves safe principals, grants, requests, request evidence, server configuration, and compatible history. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
 
@@ -88,7 +99,32 @@ agent-gateway serve --data-dir /path/to/gateway-data
 agent-gateway status --admin-bearer-file /safe/new/replacement-admin-bearer
 ```
 
-Use reset for stopped-process all-authority recovery without replacing durable product state. Use online `admin credential rotate` for routine replacement-first rollover of one named administrator credential. Use restore only for a verified backup generation, and use `--verify-current` only to validate and recover the current stopped generation.
+Use reset for stopped-process all-authority recovery without replacing durable product state. Use online `admin credential rotate` for routine replacement-first rollover of one named administrator credential. Use `backup restore` only for a verified backup generation, and use `storage verify` only to validate and recover the current stopped generation. Neither offline command adds a confirmation prompt or supports `--yes`; restore requires an explicit backup ID and fresh `--secret-output`. Existing online backup deletion still requires consequence confirmation (`--yes` for automation).
+
+## Structured results and exits
+
+Both commands default to human output; `--output json` or `--json` selects one safe result on stdout. The old `operation:"restore"` and `mode:"verify_current"`/`mode:"backup"` projection is retired. `mode` is absent; operation is now unambiguous. The exact success members are:
+
+```json
+{"ok":true,"operation":"storage_verify","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"0"}
+{"ok":true,"operation":"backup_restore","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"2","backup_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}
+```
+
+IDs and decimal-string revisions above are illustrative. Verification omits `backup_id`; neither result contains secret values or paths. These are CLI-only projections: backup files and API backup representations retain their existing fields, as do durable audit category/action pairs.
+
+Success exits 0. Invalid arguments/output/flags and unusable replacement sinks exit 2 (`client_invalid_input` / `secret_output_unavailable`); missing, invalid, corrupt, or foreign backups exit 4 (`invalid_backup`); a running owner exits 5 (`gateway_running`); other recovery/storage failures exit 7 (`storage_unavailable`). Output delivery failure exits 1 and can leave incomplete output after work already occurred. JSON problems have exactly `status` (null), `code`, `title`, `exit_code`, and `uncertain` (false for these offline problems). For example:
+
+```json
+{
+  "status": null,
+  "code": "gateway_running",
+  "title": "The Gateway is running. Stop it before verifying current storage.",
+  "exit_code": 5,
+  "uncertain": false
+}
+```
+
+Restore's corresponding title is `The Gateway is running. Stop it before restoring a backup.` The offline `uncertain:false` field is not proof of rollback: exit 7 or output loss can occur after generation installation or marker work. Nothing is replayed or compensated automatically.
 
 ## Failure handling
 
@@ -98,6 +134,7 @@ Failed commands leave stdout empty and emit one bounded human or JSON problem on
 - `secret_output_unavailable` means the one-time replacement sink was not completed. Do not assume new authority is active.
 - Storage and verification failures intentionally omit filesystem, SQLite, and secret details. Preserve the original generation and diagnose the reported safe class.
 - A post-handoff online backup result may be uncertain. Read before deliberate same-tuple replay.
+- After an interrupted offline command, retain the selected backup ID, original generation evidence, and any replacement output securely. A pre-install restore failure leaves the original generation authoritative, but a failure after installation can leave the replacement selected with an unfinished audit attempt or marker cleanup. Do not assume an emitted bearer is active, an error rolled back, or a missing result permits replay. Diagnose the selected generation and recovery marker first; use separately authorized current-storage verification only for recognized recovery, then normal startup revalidates readiness. Do not automatically repeat restore, reset authority, or overwrite the replacement file.
 
 Never copy a replacement bearer into arguments, environment variables, logs, or the old default file as a shortcut. Keep fresh secret outputs owner-only and remove obsolete bearer files after authority has been confirmed.
 

@@ -14,7 +14,7 @@ func TestDocumentationOwnership(t *testing.T) {
 }
 
 func testDocumentationOwnershipManifestSchema(t *testing.T) {
-	assert.Equal(t, 1, DocumentationOwnershipManifestVersion)
+	assert.Equal(t, 2, DocumentationOwnershipManifestVersion)
 	guides := DocumentationGuideManifest()
 	commands := DocumentationCommandManifest()
 	security := DocumentationSecurityManifest()

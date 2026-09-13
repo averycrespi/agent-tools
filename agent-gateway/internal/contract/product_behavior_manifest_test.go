@@ -15,9 +15,9 @@ func TestProductBehaviorManifest(t *testing.T) {
 }
 
 func testProductBehaviorManifestSchema(t *testing.T) {
-	assert.Equal(t, 2, ProductBehaviorManifestVersion)
+	assert.Equal(t, 3, ProductBehaviorManifestVersion)
 	product := ProductBehaviorManifest()
-	require.Len(t, product, 142)
+	require.Len(t, product, 143)
 	kindCounts := map[string]int{}
 	for _, behavior := range product {
 		kindCounts[behavior.Kind]++
@@ -26,7 +26,7 @@ func testProductBehaviorManifestSchema(t *testing.T) {
 		"capability": 33,
 		"clause":     90,
 		"criterion":  11,
-		"lifecycle":  8,
+		"lifecycle":  9,
 	}, kindCounts)
 	assert.Len(t, SecurityBehaviorManifest(), 18)
 	assert.Len(t, DocumentationBehaviorManifest(), 42)

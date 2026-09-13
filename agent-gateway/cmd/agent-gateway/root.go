@@ -60,12 +60,15 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	command.PersistentFlags().String("data-dir", "", "owner-only Gateway data directory")
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),
-		newRestoreCmd(dependencies),
+		newStorageCmd(dependencies),
 		newServeCmd(dependencies),
 	)
 	for _, online := range newOnlineCommands() {
 		if online.Name() == "admin" {
 			online.AddCommand(newAdminAuthorityCmd("reset", dependencies))
+		}
+		if online.Name() == "backup" {
+			online.AddCommand(newRecoveryCmd(dependencies, false))
 		}
 		command.AddCommand(online)
 	}
@@ -730,57 +733,74 @@ func boundedProblemPath(path, fallback string) string {
 	return safe
 }
 
-func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
+func newStorageCmd(dependencies offlineDependencies) *cobra.Command {
+	command := &cobra.Command{Use: "storage", Short: "Verify and recover current stopped Gateway storage"}
+	configureNamespaceCommand(command)
+	command.AddCommand(newRecoveryCmd(dependencies, true))
+	return command
+}
+
+// recoveryResult is an operator projection, never durable backup metadata.
+type recoveryResult struct {
+	OK             bool   `json:"ok"`
+	Operation      string `json:"operation"`
+	InstallationID string `json:"installation_id"`
+	Revision       string `json:"revision"`
+	BackupID       string `json:"backup_id,omitempty"`
+}
+
+func newRecoveryCmd(dependencies offlineDependencies, verify bool) *cobra.Command {
 	var dataDir, secretOutput, output string
-	var verify, jsonOutput bool
+	var jsonOutput bool
+	use, operation := "restore BACKUP_ID", "backup_restore"
+	short := "Restore one backup to a stopped Gateway installation"
+	usage := "agent-gateway backup restore BACKUP_ID --secret-output NEW_PATH"
+	long := short + ". Writes its one-time replacement administrator bearer to a new non-symlink 0600 owner-only file; the bearer cannot be recovered after publication. Does not rewrite the default admin-bearer."
+	argumentError := "Provide exactly one valid backup ID."
+	if verify {
+		use, operation = "verify", "storage_verify"
+		short = "Verify current storage and recover a stopped Gateway installation's latch"
+		usage = "agent-gateway storage verify"
+		long = short + ". Applies only recognized recovery actions without replacing the database, resetting administrator authority, or starting the service."
+		argumentError = "Storage verification does not accept positional arguments."
+	}
 	command := &cobra.Command{
-		Use:   "restore [backup-id]",
-		Short: "Verify or restore a stopped Gateway database",
-		Long:  "Verify or restore a stopped Gateway database. Restore writes its one-time replacement administrator bearer to a new non-symlink 0600 owner-only file; the bearer cannot be recovered after publication.",
-		Example: "  agent-gateway restore --verify-current\n" +
-			"  agent-gateway restore BACKUP_ID --secret-output NEW_PATH",
+		Use:     use,
+		Short:   short,
+		Long:    long,
+		Example: "  " + usage,
 		Args: func(command *cobra.Command, args []string) error {
 			validVerify := verify && len(args) == 0
 			validBackup := !verify && len(args) == 1 && backup.ValidID(args[0])
 			if !validVerify && !validBackup {
-				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("Use --verify-current with no backup ID, or provide exactly one valid backup ID.", "agent-gateway restore --verify-current | agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem(argumentError, usage))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
 			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
-				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", "agent-gateway restore --verify-current | agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", usage))
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
 				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
 			}
-			if verify && secretOutput != "" {
-				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output cannot be used with --verify-current."))
-			}
 			if !verify && secretOutput == "" {
-				return writeOfflineProblem(command, options.Output, offlineUsageProblem("The --secret-output flag is required when restoring a backup.", "agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+				return writeOfflineProblem(command, options.Output, offlineUsageProblem("The --secret-output flag is required when restoring a backup.", usage))
 			}
 			var identity storage.Identity
-			mode, backupID := "verify_current", ""
+			backupID := ""
 			if verify {
 				identity, err = storage.VerifyCurrent(command.Context(), layout.Root)
 			} else {
-				mode, backupID = "backup", args[0]
+				backupID = args[0]
 				identity, err = backup.Restore(command.Context(), backup.RestoreOptions{Root: layout.Root, BackupID: backupID, Sink: admin.NewFileSecretSink(secretOutput), Clock: dependencies.clock, Entropy: dependencies.entropy})
 			}
 			if err != nil {
-				return writeOfflineProblem(command, options.Output, restoreCommandProblem(err, layout.Root, secretOutput))
+				return writeOfflineProblem(command, options.Output, recoveryCommandProblem(err, layout.Root, secretOutput, verify))
 			}
-			result := struct {
-				OK             bool   `json:"ok"`
-				Operation      string `json:"operation"`
-				Mode           string `json:"mode"`
-				InstallationID string `json:"installation_id"`
-				Revision       string `json:"revision"`
-				BackupID       string `json:"backup_id,omitempty"`
-			}{true, "restore", mode, identity.InstallationID, fmt.Sprintf("%d", identity.Revision), backupID}
+			result := recoveryResult{true, operation, identity.InstallationID, fmt.Sprintf("%d", identity.Revision), backupID}
 			encoded, err := json.Marshal(result)
 			if err != nil {
 				return commandFailure{}
@@ -800,13 +820,14 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().BoolVar(&verify, "verify-current", false, "verify and clear a stopped installation's storage latch")
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
-	command.Flags().StringVar(&secretOutput, "secret-output", "", "new non-symlink 0600 owner-only file for the replacement admin bearer")
+	if !verify {
+		command.Flags().StringVar(&secretOutput, "secret-output", "", "new non-symlink 0600 owner-only file for the replacement admin bearer")
+	}
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A restore flag is invalid or incomplete.", "agent-gateway restore --verify-current | agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A "+command.CommandPath()+" flag is invalid or incomplete.", usage))
 	})
 	return command
 }
@@ -815,15 +836,19 @@ func offlineUsageProblem(title, usage string) *controlclient.Problem {
 	return controlclient.NewInputError(title + " Usage: " + usage)
 }
 
-func restoreCommandProblem(err error, dataDir, secretPath string) *controlclient.Problem {
+func recoveryCommandProblem(err error, dataDir, secretPath string, verify bool) *controlclient.Problem {
+	action := "restoring a backup"
+	if verify {
+		action = "verifying current storage"
+	}
 	switch {
 	case errors.Is(err, gatewaypaths.ErrInUse):
-		return &controlclient.Problem{Code: "gateway_running", Title: "The Gateway is running. Stop it before verifying or restoring the installation.", Exit: 5}
+		return &controlclient.Problem{Code: "gateway_running", Title: "The Gateway is running. Stop it before " + action + ".", Exit: 5}
 	case errors.Is(err, backup.ErrNotFound), errors.Is(err, backup.ErrInvalidArtifact):
 		return &controlclient.Problem{Code: "invalid_backup", Title: "The selected backup is unavailable or invalid. List the installation's backups and choose a valid backup ID.", Exit: 4}
 	case errors.Is(err, admin.ErrSecretPublication):
 		return &controlclient.Problem{Code: "secret_output_unavailable", Title: "The replacement administrator bearer could not be published to " + boundedProblemPath(secretPath, "the selected output path") + ". Choose a new nonexistent owner-only output path; restored authority was not installed.", Exit: 2}
 	default:
-		return &controlclient.Problem{Code: "storage_unavailable", Title: "The Gateway installation at " + boundedProblemPath(dataDir, "the selected data directory") + " could not be verified or restored safely.", Exit: 7}
+		return &controlclient.Problem{Code: "storage_unavailable", Title: "The Gateway installation at " + boundedProblemPath(dataDir, "the selected data directory") + " could not complete " + action + " safely. Nothing was replayed; inspect the installation before another attempt.", Exit: 7}
 	}
 }

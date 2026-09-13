@@ -107,15 +107,13 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	var restoredCommand struct {
 		OK             bool   `json:"ok"`
 		Operation      string `json:"operation"`
-		Mode           string `json:"mode"`
 		InstallationID string `json:"installation_id"`
 		Revision       string `json:"revision"`
 		BackupID       string `json:"backup_id"`
 	}
 	require.NoError(t, json.Unmarshal(restoreResult.Stdout, &restoredCommand))
 	assert.True(t, restoredCommand.OK)
-	assert.Equal(t, "restore", restoredCommand.Operation)
-	assert.Equal(t, "backup", restoredCommand.Mode)
+	assert.Equal(t, "backup_restore", restoredCommand.Operation)
 	assert.Equal(t, artifact.InstallationID, restoredCommand.InstallationID)
 	assert.Equal(t, artifact.ID, restoredCommand.BackupID)
 	sourceRevision, err := strconv.Atoi(artifact.SourceRevision)
