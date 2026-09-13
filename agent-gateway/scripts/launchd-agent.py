@@ -198,6 +198,27 @@ def read_definition(plist, labels=(LABEL,)):
         fail("Unknown service selections; reconcile the plist explicitly.")
     absolute(argv[0], "Executable")
     absolute(argv[3], "Data directory")
+    # This is the supported literal plist layout, not a second Cobra parser.
+    # Any unrecognized spelling or ambiguous effective selection needs an operator.
+    seen = {"--data-dir", "--listen"}
+    values = {"--allowed-host": None, "--log-level": {"warn", "info", "debug"}, "--output": {"human", "json"}}
+    index = 6
+    while index < len(argv):
+        flag = argv[index]
+        if flag in seen and flag != "--allowed-host":
+            fail("Duplicate service flags require explicit reconciliation.")
+        seen.add(flag)
+        if flag == "--json":
+            index += 1
+            continue
+        if flag not in values or index + 1 >= len(argv) or argv[index + 1].startswith("-"):
+            fail("Unknown or incomplete service arguments require explicit reconciliation.")
+        allowed = values[flag]
+        if allowed is not None and argv[index + 1] not in allowed:
+            fail("Unsupported service argument value; reconcile explicitly.")
+        index += 2
+    if "--json" in seen and "--output" in seen:
+        fail("Conflicting output selections require explicit reconciliation.")
     return argv
 
 

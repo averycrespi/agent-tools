@@ -13,7 +13,7 @@ import (
 )
 
 func TestIntegrationLaunchdRestart(t *testing.T) {
-	for _, mode := range []string{"running", "absent", "no-pid", "delayed-removal", "still-loaded", "process-stuck", "process-reused", "unknown-process", "unknown-service", "legacy-loaded", "wrong-argv", "wrong-plist", "bootout-error", "bootstrap-error"} {
+	for _, mode := range []string{"running", "absent", "no-pid", "delayed-removal", "still-loaded", "process-stuck", "process-reused", "unknown-process", "unknown-service", "legacy-loaded", "wrong-argv", "duplicate-data", "wrong-plist", "bootout-error", "bootstrap-error"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLaunchdFixture(t)
 			require.Zero(t, f.run(t).ExitCode)
@@ -70,6 +70,11 @@ printf '%s\n' "$AGENT_GATEWAY_TEST_PROCESS"`)
 			if mode == "wrong-plist" {
 				require.NoError(t, os.WriteFile(f.plist, []byte("invalid"), 0o600))
 			}
+			if mode == "duplicate-data" {
+				contents, readErr := os.ReadFile(f.plist)
+				require.NoError(t, readErr)
+				require.NoError(t, os.WriteFile(f.plist, []byte(strings.Replace(string(contents), "</array>", "<string>--data-dir</string><string>/different-root</string></array>", 1)), 0o600))
+			}
 			result := f.run(t)
 			calls, err := os.ReadFile(f.calls)
 			require.NoError(t, err)
@@ -89,7 +94,7 @@ printf '%s\n' "$AGENT_GATEWAY_TEST_PROCESS"`)
 				require.NotZero(t, result.ExitCode)
 				require.Zero(t, startCount)
 			}
-			if mode == "wrong-argv" || mode == "wrong-plist" || mode == "unknown-process" || mode == "legacy-loaded" {
+			if mode == "duplicate-data" || mode == "wrong-argv" || mode == "wrong-plist" || mode == "unknown-process" || mode == "legacy-loaded" {
 				require.Zero(t, stopCount)
 			}
 		})

@@ -227,6 +227,8 @@ func TestIntegrationLaunchdArchivedArgumentHandover(t *testing.T) {
 	archived := filepath.Join(f.home, "archived.plist")
 	before, err := os.ReadFile(f.plist)
 	require.NoError(t, err)
+	before = bytes.Replace(before, []byte("</array>"), []byte("<string>--allowed-host</string><string>second.example</string><string>--log-level</string><string>debug</string><string>--json</string></array>"), 1)
+	require.NoError(t, os.WriteFile(f.plist, before, 0o600))
 	require.NoError(t, os.Rename(f.plist, archived))
 	destination := filepath.Join(f.home, "migrated")
 	result := f.run(t, "--from-plist", archived, "--binary", f.binary, "--data-dir", destination)
@@ -236,10 +238,35 @@ func TestIntegrationLaunchdArchivedArgumentHandover(t *testing.T) {
 	for _, arg := range definition.member(t, "ProgramArguments").Nodes {
 		argv = append(argv, arg.Text)
 	}
-	require.Equal(t, []string{f.binary, "serve", "--data-dir", destination, "--listen", "127.0.0.1:8321", "--allowed-host", "gateway.example"}, argv)
+	require.Equal(t, []string{f.binary, "serve", "--data-dir", destination, "--listen", "127.0.0.1:8321", "--allowed-host", "gateway.example", "--allowed-host", "second.example", "--log-level", "debug", "--json"}, argv)
 	after, err := os.ReadFile(archived)
 	require.NoError(t, err)
 	require.Equal(t, before, after)
+}
+
+func TestIntegrationLaunchdArchivedArgumentRefusals(t *testing.T) {
+	for _, tail := range [][]string{{"--data-dir", "/different-root"}, {"--data-dir=/different-root"}, {"--listen", "127.0.0.1:9999"}, {"--listen=127.0.0.1:9999"}, {"positional"}, {"--unknown", "value"}, {"--allowed-host"}, {"--"}, {"--log-level", "debug", "--log-level", "warn"}, {"--json", "--output", "human"}} {
+		t.Run(strings.Join(tail, " "), func(t *testing.T) {
+			f := newLaunchdFixture(t)
+			require.Zero(t, f.run(t).ExitCode)
+			data, err := os.ReadFile(f.plist)
+			require.NoError(t, err)
+			var extra bytes.Buffer
+			for _, arg := range tail {
+				extra.WriteString("<string>")
+				require.NoError(t, xml.EscapeText(&extra, []byte(arg)))
+				extra.WriteString("</string>")
+			}
+			extra.WriteString("</array>")
+			archived := filepath.Join(f.home, "archived.plist")
+			require.NoError(t, os.Rename(f.plist, archived))
+			require.NoError(t, os.WriteFile(archived, bytes.Replace(data, []byte("</array>"), extra.Bytes(), 1), 0o600))
+			result := f.run(t, "--from-plist", archived, "--binary", f.binary, "--data-dir", filepath.Join(f.home, "selected-root"))
+			require.NotZero(t, result.ExitCode, "ambiguous archived argv must not publish a plist")
+			_, err = os.Lstat(f.plist)
+			require.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
 }
 
 func TestIntegrationLaunchdInspectionBounds(t *testing.T) {
