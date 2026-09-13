@@ -28,9 +28,9 @@ func TestCLIServerMutationETagModes(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "update", args: []string{"server", "update", serverID, "--display-name", "Renamed"}},
-		{name: "delete", args: []string{"server", "delete", serverID, "--yes"}},
-		{name: "operation start", args: []string{"server", "operation", "start", serverID, "--kind", "retry", "--idempotency-key", "etag-mode-key"}},
+		{name: "update", args: []string{"mcp", "server", "update", serverID, "--display-name", "Renamed"}},
+		{name: "delete", args: []string{"mcp", "server", "delete", serverID, "--yes"}},
+		{name: "operation start", args: []string{"mcp", "server", "operation", "start", serverID, "--kind", "retry", "--idempotency-key", "etag-mode-key"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name+"/omitted", func(t *testing.T) {
@@ -40,7 +40,7 @@ func TestCLIServerMutationETagModes(t *testing.T) {
 			require.Len(t, requests, 2)
 			read := <-requests
 			mutation := <-requests
-			assert.Equal(t, serverMutationETagRequest{method: http.MethodGet, path: "/api/v1/servers/" + serverID}, read)
+			assert.Equal(t, serverMutationETagRequest{method: http.MethodGet, path: "/api/v2/mcp/servers/" + serverID}, read)
 			assert.Equal(t, contract.ServerETag(serverID, "7"), mutation.etag)
 		})
 		t.Run(test.name+"/explicit", func(t *testing.T) {

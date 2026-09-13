@@ -114,7 +114,7 @@ func runCredentialReplacement(command *cobra.Command, options *onlineOptions, re
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/servers/" + request.serverID + "/credential-replacements", Header: header, Body: request.body})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/mcp/servers/" + request.serverID + "/credential-replacements", Header: header, Body: request.body})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {

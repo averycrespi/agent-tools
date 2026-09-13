@@ -42,7 +42,7 @@ func TestActiveCatalogResourceAndCursor(t *testing.T) {
 	changed := "2026-08-23T00:00:00Z"
 	service := &fakeActiveCatalog{page: catalog.ActivePage{Summary: contract.CatalogSummary{ActiveState: contract.AggregateCatalogCurrent, ActiveGeneration: apiActiveProcessID + "-1", ChangedAt: &changed, IssueCount: 1}, Items: []catalog.DescriptorRecord{{InsertionSequence: 1, Resource: item}}, ServerDisplayNames: map[string]string{item.ServerID: "Display server"}, ServerStates: map[string]contract.ActiveCatalogState{item.ServerID: contract.ActiveCatalogCurrent}, Next: &next}}
 	handler := newActiveCatalogTestHandler(t, service)
-	response := perform(handler, http.MethodGet, "/api/v1/catalog?limit=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	response := perform(handler, http.MethodGet, "/api/v2/mcp/catalog?limit=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	assert.Contains(t, response.Body.String(), `"active_state":"current"`)
 	assert.Contains(t, response.Body.String(), `"active_generation":"`+apiActiveProcessID+`-1"`)
@@ -52,7 +52,7 @@ func TestActiveCatalogResourceAndCursor(t *testing.T) {
 	assert.Equal(t, 1, service.limit)
 
 	cursor := encodeActiveCatalogCursor(next)
-	second := perform(handler, http.MethodGet, "/api/v1/catalog?cursor="+cursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	second := perform(handler, http.MethodGet, "/api/v2/mcp/catalog?cursor="+cursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
 	require.NotNil(t, service.cursor)
 	assert.Equal(t, next.Generation, service.cursor.Generation)
@@ -61,12 +61,12 @@ func TestActiveCatalogResourceAndCursor(t *testing.T) {
 func TestActiveCatalogTableQueryContract(t *testing.T) {
 	service := new(fakeActiveCatalog)
 	handler := newActiveCatalogTestHandler(t, service)
-	response := perform(handler, http.MethodGet, "/api/v1/catalog?tool=echo&server=Display&status=issue&sort=server&direction=descending", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	response := perform(handler, http.MethodGet, "/api/v2/mcp/catalog?tool=echo&server=Display&status=issue&sort=server&direction=descending", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, 200, response.Code, response.Body.String())
 	assert.Equal(t, catalog.ToolQuery{Tool: "echo", Server: "Display", Status: "issue", Sort: "server", Direction: "descending"}, service.query)
 	assert.Equal(t, 50, service.limit)
 	for _, query := range []string{"sort=server&limit=51", "server=", "status=retired", "sort=status", "sort=tool&limit=01", "tool=%FF", "sort=tool&cursor=", "server=a&server=b", "sort=tool&retired=include"} {
-		response := perform(handler, http.MethodGet, "/api/v1/catalog?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
+		response := perform(handler, http.MethodGet, "/api/v2/mcp/catalog?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
 		assert.Equal(t, 400, response.Code, query)
 	}
 }
@@ -74,12 +74,12 @@ func TestActiveCatalogTableQueryContract(t *testing.T) {
 func TestActiveCatalogRejectsInvalidQueriesAndStaleCursor(t *testing.T) {
 	service := new(fakeActiveCatalog)
 	handler := newActiveCatalogTestHandler(t, service)
-	for _, target := range []string{"/api/v1/catalog?unknown=1", "/api/v1/catalog?limit=0", "/api/v1/catalog?limit=1&limit=2", "/api/v1/catalog?cursor=not-base64!"} {
+	for _, target := range []string{"/api/v2/mcp/catalog?unknown=1", "/api/v2/mcp/catalog?limit=0", "/api/v2/mcp/catalog?limit=1&limit=2", "/api/v2/mcp/catalog?cursor=not-base64!"} {
 		response := perform(handler, http.MethodGet, target, "", map[string]string{"Authorization": "Bearer " + testBearer})
 		assert.Equal(t, http.StatusBadRequest, response.Code, target)
 	}
 	service.err = servers.ErrStaleCursor
-	stale := perform(handler, http.MethodGet, "/api/v1/catalog", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	stale := perform(handler, http.MethodGet, "/api/v2/mcp/catalog", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, http.StatusConflict, stale.Code)
 	assert.Contains(t, stale.Body.String(), "stale_cursor")
 }

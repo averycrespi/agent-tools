@@ -19,25 +19,26 @@ func TestGrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 	service := &fakeGrantRequestService{item: adminRequestFixture()}
 	state := contract.RequestPending
 	service.page = grantrequests.AdminPage{
-		Items: []contract.GrantRequestSummary{service.item.GrantRequestSummary},
-		Next:  &grantrequests.AdminCursor{Collection: "grant_requests", PrincipalID: testID, State: &state, Upper: 2, After: 1, AfterID: service.item.ID},
+		Table:           []contract.GrantRequestTableItem{{Request: service.item.GrantRequestSummary, PrincipalDisplayName: "Agent", ServerDisplayName: "Sample", ResolvedServerID: testServerID}},
+		CollectionRange: contract.CollectionRange{TotalCount: 1},
+		Next:            &grantrequests.AdminCursor{Collection: "grant_requests", PrincipalID: testID, State: &state, Upper: 2, After: 1, AfterID: service.item.ID},
 	}
 	handler := newGrantRequestHandler(t, service)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer}
-	listed := perform(handler, http.MethodGet, "/api/v1/grant-requests?limit=1&principal_id="+testID+"&state=pending", "", headers)
+	listed := perform(handler, http.MethodGet, "/api/v2/grant-requests?limit=1&principal_id="+testID+"&state=pending", "", headers)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	assert.NotContains(t, listed.Body.String(), "submitted_evidence")
-	assert.NotContains(t, listed.Body.String(), "resolved_server_id")
-	assert.Equal(t, grantrequests.AdminFilter{PrincipalID: testID, State: &state}, service.filter)
-	var page contract.Collection[contract.GrantRequestSummary]
+	assert.Contains(t, listed.Body.String(), "resolved_server_id")
+	assert.Equal(t, grantrequests.AdminFilter{PrincipalID: testID, State: &state, Query: &grantrequests.AdminQuery{Sort: "submitted", Direction: "descending"}}, service.filter)
+	var page contract.QueryCollection[contract.GrantRequestTableItem]
 	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &page))
 	require.NotNil(t, page.NextCursor)
-	continued := perform(handler, http.MethodGet, "/api/v1/grant-requests?limit=2&principal_id="+testID+"&state=pending&cursor="+*page.NextCursor, "", headers)
+	continued := perform(handler, http.MethodGet, "/api/v2/grant-requests?limit=2&principal_id="+testID+"&state=pending&cursor="+*page.NextCursor, "", headers)
 	require.Equal(t, http.StatusOK, continued.Code, continued.Body.String())
 	require.NotNil(t, service.cursor)
 	assert.Equal(t, int64(2), service.cursor.Upper)
 
-	item := perform(handler, http.MethodGet, "/api/v1/grant-requests/"+service.item.ID, "", headers)
+	item := perform(handler, http.MethodGet, "/api/v2/grant-requests/"+service.item.ID, "", headers)
 	require.Equal(t, http.StatusOK, item.Code, item.Body.String())
 	assert.Equal(t, contract.GrantRequestETag(service.item.ID, "1"), item.Header().Get("ETag"))
 	assert.Contains(t, item.Body.String(), `"submitted_evidence"`)
@@ -49,7 +50,7 @@ func TestGrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 		"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
 		"If-Match": contract.GrantRequestETag(service.item.ID, "1"),
 	}
-	approved := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", `{"description":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, approveHeaders)
+	approved := perform(handler, http.MethodPost, "/api/v2/grant-requests/"+service.item.ID+"/approve", `{"description":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`, approveHeaders)
 	require.Equal(t, http.StatusOK, approved.Code, approved.Body.String())
 	assert.Equal(t, "1", service.revision)
 	assert.Equal(t, "Approved access", service.name)
@@ -61,7 +62,7 @@ func TestGrantRequestListItemApproveRejectAndPrivacy(t *testing.T) {
 		"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
 		"If-Match": contract.GrantRequestETag(service.item.ID, "2"),
 	}
-	rejected := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/reject", `{"reason":"policy_conflict"}`, rejectHeaders)
+	rejected := perform(handler, http.MethodPost, "/api/v2/grant-requests/"+service.item.ID+"/reject", `{"reason":"policy_conflict"}`, rejectHeaders)
 	require.Equal(t, http.StatusOK, rejected.Code, rejected.Body.String())
 	assert.Equal(t, contract.RejectionPolicyConflict, service.reason)
 }
@@ -71,7 +72,7 @@ func TestGrantRequestTableQueryWireContract(t *testing.T) {
 	service.page = grantrequests.AdminPage{Table: []contract.GrantRequestTableItem{{Request: service.item.GrantRequestSummary, PrincipalDisplayName: "Operator agent", ServerDisplayName: "Sample", ResolvedServerID: testServerID}}, CollectionRange: contract.CollectionRange{TotalCount: 1}}
 	handler := newGrantRequestHandler(t, service)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer}
-	response := perform(handler, http.MethodGet, "/api/v1/grant-requests?representation=table&request="+service.item.ID+"&principal=agent&target=Sample&scope=tool&state=pending&sort=submitted&direction=ascending", "", headers)
+	response := perform(handler, http.MethodGet, "/api/v2/grant-requests?request="+service.item.ID+"&principal=agent&target=Sample&scope=tool&state=pending&sort=submitted&direction=ascending", "", headers)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	require.Equal(t, &grantrequests.AdminQuery{Request: service.item.ID, Principal: "agent", Target: "Sample", Scope: "tool", Sort: "submitted", Direction: "ascending"}, service.filter.Query)
 	var result map[string]json.RawMessage
@@ -82,8 +83,8 @@ func TestGrantRequestTableQueryWireContract(t *testing.T) {
 	require.Contains(t, string(result["items"]), `"principal_display_name":"Operator agent"`)
 	require.NotContains(t, response.Body.String(), "evidence")
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
-	for _, query := range []string{"sort=submitted", "representation=detail", "representation=table&direction=descending", "representation=table&scope=other", "representation=table&sort=unknown", "representation=table&principal=%00", "representation=table&target=a&target=b"} {
-		rejected := perform(handler, http.MethodGet, "/api/v1/grant-requests?"+query, "", headers)
+	for _, query := range []string{"representation=table", "representation=detail", "direction=descending", "scope=other", "sort=unknown", "principal=%00", "target=a&target=b"} {
+		rejected := perform(handler, http.MethodGet, "/api/v2/grant-requests?"+query, "", headers)
 		require.Equal(t, 400, rejected.Code, query)
 	}
 }
@@ -93,25 +94,25 @@ func TestGrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
 	handler := newGrantRequestHandler(t, service)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer}
 	for _, path := range []string{
-		"/api/v1/grant-requests?unknown=x", "/api/v1/grant-requests?limit=1&limit=2",
-		"/api/v1/grant-requests?principal_id=", "/api/v1/grant-requests?state=unknown", "/api/v1/grant-requests?cursor=%ZZ",
+		"/api/v2/grant-requests?unknown=x", "/api/v2/grant-requests?limit=1&limit=2",
+		"/api/v2/grant-requests?principal_id=", "/api/v2/grant-requests?state=unknown", "/api/v2/grant-requests?cursor=%ZZ",
 	} {
 		response := perform(handler, http.MethodGet, path, "", headers)
 		assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
 		assert.Contains(t, response.Body.String(), "malformed_request")
 	}
-	badCursor := perform(handler, http.MethodGet, "/api/v1/grant-requests?cursor=abc", "", headers)
+	badCursor := perform(handler, http.MethodGet, "/api/v2/grant-requests?cursor=abc", "", headers)
 	assert.Equal(t, http.StatusBadRequest, badCursor.Code)
 	assert.Contains(t, badCursor.Body.String(), "invalid_cursor")
 
 	body := `{"description":"Approved access","approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`
 	contentHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	missing := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", body, contentHeaders)
+	missing := perform(handler, http.MethodPost, "/api/v2/grant-requests/"+service.item.ID+"/approve", body, contentHeaders)
 	assert.Equal(t, 428, missing.Code)
 	assert.Contains(t, missing.Body.String(), "grant_request_precondition_required")
 	for _, etag := range []string{"*", `W/` + contract.GrantRequestETag(service.item.ID, "1"), contract.GrantRequestETag(testServerID, "1"), `"grant-request-` + service.item.ID + `-01"`} {
 		invalidHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": etag}
-		response := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", body, invalidHeaders)
+		response := perform(handler, http.MethodPost, "/api/v2/grant-requests/"+service.item.ID+"/approve", body, invalidHeaders)
 		assert.Equal(t, http.StatusPreconditionFailed, response.Code, etag)
 	}
 	validHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.GrantRequestETag(service.item.ID, "1")}
@@ -119,7 +120,7 @@ func TestGrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
 		`{}`, `{"approved_policy":null}`, `{"approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null}}`,
 		`{"approved_policy":{"scope":"server","target":"sample","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true,"extra":1}}`,
 	} {
-		response := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/approve", invalidBody, validHeaders)
+		response := perform(handler, http.MethodPost, "/api/v2/grant-requests/"+service.item.ID+"/approve", invalidBody, validHeaders)
 		assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
 	}
 
@@ -138,11 +139,11 @@ func TestGrantRequestStrictQueriesBodiesPreconditionsAndProblems(t *testing.T) {
 		{errors.New("foreign"), 503, "authorization_unavailable"},
 	} {
 		service.err = test.err
-		response := perform(handler, http.MethodGet, "/api/v1/grant-requests/"+service.item.ID, "", headers)
+		response := perform(handler, http.MethodGet, "/api/v2/grant-requests/"+service.item.ID, "", headers)
 		assert.Equal(t, test.status, response.Code, test.err)
 		assert.Contains(t, response.Body.String(), test.code, test.err)
 	}
-	missingRoute := perform(handler, http.MethodGet, "/api/v1/grant-requests/"+service.item.ID+"/approve/extra", "", headers)
+	missingRoute := perform(handler, http.MethodGet, "/api/v2/grant-requests/"+service.item.ID+"/approve/extra", "", headers)
 	assert.Equal(t, http.StatusNotFound, missingRoute.Code)
 }
 
@@ -150,15 +151,15 @@ func TestGrantRequestSessionOriginAndCSRFAreEnforced(t *testing.T) {
 	service := &fakeGrantRequestService{item: adminRequestFixture()}
 	handler := newGrantRequestHandler(t, service)
 	sessionHeaders := map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin}
-	listed := perform(handler, http.MethodGet, "/api/v1/grant-requests", "", sessionHeaders)
+	listed := perform(handler, http.MethodGet, "/api/v2/grant-requests", "", sessionHeaders)
 	assert.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	body := `{"reason":"not_approved"}`
-	missingCSRF := perform(handler, http.MethodPost, "/api/v1/grant-requests/"+service.item.ID+"/reject", body, map[string]string{
+	missingCSRF := perform(handler, http.MethodPost, "/api/v2/grant-requests/"+service.item.ID+"/reject", body, map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin,
 		"Content-Type": contract.MediaTypeJSON, "If-Match": contract.GrantRequestETag(service.item.ID, "1"),
 	})
 	assert.Equal(t, http.StatusUnauthorized, missingCSRF.Code)
-	missingOrigin := perform(handler, http.MethodGet, "/api/v1/grant-requests", "", map[string]string{"Cookie": contract.SessionCookieName + "=session"})
+	missingOrigin := perform(handler, http.MethodGet, "/api/v2/grant-requests", "", map[string]string{"Cookie": contract.SessionCookieName + "=session"})
 	assert.Equal(t, http.StatusForbidden, missingOrigin.Code)
 }
 

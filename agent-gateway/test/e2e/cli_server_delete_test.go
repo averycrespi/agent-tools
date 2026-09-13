@@ -23,7 +23,7 @@ func TestCLIServerDelete(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	createBody := []byte(`{"namespace":"cli-delete","display_name":"CLI delete","enabled":false,"transport":{"kind":"stdio","executable":"/bin/cat","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`)
-	created := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/servers", createBody, map[string]string{"Idempotency-Key": "cli-delete"})
+	created := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/mcp/servers", createBody, map[string]string{"Idempotency-Key": "cli-delete"})
 	require.Equal(t, http.StatusCreated, created.StatusCode, string(created.Body))
 	var createdMutation struct {
 		Server struct {
@@ -34,19 +34,19 @@ func TestCLIServerDelete(t *testing.T) {
 	serverID, serverETag := createdMutation.Server.ID, created.Header.Get("ETag")
 	results := make([]testutil.ProcessResult, 0, 7)
 
-	refused := runOnlineCLI(t, harness, bearerPath, false, "server", "delete", serverID, "--etag", serverETag, "--output", "json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "delete", serverID, "--etag", serverETag, "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
 	assert.Contains(t, string(refused.Stderr), `"code":"client_invalid_input"`)
-	stillPresent := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID, nil)
+	stillPresent := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID, nil)
 	assert.Equal(t, http.StatusOK, stillPresent.StatusCode)
 
-	stale := runOnlineCLI(t, harness, bearerPath, false, "server", "delete", serverID, "--etag", `"server-`+serverID+`-999"`, "--yes", "--output", "json")
+	stale := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "delete", serverID, "--etag", `"server-`+serverID+`-999"`, "--yes", "--output", "json")
 	results = append(results, stale)
 	assert.Equal(t, 5, stale.ExitCode)
 	assert.Contains(t, string(stale.Stderr), `"code":"stale_revision"`)
 
-	deleted := runOnlineCLI(t, harness, bearerPath, true, "server", "delete", serverID, "--etag", serverETag, "--yes", "--output", "json")
+	deleted := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "delete", serverID, "--etag", serverETag, "--yes", "--output", "json")
 	results = append(results, deleted)
 	var mutation struct {
 		Server struct {
@@ -63,14 +63,14 @@ func TestCLIServerDelete(t *testing.T) {
 	assert.Equal(t, contract.OperationDelete, mutation.Operation.Kind)
 	harness.WaitOperation(serverID, mutation.Operation.ID, contract.OperationSucceeded)
 
-	tombstone := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID, nil)
+	tombstone := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID, nil)
 	tombstoneETag := tombstone.Header.Get("ETag")
-	replayed := runOnlineCLI(t, harness, bearerPath, true, "server", "delete", serverID, "--etag", tombstoneETag, "--yes")
+	replayed := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "delete", serverID, "--etag", tombstoneETag, "--yes")
 	results = append(results, replayed)
 	assert.Contains(t, string(replayed.Stdout), "deleted")
 	assert.Contains(t, string(replayed.Stdout), string(contract.OperationDelete))
 
-	force := runOnlineCLI(t, harness, bearerPath, false, "server", "delete", serverID, "--etag", tombstoneETag, "--force", "--output", "json")
+	force := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "delete", serverID, "--etag", tombstoneETag, "--force", "--output", "json")
 	results = append(results, force)
 	assert.Equal(t, 2, force.ExitCode)
 
@@ -80,7 +80,7 @@ func TestCLIServerDelete(t *testing.T) {
 		_, _ = writer.Write(deleted.Stdout)
 	}))
 	defer fake.Close()
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "server", "delete", serverID, "--etag", tombstoneETag, "--yes", "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "mcp", "server", "delete", serverID, "--etag", tombstoneETag, "--yes", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Contains(t, string(uncertain.Stderr), `"uncertain":true`)

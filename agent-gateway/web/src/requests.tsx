@@ -411,7 +411,6 @@ function readQueue(
 ) {
   const params = new URLSearchParams({
     limit: "50",
-    representation: "table",
     sort: query.sort ?? "submitted",
     direction:
       query.direction ??
@@ -427,7 +426,7 @@ function readQueue(
   if (cursor !== null) params.set("cursor", cursor);
   return readCollectionPage(
     session,
-    `/api/v1/grant-requests?${params}`,
+    `/api/v2/grant-requests?${params}`,
     decodeRequestRow,
     signal,
   );
@@ -438,7 +437,7 @@ async function readRequest(
 ): Promise<RequestDetail | undefined> {
   const result = await requestJSON(
     session,
-    `/api/v1/grant-requests/${requestID}`,
+    `/api/v2/grant-requests/${requestID}`,
   );
   if (result === undefined) return undefined;
   if (!result.response.ok) throw new Error("Request data is unavailable.");
@@ -1124,7 +1123,7 @@ function RequestActions({
         body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}${readOnlyMember(policy.readOnly)}}}`;
       } else body = JSON.stringify({ reason });
       const spec: MutationSpec<RequestDetail> = {
-        route: `/api/v1/grant-requests/${detail.id}/${next}`,
+        route: `/api/v2/grant-requests/${detail.id}/${next}`,
         method: "POST",
         body,
         precondition: detail.etag,

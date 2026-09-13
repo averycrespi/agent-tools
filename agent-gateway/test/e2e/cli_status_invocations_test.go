@@ -25,7 +25,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 
 	statusJSON := runOnlineCLI(t, harness, bearerPath, true, "status", "--output", "json")
-	statusAPI := harness.adminSnapshot(http.MethodGet, "/api/v1/system-status", nil)
+	statusAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
 	assert.JSONEq(t, string(statusAPI.Body), string(statusJSON.Stdout), "JSON mode must preserve the exact API projection")
 	var status contract.SystemStatus
 	require.NoError(t, json.Unmarshal(statusJSON.Stdout, &status))
@@ -55,7 +55,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	listJSON := runOnlineCLI(t, harness, bearerPath, true,
 		"invocation", "list", "--output", "json", "--limit", "1", "--requested-name", "cli-invocations.allowed",
 	)
-	listAPI := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations?limit=1&requested_name=cli-invocations.allowed", nil)
+	listAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations?limit=1&requested_name=cli-invocations.allowed", nil)
 	assert.JSONEq(t, string(listAPI.Body), string(listJSON.Stdout), "JSON list mode must preserve the exact API projection")
 	var page contract.InvocationPage
 	require.NoError(t, json.Unmarshal(listJSON.Stdout, &page))
@@ -77,7 +77,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	assert.NotContains(t, string(listTable.Stdout), "redacted_arguments")
 
 	getJSON := runOnlineCLI(t, harness, bearerPath, true, "invocation", "get", item.ID, "--output", "json")
-	getAPI := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations/"+item.ID, nil)
+	getAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations/"+item.ID, nil)
 	assert.JSONEq(t, string(getAPI.Body), string(getJSON.Stdout), "JSON item mode must preserve the exact API projection")
 	var invocation contract.Invocation
 	require.NoError(t, json.Unmarshal(getJSON.Stdout, &invocation))
@@ -105,7 +105,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	assert.Equal(t, 9, failure.ExitCode)
 	assert.Empty(t, failure.Stdout)
 	assert.Contains(t, string(failure.Stderr), `"code":"gateway_not_running"`)
-	assert.Contains(t, string(failure.Stderr), "Start it with: mcp-gateway serve")
+	assert.Contains(t, string(failure.Stderr), "Start it with: agent-gateway serve")
 	for _, result := range []testutil.ProcessResult{statusJSON, statusTable, listJSON, listTable, getJSON, getTable, localTable, failure} {
 		assert.False(t, result.StdoutTruncated)
 		assert.False(t, result.StderrTruncated)

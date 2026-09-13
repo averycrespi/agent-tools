@@ -25,7 +25,7 @@ func TestCLIServerCredentials(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	createBody := []byte(`{"namespace":"cli-credentials","display_name":"CLI credentials","enabled":false,"transport":{"kind":"stdio","executable":"/bin/cat","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{"TOKEN":"primary"}}}`)
-	created := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/servers", createBody, map[string]string{"Idempotency-Key": "cli-credentials"})
+	created := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/mcp/servers", createBody, map[string]string{"Idempotency-Key": "cli-credentials"})
 	require.Equal(t, http.StatusCreated, created.StatusCode, string(created.Body))
 	var createdMutation struct {
 		Server struct {
@@ -44,14 +44,14 @@ func TestCLIServerCredentials(t *testing.T) {
 	require.NoError(t, os.WriteFile(oauthPath, []byte(`{"kind":"oauth_client","expected_revision":"0","client_secret":"oauth-cli-canary-8Zq4"}`), 0o600))
 	results := make([]testutil.ProcessResult, 0, 7)
 
-	refused := runOnlineCLI(t, harness, bearerPath, false, "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--output", "json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
-	invalid := runOnlineCLI(t, harness, bearerPath, false, "server", "credential", "replace", serverID, "--etag", serverETag, "--file", invalidPath, "--yes", "--output", "json")
+	invalid := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "credential", "replace", serverID, "--etag", serverETag, "--file", invalidPath, "--yes", "--output", "json")
 	results = append(results, invalid)
 	assert.Equal(t, 2, invalid.ExitCode)
 
-	replaced := runOnlineCLI(t, harness, bearerPath, true, "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--yes", "--output", "json")
+	replaced := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--yes", "--output", "json")
 	results = append(results, replaced)
 	var replacement contract.CredentialReplacementResult
 	require.NoError(t, json.Unmarshal(replaced.Stdout, &replacement))
@@ -61,7 +61,7 @@ func TestCLIServerCredentials(t *testing.T) {
 	assert.NotContains(t, string(replaced.Stdout), secretCanary)
 	harness.WaitOperation(serverID, replacement.Operation.ID, contract.OperationSucceeded)
 
-	stale := runOnlineCLI(t, harness, bearerPath, false, "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--yes", "--output", "json")
+	stale := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--yes", "--output", "json")
 	results = append(results, stale)
 	assert.Equal(t, 5, stale.ExitCode)
 	assert.Contains(t, string(stale.Stderr), `"code":"stale_revision"`)
@@ -80,7 +80,7 @@ func TestCLIServerCredentials(t *testing.T) {
 		_, _ = writer.Write(oauthBody)
 	}))
 	defer fakeOAuth.Close()
-	oauth := runCLIAt(t, harness, bearerPath, fakeOAuth.URL, "server", "credential", "replace", serverID, "--etag", serverETag, "--file", oauthPath, "--yes", "--output", "json")
+	oauth := runCLIAt(t, harness, bearerPath, fakeOAuth.URL, "mcp", "server", "credential", "replace", serverID, "--etag", serverETag, "--file", oauthPath, "--yes", "--output", "json")
 	results = append(results, oauth)
 	assert.True(t, oauthObserved.Load())
 	assert.NotContains(t, string(oauth.Stdout), "oauth-cli-canary-8Zq4")
@@ -91,7 +91,7 @@ func TestCLIServerCredentials(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"status":503,"code":"storage_unavailable","title":"Storage is unavailable."}`))
 	}))
 	defer fakeUncertain.Close()
-	uncertain := runCLIAt(t, harness, bearerPath, fakeUncertain.URL, "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--yes", "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fakeUncertain.URL, "mcp", "server", "credential", "replace", serverID, "--etag", serverETag, "--file", staticPath, "--yes", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Contains(t, string(uncertain.Stderr), `"uncertain":true`)

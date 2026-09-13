@@ -74,7 +74,7 @@ func parseInvocationQuery(rawQuery string) (contract.InvocationListQuery, contra
 		Filters: contract.InvocationFilters{Tool: query.Get("tool"), Principal: query.Get("principal"), SearchLocale: query.Get("search_locale")}}
 	if values, ok := query["limit"]; ok {
 		limit, parseErr := strconv.Atoi(values[0])
-		if parseErr != nil || limit < 1 || limit > limitValue("admin_list_page") {
+		if parseErr != nil || limit < 1 || limit > limitValue("admin_list_page") || strconv.Itoa(limit) != values[0] {
 			return contract.InvocationListQuery{}, contract.ProblemMalformedRequest
 		}
 		result.Limit = limit

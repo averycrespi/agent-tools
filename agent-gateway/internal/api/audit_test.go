@@ -43,7 +43,7 @@ func TestAuthenticatedRejectionDuringPostCommitCleanup(t *testing.T) {
 		identity, readErr := store.Identity(t.Context())
 		require.NoError(t, readErr)
 		assert.Equal(t, uint64(1), identity.Revision)
-		response := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", "{", headers)
+		response := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", "{", headers)
 		assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 		assert.Contains(t, response.Body.String(), `"code":"storage_unavailable"`)
 		assert.False(t, store.Latched())
@@ -54,7 +54,7 @@ func TestAuthenticatedRejectionDuringPostCommitCleanup(t *testing.T) {
 	}))
 	require.True(t, observed)
 	afterCommit = nil
-	response := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", "{", headers)
+	response := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", "{", headers)
 	assert.Equal(t, http.StatusBadRequest, response.Code)
 	assert.False(t, store.Latched())
 	page, err := repository.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "admin_credential"}})
@@ -87,7 +87,7 @@ func TestAuthenticatedRejectionAuditIsAtomicAndSecretFree(t *testing.T) {
 				{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON},
 				{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON},
 			} {
-				response := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", `{"rejection-secret-canary":`, headers)
+				response := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", `{"rejection-secret-canary":`, headers)
 				expected := contract.ProblemInvalidJSON
 				if refuse {
 					expected = contract.ProblemStorageUnavailable
@@ -122,13 +122,13 @@ func TestAuthenticatedRejectionAuditIsAtomicAndSecretFree(t *testing.T) {
 					}
 				}
 			}
-			assert.Equal(t, http.StatusUnauthorized, perform(boundary, http.MethodPost, "/api/v1/admin-credentials", "{", nil).Code)
-			assert.Equal(t, http.StatusOK, perform(boundary, http.MethodGet, "/api/v1/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer}).Code)
+			assert.Equal(t, http.StatusUnauthorized, perform(boundary, http.MethodPost, "/api/v2/admin-credentials", "{", nil).Code)
+			assert.Equal(t, http.StatusOK, perform(boundary, http.MethodGet, "/api/v2/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer}).Code)
 			after, err := repository.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "admin_credential"}})
 			require.NoError(t, err)
 			assert.Equal(t, page, after)
 			draining = true
-			response := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", "{", map[string]string{"Authorization": "Bearer " + testBearer})
+			response := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", "{", map[string]string{"Authorization": "Bearer " + testBearer})
 			assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 			after, err = repository.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "admin_credential"}})
 			require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestAuditReadAPIUsesAuthenticatedBoundedHistory(t *testing.T) {
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	require.NoError(t, err)
 	bearer := map[string]string{"Authorization": "Bearer " + testBearer}
-	response := perform(boundary, http.MethodGet, "/api/v1/audit-events?limit=1&actor_type=system&category=grant&action=create", "", bearer)
+	response := perform(boundary, http.MethodGet, "/api/v2/audit-events?limit=1&actor_type=system&category=grant&action=create", "", bearer)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	assert.Empty(t, response.Header().Get("Access-Control-Allow-Origin"))
@@ -172,7 +172,7 @@ func TestAuditReadAPIUsesAuthenticatedBoundedHistory(t *testing.T) {
 	assert.NotNil(t, page.History.OldestRetained)
 	assert.False(t, page.History.Pruned)
 
-	response = perform(boundary, http.MethodGet, "/api/v1/audit-events/"+testID+"?generation="+page.History.Generation, "", bearer)
+	response = perform(boundary, http.MethodGet, "/api/v2/audit-events/"+testID+"?generation="+page.History.Generation, "", bearer)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var item contract.AuditItem
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &item))
@@ -180,21 +180,21 @@ func TestAuditReadAPIUsesAuthenticatedBoundedHistory(t *testing.T) {
 	assert.Equal(t, page.History, item.History)
 	assert.Contains(t, response.Body.String(), `"detail":{"reason":null,"problem":null}`)
 	for _, suffix := range []string{"", "/" + testID} {
-		response = perform(boundary, http.MethodGet, "/api/v1/audit-events"+suffix+"?generation="+strings.Repeat("0", 64), "", bearer)
+		response = perform(boundary, http.MethodGet, "/api/v2/audit-events"+suffix+"?generation="+strings.Repeat("0", 64), "", bearer)
 		assert.Equal(t, http.StatusConflict, response.Code)
 		assert.Contains(t, response.Body.String(), "audit_history_replaced")
-		assert.Equal(t, http.StatusUnauthorized, perform(boundary, http.MethodGet, "/api/v1/audit-events"+suffix, "", nil).Code)
-		assert.Equal(t, http.StatusForbidden, perform(boundary, http.MethodGet, "/api/v1/audit-events"+suffix, "", map[string]string{"Cookie": contract.SessionCookieName + "=session"}).Code)
-		assert.Equal(t, http.StatusOK, perform(boundary, http.MethodGet, "/api/v1/audit-events"+suffix, "", map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin}).Code)
+		assert.Equal(t, http.StatusUnauthorized, perform(boundary, http.MethodGet, "/api/v2/audit-events"+suffix, "", nil).Code)
+		assert.Equal(t, http.StatusForbidden, perform(boundary, http.MethodGet, "/api/v2/audit-events"+suffix, "", map[string]string{"Cookie": contract.SessionCookieName + "=session"}).Code)
+		assert.Equal(t, http.StatusOK, perform(boundary, http.MethodGet, "/api/v2/audit-events"+suffix, "", map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin}).Code)
 	}
 	for _, query := range []string{"unknown=x", "limit=1&limit=2", "limit=0", "limit=101", "limit=01", "cursor=", "cursor=garbage", "actor_type=human", "credential_id=canary", "category=invocation", "category=grant_request&action=submit", "target_type=url", "target_id=bad", "outcome=other", "correlation_id=bad", "from=2026-09-05T00:00:00.000000000Z", "generation=bad", "generation="} {
-		response = perform(boundary, http.MethodGet, "/api/v1/audit-events?"+query, "", bearer)
+		response = perform(boundary, http.MethodGet, "/api/v2/audit-events?"+query, "", bearer)
 		assert.Equal(t, http.StatusBadRequest, response.Code, query)
 	}
-	assert.Equal(t, http.StatusBadRequest, perform(boundary, http.MethodGet, "/api/v1/audit-events", `{}`, bearer).Code)
-	assert.Equal(t, http.StatusBadRequest, perform(boundary, http.MethodGet, "/api/v1/audit-events/"+testID+"?limit=1", "", bearer).Code)
+	assert.Equal(t, http.StatusBadRequest, perform(boundary, http.MethodGet, "/api/v2/audit-events", `{}`, bearer).Code)
+	assert.Equal(t, http.StatusBadRequest, perform(boundary, http.MethodGet, "/api/v2/audit-events/"+testID+"?limit=1", "", bearer).Code)
 	for _, method := range []string{http.MethodHead, http.MethodPost, http.MethodDelete, http.MethodPatch} {
-		response = perform(boundary, method, "/api/v1/audit-events", "", bearer)
+		response = perform(boundary, method, "/api/v2/audit-events", "", bearer)
 		assert.Equal(t, http.StatusMethodNotAllowed, response.Code)
 		assert.Equal(t, http.MethodGet, response.Header().Get("Allow"))
 	}

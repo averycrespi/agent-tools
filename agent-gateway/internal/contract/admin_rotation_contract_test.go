@@ -10,17 +10,17 @@ import (
 func TestAdminAuthorityRotationContract(t *testing.T) {
 	t.Parallel()
 
-	authorityRoute, ok := RouteForPath("/api/v1/admin-authority")
+	authorityRoute, ok := RouteForPath("/api/v2/admin-authority")
 	require.True(t, ok)
-	require.Equal(t, Route{Pattern: "/api/v1/admin-authority", Methods: []string{"GET"}, Authority: AuthorityAdminBearer}, authorityRoute)
-	completionRoute, ok := RouteForPath("/api/v1/admin-credentials/01ARZ3NDEKTSV4RRFFQ69G5FAV/rotation-completion")
+	require.Equal(t, Route{Pattern: "/api/v2/admin-authority", Methods: []string{"GET"}, Authority: AuthorityAdminBearer}, authorityRoute)
+	completionRoute, ok := RouteForPath("/api/v2/admin-credentials/01ARZ3NDEKTSV4RRFFQ69G5FAV/rotation-completion")
 	require.True(t, ok)
-	require.Equal(t, Route{Pattern: "/api/v1/admin-credentials/{id}/rotation-completion", Methods: []string{"POST"}, Authority: AuthorityAdminBearer}, completionRoute)
+	require.Equal(t, Route{Pattern: "/api/v2/admin-credentials/{id}/rotation-completion", Methods: []string{"POST"}, Authority: AuthorityAdminBearer}, completionRoute)
 
 	mechanics := ResourceMechanics()
-	require.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v1/admin-authority", Method: "GET", RequestSchema: "None", SuccessSchema: "AdminAuthority", SuccessStatuses: []int{200}, ETag: true})
-	require.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v1/admin-credentials", Method: "POST", RequestSchema: "AdminCredentialCreate", SuccessSchema: "CreatedAdminCredential", SuccessStatuses: []int{201}, OptionalPrecondition: true, ETag: true})
-	require.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v1/admin-credentials/{id}/rotation-completion", Method: "POST", RequestSchema: "AdminCredentialRotationCompletion", SuccessSchema: "AdminCredentialRotationResult", SuccessStatuses: []int{200}, Precondition: true, ETag: true})
+	require.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v2/admin-authority", Method: "GET", RequestSchema: "None", SuccessSchema: "AdminAuthority", SuccessStatuses: []int{200}, ETag: true})
+	require.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v2/admin-credentials", Method: "POST", RequestSchema: "AdminCredentialCreate", SuccessSchema: "CreatedAdminCredential", SuccessStatuses: []int{201}, OptionalPrecondition: true, ETag: true})
+	require.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v2/admin-credentials/{id}/rotation-completion", Method: "POST", RequestSchema: "AdminCredentialRotationCompletion", SuccessSchema: "AdminCredentialRotationResult", SuccessStatuses: []int{200}, Precondition: true, ETag: true})
 
 	for _, expected := range []Problem{
 		{Status: 409, Code: ProblemAdminRotationConflict, Title: "The administrator credential rotation conflicts with current state."},

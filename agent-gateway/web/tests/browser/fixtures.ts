@@ -22,7 +22,7 @@ export const overviewLimitNames = [
   "catalog_traversals",
   "oauth_flows",
   "oauth_callback_work",
-  "s2_idempotency_records",
+  "server_idempotency_records",
   "active_tools",
   "durable_tool_identities",
   "downstream_dispatch",

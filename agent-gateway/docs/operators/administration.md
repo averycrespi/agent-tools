@@ -4,11 +4,36 @@ Audience: Gateway operators and automation authors
 
 Purpose: Run local administration safely through the public CLI.
 
-Agent Gateway's `agent-gateway --help` and subcommand help are the canonical command and flag reference. Prefer `agent-gateway` for new commands. The `mcp-gateway` name remains fully supported: compatibility examples and recovery output below use that spelling, and the same commands and flags work with either name. This guide owns operator procedures for installation roots, administrator authentication, output modes, and safe command execution. See [Administrative control plane](../design/administrative-control-plane.md) for normative defaults and trust boundaries.
+Agent Gateway's `agent-gateway --help` and subcommand help are the canonical command and flag reference. Prefer `agent-gateway` for new commands. The `mcp-gateway` executable remains fully supported with the same current commands and flags. Examples and recovery guidance use `agent-gateway` directly. This guide owns operator procedures for installation roots, administrator authentication, output modes, and safe command execution. See [Administrative control plane](../design/administrative-control-plane.md) for normative defaults and trust boundaries.
+
+## Operator v2 cutover
+
+Upgrade standalone CLI binaries, API clients, JSON scripts, and the service together. This is an intentional operator breaking change, not an installation migration. Both installed executable names use the same new grammar; there are no v1 HTTP handlers, top-level server/catalog aliases, redirects, or compatibility completions.
+
+| Previous operator interface                                                                                   | Current interface                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/v1/servers` and every child                                                                             | `/api/v2/mcp/servers` and the corresponding child                                                                                                                                                    |
+| `/api/v1/catalog`                                                                                             | `/api/v2/mcp/catalog`                                                                                                                                                                                |
+| Other administrative `/api/v1/*` resources, including sessions, events, credentials, status, and backups      | Corresponding `/api/v2/*` resources, outside the MCP namespace                                                                                                                                       |
+| `server ...`, `catalog ...`                                                                                   | `mcp server ...`, `mcp catalog ...` under either executable name                                                                                                                                     |
+| Server `auth-flows` API resources                                                                             | `oauth-flows` resources; the CLI subtree is `mcp server auth-flow ...`                                                                                                                               |
+| Operator flow JSON `flow_state`                                                                               | `state`                                                                                                                                                                                              |
+| Operator limits `s2_idempotency_records`                                                                      | `server_idempotency_records`                                                                                                                                                                         |
+| Human-label server-status queries such as `Authorization required`                                            | Stable snake_case tokens such as `authorization_required`; presentation labels are unchanged                                                                                                         |
+| Implicit legacy/table query modes and `representation=table`                                                  | One ordinary collection shape and default policy regardless of filters                                                                                                                               |
+| Descriptor `retired=include/exclude/only` and `representation=summary`                                        | Omit status for all, use `status=available/retired`, and explicit `projection=full/summary` (default full)                                                                                           |
+| Bare operation, principal, grant, and request pages without counts                                            | Their ordinary normalized query pages always include exact `total_count` and `offset`; grants/requests use enriched collection items                                                                 |
+| Insertion-order defaults for servers, catalog, descriptors, principals, grants, and operation/request history | Defaults listed in the [normalized collection contract](../design/public-contract.md#normalized-administrative-collections); default limit 50, MCP inventory/catalog/descriptor/operation maximum 50 |
+
+`projection=active` remains an exclusive operation read with `{items,has_more}`. Other ordinary pages do not acquire invented totals. The CLI's `--retired` descriptor selector translates to the new status query; API clients must use the new grammar. Exact grant/request policy fields and member-resource shapes are unchanged.
+
+After a service upgrade, reload an already-open browser tab to load the bundled client, and sign in again if its session expired. Browser fragments and layout are unchanged. Discard old page cursors; reload starts a fresh traversal. A failed or uncertain mutation during version skew is **not** permission to retry: retain its input/key/precondition, inspect current resources with the upgraded client, and resolve the outcome before any deliberate same-intent action. Never retry merely because the old tab or CLI cannot decode a response.
+
+Existing same-key server work retains its durable identity across the route rename, including conflicts and interrupted outcomes. Database/backup lineage, stored enums, bearer verifiers/prefixes, keyring identifiers/generations, roots/locks, ports, `/mcp`, OAuth callback identities, `mcp_gateway.*` tools/schemas, installed launchd argv/labels/plist/log paths, and provisioning markers/token paths are unchanged. Provisioning continues exporting `MCP_GATEWAY_ENDPOINT` and `MCP_GATEWAY_AGENT_TOKEN`. No reinitialization, credential rotation, automatic relocation, live installation mutation, or external agent-config change is part of this cutover. Offline `restore --verify-current` and `restore BACKUP_ID` remain unchanged. Historical acceptance evidence remains historical, not current release qualification.
 
 ## Installation root
 
-`make install` installs both names from one implementation. Switching names does not create a new installation: keep the existing root, administrator bearer, database, backups, and native-keyring entries. Credential prefixes, keyring identifiers, ports, API routes, and `mcp_gateway.*` self-service tools are unchanged. Do not reinitialize or migrate state for the rename. Existing launchd plists and provisioning scripts remain usable; do not replace an installed service solely to change its name.
+`make install` installs both names from one implementation. Switching names does not create a new installation: keep the existing root, administrator bearer, database, backups, and native-keyring entries. Credential prefixes, keyring identifiers, ports, and `mcp_gateway.*` self-service tools are unchanged; administrative API clients use the v2 contract above. Do not reinitialize or migrate state for the rename. Existing launchd plists and provisioning scripts remain usable; do not replace an installed service solely to change its name.
 
 `--data-dir` has highest precedence. Without it, Gateway uses `$XDG_DATA_HOME/mcp-gateway` when `XDG_DATA_HOME` is an absolute path. Otherwise it resolves the operating-system account home and uses `~/.local/share/mcp-gateway`. A relative XDG value is rejected, and the `$HOME` environment variable is not an authority source.
 
@@ -24,12 +49,12 @@ The zero-argument installation uses the default root and stores its administrato
 
 Exact syntax and defaults:
 
-- `mcp-gateway initialize --help`
-- `mcp-gateway serve --help`
-- `mcp-gateway status --help`
-- `mcp-gateway admin --help`
-- `mcp-gateway admin credential --help`
-- `mcp-gateway admin reset --help`
+- `agent-gateway initialize --help`
+- `agent-gateway serve --help`
+- `agent-gateway status --help`
+- `agent-gateway admin --help`
+- `agent-gateway admin credential --help`
+- `agent-gateway admin reset --help`
 
 ## Start and inspect Gateway
 
@@ -42,7 +67,7 @@ agent-gateway serve
 agent-gateway status
 ```
 
-`serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts a canonical numeric `127/8` HTTP URL or an explicitly trusted hostname HTTP URL with a canonical decimal port (1–65535). Wildcard and non-loopback numeric destinations, URL userinfo, paths (including a trailing slash), queries, fragments, forwarding headers, redirects, ambient proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `mcp-gateway serve` command for the selected address and explicit data directory. A hostname refusal instead directs you to check forwarding and the numeric-loopback service; a hostname is never a valid `--listen` value.
+`serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts a canonical numeric `127/8` HTTP URL or an explicitly trusted hostname HTTP URL with a canonical decimal port (1–65535). Wildcard and non-loopback numeric destinations, URL userinfo, paths (including a trailing slash), queries, fragments, forwarding headers, redirects, ambient proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `agent-gateway serve` command for the selected address and explicit data directory. A hostname refusal instead directs you to check forwarding and the numeric-loopback service; a hostname is never a valid `--listen` value.
 
 `GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. Detailed `status` requires administrator authentication.
 
@@ -51,7 +76,7 @@ agent-gateway status
 To reach the existing routes through a trusted VM/container forwarding hostname, explicitly allow that name on the host:
 
 ```bash
-mcp-gateway serve --allowed-host host.lima.internal
+agent-gateway serve --allowed-host host.lima.internal
 # Repeat --allowed-host for another independently trusted hostname.
 ```
 
@@ -64,20 +89,20 @@ Selecting an HTTP hostname destination is an explicit trust decision about resol
 Provision a separate administrator credential on the host, not the main administrator bearer and not an agent credential:
 
 ```bash
-mcp-gateway admin credential create --secret-output /safe/new/sandbox-admin
+agent-gateway admin credential create --secret-output /safe/new/sandbox-admin
 ```
 
 Retain the credential ID from the safe metadata output. Securely transfer only that owner-only bearer file into the sandbox, not Gateway's database or installation root. Then select the destination and credential explicitly inside the sandbox (use the port exposed by your forwarding setup):
 
 ```bash
-mcp-gateway status --address http://host.lima.internal:8210 \
+agent-gateway status --address http://host.lima.internal:8210 \
   --admin-bearer-file /safe/sandbox-admin
 ```
 
 This credential grants full administrator authority; hostname allowlisting does not reduce its privileges. When access ends, revoke that specific credential using another active host administrator:
 
 ```bash
-mcp-gateway admin credential revoke SANDBOX_CREDENTIAL_ID --yes
+agent-gateway admin credential revoke SANDBOX_CREDENTIAL_ID --yes
 ```
 
 Also remove the `--allowed-host` entry and restart Gateway to block new requests through that name. Host removal is not credential revocation: the bearer remains usable through other accepted hosts until separately revoked or expired. Revocation blocks the bearer independently even while the hostname remains allowed. Securely remove the transferred file when no longer needed.
@@ -95,7 +120,7 @@ The explicit file and stdin selectors conflict. Administrator bearers are never 
 For a replacement bearer created by reset or restore, select it explicitly:
 
 ```bash
-mcp-gateway --data-dir /path/to/gateway-data \
+agent-gateway --data-dir /path/to/gateway-data \
   status --admin-bearer-file /safe/new/admin-bearer
 ```
 
@@ -106,7 +131,7 @@ See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-auth
 Warnings and errors are enabled by default, including upstream authentication/degraded transitions, unconfirmed cleanup, foreground OAuth failure/expiration, and actionable refresh failures. Use `serve --log-level info` for foreground OAuth required/completed and upstream recovery, or `debug` for actual attempts, retry/reset timing, detailed OAuth stages, routine refresh success, and payload-free invocation/authority/storage timing. Diagnostics are always JSON lines on stderr; result/problem formatting still follows `--output`/`--json`. For a deliberately started foreground service:
 
 ```bash
-mcp-gateway serve --log-level debug --output json 2>gateway-diagnostics.jsonl
+agent-gateway serve --log-level debug --output json 2>gateway-diagnostics.jsonl
 # Inspect complete diagnostic lines; terminal problems have no schema_version.
 jq -R 'fromjson? | select(.schema_version == 1)' gateway-diagnostics.jsonl
 jq -R 'fromjson? | select(.event == "storage_reject" or .event == "diagnostic_loss")' gateway-diagnostics.jsonl
@@ -174,36 +199,36 @@ An exact idempotency key and canonical input digest may permit deliberate same-i
 Use the online routine rotation command while Gateway is running:
 
 ```bash
-mcp-gateway admin credential rotate OLD_CREDENTIAL_ID \
+agent-gateway admin credential rotate OLD_CREDENTIAL_ID \
   --secret-output /safe/new/admin-bearer \
   --yes
-mcp-gateway status --admin-bearer-file /safe/new/admin-bearer
+agent-gateway status --admin-bearer-file /safe/new/admin-bearer
 ```
 
 Rotation conditionally creates one non-expiring replacement, durably publishes and securely reopens the file, verifies its metadata and authentication, and only then conditionally revokes the named old credential. It never promotes the replacement into the default bearer path. If completion is uncertain, do not replay: retain the replacement file and use the rendered metadata command to inspect the old and new records. Before replacement verification, workflow-owned failures preserve old authority; after verified publication, an incomplete workflow may intentionally leave both credentials active.
 
 If durable publication itself fails after creation, the output path may contain unverified secret material but must not be trusted or used as credential input; secure or remove it. This workflow does not revoke the old credential, but expiration or concurrent administrator action may still make it unusable. An active replacement record without a durably verified bearer may also exist. If the pre-rotation credential remains active, use it to inspect metadata; otherwise use another active administrator credential. Explicitly revoke an unusable replacement if present, and perform any later rotation as a fresh deliberate operation.
 
-Use stopped-process `mcp-gateway admin reset` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `admin reset` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
+Use stopped-process `agent-gateway admin reset` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `admin reset` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
 
 For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](backup-and-recovery.md).
 
 ## Control-plane audit history
 
-Use `mcp-gateway audit list` and `mcp-gateway audit get AUDIT_EVENT_ID`, or choose **Activity → Administrators** in the browser navigation. This is the existing administrative audit history, including system and offline maintenance events, not an administrator directory or actor filter. Both consume the authenticated read-only `GET /api/v1/audit-events` and `GET /api/v1/audit-events/{id}` API. Generated `mcp-gateway audit --help`, `mcp-gateway audit list --help`, and `mcp-gateway audit get --help` describe the command grammar. The [coverage matrix](../design/administrative-control-plane.md#control-plane-audit-coverage) identifies audited operator, system and offline actions and their regression evidence. Do not infer that an action never happened from an empty audit collection.
+Use `agent-gateway audit list` and `agent-gateway audit get AUDIT_EVENT_ID`, or choose **Activity → Administrators** in the browser navigation. This is the existing administrative audit history, including system and offline maintenance events, not an administrator directory or actor filter. Both consume the authenticated read-only `GET /api/v2/audit-events` and `GET /api/v2/audit-events/{id}` API. Generated `agent-gateway audit --help`, `agent-gateway audit list --help`, and `agent-gateway audit get --help` describe the command grammar. The [coverage matrix](../design/administrative-control-plane.md#control-plane-audit-coverage) identifies audited operator, system and offline actions and their regression evidence. Do not infer that an action never happened from an empty audit collection.
 
 Collection responses return summaries, a next-page cursor, and `history` with `generation`, `oldest_retained`, and `pruned`. Only the newest 65,536 events are retained. Keep the generation separately from the oldest boundary; pruning advances the boundary within one generation, while a generation mismatch means histories must not be combined. After `stale_cursor`, discard the traversal, fetch a fresh first page, and compare its generation before using earlier records. Restore assigns a fresh generation and records an offline installation attempt in the replacement database; its success outcome is appended only after installation. An interruption may leave the new generation with a pending attempt and no outcome. Pin `generation` on item reads when following a previously displayed event. `audit_history_replaced` is a conflict, not a missing-record response. Never infer rollback or replay safety from an attempt without an outcome.
 
 ### Filters, pagination, and event interpretation
 
 ```bash
-mcp-gateway audit list --limit 50 --actor-type system --category server
-mcp-gateway audit list --outcome unknown \
+agent-gateway audit list --limit 50 --actor-type system --category server
+agent-gateway audit list --outcome unknown \
   --from 2026-09-01T00:00:00.000000000Z \
   --until 2026-09-02T00:00:00.000000000Z --json
-mcp-gateway audit list --cursor OPAQUE_CURSOR --generation HISTORY_GENERATION \
+agent-gateway audit list --cursor OPAQUE_CURSOR --generation HISTORY_GENERATION \
   --actor-type system --category server
-mcp-gateway audit get AUDIT_EVENT_ID --generation HISTORY_GENERATION --json
+agent-gateway audit get AUDIT_EVENT_ID --generation HISTORY_GENERATION --json
 ```
 
 All filters are conjunctive and apply to server history: `--actor-type`, `--credential-id`, `--category`, `--action`, `--target-type`, `--target-id`, `--outcome`, `--correlation-id`, `--from`, and `--until`. IDs are canonical Gateway IDs. Credential filtering matches either a performing operator or a known system initiator. The time range is inclusive `from`, exclusive `until`; provide both as fixed UTC timestamps with nine fractional digits, separated by at most 366 days. Category/action pairs and actor/target/outcome values use the closed API vocabulary. In the browser, From and Until use datetime pickers in your local timezone and convert selections to UTC automatically. Choose both bounds or clear both; Until must be later than From and the range cannot exceed 366 days.
@@ -221,17 +246,17 @@ See the [public audit contract](../design/public-contract.md#control-plane-audit
 Use generated help rather than copying a full command inventory into documentation:
 
 ```bash
-mcp-gateway --help
-mcp-gateway server --help
-mcp-gateway catalog --help
-mcp-gateway principal --help
-mcp-gateway grant --help
-mcp-gateway grant-request --help
-mcp-gateway invocation --help
-mcp-gateway audit --help
-mcp-gateway backup --help
-mcp-gateway admin credential --help
-mcp-gateway admin reset --help
+agent-gateway --help
+agent-gateway mcp server --help
+agent-gateway mcp catalog --help
+agent-gateway principal --help
+agent-gateway grant --help
+agent-gateway grant-request --help
+agent-gateway invocation --help
+agent-gateway audit --help
+agent-gateway backup --help
+agent-gateway admin credential --help
+agent-gateway admin reset --help
 ```
 
 Focused workflow ownership:

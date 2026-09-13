@@ -42,21 +42,21 @@ func TestCLIAuthFlows(t *testing.T) {
 	control := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", contract.MediaTypeJSON)
 		switch {
-		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/servers/"+serverID+"/auth-flows":
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v2/mcp/servers/"+serverID+"/oauth-flows":
 			current := flow
 			current.FlowState = flowState.Load().(contract.AuthFlowState)
 			_ = json.NewEncoder(writer).Encode(contract.Collection[contract.ServerAuthFlow]{Items: []contract.ServerAuthFlow{current}})
-		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/servers/"+serverID+"/auth-flows/"+flowID:
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v2/mcp/servers/"+serverID+"/oauth-flows/"+flowID:
 			current := flow
 			current.FlowState = flowState.Load().(contract.AuthFlowState)
 			_ = json.NewEncoder(writer).Encode(current)
-		case request.Method == http.MethodPost && request.URL.Path == "/api/v1/servers/"+serverID+"/auth-flows":
+		case request.Method == http.MethodPost && request.URL.Path == "/api/v2/mcp/servers/"+serverID+"/oauth-flows":
 			starts.Add(1)
 			assert.Equal(t, `"server-`+serverID+`-1"`, request.Header.Get("If-Match"))
 			assert.Empty(t, request.Header.Get("Idempotency-Key"))
 			writer.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(writer).Encode(contract.AuthFlowCreation{Flow: flow, AuthorizationURL: authorization.URL + "/authorize?state=auth-flow-canary"})
-		case request.Method == http.MethodDelete && request.URL.Path == "/api/v1/servers/"+serverID+"/auth-flows/"+flowID:
+		case request.Method == http.MethodDelete && request.URL.Path == "/api/v2/mcp/servers/"+serverID+"/oauth-flows/"+flowID:
 			cancels.Add(1)
 			writer.Header().Del("Content-Type")
 			writer.WriteHeader(http.StatusNoContent)
@@ -67,19 +67,19 @@ func TestCLIAuthFlows(t *testing.T) {
 	defer control.Close()
 	results := make([]testutil.ProcessResult, 0, 6)
 
-	listed := runCLIAt(t, harness, bearerPath, control.URL, "server", "auth-flow", "list", serverID, "--limit", "10", "--output", "json")
+	listed := runCLIAt(t, harness, bearerPath, control.URL, "mcp", "server", "auth-flow", "list", serverID, "--limit", "10", "--output", "json")
 	results = append(results, listed)
 	require.Equal(t, 0, listed.ExitCode)
 	assert.Contains(t, string(listed.Stdout), flowID)
-	got := runCLIAt(t, harness, bearerPath, control.URL, "server", "auth-flow", "get", serverID, flowID)
+	got := runCLIAt(t, harness, bearerPath, control.URL, "mcp", "server", "auth-flow", "get", serverID, flowID)
 	results = append(results, got)
 	require.Equal(t, 0, got.ExitCode)
 	assert.Contains(t, string(got.Stdout), "awaiting_callback")
 
-	jsonRefused := runCLIAt(t, harness, bearerPath, control.URL, "server", "auth-flow", "start", serverID, "--etag", `"server-`+serverID+`-1"`, "--output", "json")
+	jsonRefused := runCLIAt(t, harness, bearerPath, control.URL, "mcp", "server", "auth-flow", "start", serverID, "--etag", `"server-`+serverID+`-1"`, "--output", "json")
 	results = append(results, jsonRefused)
 	assert.Equal(t, 2, jsonRefused.ExitCode)
-	redirectedRefused := runCLIAt(t, harness, bearerPath, control.URL, "server", "auth-flow", "start", serverID, "--etag", `"server-`+serverID+`-1"`)
+	redirectedRefused := runCLIAt(t, harness, bearerPath, control.URL, "mcp", "server", "auth-flow", "start", serverID, "--etag", `"server-`+serverID+`-1"`)
 	results = append(results, redirectedRefused)
 	assert.Equal(t, 2, redirectedRefused.ExitCode)
 	assert.Zero(t, starts.Load())
@@ -111,12 +111,12 @@ func TestCLIAuthFlows(t *testing.T) {
 	assert.NotContains(t, string(redirectResult.Stderr), "redirect-canary")
 
 	flowState.Store(contract.AuthFlowExchanging)
-	ineligible := runCLIAt(t, harness, bearerPath, control.URL, "server", "auth-flow", "cancel", serverID, flowID, "--yes", "--output", "json")
+	ineligible := runCLIAt(t, harness, bearerPath, control.URL, "mcp", "server", "auth-flow", "cancel", serverID, flowID, "--yes", "--output", "json")
 	results = append(results, ineligible)
 	assert.Equal(t, 2, ineligible.ExitCode)
 	assert.Zero(t, cancels.Load())
 	flowState.Store(contract.AuthFlowAwaitingCallback)
-	cancelled := runCLIAt(t, harness, bearerPath, control.URL, "server", "auth-flow", "cancel", serverID, flowID, "--yes", "--output", "json")
+	cancelled := runCLIAt(t, harness, bearerPath, control.URL, "mcp", "server", "auth-flow", "cancel", serverID, flowID, "--yes", "--output", "json")
 	results = append(results, cancelled)
 	assert.Equal(t, 0, cancelled.ExitCode)
 	assert.JSONEq(t, `{}`, string(cancelled.Stdout))
@@ -187,7 +187,7 @@ print("auth_flow_terminal_open_ok")
 	if expectTerminal {
 		expectTerminalValue = "yes"
 	}
-	args := []string{wrapper, dir, expectedURL, fmt.Sprintf("%d", expectedChildExit), expectTerminalValue, stdoutPath, stderrPath, harness.binary, "server", "auth-flow", "start", serverID}
+	args := []string{wrapper, dir, expectedURL, fmt.Sprintf("%d", expectedChildExit), expectTerminalValue, stdoutPath, stderrPath, harness.binary, "mcp", "server", "auth-flow", "start", serverID}
 	if etag != "" {
 		args = append(args, "--etag", etag)
 	}

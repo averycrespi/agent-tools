@@ -64,7 +64,7 @@ func TestAllowedHostsRejectBeforeAuthenticationAndBody(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	for _, host := range []string{"", "evil.internal", "host.lima.internal.evil", "sub.host.lima.internal", "host.lima.internal.", "host.lima.internal:", "host.lima.internal:0", "host.lima.internal:65536", "host.lima.internal:+1", "host.lima.internal:-1", "host.lima.internal: 1", "host.lima.internal:one", "host.lima.internal:1:2", "[host.lima.internal]:1", "user@host.lima.internal", "host.lima.internal/path", "host.lima.internal\n", "127.0.0.1:8211"} {
-		r := httptest.NewRequest(http.MethodPost, "/api/v1/admin-sessions", http.NoBody)
+		r := httptest.NewRequest(http.MethodPost, "/api/v2/admin-sessions", http.NoBody)
 		r.Host = host
 		w := httptest.NewRecorder()
 		boundary.ServeHTTP(w, r)
@@ -77,7 +77,7 @@ func TestAllowedHostsRejectBeforeAuthenticationAndBody(t *testing.T) {
 		{"Forwarded", "host=host.lima.internal", 400}, {"X-Forwarded-Host", "host.lima.internal", 400},
 		{"Origin", "http://host.lima.internal:8210", 403}, {"Origin", "http://127.0.0.1:8211", 403},
 	} {
-		r := httptest.NewRequest(http.MethodPost, "/api/v1/admin-sessions", http.NoBody)
+		r := httptest.NewRequest(http.MethodPost, "/api/v2/admin-sessions", http.NoBody)
 		r.Host = "host.lima.internal:8211"
 		r.Header.Set(test.header, test.value)
 		w := httptest.NewRecorder()

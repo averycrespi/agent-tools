@@ -29,7 +29,7 @@ func grantListPath(options *onlineOptions) (string, error) {
 			filters[apiName] = *value
 		}
 	}
-	return controlclient.BuildListPath("/api/v1/grants", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"principal_id", "server_id"}})
+	return controlclient.BuildListPath("/api/v2/grants", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"principal_id", "server_id"}})
 }
 
 func runGrantCreate(command *cobra.Command, options *onlineOptions) error {
@@ -284,7 +284,7 @@ func runGrantCreateRequest(command *cobra.Command, options *onlineOptions, body 
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/grants", Header: header, Body: body})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/grants", Header: header, Body: body})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -331,7 +331,7 @@ func runGrantUpdate(command *cobra.Command, options *onlineOptions, args []strin
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: etag})
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPatch, Path: "/api/v1/grants/" + args[0], Header: header, Body: options.intent.body})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPatch, Path: "/api/v2/grants/" + args[0], Header: header, Body: options.intent.body})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
@@ -368,7 +368,7 @@ func runGrantDelete(command *cobra.Command, options *onlineOptions, args []strin
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value})
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/grants/" + args[0], Header: header})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v2/grants/" + args[0], Header: header})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -411,11 +411,15 @@ func validGrantDescription(value string) bool {
 }
 
 func grantListTable(body []byte) (controlclient.Table, error) {
-	var page contract.Collection[contract.Grant]
+	var page contract.QueryCollection[contract.GrantTableItem]
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return withNextCursor(grantTable(page.Items, true), page.NextCursor), nil
+	items := make([]contract.Grant, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, item.Grant)
+	}
+	return withNextCursor(grantTable(items, true), page.NextCursor), nil
 }
 
 func grantItemTable(body []byte) (controlclient.Table, error) {

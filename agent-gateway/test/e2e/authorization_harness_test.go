@@ -168,7 +168,7 @@ func (harness *gatewayHarness) CreatePrincipal(displayName string, visibility co
 		Visibility  contract.PrincipalVisibility `json:"visibility"`
 	}{DisplayName: displayName, Visibility: visibility})
 	require.NoError(harness.t, err)
-	response := harness.adminSnapshot(http.MethodPost, "/api/v1/principals", body)
+	response := harness.adminSnapshot(http.MethodPost, "/api/v2/principals", body)
 	var creation contract.PrincipalCreation
 	decodeSnapshot(harness.t, response, http.StatusCreated, &creation)
 	return checkedPrincipal(harness.t, creation.Principal, response.Header.Get("ETag"))
@@ -176,7 +176,7 @@ func (harness *gatewayHarness) CreatePrincipal(displayName string, visibility co
 
 func (harness *gatewayHarness) GetPrincipal(principalID string) principalHandle {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/principals/"+url.PathEscape(principalID), nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/principals/"+url.PathEscape(principalID), nil)
 	var principal contract.Principal
 	decodeSnapshot(harness.t, response, http.StatusOK, &principal)
 	return checkedPrincipal(harness.t, principal, response.Header.Get("ETag"))
@@ -196,7 +196,7 @@ func (harness *gatewayHarness) PatchPrincipal(current principalHandle, patch pri
 	}
 	contents, err := json.Marshal(body)
 	require.NoError(harness.t, err)
-	response := harness.adminSnapshotWithHeaders(http.MethodPatch, "/api/v1/principals/"+url.PathEscape(current.Resource.ID), contents, map[string]string{"If-Match": current.ETag})
+	response := harness.adminSnapshotWithHeaders(http.MethodPatch, "/api/v2/principals/"+url.PathEscape(current.Resource.ID), contents, map[string]string{"If-Match": current.ETag})
 	var principal contract.Principal
 	decodeSnapshot(harness.t, response, http.StatusOK, &principal)
 	return checkedPrincipal(harness.t, principal, response.Header.Get("ETag"))
@@ -204,7 +204,7 @@ func (harness *gatewayHarness) PatchPrincipal(current principalHandle, patch pri
 
 func (harness *gatewayHarness) IssueCredential(current principalHandle) issuedAgentCredential {
 	harness.t.Helper()
-	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/principals/"+url.PathEscape(current.Resource.ID)+"/credential", []byte(`{}`), map[string]string{"If-Match": current.ETag})
+	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/principals/"+url.PathEscape(current.Resource.ID)+"/credential", []byte(`{}`), map[string]string{"If-Match": current.ETag})
 	defer clear(response.Body)
 	require.Equal(harness.t, http.StatusCreated, response.StatusCode)
 	var creation contract.AgentCredentialCreation
@@ -217,7 +217,7 @@ func (harness *gatewayHarness) IssueCredential(current principalHandle) issuedAg
 
 func (harness *gatewayHarness) RevokeCredential(current principalHandle) principalHandle {
 	harness.t.Helper()
-	response := harness.adminSnapshotWithHeaders(http.MethodDelete, "/api/v1/principals/"+url.PathEscape(current.Resource.ID)+"/credential", []byte(`{}`), map[string]string{"If-Match": current.ETag})
+	response := harness.adminSnapshotWithHeaders(http.MethodDelete, "/api/v2/principals/"+url.PathEscape(current.Resource.ID)+"/credential", []byte(`{}`), map[string]string{"If-Match": current.ETag})
 	var principal contract.Principal
 	decodeSnapshot(harness.t, response, http.StatusOK, &principal)
 	return checkedPrincipal(harness.t, principal, response.Header.Get("ETag"))
@@ -257,7 +257,7 @@ func (harness *gatewayHarness) CreateGrant(spec grantSpec) contract.Grant {
 		ExpiresAt    *string         `json:"expires_at"`
 	}{ReadOnly: spec.ReadOnly, Description: spec.Description, PrincipalID: spec.PrincipalID, Effect: string(spec.Effect), ServerID: spec.ServerID, UpstreamName: spec.UpstreamName, Constraint: spec.Constraint, ExpiresAt: spec.ExpiresAt})
 	require.NoError(harness.t, err)
-	response := harness.adminSnapshot(http.MethodPost, "/api/v1/grants", body)
+	response := harness.adminSnapshot(http.MethodPost, "/api/v2/grants", body)
 	var grant contract.Grant
 	decodeSnapshot(harness.t, response, http.StatusCreated, &grant)
 	return grant
@@ -265,7 +265,7 @@ func (harness *gatewayHarness) CreateGrant(spec grantSpec) contract.Grant {
 
 func (harness *gatewayHarness) GetGrant(grantID string) contract.Grant {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/grants/"+url.PathEscape(grantID), nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grants/"+url.PathEscape(grantID), nil)
 	var grant contract.Grant
 	decodeSnapshot(harness.t, response, http.StatusOK, &grant)
 	return grant
@@ -280,16 +280,21 @@ func (harness *gatewayHarness) ListGrants(principalID, serverID string) []contra
 	if serverID != "" {
 		query.Set("server_id", serverID)
 	}
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/grants?"+query.Encode(), nil)
-	var page contract.Collection[contract.Grant]
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grants?"+query.Encode(), nil)
+	var page contract.QueryCollection[contract.GrantTableItem]
 	decodeSnapshot(harness.t, response, http.StatusOK, &page)
 	require.Nil(harness.t, page.NextCursor, "harness grant helper requires one bounded page")
-	return page.Items
+	require.Equal(harness.t, len(page.Items), page.TotalCount)
+	items := make([]contract.Grant, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, item.Grant)
+	}
+	return items
 }
 
 func (harness *gatewayHarness) DeleteGrant(grantID string) {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodDelete, "/api/v1/grants/"+url.PathEscape(grantID), nil)
+	response := harness.adminSnapshot(http.MethodDelete, "/api/v2/grants/"+url.PathEscape(grantID), nil)
 	decodeSnapshot(harness.t, response, http.StatusNoContent, nil)
 	require.Empty(harness.t, response.Body)
 }
@@ -304,7 +309,7 @@ func (harness *gatewayHarness) SetupCurrentCatalog(namespace string, tools []fix
 	contents, err := json.Marshal(request)
 	require.NoError(harness.t, err)
 	var creation stdioCreation
-	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/servers", contents, map[string]string{"Idempotency-Key": "catalog-" + namespace})
+	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/mcp/servers", contents, map[string]string{"Idempotency-Key": "catalog-" + namespace})
 	decodeSnapshot(harness.t, response, http.StatusCreated, &creation)
 	etag := response.Header.Get("ETag")
 	require.NotNil(harness.t, creation.Operation)

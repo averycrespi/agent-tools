@@ -29,7 +29,7 @@ func TestCLIServerLifecycleCanary(t *testing.T) {
 	require.NoError(t, os.WriteFile(updatePath, []byte(`{"display_name":"M9 updated"}`), 0o600))
 	results := make([]testutil.ProcessResult, 0, 10)
 
-	created := runOnlineCLI(t, harness, bearerPath, true, "server", "create", "--file", createPath, "--idempotency-key", "m9-create", "--output", "json")
+	created := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "create", "--file", createPath, "--idempotency-key", "m9-create", "--output", "json")
 	results = append(results, created)
 	var creation struct {
 		Server struct {
@@ -41,22 +41,22 @@ func TestCLIServerLifecycleCanary(t *testing.T) {
 	serverID := creation.Server.ID
 	etag := `"server-` + serverID + `-` + creation.Server.DesiredRevision + `"`
 
-	replaced := runOnlineCLI(t, harness, bearerPath, true, "server", "credential", "replace", serverID, "--etag", etag, "--file", credentialPath, "--yes", "--output", "json")
+	replaced := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "credential", "replace", serverID, "--etag", etag, "--file", credentialPath, "--yes", "--output", "json")
 	results = append(results, replaced)
 	var replacement contract.CredentialReplacementResult
 	require.NoError(t, json.Unmarshal(replaced.Stdout, &replacement))
 	harness.WaitOperation(serverID, replacement.Operation.ID, contract.OperationSucceeded)
 
-	operation := runOnlineCLI(t, harness, bearerPath, true, "server", "operation", "get", serverID, replacement.Operation.ID)
-	authFlows := runOnlineCLI(t, harness, bearerPath, true, "server", "auth-flow", "list", serverID, "--limit", "1", "--output", "json")
-	descriptors := runOnlineCLI(t, harness, bearerPath, true, "server", "descriptor", "list", serverID, "--retired", "include", "--output", "json")
-	catalog := runOnlineCLI(t, harness, bearerPath, true, "catalog", "list", "--limit", "1", "--output", "json")
+	operation := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "operation", "get", serverID, replacement.Operation.ID)
+	authFlows := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "auth-flow", "list", serverID, "--limit", "1", "--output", "json")
+	descriptors := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "descriptor", "list", serverID, "--retired", "include", "--output", "json")
+	catalog := runOnlineCLI(t, harness, bearerPath, true, "mcp", "catalog", "list", "--limit", "1", "--output", "json")
 	results = append(results, operation, authFlows, descriptors, catalog)
 	assert.Contains(t, string(operation.Stdout), string(contract.OperationCredentialReplace))
 	assert.Contains(t, string(authFlows.Stdout), `"items":[]`)
 	assert.Contains(t, string(descriptors.Stdout), `"items":[]`)
 
-	updated := runOnlineCLI(t, harness, bearerPath, true, "server", "update", serverID, "--etag", etag, "--file", updatePath, "--output", "json")
+	updated := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "update", serverID, "--etag", etag, "--file", updatePath, "--output", "json")
 	results = append(results, updated)
 	var update struct {
 		Server struct {
@@ -65,13 +65,13 @@ func TestCLIServerLifecycleCanary(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(updated.Stdout, &update))
 	etag = `"server-` + serverID + `-` + update.Server.DesiredRevision + `"`
-	listed := runOnlineCLI(t, harness, bearerPath, true, "server", "list", "--limit", "10")
-	got := runOnlineCLI(t, harness, bearerPath, true, "server", "get", serverID, "--output", "json")
+	listed := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "list", "--limit", "10")
+	got := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "get", serverID, "--output", "json")
 	results = append(results, listed, got)
 	assert.Contains(t, string(listed.Stdout), "M9 updated")
 	assert.Contains(t, string(got.Stdout), `"display_name":"M9 updated"`)
 
-	deleted := runOnlineCLI(t, harness, bearerPath, true, "server", "delete", serverID, "--etag", etag, "--yes", "--output", "json")
+	deleted := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "delete", serverID, "--etag", etag, "--yes", "--output", "json")
 	results = append(results, deleted)
 	var deletion struct {
 		Operation *contract.ServerOperation `json:"operation"`

@@ -2,7 +2,7 @@
 
 Audience: Gateway operators using a logged-in macOS desktop
 
-Purpose: Install, verify, and manage a per-user LaunchAgent with the [example plist](../../examples/launchd/agent-gateway.plist). This supervises the foreground `mcp-gateway serve` process; it is not a system LaunchDaemon or an unattended credential-access solution.
+Purpose: Install, verify, and manage a per-user LaunchAgent with the [example plist](../../examples/launchd/agent-gateway.plist). This supervises the foreground `agent-gateway serve` process; it is not a system LaunchDaemon or an unattended credential-access solution.
 
 ## Executable naming compatibility
 
@@ -77,7 +77,7 @@ For an existing installation or a binary installed another way:
 
 ```bash
 ./scripts/install-launchd-agent.sh \
-  --binary /absolute/path/to/mcp-gateway \
+  --binary /absolute/path/to/agent-gateway \
   --data-dir /absolute/path/to/existing-data
 ```
 

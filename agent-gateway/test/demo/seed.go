@@ -29,7 +29,7 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 	for _, kind := range []string{"workshop", "library"} {
 		label := map[string]string{"workshop": "Workshop", "library": "Library"}[kind]
 		body := object{"namespace": "demo_" + kind, "display_name": "Demo " + label, "enabled": true, "transport": object{"kind": "streamable_http", "url": "http://127.0.0.1:" + endpoints[kind] + "/mcp", "protocol_mode": "modern", "authentication": object{"mode": "none"}}}
-		result, _ := c.request("POST", "/api/v1/servers", body, http.Header{"Idempotency-Key": {"demo-" + kind}}, 201, "")
+		result, _ := c.request("POST", "/api/v2/mcp/servers", body, http.Header{"Idempotency-Key": {"demo-" + kind}}, 201, "")
 		id := text(result, "server", "id")
 		c.require(id != "", "server creation failed")
 		if c.err != nil {
@@ -37,7 +37,7 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 		}
 		servers[kind] = id
 		err := waitUntil(ctx, children, "fixture catalog", func() (bool, error) {
-			server := c.get("servers/" + id)
+			server := c.get("mcp/servers/" + id)
 			return text(server, "runtime", "state") == "active" && text(server, "catalog", "active_state") == "current" && value(server, "catalog", "active_tool_count") == float64(len(tools[kind])), c.err
 		})
 		if err != nil {
@@ -75,8 +75,8 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 		}
 		agents[label] = bearer
 	}
-	current, headers := c.request("GET", "/api/v1/principals/"+principals["Disabled"], nil, nil, 200, "")
-	c.request("PATCH", "/api/v1/principals/"+text(current, "id"), object{"state": "disabled"}, http.Header{"If-Match": {headers.Get("Etag")}}, 200, "")
+	current, headers := c.request("GET", "/api/v2/principals/"+principals["Disabled"], nil, nil, 200, "")
+	c.request("PATCH", "/api/v2/principals/"+text(current, "id"), object{"state": "disabled"}, http.Header{"If-Match": {headers.Get("Etag")}}, 200, "")
 	for _, grant := range []struct{ label, kind, name string }{{"Explorer", "workshop", ""}, {"Explorer", "library", ""}, {"Reader", "workshop", "echo"}, {"Reader", "library", "lookup"}, {"Reader", "workshop", "controlled_error"}} {
 		effect := "allow"
 		if grant.name == "controlled_error" {
@@ -107,14 +107,14 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 	for _, collection := range []struct {
 		name  string
 		count int
-	}{{"servers", 2}, {"principals", 8}, {"grants", 13}} {
+	}{{"mcp/servers", 2}, {"principals", 8}, {"grants", 13}} {
 		c.require(len(rows(c.get(collection.name), "items")) == collection.count, collection.name+" verification failed")
 	}
 	requests := rows(c.get("grant-requests"), "items")
 	c.require(len(requests) == len(pendingDemoRequests), "pending requests missing")
 	for _, item := range requests {
 		row, _ := item.(map[string]any)
-		c.require(text(row, "state") == "pending", "demo request is not pending")
+		c.require(text(row, "request", "state") == "pending", "demo request is not pending")
 	}
 	success, failure := false, false
 	for _, item := range rows(c.get("invocations"), "items") {

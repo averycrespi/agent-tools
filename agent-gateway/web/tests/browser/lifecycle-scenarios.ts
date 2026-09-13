@@ -40,7 +40,7 @@ export async function runSessionLifecycleCanary(
   await connectAndCancelStream(page, session.csrf_token);
   const logout = await sessionRequest(
     page,
-    "/api/v1/admin-sessions/current",
+    "/api/v2/admin-sessions/current",
     "DELETE",
     session.csrf_token,
     undefined,
@@ -105,7 +105,7 @@ export async function runPriorSessionResponseIsolationCanary(
     logoutSettled = resolve;
   });
   await page.route(
-    "**/api/v1/admin-sessions/current",
+    "**/api/v2/admin-sessions/current",
     async (route) => {
       if (route.request().method() !== "DELETE") {
         await route.continue();
@@ -176,7 +176,7 @@ export async function runProtocol(
   readBoundedInput: () => Promise<unknown>,
 ): Promise<void> {
   const initialCredentials = await page.evaluate(async (bearer) => {
-    const response = await fetch("/api/v1/admin-credentials", {
+    const response = await fetch("/api/v2/admin-credentials", {
       headers: { Authorization: `Bearer ${bearer}` },
       credentials: "same-origin",
     });
@@ -210,7 +210,7 @@ export async function runProtocol(
   await connectAndCancelStream(page, session.csrf_token);
   const replacementResult = await sessionRequest(
     newTab,
-    "/api/v1/admin-credentials",
+    "/api/v2/admin-credentials",
     "POST",
     session.csrf_token,
     undefined,
@@ -224,7 +224,7 @@ export async function runProtocol(
   const expiringAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const expiringResult = await sessionRequest(
     page,
-    "/api/v1/admin-credentials",
+    "/api/v2/admin-credentials",
     "POST",
     session.csrf_token,
     undefined,
@@ -236,7 +236,7 @@ export async function runProtocol(
 
   const logout = await sessionRequest(
     page,
-    "/api/v1/admin-sessions/current",
+    "/api/v2/admin-sessions/current",
     "DELETE",
     session.csrf_token,
     undefined,
@@ -274,7 +274,7 @@ export async function runProtocol(
   expiring = { id: expiring.id, bearer: "", expires_at: expiring.expires_at };
   const expiringLogout = await sessionRequest(
     page,
-    "/api/v1/admin-sessions/current",
+    "/api/v2/admin-sessions/current",
     "DELETE",
     expiringSession.csrf_token,
     undefined,
@@ -285,7 +285,7 @@ export async function runProtocol(
   session = await exchange(page, initialBearer);
   const revoke = await sessionRequest(
     page,
-    `/api/v1/admin-credentials/${initialID}`,
+    `/api/v2/admin-credentials/${initialID}`,
     "DELETE",
     session.csrf_token,
     undefined,
@@ -344,7 +344,7 @@ export async function runProtocol(
     fail("restart recovery failed");
   const finalLogout = await sessionRequest(
     page,
-    "/api/v1/admin-sessions/current",
+    "/api/v2/admin-sessions/current",
     "DELETE",
     session.csrf_token,
     undefined,
@@ -623,7 +623,7 @@ export async function runAuthenticationEpoch(
   await assertSecretAbsent(page, context, baseURL, [initialBearer], false);
 
   const initialCredentials = await page.evaluate(async (bearer) => {
-    const response = await fetch("/api/v1/admin-credentials", {
+    const response = await fetch("/api/v2/admin-credentials", {
       headers: { Authorization: `Bearer ${bearer}` },
       credentials: "same-origin",
     });
@@ -642,7 +642,7 @@ export async function runAuthenticationEpoch(
     exchangeIntercepted = resolve;
   });
   await page.route(
-    "**/api/v1/admin-sessions",
+    "**/api/v2/admin-sessions",
     async (route) => {
       exchangeIntercepted?.();
       await exchangeBarrier;
@@ -653,7 +653,7 @@ export async function runAuthenticationEpoch(
   const initialExchangeResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      response.url().endsWith("/api/v1/admin-sessions"),
+      response.url().endsWith("/api/v2/admin-sessions"),
   );
   await input.fill(initialBearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -679,7 +679,7 @@ export async function runAuthenticationEpoch(
     fail("authenticated application bootstrap failed");
   const replacementResult = await sessionRequest(
     page,
-    "/api/v1/admin-credentials",
+    "/api/v2/admin-credentials",
     "POST",
     session.session.csrf_token,
     undefined,
@@ -707,7 +707,7 @@ export async function runAuthenticationEpoch(
   const countBootstrap = (request: Request) => {
     if (
       request.method() === "POST" &&
-      request.url().endsWith("/api/v1/admin-sessions/current")
+      request.url().endsWith("/api/v2/admin-sessions/current")
     ) {
       bootstrapRequests += 1;
     }
@@ -715,7 +715,7 @@ export async function runAuthenticationEpoch(
   page.on("request", countBootstrap);
   const revoke = await sessionRequest(
     page,
-    `/api/v1/admin-credentials/${initialCredentials.id}`,
+    `/api/v2/admin-credentials/${initialCredentials.id}`,
     "DELETE",
     session.session.csrf_token,
     undefined,
@@ -763,7 +763,7 @@ export async function runAuthenticationEpoch(
     logoutIntercepted = resolve;
   });
   await page.route(
-    "**/api/v1/admin-sessions/current",
+    "**/api/v2/admin-sessions/current",
     async (route) => {
       if (route.request().method() !== "DELETE") {
         await route.continue();
@@ -790,7 +790,7 @@ export async function runAuthenticationEpoch(
   const logoutResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "DELETE" &&
-      response.url().endsWith("/api/v1/admin-sessions/current"),
+      response.url().endsWith("/api/v2/admin-sessions/current"),
   );
   releaseLogout?.();
   if ((await logoutResponse).status() !== 204)
@@ -817,7 +817,7 @@ export async function runAuthenticationEpoch(
 
   const malformedSessionCanary = "malformed-session-secret-8f31";
   await page.route(
-    "**/api/v1/admin-sessions/current",
+    "**/api/v2/admin-sessions/current",
     async (route) =>
       route.fulfill({
         status: 200,
@@ -841,7 +841,7 @@ export async function runAuthenticationEpoch(
 
   const malformedProblemCanary = "malformed-problem-secret-a204";
   await page.route(
-    "**/api/v1/admin-sessions/current",
+    "**/api/v2/admin-sessions/current",
     async (route) =>
       route.fulfill({
         status: 401,
@@ -889,14 +889,14 @@ export async function runReadGeneration(
   const observeEvents = (request: Request) => {
     if (
       request.method() === "POST" &&
-      request.url().endsWith("/api/v1/events")
+      request.url().endsWith("/api/v2/events")
     ) {
       eventRequests += 1;
     }
   };
   page.on("request", observeEvents);
   await page.route(
-    "**/api/v1/events",
+    "**/api/v2/events",
     async (route) =>
       route.fulfill({
         status: 200,
@@ -949,7 +949,7 @@ export async function runReadGeneration(
   );
   const created = await sessionRequest(
     page,
-    "/api/v1/admin-credentials",
+    "/api/v2/admin-credentials",
     "POST",
     current.session.csrf_token,
     undefined,

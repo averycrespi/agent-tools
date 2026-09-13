@@ -31,7 +31,7 @@ func runCLIServerInputMatrix(t *testing.T) {
 	}
 	createPath := writeInput("create.json", `{"namespace":"cli-create","display_name":"CLI create","enabled":false,"transport":{"kind":"stdio","executable":"/bin/cat","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`)
 	results := make([]testutil.ProcessResult, 0, 10)
-	created := runOnlineCLI(t, harness, bearerPath, true, "server", "create", "--file", createPath, "--idempotency-key", "cli-create-key", "--output", "json")
+	created := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "create", "--file", createPath, "--idempotency-key", "cli-create-key", "--output", "json")
 	results = append(results, created)
 	var creation struct {
 		Server struct {
@@ -46,18 +46,18 @@ func runCLIServerInputMatrix(t *testing.T) {
 	assert.Equal(t, "1", creation.Server.DesiredRevision)
 	assert.Nil(t, creation.Operation)
 
-	replayed := runOnlineCLI(t, harness, bearerPath, true, "server", "create", "--file", createPath, "--idempotency-key", "cli-create-key", "--output", "json")
+	replayed := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "create", "--file", createPath, "--idempotency-key", "cli-create-key", "--output", "json")
 	results = append(results, replayed)
 	assert.JSONEq(t, string(created.Stdout), string(replayed.Stdout))
 	conflictPath := writeInput("conflict.json", strings.ReplaceAll(string(mustReadFile(t, createPath)), "CLI create", "Different"))
-	conflict := runOnlineCLI(t, harness, bearerPath, false, "server", "create", "--file", conflictPath, "--idempotency-key", "cli-create-key", "--output", "json")
+	conflict := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "create", "--file", conflictPath, "--idempotency-key", "cli-create-key", "--output", "json")
 	results = append(results, conflict)
 	assert.Equal(t, 5, conflict.ExitCode)
 	assert.Contains(t, string(conflict.Stderr), `"code":"idempotency_conflict"`)
 
-	get := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+creation.Server.ID, nil)
+	get := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+creation.Server.ID, nil)
 	etag := get.Header.Get("ETag")
-	display := runOnlineCLI(t, harness, bearerPath, true, "server", "update", creation.Server.ID, "--display-name", "CLI renamed", "--output", "json")
+	display := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "update", creation.Server.ID, "--display-name", "CLI renamed", "--output", "json")
 	results = append(results, display)
 	var displayMutation struct {
 		Server struct {
@@ -70,14 +70,14 @@ func runCLIServerInputMatrix(t *testing.T) {
 	assert.Equal(t, "CLI renamed", displayMutation.Server.DisplayName)
 	assert.Nil(t, displayMutation.Operation, "display-only update must not invent behavioral work")
 
-	get = harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+creation.Server.ID, nil)
+	get = harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+creation.Server.ID, nil)
 	etag = get.Header.Get("ETag")
 	behaviorPath := writeInput("behavior.json", `{"enabled":true}`)
-	refused := runOnlineCLI(t, harness, bearerPath, false, "server", "update", creation.Server.ID, "--etag", etag, "--file", behaviorPath, "--output", "json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "update", creation.Server.ID, "--etag", etag, "--file", behaviorPath, "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
 	assert.Contains(t, string(refused.Stderr), `"code":"client_invalid_input"`)
-	behavior := runOnlineCLI(t, harness, bearerPath, true, "server", "update", creation.Server.ID, "--etag", etag, "--file", behaviorPath, "--yes", "--output", "json")
+	behavior := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "update", creation.Server.ID, "--etag", etag, "--file", behaviorPath, "--yes", "--output", "json")
 	results = append(results, behavior)
 	var behaviorMutation struct {
 		Operation *contract.ServerOperation `json:"operation"`
@@ -87,12 +87,12 @@ func runCLIServerInputMatrix(t *testing.T) {
 	assert.Equal(t, contract.OperationActivate, behaviorMutation.Operation.Kind)
 
 	unknownNestedPath := writeInput("unknown.json", `{"namespace":"never-sent","display_name":"Never","enabled":false,"transport":{"kind":"stdio","executable":"/bin/cat","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{},"secret":"forbidden"}}`)
-	unknown := runOnlineCLI(t, harness, bearerPath, false, "server", "create", "--file", unknownNestedPath, "--idempotency-key", "unknown-key", "--output", "json")
+	unknown := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "create", "--file", unknownNestedPath, "--idempotency-key", "unknown-key", "--output", "json")
 	results = append(results, unknown)
 	assert.Equal(t, 2, unknown.ExitCode)
 	assert.Contains(t, string(unknown.Stderr), `"code":"invalid_server_configuration"`)
 	assert.Contains(t, string(unknown.Stderr), `"context":{"field":"transport","rule":"invalid"}`)
-	missing := harness.adminSnapshot(http.MethodGet, "/api/v1/servers?limit=100", nil)
+	missing := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers?limit=50", nil)
 	assert.NotContains(t, string(missing.Body), "never-sent")
 
 	fake := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -101,7 +101,7 @@ func runCLIServerInputMatrix(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"malformed":true}`))
 	}))
 	defer fake.Close()
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "server", "create", "--file", createPath, "--idempotency-key", "recover-this-key", "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "mcp", "server", "create", "--file", createPath, "--idempotency-key", "recover-this-key", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Contains(t, string(uncertain.Stderr), `"uncertain":true`)
@@ -109,7 +109,7 @@ func runCLIServerInputMatrix(t *testing.T) {
 	assert.Contains(t, string(uncertain.Stderr), "sha256:")
 
 	harness.Stop(syscall.SIGTERM)
-	preHandoff := runOnlineCLI(t, harness, bearerPath, false, "server", "update", creation.Server.ID, "--etag", etag, "--file", behaviorPath, "--yes", "--output", "json")
+	preHandoff := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "update", creation.Server.ID, "--etag", etag, "--file", behaviorPath, "--yes", "--output", "json")
 	results = append(results, preHandoff)
 	assert.Equal(t, 9, preHandoff.ExitCode)
 	for _, result := range results {

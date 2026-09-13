@@ -16,9 +16,9 @@ func TestCLIControlBoundary(t *testing.T) {
 	require.NoError(t, err)
 	source := string(onlineSource)
 	for _, owner := range []string{
-		`onlineSpec([]string{"server", "create"}`,
-		`onlineSpec([]string{"server", "update"}`,
-		`onlineSpec([]string{"server", "credential", "replace"}`,
+		`onlineSpec([]string{"mcp", "server", "create"}`,
+		`onlineSpec([]string{"mcp", "server", "update"}`,
+		`onlineSpec([]string{"mcp", "server", "credential", "replace"}`,
 		`onlineSpec([]string{"grant", "create"}`,
 		`onlineSpec([]string{"grant-request", "approve"}`,
 	} {
@@ -29,7 +29,7 @@ func TestCLIControlBoundary(t *testing.T) {
 		`onlineSpec([]string{"admin", "credential", "create"}`,
 		`onlineSpec([]string{"principal", "create"}`,
 		`onlineSpec([]string{"principal", "update"}`,
-		`onlineSpec([]string{"server", "operation", "start"}`,
+		`onlineSpec([]string{"mcp", "server", "operation", "start"}`,
 		`onlineSpec([]string{"grant-request", "reject"}`,
 	} {
 		line := sourceLineContaining(source, owner)

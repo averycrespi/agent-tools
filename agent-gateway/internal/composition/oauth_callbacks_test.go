@@ -98,7 +98,7 @@ func TestOAuthCallbackListenerAdmissionCollisionAndCleanup(t *testing.T) {
 		{"GET", "/callback?state=fixture", "localhost:3118", "", 200},
 		{"POST", "/callback?state=fixture", "localhost:3118", "", 400},
 		{"GET", "/mcp", "localhost:3118", "", 400},
-		{"GET", "/api/v1/status", "localhost:3118", "", 400},
+		{"GET", "/api/v2/status", "localhost:3118", "", 400},
 		{"GET", "/healthz", "localhost:3118", "", 400},
 		{"GET", "/", "localhost:3118", "", 400},
 		{"GET", "/callback?state=fixture", "127.0.0.1:3118", "", 400},

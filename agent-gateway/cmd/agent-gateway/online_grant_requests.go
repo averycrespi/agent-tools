@@ -29,7 +29,7 @@ func grantRequestListPath(options *onlineOptions) (string, error) {
 		}
 		filters["state"] = *value
 	}
-	return controlclient.BuildListPath("/api/v1/grant-requests", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"principal_id", "state"}})
+	return controlclient.BuildListPath("/api/v2/grant-requests", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"principal_id", "state"}})
 }
 
 func runGrantRequestApprove(command *cobra.Command, options *onlineOptions, args []string) error {
@@ -205,7 +205,7 @@ func runGrantRequestAdjudication(command *cobra.Command, options *onlineOptions,
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: adjudication.etag})
-	path := "/api/v1/grant-requests/" + adjudication.requestID + "/" + adjudication.action
+	path := "/api/v2/grant-requests/" + adjudication.requestID + "/" + adjudication.action
 	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: path, Header: header, Body: adjudication.body})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
@@ -254,11 +254,15 @@ func validGrantRequest(request contract.GrantRequest) bool {
 }
 
 func grantRequestListTable(body []byte) (controlclient.Table, error) {
-	var page contract.Collection[contract.GrantRequestSummary]
+	var page contract.QueryCollection[contract.GrantRequestTableItem]
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}
-	return withNextCursor(grantRequestTable(page.Items, nil), page.NextCursor), nil
+	items := make([]contract.GrantRequestSummary, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, item.Request)
+	}
+	return withNextCursor(grantRequestTable(items, nil), page.NextCursor), nil
 }
 
 func grantRequestItemTable(body []byte) (controlclient.Table, error) {

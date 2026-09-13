@@ -257,31 +257,12 @@ func (handler *Handler) listGrants(writer http.ResponseWriter, request *http.Req
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	query, legacy, enabled, problem := parseAuthorizationCollectionQuery(request.URL.RawQuery, "grants")
+	query, values, problem := parseAuthorizationCollectionQuery(request.URL.RawQuery, "grants")
 	if problem != "" {
 		writeProblem(writer, problem)
 		return
 	}
-	if enabled {
-		handler.queryGrants(writer, request, query, legacy)
-		return
-	}
-	limit, filter, cursor, problem := parseGrantQuery(request.URL.RawQuery)
-	if problem != "" {
-		writeProblem(writer, problem)
-		return
-	}
-	page, err := handler.principals.ListGrants(request.Context(), filter, cursor, limit)
-	if err != nil {
-		writeGrantError(writer, err)
-		return
-	}
-	var next *string
-	if page.Next != nil {
-		value := encodePrincipalCursor(*page.Next)
-		next = &value
-	}
-	writeJSONUnescaped(writer, http.StatusOK, contract.Collection[contract.Grant]{Items: page.Items, NextCursor: next})
+	handler.queryGrants(writer, request, query, values)
 }
 
 func parseGrantQuery(rawQuery string) (int, authorization.GrantFilter, *authorization.SnapshotCursor, contract.ProblemCode) {
@@ -297,7 +278,7 @@ func parseGrantQuery(rawQuery string) (int, authorization.GrantFilter, *authoriz
 	limit := contract.S3ListPageDefault
 	if values, ok := query["limit"]; ok {
 		value, parseErr := strconv.Atoi(values[0])
-		if parseErr != nil || value < 1 || value > limitValue("admin_list_page") {
+		if parseErr != nil || value < 1 || value > limitValue("admin_list_page") || strconv.Itoa(value) != values[0] {
 			return 0, authorization.GrantFilter{}, nil, contract.ProblemMalformedRequest
 		}
 		limit = value

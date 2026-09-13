@@ -20,7 +20,7 @@ func authFlowListPath(options *onlineOptions, args []string) (string, error) {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return "", controlclient.ErrInvalidInput
 	}
-	return controlclient.BuildListPath("/api/v1/servers/"+args[0]+"/auth-flows", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+	return controlclient.BuildListPath("/api/v2/mcp/servers/"+args[0]+"/oauth-flows", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 }
 
 func runServerAuthFlowStart(command *cobra.Command, options *onlineOptions, args []string) error {
@@ -53,7 +53,7 @@ func runServerAuthFlowStartWithTerminal(command *cobra.Command, options *onlineO
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	sink.MarkSubmitted()
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/servers/" + args[0] + "/auth-flows", Header: header, Body: []byte("{}")})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/mcp/servers/" + args[0] + "/oauth-flows", Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -102,7 +102,7 @@ func runServerAuthFlowCancel(command *cobra.Command, options *onlineOptions, arg
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	readHeader, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value})
-	path := "/api/v1/servers/" + args[0] + "/auth-flows/" + args[1]
+	path := "/api/v2/mcp/servers/" + args[0] + "/oauth-flows/" + args[1]
 	readResponse, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: path, Header: readHeader})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, classifyReadFailure(err))

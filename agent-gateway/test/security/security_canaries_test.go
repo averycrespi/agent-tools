@@ -246,7 +246,7 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 	assert.Equal(t, []string{"Problem", "Reason"}, exportedFields(reflect.TypeOf(contract.AuditDetail{})))
 	assert.Equal(t, []string{"Credential", "Type"}, exportedFields(reflect.TypeOf(contract.AuditActor{})))
 	assert.Equal(t, []string{"Fingerprint", "ID"}, exportedFields(reflect.TypeOf(contract.AuditCredential{})))
-	for _, pattern := range []string{"/api/v1/audit-events", "/api/v1/audit-events/{id}"} {
+	for _, pattern := range []string{"/api/v2/audit-events", "/api/v2/audit-events/{id}"} {
 		route, found := contract.RouteForPath(pattern)
 		require.True(t, found)
 		assert.Equal(t, contract.AuthorityAdmin, route.Authority)
@@ -262,12 +262,12 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 			if readErr != nil {
 				return readErr
 			}
-			if strings.Contains(string(contents), "/api/v1/audit") {
-				allowed := []string{"cmd/agent-gateway/online_audit.go", "internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
+			if strings.Contains(string(contents), "/api/v2/audit") {
+				allowed := []string{"cmd/agent-gateway/online_audit.go", "internal/api/handler.go", "internal/contract/collections.go", "internal/contract/resources.go", "internal/contract/routes.go"}
 				assert.Contains(t, allowed, filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "agent-gateway")+string(filepath.Separator))), path)
 			}
-			if strings.Contains(string(contents), "/api/v1/invocations") {
-				allowed := []string{"cmd/agent-gateway/online_reads.go", "internal/api/handler.go", "internal/contract/resources.go", "internal/contract/routes.go"}
+			if strings.Contains(string(contents), "/api/v2/invocations") {
+				allowed := []string{"cmd/agent-gateway/online_reads.go", "internal/api/handler.go", "internal/contract/collections.go", "internal/contract/resources.go", "internal/contract/routes.go"}
 				assert.Contains(t, allowed, filepath.ToSlash(strings.TrimPrefix(path, filepath.Join(repositoryRoot(t), "agent-gateway")+string(filepath.Separator))), path)
 			}
 			parsed, parseErr := parser.ParseFile(token.NewFileSet(), path, contents, parser.ImportsOnly)

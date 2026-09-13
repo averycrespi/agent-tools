@@ -30,25 +30,25 @@ export async function runDevelopmentControlPlane(
   };
   const observeControlPlane = (request: Request) => {
     const url = new URL(request.url());
-    if (request.method() === "POST" && url.pathname === "/api/v1/events") {
+    if (request.method() === "POST" && url.pathname === "/api/v2/events") {
       observations.eventStreams += 1;
     }
     if (
       request.method() === "POST" &&
-      url.pathname === "/api/v1/admin-credentials"
+      url.pathname === "/api/v2/admin-credentials"
     ) {
       observations.mutations += 1;
     }
     if (
       request.method() === "GET" &&
-      url.pathname === "/api/v1/system-status"
+      url.pathname === "/api/v2/system-status"
     ) {
       observations.safeReads += 1;
     }
   };
   page.on("request", observeControlPlane);
   await page.route(
-    "**/api/v1/events",
+    "**/api/v2/events",
     async (route) =>
       route.fulfill({
         status: 200,
@@ -90,7 +90,7 @@ export async function runDevelopmentControlPlane(
     fail("development session cookie bootstrap failed");
   }
   const status = await page.evaluate(async (csrfToken) => {
-    const response = await fetch("/api/v1/system-status", {
+    const response = await fetch("/api/v2/system-status", {
       headers: { "X-CSRF-Token": csrfToken },
       credentials: "same-origin",
     });
@@ -106,7 +106,7 @@ export async function runDevelopmentControlPlane(
   );
   const created = await sessionRequest(
     page,
-    "/api/v1/admin-credentials",
+    "/api/v2/admin-credentials",
     "POST",
     current.session.csrf_token,
     undefined,
@@ -157,7 +157,7 @@ export async function runDevelopmentControlPlane(
     readDelivered = resolve;
   });
   await page.route(
-    "**/api/v1/system-status",
+    "**/api/v2/system-status",
     async (route) => {
       const response = await route.fetch();
       readIntercepted?.();
@@ -172,7 +172,7 @@ export async function runDevelopmentControlPlane(
   const logoutResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "DELETE" &&
-      response.url().endsWith("/api/v1/admin-sessions/current"),
+      response.url().endsWith("/api/v2/admin-sessions/current"),
   );
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
@@ -234,7 +234,7 @@ export async function runDevelopmentLiveReload(
     const url = new URL(request.url());
     if (
       request.method() === "POST" &&
-      url.pathname === "/api/v1/admin-sessions/current"
+      url.pathname === "/api/v2/admin-sessions/current"
     ) {
       reloadEvidence.bootstraps += 1;
     }
@@ -244,7 +244,7 @@ export async function runDevelopmentLiveReload(
     const url = new URL(response.url());
     if (
       request.method() === "POST" &&
-      url.pathname === "/api/v1/admin-sessions/current" &&
+      url.pathname === "/api/v2/admin-sessions/current" &&
       response.status() === 200
     ) {
       reloadEvidence.bootstrapResponses += 1;

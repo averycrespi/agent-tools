@@ -40,7 +40,7 @@ func TestCLICredentialFailureProblems(t *testing.T) {
 		humanSnippet string
 		prepare      func(*testing.T, string)
 	}{
-		{name: "missing", code: "client_bearer_missing", exit: 2, humanSnippet: "Run mcp-gateway initialize"},
+		{name: "missing", code: "client_bearer_missing", exit: 2, humanSnippet: "Run agent-gateway initialize"},
 		{name: "symlink", code: "client_bearer_symlink", exit: 2, humanSnippet: "regular owner-only bearer file", prepare: func(t *testing.T, path string) {
 			target := filepath.Join(t.TempDir(), "target")
 			require.NoError(t, os.WriteFile(target, []byte(usabilityTestBearer+"\n"), 0o600))
@@ -95,7 +95,7 @@ func TestCLICredentialFailureProblems(t *testing.T) {
 
 func TestCLICommandErrors(t *testing.T) {
 	runner := firstRunRunner(t)
-	jsonResult, err := runner.Run(t.Context(), gatewayBinary(t), "server", "get", "--json")
+	jsonResult, err := runner.Run(t.Context(), gatewayBinary(t), "mcp", "server", "get", "--json")
 	require.Error(t, err)
 	assert.Equal(t, 2, jsonResult.ExitCode)
 	assert.Empty(t, jsonResult.Stdout)
@@ -106,7 +106,7 @@ func TestCLICommandErrors(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(jsonResult.Stderr, &problem))
 	assert.Equal(t, "client_invalid_input", problem.Code)
-	assert.Contains(t, problem.Title, "Usage: mcp-gateway server get ID")
+	assert.Contains(t, problem.Title, "Usage: agent-gateway mcp server get ID")
 
 	humanResult, err := runner.Run(t.Context(), gatewayBinary(t), "status", "--output", "human", "--definitely-invalid")
 	require.Error(t, err)
@@ -114,7 +114,7 @@ func TestCLICommandErrors(t *testing.T) {
 	assert.Empty(t, humanResult.Stdout)
 	assertSettledResult(t, humanResult)
 	assert.Contains(t, string(humanResult.Stderr), "flag is invalid or incomplete")
-	assert.Contains(t, string(humanResult.Stderr), "Usage: mcp-gateway status")
+	assert.Contains(t, string(humanResult.Stderr), "Usage: agent-gateway status")
 }
 
 func TestCLIHelpTree(t *testing.T) {
@@ -128,7 +128,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	assert.NotContains(t, string(root.Stdout), "Online Gateway control commands")
 
-	leaf, err := runner.Run(t.Context(), gatewayBinary(t), "server", "credential", "replace", "--help")
+	leaf, err := runner.Run(t.Context(), gatewayBinary(t), "mcp", "server", "credential", "replace", "--help")
 	require.NoError(t, err, "%s", leaf.Stderr)
 	assertSettledResult(t, leaf)
 	assert.Empty(t, leaf.Stderr)

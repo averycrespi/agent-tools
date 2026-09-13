@@ -75,11 +75,11 @@ func (c *client) request(method, path string, body any, headers http.Header, sta
 	return result, response.Header
 }
 func (c *client) get(path string) object {
-	result, _ := c.request("GET", "/api/v1/"+path, nil, nil, 200, "")
+	result, _ := c.request("GET", "/api/v2/"+path, nil, nil, 200, "")
 	return result
 }
 func (c *client) post(path string, body object) object {
-	result, _ := c.request("POST", "/api/v1/"+path, body, nil, 201, "")
+	result, _ := c.request("POST", "/api/v2/"+path, body, nil, 201, "")
 	return result
 }
 func (c *client) rpc(bearer, method string, params object) object {

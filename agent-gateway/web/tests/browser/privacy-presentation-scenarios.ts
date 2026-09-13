@@ -39,7 +39,7 @@ export async function runVisualAccessibilityPrivacyCanary(
   );
   if (blocking.length !== 0)
     fail(
-      `Visual/accessibility/privacy canary findings: ${blocking.map((violation) => violation.id).join(",")}`,
+      `Visual/accessibility/privacy canary findings: ${JSON.stringify(blocking.map((violation) => ({ id: violation.id, nodes: violation.nodes.slice(0, 5).map((node) => ({ target: node.target, summary: node.failureSummary?.slice(0, 512) })) })))}`,
     );
   const screenshot = await page.screenshot({
     fullPage: true,
@@ -197,11 +197,11 @@ export async function runVisualResponsiveMatrix(
   });
 
   const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FA0", "01ARZ3NDEKTSV4RRFFQ69G5FA1"];
-  await page.route("**/api/v1/admin-credentials**", async (route) => {
+  await page.route("**/api/v2/admin-credentials**", async (route) => {
     const request = route.request();
     if (
       request.method() !== "GET" ||
-      new URL(request.url()).pathname !== "/api/v1/admin-credentials"
+      new URL(request.url()).pathname !== "/api/v2/admin-credentials"
     )
       fail("unexpected visual credential request");
     await route.fulfill({
@@ -462,11 +462,11 @@ export async function runAccessibilityKeyboardResponsive(
   scriptedAssertions += 1;
 
   const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FA0", "01ARZ3NDEKTSV4RRFFQ69G5FA1"];
-  await page.route("**/api/v1/admin-credentials**", async (route) => {
+  await page.route("**/api/v2/admin-credentials**", async (route) => {
     const request = route.request();
     if (
       request.method() !== "GET" ||
-      new URL(request.url()).pathname !== "/api/v1/admin-credentials"
+      new URL(request.url()).pathname !== "/api/v2/admin-credentials"
     )
       fail("unexpected accessibility credential request");
     await route.fulfill({

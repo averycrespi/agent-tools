@@ -56,11 +56,11 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:29e2c7d6e70346f26464f25e19c2982f646b42db152fb8eee3239b32f7befa07", digest)
+	assert.Equal(t, "sha256:a5fd09f2bc486382b08849fdff12c34926ad6a59ace06c0c6e93858460902c1a", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
-	for _, path := range [][]string{{"server", "create"}, {"server", "update"}} {
+	for _, path := range [][]string{{"mcp", "server", "create"}, {"mcp", "server", "update"}} {
 		command, _, err := newRootCmd().Find(path)
 		require.NoError(t, err)
 		for _, expected := range []string{"callback_uri", "http://localhost:3118/callback", "auth_server_metadata_url", "scopes", "null", "[]", "request_offline_access", "temporary callback-only"} {
@@ -106,7 +106,7 @@ func testDocumentationCommandHelpProjection(t *testing.T) {
 		assert.Empty(t, remaining, family.ID)
 		assert.Equal(t, "agent-gateway "+family.CommandPath, command.CommandPath(), family.ID)
 		// The manifest retains supported legacy invocations, not a second grammar.
-		assert.Equal(t, "mcp-gateway "+family.CommandPath+" --help", family.HelpInvocation, family.ID)
+		assert.Equal(t, "agent-gateway "+family.CommandPath+" --help", family.HelpInvocation, family.ID)
 		output := new(bytes.Buffer)
 		command.SetOut(output)
 		require.NoError(t, command.Help(), family.ID)
@@ -159,8 +159,8 @@ func TestCLIUnknownCommandsAreInputErrors(t *testing.T) {
 func testCLICommandErrors(t *testing.T) {
 	requiredFlags := map[string][]string{
 		"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH": {"secret-output"},
-		"server create --file PATH":                              {"file"},
-		"server credential replace ID --file PATH [--etag ETAG]": {"file"},
+		"mcp server create --file PATH":                                      {"file"},
+		"mcp server credential replace ID --file PATH [--etag ETAG]":         {"file"},
 	}
 
 	offlineCases := []struct {
@@ -168,16 +168,16 @@ func testCLICommandErrors(t *testing.T) {
 		args  []string
 		usage string
 	}{
-		{name: "initialize arguments", args: []string{"initialize", "EXTRA", "--json"}, usage: "mcp-gateway initialize"},
-		{name: "initialize flag", args: []string{"initialize", "--json", "--definitely-invalid"}, usage: "mcp-gateway initialize"},
-		{name: "admin reset arguments", args: []string{"admin", "reset", "EXTRA", "--json"}, usage: "mcp-gateway admin reset --secret-output NEW_PATH"},
-		{name: "admin reset required flag", args: []string{"admin", "reset", "--json"}, usage: "mcp-gateway admin reset --secret-output NEW_PATH"},
-		{name: "admin reset flag", args: []string{"admin", "reset", "--json", "--definitely-invalid"}, usage: "mcp-gateway admin reset --secret-output NEW_PATH"},
-		{name: "restore arguments", args: []string{"restore", "--json"}, usage: "mcp-gateway restore --verify-current"},
-		{name: "restore required flag", args: []string{"restore", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--json"}, usage: "mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"},
-		{name: "restore flag", args: []string{"restore", "--json", "--definitely-invalid"}, usage: "mcp-gateway restore --verify-current"},
-		{name: "serve arguments", args: []string{"serve", "EXTRA", "--json"}, usage: "mcp-gateway serve"},
-		{name: "serve flag", args: []string{"serve", "--json", "--definitely-invalid"}, usage: "mcp-gateway serve"},
+		{name: "initialize arguments", args: []string{"initialize", "EXTRA", "--json"}, usage: "agent-gateway initialize"},
+		{name: "initialize flag", args: []string{"initialize", "--json", "--definitely-invalid"}, usage: "agent-gateway initialize"},
+		{name: "admin reset arguments", args: []string{"admin", "reset", "EXTRA", "--json"}, usage: "agent-gateway admin reset --secret-output NEW_PATH"},
+		{name: "admin reset required flag", args: []string{"admin", "reset", "--json"}, usage: "agent-gateway admin reset --secret-output NEW_PATH"},
+		{name: "admin reset flag", args: []string{"admin", "reset", "--json", "--definitely-invalid"}, usage: "agent-gateway admin reset --secret-output NEW_PATH"},
+		{name: "restore arguments", args: []string{"restore", "--json"}, usage: "agent-gateway restore --verify-current"},
+		{name: "restore required flag", args: []string{"restore", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--json"}, usage: "agent-gateway restore BACKUP_ID --secret-output NEW_PATH"},
+		{name: "restore flag", args: []string{"restore", "--json", "--definitely-invalid"}, usage: "agent-gateway restore --verify-current"},
+		{name: "serve arguments", args: []string{"serve", "EXTRA", "--json"}, usage: "agent-gateway serve"},
+		{name: "serve flag", args: []string{"serve", "--json", "--definitely-invalid"}, usage: "agent-gateway serve"},
 	}
 	for _, test := range offlineCases {
 		t.Run("offline/"+test.name, func(t *testing.T) {
@@ -203,7 +203,7 @@ func testCLICommandErrors(t *testing.T) {
 			args = append(args, "--json")
 			problem := executeCLIProblem(t, args...)
 			assert.Equal(t, "client_invalid_input", problem.Code)
-			assert.Contains(t, problem.Title, "Usage: mcp-gateway "+spec.ManifestUse)
+			assert.Contains(t, problem.Title, "Usage: agent-gateway "+spec.ManifestUse)
 		})
 
 		t.Run("invalid_flag/"+strings.Join(spec.Path, "_"), func(t *testing.T) {
@@ -211,7 +211,7 @@ func testCLICommandErrors(t *testing.T) {
 			problem := executeCLIProblem(t, args...)
 			assert.Equal(t, "client_invalid_input", problem.Code)
 			assert.Contains(t, problem.Title, "flag")
-			assert.Contains(t, problem.Title, "Usage: mcp-gateway "+spec.ManifestUse)
+			assert.Contains(t, problem.Title, "Usage: agent-gateway "+spec.ManifestUse)
 		})
 
 		flags := requiredFlags[spec.ManifestUse]
@@ -231,7 +231,7 @@ func testCLICommandErrors(t *testing.T) {
 				problem := executeCLIProblem(t, args...)
 				assert.Equal(t, "client_invalid_input", problem.Code)
 				assert.Contains(t, problem.Title, "--"+omitted)
-				assert.Contains(t, problem.Title, "Usage: mcp-gateway "+spec.ManifestUse)
+				assert.Contains(t, problem.Title, "Usage: agent-gateway "+spec.ManifestUse)
 			})
 		}
 	}

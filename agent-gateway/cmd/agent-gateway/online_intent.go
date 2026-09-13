@@ -146,7 +146,12 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	if command.Flags().Changed("idempotency-key") && !validIdempotencyKey(options.idempotencyKey) {
 		return controlclient.NewInputError("The idempotency key is invalid.")
 	}
-	if command.Flags().Changed("limit") && (options.limit < 1 || options.limit > 100) {
+	maximumPage := 100
+	switch strings.Join(spec.Path, " ") {
+	case "mcp server list", "mcp server descriptor list", "mcp server operation list", "mcp catalog list":
+		maximumPage = 50
+	}
+	if command.Flags().Changed("limit") && (options.limit < 1 || options.limit > maximumPage) {
 		return controlclient.NewInputError("The page limit is invalid.")
 	}
 	if len(spec.Path) > 0 && spec.Path[0] == "audit" {
@@ -168,7 +173,7 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	path := strings.Join(spec.Path, " ")
 	var parts []string
 	switch {
-	case strings.HasPrefix(path, "server "):
+	case strings.HasPrefix(path, "mcp server "):
 		parts = serverETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "principal "):
 		parts = principalETagPattern.FindStringSubmatch(options.etag)
@@ -191,13 +196,13 @@ func validatePreparedFileIntent(command *cobra.Command, spec onlineCommandSpec, 
 	switch strings.Join(spec.Path, " ") {
 	case "admin credential create":
 		return readAdminCredentialCreateInput(command, &prepared)
-	case "server create":
+	case "mcp server create":
 		body, _, err := readServerMutationInput(command, &prepared, true)
 		return body, err
-	case "server update":
+	case "mcp server update":
 		body, _, err := readServerMutationInput(command, &prepared, false)
 		return body, err
-	case "server operation start":
+	case "mcp server operation start":
 		body, err := readOnlineJSONInput(command, &prepared, []string{"kind"})
 		if err != nil {
 			return nil, err
@@ -210,7 +215,7 @@ func validatePreparedFileIntent(command *cobra.Command, spec onlineCommandSpec, 
 			return nil, controlclient.ErrInvalidInput
 		}
 		return json.Marshal(input)
-	case "server credential replace":
+	case "mcp server credential replace":
 		body, err := readOnlineJSONInput(command, &prepared, []string{"kind", "expected_revision", "values", "client_secret"})
 		if err != nil {
 			return nil, err
@@ -286,8 +291,8 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			return marshalIntent(map[string]any{"expires_at": values["expires-at"]})
 		},
 	},
-	"server create": {fileMembers: []string{"namespace", "display_name", "enabled", "transport"}},
-	"server update": {
+	"mcp server create": {fileMembers: []string{"namespace", "display_name", "enabled", "transport"}},
+	"mcp server update": {
 		fileMembers:   []string{"display_name", "enabled", "transport"},
 		direct:        []onlineDirectFlag{{name: "display-name"}, {name: "enable", toggle: true}, {name: "disable", toggle: true}},
 		conflicts:     [][]string{{"enable", "disable"}},
@@ -306,14 +311,14 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			return marshalIntent(body)
 		},
 	},
-	"server operation start": {
+	"mcp server operation start": {
 		direct:        []onlineDirectFlag{{name: "kind", values: []string{"reload", "retry", "refresh_catalog", "disconnect_credentials"}, required: true}},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {
 			return marshalIntent(map[string]any{"kind": values["kind"]})
 		},
 	},
-	"server credential replace": {fileMembers: []string{"kind", "expected_revision", "values", "client_secret"}},
+	"mcp server credential replace": {fileMembers: []string{"kind", "expected_revision", "values", "client_secret"}},
 	"principal create": {
 		direct:        []onlineDirectFlag{{name: "display-name", required: true}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}, required: true}},
 		defaultDirect: true,

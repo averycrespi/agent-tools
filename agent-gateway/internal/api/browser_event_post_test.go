@@ -39,19 +39,19 @@ func TestBrowserEventPostAPI(t *testing.T) {
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	require.NoError(t, err)
 
-	bearer := perform(boundary, http.MethodPost, "/api/v1/events", `{}`, map[string]string{
+	bearer := perform(boundary, http.MethodPost, "/api/v2/events", `{}`, map[string]string{
 		"Authorization": "Bearer " + testBearer, "Origin": contract.CanonicalOrigin, "Content-Type": contract.MediaTypeJSON,
 	})
 	assert.Equal(t, http.StatusUnauthorized, bearer.Code)
-	missingOrigin := perform(boundary, http.MethodPost, "/api/v1/events", `{}`, map[string]string{
+	missingOrigin := perform(boundary, http.MethodPost, "/api/v2/events", `{}`, map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON,
 	})
 	assert.Equal(t, http.StatusForbidden, missingOrigin.Code)
-	missingCSRF := perform(boundary, http.MethodPost, "/api/v1/events", `{}`, map[string]string{
+	missingCSRF := perform(boundary, http.MethodPost, "/api/v2/events", `{}`, map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "Content-Type": contract.MediaTypeJSON,
 	})
 	assert.Equal(t, http.StatusForbidden, missingCSRF.Code)
-	ambiguous := perform(boundary, http.MethodPost, "/api/v1/events", `{}`, map[string]string{
+	ambiguous := perform(boundary, http.MethodPost, "/api/v2/events", `{}`, map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "Authorization": "Bearer " + testBearer,
 		"Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON,
 	})
@@ -62,10 +62,10 @@ func TestBrowserEventPostAPI(t *testing.T) {
 		"X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON,
 	}
 	for name, targetAndBody := range map[string][2]string{
-		"query":         {"/api/v1/events?cursor=x", `{}`},
-		"last event id": {"/api/v1/events", `{}`},
-		"empty body":    {"/api/v1/events", ""},
-		"nonempty":      {"/api/v1/events", `{"value":1}`},
+		"query":         {"/api/v2/events?cursor=x", `{}`},
+		"last event id": {"/api/v2/events", `{}`},
+		"empty body":    {"/api/v2/events", ""},
+		"nonempty":      {"/api/v2/events", `{"value":1}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			headers := make(map[string]string, len(sessionHeaders)+1)
@@ -82,7 +82,7 @@ func TestBrowserEventPostAPI(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/events", strings.NewReader(`{}`)).WithContext(ctx)
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/events", strings.NewReader(`{}`)).WithContext(ctx)
 	request.Host = contract.DefaultAuthority
 	for name, value := range sessionHeaders {
 		request.Header.Set(name, value)

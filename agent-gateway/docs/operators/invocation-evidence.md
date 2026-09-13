@@ -4,7 +4,7 @@ Audience: Operators investigating governed tool calls
 
 Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
-This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Prefer `agent-gateway` for new commands; the `mcp-gateway` compatibility examples below accept the same commands and flags. Naming does not change invocation evidence or MCP behavior. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `mcp-gateway invocation --help` owns exact syntax.
+This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Prefer `agent-gateway` for new commands; the `mcp-gateway` compatibility examples below accept the same commands and flags. Naming does not change invocation evidence or MCP behavior. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway invocation --help` owns exact syntax.
 
 See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for principals, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
 
@@ -20,7 +20,7 @@ agent-gateway invocation get INVOCATION_ID
 Lists are newest-first and support closed principal, server, requested-name, admission, decision, and outcome filters:
 
 ```bash
-mcp-gateway invocation list \
+agent-gateway invocation list \
   --principal-id PRINCIPAL_ID \
   --server-id SERVER_ID \
   --requested-name TOOL_NAME \
@@ -29,7 +29,7 @@ mcp-gateway invocation list \
 
 Use `--admission-class`, `--decision`, and `--outcome` only with values shown by generated help. Filters bind the opaque cursor. A malformed cursor returns `invalid_cursor`; a cursor whose retention floor or bound state is no longer coherent returns `stale_cursor`. Start again without the cursor rather than trying to edit or reuse it under different filters.
 
-Collections omit argument captures and return summary evidence only. `mcp-gateway invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output remains summary-only. A missing item can mean the ID never existed or that bounded retention evicted it.
+Collections omit argument captures and return summary evidence only. `agent-gateway invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output remains summary-only. A missing item can mean the ID never existed or that bounded retention evicted it.
 
 ## Filter browser history
 

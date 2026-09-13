@@ -196,7 +196,7 @@ func New(options Options) *Handler {
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
-	if request.URL.Path == "/api/v1/admin-sessions/current" && request.Method == http.MethodPost {
+	if request.URL.Path == "/api/v2/admin-sessions/current" && request.Method == http.MethodPost {
 		return handler.authenticateBootstrap(ctx, request)
 	}
 	bearer, bearerPresent, err := parseBearer(request.Header.Values("Authorization"))
@@ -314,6 +314,12 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}
 	writer.Header().Set("Cache-Control", "no-store")
 	path := request.URL.Path
+	if strings.HasPrefix(path, "/api/v2/") {
+		if _, err := url.ParseQuery(request.URL.RawQuery); err != nil {
+			writeProblem(writer, contract.ProblemMalformedRequest)
+			return
+		}
+	}
 	switch {
 	case path == "/" && request.Method == http.MethodGet:
 		handler.serveStatic(writer, "static/index.html", "text/html; charset=utf-8", true)
@@ -325,59 +331,59 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.serveStatic(writer, "static/favicon.svg", "image/svg+xml", false)
 	case path == "/oauth/callback" && request.Method == http.MethodGet:
 		handler.oauthCallback(writer, request)
-	case path == "/api/v1/admin-sessions" && request.Method == http.MethodPost:
+	case path == "/api/v2/admin-sessions" && request.Method == http.MethodPost:
 		handler.exchange(writer, request)
-	case path == "/api/v1/admin-sessions/current" && request.Method == http.MethodPost:
+	case path == "/api/v2/admin-sessions/current" && request.Method == http.MethodPost:
 		handler.bootstrap(writer, request)
-	case path == "/api/v1/admin-sessions/current" && request.Method == http.MethodDelete:
+	case path == "/api/v2/admin-sessions/current" && request.Method == http.MethodDelete:
 		handler.logout(writer, request)
-	case path == "/api/v1/admin-credentials" && request.Method == http.MethodGet:
+	case path == "/api/v2/admin-credentials" && request.Method == http.MethodGet:
 		handler.listCredentials(writer, request)
-	case path == "/api/v1/admin-credentials" && request.Method == http.MethodPost:
+	case path == "/api/v2/admin-credentials" && request.Method == http.MethodPost:
 		handler.createCredential(writer, request)
-	case path == "/api/v1/admin-authority" && request.Method == http.MethodGet:
+	case path == "/api/v2/admin-authority" && request.Method == http.MethodGet:
 		handler.getAdminAuthority(writer, request)
-	case strings.HasPrefix(path, "/api/v1/admin-credentials/") && strings.HasSuffix(path, "/rotation-completion") && request.Method == http.MethodPost:
+	case strings.HasPrefix(path, "/api/v2/admin-credentials/") && strings.HasSuffix(path, "/rotation-completion") && request.Method == http.MethodPost:
 		handler.completeCredentialRotation(writer, request)
-	case strings.HasPrefix(path, "/api/v1/admin-credentials/") && request.Method == http.MethodGet:
+	case strings.HasPrefix(path, "/api/v2/admin-credentials/") && request.Method == http.MethodGet:
 		handler.getCredential(writer, request)
-	case strings.HasPrefix(path, "/api/v1/admin-credentials/") && request.Method == http.MethodDelete:
+	case strings.HasPrefix(path, "/api/v2/admin-credentials/") && request.Method == http.MethodDelete:
 		handler.revokeCredential(writer, request)
-	case path == "/api/v1/system-status" && request.Method == http.MethodGet:
+	case path == "/api/v2/system-status" && request.Method == http.MethodGet:
 		if !bodyless(request) || len(request.URL.Query()) != 0 {
 			writeProblem(writer, contract.ProblemMalformedRequest)
 			return
 		}
 		writeJSON(writer, http.StatusOK, handler.status())
-	case path == "/api/v1/backups" && request.Method == http.MethodGet:
+	case path == "/api/v2/backups" && request.Method == http.MethodGet:
 		handler.listBackups(writer, request)
-	case path == "/api/v1/backups" && request.Method == http.MethodPost:
+	case path == "/api/v2/backups" && request.Method == http.MethodPost:
 		handler.createBackup(writer, request)
-	case strings.HasPrefix(path, "/api/v1/backups/") && request.Method == http.MethodGet:
+	case strings.HasPrefix(path, "/api/v2/backups/") && request.Method == http.MethodGet:
 		handler.getBackup(writer, request)
-	case strings.HasPrefix(path, "/api/v1/backups/") && request.Method == http.MethodDelete:
+	case strings.HasPrefix(path, "/api/v2/backups/") && request.Method == http.MethodDelete:
 		handler.deleteBackup(writer, request)
-	case path == "/api/v1/events" && (request.Method == http.MethodGet || request.Method == http.MethodPost):
+	case path == "/api/v2/events" && (request.Method == http.MethodGet || request.Method == http.MethodPost):
 		handler.streamEvents(writer, request)
-	case path == "/api/v1/catalog" && handler.activeCatalog != nil:
+	case path == "/api/v2/mcp/catalog" && handler.activeCatalog != nil:
 		handler.activeCatalogCollection(writer, request)
-	case path == "/api/v1/audit-events" && handler.audit != nil:
+	case path == "/api/v2/audit-events" && handler.audit != nil:
 		handler.auditCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v1/audit-events/") && handler.audit != nil:
-		handler.auditMember(writer, request, strings.TrimPrefix(path, "/api/v1/audit-events/"))
-	case path == "/api/v1/invocations" && handler.invocations != nil:
+	case strings.HasPrefix(path, "/api/v2/audit-events/") && handler.audit != nil:
+		handler.auditMember(writer, request, strings.TrimPrefix(path, "/api/v2/audit-events/"))
+	case path == "/api/v2/invocations" && handler.invocations != nil:
 		handler.invocationsCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v1/invocations/") && handler.invocations != nil:
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/invocations/"), "/")
+	case strings.HasPrefix(path, "/api/v2/invocations/") && handler.invocations != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/invocations/"), "/")
 		if len(segments) == 1 && segments[0] != "" {
 			handler.invocationMember(writer, request, segments[0])
 		} else {
 			writeProblem(writer, contract.ProblemNotFound)
 		}
-	case path == "/api/v1/grant-requests" && handler.grantRequests != nil:
+	case path == "/api/v2/grant-requests" && handler.grantRequests != nil:
 		handler.grantRequestsCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v1/grant-requests/") && handler.grantRequests != nil:
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/grant-requests/"), "/")
+	case strings.HasPrefix(path, "/api/v2/grant-requests/") && handler.grantRequests != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/grant-requests/"), "/")
 		switch {
 		case len(segments) == 1 && segments[0] != "":
 			handler.grantRequestMember(writer, request, segments[0], "")
@@ -386,21 +392,21 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
-	case path == "/api/v1/grant-constraints/validate" && handler.principals != nil && request.Method == http.MethodPost:
+	case path == "/api/v2/grant-constraints/validate" && handler.principals != nil && request.Method == http.MethodPost:
 		handler.validateGrantConstraint(writer, request)
-	case path == "/api/v1/grants" && handler.principals != nil:
+	case path == "/api/v2/grants" && handler.principals != nil:
 		handler.grantsCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v1/grants/") && handler.principals != nil:
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/grants/"), "/")
+	case strings.HasPrefix(path, "/api/v2/grants/") && handler.principals != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/grants/"), "/")
 		if len(segments) == 1 && segments[0] != "" {
 			handler.grantMember(writer, request, segments[0])
 		} else {
 			writeProblem(writer, contract.ProblemNotFound)
 		}
-	case path == "/api/v1/principals" && handler.principals != nil:
+	case path == "/api/v2/principals" && handler.principals != nil:
 		handler.principalsCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v1/principals/") && handler.principals != nil:
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/principals/"), "/")
+	case strings.HasPrefix(path, "/api/v2/principals/") && handler.principals != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/principals/"), "/")
 		switch {
 		case len(segments) == 1 && segments[0] != "":
 			handler.principalMember(writer, request, segments[0])
@@ -409,10 +415,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
-	case path == "/api/v1/servers" && handler.servers != nil:
+	case path == "/api/v2/mcp/servers" && handler.servers != nil:
 		handler.serversCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v1/servers/") && (handler.servers != nil || handler.authFlows != nil || handler.replacements != nil || handler.catalog != nil):
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v1/servers/"), "/")
+	case strings.HasPrefix(path, "/api/v2/mcp/servers/") && (handler.servers != nil || handler.authFlows != nil || handler.replacements != nil || handler.catalog != nil):
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/mcp/servers/"), "/")
 		switch {
 		case len(segments) == 1 && segments[0] != "":
 			handler.serverMember(writer, request, segments[0])
@@ -426,9 +432,9 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			handler.descriptorsCollection(writer, request, segments[0])
 		case handler.catalog != nil && len(segments) == 3 && segments[0] != "" && segments[1] == "descriptors" && segments[2] != "":
 			handler.descriptorMember(writer, request, segments[0], segments[2])
-		case handler.authFlows != nil && len(segments) == 2 && segments[0] != "" && segments[1] == "auth-flows":
+		case handler.authFlows != nil && len(segments) == 2 && segments[0] != "" && segments[1] == "oauth-flows":
 			handler.authFlowsCollection(writer, request, segments[0])
-		case handler.authFlows != nil && len(segments) == 3 && segments[0] != "" && segments[1] == "auth-flows" && segments[2] != "":
+		case handler.authFlows != nil && len(segments) == 3 && segments[0] != "" && segments[1] == "oauth-flows" && segments[2] != "":
 			handler.authFlowMember(writer, request, segments[0], segments[2])
 		default:
 			writeProblem(writer, contract.ProblemNotFound)
@@ -634,7 +640,7 @@ func (handler *Handler) createCredential(writer http.ResponseWriter, request *ht
 }
 
 func (handler *Handler) completeCredentialRotation(writer http.ResponseWriter, request *http.Request) {
-	segments := strings.Split(strings.TrimPrefix(request.URL.Path, "/api/v1/admin-credentials/"), "/")
+	segments := strings.Split(strings.TrimPrefix(request.URL.Path, "/api/v2/admin-credentials/"), "/")
 	if len(segments) != 2 || segments[0] == "" || segments[1] != "rotation-completion" || len(request.URL.Query()) != 0 {
 		writeProblem(writer, contract.ProblemNotFound)
 		return
@@ -665,7 +671,7 @@ func (handler *Handler) getCredential(writer http.ResponseWriter, request *http.
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	item, err := handler.credentials.Get(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v1/admin-credentials/"))
+	item, err := handler.credentials.Get(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v2/admin-credentials/"))
 	if err != nil {
 		writeServiceError(writer, err)
 		return
@@ -677,7 +683,7 @@ func (handler *Handler) revokeCredential(writer http.ResponseWriter, request *ht
 	if !decodeEmptyObject(writer, request) {
 		return
 	}
-	if err := handler.credentials.Revoke(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v1/admin-credentials/")); err != nil {
+	if err := handler.credentials.Revoke(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v2/admin-credentials/")); err != nil {
 		writeServiceError(writer, err)
 		return
 	}
@@ -746,7 +752,7 @@ func (handler *Handler) getBackup(writer http.ResponseWriter, request *http.Requ
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	item, err := handler.backups.Get(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v1/backups/"))
+	item, err := handler.backups.Get(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v2/backups/"))
 	if err != nil {
 		writeServiceError(writer, err)
 		return
@@ -758,7 +764,7 @@ func (handler *Handler) deleteBackup(writer http.ResponseWriter, request *http.R
 	if handler.backups == nil || !decodeEmptyObject(writer, request) {
 		return
 	}
-	id := strings.TrimPrefix(request.URL.Path, "/api/v1/backups/")
+	id := strings.TrimPrefix(request.URL.Path, "/api/v2/backups/")
 	if err := handler.backups.Delete(request.Context(), id); err != nil {
 		writeServiceError(writer, err)
 		return
@@ -910,7 +916,7 @@ func expiredSessionCookie() *http.Cookie {
 
 func parseCollectionQuery(query url.Values, collection string) (int, string, contract.ProblemCode) {
 	for key, values := range query {
-		if (key != "cursor" && key != "limit") || len(values) != 1 {
+		if (key != "cursor" && key != "limit") || len(values) != 1 || values[0] == "" {
 			return 0, "", contract.ProblemMalformedRequest
 		}
 	}
@@ -923,7 +929,7 @@ func parseCollectionQuery(query url.Values, collection string) (int, string, con
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
 		maximum, _ := contract.FixedLimitByName(limitName)
-		if err != nil || value < 1 || int64(value) > maximum.Maximum {
+		if err != nil || value < 1 || int64(value) > maximum.Maximum || strconv.Itoa(value) != text {
 			return 0, "", contract.ProblemMalformedRequest
 		}
 		limit = value

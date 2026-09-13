@@ -27,18 +27,18 @@ func runCLIServerOperationInputMatrix(t *testing.T) {
 	server := harness.SetupCurrentCatalog("cli-ops", []fixtureTool{{Name: "safe", InputSchema: json.RawMessage(`{"type":"object"}`)}})
 	results := make([]testutil.ProcessResult, 0, 10)
 
-	refusedReload := runOnlineCLI(t, harness, bearerPath, false, "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "reload", "--output", "json")
+	refusedReload := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "reload", "--output", "json")
 	results = append(results, refusedReload)
 	assert.Equal(t, 2, refusedReload.ExitCode)
-	refusedDisconnect := runOnlineCLI(t, harness, bearerPath, false, "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "disconnect_credentials", "--output", "json")
+	refusedDisconnect := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "disconnect_credentials", "--output", "json")
 	results = append(results, refusedDisconnect)
 	assert.Equal(t, 2, refusedDisconnect.ExitCode)
 
-	unknown := runOnlineCLI(t, harness, bearerPath, false, "server", "operation", "start", server.ServerID, "--file", filepath.Join(t.TempDir(), "removed.json"), "--idempotency-key", "unused", "--output", "json")
+	unknown := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "operation", "start", server.ServerID, "--file", filepath.Join(t.TempDir(), "removed.json"), "--idempotency-key", "unused", "--output", "json")
 	results = append(results, unknown)
 	assert.Equal(t, 2, unknown.ExitCode)
 
-	started := runOnlineCLI(t, harness, bearerPath, true, "server", "operation", "start", server.ServerID, "--kind", "refresh_catalog", "--idempotency-key", "refresh-once", "--output", "json")
+	started := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "operation", "start", server.ServerID, "--kind", "refresh_catalog", "--idempotency-key", "refresh-once", "--output", "json")
 	results = append(results, started)
 	var mutation contract.ServerOperationMutation
 	require.NoError(t, json.Unmarshal(started.Stdout, &mutation))
@@ -46,23 +46,23 @@ func runCLIServerOperationInputMatrix(t *testing.T) {
 	assert.Equal(t, contract.OperationRefreshCatalog, mutation.Operation.Kind)
 	harness.WaitOperation(server.ServerID, mutation.Operation.ID, contract.OperationSucceeded)
 
-	replayed := runOnlineCLI(t, harness, bearerPath, true, "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "refresh_catalog", "--idempotency-key", "refresh-once", "--output", "json")
+	replayed := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "refresh_catalog", "--idempotency-key", "refresh-once", "--output", "json")
 	results = append(results, replayed)
 	var replayMutation contract.ServerOperationMutation
 	require.NoError(t, json.Unmarshal(replayed.Stdout, &replayMutation))
 	assert.Equal(t, mutation.Operation.ID, replayMutation.Operation.ID)
 
-	conflict := runOnlineCLI(t, harness, bearerPath, false, "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "reload", "--idempotency-key", "refresh-once", "--yes", "--output", "json")
+	conflict := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "reload", "--idempotency-key", "refresh-once", "--yes", "--output", "json")
 	results = append(results, conflict)
 	assert.Equal(t, 5, conflict.ExitCode)
 	assert.Contains(t, string(conflict.Stderr), `"code":"idempotency_conflict"`)
 
-	listed := runOnlineCLI(t, harness, bearerPath, true, "server", "operation", "list", server.ServerID, "--limit", "10", "--output", "json")
+	listed := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "operation", "list", server.ServerID, "--limit", "10", "--output", "json")
 	results = append(results, listed)
 	var page contract.Collection[contract.ServerOperation]
 	require.NoError(t, json.Unmarshal(listed.Stdout, &page))
 	assert.NotEmpty(t, page.Items)
-	got := runOnlineCLI(t, harness, bearerPath, true, "server", "operation", "get", server.ServerID, mutation.Operation.ID)
+	got := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "operation", "get", server.ServerID, mutation.Operation.ID)
 	results = append(results, got)
 	assert.Contains(t, string(got.Stdout), mutation.Operation.ID)
 	assert.Contains(t, string(got.Stdout), string(contract.OperationRefreshCatalog))
@@ -73,7 +73,7 @@ func runCLIServerOperationInputMatrix(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"operation":{}}`))
 	}))
 	defer fake.Close()
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "refresh_catalog", "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "mcp", "server", "operation", "start", server.ServerID, "--etag", server.ETag, "--kind", "refresh_catalog", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Contains(t, string(uncertain.Stderr), `"uncertain":true`)

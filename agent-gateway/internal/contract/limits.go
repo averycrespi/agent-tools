@@ -141,7 +141,7 @@ var fixedLimits = []FixedLimit{
 	{Name: "stdio_output_burst_bytes", Maximum: 8 * 1024 * 1024},
 	{Name: "downstream_dispatch", Maximum: 32},
 	{Name: "per_server_downstream_dispatch", Maximum: 4},
-	{Name: "s2_idempotency_records", Maximum: 1024},
+	{Name: "server_idempotency_records", Maximum: 1024},
 	{Name: "principals", Maximum: 128},
 	{Name: "grants", Maximum: 4096},
 	{Name: "grant_description_bytes", Maximum: 256},

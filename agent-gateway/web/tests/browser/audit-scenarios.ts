@@ -21,7 +21,7 @@ export async function runAudit(
   await waitForLifecycle(page, "authenticated");
   const realResponse = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === "/api/v1/audit-events" &&
+      new URL(response.url()).pathname === "/api/v2/audit-events" &&
       response.status() === 200,
   );
   await page.locator('a[href="#/audit"]').click();
@@ -73,7 +73,7 @@ export async function runAudit(
   let itemReads = 0;
   let expectedItemGeneration: string | null = generation;
   let delayedSettled = false;
-  await page.route("**/api/v1/audit-events**", async (route) => {
+  await page.route("**/api/v2/audit-events**", async (route) => {
     const request = route.request();
     if (
       request.method() !== "GET" ||
@@ -92,7 +92,7 @@ export async function runAudit(
           title: "The audit read is unavailable.",
         }),
       });
-    if (url.pathname !== "/api/v1/audit-events") {
+    if (url.pathname !== "/api/v2/audit-events") {
       itemReads++;
       if (url.searchParams.get("generation") !== expectedItemGeneration)
         fail("Audit detail did not pin history generation");
@@ -180,7 +180,7 @@ export async function runAudit(
       }),
     });
   });
-  await page.route(`**/api/v1/servers/${id(7)}`, async (route) => {
+  await page.route(`**/api/v2/mcp/servers/${id(7)}`, async (route) => {
     if (mode === "target-delayed")
       await new Promise<void>((resolve) => {
         holdTarget = resolve;
@@ -357,7 +357,7 @@ export async function runAudit(
     mode = targetMode;
     const targetResponse = page.waitForResponse(
       (response) =>
-        new URL(response.url()).pathname === `/api/v1/servers/${id(7)}`,
+        new URL(response.url()).pathname === `/api/v2/mcp/servers/${id(7)}`,
     );
     await refresh();
     await targetResponse;

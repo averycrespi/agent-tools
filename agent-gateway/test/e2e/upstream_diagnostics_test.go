@@ -82,7 +82,7 @@ func TestUpstreamDiagnosticsRealBinaryRetryAndRecovery(t *testing.T) {
 	request, err := json.Marshal(map[string]any{"namespace": "private-diagnostic-namespace", "display_name": "Private diagnostic display", "enabled": true, "transport": map[string]any{"kind": "streamable_http", "url": endpoint.URL + "/mcp", "protocol_mode": "modern", "authentication": map[string]string{"mode": "none"}}})
 	require.NoError(t, err)
 	var created stdioCreation
-	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/servers", request, map[string]string{"Idempotency-Key": "upstream-diagnostic-retry"})
+	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/mcp/servers", request, map[string]string{"Idempotency-Key": "upstream-diagnostic-retry"})
 	decodeSnapshot(t, response, http.StatusCreated, &created)
 	waitForStdioServer(t, harness, created.Server.ID, func(server stdioServerView) bool { return server.Runtime.State == contract.RuntimeRetryWait })
 	failing.Store(false)

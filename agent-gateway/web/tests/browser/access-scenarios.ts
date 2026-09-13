@@ -253,14 +253,14 @@ export async function runAccessManagementReadCanary(
       descriptor: { name: "safe", inputSchema: {}, annotations: {} },
     },
   };
-  await page.route("**/api/v1/principals", async (route) => {
+  await page.route("**/api/v2/principals", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify([principal]),
     });
   });
-  await page.route("**/api/v1/servers", async (route) => {
+  await page.route("**/api/v2/mcp/servers", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -274,7 +274,7 @@ export async function runAccessManagementReadCanary(
       ]),
     });
   });
-  await page.route("**/api/v1/principals/**", async (route) => {
+  await page.route("**/api/v2/principals/**", async (route) => {
     if (route.request().method() !== "GET") {
       mutationCount += 1;
       await route.abort();
@@ -287,7 +287,7 @@ export async function runAccessManagementReadCanary(
       body: JSON.stringify(principal),
     });
   });
-  await page.route("**/api/v1/grants/**", async (route) => {
+  await page.route("**/api/v2/grants/**", async (route) => {
     if (route.request().method() !== "GET") {
       mutationCount += 1;
       await route.abort();
@@ -299,7 +299,7 @@ export async function runAccessManagementReadCanary(
       body: JSON.stringify(grant),
     });
   });
-  await page.route("**/api/v1/grant-requests/**", async (route) => {
+  await page.route("**/api/v2/grant-requests/**", async (route) => {
     if (route.request().method() !== "GET") {
       mutationCount += 1;
       await route.abort();
@@ -397,7 +397,7 @@ export async function runPrincipals(
   let staleListRestarted = false;
   let staleReturned = false;
 
-  await page.route("**/api/v1/principals?*", async (route) => {
+  await page.route("**/api/v2/principals?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
@@ -448,17 +448,13 @@ export async function runPrincipals(
         items,
         next_cursor:
           !staleListRestarted && search === "" ? "principal-stale" : null,
-        ...(query.has("sort")
-          ? {
-              total_count:
-                items.length + (!staleListRestarted && search === "" ? 1 : 0),
-              offset: 0,
-            }
-          : {}),
+        total_count:
+          items.length + (!staleListRestarted && search === "" ? 1 : 0),
+        offset: 0,
       }),
     });
   });
-  await page.route(`${baseURL}/api/v1/principals`, async (route) => {
+  await page.route(`${baseURL}/api/v2/principals`, async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
       return;
@@ -503,7 +499,7 @@ export async function runPrincipals(
       }),
     });
   });
-  await page.route("**/api/v1/principals/*", async (route) => {
+  await page.route("**/api/v2/principals/*", async (route) => {
     const id = new URL(route.request().url()).pathname.split("/").pop();
     const request = route.request();
     if (request.method() === "GET") {
@@ -922,7 +918,7 @@ export async function runPrincipalCredentials(
     markLostStarted = resolve;
   });
 
-  await page.route("**/api/v1/principals/*", async (route) => {
+  await page.route("**/api/v2/principals/*", async (route) => {
     if (route.request().method() !== "GET") {
       await route.fallback();
       return;
@@ -935,7 +931,7 @@ export async function runPrincipalCredentials(
     });
   });
   await page.route(
-    `${baseURL}/api/v1/principals/${principalID}/credential`,
+    `${baseURL}/api/v2/principals/${principalID}/credential`,
     async (route) => {
       const request = route.request();
       const headers = await request.allHeaders();
@@ -1113,7 +1109,7 @@ export async function runPrincipalCredentials(
     .waitFor();
   const logoutResponse = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === "/api/v1/admin-sessions/current" &&
+      new URL(response.url()).pathname === "/api/v2/admin-sessions/current" &&
       response.request().method() === "DELETE",
   );
   await page.locator('[data-testid="logout"]').click();
@@ -1330,11 +1326,13 @@ export async function runGrantReadsCreate(
     new Date("2030-01-01T12:34:56").toISOString(),
   );
 
-  await page.route("**/api/v1/principals?*", async (route) => {
+  await page.route("**/api/v2/principals?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        total_count: 1,
+        offset: 0,
         items: [
           {
             id: principalID,
@@ -1352,7 +1350,7 @@ export async function runGrantReadsCreate(
       }),
     });
   });
-  await page.route("**/api/v1/servers?*", async (route) => {
+  await page.route("**/api/v2/mcp/servers?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1372,7 +1370,7 @@ export async function runGrantReadsCreate(
     });
   });
   await page.route(
-    `**/api/v1/servers/${serverID}/descriptors?*`,
+    `**/api/v2/mcp/servers/${serverID}/descriptors?*`,
     async (route) => {
       const query = new URL(route.request().url()).searchParams;
       descriptorRequests += 1;
@@ -1390,14 +1388,14 @@ export async function runGrantReadsCreate(
       }
       if (
         route.request().method() !== "GET" ||
-        query.get("limit") !== "100" ||
-        query.get("retired") !== "exclude" ||
-        query.get("representation") !== "summary" ||
+        query.get("limit") !== "50" ||
+        query.get("status") !== "available" ||
+        query.get("projection") !== "summary" ||
         [...query.keys()].some(
           (key) =>
             key !== "limit" &&
-            key !== "retired" &&
-            key !== "representation" &&
+            key !== "status" &&
+            key !== "projection" &&
             key !== "cursor",
         )
       )
@@ -1496,7 +1494,7 @@ export async function runGrantReadsCreate(
     },
   );
   await page.route(
-    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC1`,
+    `**/api/v2/mcp/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC1`,
     async (route) => {
       await route.fulfill({
         status: 200,
@@ -1554,7 +1552,7 @@ export async function runGrantReadsCreate(
     },
   );
 
-  await page.route("**/api/v1/grants?*", async (route) => {
+  await page.route("**/api/v2/grants?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
@@ -1564,7 +1562,6 @@ export async function runGrantReadsCreate(
           ![
             "limit",
             "cursor",
-            "representation",
             "sort",
             "direction",
             "identity",
@@ -1597,34 +1594,26 @@ export async function runGrantReadsCreate(
         items: (query.get("identity") === "Reportng access"
           ? [active]
           : [active, expired]
-        ).map((grant) =>
-          query.get("representation") === "table"
-            ? {
-                grant,
-                principal_display_name: "Automation agent",
-                server_display_name: "Reporting server",
-              }
-            : grant,
-        ),
+        ).map((grant) => ({
+          grant,
+          principal_display_name: "Automation agent",
+          server_display_name: "Reporting server",
+        })),
         next_cursor:
           staleRestarted || query.get("identity") !== null
             ? null
             : "grant-stale",
-        ...(query.get("representation") === "table"
-          ? {
-              total_count:
-                query.get("identity") === "Reportng access"
-                  ? 1
-                  : staleRestarted
-                    ? 2
-                    : 3,
-              offset: 0,
-            }
-          : {}),
+        total_count:
+          query.get("identity") === "Reportng access"
+            ? 1
+            : staleRestarted
+              ? 2
+              : 3,
+        offset: 0,
       }),
     });
   });
-  await page.route("**/api/v1/grants/*", async (route) => {
+  await page.route("**/api/v2/grants/*", async (route) => {
     const request = route.request();
     const id = new URL(request.url()).pathname.split("/").pop();
     if (request.method() === "PATCH") {
@@ -1682,7 +1671,7 @@ export async function runGrantReadsCreate(
       body: JSON.stringify(item),
     });
   });
-  await page.route(`${baseURL}/api/v1/grants`, async (route) => {
+  await page.route(`${baseURL}/api/v2/grants`, async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
       return;
@@ -2292,7 +2281,8 @@ export async function runGrantReadsCreate(
   await scalarType.selectOption("number");
   await scalarValue.fill("1.00e+2");
   await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
-  await page.getByText("Unavailable", { exact: true }).waitFor();
+  await expect(toolInput).toHaveValue("future.tool");
+  await expect(page.getByTestId("constraint-status")).toHaveText("Unavailable");
   if (
     (await scalarValue.inputValue()) !== "1.00e+2" ||
     (await scalarType.inputValue()) !== "number"
@@ -2322,7 +2312,7 @@ export async function runGrantReadsCreate(
     finishOther = resolve;
   });
   await page.route(
-    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
+    `**/api/v2/mcp/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
     async (route) => {
       await otherResponse;
       await route.fulfill({
@@ -2650,11 +2640,13 @@ export async function runGrantCorrection(
   let deletes = 0;
   const detailRequests: string[] = [];
 
-  await page.route("**/api/v1/principals?*", async (route) => {
+  await page.route("**/api/v2/principals?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        total_count: principalIDs.length,
+        offset: 0,
         items: principalIDs.map((id, index) => ({
           id,
           display_name: `Agent ${index + 1}`,
@@ -2671,7 +2663,7 @@ export async function runGrantCorrection(
       }),
     });
   });
-  await page.route("**/api/v1/servers?*", async (route) => {
+  await page.route("**/api/v2/mcp/servers?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2691,7 +2683,7 @@ export async function runGrantCorrection(
     });
   });
 
-  await page.route("**/api/v1/principals/*", async (route) => {
+  await page.route("**/api/v2/principals/*", async (route) => {
     const principalID = new URL(route.request().url()).pathname
       .split("/")
       .pop()!;
@@ -2715,37 +2707,26 @@ export async function runGrantCorrection(
       }),
     });
   });
-  await page.route("**/api/v1/grants?*", async (route) => {
+  await page.route("**/api/v2/grants?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        items: [...grants.values()].map((grant) =>
-          new URL(route.request().url()).searchParams.get("representation") ===
-          "table"
-            ? {
-                grant,
-                principal_display_name: `Agent ${principalIDs.indexOf(grant.principal_id) + 1}`,
-                server_display_name:
-                  grant.server_id === zero
-                    ? "Gateway self-service tools"
-                    : "Correction server",
-              }
-            : grant,
-        ),
+        items: [...grants.values()].map((grant) => ({
+          grant,
+          principal_display_name: `Agent ${principalIDs.indexOf(grant.principal_id) + 1}`,
+          server_display_name:
+            grant.server_id === zero
+              ? "Gateway self-service tools"
+              : "Correction server",
+        })),
         next_cursor: null,
-        ...(new URL(route.request().url()).searchParams.get(
-          "representation",
-        ) === "table"
-          ? {
-              total_count: grants.size,
-              offset: 0,
-            }
-          : {}),
+        total_count: grants.size,
+        offset: 0,
       }),
     });
   });
-  await page.route("**/api/v1/grants/*", async (route) => {
+  await page.route("**/api/v2/grants/*", async (route) => {
     const id = new URL(route.request().url()).pathname.split("/").pop()!;
     const request = route.request();
     if (request.method() === "GET") {
@@ -2788,7 +2769,7 @@ export async function runGrantCorrection(
     grants.delete(id);
     await route.fulfill({ status: 204, body: "" });
   });
-  await page.route(`${baseURL}/api/v1/grants`, async (route) => {
+  await page.route(`${baseURL}/api/v2/grants`, async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
       return;
@@ -3130,7 +3111,7 @@ export async function runRequestReads(
     releaseInvalidation = resolve;
   });
   await page.route(
-    `${baseURL}/api/v1/events`,
+    `${baseURL}/api/v2/events`,
     async (route) => {
       await invalidationReady;
       await route.fulfill({
@@ -3142,7 +3123,7 @@ export async function runRequestReads(
     { times: 1 },
   );
   await page.route(
-    `${baseURL}/api/v1/events`,
+    `${baseURL}/api/v2/events`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -3151,13 +3132,13 @@ export async function runRequestReads(
       }),
     { times: 1 },
   );
-  await page.route("**/api/v1/grant-requests?*", async (route) => {
+  await page.route("**/api/v2/grant-requests?*", async (route) => {
     listReads += 1;
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
-      query.get("representation") !== "table"
+      query.has("representation")
     )
       fail("request queue filters changed shape");
     const cursor = query.get("cursor");
@@ -3222,12 +3203,14 @@ export async function runRequestReads(
       }),
     });
   });
-  await page.route("**/api/v1/principals?*", async (route) => {
+  await page.route("**/api/v2/principals?*", async (route) => {
     principalReads += 1;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        total_count: 1,
+        offset: 0,
         items: [
           {
             id: principalID,
@@ -3245,7 +3228,7 @@ export async function runRequestReads(
       }),
     });
   });
-  await page.route("**/api/v1/grant-requests/*", async (route) => {
+  await page.route("**/api/v2/grant-requests/*", async (route) => {
     detailReads += 1;
     const id = new URL(route.request().url()).pathname.split("/").pop()!;
     const item = details.get(id) ?? {
@@ -3498,7 +3481,7 @@ export async function runRequestReads(
   releaseInvalidation?.();
   await page.waitForResponse(
     (response) =>
-      response.url().includes("/api/v1/grant-requests?") &&
+      response.url().includes("/api/v2/grant-requests?") &&
       response.status() === 200,
   );
   if (listReads <= beforeRefresh)
@@ -3710,7 +3693,7 @@ export async function runRequestAdjudication(
   let rejections = 0;
   const attempts = new Map<string, number>();
 
-  await page.route("**/api/v1/grant-requests?*", async (route) => {
+  await page.route("**/api/v2/grant-requests?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     const rows = [...states.values()].filter(
       (item) =>
@@ -3751,13 +3734,13 @@ export async function runRequestAdjudication(
   });
 
   await page.route(
-    `**/api/v1/servers/${serverID}/descriptors?*`,
+    `**/api/v2/mcp/servers/${serverID}/descriptors?*`,
     async (route) => {
       const query = new URL(route.request().url()).searchParams;
       if (
-        query.get("limit") !== "100" ||
-        query.get("retired") !== "exclude" ||
-        query.get("representation") !== "summary"
+        query.get("limit") !== "50" ||
+        query.get("status") !== "available" ||
+        query.get("projection") !== "summary"
       )
         fail("approval descriptor traversal changed shape");
       await route.fulfill({
@@ -3779,7 +3762,7 @@ export async function runRequestAdjudication(
     },
   );
   await page.route(
-    `**/api/v1/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
+    `**/api/v2/mcp/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
     async (route) => {
       await route.fulfill({
         status: 200,
@@ -3814,7 +3797,7 @@ export async function runRequestAdjudication(
     },
   );
 
-  await page.route("**/api/v1/grant-requests/**", async (route) => {
+  await page.route("**/api/v2/grant-requests/**", async (route) => {
     const parts = new URL(route.request().url()).pathname.split("/");
     const action = parts.at(-1)!;
     const id =

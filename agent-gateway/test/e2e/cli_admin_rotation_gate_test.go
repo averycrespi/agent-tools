@@ -103,7 +103,7 @@ func TestCLICompleteStoppedGatewayMatrix(t *testing.T) {
 		}
 		seen[name] = struct{}{}
 		t.Run(name, func(t *testing.T) {
-			if name == "server auth-flow start" {
+			if name == "mcp server auth-flow start" {
 				harness := &gatewayHarness{t: t, runner: runner, binary: binary}
 				result := runAuthFlowStartPTYCommand(t, harness, bearerPath, "http://"+address, "https://never.example.invalid/canary", stoppedMatrixID, "", 9, false, false, true)
 				require.Zero(t, result.ExitCode, "%s", result.Stderr)
@@ -114,7 +114,7 @@ func TestCLICompleteStoppedGatewayMatrix(t *testing.T) {
 				require.NoError(t, json.Unmarshal(result.Stderr, &problem))
 				assert.Equal(t, "gateway_not_running", problem.Code)
 				assert.Equal(t, 9, problem.ExitCode)
-				assert.Contains(t, string(result.Stderr), "mcp-gateway serve --listen "+address)
+				assert.Contains(t, string(result.Stderr), "agent-gateway serve --listen "+address)
 				return
 			}
 			args := stoppedLeafArguments(t, leaf, secretRoot, index)
@@ -122,7 +122,7 @@ func TestCLICompleteStoppedGatewayMatrix(t *testing.T) {
 			result, err := runner.Run(t.Context(), binary, args...)
 			view := processResultView{result: result, err: err}
 			view.requireProblem(t, 9, "gateway_not_running", false)
-			title := "MCP Gateway is not running. Start it with: mcp-gateway serve --listen " + address + "."
+			title := "Agent Gateway is not running. Start it with: agent-gateway serve --listen " + address + "."
 			assert.Equal(t, fmt.Sprintf("{\"status\":null,\"code\":\"gateway_not_running\",\"title\":%q,\"exit_code\":9,\"uncertain\":false}\n", title), string(result.Stderr))
 		})
 	}
@@ -136,12 +136,12 @@ func TestCLICompleteStoppedGatewayMatrix(t *testing.T) {
 		result, err := runner.Run(t.Context(), binary, "status", "--admin-bearer-file", bearerPath)
 		require.Error(t, err)
 		assert.Equal(t, 9, result.ExitCode)
-		assert.Equal(t, "MCP Gateway is not running. Start it with: mcp-gateway serve.\n", string(result.Stderr))
+		assert.Equal(t, "Agent Gateway is not running. Start it with: agent-gateway serve.\n", string(result.Stderr))
 		dataDir := filepath.Join(root, "default address data")
 		result, err = runner.Run(t.Context(), binary, "--data-dir", dataDir, "status", "--admin-bearer-file", bearerPath)
 		require.Error(t, err)
 		assert.Equal(t, 9, result.ExitCode)
-		assert.Contains(t, string(result.Stderr), "mcp-gateway serve")
+		assert.Contains(t, string(result.Stderr), "agent-gateway serve")
 		assert.Contains(t, string(result.Stderr), "--data-dir")
 		assert.NotContains(t, string(result.Stderr), "--listen")
 	})
@@ -153,8 +153,8 @@ func TestCLICompleteStoppedGatewayMatrix(t *testing.T) {
 			dataDir    string
 			wantPieces []string
 		}{
-			{name: "alternate port", bind: "127.0.0.1:0", wantPieces: []string{"mcp-gateway serve --listen"}},
-			{name: "alternate loopback", bind: "127.8.7.6:0", wantPieces: []string{"mcp-gateway serve --listen"}},
+			{name: "alternate port", bind: "127.0.0.1:0", wantPieces: []string{"agent-gateway serve --listen"}},
+			{name: "alternate loopback", bind: "127.8.7.6:0", wantPieces: []string{"agent-gateway serve --listen"}},
 			{name: "combined", bind: "127.0.0.1:0", dataDir: filepath.Join(root, "custom data"), wantPieces: []string{"--data-dir", "--listen"}},
 		}
 		for _, test := range cases {
@@ -243,11 +243,11 @@ func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, 
 		}
 	}
 	switch name {
-	case "server update", "principal update":
+	case "mcp server update", "principal update":
 		args = append(args, "--display-name", "stopped-matrix")
 	case "grant-request approve":
 		args = append(args, "--acknowledge-future-tools")
-	case "server auth-flow start":
+	case "mcp server auth-flow start":
 		args = append(args, "--open")
 	}
 	if strings.Contains(leaf.help, "--secret-output string") && !containsArgument(args, "--secret-output") {
@@ -265,7 +265,7 @@ func stoppedMatrixValue(value, root, command string) string {
 	case "ID", "BACKUP_ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
 		return stoppedMatrixID
 	case "PATH":
-		if command == "server credential replace" {
+		if command == "mcp server credential replace" {
 			return writeStoppedMatrixCredentialFile(root)
 		}
 		return writeStoppedMatrixServerFile(root)

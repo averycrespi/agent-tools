@@ -33,7 +33,7 @@ import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 const replacementNotice =
   "Audit history may have been replaced by restore. Newer local events may have been discarded. Previous-history state was discarded; these histories must not be combined.";
 const targetRoutes: Readonly<Record<string, readonly [string, string]>> = {
-  server: ["servers", "servers"],
+  server: ["mcp/servers", "servers"],
   principal: ["principals", "principals"],
   grant: ["grants", "grants"],
   grant_request: ["grant-requests", "requests"],
@@ -143,7 +143,7 @@ function listPath(
     values.set(key.slice(7), value);
   if (cursor !== null) values.set("cursor", cursor);
   if (generation !== undefined) values.set("generation", generation);
-  return `/api/v1/audit-events?${values.toString()}`;
+  return `/api/v2/audit-events?${values.toString()}`;
 }
 export class AuditController {
   private value = empty();
@@ -268,7 +268,7 @@ export class AuditController {
     if (id !== undefined) {
       const result = await readResponse(
         context,
-        `/api/v1/audit-events/${id}${expected === undefined ? "" : `?generation=${expected}`}`,
+        `/api/v2/audit-events/${id}${expected === undefined ? "" : `?generation=${expected}`}`,
       );
       if (result.problem === "audit_history_replaced") {
         this.discard(context, replacementNotice);
@@ -365,7 +365,7 @@ export class AuditController {
     try {
       const response = await get(
         context,
-        `/api/v1/${route[0]}/${item.target.id}`,
+        `/api/v2/${route[0]}/${item.target.id}`,
       );
       if (response.status === 404) {
         unavailable();

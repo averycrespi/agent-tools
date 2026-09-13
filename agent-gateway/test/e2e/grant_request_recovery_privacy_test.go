@@ -66,7 +66,7 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	require.NotNil(t, recovered.Request)
 	assert.Zero(t, catalog.CallCount(), "lost local response must not replay downstream")
 
-	statusResponse := harness.adminSnapshot(http.MethodGet, "/api/v1/system-status", nil)
+	statusResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
 	var status contract.SystemStatus
 	decodeSnapshot(t, statusResponse, http.StatusOK, &status)
 	assert.Equal(t, int64(1), status.Limits.GrantRequests.InUse)
@@ -84,7 +84,7 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	assert.Equal(t, beforeDrift.Resource.SubmittedEvidence.Fingerprint, afterDrift.Resource.SubmittedEvidence.Fingerprint)
 	assert.NotEqual(t, afterDrift.Resource.SubmittedEvidence.Fingerprint, *afterDrift.Resource.CurrentTarget.Fingerprint)
 
-	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "s5-recovery"})
+	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "s5-recovery"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
 	assert.Equal(t, strconv.Itoa(storage.CurrentSchema), artifact.SchemaVersion)
@@ -133,7 +133,7 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	})
 	restored := decodeSelfServiceResult[contract.GetGrantRequestResult](t, restoredResponse, restoredID, contract.SummaryGrantRequestReturned)
 	assert.Equal(t, contract.RequestFound, restored.Outcome)
-	restoredStatusResponse := harness.adminSnapshot(http.MethodGet, "/api/v1/system-status", nil)
+	restoredStatusResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
 	decodeSnapshot(t, restoredStatusResponse, http.StatusOK, &status)
 	assert.Equal(t, int64(1), status.Limits.GrantRequests.InUse)
 	assert.Positive(t, status.Limits.GrantRequestEvidenceBytes.InUse)

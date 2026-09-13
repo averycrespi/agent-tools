@@ -212,13 +212,13 @@ export async function readMatcherDescriptors(
     const seenCursors = new Set<string>();
     for (;;) {
       const query = new URLSearchParams({
-        limit: "100",
-        retired: "exclude",
-        representation: "summary",
+        limit: "50",
+        status: "available",
+        projection: "summary",
       });
       if (cursor !== null) query.set("cursor", cursor);
       const response = await fetch(
-        `/api/v1/servers/${serverID}/descriptors?${query}`,
+        `/api/v2/mcp/servers/${serverID}/descriptors?${query}`,
         {
           credentials: "same-origin",
           redirect: "error",
@@ -266,7 +266,7 @@ export async function readMatcherDescriptor(
     return undefined;
   return session.runProtected(async (context) => {
     const response = await fetch(
-      `/api/v1/servers/${summary.serverID}/descriptors/${summary.id}`,
+      `/api/v2/mcp/servers/${summary.serverID}/descriptors/${summary.id}`,
       {
         credentials: "same-origin",
         redirect: "error",

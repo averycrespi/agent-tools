@@ -26,15 +26,19 @@ func (f *operationQueryFixture) QueryOperations(_ context.Context, id string, q 
 	f.query, f.cursor, f.limit = q, c, limit
 	return servers.OperationQueryPage{Items: []servers.Operation{}, Next: &servers.OperationQueryCursor{Server: id, Upper: 61, Position: 50}, CollectionRange: contract.CollectionRange{TotalCount: 61}}, nil
 }
-func TestOperationQueryWireValidationAndLegacyCompatibility(t *testing.T) {
+func TestOperationQueryWireValidationAndDefaultPolicy(t *testing.T) {
 	fixture := &operationQueryFixture{}
 	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Servers: fixture})
 	get := func(query string, status int) []byte {
-		response := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/operations?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
+		response := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/operations?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
 		require.Equal(t, status, response.Code, response.Body.String())
 		return response.Body.Bytes()
 	}
-	require.JSONEq(t, `{"items":[],"next_cursor":null}`, string(get("limit=50", 200)))
+	var defaultPage map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(get("limit=50", 200), &defaultPage))
+	require.Len(t, defaultPage, 4)
+	require.Equal(t, servers.OperationQuery{Sort: "created", Direction: "descending"}, fixture.query)
+	require.Equal(t, 50, fixture.limit)
 	require.JSONEq(t, `{"items":[],"has_more":false}`, string(get("projection=active", 200)))
 	var first contract.QueryCollection[contract.ServerOperation]
 	require.NoError(t, json.Unmarshal(get("sort=started&direction=descending&action=retry&status=running&limit=17", 200), &first))

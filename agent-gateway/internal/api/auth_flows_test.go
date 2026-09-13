@@ -48,20 +48,20 @@ func TestAuthFlowAPIExactCreateReadListDeleteAndOneTimeURL(t *testing.T) {
 	flows := &fakeAuthFlows{creation: contract.AuthFlowCreation{Flow: flow, AuthorizationURL: "https://issuer.example/authorize?state=one-time-secret"}, items: []contract.ServerAuthFlow{flow}}
 	handler := newAuthFlowHandler(t, flows)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")}
-	created := perform(handler, http.MethodPost, "/api/v1/servers/"+testID+"/auth-flows", `{}`, headers)
+	created := perform(handler, http.MethodPost, "/api/v2/mcp/servers/"+testID+"/oauth-flows", `{}`, headers)
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
 	assert.Contains(t, created.Body.String(), `"authorization_url":"https://issuer.example/authorize?state=one-time-secret"`)
 	assert.True(t, flows.created)
 
-	listed := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/auth-flows", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	listed := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/oauth-flows", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	assert.NotContains(t, listed.Body.String(), "one-time-secret")
 	assert.Contains(t, listed.Body.String(), `"next_cursor":null`)
-	got := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/auth-flows/"+flow.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	got := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/oauth-flows/"+flow.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 	assert.NotContains(t, got.Body.String(), "authorization_url")
 
-	deleted := perform(handler, http.MethodDelete, "/api/v1/servers/"+testID+"/auth-flows/"+flow.ID, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
+	deleted := perform(handler, http.MethodDelete, "/api/v2/mcp/servers/"+testID+"/oauth-flows/"+flow.ID, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
 	require.Equal(t, http.StatusNoContent, deleted.Code, deleted.Body.String())
 	assert.Empty(t, deleted.Body.String())
 	assert.True(t, flows.cancelled)
@@ -78,10 +78,10 @@ func TestAuthFlowAPIStrictBodiesQueriesPreconditionsAndSafeErrors(t *testing.T) 
 		status  int
 		code    contract.ProblemCode
 	}{
-		{name: "precondition required", method: http.MethodPost, path: "/api/v1/servers/" + testID + "/auth-flows", body: `{}`, headers: map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}, status: 428, code: contract.ProblemPreconditionRequired},
-		{name: "unknown member", method: http.MethodPost, path: "/api/v1/servers/" + testID + "/auth-flows", body: `{"extra":true}`, headers: map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")}, status: 400, code: contract.ProblemInvalidJSON},
-		{name: "list query", method: http.MethodGet, path: "/api/v1/servers/" + testID + "/auth-flows?extra=x", headers: map[string]string{"Authorization": "Bearer " + testBearer}, status: 400, code: contract.ProblemMalformedRequest},
-		{name: "member query", method: http.MethodGet, path: "/api/v1/servers/" + testID + "/auth-flows/" + flow.ID + "?x=1", headers: map[string]string{"Authorization": "Bearer " + testBearer}, status: 400, code: contract.ProblemMalformedRequest},
+		{name: "precondition required", method: http.MethodPost, path: "/api/v2/mcp/servers/" + testID + "/oauth-flows", body: `{}`, headers: map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}, status: 428, code: contract.ProblemPreconditionRequired},
+		{name: "unknown member", method: http.MethodPost, path: "/api/v2/mcp/servers/" + testID + "/oauth-flows", body: `{"extra":true}`, headers: map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")}, status: 400, code: contract.ProblemInvalidJSON},
+		{name: "list query", method: http.MethodGet, path: "/api/v2/mcp/servers/" + testID + "/oauth-flows?extra=x", headers: map[string]string{"Authorization": "Bearer " + testBearer}, status: 400, code: contract.ProblemMalformedRequest},
+		{name: "member query", method: http.MethodGet, path: "/api/v2/mcp/servers/" + testID + "/oauth-flows/" + flow.ID + "?x=1", headers: map[string]string{"Authorization": "Bearer " + testBearer}, status: 400, code: contract.ProblemMalformedRequest},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -93,19 +93,19 @@ func TestAuthFlowAPIStrictBodiesQueriesPreconditionsAndSafeErrors(t *testing.T) 
 	}
 
 	flows := &fakeAuthFlows{err: serverdomain.ErrOAuthFlowActive}
-	response := perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v1/servers/"+testID+"/auth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
+	response := perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v2/mcp/servers/"+testID+"/oauth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
 	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
 	assert.Contains(t, response.Body.String(), `"code":"oauth_flow_active"`)
 
 	correlationID := "01ARZ3NDEKTSV4RRFFQ69G5FAA"
 	flows = &fakeAuthFlows{err: oauth.NewFlowFailure(correlationID, oauth.ErrFlowRejected)}
-	response = perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v1/servers/"+testID+"/auth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
+	response = perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v2/mcp/servers/"+testID+"/oauth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
 	require.Equal(t, http.StatusServiceUnavailable, response.Code, response.Body.String())
 	assert.Equal(t, correlationID, response.Header().Get(contract.OAuthCorrelationHeader))
 	assert.NotContains(t, response.Body.String(), correlationID)
 
 	flows = &fakeAuthFlows{err: oauth.NewFlowFailure(correlationID, oauth.ErrCallbackUnavailable)}
-	response = perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v1/servers/"+testID+"/auth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
+	response = perform(newAuthFlowHandler(t, flows), http.MethodPost, "/api/v2/mcp/servers/"+testID+"/oauth-flows", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.ServerETag(testID, "1")})
 	require.Equal(t, http.StatusConflict, response.Code)
 	assert.Contains(t, response.Body.String(), `"code":"oauth_callback_unavailable"`)
 	assert.Contains(t, response.Body.String(), "Stop the conflicting listener and start a new flow")

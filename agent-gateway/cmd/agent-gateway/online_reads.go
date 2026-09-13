@@ -19,9 +19,9 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 	case "audit list", "audit get":
 		return runAuditRead(command, options, args)
 	case "status":
-		return runOnlineRead(command, options, "/api/v1/system-status", statusTable)
+		return runOnlineRead(command, options, "/api/v2/system-status", statusTable)
 	case "admin credential list":
-		path, err := controlclient.BuildListPath("/api/v1/admin-credentials", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		path, err := controlclient.BuildListPath("/api/v2/admin-credentials", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
@@ -30,7 +30,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The admin credential ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/admin-credentials/"+args[0], adminCredentialItemTable)
+		return runOnlineRead(command, options, "/api/v2/admin-credentials/"+args[0], adminCredentialItemTable)
 	case "admin credential create":
 		return runAdminCredentialCreate(command, options)
 	case "admin credential rotate":
@@ -38,7 +38,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 	case "admin credential revoke":
 		return runAdminCredentialRevoke(command, options, args)
 	case "backup list":
-		path, err := controlclient.BuildListPath("/api/v1/backups", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		path, err := controlclient.BuildListPath("/api/v2/backups", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
@@ -47,7 +47,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The backup ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/backups/"+args[0], backupItemTable)
+		return runOnlineRead(command, options, "/api/v2/backups/"+args[0], backupItemTable)
 	case "backup create":
 		return runBackupCreate(command, options)
 	case "backup delete":
@@ -58,72 +58,72 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, invocationListTable)
-	case "server create":
+	case "mcp server create":
 		return runServerCreate(command, options)
-	case "server update":
+	case "mcp server update":
 		return runServerUpdate(command, options, args)
-	case "server delete":
+	case "mcp server delete":
 		return runServerDelete(command, options, args)
-	case "server list":
-		path, err := controlclient.BuildListPath("/api/v1/servers", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+	case "mcp server list":
+		path, err := controlclient.BuildListPath("/api/v2/mcp/servers", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, serverListTable)
-	case "server get":
+	case "mcp server get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server ID is invalid."))
 		}
 		return runOnlineItemRead(command, options, onlineItemServer, args[0], serverItemTable)
-	case "server auth-flow list":
+	case "mcp server auth-flow list":
 		path, err := authFlowListPath(options, args)
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, authFlowListTable)
-	case "server auth-flow get":
+	case "mcp server auth-flow get":
 		if len(args) != 2 || !gatewayIDPattern.MatchString(args[0]) || !gatewayIDPattern.MatchString(args[1]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server or auth-flow ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/servers/"+args[0]+"/auth-flows/"+args[1], authFlowItemTable)
-	case "server auth-flow start":
+		return runOnlineRead(command, options, "/api/v2/mcp/servers/"+args[0]+"/oauth-flows/"+args[1], authFlowItemTable)
+	case "mcp server auth-flow start":
 		return runServerAuthFlowStart(command, options, args)
-	case "server auth-flow cancel":
+	case "mcp server auth-flow cancel":
 		return runServerAuthFlowCancel(command, options, args)
-	case "server credential replace":
+	case "mcp server credential replace":
 		return runServerCredentialReplace(command, options, args)
-	case "server operation list":
+	case "mcp server operation list":
 		path, err := operationListPath(options, args)
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, operationListTable)
-	case "server operation get":
+	case "mcp server operation get":
 		if len(args) != 2 || !gatewayIDPattern.MatchString(args[0]) || !gatewayIDPattern.MatchString(args[1]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server or operation ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/servers/"+args[0]+"/operations/"+args[1], operationItemTable)
-	case "server operation start":
+		return runOnlineRead(command, options, "/api/v2/mcp/servers/"+args[0]+"/operations/"+args[1], operationItemTable)
+	case "mcp server operation start":
 		return runServerOperationStart(command, options, args)
-	case "server descriptor list":
+	case "mcp server descriptor list":
 		path, err := descriptorListPath(options, args)
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, descriptorListTable)
-	case "server descriptor get":
+	case "mcp server descriptor get":
 		if len(args) != 2 || !gatewayIDPattern.MatchString(args[0]) || !gatewayIDPattern.MatchString(args[1]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The server or tool ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/servers/"+args[0]+"/descriptors/"+args[1], descriptorItemTable)
-	case "catalog list":
-		path, err := controlclient.BuildListPath("/api/v1/catalog", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		return runOnlineRead(command, options, "/api/v2/mcp/servers/"+args[0]+"/descriptors/"+args[1], descriptorItemTable)
+	case "mcp catalog list":
+		path, err := controlclient.BuildListPath("/api/v2/mcp/catalog", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, catalogTable)
 	case "principal list":
-		path, err := controlclient.BuildListPath("/api/v1/principals", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+		path, err := controlclient.BuildListPath("/api/v2/principals", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
@@ -153,7 +153,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/grants/"+args[0], grantItemTable)
+		return runOnlineRead(command, options, "/api/v2/grants/"+args[0], grantItemTable)
 	case "grant create":
 		return runGrantCreate(command, options)
 	case "grant update":
@@ -179,7 +179,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The invocation ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v1/invocations/"+args[0], invocationItemTable)
+		return runOnlineRead(command, options, "/api/v2/invocations/"+args[0], invocationItemTable)
 	default:
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("This online command is not implemented yet."))
 	}
@@ -240,7 +240,7 @@ func invocationListPath(options *onlineOptions) (string, error) {
 			filters[apiName] = *value
 		}
 	}
-	return controlclient.BuildListPath("/api/v1/invocations", controlclient.ListOptions{
+	return controlclient.BuildListPath("/api/v2/invocations", controlclient.ListOptions{
 		Limit: options.limit, Cursor: options.cursor, Filters: filters,
 		AllowedFilters: []string{"principal_id", "server_id", "requested_name", "admission_class", "decision", "outcome"},
 	})
@@ -271,10 +271,15 @@ func descriptorListPath(options *onlineOptions, args []string) (string, error) {
 		if *value != "include" && *value != "exclude" && *value != "only" {
 			return "", controlclient.ErrInvalidInput
 		}
-		filters["retired"] = *value
+		switch *value {
+		case "exclude":
+			filters["status"] = "available"
+		case "only":
+			filters["status"] = "retired"
+		}
 	}
-	return controlclient.BuildListPath("/api/v1/servers/"+args[0]+"/descriptors", controlclient.ListOptions{
-		Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"retired"},
+	return controlclient.BuildListPath("/api/v2/mcp/servers/"+args[0]+"/descriptors", controlclient.ListOptions{
+		Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"status"},
 	})
 }
 
@@ -396,7 +401,7 @@ func statusLimits(limits contract.LimitsStatus) []namedLimit {
 		{"event_streams", limits.EventStreams}, {"backup_work", limits.BackupWork}, {"backup_records", limits.BackupRecords}, {"admin_credentials", limits.AdminCredentials},
 		{"idempotency_records", limits.IdempotencyRecords}, {"keyring_candidates", limits.KeyringCandidates}, {"keyring_work", limits.KeyringWork}, {"database_bytes", limits.DatabaseBytes},
 		{"server_identities", limits.ServerIdentities}, {"servers", limits.Servers}, {"downstream_runtimes", limits.DownstreamRuntimes}, {"server_reconciliations", limits.ServerReconciliations},
-		{"catalog_traversals", limits.CatalogTraversals}, {"oauth_flows", limits.OAuthFlows}, {"oauth_callback_work", limits.OAuthCallbackWork}, {"s2_idempotency_records", limits.S2IdempotencyRecords},
+		{"catalog_traversals", limits.CatalogTraversals}, {"oauth_flows", limits.OAuthFlows}, {"oauth_callback_work", limits.OAuthCallbackWork}, {"server_idempotency_records", limits.S2IdempotencyRecords},
 		{"active_tools", limits.ActiveTools}, {"durable_tool_identities", limits.DurableToolIdentities}, {"downstream_dispatch", limits.DownstreamDispatch}, {"principals", limits.Principals},
 		{"grants", limits.Grants}, {"grant_requests", limits.GrantRequests}, {"grant_request_evidence_bytes", limits.GrantRequestEvidenceBytes},
 	}

@@ -85,13 +85,13 @@ func loadValidatedItem(command *cobra.Command, options *onlineOptions, kind onli
 func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 	switch kind {
 	case onlineItemServer:
-		return "/api/v1/servers/" + id, true
+		return "/api/v2/mcp/servers/" + id, true
 	case onlineItemPrincipal:
-		return "/api/v1/principals/" + id, true
+		return "/api/v2/principals/" + id, true
 	case onlineItemGrant:
-		return "/api/v1/grants/" + id, true
+		return "/api/v2/grants/" + id, true
 	case onlineItemGrantRequest:
-		return "/api/v1/grant-requests/" + id, true
+		return "/api/v2/grant-requests/" + id, true
 	default:
 		return "", false
 	}

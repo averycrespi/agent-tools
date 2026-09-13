@@ -27,7 +27,7 @@ func TestServeRestartInvalidatesAdminSession(t *testing.T) {
 	ready := harness.Request(http.MethodGet, "/readyz", "", nil)
 	assert.Equal(t, http.StatusOK, ready.StatusCode)
 	_ = ready.Body.Close()
-	session := harness.Request(http.MethodPost, "/api/v1/admin-sessions", `{}`, map[string]string{
+	session := harness.Request(http.MethodPost, "/api/v2/admin-sessions", `{}`, map[string]string{
 		"Authorization": "Bearer " + harness.bearer, "Content-Type": contract.MediaTypeJSON,
 	})
 	require.Equal(t, http.StatusCreated, session.StatusCode)
@@ -41,7 +41,7 @@ func TestServeRestartInvalidatesAdminSession(t *testing.T) {
 
 	harness.serveArgs = append(harness.serveArgs, "--output", "json")
 	harness.Start()
-	stale := harness.Request(http.MethodGet, "/api/v1/system-status", "", map[string]string{
+	stale := harness.Request(http.MethodGet, "/api/v2/system-status", "", map[string]string{
 		"Cookie": cookies[0].String(), "Origin": "http://" + harness.authority,
 	})
 	assert.Equal(t, http.StatusUnauthorized, stale.StatusCode)
@@ -65,7 +65,7 @@ func TestServeFirstSignalDeadlineRetainsUncleanMarker(t *testing.T) {
 	blocked, err := net.Dial("tcp", harness.authority)
 	require.NoError(t, err)
 	defer func() { _ = blocked.Close() }()
-	_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: deadline\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
+	_, err = fmt.Fprintf(blocked, "POST /api/v2/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: deadline\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
 	require.NoError(t, err)
 	waitForAdminOccupancy(t, harness, 2)
 	started := time.Now()
@@ -95,7 +95,7 @@ func TestServeSecondSignalForcesImmediateExit(t *testing.T) {
 	blocked, err := net.Dial("tcp", harness.authority)
 	require.NoError(t, err)
 	defer func() { _ = blocked.Close() }()
-	_, err = fmt.Fprintf(blocked, "POST /api/v1/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: forced\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
+	_, err = fmt.Fprintf(blocked, "POST /api/v2/backups HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nIdempotency-Key: forced\r\nContent-Length: 100\r\n\r\n", harness.authority, harness.bearer)
 	require.NoError(t, err)
 	waitForAdminOccupancy(t, harness, 2)
 	require.NoError(t, harness.process.Signal(syscall.SIGTERM))
@@ -163,7 +163,7 @@ func TestServeFirstSignalDrainsActiveStdioAndHTTP(t *testing.T) {
 	harness.WaitOperation(httpCreation.Server.ID, httpCreation.Operation.ID, contract.OperationSucceeded)
 	waitForStdioServer(t, harness, httpCreation.Server.ID, activeCatalog)
 	var catalog contract.CatalogPage
-	response := harness.AdminJSON(http.MethodGet, "/api/v1/catalog", "", nil, &catalog)
+	response := harness.AdminJSON(http.MethodGet, "/api/v2/mcp/catalog", "", nil, &catalog)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	require.Len(t, catalog.Items, 4)
@@ -197,7 +197,7 @@ func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {
 		require.NotContains(t, string(result.Stderr), `"event":"upstream_attempt_start"`)
 	}()
 
-	created := harness.AdminJSON(http.MethodPost, "/api/v1/servers", `{"namespace":"failing","display_name":"Failing","enabled":true,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, map[string]string{"Idempotency-Key": "failing-server"}, nil)
+	created := harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers", `{"namespace":"failing","display_name":"Failing","enabled":true,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`, map[string]string{"Idempotency-Key": "failing-server"}, nil)
 	require.Equal(t, http.StatusCreated, created.StatusCode)
 	var creation struct {
 		Server struct {
@@ -210,7 +210,7 @@ func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {
 	var observedState contract.RuntimeState
 	var observedReason *contract.PublicReason
 	require.Eventually(t, func() bool {
-		response := harness.AdminJSON(http.MethodGet, "/api/v1/servers/"+creation.Server.ID, "", nil, nil)
+		response := harness.AdminJSON(http.MethodGet, "/api/v2/mcp/servers/"+creation.Server.ID, "", nil, nil)
 		defer func() { _ = response.Body.Close() }()
 		var server struct {
 			Runtime struct {
@@ -228,7 +228,7 @@ func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {
 	ready := harness.Request(http.MethodGet, "/readyz", "", nil)
 	assert.Equal(t, http.StatusOK, ready.StatusCode)
 	_ = ready.Body.Close()
-	statusResponse := harness.AdminJSON(http.MethodGet, "/api/v1/system-status", "", nil, nil)
+	statusResponse := harness.AdminJSON(http.MethodGet, "/api/v2/system-status", "", nil, nil)
 	require.Equal(t, http.StatusOK, statusResponse.StatusCode)
 	var status contract.SystemStatus
 	require.NoError(t, json.NewDecoder(statusResponse.Body).Decode(&status))
@@ -248,7 +248,7 @@ func waitForAdminOccupancy(t *testing.T, harness *gatewayHarness, minimum int64)
 			t.Fatal("blocked request did not occupy admin capacity")
 		default:
 		}
-		response := harness.AdminJSON(http.MethodGet, "/api/v1/system-status", "", nil, nil)
+		response := harness.AdminJSON(http.MethodGet, "/api/v2/system-status", "", nil, nil)
 		contents, err := io.ReadAll(response.Body)
 		_ = response.Body.Close()
 		require.NoError(t, err)

@@ -242,7 +242,7 @@ export class SessionClient {
     this.emit();
     let bearer = candidate;
     try {
-      const response = await this.request("/api/v1/admin-sessions", {
+      const response = await this.request("/api/v2/admin-sessions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${bearer}`,
@@ -285,7 +285,7 @@ export class SessionClient {
     const csrfToken = this.session.csrfToken;
     this.advanceEpoch("signed_out");
     try {
-      const response = await this.request("/api/v1/admin-sessions/current", {
+      const response = await this.request("/api/v2/admin-sessions/current", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -378,7 +378,7 @@ export class SessionClient {
 
   private async bootstrap(recovery: boolean): Promise<void> {
     try {
-      const response = await this.request("/api/v1/admin-sessions/current", {
+      const response = await this.request("/api/v2/admin-sessions/current", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",

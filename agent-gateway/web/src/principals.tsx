@@ -194,7 +194,7 @@ export async function readPrincipals(
   let cursor: string | null = null;
   let restarted = false;
   for (;;) {
-    const route = `/api/v1/principals?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`;
+    const route = `/api/v2/principals?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`;
     const result = await readJSON(session, route);
     if (result === undefined) return [];
     if (result.response.status === 409 && cursor !== null && !restarted) {
@@ -204,7 +204,12 @@ export async function readPrincipals(
       continue;
     }
     if (!result.response.ok) throw new Error("Principal data is unavailable.");
-    const page = record(result.value, ["items", "next_cursor"]);
+    const page = record(result.value, [
+      "items",
+      "next_cursor",
+      "total_count",
+      "offset",
+    ]);
     if (!Array.isArray(page.items)) throw new Error("invalid response");
     items.push(...page.items.map(decodePrincipal));
     if (page.next_cursor === null) return items;
@@ -264,7 +269,7 @@ async function readPrincipal(
   session: SessionClient,
   id: string,
 ): Promise<PrincipalDetail | undefined> {
-  const result = await readJSON(session, `/api/v1/principals/${id}`);
+  const result = await readJSON(session, `/api/v2/principals/${id}`);
   if (result === undefined) return undefined;
   if (!result.response.ok) throw new Error("Principal data is unavailable.");
   const etag = result.response.headers.get("ETag");
@@ -399,7 +404,7 @@ function PrincipalEditor({
       return {
         authority: false,
         spec: {
-          route: "/api/v1/principals",
+          route: "/api/v2/principals",
           method: "POST",
           body: JSON.stringify({ display_name: displayName, visibility }),
           precondition: null,
@@ -422,7 +427,7 @@ function PrincipalEditor({
     return {
       authority: state !== current.state,
       spec: {
-        route: `/api/v1/principals/${current.id}`,
+        route: `/api/v2/principals/${current.id}`,
         method: "PATCH",
         body: JSON.stringify(patch),
         precondition: detail.etag,
@@ -659,7 +664,7 @@ function PrincipalCredentialActions({
   const beginIssue = () => {
     setNotice(undefined);
     const spec: MutationSpec<CredentialCreation | Principal> = {
-      route: `/api/v1/principals/${principal.id}/credential`,
+      route: `/api/v2/principals/${principal.id}/credential`,
       method: "POST",
       body: "{}",
       precondition: detail.etag,
@@ -676,7 +681,7 @@ function PrincipalCredentialActions({
   const beginRevoke = () => {
     setNotice(undefined);
     const spec: MutationSpec<CredentialCreation | Principal> = {
-      route: `/api/v1/principals/${principal.id}/credential`,
+      route: `/api/v2/principals/${principal.id}/credential`,
       method: "DELETE",
       body: "{}",
       precondition: detail.etag,
@@ -1044,7 +1049,7 @@ function PrincipalCollection({
       if (cursor !== null) params.set("cursor", cursor);
       return readCollectionPage(
         session,
-        `/api/v1/principals?${params}`,
+        `/api/v2/principals?${params}`,
         decodePrincipal,
         signal,
       );

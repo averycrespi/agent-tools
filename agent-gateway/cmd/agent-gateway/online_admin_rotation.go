@@ -112,7 +112,7 @@ func submitRotationCreate(command *cobra.Command, client *controlclient.Client, 
 		return contract.CreatedAdminCredential{}, "", controlclient.ClassifyClientError(err)
 	}
 	sink.MarkSubmitted()
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/admin-credentials", Header: header, Body: []byte(`{"expires_at":null}`)})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/admin-credentials", Header: header, Body: []byte(`{"expires_at":null}`)})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -143,7 +143,7 @@ func submitRotationCompletion(command *cobra.Command, client *controlclient.Clie
 		return contract.AdminCredentialRotationResult{}, "", controlclient.Response{}, err
 	}
 	body, _ := json.Marshal(contract.AdminCredentialRotationCompletion{ReplacementID: replacementID})
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/admin-credentials/" + oldID + "/rotation-completion", Header: header, Body: body})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/admin-credentials/" + oldID + "/rotation-completion", Header: header, Body: body})
 	if err != nil {
 		return contract.AdminCredentialRotationResult{}, "", controlclient.Response{}, err
 	}
@@ -159,7 +159,7 @@ func loadRotationCredential(command *cobra.Command, client *controlclient.Client
 	if err != nil {
 		return contract.AdminCredential{}, controlclient.ClassifyClientError(err)
 	}
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: "/api/v1/admin-credentials/" + id, Header: header})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: "/api/v2/admin-credentials/" + id, Header: header})
 	if err != nil {
 		return contract.AdminCredential{}, classifyReadFailure(err)
 	}
@@ -178,7 +178,7 @@ func loadRotationAuthority(command *cobra.Command, client *controlclient.Client,
 	if err != nil {
 		return contract.AdminAuthority{}, "", controlclient.ClassifyClientError(err)
 	}
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: "/api/v1/admin-authority", Header: header})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: "/api/v2/admin-authority", Header: header})
 	if err != nil {
 		return contract.AdminAuthority{}, "", classifyReadFailure(err)
 	}
@@ -244,7 +244,7 @@ func validRotationCredential(credential contract.AdminCredential) bool {
 }
 
 func renderRotationRecoveryCommand(replacementID, path string) (string, error) {
-	return renderBearerCommand("mcp-gateway admin credential get "+replacementID, path)
+	return renderBearerCommand("agent-gateway admin credential get "+replacementID, path)
 }
 
 func rotationRecoveryTitle(prefix, replacementID string, options *onlineOptions, command *cobra.Command) string {

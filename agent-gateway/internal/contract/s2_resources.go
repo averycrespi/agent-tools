@@ -158,7 +158,7 @@ type OAuthDiagnostic struct {
 type ServerAuthFlow struct {
 	ID                    string           `json:"id"`
 	ServerID              string           `json:"server_id"`
-	FlowState             AuthFlowState    `json:"flow_state"`
+	FlowState             AuthFlowState    `json:"state"`
 	TargetDesiredRevision string           `json:"target_desired_revision"`
 	RegistrationRevision  string           `json:"registration_revision"`
 	CreatedAt             string           `json:"created_at"`

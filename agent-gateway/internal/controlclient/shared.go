@@ -390,7 +390,7 @@ func ClassifyRequestError(err error, phase RequestPhase) *OnlineError {
 	switch {
 	case errors.Is(err, ErrTransport):
 		if FailureRefused(err) {
-			return &OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9}
+			return &OnlineError{Code: "gateway_not_running", Title: "Agent Gateway is not running.", Exit: 9}
 		}
 		if phase == RequestPhaseRead {
 			return &OnlineError{Code: "client_transport_failure", Title: "The read did not complete. This read is safe to repeat after checking Gateway availability.", Exit: 9}

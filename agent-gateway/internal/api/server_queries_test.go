@@ -70,7 +70,7 @@ func TestServerQueryGlobalPagesAndLiveInvalidation(t *testing.T) {
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	require.NoError(t, err)
 	get := func(query string, status int) contract.Collection[inventoryResponseRow] {
-		response := perform(boundary, http.MethodGet, "/api/v1/servers?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
+		response := perform(boundary, http.MethodGet, "/api/v2/mcp/servers?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
 		require.Equal(t, status, response.Code, response.Body.String())
 		var page contract.Collection[inventoryResponseRow]
 		if status == 200 {
@@ -90,7 +90,7 @@ func TestServerQueryGlobalPagesAndLiveInvalidation(t *testing.T) {
 	assert.Equal(t, "Server 50", second.Items[0].DisplayName)
 	replay := get("sort=name&limit=50&cursor="+url.QueryEscape(*first.NextCursor), 200)
 	assert.Equal(t, second.Items, replay.Items)
-	match := get("name=Server%2059&namespace=server_00&status=Ready&sort=name", 200)
+	match := get("name=Server%2059&namespace=server_00&status=ready&sort=name", 200)
 	require.Len(t, match.Items, 1)
 	assert.Equal(t, "Server 59", match.Items[0].DisplayName)
 	assert.Empty(t, get("name=missing&sort=name", 200).Items)
@@ -130,7 +130,7 @@ func TestServerQueryGlobalPagesAndLiveInvalidation(t *testing.T) {
 	restarted := New(options)
 	restartBoundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: restarted.Authenticate, Next: restarted})
 	require.NoError(t, err)
-	response := perform(restartBoundary, http.MethodGet, "/api/v1/servers?"+originalCursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	response := perform(restartBoundary, http.MethodGet, "/api/v2/mcp/servers?"+originalCursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, 409, response.Code)
 }
 
@@ -172,7 +172,7 @@ func TestServerQuerySortOrder(t *testing.T) {
 					if cursor != nil {
 						query += "&cursor=" + url.QueryEscape(*cursor)
 					}
-					response := perform(boundary, http.MethodGet, "/api/v1/servers?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
+					response := perform(boundary, http.MethodGet, "/api/v2/mcp/servers?"+query, "", map[string]string{"Authorization": "Bearer " + testBearer})
 					require.Equal(t, 200, response.Code, response.Body.String())
 					var page contract.Collection[inventoryResponseRow]
 					require.NoError(t, json.Unmarshal(response.Body.Bytes(), &page))

@@ -1695,7 +1695,7 @@ export function ServerEditor({
         return {
           behavioral: true,
           spec: {
-            route: "/api/v1/servers",
+            route: "/api/v2/mcp/servers",
             method: "POST",
             body: JSON.stringify({
               namespace: draft.namespace,
@@ -1722,7 +1722,7 @@ export function ServerEditor({
       return {
         behavioral,
         spec: {
-          route: `/api/v1/servers/${server.id}`,
+          route: `/api/v2/mcp/servers/${server.id}`,
           method: "PATCH",
           body: JSON.stringify(body),
           precondition: etag,

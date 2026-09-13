@@ -18,66 +18,62 @@ type operationQueryService interface {
 	QueryOperations(context.Context, string, servers.OperationQuery, *servers.OperationQueryCursor, int) (servers.OperationQueryPage, error)
 }
 
-func (handler *Handler) operationQuery(writer http.ResponseWriter, request *http.Request, serverID string) bool {
+func (handler *Handler) operationQuery(writer http.ResponseWriter, request *http.Request, serverID string) {
 	values, err := url.ParseQuery(request.URL.RawQuery)
 	if err != nil {
 		writeProblem(writer, contract.ProblemMalformedRequest)
-		return true
-	}
-	enabled := false
-	for _, key := range []string{"projection", "action", "status", "sort", "direction"} {
-		if values.Has(key) {
-			enabled = true
-		}
-	}
-	if !enabled {
-		return false
+		return
 	}
 	for key, members := range values {
 		if len(members) != 1 || members[0] == "" {
 			writeProblem(writer, contract.ProblemMalformedRequest)
-			return true
+			return
 		}
 		switch key {
 		case "projection", "action", "status", "sort", "direction", "limit", "cursor":
 		default:
 			writeProblem(writer, contract.ProblemMalformedRequest)
-			return true
+			return
 		}
 	}
 	service, ok := handler.servers.(operationQueryService)
 	if !ok {
 		writeProblem(writer, contract.ProblemStorageUnavailable)
-		return true
+		return
 	}
 	if values.Has("projection") {
 		if values.Get("projection") != "active" || len(values) != 1 {
 			writeProblem(writer, contract.ProblemMalformedRequest)
-			return true
+			return
 		}
 		items, more, err := service.ActiveOperations(request.Context(), serverID)
 		if err != nil {
 			writeServerError(writer, err)
-			return true
+			return
 		}
 		resources := make([]contract.ServerOperation, 0, len(items))
 		for i := range items {
 			resources = append(resources, *operationResource(&items[i]))
 		}
 		writeJSON(writer, http.StatusOK, contract.ActiveServerOperations{Items: resources, HasMore: more})
-		return true
+		return
 	}
 	query := servers.OperationQuery{Action: values.Get("action"), Status: values.Get("status"), Sort: values.Get("sort"), Direction: values.Get("direction")}
 	if !query.Validate() {
 		writeProblem(writer, contract.ProblemMalformedRequest)
-		return true
+		return
+	}
+	if query.Sort == "" {
+		query.Sort, query.Direction = "created", "descending"
+	} else if query.Direction == "" {
+		query.Direction = "ascending"
 	}
 	limit := contract.S2ListPageDefault
 	if text := values.Get("limit"); text != "" {
 		parsed, err := strconv.Atoi(text)
 		if err != nil || parsed < 1 || parsed > contract.S2ListPageDefault || strconv.Itoa(parsed) != text {
 			writeProblem(writer, contract.ProblemMalformedRequest)
-			return true
+			return
 		}
 		limit = parsed
 	}
@@ -88,18 +84,18 @@ func (handler *Handler) operationQuery(writer http.ResponseWriter, request *http
 		var decoded servers.OperationQueryCursor
 		if len(text) > limitValue("cursor_bytes") || err != nil || strictjson.Decode(contents, &decoded, strictjson.Options{MaxBytes: int64(limitValue("cursor_bytes")), MaxDepth: 8, RejectUnknownMembers: true}) != nil {
 			writeProblem(writer, contract.ProblemInvalidCursor)
-			return true
+			return
 		}
 		if decoded.Epoch != handler.inventoryEpoch || decoded.Query != binding {
 			writeProblem(writer, contract.ProblemStaleCursor)
-			return true
+			return
 		}
 		cursor = &decoded
 	}
 	page, err := service.QueryOperations(request.Context(), serverID, query, cursor, limit)
 	if err != nil {
 		writeServerError(writer, err)
-		return true
+		return
 	}
 	items := make([]contract.ServerOperation, 0, len(page.Items))
 	for i := range page.Items {
@@ -113,5 +109,4 @@ func (handler *Handler) operationQuery(writer http.ResponseWriter, request *http
 		next = &value
 	}
 	writeJSON(writer, http.StatusOK, contract.QueryCollection[contract.ServerOperation]{Collection: contract.Collection[contract.ServerOperation]{Items: items, NextCursor: next}, CollectionRange: page.CollectionRange})
-	return true
 }

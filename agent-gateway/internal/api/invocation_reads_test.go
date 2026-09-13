@@ -30,7 +30,7 @@ func TestInvocationReadAPI(t *testing.T) {
 		"requested_name": {"namespace.tool"}, "admission_class": {"evaluated"}, "decision": {"allow"}, "outcome": {"succeeded"},
 		"tool": {"retired lokoup"}, "principal": {"cafe investgiator"}, "search_locale": {"en-US"},
 	}
-	listed := perform(handler, http.MethodGet, "/api/v1/invocations?"+query.Encode(), "", bearer)
+	listed := perform(handler, http.MethodGet, "/api/v2/invocations?"+query.Encode(), "", bearer)
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	assert.Equal(t, "no-store", listed.Header().Get("Cache-Control"))
 	assert.Empty(t, listed.Header().Get("Access-Control-Allow-Origin"))
@@ -48,7 +48,7 @@ func TestInvocationReadAPI(t *testing.T) {
 	assert.Equal(t, "cafe investgiator", service.query.Filters.Principal)
 	assert.Equal(t, "en-US", service.query.Filters.SearchLocale)
 
-	item := perform(handler, http.MethodGet, "/api/v1/invocations/"+service.item.ID, "", bearer)
+	item := perform(handler, http.MethodGet, "/api/v2/invocations/"+service.item.ID, "", bearer)
 	require.Equal(t, http.StatusOK, item.Code, item.Body.String())
 	assert.Equal(t, service.item.ID, service.itemID)
 	assert.Contains(t, item.Body.String(), `"redacted_arguments":{"safe":"\u003cscript\u003ealert(1)\u003c/script\u003e"}`)
@@ -56,41 +56,41 @@ func TestInvocationReadAPI(t *testing.T) {
 	assert.Equal(t, 0, invalidations, "invocation reads must emit no event")
 
 	session := map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin}
-	assert.Equal(t, http.StatusOK, perform(handler, http.MethodGet, "/api/v1/invocations", "", session).Code)
+	assert.Equal(t, http.StatusOK, perform(handler, http.MethodGet, "/api/v2/invocations", "", session).Code)
 	assert.Equal(t, contract.AdminListPageDefault, service.query.Limit)
-	assert.Equal(t, http.StatusUnauthorized, perform(handler, http.MethodGet, "/api/v1/invocations", "", nil).Code)
-	assert.Equal(t, http.StatusForbidden, perform(handler, http.MethodGet, "/api/v1/invocations", "", map[string]string{"Cookie": contract.SessionCookieName + "=session"}).Code)
+	assert.Equal(t, http.StatusUnauthorized, perform(handler, http.MethodGet, "/api/v2/invocations", "", nil).Code)
+	assert.Equal(t, http.StatusForbidden, perform(handler, http.MethodGet, "/api/v2/invocations", "", map[string]string{"Cookie": contract.SessionCookieName + "=session"}).Code)
 
 	for _, target := range []string{
-		"/api/v1/invocations?unknown=x", "/api/v1/invocations?limit=1&limit=2", "/api/v1/invocations?cursor=",
-		"/api/v1/invocations?principal_id=null", "/api/v1/invocations?limit=0", "/api/v1/invocations?limit=101",
-		"/api/v1/invocations?admission_class=other", "/api/v1/invocations?decision=other", "/api/v1/invocations?outcome=other",
+		"/api/v2/invocations?unknown=x", "/api/v2/invocations?limit=1&limit=2", "/api/v2/invocations?cursor=",
+		"/api/v2/invocations?principal_id=null", "/api/v2/invocations?limit=0", "/api/v2/invocations?limit=101",
+		"/api/v2/invocations?admission_class=other", "/api/v2/invocations?decision=other", "/api/v2/invocations?outcome=other",
 	} {
 		response := perform(handler, http.MethodGet, target, "", bearer)
 		assert.Equal(t, http.StatusBadRequest, response.Code, target+": "+response.Body.String())
 		assert.Contains(t, response.Body.String(), "malformed_request", target)
 	}
 	for _, decision := range []string{"allow", "deny", "block", "not_evaluated"} {
-		response := perform(handler, http.MethodGet, "/api/v1/invocations?decision="+decision, "", bearer)
+		response := perform(handler, http.MethodGet, "/api/v2/invocations?decision="+decision, "", bearer)
 		assert.Equal(t, http.StatusOK, response.Code)
 		assert.Equal(t, decision, string(*service.query.Filters.Decision))
 	}
 	for _, outcome := range contract.InvocationOutcomeClasses() {
-		response := perform(handler, http.MethodGet, "/api/v1/invocations?outcome="+string(outcome), "", bearer)
+		response := perform(handler, http.MethodGet, "/api/v2/invocations?outcome="+string(outcome), "", bearer)
 		assert.Equal(t, http.StatusOK, response.Code)
 		assert.Equal(t, outcome, *service.query.Filters.Outcome)
 	}
-	literalResponse := perform(handler, http.MethodGet, "/api/v1/invocations?tool=null&principal=null", "", bearer)
+	literalResponse := perform(handler, http.MethodGet, "/api/v2/invocations?tool=null&principal=null", "", bearer)
 	assert.Equal(t, http.StatusOK, literalResponse.Code)
 	assert.Equal(t, "null", service.query.Filters.Tool)
-	tooLongCursor := perform(handler, http.MethodGet, "/api/v1/invocations?cursor="+strings.Repeat("x", 513), "", bearer)
+	tooLongCursor := perform(handler, http.MethodGet, "/api/v2/invocations?cursor="+strings.Repeat("x", 513), "", bearer)
 	assert.Equal(t, http.StatusBadRequest, tooLongCursor.Code)
 	assert.Contains(t, tooLongCursor.Body.String(), "invalid_cursor")
-	assert.Equal(t, http.StatusBadRequest, perform(handler, http.MethodGet, "/api/v1/invocations", `{}`, bearer).Code)
-	assert.Equal(t, http.StatusBadRequest, perform(handler, http.MethodGet, "/api/v1/invocations/"+service.item.ID+"?x=1", "", bearer).Code)
-	assert.Equal(t, http.StatusBadRequest, perform(handler, http.MethodGet, "/api/v1/invocations/"+service.item.ID, `{}`, bearer).Code)
-	assert.Equal(t, http.StatusNotFound, perform(handler, http.MethodGet, "/api/v1/invocations/"+service.item.ID+"/extra", "", bearer).Code)
-	response := perform(handler, http.MethodPost, "/api/v1/invocations", "", bearer)
+	assert.Equal(t, http.StatusBadRequest, perform(handler, http.MethodGet, "/api/v2/invocations", `{}`, bearer).Code)
+	assert.Equal(t, http.StatusBadRequest, perform(handler, http.MethodGet, "/api/v2/invocations/"+service.item.ID+"?x=1", "", bearer).Code)
+	assert.Equal(t, http.StatusBadRequest, perform(handler, http.MethodGet, "/api/v2/invocations/"+service.item.ID, `{}`, bearer).Code)
+	assert.Equal(t, http.StatusNotFound, perform(handler, http.MethodGet, "/api/v2/invocations/"+service.item.ID+"/extra", "", bearer).Code)
+	response := perform(handler, http.MethodPost, "/api/v2/invocations", "", bearer)
 	assert.Equal(t, http.StatusMethodNotAllowed, response.Code)
 	assert.Equal(t, http.MethodGet, response.Header().Get("Allow"))
 
@@ -108,9 +108,9 @@ func TestInvocationReadAPI(t *testing.T) {
 		{errors.New("foreign"), 503, "storage_unavailable"},
 	} {
 		service.err = test.err
-		target := "/api/v1/invocations/" + service.item.ID
+		target := "/api/v2/invocations/" + service.item.ID
 		if errors.Is(test.err, invocation.ErrInvalidCursor) || errors.Is(test.err, invocation.ErrStaleCursor) {
-			target = "/api/v1/invocations?cursor=opaque"
+			target = "/api/v2/invocations?cursor=opaque"
 		}
 		response = perform(handler, http.MethodGet, target, "", bearer)
 		assert.Equal(t, test.status, response.Code, test.err)

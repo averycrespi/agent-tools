@@ -285,7 +285,7 @@ test("proxy admission projects exact target, Origin, headers, and body once", as
     const body = '{"display_name":"observer"}';
     const response = await exchange(
       context.frontendPort,
-      "/api/v1/servers?limit=1",
+      "/api/v2/mcp/servers?limit=1",
       {
         method: "POST",
         headers: {
@@ -310,7 +310,7 @@ test("proxy admission projects exact target, Origin, headers, and body once", as
     const observed = context.observations[0];
     assert(observed);
     assert.equal(observed.method, "POST");
-    assert.equal(observed.url, "/api/v1/servers?limit=1");
+    assert.equal(observed.url, "/api/v2/mcp/servers?limit=1");
     assert.equal(observed.headers.host, `127.0.0.1:${context.gatewayPort}`);
     assert.equal(
       observed.headers.origin,
@@ -331,7 +331,7 @@ test("proxy admission projects exact target, Origin, headers, and body once", as
 test("proxy admission preserves absent Origin and rejects forbidden Origin forms", async () => {
   await withDevelopmentServer(async (context) => {
     assert.equal(
-      (await exchange(context.frontendPort, "/api/v1/system-status")).status,
+      (await exchange(context.frontendPort, "/api/v2/system-status")).status,
       204,
     );
     assert.equal(context.observations[0]?.headers.origin, undefined);
@@ -344,7 +344,7 @@ test("proxy admission preserves absent Origin and rejects forbidden Origin forms
       const before = context.observations.length;
       const response = await exchange(
         context.frontendPort,
-        "/api/v1/system-status",
+        "/api/v2/system-status",
         { headers: { Origin: origin } },
       );
       assert.equal(response.status, 403);
@@ -356,11 +356,11 @@ test("proxy admission preserves absent Origin and rejects forbidden Origin forms
 test("proxy admission rejects confusable paths and API upgrades without upstream contact", async () => {
   await withDevelopmentServer(async (context) => {
     for (const path of [
-      "/api/v1",
-      "/api/v10/status",
-      "/api/v1%2fstatus",
-      "/api/v1/%2e%2e/status",
-      "http://127.0.0.1/api/v1/status",
+      "/api/v2",
+      "/api/v20/status",
+      "/api/v2%2fstatus",
+      "/api/v2/%2e%2e/status",
+      "http://127.0.0.1/api/v2/status",
       "/mcp",
       "/oauth/callback",
       "/assets/app.js",
@@ -372,7 +372,7 @@ test("proxy admission rejects confusable paths and API upgrades without upstream
 
     const upgradeResponse = await rawUpgrade(
       context.frontendPort,
-      "/api/v1/events",
+      "/api/v2/events",
     );
     assert.match(upgradeResponse, /^HTTP\/1\.1 404 /);
     assert.equal(context.observations.length, 0);
@@ -386,7 +386,7 @@ test("proxy response preserves safe headers, bodies, cookies, and redirects", as
     "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict";
   await withDevelopmentServer(
     async (context) => {
-      const problem = await exchange(context.frontendPort, "/api/v1/problem");
+      const problem = await exchange(context.frontendPort, "/api/v2/problem");
       assert.equal(problem.status, 409);
       assert.deepEqual(problem.headers["set-cookie"], [cookie, clearing]);
       assert.equal(problem.headers.etag, '\"observer-etag\"');
@@ -399,13 +399,13 @@ test("proxy response preserves safe headers, bodies, cookies, and redirects", as
       assert.equal(problem.headers["access-control-allow-origin"], undefined);
       assert.equal(problem.body.toString(), '{"code":"observer_problem"}');
 
-      const redirect = await exchange(context.frontendPort, "/api/v1/redirect");
+      const redirect = await exchange(context.frontendPort, "/api/v2/redirect");
       assert.equal(redirect.status, 302);
       assert.equal(redirect.headers.location, "http://127.0.0.1:9/fixed");
       assert.equal(redirect.body.toString(), "redirect-body");
     },
     (incoming, response) => {
-      if (incoming.url === "/api/v1/redirect") {
+      if (incoming.url === "/api/v2/redirect") {
         response.writeHead(302, { Location: "http://127.0.0.1:9/fixed" });
         response.end("redirect-body");
         return;
@@ -443,7 +443,7 @@ test("proxy streaming forwards an SSE chunk before completion", async () => {
             host: "127.0.0.1",
             port: context.frontendPort,
             method: "POST",
-            path: "/api/v1/events",
+            path: "/api/v2/events",
             headers: { "Content-Length": "2" },
             agent: false,
           },
@@ -485,7 +485,7 @@ test("proxy cancellation closes the streaming upstream", async () => {
             host: "127.0.0.1",
             port: context.frontendPort,
             method: "POST",
-            path: "/api/v1/events",
+            path: "/api/v2/events",
             headers: { "Content-Length": "2" },
             agent: false,
           },
@@ -524,7 +524,7 @@ test("proxy never replays a mutation after an uncertain handoff", async () => {
     async (context) => {
       const response = await exchange(
         context.frontendPort,
-        "/api/v1/mutation",
+        "/api/v2/mutation",
         {
           method: "POST",
           headers: {
@@ -584,7 +584,7 @@ test("proxy and asset traffic leave canaries out of logs and temp state", async 
         "response-body-canary-t4",
         "one-time-canary-t4",
       ] as const;
-      const response = await exchange(context.frontendPort, "/api/v1/canary", {
+      const response = await exchange(context.frontendPort, "/api/v2/canary", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${canaries[0]}`,
@@ -636,7 +636,7 @@ test("proxy admission enforces the projected body bound before handoff", async (
     const maximum = Buffer.alloc(1_048_576, 0x61);
     assert.equal(
       (
-        await exchange(context.frontendPort, "/api/v1/observer", {
+        await exchange(context.frontendPort, "/api/v2/observer", {
           method: "POST",
           headers: { "Content-Length": String(maximum.length) },
           body: maximum,
@@ -650,7 +650,7 @@ test("proxy admission enforces the projected body bound before handoff", async (
     const over = Buffer.alloc(maximum.length + 1, 0x62);
     assert.equal(
       (
-        await exchange(context.frontendPort, "/api/v1/observer", {
+        await exchange(context.frontendPort, "/api/v2/observer", {
           method: "POST",
           headers: { "Content-Length": String(over.length) },
           body: over,

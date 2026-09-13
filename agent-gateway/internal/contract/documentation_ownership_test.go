@@ -46,7 +46,7 @@ func testDocumentationOwnershipManifestSchema(t *testing.T) {
 		addID(command.ID)
 		_, knownOwner := guidePaths[command.CanonicalOwner]
 		assert.True(t, knownOwner, command.ID)
-		assert.Equal(t, "mcp-gateway "+command.CommandPath+" --help", command.HelpInvocation, command.ID)
+		assert.Equal(t, "agent-gateway "+command.CommandPath+" --help", command.HelpInvocation, command.ID)
 		_, duplicate := commandPaths[command.CommandPath]
 		assert.False(t, duplicate, command.CommandPath)
 		commandPaths[command.CommandPath] = struct{}{}

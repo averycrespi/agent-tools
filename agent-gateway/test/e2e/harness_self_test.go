@@ -65,13 +65,13 @@ func TestGatewayHarnessWaitsForPostCommitReconciliationSettlement(t *testing.T) 
 				assert.Equal(t, http.MethodGet, request.Method)
 				writer.Header().Set("Content-Type", contract.MediaTypeJSON)
 				switch request.URL.Path {
-				case "/api/v1/servers/server/operations/operation":
+				case "/api/v2/mcp/servers/server/operations/operation":
 					state := terminal
 					if operationReads.Add(1) == 1 {
 						state = contract.OperationRunning
 					}
 					assert.NoError(t, json.NewEncoder(writer).Encode(contract.ServerOperation{State: state}))
-				case "/api/v1/servers/server":
+				case "/api/v2/mcp/servers/server":
 					assert.GreaterOrEqual(t, operationReads.Load(), int64(2))
 					switch serverReads.Add(1) {
 					case 1:
@@ -342,7 +342,7 @@ func TestGatewayHarnessPublishesDeterministicStaticAuthorityThroughProductionAPI
 			CredentialRevisions contract.CredentialRevisions `json:"credential_revisions"`
 		} `json:"server"`
 	}
-	response := harness.AdminJSON(http.MethodPost, "/api/v1/servers", `{"namespace":"authority-fixture","display_name":"Authority fixture","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{"TOKEN":"token"}}}`, map[string]string{"Idempotency-Key": "authority-fixture"}, &created)
+	response := harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers", `{"namespace":"authority-fixture","display_name":"Authority fixture","enabled":false,"transport":{"kind":"stdio","executable":"/bin/true","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{"TOKEN":"token"}}}`, map[string]string{"Idempotency-Key": "authority-fixture"}, &created)
 	require.Equal(t, http.StatusCreated, response.StatusCode)
 	etag := response.Header.Get("ETag")
 	require.NoError(t, response.Body.Close())
@@ -351,7 +351,7 @@ func TestGatewayHarnessPublishesDeterministicStaticAuthorityThroughProductionAPI
 
 	canary := "e2e-static-authority-canary"
 	var replacement contract.CredentialReplacementResult
-	response = harness.AdminJSON(http.MethodPost, "/api/v1/servers/"+created.Server.ID+"/credential-replacements", `{"kind":"static_credential","expected_revision":"0","values":{"token":"`+canary+`"}}`, map[string]string{"If-Match": etag}, &replacement)
+	response = harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers/"+created.Server.ID+"/credential-replacements", `{"kind":"static_credential","expected_revision":"0","values":{"token":"`+canary+`"}}`, map[string]string{"If-Match": etag}, &replacement)
 	require.Equal(t, http.StatusAccepted, response.StatusCode)
 	replacementBody, err := json.Marshal(replacement)
 	require.NoError(t, err)
@@ -363,7 +363,7 @@ func TestGatewayHarnessPublishesDeterministicStaticAuthorityThroughProductionAPI
 	var current struct {
 		CredentialRevisions contract.CredentialRevisions `json:"credential_revisions"`
 	}
-	response = harness.AdminJSON(http.MethodGet, "/api/v1/servers/"+created.Server.ID, "", nil, &current)
+	response = harness.AdminJSON(http.MethodGet, "/api/v2/mcp/servers/"+created.Server.ID, "", nil, &current)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	assert.Equal(t, "1", current.CredentialRevisions.StaticCredential)

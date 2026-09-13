@@ -59,7 +59,7 @@ func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptio
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	sink.MarkSubmitted()
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/principals/" + principalID + "/credential", Header: header, Body: []byte("{}")})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/principals/" + principalID + "/credential", Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -104,7 +104,7 @@ func runPrincipalCredentialRevoke(command *cobra.Command, options *onlineOptions
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true, ETag: etag})
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/principals/" + principalID + "/credential", Header: header, Body: []byte("{}")})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v2/principals/" + principalID + "/credential", Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {

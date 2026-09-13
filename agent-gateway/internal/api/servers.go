@@ -112,7 +112,7 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 	definition := serverdomain.Definition{Namespace: namespace, DisplayName: displayName, Enabled: enabled, Transport: transport}
 	canonical, _ := json.Marshal(contract.ServerCreate{Namespace: namespace, DisplayName: displayName, Enabled: enabled, Transport: transport})
 	result, err := handler.servers.Create(request.Context(), serverdomain.CreateRequest{Definition: definition, Idempotency: &serverdomain.IdempotencyRequest{
-		AuthorityID: authenticated.credential.ID, Method: request.Method, Route: "/api/v1/servers", Key: key, RequestHash: sha256.Sum256(canonical),
+		AuthorityID: authenticated.credential.ID, Method: request.Method, Route: serverCreateIdempotencyRoute, Key: key, RequestHash: sha256.Sum256(canonical),
 	}})
 	if err != nil {
 		writeServerError(writer, err)
@@ -125,7 +125,7 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 	}
 	mutation := contract.ServerMutation{Server: resource, Operation: operationResource(result.Operation)}
 	writer.Header().Set("ETag", contract.ServerETag(resource.ID, resource.DesiredRevision))
-	writer.Header().Set("Location", "/api/v1/servers/"+resource.ID)
+	writer.Header().Set("Location", "/api/v2/mcp/servers/"+resource.ID)
 	status := http.StatusCreated
 	if result.Replayed {
 		status = http.StatusOK
@@ -244,40 +244,12 @@ func (handler *Handler) listServers(writer http.ResponseWriter, request *http.Re
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	query, legacy, enabled, problem := parseInventoryQuery(request.URL.RawQuery)
+	query, values, _, problem := parseInventoryQuery(request.URL.RawQuery)
 	if problem != "" {
 		writeProblem(writer, problem)
 		return
 	}
-	if enabled {
-		handler.queryServers(writer, request, query, legacy)
-		return
-	}
-	limit, cursor, problem := parseServerQuery(legacy)
-	if problem != "" {
-		writeProblem(writer, problem)
-		return
-	}
-	page, err := handler.servers.ListServers(request.Context(), cursor, limit)
-	if err != nil {
-		writeServerError(writer, err)
-		return
-	}
-	items := make([]contract.Server, 0, len(page.Items))
-	for _, stored := range page.Items {
-		resource, resourceErr := handler.serverResource(request.Context(), stored)
-		if resourceErr != nil {
-			writeServerError(writer, resourceErr)
-			return
-		}
-		items = append(items, resource)
-	}
-	var next *string
-	if page.Next != nil {
-		value := encodeServerCursor(*page.Next)
-		next = &value
-	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.Server]{Items: items, NextCursor: next})
+	handler.queryServers(writer, request, query, values)
 }
 
 func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.Server) (contract.Server, error) {
@@ -423,14 +395,14 @@ func idempotencyKey(writer http.ResponseWriter, request *http.Request) (string, 
 
 func parseServerQuery(query url.Values) (int, *serverdomain.SnapshotCursor, contract.ProblemCode) {
 	for key, values := range query {
-		if (key != "cursor" && key != "limit") || len(values) != 1 {
+		if (key != "cursor" && key != "limit") || len(values) != 1 || values[0] == "" {
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 	}
 	limit := contract.S2ListPageDefault
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
-		if err != nil || value < 1 || value > limitValue("s2_list_page") {
+		if err != nil || value < 1 || value > limitValue("s2_list_page") || strconv.Itoa(value) != text {
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 		limit = value

@@ -139,7 +139,7 @@ export async function exchange(
 ): Promise<SessionBootstrap> {
   const result = await sessionRequest(
     page,
-    "/api/v1/admin-sessions",
+    "/api/v2/admin-sessions",
     "POST",
     undefined,
     bearer,
@@ -154,7 +154,7 @@ export async function bootstrap(
 ): Promise<{ status: number; session?: SessionBootstrap }> {
   const result = await sessionRequest(
     page,
-    "/api/v1/admin-sessions/current",
+    "/api/v2/admin-sessions/current",
     "POST",
     undefined,
     undefined,
@@ -172,7 +172,7 @@ export async function expiryResponse(
   const response = page.waitForResponse(
     (candidate) =>
       candidate.request().method() === "POST" &&
-      candidate.url().endsWith("/api/v1/admin-sessions/current"),
+      candidate.url().endsWith("/api/v2/admin-sessions/current"),
   );
   await operation();
   return response;
@@ -193,7 +193,7 @@ export async function connectAndCancelStream(
 ): Promise<void> {
   const outcome = await page.evaluate(async (csrfToken) => {
     const controller = new AbortController();
-    const response = await fetch("/api/v1/events", {
+    const response = await fetch("/api/v2/events", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

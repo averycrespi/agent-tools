@@ -705,7 +705,7 @@ func createOAuthCompositionServer(t *testing.T, repository *servers.Repository, 
 
 func compositionIdempotency(key string) *servers.IdempotencyRequest {
 	digest := sha256.Sum256([]byte(key))
-	return &servers.IdempotencyRequest{AuthorityID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: "POST", Route: "/api/v1/servers", Key: key, RequestHash: digest}
+	return &servers.IdempotencyRequest{AuthorityID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: "POST", Route: "/api/v2/mcp/servers", Key: key, RequestHash: digest}
 }
 
 func publishStaticCompositionCredential(t *testing.T, built *Composition, server servers.Server, slots []string, values map[string]string) {

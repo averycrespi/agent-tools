@@ -98,7 +98,7 @@ export function ServerDestructiveActions({
   const review = () => {
     setTypedNamespace("");
     controller.begin({
-      route: `/api/v1/servers/${server.id}`,
+      route: `/api/v2/mcp/servers/${server.id}`,
       method: "DELETE",
       body: "{}",
       precondition: etag,

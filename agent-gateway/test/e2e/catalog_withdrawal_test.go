@@ -38,7 +38,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	initialAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"initial-agent"`), "")
 	initialAgentCursor := discoveryCursor(t, initialAgent)
 	assertDiscoveryNamePage(t, initialAgent, visibleNames[:100], initialAgentCursor)
-	initialControl := controlCatalog(t, harness, "/api/v1/catalog?limit=1")
+	initialControl := controlCatalog(t, harness, "/api/v2/mcp/catalog?limit=1")
 	require.Len(t, initialControl.Items, 1)
 	require.NotNil(t, initialControl.NextCursor)
 	initialControlCursor := *initialControl.NextCursor
@@ -67,13 +67,13 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	assert.Nil(t, blocked.Catalog.ActiveRevision)
 	assert.Zero(t, blocked.Catalog.ActiveToolCount)
 
-	durableOnlyControl := controlCatalog(t, harness, "/api/v1/catalog?limit=100")
+	durableOnlyControl := controlCatalog(t, harness, "/api/v2/mcp/catalog?limit=50")
 	assert.Equal(t, contract.AggregateCatalogEmpty, durableOnlyControl.Catalog.ActiveState)
 	assert.Empty(t, durableOnlyControl.Items)
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	durableOnlyAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"durable-only"`), "")
 	assertDiscoveryNamePage(t, durableOnlyAgent, syntheticNames, "")
-	staleInitialControl := harness.adminSnapshot(http.MethodGet, "/api/v1/catalog?cursor="+url.QueryEscape(initialControlCursor), nil)
+	staleInitialControl := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/catalog?cursor="+url.QueryEscape(initialControlCursor), nil)
 	assertProblem(t, staleInitialControl, http.StatusConflict, "stale_cursor", "The cursor snapshot is no longer available.", false)
 	staleInitialAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"restart-cursor"`), initialAgentCursor)
 	assertRPCError(t, staleInitialAgent, `{"jsonrpc":"2.0","id":"restart-cursor","error":{"code":-32001,"message":"The tools/list cursor is stale.","data":{"code":"stale_cursor"}}}`)
@@ -85,7 +85,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	require.NotNil(t, reconstructed.Runtime.RuntimeID)
 	assert.NotEqual(t, initialServer.Runtime.RuntimeID, reconstructed.Runtime.RuntimeID)
 	assert.Equal(t, int64(101), reconstructed.Catalog.ActiveToolCount)
-	postRestartControl := controlCatalog(t, harness, "/api/v1/catalog?limit=1")
+	postRestartControl := controlCatalog(t, harness, "/api/v2/mcp/catalog?limit=1")
 	require.NotNil(t, postRestartControl.NextCursor)
 	postRestartAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"post-restart"`), "")
 	postRestartAgentCursor := discoveryCursor(t, postRestartAgent)
@@ -106,14 +106,14 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	assert.Equal(t, reconstructed.Runtime.RuntimeID, stale.Runtime.RuntimeID)
 	assert.Equal(t, int64(101), stale.Catalog.ActiveToolCount)
 	assert.Equal(t, int64(101), stale.Catalog.DurableToolCount)
-	staleControl := controlCatalog(t, harness, "/api/v1/catalog?limit=1")
+	staleControl := controlCatalog(t, harness, "/api/v2/mcp/catalog?limit=1")
 	assert.Equal(t, contract.AggregateCatalogDegraded, staleControl.Catalog.ActiveState)
 	assert.Positive(t, staleControl.Catalog.IssueCount)
 	require.Len(t, staleControl.Items, 1)
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	staleAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"stale-agent"`), "")
 	assertDiscoveryNamePage(t, staleAgent, syntheticNames, "")
-	stalePostRestartControl := harness.adminSnapshot(http.MethodGet, "/api/v1/catalog?cursor="+url.QueryEscape(*postRestartControl.NextCursor), nil)
+	stalePostRestartControl := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/catalog?cursor="+url.QueryEscape(*postRestartControl.NextCursor), nil)
 	assertProblem(t, stalePostRestartControl, http.StatusConflict, "stale_cursor", "The cursor snapshot is no longer available.", false)
 	stalePostRestartAgent := harness.ModernList(credential.Bearer, json.RawMessage(`"stale-agent-cursor"`), postRestartAgentCursor)
 	assertRPCError(t, stalePostRestartAgent, `{"jsonrpc":"2.0","id":"stale-agent-cursor","error":{"code":-32001,"message":"The tools/list cursor is stale.","data":{"code":"stale_cursor"}}}`)
@@ -127,13 +127,13 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	})
 	disabledServer := currentServer(t, harness, catalog.ServerID)
 	assert.Equal(t, contract.DesiredServerDisabled, disabledServer.DesiredState)
-	assert.Empty(t, controlCatalog(t, harness, "/api/v1/catalog?limit=100").Items)
+	assert.Empty(t, controlCatalog(t, harness, "/api/v2/mcp/catalog?limit=50").Items)
 	assertDiscoveryNamePage(t, harness.ModernList(credential.Bearer, json.RawMessage(`"disabled-agent"`), ""), syntheticNames, "")
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	assertHTTPMethods(t, catalog.Fixture, map[string]int{"server/discover": 2, "tools/list": 5})
 
 	var deletion replacementMutation
-	deleteResponse := harness.AdminJSON(http.MethodDelete, "/api/v1/servers/"+catalog.ServerID, `{}`, map[string]string{"If-Match": disabledETag}, &deletion)
+	deleteResponse := harness.AdminJSON(http.MethodDelete, "/api/v2/mcp/servers/"+catalog.ServerID, `{}`, map[string]string{"If-Match": disabledETag}, &deletion)
 	require.Equal(t, http.StatusAccepted, deleteResponse.StatusCode)
 	require.NoError(t, deleteResponse.Body.Close())
 	require.NotNil(t, deletion.Operation)
@@ -144,7 +144,7 @@ func TestGatewayBinaryHidesDurableStaleAndWithdrawnCatalogs(t *testing.T) {
 	deleted := currentServer(t, harness, catalog.ServerID)
 	assert.Equal(t, contract.DesiredServerDeleted, deleted.DesiredState)
 	assert.Equal(t, "3", deleted.DesiredRevision)
-	assert.Empty(t, controlCatalog(t, harness, "/api/v1/catalog?limit=100").Items)
+	assert.Empty(t, controlCatalog(t, harness, "/api/v2/mcp/catalog?limit=50").Items)
 	assertDiscoveryNamePage(t, harness.ModernList(credential.Bearer, json.RawMessage(`"deleted-agent"`), ""), syntheticNames, "")
 	assertDescriptorReadable(t, harness, catalog.ServerID, descriptor)
 	assertHTTPMethods(t, catalog.Fixture, map[string]int{"server/discover": 2, "tools/list": 5})
@@ -214,7 +214,7 @@ func assertCallRejected(t *testing.T, response responseSnapshot, expectedID json
 
 func currentServer(t *testing.T, harness *gatewayHarness, serverID string) destructiveServerView {
 	t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID, nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID, nil)
 	var server destructiveServerView
 	decodeSnapshot(t, response, http.StatusOK, &server)
 	return server
@@ -230,7 +230,7 @@ func controlCatalog(t *testing.T, harness *gatewayHarness, path string) contract
 
 func assertDescriptorReadable(t *testing.T, harness *gatewayHarness, serverID string, expected contract.CatalogToolDescriptor) {
 	t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID+"/descriptors/"+expected.ID, nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID+"/descriptors/"+expected.ID, nil)
 	var descriptor contract.ToolDescriptor
 	decodeSnapshot(t, response, http.StatusOK, &descriptor)
 	assert.Equal(t, expected.ID, descriptor.ID)

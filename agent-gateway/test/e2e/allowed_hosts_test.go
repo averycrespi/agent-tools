@@ -61,7 +61,7 @@ func TestAllowedHostnameAdministrationLifecycle(t *testing.T) {
 	}
 	status := func(host, bearer string, want int) {
 		t.Helper()
-		response := request(host, bearer, "/api/v1/system-status", nil)
+		response := request(host, bearer, "/api/v2/system-status", nil)
 		assert.Equal(t, want, response.StatusCode, "%s: %s", host, response.Body)
 		assert.Equal(t, "no-store", response.Header.Get("Cache-Control"))
 	}
@@ -71,8 +71,8 @@ func TestAllowedHostnameAdministrationLifecycle(t *testing.T) {
 	status("host.lima.internal", agent.Bearer.authorizationHeader(), 403)
 	status("unlisted.internal", "", 421)
 	status("host.lima.internal.evil", "Bearer "+sandboxBearer, 421)
-	assert.Equal(t, 403, request("host.lima.internal", "Bearer "+sandboxBearer, "/api/v1/system-status", http.Header{"Origin": {"http://host.lima.internal:" + forwardedPort}}).StatusCode)
-	assert.Equal(t, 400, request("host.lima.internal", "Bearer "+sandboxBearer, "/api/v1/system-status", http.Header{"X-Forwarded-Host": {"host.lima.internal"}}).StatusCode)
+	assert.Equal(t, 403, request("host.lima.internal", "Bearer "+sandboxBearer, "/api/v2/system-status", http.Header{"Origin": {"http://host.lima.internal:" + forwardedPort}}).StatusCode)
+	assert.Equal(t, 400, request("host.lima.internal", "Bearer "+sandboxBearer, "/api/v2/system-status", http.Header{"X-Forwarded-Host": {"host.lima.internal"}}).StatusCode)
 	_, port, err := net.SplitHostPort(harness.authority)
 	require.NoError(t, err)
 	cli := runCLIAt(t, harness, sandboxPath, "http://localhost:"+port, "status", "--output", "json")

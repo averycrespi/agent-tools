@@ -42,6 +42,7 @@ type DurableStatus struct {
 }
 
 type DescriptorCursor struct {
+	Epoch           string                           `json:"epoch,omitempty"`
 	Query           string                           `json:"query,omitempty"`
 	Position        int                              `json:"position,omitempty"`
 	ServerID        string                           `json:"server_id"`

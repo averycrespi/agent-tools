@@ -58,7 +58,7 @@ export async function runServerManagementCanary(
     },
   };
   server.runtime.dispatch = { in_use: 4, limit: 4, saturated: true };
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) =>
+  await page.route(`${baseURL}/api/v2/mcp/servers/${serverID}`, async (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -66,9 +66,9 @@ export async function runServerManagementCanary(
       body: JSON.stringify(server),
     }),
   );
-  for (const resource of ["operations", "auth-flows", "descriptors"]) {
+  for (const resource of ["operations", "oauth-flows", "descriptors"]) {
     await page.route(
-      `${baseURL}/api/v1/servers/${serverID}/${resource}?*`,
+      `${baseURL}/api/v2/mcp/servers/${serverID}/${resource}?*`,
       async (route) =>
         route.fulfill({
           status: 200,
@@ -81,7 +81,7 @@ export async function runServerManagementCanary(
         }),
     );
   }
-  await page.route(`${baseURL}/api/v1/catalog?*`, async (route) =>
+  await page.route(`${baseURL}/api/v2/mcp/catalog?*`, async (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -257,7 +257,7 @@ export async function runServerCreateUpdate(
     started_at: null,
     finished_at: null,
   });
-  await page.route(`${baseURL}/api/v1/servers`, async (route) => {
+  await page.route(`${baseURL}/api/v2/mcp/servers`, async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
       return;
@@ -296,96 +296,99 @@ export async function runServerCreateUpdate(
       body: JSON.stringify(mutationBody()),
     });
   });
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: {
-          ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
-        },
-        body: JSON.stringify(currentServer),
-      });
-      return;
-    }
-    if (route.request().method() !== "PATCH") {
-      await route.fallback();
-      return;
-    }
-    updates += 1;
-    etags.push((await route.request().allHeaders())["if-match"] ?? "");
-    const patch = JSON.parse(route.request().postData() ?? "null") as Record<
-      string,
-      unknown
-    >;
-    if (updates === 1) {
-      currentServer = {
-        ...currentServer,
-        display_name: "Concurrent display",
-        desired_revision: "2",
-      };
-      await route.fulfill({
-        status: 428,
-        contentType: "application/problem+json",
-        body: JSON.stringify({
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: {
+            ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
+          },
+          body: JSON.stringify(currentServer),
+        });
+        return;
+      }
+      if (route.request().method() !== "PATCH") {
+        await route.fallback();
+        return;
+      }
+      updates += 1;
+      etags.push((await route.request().allHeaders())["if-match"] ?? "");
+      const patch = JSON.parse(route.request().postData() ?? "null") as Record<
+        string,
+        unknown
+      >;
+      if (updates === 1) {
+        currentServer = {
+          ...currentServer,
+          display_name: "Concurrent display",
+          desired_revision: "2",
+        };
+        await route.fulfill({
           status: 428,
-          code: "precondition_required",
-          title: "Precondition required",
-        }),
-      });
-      return;
-    }
-    if (updates === 2) {
-      if (Object.keys(patch).join(",") !== "display_name")
-        fail("display-only update included behavioral fields");
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 428,
+            code: "precondition_required",
+            title: "Precondition required",
+          }),
+        });
+        return;
+      }
+      if (updates === 2) {
+        if (Object.keys(patch).join(",") !== "display_name")
+          fail("display-only update included behavioral fields");
+        currentServer = {
+          ...currentServer,
+          display_name: patch.display_name as string,
+          desired_revision: "3",
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { ETag: `"server-${serverID}-3"` },
+          body: JSON.stringify(mutationBody()),
+        });
+        return;
+      }
+      if (updates === 3) {
+        currentServer = { ...currentServer, desired_revision: "4" };
+        await route.fulfill({
+          status: 412,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 412,
+            code: "stale_revision",
+            title: "Stale server revision",
+          }),
+        });
+        return;
+      }
+      if (
+        patch.enabled !== true ||
+        typeof patch.transport !== "object" ||
+        patch.transport === null
+      )
+        fail("behavioral update omitted desired transport state");
       currentServer = {
         ...currentServer,
         display_name: patch.display_name as string,
-        desired_revision: "3",
+        desired_state: "enabled",
+        transport: patch.transport as typeof currentServer.transport,
+        desired_revision: "5",
       };
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        headers: { ETag: `"server-${serverID}-3"` },
-        body: JSON.stringify(mutationBody()),
+        headers: { ETag: `"server-${serverID}-5"` },
+        body: JSON.stringify(mutationBody(operation())),
       });
-      return;
-    }
-    if (updates === 3) {
-      currentServer = { ...currentServer, desired_revision: "4" };
-      await route.fulfill({
-        status: 412,
-        contentType: "application/problem+json",
-        body: JSON.stringify({
-          status: 412,
-          code: "stale_revision",
-          title: "Stale server revision",
-        }),
-      });
-      return;
-    }
-    if (
-      patch.enabled !== true ||
-      typeof patch.transport !== "object" ||
-      patch.transport === null
-    )
-      fail("behavioral update omitted desired transport state");
-    currentServer = {
-      ...currentServer,
-      display_name: patch.display_name as string,
-      desired_state: "enabled",
-      transport: patch.transport as typeof currentServer.transport,
-      desired_revision: "5",
-    };
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: { ETag: `"server-${serverID}-5"` },
-      body: JSON.stringify(mutationBody(operation())),
-    });
-  });
+    },
+  );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations/${operation().id}`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations/${operation().id}`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1002,31 +1005,37 @@ async function assertOAuthScopeEditing(
     },
   };
   const submitted: Record<string, unknown>[] = [];
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
-    if (route.request().method() === "GET") {
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { ETag: `"server-${serverID}-7"` },
+          body: JSON.stringify(server),
+        });
+        return;
+      }
+      const body = route.request().postDataJSON() as {
+        transport: { authentication: Record<string, unknown> };
+      };
+      submitted.push(body.transport.authentication);
       await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: { ETag: `"server-${serverID}-7"` },
-        body: JSON.stringify(server),
-      });
-      return;
-    }
-    const body = route.request().postDataJSON() as {
-      transport: { authentication: Record<string, unknown> };
-    };
-    submitted.push(body.transport.authentication);
-    await route.fulfill({
-      status: 400,
-      contentType: "application/problem+json",
-      body: JSON.stringify({
         status: 400,
-        code: "invalid_server_configuration",
-        title: "Check scope configuration",
-        context: { field: "transport.authentication.scopes", rule: "maximum" },
-      }),
-    });
-  });
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 400,
+          code: "invalid_server_configuration",
+          title: "Check scope configuration",
+          context: {
+            field: "transport.authentication.scopes",
+            rule: "maximum",
+          },
+        }),
+      });
+    },
+  );
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByText("Hide advanced OAuth settings", { exact: true })
@@ -1144,7 +1153,7 @@ export async function runServerOperations(
   const startBodies: string[] = [];
 
   await page.route(
-    `${baseURL}/api/v1/events`,
+    `${baseURL}/api/v2/events`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1153,22 +1162,25 @@ export async function runServerOperations(
       }),
     { times: 1 },
   );
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.fallback();
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: {
-        ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
-      },
-      body: JSON.stringify(currentServer),
-    });
-  });
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: {
+          ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
+        },
+        body: JSON.stringify(currentServer),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows?*`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1177,7 +1189,7 @@ export async function runServerOperations(
       }),
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations?*`,
     async (route) => {
       if (route.request().method() !== "GET") {
         await route.fallback();
@@ -1223,7 +1235,7 @@ export async function runServerOperations(
     },
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations/*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations/*`,
     async (route) => {
       operationReads += 1;
       const id = route.request().url().slice(-26);
@@ -1240,7 +1252,7 @@ export async function runServerOperations(
     },
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations`,
     async (route) => {
       if (route.request().method() !== "POST") {
         await route.fallback();
@@ -1552,67 +1564,72 @@ export async function runServerDisconnectDelete(
     finished_at: null,
   });
 
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
-    const request = route.request();
-    if (request.method() === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: {
-          ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
-        },
-        body: JSON.stringify(currentServer),
-      });
-      return;
-    }
-    if (request.method() !== "DELETE") return route.fallback();
-    deletes += 1;
-    const headers = await request.allHeaders();
-    if ((request.postData() ?? "") !== "{}")
-      fail("server deletion body changed");
-    if ((headers["idempotency-key"] ?? "") !== "")
-      fail("server deletion gained idempotency authority");
-    const expected = `"server-${serverID}-${currentServer.desired_revision}"`;
-    if (headers["if-match"] !== expected)
-      fail(`server deletion used stale ETag ${headers["if-match"] ?? "none"}`);
-    if (deletes === 1) {
-      currentServer = { ...currentServer, desired_revision: "9" };
-      await route.fulfill({
-        status: 412,
-        contentType: "application/problem+json",
-        body: JSON.stringify({
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      const request = route.request();
+      if (request.method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: {
+            ETag: `"server-${serverID}-${currentServer.desired_revision}"`,
+          },
+          body: JSON.stringify(currentServer),
+        });
+        return;
+      }
+      if (request.method() !== "DELETE") return route.fallback();
+      deletes += 1;
+      const headers = await request.allHeaders();
+      if ((request.postData() ?? "") !== "{}")
+        fail("server deletion body changed");
+      if ((headers["idempotency-key"] ?? "") !== "")
+        fail("server deletion gained idempotency authority");
+      const expected = `"server-${serverID}-${currentServer.desired_revision}"`;
+      if (headers["if-match"] !== expected)
+        fail(
+          `server deletion used stale ETag ${headers["if-match"] ?? "none"}`,
+        );
+      if (deletes === 1) {
+        currentServer = { ...currentServer, desired_revision: "9" };
+        await route.fulfill({
           status: 412,
-          code: "stale_revision",
-          title: "Stale server revision",
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 412,
+            code: "stale_revision",
+            title: "Stale server revision",
+          }),
+        });
+        return;
+      }
+      currentServer = {
+        ...serverReadFixture(serverID, {
+          name: "Destructive workflow server",
+          desired: "deleted",
+          runtime: "deleted",
+          credential: "reauthentication_required",
+          durable: "retired",
+          active: "absent",
+        }),
+        desired_revision: "10",
+        credential_state: "cleanup_pending",
+        deleted_at: "2026-08-28T16:05:00Z",
+      };
+      await route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        headers: { ETag: `"server-${serverID}-10"` },
+        body: JSON.stringify({
+          server: currentServer,
+          operation: operation(deleteID, "delete"),
         }),
       });
-      return;
-    }
-    currentServer = {
-      ...serverReadFixture(serverID, {
-        name: "Destructive workflow server",
-        desired: "deleted",
-        runtime: "deleted",
-        credential: "reauthentication_required",
-        durable: "retired",
-        active: "absent",
-      }),
-      desired_revision: "10",
-      credential_state: "cleanup_pending",
-      deleted_at: "2026-08-28T16:05:00Z",
-    };
-    await route.fulfill({
-      status: 202,
-      contentType: "application/json",
-      headers: { ETag: `"server-${serverID}-10"` },
-      body: JSON.stringify({
-        server: currentServer,
-        operation: operation(deleteID, "delete"),
-      }),
-    });
-  });
+    },
+  );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows?*`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1621,7 +1638,7 @@ export async function runServerDisconnectDelete(
       }),
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations?*`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1630,7 +1647,7 @@ export async function runServerDisconnectDelete(
       }),
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations`,
     async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
       disconnects += 1;
@@ -1681,7 +1698,7 @@ export async function runServerDisconnectDelete(
     [deleteID, "delete"],
   ] as const) {
     await page.route(
-      `${baseURL}/api/v1/servers/${serverID}/operations/${id}`,
+      `${baseURL}/api/v2/mcp/servers/${serverID}/operations/${id}`,
       async (route) =>
         route.fulfill({
           status: 200,
@@ -1872,7 +1889,7 @@ export async function runAuthFlows(
   const flow = (id: string, state: string, reason: string | null = null) => ({
     id,
     server_id: serverID,
-    flow_state: state,
+    state: state,
     target_desired_revision: "7",
     registration_revision: "3",
     created_at: "2026-08-28T15:00:00Z",
@@ -1903,7 +1920,7 @@ export async function runAuthFlows(
     }),
   );
   await page.route(
-    `${baseURL}/api/v1/events`,
+    `${baseURL}/api/v2/events`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1912,17 +1929,20 @@ export async function runAuthFlows(
       }),
     { times: 1 },
   );
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: { ETag: `"server-${serverID}-7"` },
-      body: JSON.stringify(server),
-    });
-  });
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"server-${serverID}-7"` },
+        body: JSON.stringify(server),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations?*`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1931,7 +1951,7 @@ export async function runAuthFlows(
       }),
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows?*`,
     async (route) => {
       if (route.request().method() !== "GET") return route.fallback();
       listReads += 1;
@@ -1953,7 +1973,7 @@ export async function runAuthFlows(
     },
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows/${activeID}`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows/${activeID}`,
     async (route) => {
       if (route.request().method() === "DELETE") {
         cancels += 1;
@@ -1986,7 +2006,7 @@ export async function runAuthFlows(
     },
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows/${exchangingID}`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows/${exchangingID}`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -1995,7 +2015,7 @@ export async function runAuthFlows(
       }),
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows/${terminalID}`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows/${terminalID}`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -2004,7 +2024,7 @@ export async function runAuthFlows(
       }),
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows`,
     async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
       starts += 1;
@@ -2339,21 +2359,24 @@ export async function runServerCredentials(
     started_at: null,
     finished_at: null,
   });
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.fallback();
-      return;
-    }
-    serverReads += 1;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: { ETag: `"server-${serverID}-1"` },
-      body: JSON.stringify(currentServer),
-    });
-  });
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/auth-flows?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      serverReads += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { ETag: `"server-${serverID}-1"` },
+        body: JSON.stringify(currentServer),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}/oauth-flows?*`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -2362,7 +2385,7 @@ export async function runServerCredentials(
       }),
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/credential-replacements`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/credential-replacements`,
     async (route) => {
       replacements += 1;
       const headers = await route.request().allHeaders();
@@ -2449,7 +2472,7 @@ export async function runServerCredentials(
     },
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations/${operationID}`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations/${operationID}`,
     async (route) =>
       route.fulfill({
         status: 200,
@@ -2767,16 +2790,16 @@ export async function runServerCatalogReads(
     active: "absent",
   });
 
-  await page.route("**/api/v1/servers**", async (route) => {
+  await page.route("**/api/v2/mcp/servers**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const headers = await request.allHeaders();
     if (request.method() !== "GET" || headers["x-csrf-token"] === undefined)
       fail("server read view issued a non-read or unauthenticated request");
     const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length === 4) {
+    if (parts.length === 5) {
       serverReads += 1;
-      if (url.search !== "" || parts[3] !== serverReadIDs.active)
+      if (url.search !== "" || parts[4] !== serverReadIDs.active)
         fail("server item request changed shape");
       await route.fulfill({
         status: 200,
@@ -2788,10 +2811,10 @@ export async function runServerCatalogReads(
       });
       return;
     }
-    if (parts.length >= 5 && parts[4] === "descriptors") {
+    if (parts.length >= 6 && parts[5] === "descriptors") {
       descriptorReads += 1;
-      if (parts.length === 6) {
-        if (url.search !== "" || parts[5] !== serverReadIDs.retiredTool)
+      if (parts.length === 7) {
+        if (url.search !== "" || parts[6] !== serverReadIDs.retiredTool)
           fail("descriptor item request changed shape");
         await route.fulfill({
           status: 200,
@@ -2809,7 +2832,7 @@ export async function runServerCatalogReads(
       }
       const query = url.searchParams;
       if (
-        parts.length !== 5 ||
+        parts.length !== 6 ||
         query.get("limit") !== "50" ||
         query.get("sort") !== "last-seen" ||
         [...query.keys()].some(
@@ -2879,7 +2902,7 @@ export async function runServerCatalogReads(
     serverReads += 1;
     const query = url.searchParams;
     if (
-      parts.length !== 3 ||
+      parts.length !== 4 ||
       query.get("limit") !== "50" ||
       [...query.keys()].some(
         (key) =>
@@ -2953,7 +2976,7 @@ export async function runServerCatalogReads(
     });
   });
 
-  await page.route("**/api/v1/catalog**", async (route) => {
+  await page.route("**/api/v2/mcp/catalog**", async (route) => {
     catalogReads += 1;
     const request = route.request();
     const query = new URL(request.url()).searchParams;

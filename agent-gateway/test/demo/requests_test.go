@@ -31,7 +31,8 @@ func verifyDemoRequestApprovals(t *testing.T, c *client, root string) {
 	}
 	seen := map[string]bool{}
 	for _, item := range rows(c.get("grant-requests"), "items") {
-		row, _ := item.(map[string]any)
+		entry, _ := item.(map[string]any)
+		row, _ := value(entry, "request").(map[string]any)
 		label := principals[text(row, "principal_id")]
 		require.Contains(t, expected, label)
 		require.False(t, seen[label])
@@ -42,7 +43,7 @@ func verifyDemoRequestApprovals(t *testing.T, c *client, root string) {
 		bearer, err := readBearer(filepath.Join(root, files[label]))
 		require.NoError(t, err)
 		require.Equal(t, "call_rejected", text(c.call(bearer, "demo_workshop.add", object{"a": 1, "b": 2}), "error", "data", "code"), label)
-		path := "/api/v1/grant-requests/" + text(row, "id")
+		path := "/api/v2/grant-requests/" + text(row, "id")
 		_, headers := c.request("GET", path, nil, nil, 200, "")
 		approved, _ := c.request("POST", path+"/approve", object{"description": label, "approved_policy": value(row, "requested_policy")}, http.Header{"If-Match": {headers.Get("Etag")}}, 200, "")
 		require.NoError(t, c.err, label)

@@ -23,7 +23,7 @@ func newGrantHandler(t *testing.T, service *fakePrincipalService, target authori
 	t.Helper()
 	handler := New(Options{
 		Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{},
-		Principals: service, GrantTarget: target, Invalidate: func(event contract.Invalidation) {
+		Principals: service, AuthorizationCollections: service, GrantTarget: target, Invalidate: func(event contract.Invalidation) {
 			if invalidations != nil {
 				*invalidations = append(*invalidations, event)
 			}
@@ -41,7 +41,7 @@ func TestGrantCreateListGetDeleteAndInvalidation(t *testing.T) {
 	var invalidations []contract.Invalidation
 	handler := newGrantHandler(t, service, allowGrantTarget, &invalidations)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	created := perform(handler, http.MethodPost, "/api/v1/grants", `{"description":"Test grant","principal_id":"`+testID+`","effect":"deny","server_id":"`+testServerID+`","upstream_name":"danger","constraint":{"equals":{"/count":1.0}},"expires_at":"2027-08-25T00:00:00Z"}`, headers)
+	created := perform(handler, http.MethodPost, "/api/v2/grants", `{"description":"Test grant","principal_id":"`+testID+`","effect":"deny","server_id":"`+testServerID+`","upstream_name":"danger","constraint":{"equals":{"/count":1.0}},"expires_at":"2027-08-25T00:00:00Z"}`, headers)
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
 	assert.Equal(t, contract.GrantETag(service.grants[0].ID, "1"), created.Header().Get("ETag"))
 	assert.Empty(t, created.Header().Get("Location"))
@@ -52,29 +52,29 @@ func TestGrantCreateListGetDeleteAndInvalidation(t *testing.T) {
 
 	second := contract.Grant{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", PrincipalID: testID, Effect: contract.GrantAllow, ServerID: testServerID, State: contract.GrantExpired, CreatedAt: "2026-08-25T00:00:00Z"}
 	service.grants = append(service.grants, second)
-	listed := perform(handler, http.MethodGet, "/api/v1/grants?limit=1&principal_id="+testID+"&server_id="+testServerID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	listed := perform(handler, http.MethodGet, "/api/v2/grants?limit=1&principal_id="+testID+"&server_id="+testServerID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	assert.Contains(t, listed.Body.String(), `"next_cursor":"`)
 	assert.Equal(t, authorization.GrantFilter{PrincipalID: testID, ServerID: testServerID}, service.grantFilter)
 	var page contract.Collection[contract.Grant]
 	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &page))
 	require.NotNil(t, page.NextCursor)
-	continued := perform(handler, http.MethodGet, "/api/v1/grants?limit=2&principal_id="+testID+"&server_id="+testServerID+"&cursor="+*page.NextCursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	continued := perform(handler, http.MethodGet, "/api/v2/grants?limit=2&principal_id="+testID+"&server_id="+testServerID+"&cursor="+*page.NextCursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, continued.Code, continued.Body.String())
 	require.NotNil(t, service.grantCursor)
 	assert.Equal(t, authorization.SnapshotCursor{Collection: "grants", PrincipalID: testID, ServerID: testServerID, Upper: 2, After: 1, AfterID: service.grants[0].ID}, *service.grantCursor)
 
-	got := perform(handler, http.MethodGet, "/api/v1/grants/"+service.grants[0].ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	got := perform(handler, http.MethodGet, "/api/v2/grants/"+service.grants[0].ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 	assert.Equal(t, contract.GrantETag(service.grants[0].ID, "1"), got.Header().Get("ETag"))
-	updated := perform(handler, http.MethodPatch, "/api/v1/grants/"+service.grants[0].ID, `{"description":"Updated access"}`, map[string]string{
+	updated := perform(handler, http.MethodPatch, "/api/v2/grants/"+service.grants[0].ID, `{"description":"Updated access"}`, map[string]string{
 		"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
 		"If-Match": contract.GrantETag(service.grants[0].ID, "1"),
 	})
 	require.Equal(t, http.StatusOK, updated.Code, updated.Body.String())
 	assert.Contains(t, updated.Body.String(), `"description":"Updated access"`)
 	assert.Equal(t, contract.GrantETag(service.grants[0].ID, "2"), updated.Header().Get("ETag"))
-	deleted := perform(handler, http.MethodDelete, "/api/v1/grants/"+second.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	deleted := perform(handler, http.MethodDelete, "/api/v2/grants/"+second.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusNoContent, deleted.Code, deleted.Body.String())
 	assert.Empty(t, deleted.Body.String())
 	assert.Equal(t, []contract.Invalidation{
@@ -105,7 +105,7 @@ func TestGrantPatchRequiresExactPreconditionAndClosedDescriptionBody(t *testing.
 			if test.etag != "" {
 				headers["If-Match"] = test.etag
 			}
-			response := perform(handler, http.MethodPatch, "/api/v1/grants/"+testID, test.body, headers)
+			response := perform(handler, http.MethodPatch, "/api/v2/grants/"+testID, test.body, headers)
 			assert.Equal(t, test.status, response.Code, response.Body.String())
 		})
 	}
@@ -113,7 +113,7 @@ func TestGrantPatchRequiresExactPreconditionAndClosedDescriptionBody(t *testing.
 	service.err = authorization.ErrStaleRevision
 	stale := maps.Clone(base)
 	stale["If-Match"] = contract.GrantETag(testID, "1")
-	response := perform(handler, http.MethodPatch, "/api/v1/grants/"+testID, `{"description":"changed"}`, stale)
+	response := perform(handler, http.MethodPatch, "/api/v2/grants/"+testID, `{"description":"changed"}`, stale)
 	assert.Equal(t, http.StatusPreconditionFailed, response.Code, response.Body.String())
 }
 
@@ -122,7 +122,7 @@ func TestGrantCreateRequiresAllMembersAndExactNullableShapes(t *testing.T) {
 	handler := newGrantHandler(t, service, allowGrantTarget, nil)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
 	valid := `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`
-	response := perform(handler, http.MethodPost, "/api/v1/grants", valid, headers)
+	response := perform(handler, http.MethodPost, "/api/v2/grants", valid, headers)
 	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
 	require.NotNil(t, service.grantCreate.Description)
 	assert.Equal(t, "Test grant", *service.grantCreate.Description)
@@ -140,7 +140,7 @@ func TestGrantCreateRequiresAllMembersAndExactNullableShapes(t *testing.T) {
 		{"duplicate member", `{"description":"Test grant","principal_id":"` + testID + `","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`, "invalid_json"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			result := perform(handler, http.MethodPost, "/api/v1/grants", test.body, headers)
+			result := perform(handler, http.MethodPost, "/api/v2/grants", test.body, headers)
 			assert.Equal(t, http.StatusBadRequest, result.Code, result.Body.String())
 			assert.Contains(t, result.Body.String(), test.code)
 		})
@@ -164,16 +164,16 @@ func TestGrantConstraintValidationUsesProductionCompilerWithoutMutation(t *testi
 	handler := newGrantHandler(t, service, allowGrantTarget, &invalidations)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
 
-	valid := perform(handler, http.MethodPost, "/api/v1/grant-constraints/validate", `{"constraint":{"version":2,"regex":{"/resource":"[a-z]+/[0-9]+"}}}`, headers)
+	valid := perform(handler, http.MethodPost, "/api/v2/grant-constraints/validate", `{"constraint":{"version":2,"regex":{"/resource":"[a-z]+/[0-9]+"}}}`, headers)
 	require.Equal(t, http.StatusOK, valid.Code, valid.Body.String())
 	assert.JSONEq(t, `{"valid":true,"diagnostics":[]}`, valid.Body.String())
 
-	invalid := perform(handler, http.MethodPost, "/api/v1/grant-constraints/validate", `{"constraint":{"version":2,"regex":{"/resource":"["}}}`, headers)
+	invalid := perform(handler, http.MethodPost, "/api/v2/grant-constraints/validate", `{"constraint":{"version":2,"regex":{"/resource":"["}}}`, headers)
 	require.Equal(t, http.StatusOK, invalid.Code, invalid.Body.String())
 	assert.JSONEq(t, `{"valid":false,"diagnostics":[{"field":"/regex/~1resource","message":"pattern is not valid RE2"}]}`, invalid.Body.String())
 	assert.NotContains(t, invalid.Body.String(), `\"[\"`)
 
-	invalidRoot := perform(handler, http.MethodPost, "/api/v1/grant-constraints/validate", `{"constraint":{"version":3,"equals":{"/x":true}}}`, headers)
+	invalidRoot := perform(handler, http.MethodPost, "/api/v2/grant-constraints/validate", `{"constraint":{"version":3,"equals":{"/x":true}}}`, headers)
 	require.Equal(t, http.StatusOK, invalidRoot.Code, invalidRoot.Body.String())
 	assert.JSONEq(t, `{"valid":false,"diagnostics":[{"field":"","message":"version must be 2"}]}`, invalidRoot.Body.String())
 
@@ -183,7 +183,7 @@ func TestGrantConstraintValidationUsesProductionCompilerWithoutMutation(t *testi
 
 func TestGrantConstraintValidationRequiresAdminAndClosedBody(t *testing.T) {
 	handler := newGrantHandler(t, &fakePrincipalService{}, allowGrantTarget, nil)
-	path := "/api/v1/grant-constraints/validate"
+	path := "/api/v2/grant-constraints/validate"
 	assert.Equal(t, http.StatusUnauthorized, perform(handler, http.MethodPost, path, `{"constraint":{"equals":{"/x":1}}}`, map[string]string{"Content-Type": contract.MediaTypeJSON}).Code)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
 	for _, body := range []string{`{}`, `{"constraint":null}`, `{"constraint":1}`, `{"constraint":[]}`, `{"constraint":"value"}`} {
@@ -198,16 +198,16 @@ func TestGrantConstraintValidationRequiresAdminAndClosedBody(t *testing.T) {
 func TestGrantAuthenticationSessionAndTargetValidation(t *testing.T) {
 	service := &fakePrincipalService{}
 	handler := newGrantHandler(t, service, allowGrantTarget, nil)
-	unauthenticated := perform(handler, http.MethodGet, "/api/v1/grants", "", nil)
+	unauthenticated := perform(handler, http.MethodGet, "/api/v2/grants", "", nil)
 	assert.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
 	body := `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":"not-yet-discovered","constraint":null,"expires_at":null}`
-	session := perform(handler, http.MethodPost, "/api/v1/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
+	session := perform(handler, http.MethodPost, "/api/v2/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusCreated, session.Code, session.Body.String())
-	missingOrigin := perform(handler, http.MethodPost, "/api/v1/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
+	missingOrigin := perform(handler, http.MethodPost, "/api/v2/grants", body, map[string]string{"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusForbidden, missingOrigin.Code)
 
 	rejecting := newGrantHandler(t, &fakePrincipalService{}, func(context.Context, *sql.Tx, string) (bool, error) { return false, nil }, nil)
-	invalidTarget := perform(rejecting, http.MethodPost, "/api/v1/grants", body, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
+	invalidTarget := perform(rejecting, http.MethodPost, "/api/v2/grants", body, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusBadRequest, invalidTarget.Code, invalidTarget.Body.String())
 	assert.Contains(t, invalidTarget.Body.String(), "invalid_grant")
 }
@@ -217,13 +217,13 @@ func TestGrantQueryValidationErrorsAndNoFailureInvalidation(t *testing.T) {
 	var invalidations []contract.Invalidation
 	handler := newGrantHandler(t, service, allowGrantTarget, &invalidations)
 	for _, path := range []string{
-		"/api/v1/grants?unknown=x", "/api/v1/grants?limit=1&limit=2", "/api/v1/grants?principal_id=", "/api/v1/grants?server_id=null", "/api/v1/grants?cursor=%ZZ",
+		"/api/v2/grants?unknown=x", "/api/v2/grants?limit=1&limit=2", "/api/v2/grants?principal_id=", "/api/v2/grants?server_id=null", "/api/v2/grants?cursor=%ZZ",
 	} {
 		response := perform(handler, http.MethodGet, path, "", map[string]string{"Authorization": "Bearer " + testBearer})
 		assert.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
 		assert.Contains(t, response.Body.String(), "malformed_request")
 	}
-	badCursor := perform(handler, http.MethodGet, "/api/v1/grants?cursor=abc", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	badCursor := perform(handler, http.MethodGet, "/api/v2/grants?cursor=abc", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, http.StatusBadRequest, badCursor.Code)
 	assert.Contains(t, badCursor.Body.String(), "invalid_cursor")
 
@@ -234,12 +234,12 @@ func TestGrantQueryValidationErrorsAndNoFailureInvalidation(t *testing.T) {
 		method     string
 		path, body string
 	}{
-		{authorization.ErrInvalidInput, 400, "invalid_grant", http.MethodPost, "/api/v1/grants", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
-		{authorization.ErrResourceLimit, 429, "resource_limit", http.MethodPost, "/api/v1/grants", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
-		{authorization.ErrStaleCursor, 409, "stale_cursor", http.MethodGet, "/api/v1/grants", ""},
-		{authorization.ErrNotFound, 404, "not_found", http.MethodDelete, "/api/v1/grants/01ARZ3NDEKTSV4RRFFQ69G5FAY", ""},
-		{authorization.ErrStorageUnavailable, 503, "authorization_unavailable", http.MethodGet, "/api/v1/grants", ""},
-		{errors.New("foreign"), 503, "authorization_unavailable", http.MethodGet, "/api/v1/grants", ""},
+		{authorization.ErrInvalidInput, 400, "invalid_grant", http.MethodPost, "/api/v2/grants", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
+		{authorization.ErrResourceLimit, 429, "resource_limit", http.MethodPost, "/api/v2/grants", `{"description":"Test grant","principal_id":"` + testID + `","effect":"allow","server_id":"` + testServerID + `","upstream_name":null,"constraint":null,"expires_at":null}`},
+		{authorization.ErrStaleCursor, 409, "stale_cursor", http.MethodGet, "/api/v2/grants", ""},
+		{authorization.ErrNotFound, 404, "not_found", http.MethodDelete, "/api/v2/grants/01ARZ3NDEKTSV4RRFFQ69G5FAY", ""},
+		{authorization.ErrStorageUnavailable, 503, "authorization_unavailable", http.MethodGet, "/api/v2/grants", ""},
+		{errors.New("foreign"), 503, "authorization_unavailable", http.MethodGet, "/api/v2/grants", ""},
 	} {
 		service.err = test.err
 		headers := map[string]string{"Authorization": "Bearer " + testBearer}

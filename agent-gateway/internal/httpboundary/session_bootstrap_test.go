@@ -26,7 +26,7 @@ func TestAdminSessionBootstrapBoundary(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin-sessions/current", http.NoBody)
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/admin-sessions/current", http.NoBody)
 	request.Host = contract.DefaultAuthority
 	request.Header.Set("Origin", contract.CanonicalOrigin)
 	response := httptest.NewRecorder()
@@ -35,7 +35,7 @@ func TestAdminSessionBootstrapBoundary(t *testing.T) {
 	assert.Equal(t, 1, lookups)
 	assert.Equal(t, "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict", response.Header().Get("Set-Cookie"))
 
-	missingOrigin := httptest.NewRequest(http.MethodPost, "/api/v1/admin-sessions/current", http.NoBody)
+	missingOrigin := httptest.NewRequest(http.MethodPost, "/api/v2/admin-sessions/current", http.NoBody)
 	missingOrigin.Host = contract.DefaultAuthority
 	missingResponse := httptest.NewRecorder()
 	boundary.ServeHTTP(missingResponse, missingOrigin)

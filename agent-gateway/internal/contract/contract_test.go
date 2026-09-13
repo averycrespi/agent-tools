@@ -18,14 +18,14 @@ func TestFoundationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/readyz", Methods: []string{"GET"}, Authority: AuthorityPublic},
 		{Pattern: "/mcp", Methods: []string{"DELETE", "GET", "POST"}, Authority: AuthorityAgent},
 		{Pattern: "/oauth/callback", Methods: []string{"GET"}, Authority: AuthorityOAuthState},
-		{Pattern: "/api/v1/admin-sessions", Methods: []string{"POST"}, Authority: AuthorityAdminBearer},
-		{Pattern: "/api/v1/admin-sessions/current", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdminSession},
-		{Pattern: "/api/v1/admin-credentials", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/admin-credentials/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/system-status", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/backups", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/backups/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/events", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/admin-sessions", Methods: []string{"POST"}, Authority: AuthorityAdminBearer},
+		{Pattern: "/api/v2/admin-sessions/current", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdminSession},
+		{Pattern: "/api/v2/admin-credentials", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/admin-credentials/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/system-status", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/backups", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/backups/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/events", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	}
 
 	require.Equal(t, expected, Routes()[:len(expected)], "S1 routes must remain the table prefix")
@@ -49,14 +49,14 @@ func TestRouteForPathClassifiesOnlyOwnedPaths(t *testing.T) {
 		"/readyz":                        "/readyz",
 		"/mcp":                           "/mcp",
 		"/oauth/callback":                "/oauth/callback",
-		"/api/v1/admin-sessions":         "/api/v1/admin-sessions",
-		"/api/v1/admin-sessions/current": "/api/v1/admin-sessions/current",
-		"/api/v1/admin-credentials":      "/api/v1/admin-credentials",
-		"/api/v1/admin-credentials/01ARZ3NDEKTSV4RRFFQ69G5FAV": "/api/v1/admin-credentials/{id}",
-		"/api/v1/system-status":                                "/api/v1/system-status",
-		"/api/v1/backups":                                      "/api/v1/backups",
-		"/api/v1/backups/01ARZ3NDEKTSV4RRFFQ69G5FAV":           "/api/v1/backups/{id}",
-		"/api/v1/events":                                       "/api/v1/events",
+		"/api/v2/admin-sessions":         "/api/v2/admin-sessions",
+		"/api/v2/admin-sessions/current": "/api/v2/admin-sessions/current",
+		"/api/v2/admin-credentials":      "/api/v2/admin-credentials",
+		"/api/v2/admin-credentials/01ARZ3NDEKTSV4RRFFQ69G5FAV": "/api/v2/admin-credentials/{id}",
+		"/api/v2/system-status":                                "/api/v2/system-status",
+		"/api/v2/backups":                                      "/api/v2/backups",
+		"/api/v2/backups/01ARZ3NDEKTSV4RRFFQ69G5FAV":           "/api/v2/backups/{id}",
+		"/api/v2/events":                                       "/api/v2/events",
 	}
 	for path, pattern := range tests {
 		route, ok := RouteForPath(path)
@@ -65,7 +65,7 @@ func TestRouteForPathClassifiesOnlyOwnedPaths(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		"", "mcp", "/assets", "/assets/", "/unknown", "/api/v1/admin-credentials/", "/api/v1/admin-credentials/a/b", "/api/v1/backups/a/b", "/mcp/",
+		"", "mcp", "/assets", "/assets/", "/unknown", "/api/v2/admin-credentials/", "/api/v2/admin-credentials/a/b", "/api/v2/backups/a/b", "/mcp/",
 	} {
 		_, ok := RouteForPath(path)
 		require.False(t, ok, path)
@@ -194,14 +194,14 @@ func TestResourceMechanicsAreTargeted(t *testing.T) {
 		if mechanic.Cursor {
 			cursored++
 			require.Equal(t, "GET", mechanic.Method)
-			require.Contains(t, []string{"/api/v1/admin-credentials", "/api/v1/backups"}, mechanic.Pattern)
+			require.Contains(t, []string{"/api/v2/admin-credentials", "/api/v2/backups"}, mechanic.Pattern)
 		}
 		if mechanic.Idempotency {
 			idempotent++
 			require.Equal(t, "POST", mechanic.Method)
-			require.Equal(t, "/api/v1/backups", mechanic.Pattern)
+			require.Equal(t, "/api/v2/backups", mechanic.Pattern)
 		}
-		if mechanic.Pattern == "/api/v1/admin-credentials" && mechanic.Method == "POST" {
+		if mechanic.Pattern == "/api/v2/admin-credentials" && mechanic.Method == "POST" {
 			require.True(t, mechanic.OptionalPrecondition)
 			require.True(t, mechanic.ETag)
 		} else {
@@ -255,7 +255,7 @@ func TestSafeResourceJSONShapesAreExact(t *testing.T) {
 		"http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions",
 		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",
 		"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work",
-		"s2_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants",
+		"server_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants",
 		"grant_requests", "grant_request_evidence_bytes",
 	)
 	requireJSONKeys(t, ProblemEnvelope{Status: 400, Code: ProblemMalformedRequest, Title: "The request is invalid."}, "status", "code", "title")
