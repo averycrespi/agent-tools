@@ -727,22 +727,21 @@ function listPath(
   }
   if (kind === "authFlows") {
     const match =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:activity|authentication|status)$/.exec(
+      /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=(?:operations|authentication|status)$/.exec(
         viewKey,
       );
     if (match === null) throw new Error("invalid server history location");
     const resource = "oauth-flows";
     return `/api/v2/mcp/servers/${match[1]!}/${resource}?${query.toString()}`;
   }
-  const match = /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=tools$/.exec(
-    viewKey,
-  );
+  const match =
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=tools$/.exec(viewKey);
   if (match === null) throw new Error("invalid descriptor location");
   return `/api/v2/mcp/servers/${match[1]!}/descriptors?${query.toString()}`;
 }
 
 function serverIDFromViewKey(viewKey: string): string | undefined {
-  return /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:[/?]|$)/.exec(
+  return /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:[/?]|$)/.exec(
     viewKey,
   )?.[1];
 }
@@ -751,7 +750,7 @@ function serverPanelID(viewKey: string): string {
   if (serverCollectionKind(viewKey) === "catalog") return "catalog-reads";
   if (serverCollectionKind(viewKey) === "descriptors")
     return "server-descriptor-reads";
-  if (/\?tab=activity(?:&|$)|\/operations\//.test(viewKey))
+  if (/\?tab=operations(?:&|$)|\/operations\//.test(viewKey))
     return "server-operation-reads";
   if (/\/auth-flows\//.test(viewKey)) return "server-oauth-reads";
   if (/\?tab=tools$|\/descriptors\//.test(viewKey))
@@ -813,7 +812,7 @@ export class ServerReadsController {
       "server-overview-reads",
       (key) =>
         serverCollectionKind(key) === "servers" ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=(?:authentication|settings|status))?$/.test(
+        /^#\/mcp\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\?tab=(?:authentication|settings|status))?$/.test(
           key,
         ),
       ["servers", "catalog"],
@@ -821,10 +820,10 @@ export class ServerReadsController {
     register(
       "server-operation-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=activity(?:&|$)/.test(
+        /^#\/mcp\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=operations(?:&|$)/.test(
           key,
         ) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+        /^#\/mcp\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
       ["servers", "server_operations", "catalog"],
@@ -833,10 +832,10 @@ export class ServerReadsController {
     register(
       "server-oauth-reads",
       (key) =>
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=authentication$/.test(
+        /^#\/mcp\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\?tab=authentication$/.test(
           key,
         ) ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+        /^#\/mcp\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
       ["servers", "server_auth_flows", "catalog"],
@@ -846,7 +845,7 @@ export class ServerReadsController {
       "server-descriptor-reads",
       (key) =>
         serverCollectionKind(key) === "descriptors" ||
-        /^#\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
+        /^#\/mcp\/servers\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(
           key,
         ),
       ["catalog"],
@@ -930,7 +929,7 @@ export class ServerReadsController {
       return { kind: "server", viewKey: context.viewKey, server, etag };
     }
     const authFlowItem =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
+      /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
         context.viewKey,
       );
     if (authFlowItem !== null) {
@@ -957,7 +956,7 @@ export class ServerReadsController {
       };
     }
     const operationItem =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
+      /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
         context.viewKey,
       );
     if (operationItem !== null) {
@@ -987,7 +986,7 @@ export class ServerReadsController {
       };
     }
     const descriptorItem =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/descriptors\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
+      /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/descriptors\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
         context.viewKey,
       );
     if (descriptorItem !== null) {
@@ -1011,7 +1010,7 @@ export class ServerReadsController {
       };
     }
     const serverItem =
-      /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:\?tab=(?:authentication|settings|status))?$/.exec(
+      /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})(?:\?tab=(?:authentication|settings|status))?$/.exec(
         context.viewKey,
       );
     if (serverItem !== null && forcedKind === undefined) {
@@ -1027,9 +1026,9 @@ export class ServerReadsController {
     }
     const kind: ListKind =
       forcedKind ??
-      (context.viewKey === "#/servers"
+      (context.viewKey === "#/mcp/servers"
         ? "servers"
-        : context.viewKey === "#/catalog"
+        : context.viewKey === "#/mcp/tools"
           ? "catalog"
           : "descriptors");
     const continuation = this.continuation;
@@ -1039,7 +1038,7 @@ export class ServerReadsController {
       kind === "operations" || kind === "authFlows" || kind === "descriptors"
         ? get(
             context,
-            `/api/v2/mcp/servers/${context.viewKey.slice("#/servers/".length, "#/servers/".length + 26)}`,
+            `/api/v2/mcp/servers/${parseFragment(context.viewKey)!.segments[1]!}`,
           )
         : undefined;
     let [response, historyServerResponse] = await Promise.all([
@@ -1238,15 +1237,15 @@ function ServerTabs({
   current: string;
 }) {
   const tabs = [
-    ["status", "Status", `#/servers/${serverID}?tab=status`],
-    ["tools", "Tools", `#/servers/${serverID}?tab=tools`],
-    ["activity", "Operations", `#/servers/${serverID}?tab=activity`],
+    ["status", "Status", `#/mcp/servers/${serverID}`],
+    ["tools", "Tools", `#/mcp/servers/${serverID}?tab=tools`],
+    ["operations", "Operations", `#/mcp/servers/${serverID}?tab=operations`],
     [
       "authentication",
       "Authentication",
-      `#/servers/${serverID}?tab=authentication`,
+      `#/mcp/servers/${serverID}?tab=authentication`,
     ],
-    ["settings", "Settings", `#/servers/${serverID}?tab=settings`],
+    ["settings", "Settings", `#/mcp/servers/${serverID}?tab=settings`],
   ] as const;
   return (
     <nav class="subnav" aria-label="Server sections">
@@ -1284,7 +1283,7 @@ function serverUsesOAuth(server: ServerView): boolean {
 }
 
 function serverPresentation(server: ServerView): ServerPresentation {
-  const root = `#/servers/${server.id}`;
+  const root = `#/mcp/servers/${server.id}`;
   if (server.desiredState === "deleted")
     return { label: "Deleted", state: "neutral" };
   if (server.desiredState === "disabled")
@@ -1330,7 +1329,7 @@ function serverPresentation(server: ServerView): ServerPresentation {
       label: "Connecting",
       state: "loading",
       action: "View operations",
-      href: `${root}?tab=activity`,
+      href: `${root}?tab=operations`,
     };
   const capacitySaturated =
     server.reconciliation.saturated ||
@@ -1349,7 +1348,7 @@ function serverPresentation(server: ServerView): ServerPresentation {
       label: "Needs attention",
       state: "warning",
       action: "View operations",
-      href: `${root}?tab=activity`,
+      href: `${root}?tab=operations`,
     };
   if (server.activeState !== "current")
     return {
@@ -1362,7 +1361,7 @@ function serverPresentation(server: ServerView): ServerPresentation {
     label: "Capacity saturated",
     state: "warning",
     action: "View status",
-    href: `${root}?tab=status`,
+    href: root,
   };
 }
 
@@ -1485,7 +1484,7 @@ function ServerRows({
           render: (server) => (
             <TableIdentity
               primary={
-                <a href={`#/servers/${server.id}`}>{server.displayName}</a>
+                <a href={`#/mcp/servers/${server.id}`}>{server.displayName}</a>
               }
               secondary={server.id}
             />
@@ -1713,7 +1712,7 @@ function CatalogRows({
             <TableIdentity
               primary={
                 <a
-                  href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+                  href={`#/mcp/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
                   data-tool-name={descriptor.upstreamName}
                 >
                   {descriptor.externalName}
@@ -1728,7 +1727,7 @@ function CatalogRows({
           role: "relation",
           sortValue: (descriptor) => descriptor.serverDisplayName,
           render: (descriptor) => (
-            <a href={`#/servers/${descriptor.serverID}?tab=tools`}>
+            <a href={`#/mcp/servers/${descriptor.serverID}?tab=tools`}>
               {descriptor.serverDisplayName}
             </a>
           ),
@@ -1797,7 +1796,7 @@ function DescriptorRows({
             <TableIdentity
               primary={
                 <a
-                  href={`#/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
+                  href={`#/mcp/servers/${descriptor.serverID}/descriptors/${descriptor.id}`}
                   data-tool-name={descriptor.upstreamName}
                 >
                   {descriptor.externalName}
@@ -1947,34 +1946,34 @@ export function ServerReads({
   const operationPanel = view.panels["server-operation-reads"];
   const authFlowPanel = view.panels["server-oauth-reads"];
   const authenticationTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=authentication$/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=authentication$/.exec(
       view.viewKey,
     );
   const authFlowItem =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/auth-flows\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
     );
   const activityTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=activity(?:&|$)/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=operations(?:&|$)/.exec(
       view.viewKey,
     );
   const operationItem =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/operations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
     );
   const settingsTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=settings$/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=settings$/.exec(
       view.viewKey,
     );
   const statusTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=status$/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=status$/.exec(
       view.viewKey,
     );
   const descriptorItem =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\/descriptors\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.exec(
       view.viewKey,
     );
-  const serverItem = /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
+  const serverItem = /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})$/.exec(
     view.viewKey,
   );
   const descriptorList =
@@ -1982,14 +1981,14 @@ export function ServerReads({
       ? serverIDFromViewKey(view.viewKey)
       : undefined;
   const otherTab =
-    /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=([^&]+)$/.exec(
+    /^#\/mcp\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=([^&]+)$/.exec(
       view.viewKey,
     );
   const statusServerID = statusTab?.[1] ?? serverItem?.[1];
-  if (view.viewKey === "#/servers/new")
+  if (view.viewKey === "#/mcp/servers/new")
     return (
       <div class="domain-view" data-testid="server-create-view">
-        <a href="#/servers">Back to server inventory</a>
+        <a href="#/mcp/servers">Back to server inventory</a>
         <ServerEditor
           mutations={mutations}
           onRefresh={onRefresh}
@@ -2021,7 +2020,7 @@ export function ServerReads({
         <div class="collection-toolbar">
           <a
             class="button-link create-action"
-            href="#/servers/new"
+            href="#/mcp/servers/new"
             data-testid="server-create-link"
           >
             Create server
@@ -2141,7 +2140,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={activityTab[1]!}
-          current="activity"
+          current="operations"
         />
         <ReadPanel panel={operationPanel}>
           {snapshot.server !== undefined &&
@@ -2189,7 +2188,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={serverID}
-          current="activity"
+          current="operations"
         />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
@@ -2228,11 +2227,13 @@ export function ServerReads({
                 return (
                   <>
                     <nav class="detail-navigation" aria-label="Tool navigation">
-                      <a href={`#/servers/${descriptor.serverID}?tab=tools`}>
+                      <a
+                        href={`#/mcp/servers/${descriptor.serverID}?tab=tools`}
+                      >
                         Back to tools
                       </a>
                       <span aria-hidden="true">·</span>
-                      <a href="#/catalog">Back to catalog</a>
+                      <a href="#/mcp/tools">Back to catalog</a>
                     </nav>
                     <div class="panel-heading tool-heading">
                       <div>
@@ -2335,7 +2336,7 @@ export function ServerReads({
         >
           <div class="panel-heading">
             <h2 id="descriptor-list-title">Tools</h2>
-            <a href="#/catalog">All available tools</a>
+            <a href="#/mcp/tools">All available tools</a>
           </div>
           <p class="bounded-note">
             Available means non-retired catalog evidence, not permission or
@@ -2454,7 +2455,7 @@ export function ServerReads({
                           <p>{serverExplanation(presentation, server)}</p>
                           {presentation.href !== undefined &&
                             presentation.href !==
-                              `#/servers/${server.id}?tab=status` && (
+                              `#/mcp/servers/${server.id}` && (
                               <a href={presentation.href}>
                                 {presentation.action}
                               </a>
@@ -2507,9 +2508,9 @@ export function ServerReads({
                               {sentenceCase(server.credentialState)}
                             </strong>
                             {presentation.href !==
-                              `#/servers/${server.id}?tab=authentication` && (
+                              `#/mcp/servers/${server.id}?tab=authentication` && (
                               <a
-                                href={`#/servers/${server.id}?tab=authentication`}
+                                href={`#/mcp/servers/${server.id}?tab=authentication`}
                               >
                                 Manage authentication
                               </a>
@@ -2528,7 +2529,7 @@ export function ServerReads({
                               Last successful refresh{" "}
                               <UserTime value={server.lastSuccessAt} />
                             </span>
-                            <a href={`#/servers/${server.id}?tab=tools`}>
+                            <a href={`#/mcp/servers/${server.id}?tab=tools`}>
                               View tools
                             </a>
                           </dd>

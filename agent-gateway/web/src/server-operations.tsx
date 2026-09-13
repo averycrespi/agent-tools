@@ -187,7 +187,9 @@ export function OperationRows({
           render: (operation) => (
             <TableIdentity
               primary={
-                <a href={`#/servers/${serverID}/operations/${operation.id}`}>
+                <a
+                  href={`#/mcp/servers/${serverID}/operations/${operation.id}`}
+                >
                   {label(operation.kind)}
                 </a>
               }
@@ -271,7 +273,7 @@ function OperationStarter({
       setBlockedReadVersion(undefined);
       setNotice(`Operation ${outcome.value.id} was accepted.`);
       controller.abandon();
-      window.location.hash = `#/servers/${server.id}/operations/${outcome.value.id}`;
+      window.location.hash = `#/mcp/servers/${server.id}/operations/${outcome.value.id}`;
     } else if (outcome.kind === "rejected" && outcome.requiresRefresh) {
       setBlockedReadVersion(readVersion);
     }
@@ -315,7 +317,7 @@ function OperationStarter({
           <p>
             <a
               data-testid="active-operation-link"
-              href={`#/servers/${server.id}/operations/${activeOperation.id}`}
+              href={`#/mcp/servers/${server.id}/operations/${activeOperation.id}`}
             >
               {label(activeOperation.kind)} — {words(activeOperation.state)}
             </a>
@@ -455,7 +457,7 @@ export function ServerOperations({
             </StatusLabel>
           </div>
           <p class="detail-navigation">
-            <a href={`#/servers/${server.id}?tab=activity`}>
+            <a href={`#/mcp/servers/${server.id}?tab=operations`}>
               Back to operations
             </a>
           </p>

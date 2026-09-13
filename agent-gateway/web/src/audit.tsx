@@ -12,8 +12,10 @@ import {
   type AuditSummary,
 } from "./audit-contract";
 import {
+  destinationPaths,
   parseFragment,
   serializeLocation,
+  type Destination,
   type ResolvedLocation,
 } from "./location";
 import {
@@ -32,7 +34,7 @@ import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 
 const replacementNotice =
   "Audit history may have been replaced by restore. Newer local events may have been discarded. Previous-history state was discarded; these histories must not be combined.";
-const targetRoutes: Readonly<Record<string, readonly [string, string]>> = {
+const targetRoutes: Readonly<Record<string, readonly [string, Destination]>> = {
   server: ["mcp/servers", "servers"],
   principal: ["principals", "principals"],
   grant: ["grants", "grants"],
@@ -209,7 +211,7 @@ export class AuditController {
       )
     )
       return undefined;
-    return `#/${route[1]}/${item.target.id}`;
+    return `#/${destinationPaths[route[1]]}/${item.target.id}`;
   }
   snapshot(): AuditSnapshot {
     return this.value;
@@ -394,7 +396,7 @@ export class AuditController {
       )
         this.unavailableTargets.delete(key);
       return {
-        targetLink: `#/${route[1]}/${item.target.id}`,
+        targetLink: `#/${destinationPaths[route[1]]}/${item.target.id}`,
         targetUnavailable: false,
       };
     } catch {
@@ -564,8 +566,8 @@ function Filters({
     setDraft({});
     setSelectedFilters([]);
     applied.current = {};
-    ownNavigation.current = "#/audit";
-    navigate("#/audit");
+    ownNavigation.current = "#/activity/audit";
+    navigate("#/activity/audit");
   };
   const field = (key: string) => {
     const name = `filter_${key}`;
@@ -845,7 +847,7 @@ export function Audit({
                 <dt>Correlation ID</dt>
                 <dd>
                   <a
-                    href={`#/audit?filter_correlation_id=${snapshot.item.correlation_id}`}
+                    href={`#/activity/audit?filter_correlation_id=${snapshot.item.correlation_id}`}
                   >
                     {snapshot.item.correlation_id}
                   </a>
@@ -909,7 +911,10 @@ export function Audit({
               }
             >
               {Object.keys(resolved.location.query).length > 0 ? (
-                <button type="button" onClick={() => navigate("#/audit")}>
+                <button
+                  type="button"
+                  onClick={() => navigate("#/activity/audit")}
+                >
                   Clear filters
                 </button>
               ) : (

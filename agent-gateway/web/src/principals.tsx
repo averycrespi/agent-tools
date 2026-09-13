@@ -230,9 +230,9 @@ export class PrincipalDirectory {
       id: "principal-directory",
       matches: (key) =>
         key === "#/overview" ||
-        key === "#/invocations" ||
-        key.startsWith("#/invocations?") ||
-        /^#\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
+        key === "#/activity/invocations" ||
+        key.startsWith("#/activity/invocations?") ||
+        /^#\/activity\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
       invalidations: ["authorization"],
       read: () => readPrincipals(session),
       publish: (principals) => {
@@ -381,7 +381,7 @@ function PrincipalEditor({
       setState(saved.state);
       setVisibility(saved.visibility);
       if (create) {
-        navigate(`#/principals/${saved.id}`, true);
+        navigate(`#/access/principals/${saved.id}`, true);
       } else {
         setNotice("Principal record saved.");
         onRefresh();
@@ -958,7 +958,7 @@ export function Principals({
     return (
       <div class="domain-view" data-testid="principal-detail">
         <nav class="detail-navigation" aria-label="Principal navigation">
-          <a href="#/principals">Back to principals</a>
+          <a href="#/access/principals">Back to principals</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
@@ -1062,7 +1062,7 @@ function PrincipalCollection({
       <div class="collection-toolbar">
         <a
           class="button-link create-action"
-          href="#/principals/new"
+          href="#/access/principals/new"
           data-testid="principal-create-link"
         >
           Create principal
@@ -1125,7 +1125,7 @@ function PrincipalCollection({
               render: (principal) => (
                 <TableIdentity
                   primary={
-                    <a href={`#/principals/${principal.id}`}>
+                    <a href={`#/access/principals/${principal.id}`}>
                       {principal.displayName}
                     </a>
                   }

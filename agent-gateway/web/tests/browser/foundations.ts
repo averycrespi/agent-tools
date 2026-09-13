@@ -304,7 +304,7 @@ export async function assertViewGenerationFoundation(): Promise<void> {
     coordinator.snapshot().panels.a?.hasValue !== true
   )
     fail("background refresh did not preserve current prior data");
-  coordinator.navigate("#/servers");
+  coordinator.navigate("#/mcp/servers");
   if (
     coordinator.snapshot().panels.a?.status !== "loading" ||
     coordinator.snapshot().panels.a?.hasValue !== false

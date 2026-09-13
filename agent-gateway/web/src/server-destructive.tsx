@@ -90,7 +90,7 @@ export function ServerDestructiveActions({
     const outcome = await submission;
     if (outcome.kind === "acknowledged") {
       controller.abandon();
-      window.location.hash = `#/servers/${server.id}/operations/${outcome.value.operation.id}`;
+      window.location.hash = `#/mcp/servers/${server.id}/operations/${outcome.value.operation.id}`;
     } else if (outcome.kind === "rejected" && outcome.requiresRefresh) {
       setBlockedReadVersion(readVersion);
     }

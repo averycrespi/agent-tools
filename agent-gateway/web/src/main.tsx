@@ -7,6 +7,7 @@ import {
   useState,
 } from "preact/hooks";
 import {
+  destinationPaths,
   replaceForLifecycle,
   synchronizeFragment,
   type Destination,
@@ -118,22 +119,22 @@ const registerInvalidationTrigger = (
   });
 registerInvalidationTrigger(
   "principal-invalidation",
-  (key) => /^#\/principals(?:[/?]|$)/.test(key),
+  (key) => /^#\/access\/principals(?:[/?]|$)/.test(key),
   ["authorization"],
 );
 registerInvalidationTrigger(
   "grant-invalidation",
-  (key) => /^#\/grants(?:[/?]|$)/.test(key),
+  (key) => /^#\/access\/grants(?:[/?]|$)/.test(key),
   ["authorization", "servers"],
 );
 registerInvalidationTrigger(
   "request-list-invalidation",
-  (key) => key === "#/requests" || key.startsWith("#/requests?"),
+  (key) => key === "#/access/requests" || key.startsWith("#/access/requests?"),
   ["grant_requests"],
 );
 registerInvalidationTrigger(
   "request-detail-invalidation",
-  (key) => /^#\/requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
+  (key) => /^#\/access\/requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
   ["grant_requests", "servers", "catalog"],
 );
 applyTheme(initialTheme);
@@ -298,7 +299,12 @@ function App() {
     priorLifecycle.current = session.lifecycle;
     const nextLocation = synchronizeFragment(authenticated);
     acceptedFragment.current = nextLocation.canonicalFragment;
-    setResolved(nextLocation);
+    setResolved((previous) => ({
+      ...nextLocation,
+      // Bootstrap may replace the fixed fallback; keep its rejection notice
+      // until explicit navigation rather than losing it during session restore.
+      invalid: previous.invalid || nextLocation.invalid,
+    }));
     if (authenticated) viewCoordinator.activate(nextLocation.canonicalFragment);
   }, [session.lifecycle, session.epoch]);
 
@@ -449,14 +455,14 @@ function App() {
     (destination === "audit" && resolved.location.segments[1] !== undefined);
   const destinationLabel =
     destination === "servers" && resolved.location.segments[1] !== undefined
-      ? resolved.canonicalFragment === "#/servers/new"
+      ? resolved.canonicalFragment === "#/mcp/servers/new"
         ? "Create server"
         : "Server details"
       : destination === "principals" &&
-          resolved.canonicalFragment === "#/principals/new"
+          resolved.canonicalFragment === "#/access/principals/new"
         ? "Create principal"
         : destination === "grants" &&
-            resolved.canonicalFragment.startsWith("#/grants/new")
+            resolved.canonicalFragment.startsWith("#/access/grants/new")
           ? "Create grant"
           : resolved.canonicalFragment === "#/system/backups/new"
             ? "Create backup"
@@ -628,7 +634,7 @@ function App() {
                       <a
                         key={item}
                         class={active ? "active" : undefined}
-                        href={`#/${item}`}
+                        href={`#/${destinationPaths[item]}`}
                         aria-current={active ? "page" : undefined}
                         onClick={() => setNavigationOpen(false)}
                       >

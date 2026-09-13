@@ -62,7 +62,9 @@ export async function runOverviewInvocationSystemCanary(
   if (body.includes("redacted_arguments"))
     fail("Overview workflow canary exposed invocation capture");
 
-  await page.locator('#primary-navigation a[href="#/invocations"]').click();
+  await page
+    .locator('#primary-navigation a[href="#/activity/invocations"]')
+    .click();
   await page.locator('[data-testid="invocations-view"]').waitFor();
   await page.waitForFunction(
     () =>
@@ -1261,7 +1263,7 @@ export async function runOverview(
   if (
     serverLinks.join("|") !==
     ["FA1", "FB0", "FB1", "FB2", "FB3"]
-      .map((suffix) => `#/servers/01ARZ3NDEKTSV4RRFFQ69G5${suffix}?tab=status`)
+      .map((suffix) => `#/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5${suffix}`)
       .join("|")
   )
     fail("Server preview changed eligibility, order or five-item bound");
@@ -1278,7 +1280,7 @@ export async function runOverview(
     requestLinks.join("|") !==
     Array.from(
       { length: 5 },
-      (_, index) => `#/requests/01ARZ3NDEKTSV4RRFFQ69G5FC${index}`,
+      (_, index) => `#/access/requests/01ARZ3NDEKTSV4RRFFQ69G5FC${index}`,
     ).join("|")
   )
     fail(
@@ -1299,10 +1301,10 @@ export async function runOverview(
     fail("Overview did not close mutation admission for latched storage");
   for (const href of [
     "#/system",
-    "#/servers",
-    "#/catalog",
-    "#/requests",
-    "#/invocations",
+    "#/mcp/servers",
+    "#/mcp/tools",
+    "#/access/requests",
+    "#/activity/invocations",
   ])
     if (
       (await page.locator(`#primary-navigation a[href="${href}"]`).count()) !==
@@ -1841,7 +1843,7 @@ export async function runInvocations(
   });
 
   await page.evaluate(() => {
-    window.location.hash = "#/invocations";
+    window.location.hash = "#/activity/invocations";
   });
   await page.locator('[data-testid="invocations-view"]').waitFor();
   await page.waitForFunction(
@@ -1915,7 +1917,7 @@ export async function runInvocations(
     toolCell(invocationIDs.policy).getByRole("link"),
   ).toHaveAttribute(
     "href",
-    `#/servers/${invocationIDs.server}/descriptors/${invocationIDs.tool}`,
+    `#/mcp/servers/${invocationIDs.server}/descriptors/${invocationIDs.tool}`,
   );
   await expect(toolCell(invocationIDs.admission)).toHaveText("Not resolved");
   await expect(toolCell(invocationIDs.admission).getByRole("link")).toHaveCount(
@@ -1932,7 +1934,7 @@ export async function runInvocations(
       name: `Invocation ${invocationIDs.policy}`,
       exact: true,
     }),
-  ).toHaveAttribute("href", `#/invocations/${invocationIDs.policy}`);
+  ).toHaveAttribute("href", `#/activity/invocations/${invocationIDs.policy}`);
 
   const authorizationLabel = (id: string) =>
     page
@@ -2066,14 +2068,14 @@ export async function runInvocations(
   await page.getByRole("button", { name: "Load older invocations" }).click();
   await page.waitForFunction(
     (selector) => document.querySelector(selector) !== null,
-    `a[href="#/invocations/${invocationIDs.missing}"]`,
+    `a[href="#/activity/invocations/${invocationIDs.missing}"]`,
   );
   body = (await page.locator("body").textContent()) ?? "";
   if (!staleRestarted || body.includes(invocationIDs.stale))
     fail("stale invocation traversal was merged instead of restarted");
 
   await page
-    .locator(`a[href="#/invocations/${invocationIDs.missing}"]`)
+    .locator(`a[href="#/activity/invocations/${invocationIDs.missing}"]`)
     .click();
   await page.locator('[data-testid="invocation-detail"]').waitFor();
   const detailAuthorization = page
@@ -2131,12 +2133,12 @@ export async function runInvocations(
     ).includes("ID") ||
     (await page
       .locator(
-        `[data-testid="invocation-detail"] a[href="#/principals/${invocationIDs.principal}"]`,
+        `[data-testid="invocation-detail"] a[href="#/access/principals/${invocationIDs.principal}"]`,
       )
       .count()) !== 1 ||
     (await page
       .locator(
-        `[data-testid="invocation-detail"] a[href="#/grants/${invocationIDs.grant}"]`,
+        `[data-testid="invocation-detail"] a[href="#/access/grants/${invocationIDs.grant}"]`,
       )
       .count()) !== 1
   )

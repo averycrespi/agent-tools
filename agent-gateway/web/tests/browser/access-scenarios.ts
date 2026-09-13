@@ -101,7 +101,7 @@ export async function runReadOnlyBackendFlow(
 ): Promise<void> {
   // No route fixtures: all domain reads and mutations reach the real Gateway.
   await page.evaluate(() => {
-    window.location.hash = "#/requests";
+    window.location.hash = "#/access/requests";
   });
   await waitForLifecycle(page, "signed_out");
   await page.getByTestId("admin-bearer-input").fill(bearer);
@@ -136,7 +136,7 @@ export async function runReadOnlyBackendFlow(
   await captureRequestState(page, "backend-read-only-approved");
   const createdGrant = page
     .getByTestId("request-detail")
-    .locator('a[href^="#/grants/"]')
+    .locator('a[href^="#/access/grants/"]')
     .first();
   await createdGrant.click();
   await expect(page.getByTestId("grant-detail")).toContainText(
@@ -323,7 +323,7 @@ export async function runAccessManagementReadCanary(
   const destinations: Array<[string, string]> = [
     [`#/access/principals/${principalID}`, "principal-detail"],
     [`#/access/grants/${grantID}`, "grant-detail"],
-    [`#/requests/${requestID}`, "request-detail"],
+    [`#/access/requests/${requestID}`, "request-detail"],
   ];
   for (const [hash, testID] of destinations) {
     await page.evaluate((target) => {
@@ -740,7 +740,8 @@ export async function runPrincipals(
     .locator('dialog[aria-labelledby="unsaved-changes-title"]')
     .waitFor({ state: "hidden" });
   if (
-    (await page.evaluate(() => window.location.hash)) !== "#/principals/new" ||
+    (await page.evaluate(() => window.location.hash)) !==
+      "#/access/principals/new" ||
     (await page
       .locator('[data-testid="principal-display-name"]')
       .inputValue()) !== "New automation"
@@ -810,7 +811,7 @@ export async function runPrincipals(
     ).principalDetailFlashed = false;
     new MutationObserver(() => {
       if (
-        window.location.hash === `#/principals/${id}` &&
+        window.location.hash === `#/access/principals/${id}` &&
         document
           .querySelector('[data-testid="principal-detail"]')
           ?.textContent?.includes("Build agent")
@@ -1820,7 +1821,7 @@ export async function runGrantReadsCreate(
   await captureRequestState(page, "grant-table");
   if (
     (await firstGrantRow
-      .locator(`a[href="#/grants/${firstGrantID}"]`)
+      .locator(`a[href="#/access/grants/${firstGrantID}"]`)
       .count()) !== 1 ||
     (await firstGrantRow.locator("th .table-primary a").textContent()) !==
       active.description
@@ -1838,7 +1839,7 @@ export async function runGrantReadsCreate(
     fail("dedicated Grants page retained subordinate introductory copy");
   const grantCreate = page.locator('[data-testid="grant-create-link"]');
   if (
-    (await grantCreate.getAttribute("href")) !== "#/grants/new" ||
+    (await grantCreate.getAttribute("href")) !== "#/access/grants/new" ||
     !(await grantCreate.evaluate((element) =>
       element.classList.contains("create-action"),
     )) ||
@@ -3246,7 +3247,7 @@ export async function runRequestReads(
   });
 
   await page.evaluate(() => {
-    window.location.hash = "#/requests";
+    window.location.hash = "#/access/requests";
   });
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -3489,7 +3490,7 @@ export async function runRequestReads(
 
   const navigate = async (id: string) => {
     await page.evaluate((requestID) => {
-      window.location.hash = `#/requests/${requestID}`;
+      window.location.hash = `#/access/requests/${requestID}`;
     }, id);
     await page.locator(`[data-request-id="${id}"]`).waitFor();
     const requestDetail = page.locator('[data-testid="request-detail"]');
@@ -3521,13 +3522,14 @@ export async function runRequestReads(
   ])
     if (!body.includes(phrase)) fail(`request detail omitted ${phrase}`);
   if (
-    (await page.locator(`a[href="#/principals/${principalID}"]`).count()) ===
-      0 ||
     (await page
-      .locator(`a[href="#/servers/${serverID}?tab=tools"]`)
+      .locator(`a[href="#/access/principals/${principalID}"]`)
       .count()) === 0 ||
     (await page
-      .locator(`a[href="#/servers/${serverID}/descriptors/${toolID}"]`)
+      .locator(`a[href="#/mcp/servers/${serverID}?tab=tools"]`)
+      .count()) === 0 ||
+    (await page
+      .locator(`a[href="#/mcp/servers/${serverID}/descriptors/${toolID}"]`)
       .count()) === 0
   )
     fail("request detail omitted reciprocal navigation");
@@ -3542,7 +3544,7 @@ export async function runRequestReads(
   });
   await expect(
     approvedDecision.getByRole("link", { name: grantID, exact: true }),
-  ).toHaveAttribute("href", `#/grants/${grantID}`);
+  ).toHaveAttribute("href", `#/access/grants/${grantID}`);
   await expect(approvedDecision).not.toContainText("ordinary ALLOW");
   await expect(approvedDecision).not.toContainText("This historical link");
   await captureRequestState(page, "approved-deleted");
@@ -3956,7 +3958,7 @@ export async function runRequestAdjudication(
 
   const navigate = async (id: string, narrow = true) => {
     await page.evaluate((requestID) => {
-      window.location.hash = `#/requests/${requestID}`;
+      window.location.hash = `#/access/requests/${requestID}`;
     }, id);
     await page.locator(`[data-request-id="${id}"]`).waitFor();
     await page.locator('[data-testid="request-actions"]').waitFor();
@@ -3981,7 +3983,7 @@ export async function runRequestAdjudication(
   };
 
   await page.evaluate((id) => {
-    window.location.hash = `#/requests/${id}`;
+    window.location.hash = `#/access/requests/${id}`;
   }, ids[0]);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);

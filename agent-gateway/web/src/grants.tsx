@@ -847,7 +847,7 @@ function GrantCreate({
             setConfirming(false);
             void controller.submit().then((outcome) => {
               if (outcome.kind === "acknowledged")
-                navigate(`#/grants/${outcome.value.id}`, true);
+                navigate(`#/access/grants/${outcome.value.id}`, true);
             });
           }}
         />
@@ -1094,7 +1094,7 @@ function GrantActions({
     await refreshPolicy();
     controller.abandon();
     if (!correction) {
-      window.location.hash = "#/grants";
+      window.location.hash = "#/access/grants";
       return;
     }
     if (phase === "configure") {
@@ -1115,7 +1115,9 @@ function GrantActions({
     const destination =
       outcome.value.kind === "created" ? outcome.value.grant.id : replacementID;
     window.location.hash =
-      destination === undefined ? "#/grants" : `#/grants/${destination}`;
+      destination === undefined
+        ? "#/access/grants"
+        : `#/access/grants/${destination}`;
   };
   const cancelConfirmation = () => {
     setConfirming(false);
@@ -1409,7 +1411,7 @@ export function Grants({
     return (
       <div class="domain-view" data-testid="grant-detail">
         <nav class="detail-navigation" aria-label="Grant navigation">
-          <a href="#/grants">Back to grants</a>
+          <a href="#/access/grants">Back to grants</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
@@ -1443,7 +1445,7 @@ export function Grants({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/principals/${detail.principalID}`}>
+                <a href={`#/access/principals/${detail.principalID}`}>
                   {principal?.displayName ?? `Principal ${detail.principalID}`}
                 </a>
               </dd>
@@ -1454,7 +1456,7 @@ export function Grants({
                 {detail.serverID === "00000000000000000000000000" ? (
                   "Gateway self-service tools"
                 ) : (
-                  <a href={`#/servers/${detail.serverID}?tab=tools`}>
+                  <a href={`#/mcp/servers/${detail.serverID}?tab=tools`}>
                     {server?.displayName ?? `Server ${detail.serverID}`}
                   </a>
                 )}
@@ -1574,7 +1576,7 @@ function GrantCollection({
       <div class="collection-toolbar">
         <a
           class="button-link create-action"
-          href="#/grants/new"
+          href="#/access/grants/new"
           data-testid="grant-create-link"
         >
           Create grant
@@ -1647,7 +1649,7 @@ function GrantCollection({
               render: (grant) => (
                 <TableIdentity
                   primary={
-                    <a href={`#/grants/${grant.id}`}>
+                    <a href={`#/access/grants/${grant.id}`}>
                       {grant.description ?? "Unnamed grant"}
                     </a>
                   }
@@ -1662,7 +1664,7 @@ function GrantCollection({
               sortValue: (grant) =>
                 principalNames.get(grant.principalID) ?? grant.principalID,
               render: (grant) => (
-                <a href={`#/principals/${grant.principalID}`}>
+                <a href={`#/access/principals/${grant.principalID}`}>
                   {principalNames.get(grant.principalID) ??
                     `Principal ${grant.principalID}`}
                 </a>
@@ -1678,7 +1680,7 @@ function GrantCollection({
                 grant.serverID === "00000000000000000000000000" ? (
                   `Gateway self-service tools${grant.readOnly ? " — Read-only tools" : ""}`
                 ) : (
-                  <a href={`#/servers/${grant.serverID}?tab=tools`}>
+                  <a href={`#/mcp/servers/${grant.serverID}?tab=tools`}>
                     {serverNames.get(grant.serverID) ??
                       `Server ${grant.serverID}`}
                     {grant.upstreamName === null

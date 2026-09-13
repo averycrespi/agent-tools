@@ -17,6 +17,7 @@ export type Destination =
 
 export interface ApplicationLocation {
   destination: Destination;
+  // Logical destination-relative segments; domain prefixes belong to this owner.
   segments: readonly string[];
   query: Readonly<Record<string, string>>;
 }
@@ -27,11 +28,24 @@ export interface ResolvedLocation {
   invalid: boolean;
 }
 
+export const destinationPaths: Readonly<Record<Destination, string>> = {
+  overview: "overview",
+  servers: "mcp/servers",
+  catalog: "mcp/tools",
+  principals: "access/principals",
+  grants: "access/grants",
+  requests: "access/requests",
+  invocations: "activity/invocations",
+  audit: "activity/audit",
+  system: "system",
+  "sign-in": "sign-in",
+};
+
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const serverTabs = new Set([
   "status",
   "tools",
-  "activity",
+  "operations",
   "authentication",
   "settings",
 ]);
@@ -47,7 +61,7 @@ function isGatewayID(value: string): boolean {
 
 function parseQuery(raw: string): Record<string, string> | undefined {
   if (raw === "") return {};
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = Object.create(null);
   for (const member of raw.split("&")) {
     if (member === "" || member.indexOf("=") <= 0) return undefined;
     const separator = member.indexOf("=");
@@ -60,7 +74,12 @@ function parseQuery(raw: string): Record<string, string> | undefined {
     } catch {
       return undefined;
     }
-    if (value === "" || Object.hasOwn(result, key)) return undefined;
+    if (
+      value === "" ||
+      Object.hasOwn(result, key) ||
+      Object.hasOwn(Object.prototype, key)
+    )
+      return undefined;
     result[key] = value;
   }
   return result;
@@ -79,12 +98,8 @@ function exactQuery(
   validators: Readonly<Record<string, (value: string) => boolean>>,
 ): boolean {
   for (const [key, value] of Object.entries(query)) {
-    const validate = validators[key];
-    if (validate === undefined) {
-      if (!isCollectionFilter(key, value)) return false;
-      continue;
-    }
-    if (!validate(value)) return false;
+    if (!Object.hasOwn(validators, key) || !validators[key]!(value))
+      return false;
   }
   return true;
 }
@@ -181,7 +196,7 @@ function serverCollectionQuery(
 
 function operationCollectionQuery(query: Record<string, string>): boolean {
   const values: Record<string, readonly string[]> = {
-    tab: ["activity"],
+    tab: ["operations"],
     sort: ["action", "status", "created", "started", "outcome"],
     direction: ["ascending", "descending"],
     filter_action: [
@@ -245,14 +260,16 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   ) {
     return undefined;
   }
-  let segments = path.split("/");
+  const destination = (Object.keys(destinationPaths) as Destination[]).find(
+    (key) =>
+      path === destinationPaths[key] ||
+      path.startsWith(`${destinationPaths[key]}/`),
+  );
+  if (destination === undefined) return undefined;
+  const suffix = path.slice(destinationPaths[destination].length);
+  const segments = [destination, ...suffix.split("/").slice(1)];
   const query = parseQuery(rawQuery);
   if (query === undefined) return undefined;
-  if (
-    segments[0] === "access" &&
-    (segments[1] === "principals" || segments[1] === "grants")
-  )
-    segments = segments.slice(1);
   const noQuery = Object.keys(query).length === 0;
   const [first, second, third, fourth] = segments;
 
@@ -273,7 +290,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       if (
         query.tab === "tools"
           ? serverCollectionQuery(query, "descriptors")
-          : query.tab === "activity"
+          : query.tab === "operations"
             ? operationCollectionQuery(query)
             : exactQuery(query, { tab: (value) => serverTabs.has(value) })
       ) {
@@ -393,11 +410,11 @@ const queryOrder: Readonly<Record<string, readonly string[]>> = {
 export function serializeLocation(value: ApplicationLocation): string {
   const path = value.segments.join("/");
   const query = { ...value.query };
-  if (path.startsWith("servers/") && query.tab === "overview") delete query.tab;
+  if (path.startsWith("servers/") && query.tab === "status") delete query.tab;
   if (path === "system" && query.tab === "status") delete query.tab;
   const fixedKeys =
     queryOrder[path] ??
-    (query.tab === "tools" || query.tab === "activity"
+    (query.tab === "tools" || query.tab === "operations"
       ? ["tab", "sort", "direction"]
       : Object.hasOwn(query, "tab")
         ? ["tab"]
@@ -413,7 +430,11 @@ export function serializeLocation(value: ApplicationLocation): string {
     .map(
       (key) => `${encodeURIComponent(key)}=${encodeURIComponent(query[key]!)}`,
     );
-  return `#/${path}${members.length === 0 ? "" : `?${members.join("&")}`}`;
+  const canonicalPath = [
+    destinationPaths[value.destination],
+    ...value.segments.slice(1),
+  ].join("/");
+  return `#/${canonicalPath}${members.length === 0 ? "" : `?${members.join("&")}`}`;
 }
 
 export function resolveFragment(
