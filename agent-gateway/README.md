@@ -88,7 +88,7 @@ Generated `agent-gateway --help` and subcommand help are the exact command refer
 - Create principals, issue agent credentials, and manage grants or requests with [Access control](docs/operators/access-control.md). For Pi in a Lima guest, follow [agent provisioning](docs/operators/access-control.md#provision-a-pi-agent-in-a-lima-sandbox).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
 - Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrators destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
-- Create backups or perform stopped-process verification, restore, and administrator reset with [Backup, restore, and recovery](docs/operators/backup-and-recovery.md).
+- Use `agent-gateway storage verify` or `agent-gateway backup restore BACKUP_ID` for stopped recovery. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.
 
 Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.
 

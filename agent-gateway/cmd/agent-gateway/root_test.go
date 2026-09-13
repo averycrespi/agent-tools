@@ -84,7 +84,7 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 
 	require.Equal(t, "agent-gateway", cmd.Use)
 	require.Contains(t, cmd.Short, "deny-by-default")
-	for _, path := range [][]string{{"admin", "reset"}, {"initialize"}, {"restore"}, {"serve"}} {
+	for _, path := range [][]string{{"admin", "reset"}, {"initialize"}, {"backup", "restore"}, {"storage", "verify"}, {"serve"}} {
 		command, _, err := cmd.Find(path)
 		require.NoError(t, err)
 		assert.Equal(t, path[len(path)-1], command.Name())
@@ -356,15 +356,14 @@ func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"restore", "--verify-current", "--data-dir", root, "--output", "json"})
+	command.SetArgs([]string{"storage", "verify", "--data-dir", root, "--output", "json"})
 	require.NoError(t, command.ExecuteContext(ctx))
 
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
 	assert.Equal(t, map[string]any{
 		"ok":              true,
-		"operation":       "restore",
-		"mode":            "verify_current",
+		"operation":       "storage_verify",
 		"installation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		"revision":        "0",
 	}, result)
@@ -395,7 +394,7 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	command = newRootCmd()
 	command.SetOut(new(bytes.Buffer))
 	command.SetErr(stderr)
-	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--output", "json"})
+	command.SetArgs([]string{"backup", "restore", artifact.ID, "--data-dir", root, "--output", "json"})
 	err = command.ExecuteContext(ctx)
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
@@ -406,11 +405,12 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	command = newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--secret-output", secret, "--output", "json"})
+	command.SetArgs([]string{"backup", "restore", artifact.ID, "--data-dir", root, "--secret-output", secret, "--output", "json"})
 	require.NoError(t, command.ExecuteContext(ctx))
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
-	assert.Equal(t, "backup", result["mode"])
+	assert.Equal(t, "backup_restore", result["operation"])
+	assert.NotContains(t, result, "mode")
 	assert.Equal(t, artifact.ID, result["backup_id"])
 	published, err := os.ReadFile(secret)
 	require.NoError(t, err)
@@ -421,7 +421,7 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	command = newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"restore", artifact.ID, "--data-dir", root, "--secret-output", humanSecret})
+	command.SetArgs([]string{"backup", "restore", artifact.ID, "--data-dir", root, "--secret-output", humanSecret})
 	require.NoError(t, command.ExecuteContext(ctx))
 	assert.Contains(t, stdout.String(), "cannot be shown again")
 	humanBearer, err := os.ReadFile(humanSecret)
@@ -431,9 +431,12 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 
 func TestRestoreRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {
 	for _, args := range [][]string{
-		{"restore", "--output", "json"},
-		{"restore", "unexpected", "--output", "json"},
-		{"restore", "--output", "json", "--unknown-flag"},
+		{"backup", "restore", "--output", "json"},
+		{"backup", "restore", "unexpected", "--output", "json"},
+		{"backup", "restore", "--output", "json", "--unknown-flag"},
+		{"backup", "restore", "--json", "--verify-current"},
+		{"storage", "verify", "unexpected", "--json"},
+		{"storage", "verify", "--json", "--secret-output", "unused"},
 	} {
 		stdout := new(bytes.Buffer)
 		stderr := new(bytes.Buffer)
@@ -462,7 +465,7 @@ func TestRestoreVerifyCurrentFailureIsSafeAndNonzero(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"restore", "--verify-current", "--data-dir", root, "--output", "json"})
+	command.SetArgs([]string{"storage", "verify", "--data-dir", root, "--output", "json"})
 	err = command.ExecuteContext(context.Background())
 	require.Error(t, err)
 	assert.Equal(t, 5, commandExitCode(err))

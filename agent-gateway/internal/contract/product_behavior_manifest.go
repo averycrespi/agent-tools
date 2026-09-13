@@ -2,7 +2,7 @@ package contract
 
 import "strings"
 
-const ProductBehaviorManifestVersion = 2
+const ProductBehaviorManifestVersion = 3
 
 type ProductBehavior struct {
 	ID            string
@@ -83,7 +83,7 @@ var productCapabilityIDs = []string{
 }
 
 var productLifecycleIDs = []string{
-	"web-exchange", "web-bootstrap", "web-logout", "web-events", "cli-bearer", "cli-initialize", "cli-admin-reset", "cli-restore",
+	"web-exchange", "web-bootstrap", "web-logout", "web-events", "cli-bearer", "cli-initialize", "cli-admin-reset", "cli-storage-verify", "cli-backup-restore",
 }
 
 var securityBehaviorIDs = []string{

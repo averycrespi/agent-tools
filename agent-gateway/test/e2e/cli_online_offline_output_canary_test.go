@@ -32,11 +32,11 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(invocations.Stdout, &page))
 	assert.Empty(t, page.Items)
 
-	restore, err := harness.runner.Run(context.Background(), harness.binary, "restore", "--verify-current", "--data-dir", harness.root, "--output", "json")
+	restore, err := harness.runner.Run(context.Background(), harness.binary, "storage", "verify", "--data-dir", harness.root, "--output", "json")
 	require.Error(t, err)
 	assert.Equal(t, 5, restore.ExitCode)
 	assert.Empty(t, restore.Stdout)
-	assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before verifying or restoring the installation.","exit_code":5,"uncertain":false}`, string(restore.Stderr))
+	assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before verifying current storage.","exit_code":5,"uncertain":false}`, string(restore.Stderr))
 
 	harness.Stop(syscall.SIGTERM)
 	stopped := runOnlineCLI(t, harness, bearerPath, false, "status", "--output", "json")
