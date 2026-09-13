@@ -193,6 +193,9 @@ func TestControlTransport(t *testing.T) {
 			problem := ProjectBearerProblem(test.err, path)
 			assert.Equal(t, test.code, problem.Code)
 			assert.Equal(t, test.exit, problem.ExitCode())
+			if test.code == "client_bearer_oversized" || test.code == "client_bearer_malformed" {
+				assert.Contains(t, problem.Title, "created by Agent Gateway.")
+			}
 			assert.NotContains(t, problem.Title, "\x1b")
 			if test.code != "client_bearer_source_conflict" {
 				assert.Contains(t, problem.Title, `\u001b`)

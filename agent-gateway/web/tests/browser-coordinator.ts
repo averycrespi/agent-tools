@@ -774,7 +774,7 @@ try {
     }
     if (
       (await page.evaluate(() => document.cookie)).includes(
-        "mcp_gateway_session",
+        "agent_gateway_session",
       )
     ) {
       fail("HttpOnly session cookie became script-visible");

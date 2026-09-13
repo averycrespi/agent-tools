@@ -6,7 +6,7 @@ Choose documentation by the work you are doing. The same product and security co
 
 Start with the [Gateway README](../README.md) for installation and the quick start, then use the focused procedure for the task:
 
-- [Administrator CLI and local administration](operators/administration.md) — installation roots, startup, authentication, output, confirmation, and retry discipline.
+- [Administrator CLI and local administration](operators/administration.md) — installation roots, browser preference/session migration, startup, authentication, output, confirmation, and retry discipline.
 - [Stopped installation migration](operators/installation-migration.md) — root/service selection, atomic handover, interruption recovery and separate host-adoption evidence.
 - [Run as a macOS launchd agent](operators/launchd.md) — per-user startup, verification, graceful maintenance, and native-keyring caveats.
 - [Upstream server configuration](operators/upstream-servers.md) — servers, credentials, OAuth, operations, and catalogs.
@@ -14,7 +14,7 @@ Start with the [Gateway README](../README.md) for installation and the quick sta
 - [Invocation evidence](operators/invocation-evidence.md) — retained evidence, redaction, and unknown outcomes.
 - [Backup and recovery](operators/backup-and-recovery.md) — backups, verification, restore, and administrator reset.
 
-Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. The compatible `mcp-gateway` name accepts the same grammar; legacy examples and recovery output remain valid. Prefer `agent-gateway` for new commands. New installations use canonical naming; existing hosts use explicit roots or the separately authorized stopped migration procedure, never automatic relocation. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
+Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. The compatible `mcp-gateway` name accepts the same grammar; examples using that executable with the current grammar remain valid; retired API/CLI grammar does not. Prefer `agent-gateway` for new commands. New installations use canonical naming; existing hosts use explicit roots or the separately authorized stopped migration procedure, never automatic relocation. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
 
 ## Change Gateway
 

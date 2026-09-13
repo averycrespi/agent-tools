@@ -696,7 +696,7 @@ export async function runAudit(
     .poll(
       async () =>
         (await context.cookies(baseURL)).filter(
-          (cookie) => cookie.name === "mcp_gateway_session",
+          (cookie) => cookie.name === "agent_gateway_session",
         ).length,
     )
     .toBe(0);

@@ -52,6 +52,7 @@ func TestBrowserFragmentStorage(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
+		Screenshots       string `json:"screenshots"`
 		Event             string `json:"event"`
 		ChromiumVersion   string `json:"chromium_version"`
 		PlaywrightVersion string `json:"playwright_version"`
@@ -59,6 +60,7 @@ func TestBrowserFragmentStorage(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "fragment_storage_complete", event.Event)
+	t.Logf("theme migration screenshots: %s", event.Screenshots)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)

@@ -135,7 +135,7 @@ adopt-acceptance-report:
 	@go run ./test/acceptance/cmd adopt-acceptance-report --report "$(REPORT)" --output "$(ADOPTION)"
 
 lint:
-	go tool golangci-lint run ./...
+	GOMEMLIMIT=512MiB GOGC=50 GOMAXPROCS=1 go tool golangci-lint run ./...
 
 fmt:
 	go tool goimports -w .
@@ -147,7 +147,7 @@ verify:
 	go mod tidy -diff
 	go mod verify
 	go tool golangci-lint fmt --diff
-	go tool golangci-lint run ./...
+	$(MAKE) lint
 
 audit: tidy fmt lint test
 	go tool govulncheck ./...

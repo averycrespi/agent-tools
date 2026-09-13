@@ -778,7 +778,7 @@ export async function runAdminCredentials(
       async () => (await context.cookies(baseURL)).map((cookie) => cookie.name),
       { timeout: 3000 },
     )
-    .not.toContain("mcp_gateway_session");
+    .not.toContain("agent_gateway_session");
   await waitForLifecycle(page, "signed_out");
   await assertSecretAbsent(
     page,

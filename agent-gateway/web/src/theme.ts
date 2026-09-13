@@ -1,7 +1,8 @@
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
-export const THEME_STORAGE_KEY = "mcp_gateway_theme";
+export const THEME_STORAGE_KEY = "agent_gateway_theme";
+const legacyStorageKey = "mcp_gateway_theme";
 const darkPreference = "(prefers-color-scheme: dark)";
 
 function isThemePreference(value: string | null): value is ThemePreference {
@@ -11,7 +12,15 @@ function isThemePreference(value: string | null): value is ThemePreference {
 export function readThemePreference(): ThemePreference {
   try {
     const value = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (isThemePreference(value)) return value;
+    if (isThemePreference(value)) {
+      writeThemePreference(value);
+      return value;
+    }
+    const legacy = window.localStorage.getItem(legacyStorageKey);
+    if (isThemePreference(legacy)) {
+      writeThemePreference(legacy);
+      return legacy;
+    }
     if (value !== null) window.localStorage.removeItem(THEME_STORAGE_KEY);
   } catch {
     return "system";
@@ -22,6 +31,8 @@ export function readThemePreference(): ThemePreference {
 export function writeThemePreference(value: ThemePreference): void {
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, value);
+    // Never destroy the only persisted preference if the canonical write fails.
+    window.localStorage.removeItem(legacyStorageKey);
   } catch {
     // Presentation remains usable when browser persistence is unavailable.
   }

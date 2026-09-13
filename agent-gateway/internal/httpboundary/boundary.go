@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
@@ -140,6 +141,18 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		writer.Header().Set("Allow", route.Allow())
 		writeProblem(writer, contract.ProblemMethodNotAllowed)
 		return
+	}
+
+	// Retirement is transport-only: the legacy cookie never selects authority.
+	// Run after early validation, but before authentication can reject old browsers.
+	if request.Header.Get("Origin") == boundary.origin &&
+		(route.Pattern == "/api/v2/admin-sessions" || route.Pattern == "/api/v2/admin-sessions/current") {
+		if _, err := request.Cookie(contract.LegacySessionCookieName); err == nil {
+			http.SetCookie(writer, &http.Cookie{ //nolint:gosec // The exact plain-loopback HTTP contract intentionally omits Secure.
+				Name: contract.LegacySessionCookieName, Path: "/", MaxAge: -1,
+				Expires: time.Unix(1, 0).UTC(), HttpOnly: true, SameSite: http.SameSiteStrictMode,
+			})
+		}
 	}
 
 	authority := contract.AuthorityForMethod(route, request.Method)

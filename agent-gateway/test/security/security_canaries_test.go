@@ -195,12 +195,13 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 		}
 		uses := strings.Count(text, "localStorage.")
 		if uses > 0 {
-			assert.Equal(t, "theme.ts", filepath.Base(path), path)
+			assert.Equal(t, filepath.Join(webRoot, "theme.ts"), path)
 			localStorageUses += uses
 		}
 		return nil
 	}))
-	assert.Equal(t, 3, localStorageUses, "only the closed theme preference may use browser storage")
+	// Two reads, one canonical write, malformed canonical removal and legacy retirement.
+	assert.Equal(t, 5, localStorageUses, "only the closed theme preference and its migration may use browser storage")
 
 	staticRoot := filepath.Join(root, "agent-gateway", "internal", "api", "static")
 	entries, err := os.ReadDir(staticRoot)

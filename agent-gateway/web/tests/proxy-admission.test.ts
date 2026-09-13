@@ -291,7 +291,7 @@ test("proxy admission projects exact target, Origin, headers, and body once", as
         headers: {
           Origin: context.frontendOrigin,
           Authorization: "Bearer observer",
-          Cookie: "mcp_gateway_session=observer",
+          Cookie: "agent_gateway_session=observer; mcp_gateway_session=legacy",
           "X-CSRF-Token": "csrf-observer",
           "Content-Type": "application/json",
           "Content-Length": String(Buffer.byteLength(body)),
@@ -317,7 +317,10 @@ test("proxy admission projects exact target, Origin, headers, and body once", as
       `http://127.0.0.1:${context.gatewayPort}`,
     );
     assert.equal(observed.headers.authorization, "Bearer observer");
-    assert.equal(observed.headers.cookie, "mcp_gateway_session=observer");
+    assert.equal(
+      observed.headers.cookie,
+      "agent_gateway_session=observer; mcp_gateway_session=legacy",
+    );
     assert.equal(observed.headers["x-csrf-token"], "csrf-observer");
     assert.equal(observed.headers["x-end-to-end"], "preserve");
     assert.equal(observed.headers["x-remove-me"], undefined);
@@ -381,7 +384,7 @@ test("proxy admission rejects confusable paths and API upgrades without upstream
 
 test("proxy response preserves safe headers, bodies, cookies, and redirects", async () => {
   const cookie =
-    "mcp_gateway_session=response-cookie; Path=/; HttpOnly; SameSite=Strict";
+    "agent_gateway_session=response-cookie; Path=/; HttpOnly; SameSite=Strict";
   const clearing =
     "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict";
   await withDevelopmentServer(
