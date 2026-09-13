@@ -1,8 +1,8 @@
 # Agent Gateway
 
-Audience: Human maintainers and coding agents changing Agent Gateway
+Audience: Gateway maintainers and coding agents
 
-Purpose: Repository commands, ownership, editing, and verification. Use the [documentation map](docs/README.md) for operator procedures and normative design.
+Purpose: Commands, ownership, editing and verification. The [documentation map](docs/README.md) links operator procedures and normative design.
 
 ## Development
 
@@ -50,9 +50,9 @@ npm run ui:verify-supply-chain
 npm run ui:audit
 ```
 
-Use `make serve-demo` for interactive feature-branch testing without touching the default installation or native keyring. `AGENT_GATEWAY_DEMO_DATASET=empty` selects first-run testing; curated is the default. The Go repository runner supports Linux and macOS, builds the existing `e2e` variant, and owns two local bounded HTTP fixtures outside the production graph. The shell entry point compiles its nonsecret bootstrap executable into ignored `.demo-bin/`; runtime data and credentials remain disposable. Python and Node are not needed to run the demo. `AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:PORT` overrides the default `127.0.0.1:8211`. Follow the frontend-development guide for credentials and sample workflows. This replaces the former temporary runner without an alias and does not qualify native-keyring behavior or persistence across Gateway restarts.
+Use `make serve-demo` for isolated feature testing, never default-installation/native-keyring access. Dataset defaults to curated; `AGENT_GATEWAY_DEMO_DATASET=empty` selects first run. The Linux/macOS Go runner builds the `e2e` variant and owns two bounded local HTTP fixtures outside production. Its shell entry compiles a nonsecret bootstrap into ignored `.demo-bin/`; data/credentials are disposable. No Python/Node is needed. `AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:PORT` overrides `127.0.0.1:8211`. See frontend development for credentials/workflows. The former runner has no alias; demo evidence qualifies neither native keyring nor persistence across restarts.
 
-The demo supervisor retains unreaped direct-child identities while signalling owned process groups, bounds build (300s), initialization/credential CLI (15s), startup/seeding (60s plus any active bounded CLI), HTTP (3s), output (1 MiB per stream), and TERM/KILL/reap cleanup. Required fixture exits fail the whole demo. Mutations are one-shot; readiness polling reads only. Cleanup failures retain the root and fail rather than deleting evidence of unconfirmed ownership. Go tests exercise real demo processes under the shared race-enabled Go runner; keep their single owner `test-serve-demo` disjoint from E2E and harness. The entire `test/demo` executable and its fixture-only test entry point use the `e2e` build tag. Each command runs beneath a small `/bin/sh` group owner: it reaps the command, reports its exit status through a private pipe, and stays alive until teardown. Arguments are positional, never interpolated into shell source; command children cannot inherit the status/control pipes. The parent fences the group before calling `Wait` on its owner, so it never signals a recycled identity. This uses the same implementation on Linux and macOS, without zombie inspection. Settled owners cannot be signalled again. Reaping is bounded to five seconds; the final group-absence probe allows at most two seconds for orphaned descendants to be reaped. A permission error during that final read-only probe is retried within the bound, never treated as proof of absence. The lifecycle tests resolve and preserve both `GOCACHE` and `GOMODCACHE` before isolating `HOME`, then clear `GOPATH` to exercise CI's default-path behavior. Dependency downloads must not move into each disposable account. CI runs the demo owner on both platforms.
+The demo supervisor retains unreaped child identities when signalling owned groups. Bounds: build 300s; initialization/credential CLI 15s; startup/seeding 60s plus active bounded CLI; HTTP 3s; output 1 MiB/stream; reap 5s; final group-absence probe 2s. Required fixture exits fail the demo. Mutations are one-shot; readiness polling is read-only. Failed cleanup retains the root and ownership evidence. Race-enabled real-process tests belong only to `test-serve-demo`, disjoint from E2E/harness. All `test/demo` code, including its fixture entry point, uses the `e2e` tag. Each command has a `/bin/sh` group owner that reaps it, reports exit through a private pipe and remains alive until teardown. Arguments are positional, never shell interpolation; children cannot inherit control/status pipes. The parent fences the group before `Wait`; settled/recycled identities are never signalled. Linux/macOS use the same implementation without zombie inspection. Final-probe permission errors may retry within its bound but never prove absence. The lifecycle tests resolve and preserve both `GOCACHE` and `GOMODCACHE` before isolating `HOME`, then clear `GOPATH` to exercise CI's default-path behavior. Dependency downloads must not move into each disposable account. CI runs the demo owner on both platforms.
 
 Use [frontend development](docs/maintainers/frontend-development.md) for the two-process live-reload trust boundary. Use [release verification](docs/maintainers/release-verification.md) for evidence tiers, acceptance, external qualification, and report adoption. Do not use a full acceptance run as the first integration or debugging loop.
 
@@ -66,7 +66,8 @@ internal/composition/        Sole production graph construction, binding, start,
 internal/controlclient/      Strict public-control CLI transport, I/O, sinks, problems, and exits
 internal/contract/           Canonical routes, problems, limits, states, representations, and manifests
 internal/strictjson/         Bounded strict JSON and token-preserving value tree
-internal/paths/              Owner-only installation paths and process ownership
+internal/paths/              Owner-only installation paths, process ownership and atomic relocation
+internal/installation/       Explicit stopped path-migration preflight and host inspection
 internal/storage/            SQLite identity, migrations, durability, and latch
 internal/servers/            Desired servers, operations, auth-flow lifecycle, and idempotency
 internal/catalog/            Durable descriptors, normalization, active publication, and routes
@@ -131,6 +132,7 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 
 ### Runtime, transport, and cleanup
 
+- Follow the [migration runbook](docs/operators/installation-migration.md): existing lock only, no recovery/marker clearing, whole-root exchange with tombstone, isolated tests and separate native consent. LaunchAgent commands are bounded to five seconds/1 MiB, retain child identity through cleanup and never replay mutations.
 - Runtime state, handles, routes, OAuth transients, sessions, and cursors are process-local. Never serialize or resume them after restart.
 - `internal/remote` is the sole production downstream/OAuth HTTP client and transport factory. The only separate client is `internal/controlclient` for public administration at numeric loopback or an explicitly selected trusted forwarding hostname.
 - Direct stdio uses validated absolute executables, literal arguments, exact working directories, clean environments, fresh process groups, bounded streams, and identity-validated TERM/KILL/reap cleanup. Never signal an unverified PID or treat unconfirmed stop as success.
@@ -163,4 +165,4 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 
 `cmd/agent-gateway` wires concrete adapters into narrow package-owned interfaces. Keep storage, keyring, HTTP, process, and protocol dependencies behind their owning packages. Avoid a shared monorepo module; copy small local interfaces and helpers when boundaries need the same shape.
 
-Use injectable clocks, entropy, sinks, runners, authenticators, and validators only where the owning behavior needs deterministic tests. Keep constructors and test seams package-private unless a public boundary is part of the product contract.
+Inject clocks, entropy, sinks, runners, authenticators and validators only for deterministic owner tests. Keep constructors/test seams package-private unless the product requires a public boundary.

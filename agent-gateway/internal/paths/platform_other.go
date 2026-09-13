@@ -7,6 +7,8 @@ import (
 	"os"
 )
 
+func RelocationCompleted(string, string) bool { return false }
+
 func validateOwner(os.FileInfo) error {
 	return fmt.Errorf("installation ownership validation is unsupported on this platform")
 }

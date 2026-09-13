@@ -46,7 +46,10 @@ func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 	if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
 		return Identity{}, fmt.Errorf("%w: backup path: %w", ErrInvalidDatabase, err)
 	}
-	database, err := sql.Open("sqlite3", dataSource(path, true, false))
+	// Published backups are closed single-file generations bound by their file
+	// digest. Immutable reads neither create sidecars nor consult unrelated WAL.
+	uri := &url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&immutable=1"}
+	database, err := sql.Open("sqlite3", uri.String())
 	if err != nil {
 		return Identity{}, fmt.Errorf("%w: open backup: %w", ErrInvalidDatabase, err)
 	}

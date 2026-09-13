@@ -83,7 +83,25 @@ func TestCLIExecutableNames(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv(e2eAccountHomeEnvironment, home)
 	t.Setenv("XDG_DATA_HOME", xdg)
-	root := filepath.Join(xdg, "mcp-gateway")
+	root := filepath.Join(xdg, "agent-gateway")
+	for _, selection := range []string{"legacy-only", "both"} {
+		t.Run(selection+" refuses implicit initialization", func(t *testing.T) {
+			base := t.TempDir()
+			t.Setenv("XDG_DATA_HOME", base)
+			require.NoError(t, os.Mkdir(filepath.Join(base, "mcp-gateway"), 0o700))
+			if selection == "both" {
+				require.NoError(t, os.Mkdir(filepath.Join(base, "agent-gateway"), 0o700))
+			}
+			for _, binary := range []string{preferred, legacy} {
+				refused, runErr := runner.Run(t.Context(), binary, "initialize", "--json")
+				require.Error(t, runErr)
+				assert.Empty(t, refused.Stdout)
+				assert.Contains(t, string(refused.Stderr), "installation-migration.md")
+				_, statErr := os.Lstat(filepath.Join(base, "agent-gateway", "gateway.db"))
+				assert.ErrorIs(t, statErr, os.ErrNotExist)
+			}
+		})
+	}
 	initialized, err := runner.Run(t.Context(), legacy, "initialize", "--json")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)
@@ -183,7 +201,7 @@ func TestCLIExecutableNames(t *testing.T) {
 		assert.Equal(t, artifact.InstallationID, result["installation_id"])
 		assert.Equal(t, artifact.ID, result["backup_id"])
 	}
-	assertDirectoryEntries(t, xdg, []string{"mcp-gateway"})
+	assertDirectoryEntries(t, xdg, []string{"agent-gateway"})
 	assertDirectoryEntries(t, home, nil)
 	preserved, err := os.ReadFile(filepath.Join(root, "admin-bearer"))
 	require.NoError(t, err)
@@ -193,6 +211,6 @@ func TestCLIExecutableNames(t *testing.T) {
 	accountInitialized, err := runner.Run(t.Context(), preferred, "initialize", "--json")
 	require.NoError(t, err, "initialize account default: %s", accountInitialized.Stderr)
 	assertSettledResult(t, accountInitialized)
-	assertDefaultBearer(t, filepath.Join(home, ".local", "share", "mcp-gateway", "admin-bearer"))
-	assertDirectoryEntries(t, filepath.Join(home, ".local", "share"), []string{"mcp-gateway"})
+	assertDefaultBearer(t, filepath.Join(home, ".local", "share", "agent-gateway", "admin-bearer"))
+	assertDirectoryEntries(t, filepath.Join(home, ".local", "share"), []string{"agent-gateway"})
 }

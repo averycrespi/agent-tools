@@ -26,7 +26,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Native keyring operations may prompt", "## Coexistence with MCP Broker",
 		},
 		"../../docs/operators/administration.md": {
-			"$XDG_DATA_HOME/mcp-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
+			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
 		},
 		"../../docs/operators/backup-and-recovery.md": {
 			"Gateway must be stopped", "agent-gateway storage verify", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
