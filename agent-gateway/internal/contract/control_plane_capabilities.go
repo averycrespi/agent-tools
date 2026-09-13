@@ -66,6 +66,7 @@ func ControlPlaneLifecycleManifest() []ControlPlaneCapability {
 		{ID: "cli-bearer", Operation: "CLI bearer acquisition", CLIUses: []string{"--admin-bearer-file PATH", "--admin-bearer-stdin"}, Mechanics: "owner-only explicit file/exclusive stdin/resolved default file", CLIScenario: "cli.bearer"},
 		{ID: "cli-initialize", Operation: "Stopped initialize", CLIUses: []string{"initialize"}, Mechanics: "offline compatibility", CLIScenario: "cli.initialize"},
 		{ID: "cli-admin-reset", Operation: "Stopped admin reset", CLIUses: []string{"admin reset"}, Mechanics: "stopped all-authority recovery", CLIScenario: "cli.admin-reset"},
-		{ID: "cli-restore", Operation: "Stopped restore", CLIUses: []string{"restore"}, Mechanics: "offline compatibility", CLIScenario: "cli.restore"},
+		{ID: "cli-storage-verify", Operation: "Stopped current storage verification", CLIUses: []string{"storage verify"}, Mechanics: "exclusive ownership; recognized recovery only; no replacement", CLIScenario: "cli.storage-verify"},
+		{ID: "cli-backup-restore", Operation: "Stopped backup restore", CLIUses: []string{"backup restore BACKUP_ID"}, Mechanics: "exclusive ownership; verified lineage; one-time replacement bearer; no replay", CLIScenario: "cli.backup-restore"},
 	}
 }

@@ -113,7 +113,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 
 	processResults = append(processResults, harness.Stop(syscall.SIGTERM))
 	restoreSecret := filepath.Join(t.TempDir(), "restore-admin")
-	restoreArgs := []string{"restore", artifact.ID, "--data-dir", harness.root, "--secret-output", restoreSecret, "--output", "json"}
+	restoreArgs := []string{"backup", "restore", artifact.ID, "--data-dir", harness.root, "--secret-output", restoreSecret, "--output", "json"}
 	appendArgumentEvidence(t, &evidence, restoreArgs)
 	restoreResult, err := harness.runner.Run(harness.ctx, harness.binary, restoreArgs...)
 	require.NoError(t, err, string(restoreResult.Stderr))
@@ -124,15 +124,13 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 	var restoredCommand struct {
 		OK             bool   `json:"ok"`
 		Operation      string `json:"operation"`
-		Mode           string `json:"mode"`
 		InstallationID string `json:"installation_id"`
 		Revision       string `json:"revision"`
 		BackupID       string `json:"backup_id"`
 	}
 	require.NoError(t, json.Unmarshal(restoreResult.Stdout, &restoredCommand))
 	assert.True(t, restoredCommand.OK)
-	assert.Equal(t, "restore", restoredCommand.Operation)
-	assert.Equal(t, "backup", restoredCommand.Mode)
+	assert.Equal(t, "backup_restore", restoredCommand.Operation)
 	assert.Equal(t, artifact.InstallationID, restoredCommand.InstallationID)
 	assert.Equal(t, artifact.ID, restoredCommand.BackupID)
 	sourceRevision, err := strconv.Atoi(artifact.SourceRevision)

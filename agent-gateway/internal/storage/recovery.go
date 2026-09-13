@@ -16,7 +16,7 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 	ownership, err := gatewaypaths.AcquireForMaintenance(root)
 	if err != nil {
 		if errors.Is(err, gatewaypaths.ErrInUse) {
-			return Identity{}, fmt.Errorf("verify-current requires a stopped Gateway: %w", err)
+			return Identity{}, fmt.Errorf("storage verify requires a stopped Gateway: %w", err)
 		}
 		return Identity{}, fmt.Errorf("acquire stopped-process ownership: %w", err)
 	}
@@ -30,7 +30,7 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 		return Identity{}, err
 	}
 	if version != CurrentSchema {
-		return Identity{}, fmt.Errorf("%w: verify-current requires schema %d, found %d", ErrInvalidDatabase, CurrentSchema, version)
+		return Identity{}, fmt.Errorf("%w: storage verify requires schema %d, found %d", ErrInvalidDatabase, CurrentSchema, version)
 	}
 	store, err := openConfigured(ctx, layout, testOptions{})
 	if err != nil {

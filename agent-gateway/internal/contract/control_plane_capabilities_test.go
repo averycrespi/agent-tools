@@ -31,7 +31,7 @@ func TestControlPlaneCapabilityManifest(t *testing.T) {
 	assert.NotEqual(t, "changed", ControlPlaneCapabilityManifest()[0].CLIUses[0])
 
 	lifecycle := ControlPlaneLifecycleManifest()
-	require.Len(t, lifecycle, 8)
+	require.Len(t, lifecycle, 9)
 	var lifecycleIDs []string
 	for _, row := range lifecycle {
 		lifecycleIDs = append(lifecycleIDs, "product.lifecycle."+strings.ReplaceAll(row.ID, "-", "."))
