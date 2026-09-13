@@ -10,19 +10,21 @@ import (
 )
 
 const (
-	InstallationName   = "mcp-gateway"
-	AdminBearerName    = "admin-bearer"
-	DatabaseName       = "gateway.db"
-	LockName           = "gateway.lock"
-	RunMarkerName      = "run.unclean"
-	MutationMarkerName = "mutation.intent"
-	BackupsName        = "backups"
+	InstallationName       = "agent-gateway"
+	LegacyInstallationName = "mcp-gateway"
+	AdminBearerName        = "admin-bearer"
+	DatabaseName           = "gateway.db"
+	LockName               = "gateway.lock"
+	RunMarkerName          = "run.unclean"
+	MutationMarkerName     = "mutation.intent"
+	BackupsName            = "backups"
 )
 
 var (
-	ErrUnsafePath = errors.New("unsafe installation path")
-	ErrInUse      = errors.New("installation is already in use")
-	ErrClosed     = errors.New("installation ownership is closed")
+	ErrUnsafePath        = errors.New("unsafe installation path")
+	ErrInUse             = errors.New("installation is already in use")
+	ErrClosed            = errors.New("installation ownership is closed")
+	ErrMigrationRequired = errors.New("installation selection requires explicit migration or --data-dir; see docs/operators/installation-migration.md")
 )
 
 type Layout struct {
@@ -73,6 +75,16 @@ func resolveInstallation(explicitRoot, xdgDataHome string, home func() (string, 
 			return Layout{}, fmt.Errorf("%w: current user home must be an absolute path", ErrUnsafePath)
 		}
 		root = filepath.Join(filepath.Clean(homeDirectory), ".local", "share", InstallationName)
+	}
+	if explicitRoot == "" {
+		legacy := filepath.Join(filepath.Dir(root), LegacyInstallationName)
+		if _, err := os.Lstat(legacy); err == nil {
+			if !RelocationCompleted(legacy, root) {
+				return Layout{}, ErrMigrationRequired
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return Layout{}, ErrMigrationRequired
+		}
 	}
 	return layoutForRoot(root), nil
 }

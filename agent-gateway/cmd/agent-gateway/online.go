@@ -239,7 +239,7 @@ func acquireOnlineAdminBearer(command *cobra.Command, options *onlineOptions) (o
 		}
 		layout, err := gatewaypaths.Resolve(dataDir)
 		if err != nil {
-			return onlineAdminBearer{}, controlclient.NewInputError("The selected data directory is invalid.")
+			return onlineAdminBearer{}, installationSelectionProblem(err)
 		}
 		selectedPath = layout.AdminBearer
 	}

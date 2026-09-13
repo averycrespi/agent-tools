@@ -54,7 +54,7 @@ From the `agent-gateway` directory:
 make install
 ```
 
-This installs both `agent-gateway` (recommended) and the compatible `mcp-gateway` name into `$(go env GOPATH)/bin`. Both run one command implementation and share the existing data directory, SQLite database, administrator authority, and process lock. Existing commands and integrations continue working; do not reinitialize, migrate state, or replace an installed service merely for the rename. The source directory and Go module are `agent-gateway`; installed identities remain unchanged. See [Administrator CLI and local administration](docs/operators/administration.md) for installation paths and credential selection.
+This installs `agent-gateway` (recommended) and compatible `mcp-gateway` into `$(go env GOPATH)/bin`, sharing one implementation, root and lock. New installations use canonical paths and service naming; legacy defaults refuse rather than initialize another root. Existing explicit-root commands remain supported. Follow [stopped installation migration](docs/operators/installation-migration.md) for separately authorized host adoption—never reinitialize or rotate credentials for naming. [Administration](docs/operators/administration.md) covers path and credential selection.
 
 ## Quick start
 

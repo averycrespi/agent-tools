@@ -27,9 +27,9 @@ type productionSource struct {
 func TestProductionSourceOwnershipGuards(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	allowedExec := func(path string) bool {
-		return path == "cmd/agent-gateway/online_auth_flows.go" || path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
+		return path == "internal/installation/migrate_unix.go" || path == "cmd/agent-gateway/online_auth_flows.go" || path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
 	}
-	processConstructors := map[string]string{"cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
+	processConstructors := map[string]string{"internal/installation/migrate_unix.go": "CommandContext", "cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
 	allowedHTTP := map[string]bool{"internal/remote/remote.go": true, "internal/controlclient/controlclient.go": true}
 	allowedSDK := map[string]bool{"internal/dependencies/dependencies.go": true, "internal/mcpingress/handler.go": true}
 	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}
@@ -72,6 +72,12 @@ func TestProductionSourceOwnershipGuards(t *testing.T) {
 					expected, owned := processConstructors[source.path]
 					if !owned || selector.Sel.Name != expected {
 						t.Errorf("%s: misplaced process constructor exec.%s", source.path, selector.Sel.Name)
+					}
+					if source.path == "internal/installation/migrate_unix.go" {
+						require.GreaterOrEqual(t, len(value.Args), 2)
+						executable, literal := value.Args[1].(*ast.BasicLit)
+						require.True(t, literal, "migration inspection must use a fixed native executable")
+						assert.Contains(t, []string{`"/bin/launchctl"`, `"/bin/ps"`}, executable.Value)
 					}
 					if len(value.Args) != 0 {
 						if executable, literal := value.Args[0].(*ast.BasicLit); literal && strings.Contains(strings.Trim(executable.Value, `"`), "sh") {

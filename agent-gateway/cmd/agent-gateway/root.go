@@ -61,6 +61,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),
 		newStorageCmd(dependencies),
+		newInstallationCmd(),
 		newServeCmd(dependencies),
 	)
 	for _, online := range newOnlineCommands() {
@@ -97,7 +98,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
-				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
+				return writeOfflineProblem(command, options.Output, installationSelectionProblem(err))
 			}
 			level, valid := diagnostics.ParseLevel(logLevel)
 			if !valid {
@@ -560,7 +561,7 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
-				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
+				return writeOfflineProblem(command, options.Output, installationSelectionProblem(err))
 			}
 			secretPath := secretOutput
 			if operation == "initialize" && secretPath == "" {
@@ -784,7 +785,7 @@ func newRecoveryCmd(dependencies offlineDependencies, verify bool) *cobra.Comman
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
-				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The selected data directory is invalid."))
+				return writeOfflineProblem(command, options.Output, installationSelectionProblem(err))
 			}
 			if !verify && secretOutput == "" {
 				return writeOfflineProblem(command, options.Output, offlineUsageProblem("The --secret-output flag is required when restoring a backup.", usage))

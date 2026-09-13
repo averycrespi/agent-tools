@@ -7,10 +7,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>dev.agent-tools.mcp-gateway</string>
+    <string>dev.agent-tools.agent-gateway</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/ABSOLUTE/PATH/TO/mcp-gateway</string>
+        <string>/ABSOLUTE/PATH/TO/agent-gateway</string>
         <string>serve</string>
         <string>--data-dir</string>
         <string>/ABSOLUTE/PATH/TO/gateway-data</string>

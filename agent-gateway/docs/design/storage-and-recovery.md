@@ -26,6 +26,18 @@ Storage owns only this DDL, seeding, and structural migration boundary. Authoriz
 
 Every connection installs a two-second busy policy, enables foreign keys, verifies WAL and `synchronous=FULL`, and derives `max_page_count` from the compiled 1 GiB database limit and that connection's actual page size. Foreign, newer, partial, corrupt, unsafe-permission, and over-limit generations fail closed.
 
+## Installation path migration
+
+`internal/paths` owns canonical root selection, existing process locks and the stopped whole-directory exchange. New defaults use `agent-gateway`; legacy entries cause implicit selection to fail unless they are an exact completed tombstone bound to the moved directory inode. Both executable names share this selection and `gateway.lock`. Explicit roots remain authoritative, including legacy/custom roots; there is no filesystem search, automatic relocation, merge or second owner.
+
+`internal/installation` owns `installation migrate`: explicit source/destination/installation ID/service binary, read-only preflight, explicit confirmation, and repeated service/process absence checks while holding the existing source lock. Automatic supervisor qualification is limited to macOS's known per-user launchd identities; unsupported supervisors refuse. Operators must disable additional launchers and serialize management. Process-table evidence is not permission to signal a PID. Native commands have five-second deadlines and 1 MiB output bounds. Migration never constructs the runtime/keyring graph, initializes storage, changes a credential or performs recovery.
+
+Supported roots are distinct canonical siblings in one owner-controlled, non-group/other-writable parent, with a private single-filesystem tree and no links. The source lock is opened without creation, sync or run-marker mutation. The destination is exclusively reserved by a synced, locked regular file. One platform atomic exchange (`RENAME_EXCHANGE` / `RENAME_SWAP`) moves the complete original directory—including sidecars, bearer, backups, staging/rollback material and recovery/intent markers—and leaves a regular-file tombstone at the source. The original lock inode remains held at the destination; the source tombstone blocks old binaries from recreating a root. A parent sync and exact inode checks finish cutover. There is no copy fallback or compensation on uncertainty.
+
+An interrupted complete reservation may be resumed only by a fresh explicitly confirmed invocation with matching identities and stopped ownership. A completed exchange refuses replay; incomplete/foreign reservations, changed identities and durability uncertainty retain all evidence and require operator investigation. Nothing deletes the tombstone, old plists, logs, backups or markers. Binary/configuration rollback retains the same destination root; reverse path exchange is not automated. Advisory locks cannot protect against a hostile same-account filesystem writer. Procedures, supported-case matrix and separate host-adoption evidence are in the [migration runbook](../operators/installation-migration.md).
+
+Migration preserves installation ULID, SQLite application/schema identity, database/backup lineage and metadata, `gateway.db`/`gateway.lock`, bearer/verifier/fingerprint domains, native-keyring services/generation handles, policy/history/OAuth material and all MCP/provisioning contracts. Native service/keyring and power-loss durability qualification is separate from deterministic isolated migration tests.
+
 ## Security mutation and stopped recovery
 
 ### Mutation intent and latch
@@ -60,7 +72,7 @@ CLI success projections use `operation:"storage_verify"` or `operation:"backup_r
 
 ### Backup publication
 
-Stopped-process and backup procedures are canonical in [backup and recovery](../operators/backup-and-recovery.md). On-demand backup uses SQLite's online backup API under one nonblocking global work slot. Gateway stages an owner-only closed generation, verifies identity/schema/revision/full integrity and the 1 GiB bound, computes SHA-256, writes safe internal metadata, and atomically publishes it under a 26-character ID. The artifact-bound authority/key digest provides durable retry identity without storing a bearer or replaying a secret; 64 retained artifacts are the fixed record bound.
+Stopped-process and backup procedures are canonical in [backup and recovery](../operators/backup-and-recovery.md). On-demand backup uses SQLite's online backup API under one nonblocking global work slot. Gateway stages an owner-only closed generation, verifies identity/schema/revision/full integrity and the 1 GiB bound, computes SHA-256, writes safe internal metadata, and atomically publishes it under a 26-character ID. The artifact-bound authority/key digest provides durable retry identity without storing a bearer or replaying a secret; 64 retained artifacts are the fixed record bound. Verification of a closed artifact reads its digest-bound database immutably: it neither creates sidecars under ambient permissions nor consults an unrelated WAL. Existing sidecars are not deleted by verification or naming migration.
 
 ### Generation replacement
 

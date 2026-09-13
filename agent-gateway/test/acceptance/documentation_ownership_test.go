@@ -127,7 +127,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	}
 	cli := read("docs/operators/administration.md")
 	for _, phrase := range []string{
-		"$XDG_DATA_HOME/mcp-gateway", "~/.local/share/mcp-gateway", "`--data-dir` has highest precedence",
+		"$XDG_DATA_HOME/agent-gateway", "~/.local/share/agent-gateway", "`--data-dir` has highest precedence",
 		"Online administrator authentication never prompts", "--admin-bearer-file", "--admin-bearer-stdin",
 		"Human output is the default", "`--output json`", "stdout", "stderr", "typed exit",
 		"http://127.0.0.1:8210", "never accepted in argv or environment", "never retries automatically",
