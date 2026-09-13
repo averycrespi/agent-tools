@@ -70,28 +70,28 @@ const gatewayID = "[0-7][0-9A-HJKMNP-TV-Z]{25}";
 const idempotencyRoutes: Readonly<
   Record<Exclude<IdempotencyRoute, "none">, RegExp>
 > = {
-  backup_create: /^\/api\/v1\/backups$/,
-  server_create: /^\/api\/v1\/servers$/,
-  operation_start: new RegExp(`^/api/v1/servers/${gatewayID}/operations$`),
+  backup_create: /^\/api\/v2\/backups$/,
+  server_create: /^\/api\/v2\/mcp\/servers$/,
+  operation_start: new RegExp(`^/api/v2/mcp/servers/${gatewayID}/operations$`),
 };
 const preconditionRoutes = [
-  new RegExp(`^PATCH /api/v1/servers/${gatewayID}$`),
-  new RegExp(`^DELETE /api/v1/servers/${gatewayID}$`),
-  new RegExp(`^POST /api/v1/servers/${gatewayID}/operations$`),
-  new RegExp(`^POST /api/v1/servers/${gatewayID}/credential-replacements$`),
-  new RegExp(`^POST /api/v1/servers/${gatewayID}/auth-flows$`),
-  new RegExp(`^PATCH /api/v1/principals/${gatewayID}$`),
-  new RegExp(`^PATCH /api/v1/grants/${gatewayID}$`),
-  new RegExp(`^(?:POST|DELETE) /api/v1/principals/${gatewayID}/credential$`),
-  new RegExp(`^POST /api/v1/grant-requests/${gatewayID}/(?:approve|reject)$`),
+  new RegExp(`^PATCH /api/v2/mcp/servers/${gatewayID}$`),
+  new RegExp(`^DELETE /api/v2/mcp/servers/${gatewayID}$`),
+  new RegExp(`^POST /api/v2/mcp/servers/${gatewayID}/operations$`),
+  new RegExp(`^POST /api/v2/mcp/servers/${gatewayID}/credential-replacements$`),
+  new RegExp(`^POST /api/v2/mcp/servers/${gatewayID}/oauth-flows$`),
+  new RegExp(`^PATCH /api/v2/principals/${gatewayID}$`),
+  new RegExp(`^PATCH /api/v2/grants/${gatewayID}$`),
+  new RegExp(`^(?:POST|DELETE) /api/v2/principals/${gatewayID}/credential$`),
+  new RegExp(`^POST /api/v2/grant-requests/${gatewayID}/(?:approve|reject)$`),
 ];
 const strongETag = /^"[\x21\x23-\x7e]{1,255}"$/;
-const mutationRoute = /^\/api\/v1\/[A-Za-z0-9_/-]{1,512}$/;
+const mutationRoute = /^\/api\/v2\/[A-Za-z0-9_/-]{1,512}$/;
 const credentialReplacementRoute = new RegExp(
-  `^/api/v1/servers/${gatewayID}/credential-replacements$`,
+  `^/api/v2/mcp/servers/${gatewayID}/credential-replacements$`,
 );
 const matcherApprovalRoute = new RegExp(
-  `^/api/v1/grant-requests/${gatewayID}/approve$`,
+  `^/api/v2/grant-requests/${gatewayID}/approve$`,
 );
 const maximumBodyBytes = 1024 * 1024;
 
@@ -116,7 +116,7 @@ function isTokenPreservingMatcherMutationJSON(
   if (
     spec.method !== "POST" ||
     spec.body === null ||
-    (spec.route !== "/api/v1/grants" && !matcherApprovalRoute.test(spec.route))
+    (spec.route !== "/api/v2/grants" && !matcherApprovalRoute.test(spec.route))
   )
     return false;
   try {

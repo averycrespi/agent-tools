@@ -52,7 +52,7 @@ func TestAuditCLITransportRepresentationAndDetail(t *testing.T) {
 		assert.Equal(t, "Bearer "+testAdministratorBearer, r.Header.Get("Authorization"))
 		assert.Equal(t, int64(0), r.ContentLength)
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api/v1/audit-events/"+auditTestID {
+		if r.URL.Path == "/api/v2/audit-events/"+auditTestID {
 			_, _ = w.Write(itemBody)
 		} else {
 			_, _ = w.Write(pageBody)

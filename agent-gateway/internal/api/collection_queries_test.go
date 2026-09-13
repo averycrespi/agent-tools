@@ -75,14 +75,21 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 		require.JSONEq(t, fmt.Sprint(total), string(body["total_count"]))
 		require.JSONEq(t, fmt.Sprint(offset), string(body["offset"]))
 	}
-	metadata("/api/v1/principals?sort=name&limit=50", 128, 0)
+	metadata("/api/v2/principals?sort=name&limit=50", 128, 0)
 	var first, second, third contract.Collection[contract.Principal]
-	get("/api/v1/principals?sort=name&limit=50", &first)
+	get("/api/v2/principals?sort=name&limit=50", &first)
 	require.Len(t, first.Items, 50)
 	require.NotNil(t, first.NextCursor)
-	get("/api/v1/principals?sort=name&limit=50&cursor="+*first.NextCursor, &second)
+	for _, path := range []string{"/api/v2/principals", "/api/v2/principals?visibility=all", "/api/v2/principals?sort=name&direction=ascending&limit=50"} {
+		var page contract.QueryCollection[contract.Principal]
+		get(path, &page)
+		require.Equal(t, first.Items, page.Items, path)
+		require.Equal(t, 128, page.TotalCount)
+		require.Zero(t, page.Offset)
+	}
+	get("/api/v2/principals?sort=name&limit=50&cursor="+*first.NextCursor, &second)
 	require.Len(t, second.Items, 50)
-	get("/api/v1/principals?sort=name&limit=50&cursor="+*second.NextCursor, &third)
+	get("/api/v2/principals?sort=name&limit=50&cursor="+*second.NextCursor, &third)
 	require.Len(t, third.Items, 28)
 	require.Nil(t, third.NextCursor)
 	seen := map[string]bool{}
@@ -93,53 +100,63 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 		}
 	}
 	var back contract.Collection[contract.Principal]
-	get("/api/v1/principals?sort=name&limit=50&cursor="+*first.NextCursor, &back)
+	get("/api/v2/principals?sort=name&limit=50&cursor="+*first.NextCursor, &back)
 	require.Equal(t, second.Items, back.Items)
-	metadata("/api/v1/principals?sort=name&limit=50&cursor="+*first.NextCursor, 128, 50)
-	metadata("/api/v1/principals?sort=name&limit=1&cursor="+*first.NextCursor, 128, 50)
-	metadata("/api/v1/principals?sort=name&limit=50&cursor="+*second.NextCursor, 128, 100)
-	metadata("/api/v1/principals?name=faraway&state=active&visibility=all", 1, 0)
-	metadata("/api/v1/principals?name=nonexistent", 0, 0)
+	metadata("/api/v2/principals?sort=name&limit=50&cursor="+*first.NextCursor, 128, 50)
+	metadata("/api/v2/principals?sort=name&limit=1&cursor="+*first.NextCursor, 128, 50)
+	metadata("/api/v2/principals?sort=name&limit=50&cursor="+*second.NextCursor, 128, 100)
+	metadata("/api/v2/principals?name=faraway&state=active&visibility=all", 1, 0)
+	metadata("/api/v2/principals?name=nonexistent", 0, 0)
 	var match contract.Collection[contract.Principal]
-	get("/api/v1/principals?name=faraway&state=active&visibility=all", &match)
+	get("/api/v2/principals?name=faraway&state=active&visibility=all", &match)
 	require.Len(t, match.Items, 1)
 	require.Equal(t, last.Principal.ID, match.Items[0].ID)
 	var grants contract.Collection[contract.GrantTableItem]
-	get("/api/v1/grants?representation=table&sort=principal&limit=50", &grants)
+	get("/api/v2/grants?sort=principal&limit=50", &grants)
 	require.Len(t, grants.Items, 50)
 	require.NotNil(t, grants.NextCursor)
 	require.Equal(t, "Gateway self-service tools", grants.Items[0].ServerDisplayName)
 	var g2, g3 contract.Collection[contract.GrantTableItem]
-	get("/api/v1/grants?representation=table&sort=principal&limit=50&cursor="+*grants.NextCursor, &g2)
-	get("/api/v1/grants?representation=table&sort=principal&limit=50&cursor="+*g2.NextCursor, &g3)
+	get("/api/v2/grants?sort=principal&limit=50&cursor="+*grants.NextCursor, &g2)
+	get("/api/v2/grants?sort=principal&limit=50&cursor="+*g2.NextCursor, &g3)
 	require.Len(t, g2.Items, 50)
 	require.Len(t, g3.Items, 28)
 	require.Nil(t, g3.NextCursor)
-	metadata("/api/v1/grants?representation=table&sort=principal&limit=50", 128, 0)
-	metadata("/api/v1/grants?representation=table&sort=principal&limit=50&cursor="+*grants.NextCursor, 128, 50)
-	metadata("/api/v1/grants?representation=table&sort=principal&limit=50&cursor="+*g2.NextCursor, 128, 100)
-	metadata("/api/v1/grants?representation=table&principal=faraway", 1, 0)
-	metadata("/api/v1/grants?representation=table&principal=nonexistent", 0, 0)
-	metadata("/api/v1/grants?sort=id&direction=descending", 128, 0)
+	metadata("/api/v2/grants?sort=principal&limit=50", 128, 0)
+	metadata("/api/v2/grants?sort=principal&limit=50&cursor="+*grants.NextCursor, 128, 50)
+	metadata("/api/v2/grants?sort=principal&limit=50&cursor="+*g2.NextCursor, 128, 100)
+	metadata("/api/v2/grants?principal=faraway", 1, 0)
+	metadata("/api/v2/grants?principal=nonexistent", 0, 0)
+	metadata("/api/v2/grants?sort=id&direction=descending", 128, 0)
 	var grantMatch contract.Collection[contract.GrantTableItem]
-	get("/api/v1/grants?representation=table&principal=faraway&identity=Default&effect=allow&state=active&target=Gateway", &grantMatch)
+	get("/api/v2/grants?principal=faraway&identity=Default&effect=allow&state=active&target=Gateway", &grantMatch)
 	require.Len(t, grantMatch.Items, 1)
 	require.Equal(t, last.Principal.ID, grantMatch.Items[0].Grant.PrincipalID)
-	var legacy contract.Collection[contract.Grant]
-	get("/api/v1/grants", &legacy)
-	require.Len(t, legacy.Items, 50)
-	require.NotEmpty(t, legacy.Items[0].ID)
-	for _, path := range []string{"/api/v1/principals", "/api/v1/grants", "/api/v1/grants?principal_id=" + last.Principal.ID} {
+	var defaults contract.QueryCollection[contract.GrantTableItem]
+	get("/api/v2/grants", &defaults)
+	require.Len(t, defaults.Items, 50)
+	require.NotEmpty(t, defaults.Items[0].Grant.ID)
+	require.Equal(t, 128, defaults.TotalCount)
+	for _, path := range []string{"/api/v2/grants?effect=allow", "/api/v2/grants?sort=description&direction=ascending&limit=50"} {
+		var page contract.QueryCollection[contract.GrantTableItem]
+		get(path, &page)
+		require.Equal(t, defaults.Items, page.Items, path)
+		require.Equal(t, 128, page.TotalCount)
+		require.Zero(t, page.Offset)
+	}
+	metadata("/api/v2/principals", 128, 0)
+	metadata("/api/v2/grants?principal_id="+last.Principal.ID, 1, 0)
+	for _, path := range []string{"/api/v2/principals", "/api/v2/grants", "/api/v2/grants?principal_id=" + last.Principal.ID} {
 		var body map[string]json.RawMessage
 		get(path, &body)
-		require.Len(t, body, 2)
+		require.Len(t, body, 4)
 		require.Contains(t, body, "items")
 		require.Contains(t, body, "next_cursor")
 	}
 	for _, collection := range []string{"principals", "grants"} {
 		for _, direction := range []string{"ascending", "descending"} {
 			t.Run(collection+"/"+direction, func(t *testing.T) {
-				path := "/api/v1/" + collection + "?direction=" + direction
+				path := "/api/v2/" + collection + "?direction=" + direction
 				response := perform(boundary, http.MethodGet, path, "", auth)
 				require.Equal(t, http.StatusBadRequest, response.Code)
 				response = perform(boundary, http.MethodGet, path+"&sort=id", "", auth)
@@ -148,18 +165,18 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 		}
 	}
 	for _, path := range []string{
-		"/api/v1/principals?sort=unknown", "/api/v1/principals?direction=up", "/api/v1/principals?name=a&name=b",
-		"/api/v1/principals?name=" + strings.Repeat("a", 257), "/api/v1/principals?name=%00", "/api/v1/principals?sort=name&foreign=x",
-		"/api/v1/grants?representation=unknown", "/api/v1/grants?principal_id=wrong&sort=id", "/api/v1/grants?effect=unknown", "/api/v1/grants?target=",
+		"/api/v2/principals?sort=unknown", "/api/v2/principals?direction=up", "/api/v2/principals?name=a&name=b",
+		"/api/v2/principals?name=" + strings.Repeat("a", 257), "/api/v2/principals?name=%00", "/api/v2/principals?sort=name&foreign=x",
+		"/api/v2/principals?limit=01", "/api/v2/grants?limit=%2B1", "/api/v2/grants?representation=table", "/api/v2/grants?representation=unknown", "/api/v2/grants?principal_id=wrong&sort=id", "/api/v2/grants?effect=unknown", "/api/v2/grants?target=",
 	} {
 		response := perform(boundary, http.MethodGet, path, "", auth)
 		require.Equal(t, 400, response.Code, path+": "+response.Body.String())
 	}
-	for _, path := range []string{"/api/v1/principals?sort=id&cursor=" + *first.NextCursor, "/api/v1/grants?representation=table&sort=target&cursor=" + *grants.NextCursor} {
+	for _, path := range []string{"/api/v2/principals?sort=id&cursor=" + *first.NextCursor, "/api/v2/grants?sort=target&cursor=" + *grants.NextCursor} {
 		response := perform(boundary, http.MethodGet, path, "", auth)
 		require.Equal(t, 409, response.Code, response.Body.String())
 	}
 	clock.Advance(contract.AuthorizationCursorLifetime)
-	response := perform(boundary, http.MethodGet, "/api/v1/principals?sort=name&cursor="+*first.NextCursor, "", auth)
+	response := perform(boundary, http.MethodGet, "/api/v2/principals?sort=name&cursor="+*first.NextCursor, "", auth)
 	require.Equal(t, 409, response.Code, response.Body.String())
 }

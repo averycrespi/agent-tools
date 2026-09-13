@@ -23,7 +23,7 @@ func TestBoundaryRoutesSessionAndEventAuthorities(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	wrongHost := httptest.NewRequest(http.MethodPost, "/api/v1/events", http.NoBody)
+	wrongHost := httptest.NewRequest(http.MethodPost, "/api/v2/events", http.NoBody)
 	wrongHost.Host = "localhost:8210"
 	wrongHostResponse := httptest.NewRecorder()
 	boundary.ServeHTTP(wrongHostResponse, wrongHost)
@@ -35,9 +35,9 @@ func TestBoundaryRoutesSessionAndEventAuthorities(t *testing.T) {
 		path      string
 		authority contract.CredentialAuthority
 	}{
-		{method: http.MethodPost, path: "/api/v1/admin-sessions/current", authority: contract.AuthorityAdminSession},
-		{method: http.MethodGet, path: "/api/v1/events", authority: contract.AuthorityAdmin},
-		{method: http.MethodPost, path: "/api/v1/events", authority: contract.AuthorityAdminSession},
+		{method: http.MethodPost, path: "/api/v2/admin-sessions/current", authority: contract.AuthorityAdminSession},
+		{method: http.MethodGet, path: "/api/v2/events", authority: contract.AuthorityAdmin},
+		{method: http.MethodPost, path: "/api/v2/events", authority: contract.AuthorityAdminSession},
 	} {
 		request := httptest.NewRequest(test.method, test.path, http.NoBody)
 		request.Host = contract.DefaultAuthority

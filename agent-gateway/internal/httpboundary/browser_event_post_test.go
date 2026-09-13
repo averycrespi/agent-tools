@@ -24,7 +24,7 @@ func TestBrowserEventPostBoundary(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		request := httptest.NewRequest(method, "/api/v1/events", http.NoBody)
+		request := httptest.NewRequest(method, "/api/v2/events", http.NoBody)
 		request.Host = contract.DefaultAuthority
 		response := httptest.NewRecorder()
 		boundary.ServeHTTP(response, request)
@@ -32,7 +32,7 @@ func TestBrowserEventPostBoundary(t *testing.T) {
 	}
 	assert.Equal(t, []contract.CredentialAuthority{contract.AuthorityAdmin, contract.AuthorityAdminSession}, authorities)
 
-	unsupported := httptest.NewRequest(http.MethodPut, "/api/v1/events", http.NoBody)
+	unsupported := httptest.NewRequest(http.MethodPut, "/api/v2/events", http.NoBody)
 	unsupported.Host = contract.DefaultAuthority
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, unsupported)

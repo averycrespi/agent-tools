@@ -180,7 +180,7 @@ export function decodeAuthFlow(value: unknown): ServerAuthFlowView {
   const item = record(value, [
     "id",
     "server_id",
-    "flow_state",
+    "state",
     "target_desired_revision",
     "registration_revision",
     "created_at",
@@ -192,7 +192,7 @@ export function decodeAuthFlow(value: unknown): ServerAuthFlowView {
   return {
     id: identifier(item.id),
     serverID: identifier(item.server_id),
-    state: closedState(item.flow_state),
+    state: closedState(item.state),
     targetDesiredRevision: revision(item.target_desired_revision),
     registrationRevision: revision(item.registration_revision),
     createdAt: text(item.created_at),

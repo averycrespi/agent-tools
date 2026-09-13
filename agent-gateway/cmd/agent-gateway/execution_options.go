@@ -44,9 +44,9 @@ func resolveExecutionOptions(input executionOptionInput) (executionOptions, erro
 
 func renderServeCommand(dataDir string, useDefault bool) (string, error) {
 	if useDefault {
-		return "mcp-gateway serve", nil
+		return "agent-gateway serve", nil
 	}
-	return renderPathFlagCommand("mcp-gateway serve", "--data-dir", "data_dir", dataDir)
+	return renderPathFlagCommand("agent-gateway serve", "--data-dir", "data_dir", dataDir)
 }
 
 func renderOnlineServeCommand(address, dataDir string, includeDataDir bool) (string, error) {
@@ -54,7 +54,7 @@ func renderOnlineServeCommand(address, dataDir string, includeDataDir bool) (str
 	if err != nil {
 		return "", err
 	}
-	command := "mcp-gateway serve"
+	command := "agent-gateway serve"
 	if address != controlclient.DefaultAddress {
 		command += " --listen " + authority
 	}

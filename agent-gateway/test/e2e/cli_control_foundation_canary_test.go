@@ -42,7 +42,7 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 
 		read := run(t, address, "status")
 		read.requireProblem(t, 9, "gateway_not_running", false)
-		assert.Contains(t, string(read.result.Stderr), "mcp-gateway serve --listen "+listener.Addr().String())
+		assert.Contains(t, string(read.result.Stderr), "agent-gateway serve --listen "+listener.Addr().String())
 		mutation := run(t, address, "backup", "create", "--idempotency-key", "foundation-refusal")
 		mutation.requireProblem(t, 9, "gateway_not_running", false)
 	})
@@ -96,7 +96,7 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 		patch := filepath.Join(root, "patch.json")
 		require.NoError(t, os.WriteFile(patch, []byte(`{"display_name":"from-file"}`), 0o600))
 		missingBearer := filepath.Join(root, "missing-bearer")
-		result, err := runner.Run(t.Context(), binary, "server", "update", id, "--etag", contract.ServerETag(id, "7"), "--file", patch, "--display-name", "direct", "--admin-bearer-file", missingBearer, "--address", server.URL, "--output", "json")
+		result, err := runner.Run(t.Context(), binary, "mcp", "server", "update", id, "--etag", contract.ServerETag(id, "7"), "--file", patch, "--display-name", "direct", "--admin-bearer-file", missingBearer, "--address", server.URL, "--output", "json")
 		require.Error(t, err)
 		assert.Equal(t, 2, result.ExitCode)
 		assert.Contains(t, string(result.Stderr), `"code":"client_invalid_input"`)
@@ -118,12 +118,12 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 		}))
 		defer server.Close()
 
-		result, err := runner.Run(t.Context(), binary, "server", "get", id, "--admin-bearer-file", bearerPath, "--address", server.URL, "--output", "human")
+		result, err := runner.Run(t.Context(), binary, "mcp", "server", "get", id, "--admin-bearer-file", bearerPath, "--address", server.URL, "--output", "human")
 		require.NoError(t, err, "%s", result.Stderr)
 		assert.Contains(t, string(result.Stdout), "ETAG")
 		assert.Contains(t, string(result.Stdout), contract.ServerETag(id, "7"))
 		malformed.Store(true)
-		invalid := run(t, server.URL, "server", "get", id)
+		invalid := run(t, server.URL, "mcp", "server", "get", id)
 		invalid.requireProblem(t, 10, "client_response_invalid", false)
 	})
 }

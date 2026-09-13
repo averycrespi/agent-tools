@@ -40,15 +40,15 @@ func TestControlClientSharedContract(t *testing.T) {
 	})
 
 	t.Run("one-page query and request metadata", func(t *testing.T) {
-		path, err := BuildListPath("/api/v1/invocations", ListOptions{
+		path, err := BuildListPath("/api/v2/invocations", ListOptions{
 			Limit: 25, Cursor: "cursor/value", Filters: map[string]string{"decision": "ALLOW", "principal_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"},
 			AllowedFilters: []string{"principal_id", "decision"},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "/api/v1/invocations?cursor=cursor%2Fvalue&decision=ALLOW&limit=25&principal_id=01ARZ3NDEKTSV4RRFFQ69G5FAV", path)
-		_, err = BuildListPath("/api/v1/invocations", ListOptions{Limit: 101})
+		assert.Equal(t, "/api/v2/invocations?cursor=cursor%2Fvalue&decision=ALLOW&limit=25&principal_id=01ARZ3NDEKTSV4RRFFQ69G5FAV", path)
+		_, err = BuildListPath("/api/v2/invocations", ListOptions{Limit: 101})
 		assert.ErrorIs(t, err, ErrInvalidInput)
-		_, err = BuildListPath("/api/v1/invocations", ListOptions{Filters: map[string]string{"invented": "value"}, AllowedFilters: []string{"decision"}})
+		_, err = BuildListPath("/api/v2/invocations", ListOptions{Filters: map[string]string{"invented": "value"}, AllowedFilters: []string{"decision"}})
 		assert.ErrorIs(t, err, ErrInvalidInput)
 
 		bearer := "mgw_admin_" + strings.Repeat("a", 43)

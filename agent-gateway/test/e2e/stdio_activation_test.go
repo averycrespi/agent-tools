@@ -57,7 +57,7 @@ func TestGatewayBinaryActivatesAndPublishesStdioCatalog(t *testing.T) {
 			assert.Equal(t, int64(2), server.Catalog.DurableToolCount)
 
 			var catalog contract.CatalogPage
-			response := harness.AdminJSON(http.MethodGet, "/api/v1/catalog", "", nil, &catalog)
+			response := harness.AdminJSON(http.MethodGet, "/api/v2/mcp/catalog", "", nil, &catalog)
 			require.Equal(t, http.StatusOK, response.StatusCode)
 			require.NoError(t, response.Body.Close())
 			assert.Equal(t, contract.AggregateCatalogCurrent, catalog.Catalog.ActiveState)
@@ -157,7 +157,7 @@ func createStdioServer(t *testing.T, harness *gatewayHarness, executable, mode, 
 	contents, err := json.Marshal(request)
 	require.NoError(t, err)
 	var creation stdioCreation
-	response := harness.AdminJSON(http.MethodPost, "/api/v1/servers", string(contents), map[string]string{"Idempotency-Key": "stdio-" + mode}, &creation)
+	response := harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers", string(contents), map[string]string{"Idempotency-Key": "stdio-" + mode}, &creation)
 	require.Equal(t, http.StatusCreated, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	require.NotNil(t, creation.Operation)
@@ -172,7 +172,7 @@ func waitForStdioServer(t *testing.T, harness *gatewayHarness, serverID string, 
 	defer ticker.Stop()
 	var current stdioServerView
 	for {
-		response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID, nil)
+		response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID, nil)
 		if response.StatusCode == http.StatusOK {
 			require.NoError(t, json.Unmarshal(response.Body, &current))
 		}

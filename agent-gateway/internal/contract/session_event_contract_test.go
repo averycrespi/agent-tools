@@ -8,13 +8,13 @@ import (
 )
 
 func TestSessionEventContractIntegration(t *testing.T) {
-	events, ok := RouteForPath("/api/v1/events")
+	events, ok := RouteForPath("/api/v2/events")
 	require.True(t, ok)
 	assert.Equal(t, "GET, POST", events.Allow())
 	assert.Equal(t, AuthorityAdmin, AuthorityForMethod(events, "GET"))
 	assert.Equal(t, AuthorityAdminSession, AuthorityForMethod(events, "POST"))
 
-	bootstrap, ok := RouteForPath("/api/v1/admin-sessions/current")
+	bootstrap, ok := RouteForPath("/api/v2/admin-sessions/current")
 	require.True(t, ok)
 	assert.Equal(t, AuthorityAdminSession, bootstrap.Authority)
 	assert.Equal(t, "DELETE, POST", bootstrap.Allow())

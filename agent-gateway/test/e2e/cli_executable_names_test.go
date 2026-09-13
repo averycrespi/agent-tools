@@ -52,6 +52,18 @@ func TestCLIExecutableNames(t *testing.T) {
 			assertSettledResult(t, completion)
 			assert.Empty(t, completion.Stderr)
 			assert.Contains(t, string(completion.Stdout), "__start_"+name+" "+name)
+			rootCompletions, completeErr := runner.Run(t.Context(), filepath.Join(directory, name), "__complete", "")
+			require.NoError(t, completeErr)
+			assert.Contains(t, string(rootCompletions.Stdout), "mcp\t")
+			assert.NotContains(t, string(rootCompletions.Stdout), "\nserver\t")
+			assert.NotContains(t, string(rootCompletions.Stdout), "\ncatalog\t")
+			for _, retired := range []string{"server", "catalog"} {
+				rejected, rejectedErr := runner.Run(t.Context(), filepath.Join(directory, name), retired, "list", "--json")
+				require.Error(t, rejectedErr)
+				assert.Empty(t, rejected.Stdout)
+				assert.Equal(t, 2, rejected.ExitCode)
+				assert.Contains(t, string(rejected.Stderr), "Usage: agent-gateway --help")
+			}
 		}
 	}
 

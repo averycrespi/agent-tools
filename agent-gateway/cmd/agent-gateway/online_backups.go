@@ -32,7 +32,7 @@ func runBackupCreate(command *cobra.Command, options *onlineOptions) error {
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/backups", Header: header, Body: []byte("{}")})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/backups", Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -72,7 +72,7 @@ func runBackupDelete(command *cobra.Command, options *onlineOptions, args []stri
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/backups/" + args[0], Header: header, Body: []byte("{}")})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v2/backups/" + args[0], Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -95,7 +95,7 @@ func runBackupDelete(command *cobra.Command, options *onlineOptions, args []stri
 
 func backupCreateUncertainTitle(key string) string {
 	digest := sha256.Sum256([]byte("{}"))
-	return "The backup create outcome is uncertain. Nothing was replayed. Inspect backup list before deliberately replaying POST /api/v1/backups with idempotency key " + key + " and input digest sha256:" + hex.EncodeToString(digest[:]) + "."
+	return "The backup create outcome is uncertain. Nothing was replayed. Inspect backup list before deliberately replaying POST /api/v2/backups with idempotency key " + key + " and input digest sha256:" + hex.EncodeToString(digest[:]) + "."
 }
 
 func backupDeleteUncertainTitle(id string) string {

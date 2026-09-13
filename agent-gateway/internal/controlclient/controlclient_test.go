@@ -49,12 +49,12 @@ func TestControlTransport(t *testing.T) {
 		defer server.Close()
 		client := newTestClient(t, server.URL, TransportOptions{})
 		for range 2 {
-			result, err := client.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v1/status"})
+			result, err := client.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v2/status"})
 			require.NoError(t, err)
 			assert.JSONEq(t, `{"ok":true}`, string(result.Body))
 		}
 		assert.Equal(t, 2, requests)
-		_, err := client.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v1/status", Header: http.Header{"Cookie": {"unsafe=caller"}}})
+		_, err := client.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v2/status", Header: http.Header{"Cookie": {"unsafe=caller"}}})
 		assert.ErrorIs(t, err, ErrInvalidRequest)
 		assert.Equal(t, 2, requests)
 
@@ -62,14 +62,14 @@ func TestControlTransport(t *testing.T) {
 			_, _ = io.WriteString(response, `"`+strings.Repeat("x", MaxResponseBytes)+`"`)
 		}))
 		defer oversized.Close()
-		_, err = newTestClient(t, oversized.URL, TransportOptions{}).Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v1/status"})
+		_, err = newTestClient(t, oversized.URL, TransportOptions{}).Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v2/status"})
 		assert.ErrorIs(t, err, ErrResponseInvalid)
 
 		deep := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(response, strings.Repeat("[", MaxJSONDepth+1)+"0"+strings.Repeat("]", MaxJSONDepth+1))
 		}))
 		defer deep.Close()
-		_, err = newTestClient(t, deep.URL, TransportOptions{}).Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v1/status"})
+		_, err = newTestClient(t, deep.URL, TransportOptions{}).Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v2/status"})
 		assert.ErrorIs(t, err, ErrResponseInvalid)
 	})
 
@@ -81,7 +81,7 @@ func TestControlTransport(t *testing.T) {
 			http.Redirect(response, &http.Request{}, target.URL, http.StatusTemporaryRedirect)
 		}))
 		defer server.Close()
-		_, err := newTestClient(t, server.URL, TransportOptions{}).Do(context.Background(), Request{Method: http.MethodPost, Path: "/api/v1/backups", Body: []byte(`{}`)})
+		_, err := newTestClient(t, server.URL, TransportOptions{}).Do(context.Background(), Request{Method: http.MethodPost, Path: "/api/v2/backups", Body: []byte(`{}`)})
 		assert.ErrorIs(t, err, ErrRedirect)
 		assert.Equal(t, HandoffPossible, FailureHandoff(err))
 		assert.False(t, followed)
@@ -93,7 +93,7 @@ func TestControlTransport(t *testing.T) {
 			DialContext:    func(context.Context, string, string) (net.Conn, error) { return nil, errors.New(canary) },
 			RequestTimeout: 100 * time.Millisecond,
 		})
-		_, err := client.Do(context.Background(), Request{Method: http.MethodPost, Path: "/api/v1/backups", Body: []byte(`{}`)})
+		_, err := client.Do(context.Background(), Request{Method: http.MethodPost, Path: "/api/v2/backups", Body: []byte(`{}`)})
 		assert.ErrorIs(t, err, ErrTransport)
 		assert.Equal(t, HandoffNone, FailureHandoff(err))
 		assert.NotContains(t, err.Error(), canary)
@@ -107,7 +107,7 @@ func TestControlTransport(t *testing.T) {
 		}))
 		defer server.Close()
 		client = newTestClient(t, server.URL, TransportOptions{RequestTimeout: 20 * time.Millisecond})
-		_, err = client.Do(context.Background(), Request{Method: http.MethodPost, Path: "/api/v1/backups", Body: []byte(`{}`)})
+		_, err = client.Do(context.Background(), Request{Method: http.MethodPost, Path: "/api/v2/backups", Body: []byte(`{}`)})
 		assert.ErrorIs(t, err, ErrTransport)
 		assert.Equal(t, HandoffPossible, FailureHandoff(err))
 		select {
@@ -207,10 +207,10 @@ func TestControlTransportStageClassification(t *testing.T) {
 			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
 		},
 	})
-	_, err := refusedClient.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v1/status"})
+	_, err := refusedClient.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v2/status"})
 	require.Error(t, err)
 	assert.True(t, FailureRefused(err))
-	assert.Equal(t, &OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9}, ClassifyRequestError(err, RequestPhaseRead))
+	assert.Equal(t, &OnlineError{Code: "gateway_not_running", Title: "Agent Gateway is not running.", Exit: 9}, ClassifyRequestError(err, RequestPhaseRead))
 
 	preHandoff := &Failure{kind: ErrTransport, handoff: HandoffNone}
 	assert.Equal(t, &OnlineError{Code: "client_transport_failure", Title: "The Gateway could not be reached before request handoff.", Exit: 9}, ClassifyRequestError(preHandoff, RequestPhaseMutation))

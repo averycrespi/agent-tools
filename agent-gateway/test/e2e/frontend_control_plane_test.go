@@ -125,12 +125,12 @@ func TestFrontendDevelopmentControlPlane(t *testing.T) {
 	assert.Equal(t, "default-src 'none'; frame-ancestors 'none'", callback.Header.Get("Content-Security-Policy"))
 	assert.NotContains(t, string(callbackBody), callbackCanary)
 
-	alternateOrigin := harness.Request(http.MethodGet, "/api/v1/system-status", "", map[string]string{
+	alternateOrigin := harness.Request(http.MethodGet, "/api/v2/system-status", "", map[string]string{
 		"Origin": "http://" + frontendAuthority,
 	})
 	assert.Equal(t, http.StatusForbidden, alternateOrigin.StatusCode)
 	require.NoError(t, alternateOrigin.Body.Close())
-	forwarded := harness.Request(http.MethodGet, "/api/v1/system-status", "", map[string]string{
+	forwarded := harness.Request(http.MethodGet, "/api/v2/system-status", "", map[string]string{
 		"X-Forwarded-For": "127.0.0.1",
 	})
 	assert.Equal(t, http.StatusBadRequest, forwarded.StatusCode)

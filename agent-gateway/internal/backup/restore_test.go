@@ -299,7 +299,7 @@ func TestRestorePreservesServerAuthorityAndInterruptsWorkBeforeReconstruction(t 
 	repository, err := serverdomain.New(store, clock, bytes.NewReader(bytes.Repeat([]byte{0x51}, 1024)))
 	require.NoError(t, err)
 	requestHash := sha256.Sum256([]byte("s2-restore"))
-	created, err := repository.Create(ctx, serverdomain.CreateRequest{Definition: serverdomain.Definition{Namespace: "restored", DisplayName: "Restored", Enabled: true, Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}}, Idempotency: &serverdomain.IdempotencyRequest{AuthorityID: backupTestInstallationID, Method: "POST", Route: "/api/v1/servers", Key: "s2-restore-key", RequestHash: requestHash}})
+	created, err := repository.Create(ctx, serverdomain.CreateRequest{Definition: serverdomain.Definition{Namespace: "restored", DisplayName: "Restored", Enabled: true, Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}}, Idempotency: &serverdomain.IdempotencyRequest{AuthorityID: backupTestInstallationID, Method: "POST", Route: "/api/v2/mcp/servers", Key: "s2-restore-key", RequestHash: requestHash}})
 	require.NoError(t, err)
 	require.NotNil(t, created.Operation)
 	backupManager, err := New(Options{Store: store, Layout: ownership.Layout(), Clock: clock, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x52}, 1024))})

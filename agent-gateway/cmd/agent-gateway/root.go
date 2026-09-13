@@ -52,7 +52,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	command := &cobra.Command{
 		Use:           "agent-gateway",
 		Short:         "Run and administer the local deny-by-default Agent Gateway",
-		Example:       "  mcp-gateway initialize\n  mcp-gateway serve\n  mcp-gateway status",
+		Example:       "  agent-gateway initialize\n  agent-gateway serve\n  agent-gateway status",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -69,18 +69,8 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		}
 		command.AddCommand(online)
 	}
-	brandCommandHelp(command)
-	command.Long = command.Short + ".\n\nUse agent-gateway for new commands. The mcp-gateway executable remains supported,\nwith the same commands, installation, credentials, and process lock.\nLegacy names in machine-readable output and recovery guidance are retained."
+	command.Long = command.Short + ".\n\nThe mcp-gateway executable remains supported with the same commands,\ninstallation, credentials, and process lock. Operator clients must upgrade\nwith the service for the API v2 and mcp command namespaces."
 	return command
-}
-
-// Only help presentation changes; problem and result strings remain compatible.
-func brandCommandHelp(command *cobra.Command) {
-	command.Example = strings.ReplaceAll(command.Example, "mcp-gateway ", "agent-gateway ")
-	command.Long = strings.ReplaceAll(command.Long, "mcp-gateway ", "agent-gateway ")
-	for _, child := range command.Commands() {
-		brandCommandHelp(child)
-	}
 }
 
 func newServeCmd(dependencies offlineDependencies) *cobra.Command {
@@ -90,17 +80,17 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{
 		Use:     "serve",
 		Short:   "Start the local Gateway service",
-		Example: "  mcp-gateway serve",
+		Example: "  agent-gateway serve",
 		Args: func(command *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("The serve command does not accept positional arguments.", "mcp-gateway serve"))
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("The serve command does not accept positional arguments.", "agent-gateway serve"))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
 			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
-				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", "mcp-gateway serve"))
+				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", "agent-gateway serve"))
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
@@ -108,7 +98,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 			}
 			level, valid := diagnostics.ParseLevel(logLevel)
 			if !valid {
-				return writeOfflineProblem(command, options.Output, offlineUsageProblem("Choose --log-level warn, info, or debug.", "mcp-gateway serve"))
+				return writeOfflineProblem(command, options.Output, offlineUsageProblem("Choose --log-level warn, info, or debug.", "agent-gateway serve"))
 			}
 			diagnostic := diagnostics.New(command.ErrOrStderr(), level)
 			runDependencies := dependencies
@@ -131,7 +121,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A serve flag is invalid or incomplete.", "mcp-gateway serve"))
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A serve flag is invalid or incomplete.", "agent-gateway serve"))
 	})
 	return command
 }
@@ -486,7 +476,7 @@ func baseSystemStatus(
 		KeyringCandidates: fixedStatus("keyring_candidates", 0), KeyringWork: keyringWork, DatabaseBytes: fixedStatus("database_bytes", 0),
 		ServerIdentities: fixedStatus("server_identities", 0), Servers: fixedStatus("servers", 0), DownstreamRuntimes: fixedStatus("downstream_runtimes", 0),
 		ServerReconciliations: fixedStatus("server_reconciliations", 0), CatalogTraversals: fixedStatus("catalog_traversals", 0), OAuthFlows: fixedStatus("oauth_flows", 0),
-		OAuthCallbackWork: fixedStatus("oauth_callback_work", 0), S2IdempotencyRecords: fixedStatus("s2_idempotency_records", 0), ActiveTools: fixedStatus("active_tools", 0),
+		OAuthCallbackWork: fixedStatus("oauth_callback_work", 0), S2IdempotencyRecords: fixedStatus("server_idempotency_records", 0), ActiveTools: fixedStatus("active_tools", 0),
 		DurableToolIdentities: fixedStatus("durable_tool_identities", 0), DownstreamDispatch: fixedStatus("downstream_dispatch", 0),
 		Principals: fixedStatus("principals", 0), Grants: fixedStatus("grants", 0),
 		GrantRequests: fixedStatus("grant_requests", 0), GrantRequestEvidenceBytes: fixedStatus("grant_request_evidence_bytes", 0),
@@ -542,12 +532,12 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 	var dataDir, secretOutput, output string
 	var jsonOutput bool
 	short := "Create a new local Gateway installation"
-	example := "  mcp-gateway initialize"
-	usage := "mcp-gateway initialize"
+	example := "  agent-gateway initialize"
+	usage := "agent-gateway initialize"
 	if operation == "reset" {
 		short = "Replace all administrator authority for a stopped Gateway"
-		example = "  mcp-gateway admin reset --secret-output NEW_PATH"
-		usage = "mcp-gateway admin reset --secret-output NEW_PATH"
+		example = "  agent-gateway admin reset --secret-output NEW_PATH"
+		usage = "agent-gateway admin reset --secret-output NEW_PATH"
 	}
 	command := &cobra.Command{
 		Use:     operation,
@@ -602,7 +592,7 @@ func newAdminAuthorityCmd(operation string, dependencies offlineDependencies) *c
 			}
 			human := "Gateway initialized successfully.\nData directory: " + controlclient.TerminalSafePath(layout.Root) + "\nAdministrator bearer file: " + controlclient.TerminalSafePath(secretPath) + "\nBearer published once to the owner-only file; it cannot be shown again.\nStart the Gateway: " + startCommand + "\nOpen: http://127.0.0.1:8210/"
 			if operation != "initialize" {
-				bearerCommand, renderErr := renderBearerCommand("mcp-gateway status", secretPath)
+				bearerCommand, renderErr := renderBearerCommand("agent-gateway status", secretPath)
 				if renderErr != nil {
 					return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The secret output path is too long to render safely."))
 				}
@@ -724,7 +714,7 @@ func adminCommandProblem(operation, code, dataDir, secretPath, startCommand stri
 	case "already_initialized":
 		return &controlclient.Problem{Code: code, Title: "The Gateway installation at " + safeDataDir + " is already initialized. Start it with: " + startCommand, Exit: 5}
 	case "not_initialized":
-		return &controlclient.Problem{Code: code, Title: "The Gateway installation at " + safeDataDir + " is not initialized. Run mcp-gateway initialize first.", Exit: 4}
+		return &controlclient.Problem{Code: code, Title: "The Gateway installation at " + safeDataDir + " is not initialized. Run agent-gateway initialize first.", Exit: 4}
 	case "secret_output_unavailable":
 		return &controlclient.Problem{Code: code, Title: "The administrator bearer could not be published to " + safeSecretPath + ". Choose a new nonexistent owner-only output path; authority was not activated.", Exit: 2}
 	default:
@@ -747,20 +737,20 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 		Use:   "restore [backup-id]",
 		Short: "Verify or restore a stopped Gateway database",
 		Long:  "Verify or restore a stopped Gateway database. Restore writes its one-time replacement administrator bearer to a new non-symlink 0600 owner-only file; the bearer cannot be recovered after publication.",
-		Example: "  mcp-gateway restore --verify-current\n" +
-			"  mcp-gateway restore BACKUP_ID --secret-output NEW_PATH",
+		Example: "  agent-gateway restore --verify-current\n" +
+			"  agent-gateway restore BACKUP_ID --secret-output NEW_PATH",
 		Args: func(command *cobra.Command, args []string) error {
 			validVerify := verify && len(args) == 0
 			validBackup := !verify && len(args) == 1 && backup.ValidID(args[0])
 			if !validVerify && !validBackup {
-				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("Use --verify-current with no backup ID, or provide exactly one valid backup ID.", "mcp-gateway restore --verify-current | mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+				return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("Use --verify-current with no backup ID, or provide exactly one valid backup ID.", "agent-gateway restore --verify-current | agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
 			options, err := resolveExecutionOptions(executionOptionInput{DataDir: selectedDataDir(command, dataDir), Output: output, OutputSet: command.Flags().Changed("output"), JSON: jsonOutput})
 			if err != nil {
-				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", "mcp-gateway restore --verify-current | mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+				return writeOfflineProblem(command, controlclient.OutputHuman, offlineUsageProblem("Choose either --output human or --output json; --json is the JSON shorthand.", "agent-gateway restore --verify-current | agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 			}
 			layout, err := gatewaypaths.Resolve(options.DataDir)
 			if err != nil {
@@ -770,7 +760,7 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 				return writeOfflineProblem(command, options.Output, controlclient.NewInputError("--secret-output cannot be used with --verify-current."))
 			}
 			if !verify && secretOutput == "" {
-				return writeOfflineProblem(command, options.Output, offlineUsageProblem("The --secret-output flag is required when restoring a backup.", "mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+				return writeOfflineProblem(command, options.Output, offlineUsageProblem("The --secret-output flag is required when restoring a backup.", "agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 			}
 			var identity storage.Identity
 			mode, backupID := "verify_current", ""
@@ -797,7 +787,7 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 			}
 			human := "Gateway installation verified successfully.\nData directory: " + controlclient.TerminalSafePath(layout.Root)
 			if !verify {
-				bearerCommand, renderErr := renderBearerCommand("mcp-gateway status", secretOutput)
+				bearerCommand, renderErr := renderBearerCommand("agent-gateway status", secretOutput)
 				if renderErr != nil {
 					return writeOfflineProblem(command, options.Output, controlclient.NewInputError("The secret output path is too long to render safely."))
 				}
@@ -816,7 +806,7 @@ func newRestoreCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
-		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A restore flag is invalid or incomplete.", "mcp-gateway restore --verify-current | mcp-gateway restore BACKUP_ID --secret-output NEW_PATH"))
+		return writeOfflineProblem(command, selectedOutputMode(command, output, jsonOutput), offlineUsageProblem("A restore flag is invalid or incomplete.", "agent-gateway restore --verify-current | agent-gateway restore BACKUP_ID --secret-output NEW_PATH"))
 	})
 	return command
 }

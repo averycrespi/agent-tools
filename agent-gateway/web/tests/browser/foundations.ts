@@ -61,7 +61,7 @@ export async function assertSessionFoundationEpochs(): Promise<void> {
   let bootstrapCalls = 0;
   const request: typeof fetch = async (input, init) => {
     const path = String(input);
-    if (path === "/api/v1/admin-sessions/current") {
+    if (path === "/api/v2/admin-sessions/current") {
       bootstrapCalls += 1;
       return new Response(
         JSON.stringify({
@@ -76,7 +76,7 @@ export async function assertSessionFoundationEpochs(): Promise<void> {
       );
     }
     if (
-      path === "/api/v1/admin-sessions" &&
+      path === "/api/v2/admin-sessions" &&
       init?.method === "POST" &&
       init.headers !== undefined
     ) {
@@ -174,7 +174,7 @@ export async function assertViewGenerationFoundation(): Promise<void> {
   }
 
   const sessionRequest: typeof fetch = async (input) => {
-    if (String(input) === "/api/v1/admin-sessions/current") {
+    if (String(input) === "/api/v2/admin-sessions/current") {
       return new Response(
         JSON.stringify({
           status: 401,
@@ -217,7 +217,7 @@ export async function assertViewGenerationFoundation(): Promise<void> {
   let streamRequests = 0;
   const viewRequest: typeof fetch = async (input, init) => {
     if (
-      String(input) !== "/api/v1/events" ||
+      String(input) !== "/api/v2/events" ||
       init?.method !== "POST" ||
       init.body !== "{}"
     ) {
@@ -383,7 +383,7 @@ export function mutationSpec(
   overrides: Partial<MutationSpec<string>> = {},
 ): MutationSpec<string> {
   return {
-    route: "/api/v1/servers",
+    route: "/api/v2/mcp/servers",
     method: "POST",
     body: '{"namespace":"alpha"}',
     precondition: null,
@@ -410,7 +410,7 @@ export function mutationSpec(
 
 export async function assertMutationFoundation(): Promise<void> {
   const fakeSessionRequest: typeof fetch = async (input) => {
-    if (String(input) === "/api/v1/admin-sessions/current") {
+    if (String(input) === "/api/v2/admin-sessions/current") {
       return problemResponse(401, "authentication_required");
     }
     return new Response(JSON.stringify(sessionFixture()), {
@@ -533,7 +533,7 @@ export async function assertMutationFoundation(): Promise<void> {
   const resourceID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
   const precondition = `"server-${resourceID}-7"`;
   const conditional = mutationSpec({
-    route: `/api/v1/servers/${resourceID}`,
+    route: `/api/v2/mcp/servers/${resourceID}`,
     method: "PATCH",
     body: '{"display_name":"updated"}',
     precondition,
@@ -632,7 +632,7 @@ export async function assertMutationFoundation(): Promise<void> {
   try {
     controller.begin(
       mutationSpec({
-        route: "/api/v1/servers?unsafe=true",
+        route: "/api/v2/mcp/servers?unsafe=true",
         idempotency: "server_create",
       }),
     );
@@ -645,7 +645,7 @@ export async function assertMutationFoundation(): Promise<void> {
   const routeValidation = coordinator.create<string>();
   routeValidation.begin(
     mutationSpec({
-      route: "/api/v1/backups",
+      route: "/api/v2/backups",
       body: "{}",
       idempotency: "backup_create",
     }),
@@ -653,7 +653,7 @@ export async function assertMutationFoundation(): Promise<void> {
   routeValidation.abandon();
   routeValidation.begin(
     mutationSpec({
-      route: `/api/v1/servers/${resourceID}/operations`,
+      route: `/api/v2/mcp/servers/${resourceID}/operations`,
       body: '{"kind":"reload"}',
       precondition,
       requiresPrecondition: true,
@@ -666,7 +666,7 @@ export async function assertMutationFoundation(): Promise<void> {
   try {
     routeValidation.begin(
       mutationSpec({
-        route: `/api/v1/servers/${resourceID}/operations`,
+        route: `/api/v2/mcp/servers/${resourceID}/operations`,
         body: '{"kind":"reload"}',
         idempotency: "none",
       }),
@@ -681,7 +681,7 @@ export async function assertMutationFoundation(): Promise<void> {
 
 export async function assertSensitiveSinkFoundation(): Promise<void> {
   const fakeSessionRequest: typeof fetch = async (input) => {
-    if (String(input) === "/api/v1/admin-sessions/current") {
+    if (String(input) === "/api/v2/admin-sessions/current") {
       return problemResponse(401, "authentication_required");
     }
     return new Response(JSON.stringify(sessionFixture()), {

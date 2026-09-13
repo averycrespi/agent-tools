@@ -16,7 +16,7 @@ func operationListPath(options *onlineOptions, args []string) (string, error) {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 		return "", controlclient.ErrInvalidInput
 	}
-	return controlclient.BuildListPath("/api/v1/servers/"+args[0]+"/operations", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
+	return controlclient.BuildListPath("/api/v2/mcp/servers/"+args[0]+"/operations", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 }
 
 func runServerOperationStart(command *cobra.Command, options *onlineOptions, args []string) error {
@@ -88,7 +88,7 @@ func runOperationMutation(command *cobra.Command, options *onlineOptions, reques
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/servers/" + request.serverID + "/operations", Header: header, Body: request.body})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/mcp/servers/" + request.serverID + "/operations", Header: header, Body: request.body})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -135,7 +135,7 @@ func operationUncertainTitle(request operationMutationRequest) string {
 }
 
 func operationListTable(body []byte) (controlclient.Table, error) {
-	var page contract.Collection[contract.ServerOperation]
+	var page contract.QueryCollection[contract.ServerOperation]
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}

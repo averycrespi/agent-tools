@@ -46,7 +46,7 @@ function classifyRequestTarget(
     return "reject";
   }
   const path = rawPath(requestTarget);
-  if (path.startsWith("/api/v1/")) {
+  if (path.startsWith("/api/v2/")) {
     return hasUnsafePathEncoding(path) ? "reject" : "proxy";
   }
   if (

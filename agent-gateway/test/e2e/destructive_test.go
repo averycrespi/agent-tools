@@ -71,6 +71,7 @@ func TestGatewayBinaryDisconnectDisableDeleteAndIsolation(t *testing.T) {
 	disable := createStdioServer(t, harness, executable, "disable-modern", filepath.Join(disableDirectory, "marker"), disableEvents)
 	harness.WaitOperation(disable.Server.ID, disable.Operation.ID, contract.OperationSucceeded)
 	disableStarts := fixtureEvents(waitForFixtureEvents(t, disableEvents, func(events []stdioFixtureEvent) bool { return countFixtureEvents(events, "start", "") == 1 }), "start", "")
+	harness.WaitSettledOperation(disable.Server.ID, disable.Operation.ID)
 	disableMutation, _ := patchServer(t, harness, disable.Server.ID, contract.ServerETag(disable.Server.ID, "1"), `{"enabled":false}`)
 	require.NotNil(t, disableMutation.Operation)
 	assert.Equal(t, contract.OperationDisable, disableMutation.Operation.Kind)
@@ -94,7 +95,7 @@ func TestGatewayBinaryDisconnectDisableDeleteAndIsolation(t *testing.T) {
 	})
 	deleteStarts := fixtureEvents(waitForFixtureEvents(t, deleteEvents, func(events []stdioFixtureEvent) bool { return countFixtureEvents(events, "start", "") == 1 }), "start", "")
 	var deleteResponse json.RawMessage
-	response := harness.AdminJSON(http.MethodDelete, "/api/v1/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": contract.ServerETag(deleted.Server.ID, "1")}, &deleteResponse)
+	response := harness.AdminJSON(http.MethodDelete, "/api/v2/mcp/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": contract.ServerETag(deleted.Server.ID, "1")}, &deleteResponse)
 	require.Equal(t, http.StatusAccepted, response.StatusCode, string(deleteResponse))
 	tombstoneETag := response.Header.Get("ETag")
 	require.NoError(t, response.Body.Close())
@@ -112,21 +113,21 @@ func TestGatewayBinaryDisconnectDisableDeleteAndIsolation(t *testing.T) {
 	assert.Equal(t, 1, countFixtureEvents(fixtureEventsNow(t, deleteEvents), "start", ""))
 
 	var replay replacementMutation
-	response = harness.AdminJSON(http.MethodDelete, "/api/v1/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": tombstoneETag}, &replay)
+	response = harness.AdminJSON(http.MethodDelete, "/api/v2/mcp/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": tombstoneETag}, &replay)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	assert.Equal(t, tombstoneETag, response.Header.Get("ETag"))
 	require.NoError(t, response.Body.Close())
 	require.NotNil(t, replay.Operation)
 	assert.Equal(t, tombstone.Operation.ID, replay.Operation.ID)
 	assert.Equal(t, tombstone.Server.DesiredRevision, replay.Server.DesiredRevision)
-	response = harness.AdminJSON(http.MethodDelete, "/api/v1/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": contract.ServerETag(deleted.Server.ID, "1")}, nil)
+	response = harness.AdminJSON(http.MethodDelete, "/api/v2/mcp/servers/"+deleted.Server.ID, `{}`, map[string]string{"If-Match": contract.ServerETag(deleted.Server.ID, "1")}, nil)
 	assert.Equal(t, http.StatusPreconditionFailed, response.StatusCode)
 	_ = readResponseBody(t, response)
 	assertServerListContainsOnce(t, harness, deleted.Server.ID)
 	assertUnrelatedServerContinuity(t, harness, unrelatedFixture, unrelatedBefore, unrelatedRequests)
 
 	var catalog contract.CatalogPage
-	response = harness.AdminJSON(http.MethodGet, "/api/v1/catalog", "", nil, &catalog)
+	response = harness.AdminJSON(http.MethodGet, "/api/v2/mcp/catalog", "", nil, &catalog)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	require.Len(t, catalog.Items, 2)
@@ -149,7 +150,7 @@ func createAndActivateStaticServer(t *testing.T, harness *gatewayHarness, execut
 	contents, err := json.Marshal(request)
 	require.NoError(t, err)
 	var responseBody json.RawMessage
-	response := harness.AdminJSON(http.MethodPost, "/api/v1/servers", string(contents), map[string]string{"Idempotency-Key": "disconnect-target"}, &responseBody)
+	response := harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers", string(contents), map[string]string{"Idempotency-Key": "disconnect-target"}, &responseBody)
 	require.Equal(t, http.StatusCreated, response.StatusCode, string(responseBody))
 	etag := response.Header.Get("ETag")
 	require.NoError(t, response.Body.Close())
@@ -158,7 +159,7 @@ func createAndActivateStaticServer(t *testing.T, harness *gatewayHarness, execut
 	assert.Nil(t, created.Operation)
 
 	var replacement contract.CredentialReplacementResult
-	response = harness.AdminJSON(http.MethodPost, "/api/v1/servers/"+created.Server.ID+"/credential-replacements", `{"kind":"static_credential","expected_revision":"0","values":{"token":"disconnect-canary"}}`, map[string]string{"If-Match": etag}, &replacement)
+	response = harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers/"+created.Server.ID+"/credential-replacements", `{"kind":"static_credential","expected_revision":"0","values":{"token":"disconnect-canary"}}`, map[string]string{"If-Match": etag}, &replacement)
 	require.Equal(t, http.StatusAccepted, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	assert.Equal(t, "1", replacement.CredentialRevision)
@@ -180,7 +181,7 @@ func createAndActivateStaticServer(t *testing.T, harness *gatewayHarness, execut
 func getDestructiveServer(t *testing.T, harness *gatewayHarness, serverID string) destructiveServerView {
 	t.Helper()
 	var server destructiveServerView
-	response := harness.AdminJSON(http.MethodGet, "/api/v1/servers/"+serverID, "", nil, &server)
+	response := harness.AdminJSON(http.MethodGet, "/api/v2/mcp/servers/"+serverID, "", nil, &server)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	return server
@@ -213,7 +214,7 @@ func assertServerListContainsOnce(t *testing.T, harness *gatewayHarness, serverI
 	var page struct {
 		Items []destructiveServerView `json:"items"`
 	}
-	response := harness.AdminJSON(http.MethodGet, "/api/v1/servers?limit=100", "", nil, &page)
+	response := harness.AdminJSON(http.MethodGet, "/api/v2/mcp/servers?limit=50", "", nil, &page)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	count := 0

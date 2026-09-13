@@ -16,7 +16,7 @@ var auditGenerationPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 func auditReadPath(options *onlineOptions, args []string) (string, error) {
 	filters := map[string]string{}
 	allowed := []string{"generation"}
-	base := "/api/v1/audit-events"
+	base := "/api/v2/audit-events"
 	if len(args) == 1 {
 		if !contract.ValidAuditID(args[0]) {
 			return "", controlclient.ErrInvalidInput

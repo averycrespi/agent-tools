@@ -37,7 +37,7 @@ func TestGatewayBinaryActivatesAndPublishesHardenedHTTP(t *testing.T) {
 			assert.Equal(t, *server.Catalog.DurableRevision, *server.Catalog.ActiveRevision)
 
 			var catalog contract.CatalogPage
-			response := harness.AdminJSON(http.MethodGet, "/api/v1/catalog", "", nil, &catalog)
+			response := harness.AdminJSON(http.MethodGet, "/api/v2/mcp/catalog", "", nil, &catalog)
 			require.Equal(t, http.StatusOK, response.StatusCode)
 			require.NoError(t, response.Body.Close())
 			require.Len(t, catalog.Items, 2)
@@ -90,7 +90,7 @@ func createHTTPServer(t *testing.T, harness *gatewayHarness, endpoint, mode stri
 	contents, err := json.Marshal(request)
 	require.NoError(t, err)
 	var creation stdioCreation
-	response := harness.AdminJSON(http.MethodPost, "/api/v1/servers", string(contents), map[string]string{"Idempotency-Key": "http-" + mode}, &creation)
+	response := harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers", string(contents), map[string]string{"Idempotency-Key": "http-" + mode}, &creation)
 	require.Equal(t, http.StatusCreated, response.StatusCode)
 	etag := response.Header.Get("ETag")
 	require.NoError(t, response.Body.Close())
@@ -102,7 +102,7 @@ func createHTTPServer(t *testing.T, harness *gatewayHarness, endpoint, mode stri
 func createServerOperation(t *testing.T, harness *gatewayHarness, serverID, etag, kind, key string) contract.ServerOperation {
 	t.Helper()
 	var mutation contract.ServerOperationMutation
-	response := harness.AdminJSON(http.MethodPost, "/api/v1/servers/"+serverID+"/operations", `{"kind":"`+kind+`"}`, map[string]string{"If-Match": etag, "Idempotency-Key": key}, &mutation)
+	response := harness.AdminJSON(http.MethodPost, "/api/v2/mcp/servers/"+serverID+"/operations", `{"kind":"`+kind+`"}`, map[string]string{"If-Match": etag, "Idempotency-Key": key}, &mutation)
 	require.Equal(t, http.StatusAccepted, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	return mutation.Operation

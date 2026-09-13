@@ -38,13 +38,13 @@ func TestCLIETagMatrix(t *testing.T) {
 		explicitStillGET bool
 		occupied         bool
 	}{
-		{name: "server update", resource: "server", args: func(*testing.T) []string { return []string{"server", "update", id, "--display-name", "Renamed"} }},
-		{name: "server delete", resource: "server", args: func(*testing.T) []string { return []string{"server", "delete", id, "--yes"} }},
-		{name: "server operation start", resource: "server", args: func(*testing.T) []string {
-			return []string{"server", "operation", "start", id, "--kind", "retry", "--idempotency-key", "matrix-operation"}
+		{name: "mcp server update", resource: "server", args: func(*testing.T) []string { return []string{"mcp", "server", "update", id, "--display-name", "Renamed"} }},
+		{name: "mcp server delete", resource: "server", args: func(*testing.T) []string { return []string{"mcp", "server", "delete", id, "--yes"} }},
+		{name: "mcp server operation start", resource: "server", args: func(*testing.T) []string {
+			return []string{"mcp", "server", "operation", "start", id, "--kind", "retry", "--idempotency-key", "matrix-operation"}
 		}},
-		{name: "server credential replace", resource: "server", args: func(*testing.T) []string {
-			return []string{"server", "credential", "replace", id, "--file", credentialInput, "--yes"}
+		{name: "mcp server credential replace", resource: "server", args: func(*testing.T) []string {
+			return []string{"mcp", "server", "credential", "replace", id, "--file", credentialInput, "--yes"}
 		}},
 		{name: "principal update", resource: "principal", args: func(*testing.T) []string { return []string{"principal", "update", id, "--display-name", "Renamed"} }},
 		{name: "principal issue", resource: "principal", explicitStillGET: true, args: func(t *testing.T) []string {
@@ -160,10 +160,10 @@ func cliETagMatrixHandler(id string, occupied bool, requests chan cliETagMatrixR
 		response.Header().Set("Content-Type", contract.MediaTypeJSON)
 		if request.Method == http.MethodGet {
 			switch {
-			case strings.HasPrefix(request.URL.Path, "/api/v1/servers/"):
+			case strings.HasPrefix(request.URL.Path, "/api/v2/mcp/servers/"):
 				response.Header().Set("ETag", contract.ServerETag(id, "7"))
 				_, _ = response.Write([]byte(`{"id":"` + id + `","desired_revision":"7"}`))
-			case strings.HasPrefix(request.URL.Path, "/api/v1/principals/"):
+			case strings.HasPrefix(request.URL.Path, "/api/v2/principals/"):
 				response.Header().Set("ETag", contract.PrincipalETag(id, "7"))
 				_, _ = response.Write([]byte(cliETagPrincipal(id, "7", occupied)))
 			default:
@@ -179,9 +179,9 @@ func cliETagMatrixHandler(id string, occupied bool, requests chan cliETagMatrixR
 		case strings.HasSuffix(request.URL.Path, "/credential-replacements"):
 			response.WriteHeader(http.StatusAccepted)
 			_, _ = response.Write([]byte(`{"server_id":"` + id + `","kind":"static_credential","credential_revision":"1","operation":{"id":"` + id + `","server_id":"` + id + `","kind":"credential_replace","target_desired_revision":"7","target_credential_revisions":{},"state":"scheduled","reason":null,"created_at":"2026-08-30T00:00:00Z","started_at":null,"finished_at":null}}`))
-		case strings.HasSuffix(request.URL.Path, "/auth-flows"):
+		case strings.HasSuffix(request.URL.Path, "/oauth-flows"):
 			response.WriteHeader(http.StatusCreated)
-			_, _ = response.Write([]byte(`{"flow":{"id":"` + id + `","server_id":"` + id + `","flow_state":"awaiting_callback","target_desired_revision":"7","registration_revision":"1","created_at":"2026-08-30T00:00:00Z","expires_at":"2026-08-30T01:00:00Z","finished_at":null,"reason":null},"authorization_url":"` + authorizationURL + `"}`))
+			_, _ = response.Write([]byte(`{"flow":{"id":"` + id + `","server_id":"` + id + `","state":"awaiting_callback","target_desired_revision":"7","registration_revision":"1","created_at":"2026-08-30T00:00:00Z","expires_at":"2026-08-30T01:00:00Z","finished_at":null,"reason":null},"authorization_url":"` + authorizationURL + `"}`))
 		case strings.Contains(request.URL.Path, "/principals/") && strings.HasSuffix(request.URL.Path, "/credential") && request.Method == http.MethodPost:
 			response.Header().Set("ETag", contract.PrincipalETag(id, "8"))
 			response.WriteHeader(http.StatusCreated)

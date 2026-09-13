@@ -703,7 +703,7 @@ export class ViewCoordinator {
       .runProtected(async (context) => {
         const joined = joinSignals(context.signal, streamController.signal);
         try {
-          const response = await this.request("/api/v1/events", {
+          const response = await this.request("/api/v2/events", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",

@@ -53,6 +53,21 @@ func (service *fakePrincipalService) GetPrincipal(_ context.Context, id string) 
 	}
 	return contract.Principal{}, authorization.ErrNotFound
 }
+func (service *fakePrincipalService) QueryPrincipals(ctx context.Context, _ authorization.CollectionQuery, cursor *authorization.SnapshotCursor, limit int) (authorization.PrincipalPage, error) {
+	page, err := service.ListPrincipals(ctx, cursor, limit)
+	page.TotalCount = len(service.items)
+	return page, err
+}
+
+func (service *fakePrincipalService) QueryGrants(ctx context.Context, query authorization.CollectionQuery, cursor *authorization.SnapshotCursor, limit int) (authorization.GrantTablePage, error) {
+	page, err := service.ListGrants(ctx, authorization.GrantFilter{PrincipalID: query.PrincipalID, ServerID: query.ServerID}, cursor, limit)
+	items := make([]contract.GrantTableItem, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, contract.GrantTableItem{Grant: item})
+	}
+	return authorization.GrantTablePage{Items: items, Next: page.Next, CollectionRange: contract.CollectionRange{TotalCount: len(service.grants)}}, err
+}
+
 func (service *fakePrincipalService) ListPrincipals(_ context.Context, cursor *authorization.SnapshotCursor, limit int) (authorization.PrincipalPage, error) {
 	if service.err != nil {
 		return authorization.PrincipalPage{}, service.err
@@ -205,7 +220,7 @@ func principalResource() contract.Principal {
 
 func newPrincipalHandler(t *testing.T, service PrincipalService, invalidations *[]contract.Invalidation) http.Handler {
 	t.Helper()
-	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Principals: service, Invalidate: func(event contract.Invalidation) {
+	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Principals: service, AuthorizationCollections: service.(AuthorizationCollectionService), Invalidate: func(event contract.Invalidation) {
 		if invalidations != nil {
 			*invalidations = append(*invalidations, event)
 		}
@@ -220,22 +235,22 @@ func TestPrincipalCreateGetPatchListAndInvalidation(t *testing.T) {
 	var invalidations []contract.Invalidation
 	handler := newPrincipalHandler(t, service, &invalidations)
 	authJSON := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	created := perform(handler, http.MethodPost, "/api/v1/principals", `{"display_name":"Agent","visibility":"requestable"}`, authJSON)
+	created := perform(handler, http.MethodPost, "/api/v2/principals", `{"display_name":"Agent","visibility":"requestable"}`, authJSON)
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
 	assert.Equal(t, contract.PrincipalETag(testID, "1"), created.Header().Get("ETag"))
 	assert.Empty(t, created.Header().Get("Location"))
 	assert.Contains(t, created.Body.String(), `"default_grant"`)
 
-	got := perform(handler, http.MethodGet, "/api/v1/principals/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	got := perform(handler, http.MethodGet, "/api/v2/principals/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 	assert.Equal(t, contract.PrincipalETag(testID, "1"), got.Header().Get("ETag"))
 
-	patch := perform(handler, http.MethodPatch, "/api/v1/principals/"+testID, `{"display_name":"Renamed","state":"disabled","visibility":"all"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
+	patch := perform(handler, http.MethodPatch, "/api/v2/principals/"+testID, `{"display_name":"Renamed","state":"disabled","visibility":"all"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
 	require.Equal(t, http.StatusOK, patch.Code, patch.Body.String())
 	assert.Equal(t, contract.PrincipalETag(testID, "2"), patch.Header().Get("ETag"))
 	assert.Equal(t, "1", service.patch.ExpectedRevision)
 
-	listed := perform(handler, http.MethodGet, "/api/v1/principals?limit=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	listed := perform(handler, http.MethodGet, "/api/v2/principals?limit=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	assert.Equal(t, 1, service.limit)
 	assert.Contains(t, listed.Body.String(), `"next_cursor":"`)
@@ -244,7 +259,7 @@ func TestPrincipalCreateGetPatchListAndInvalidation(t *testing.T) {
 	var page contract.Collection[contract.Principal]
 	require.NoError(t, json.Unmarshal(listed.Body.Bytes(), &page))
 	require.NotNil(t, page.NextCursor)
-	continued := perform(handler, http.MethodGet, "/api/v1/principals?limit=2&cursor="+*page.NextCursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	continued := perform(handler, http.MethodGet, "/api/v2/principals?limit=2&cursor="+*page.NextCursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, continued.Code, continued.Body.String())
 	require.NotNil(t, service.cursor)
 	assert.Equal(t, authorization.SnapshotCursor{Collection: "principals", Upper: 2, After: 1, AfterID: testID}, *service.cursor)
@@ -256,7 +271,7 @@ func TestPrincipalCredentialIssueReplaceAndRevoke(t *testing.T) {
 	var invalidations []contract.Invalidation
 	handler := newPrincipalHandler(t, service, &invalidations)
 	request := func(method, revision string) *httptest.ResponseRecorder {
-		return perform(handler, method, "/api/v1/principals/"+testID+"/credential", `{}`, map[string]string{
+		return perform(handler, method, "/api/v2/principals/"+testID+"/credential", `{}`, map[string]string{
 			"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
 			"If-Match": contract.PrincipalETag(testID, revision),
 		})
@@ -273,7 +288,7 @@ func TestPrincipalCredentialIssueReplaceAndRevoke(t *testing.T) {
 	assert.Contains(t, replaced.Body.String(), `"bearer":"one-time-bearer-2"`)
 	assert.NotContains(t, replaced.Body.String(), "one-time-bearer-1")
 
-	got := perform(handler, http.MethodGet, "/api/v1/principals/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	got := perform(handler, http.MethodGet, "/api/v2/principals/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 	assert.NotContains(t, got.Body.String(), "one-time-bearer")
 
@@ -305,17 +320,17 @@ func TestPrincipalCredentialValidationAndErrors(t *testing.T) {
 		{"weak precondition", http.MethodDelete, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": "W/" + contract.PrincipalETag(testID, "1")}, 412, "stale_principal_revision"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			response := perform(handler, test.method, "/api/v1/principals/"+testID+"/credential", test.body, test.headers)
+			response := perform(handler, test.method, "/api/v2/principals/"+testID+"/credential", test.body, test.headers)
 			assert.Equal(t, test.status, response.Code, response.Body.String())
 			assert.Contains(t, response.Body.String(), test.code)
 		})
 	}
 	assert.Empty(t, invalidations)
 	service.err = authorization.ErrConflict
-	conflict := perform(handler, http.MethodPost, "/api/v1/principals/"+testID+"/credential", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
+	conflict := perform(handler, http.MethodPost, "/api/v2/principals/"+testID+"/credential", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
 	assert.Equal(t, http.StatusConflict, conflict.Code)
 	service.err = authorization.ErrStorageUnavailable
-	unavailable := perform(handler, http.MethodPost, "/api/v1/principals/"+testID+"/credential", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
+	unavailable := perform(handler, http.MethodPost, "/api/v2/principals/"+testID+"/credential", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
 	assert.Equal(t, http.StatusServiceUnavailable, unavailable.Code)
 	assert.Contains(t, unavailable.Body.String(), "authorization_unavailable")
 	assert.Empty(t, invalidations)
@@ -331,25 +346,25 @@ func TestPrincipalStrictValidationQueryAndPreconditions(t *testing.T) {
 		status                   int
 		code                     string
 	}{
-		{"create null", http.MethodPost, "/api/v1/principals", `{"display_name":null,"visibility":"all"}`, authJSON, 400, "invalid_principal"},
-		{"create missing", http.MethodPost, "/api/v1/principals", `{"display_name":"Agent"}`, authJSON, 400, "invalid_principal"},
-		{"create unknown", http.MethodPost, "/api/v1/principals", `{"display_name":"Agent","visibility":"all","extra":true}`, authJSON, 400, "invalid_json"},
-		{"create duplicate", http.MethodPost, "/api/v1/principals", `{"display_name":"Agent","display_name":"Other","visibility":"all"}`, authJSON, 400, "invalid_json"},
-		{"create query", http.MethodPost, "/api/v1/principals?limit=1", `{"display_name":"Agent","visibility":"all"}`, authJSON, 400, "malformed_request"},
-		{"patch empty", http.MethodPatch, "/api/v1/principals/" + testID, `{}`, authJSON, 400, "invalid_principal"},
-		{"patch null", http.MethodPatch, "/api/v1/principals/" + testID, `{"state":null}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")}, 400, "invalid_principal"},
-		{"missing precondition", http.MethodPatch, "/api/v1/principals/" + testID, `{"state":"disabled"}`, authJSON, 428, "principal_precondition_required"},
-		{"weak precondition", http.MethodPatch, "/api/v1/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": "W/" + contract.PrincipalETag(testID, "1")}, 412, "stale_principal_revision"},
-		{"wildcard precondition", http.MethodPatch, "/api/v1/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": "*"}, 412, "stale_principal_revision"},
-		{"wrong principal precondition", http.MethodPatch, "/api/v1/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag("01ARZ3NDEKTSV4RRFFQ69G5FAX", "1")}, 412, "stale_principal_revision"},
-		{"noncanonical precondition", http.MethodPatch, "/api/v1/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "01")}, 412, "stale_principal_revision"},
-		{"list precondition", http.MethodPatch, "/api/v1/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1") + ", " + contract.PrincipalETag(testID, "2")}, 412, "stale_principal_revision"},
-		{"unknown query", http.MethodGet, "/api/v1/principals?unknown=active", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
-		{"repeated query", http.MethodGet, "/api/v1/principals?limit=1&limit=2", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
-		{"empty query", http.MethodGet, "/api/v1/principals?limit=", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
-		{"null query", http.MethodGet, "/api/v1/principals?cursor=null", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
-		{"malformed escape", http.MethodGet, "/api/v1/principals?cursor=%ZZ", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
-		{"bad cursor", http.MethodGet, "/api/v1/principals?cursor=abc", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "invalid_cursor"},
+		{"create null", http.MethodPost, "/api/v2/principals", `{"display_name":null,"visibility":"all"}`, authJSON, 400, "invalid_principal"},
+		{"create missing", http.MethodPost, "/api/v2/principals", `{"display_name":"Agent"}`, authJSON, 400, "invalid_principal"},
+		{"create unknown", http.MethodPost, "/api/v2/principals", `{"display_name":"Agent","visibility":"all","extra":true}`, authJSON, 400, "invalid_json"},
+		{"create duplicate", http.MethodPost, "/api/v2/principals", `{"display_name":"Agent","display_name":"Other","visibility":"all"}`, authJSON, 400, "invalid_json"},
+		{"create query", http.MethodPost, "/api/v2/principals?limit=1", `{"display_name":"Agent","visibility":"all"}`, authJSON, 400, "malformed_request"},
+		{"patch empty", http.MethodPatch, "/api/v2/principals/" + testID, `{}`, authJSON, 400, "invalid_principal"},
+		{"patch null", http.MethodPatch, "/api/v2/principals/" + testID, `{"state":null}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")}, 400, "invalid_principal"},
+		{"missing precondition", http.MethodPatch, "/api/v2/principals/" + testID, `{"state":"disabled"}`, authJSON, 428, "principal_precondition_required"},
+		{"weak precondition", http.MethodPatch, "/api/v2/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": "W/" + contract.PrincipalETag(testID, "1")}, 412, "stale_principal_revision"},
+		{"wildcard precondition", http.MethodPatch, "/api/v2/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": "*"}, 412, "stale_principal_revision"},
+		{"wrong principal precondition", http.MethodPatch, "/api/v2/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag("01ARZ3NDEKTSV4RRFFQ69G5FAX", "1")}, 412, "stale_principal_revision"},
+		{"noncanonical precondition", http.MethodPatch, "/api/v2/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "01")}, 412, "stale_principal_revision"},
+		{"list precondition", http.MethodPatch, "/api/v2/principals/" + testID, `{"state":"disabled"}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1") + ", " + contract.PrincipalETag(testID, "2")}, 412, "stale_principal_revision"},
+		{"unknown query", http.MethodGet, "/api/v2/principals?unknown=active", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
+		{"repeated query", http.MethodGet, "/api/v2/principals?limit=1&limit=2", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
+		{"empty query", http.MethodGet, "/api/v2/principals?limit=", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
+		{"null query", http.MethodGet, "/api/v2/principals?cursor=null", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
+		{"malformed escape", http.MethodGet, "/api/v2/principals?cursor=%ZZ", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "malformed_request"},
+		{"bad cursor", http.MethodGet, "/api/v2/principals?cursor=abc", "", map[string]string{"Authorization": "Bearer " + testBearer}, 400, "invalid_cursor"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := perform(handler, test.method, test.path, test.body, test.headers)
@@ -362,11 +377,11 @@ func TestPrincipalStrictValidationQueryAndPreconditions(t *testing.T) {
 func TestPrincipalAuthenticationSessionAndErrorMapping(t *testing.T) {
 	service := &fakePrincipalService{items: []contract.Principal{principalResource()}}
 	handler := newPrincipalHandler(t, service, nil)
-	unauthenticated := perform(handler, http.MethodGet, "/api/v1/principals", "", nil)
+	unauthenticated := perform(handler, http.MethodGet, "/api/v2/principals", "", nil)
 	assert.Equal(t, http.StatusUnauthorized, unauthenticated.Code)
-	session := perform(handler, http.MethodPatch, "/api/v1/principals/"+testID, `{"visibility":"all"}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
+	session := perform(handler, http.MethodPatch, "/api/v2/principals/"+testID, `{"visibility":"all"}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "1")})
 	assert.Equal(t, http.StatusOK, session.Code, session.Body.String())
-	missingOrigin := perform(handler, http.MethodPatch, "/api/v1/principals/"+testID, `{"visibility":"all"}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "2")})
+	missingOrigin := perform(handler, http.MethodPatch, "/api/v2/principals/"+testID, `{"visibility":"all"}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON, "If-Match": contract.PrincipalETag(testID, "2")})
 	assert.Equal(t, http.StatusForbidden, missingOrigin.Code)
 
 	for _, test := range []struct {
@@ -376,7 +391,7 @@ func TestPrincipalAuthenticationSessionAndErrorMapping(t *testing.T) {
 		{authorization.ErrNotFound, "not_found"}, {authorization.ErrInvalidInput, "invalid_principal"}, {authorization.ErrResourceLimit, "resource_limit"}, {authorization.ErrStaleRevision, "stale_principal_revision"}, {authorization.ErrConflict, "conflict"}, {authorization.ErrStaleCursor, "stale_cursor"}, {authorization.ErrShuttingDown, "shutting_down"}, {authorization.ErrStorageUnavailable, "authorization_unavailable"}, {errors.New("foreign"), "authorization_unavailable"},
 	} {
 		service.err = test.err
-		response := perform(handler, http.MethodGet, "/api/v1/principals", "", map[string]string{"Authorization": "Bearer " + testBearer})
+		response := perform(handler, http.MethodGet, "/api/v2/principals", "", map[string]string{"Authorization": "Bearer " + testBearer})
 		assert.Contains(t, response.Body.String(), test.code, test.err)
 	}
 }

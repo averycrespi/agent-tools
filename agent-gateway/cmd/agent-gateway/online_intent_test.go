@@ -68,22 +68,22 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	root := t.TempDir()
 	malformed := filepath.Join(root, "malformed.json")
 	require.NoError(t, os.WriteFile(malformed, []byte(`{"namespace":`), 0o600))
-	malformedOutput := assertRejectedBeforeAuthority(t, []string{"server", "create", "--file", malformed})
+	malformedOutput := assertRejectedBeforeAuthority(t, []string{"mcp", "server", "create", "--file", malformed})
 	assert.Contains(t, malformedOutput, "file input")
 	assert.Contains(t, malformedOutput, `"code":"client_invalid_input"`)
 	semantic := filepath.Join(root, "semantic.json")
 	require.NoError(t, os.WriteFile(semantic, []byte(`{}`), 0o600))
-	semanticOutput := assertRejectedBeforeAuthority(t, []string{"server", "create", "--file", semantic})
+	semanticOutput := assertRejectedBeforeAuthority(t, []string{"mcp", "server", "create", "--file", semantic})
 	assert.Contains(t, semanticOutput, `"code":"invalid_server_configuration"`)
 	assert.Contains(t, semanticOutput, `"context":{"field":"namespace","rule":"required"}`)
 
 	patch := filepath.Join(root, "patch.json")
 	require.NoError(t, os.WriteFile(patch, []byte(`{"display_name":"new"}`), 0o600))
 	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"server", "update", id, "--etag", `"server-` + id + `-1"`, "--file", patch, "--display-name", "other"}), "either direct input flags or --file")
-	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"server", "operation", "start", id, "--kind", "invented"}), "--kind value is invalid")
+	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"mcp", "server", "update", id, "--etag", `"server-` + id + `-1"`, "--file", patch, "--display-name", "other"}), "either direct input flags or --file")
+	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"mcp", "server", "operation", "start", id, "--kind", "invented"}), "--kind value is invalid")
 	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"principal", "create", "--visibility", "requestable"}), "--display-name flag is required")
-	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"server", "get", "not-an-id"}), "resource ID is invalid")
+	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"mcp", "server", "get", "not-an-id"}), "resource ID is invalid")
 
 	stdinConflict := &countingReader{reader: bytes.NewBufferString(`{"namespace":"x"}`)}
 	command := newRootCmd()
@@ -91,21 +91,21 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	command.SetIn(stdinConflict)
 	command.SetErr(&stderr)
 	command.SetOut(io.Discard)
-	command.SetArgs([]string{"server", "create", "--file", "-", "--admin-bearer-stdin", "--output", "json"})
+	command.SetArgs([]string{"mcp", "server", "create", "--file", "-", "--admin-bearer-stdin", "--output", "json"})
 	err = command.Execute()
 	require.Error(t, err)
 	assert.Zero(t, stdinConflict.reads)
 	assert.Contains(t, stderr.String(), "Standard input cannot provide both")
 
 	declarations := map[string][]string{
-		"admin credential create": {"expires-at"},
-		"server update":           {"display-name", "enable", "disable"},
-		"server operation start":  {"kind"},
-		"principal create":        {"display-name", "visibility"},
-		"principal update":        {"display-name", "visibility", "state"},
-		"grant create":            {"description", "principal-id", "effect", "server-id", "upstream-name", "expires-at"},
-		"grant-request approve":   {"description", "scope", "target", "duration-seconds", "acknowledge-future-tools"},
-		"grant-request reject":    {"reason"},
+		"admin credential create":    {"expires-at"},
+		"mcp server update":          {"display-name", "enable", "disable"},
+		"mcp server operation start": {"kind"},
+		"principal create":           {"display-name", "visibility"},
+		"principal update":           {"display-name", "visibility", "state"},
+		"grant create":               {"description", "principal-id", "effect", "server-id", "upstream-name", "expires-at"},
+		"grant-request approve":      {"description", "scope", "target", "duration-seconds", "acknowledge-future-tools"},
+		"grant-request reject":       {"reason"},
 	}
 	command = newRootCmd()
 	for path, flags := range declarations {

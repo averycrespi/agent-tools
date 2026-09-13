@@ -17,11 +17,12 @@ import (
 )
 
 type ToolQuery struct {
-	Tool      string
-	Server    string
-	Status    string
-	Sort      string
-	Direction string
+	Tool       string
+	Server     string
+	Status     string
+	Sort       string
+	Direction  string
+	Projection string
 }
 
 func (query ToolQuery) Validate(aggregate bool) bool {
@@ -39,9 +40,12 @@ func (query ToolQuery) Validate(aggregate bool) bool {
 		return false
 	}
 	if aggregate {
+		if query.Projection != "" {
+			return false
+		}
 		return slices.Contains([]string{"", "available", "issue"}, query.Status) && slices.Contains([]string{"", "tool", "server"}, query.Sort)
 	}
-	return query.Server == "" && slices.Contains([]string{"", "available", "retired"}, query.Status) && slices.Contains([]string{"", "tool", "status", "last-seen"}, query.Sort)
+	return slices.Contains([]string{"", "full", "summary"}, query.Projection) && query.Server == "" && slices.Contains([]string{"", "available", "retired"}, query.Status) && slices.Contains([]string{"", "tool", "status", "last-seen"}, query.Sort)
 }
 
 func toolRecognition(value string) string {
@@ -145,7 +149,15 @@ func (repository *Repository) QueryDescriptors(ctx context.Context, serverID str
 		page.Items = make([]DescriptorRecord, 0, end-position)
 		for _, item := range candidates[position:end] {
 			var record DescriptorRecord
-			if err := scanDescriptor(tx.QueryRowContext(ctx, descriptorSelect+` WHERE identity.id = ? AND identity.server_id = ?`, item.id, serverID), &record.InsertionSequence, &record.Resource); err != nil {
+			if query.Projection == "summary" {
+				resource := &record.Resource
+				if err := tx.QueryRowContext(ctx, `SELECT identity.insertion_sequence, identity.id, identity.server_id,
+					identity.upstream_name, identity.external_name, descriptor.catalog_revision
+					FROM durable_tool_identities AS identity JOIN tool_descriptors AS descriptor ON descriptor.tool_id = identity.id
+					WHERE identity.id = ? AND identity.server_id = ?`, item.id, serverID).Scan(&record.InsertionSequence, &resource.ID, &resource.ServerID, &resource.UpstreamName, &resource.ExternalName, &resource.CatalogRevision); err != nil {
+					return err
+				}
+			} else if err := scanDescriptor(tx.QueryRowContext(ctx, descriptorSelect+` WHERE identity.id = ? AND identity.server_id = ?`, item.id, serverID), &record.InsertionSequence, &record.Resource); err != nil {
 				return err
 			}
 			page.Items = append(page.Items, record)

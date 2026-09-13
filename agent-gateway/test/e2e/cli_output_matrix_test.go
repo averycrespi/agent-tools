@@ -29,13 +29,13 @@ func TestCLIOutputMatrix(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests.Add(1)
 		switch {
-		case request.Method == http.MethodDelete && request.URL.Path == "/api/v1/backups/"+backupID:
+		case request.Method == http.MethodDelete && request.URL.Path == "/api/v2/backups/"+backupID:
 			writer.WriteHeader(http.StatusNoContent)
-		case request.Method == http.MethodPost && request.URL.Path == "/api/v1/backups":
+		case request.Method == http.MethodPost && request.URL.Path == "/api/v2/backups":
 			writer.Header().Set("Content-Type", contract.MediaTypeJSON)
 			writer.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(writer).Encode(backup)
-		case request.Method == http.MethodGet && request.URL.Path == "/api/v1/system-status":
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v2/system-status":
 			writer.Header().Set("Content-Type", contract.MediaTypeProblemJSON)
 			writer.WriteHeader(http.StatusNotFound)
 			_, _ = writer.Write([]byte(`{"status":404,"code":"not_found","title":"The selected resource was not found."}`))
@@ -107,7 +107,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 		if mode == "json" {
 			assert.Contains(t, string(result.Stderr), `"code":"gateway_not_running"`)
 		} else {
-			assert.Contains(t, string(result.Stderr), "Start it with: mcp-gateway serve")
+			assert.Contains(t, string(result.Stderr), "Start it with: agent-gateway serve")
 		}
 	}
 

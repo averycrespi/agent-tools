@@ -66,8 +66,8 @@ export async function exerciseCollectionPagination(
     const query = url.searchParams;
     if (requested !== collection) referenceLookups++;
     expect(query.get("limit")).toBe("50");
-    if (requested === "principals") expect(query.has("sort")).toBe(true);
-    else expect(query.get("representation")).toBe("table");
+    expect(query.has("representation")).toBe(false);
+    expect(query.has("sort")).toBe(true);
     const cursor = query.get("cursor");
     requests.push({ collection: requested, cursor, query });
     const problem = async (status: number, code: string) =>
@@ -166,9 +166,9 @@ export async function exerciseCollectionPagination(
     referenceLookups++;
     await route.abort();
   };
-  await page.route("**/api/v1/principals?*", handler);
-  await page.route("**/api/v1/grants?*", handler);
-  await page.route("**/api/v1/servers?*", serverLookup);
+  await page.route("**/api/v2/principals?*", handler);
+  await page.route("**/api/v2/grants?*", handler);
+  await page.route("**/api/v2/mcp/servers?*", serverLookup);
   try {
     for (const selected of ["principals", "grants"] as const) {
       collection = selected;
@@ -386,7 +386,7 @@ export async function exerciseCollectionPagination(
       mode = "error";
       const failedResponse = page.waitForResponse(
         (response) =>
-          new URL(response.url()).pathname === `/api/v1/${selected}` &&
+          new URL(response.url()).pathname === `/api/v2/${selected}` &&
           response.status() === 503,
       );
       await root.getByRole("button", { name: "Reset", exact: true }).click();
@@ -422,7 +422,7 @@ export async function exerciseCollectionPagination(
         invalidRange = invalid;
         const response = page.waitForResponse(
           (response) =>
-            new URL(response.url()).pathname === `/api/v1/${selected}`,
+            new URL(response.url()).pathname === `/api/v2/${selected}`,
         );
         await page.locator('[data-testid="manual-refresh"]').click();
         await response;
@@ -471,7 +471,7 @@ export async function exerciseCollectionPagination(
         const response = page.waitForResponse((response) => {
           const url = new URL(response.url());
           return (
-            url.pathname === `/api/v1/${selected}` &&
+            url.pathname === `/api/v2/${selected}` &&
             url.searchParams.get(parameter) === value
           );
         });
@@ -493,7 +493,7 @@ export async function exerciseCollectionPagination(
           const response = page.waitForResponse((response) => {
             const url = new URL(response.url());
             return (
-              url.pathname === "/api/v1/grants" &&
+              url.pathname === "/api/v2/grants" &&
               url.searchParams.get(parameter!) === value
             );
           });
@@ -558,9 +558,9 @@ export async function exerciseCollectionPagination(
     }
   } finally {
     releaseLate?.();
-    await page.unroute("**/api/v1/principals?*", handler);
-    await page.unroute("**/api/v1/grants?*", handler);
-    await page.unroute("**/api/v1/servers?*", serverLookup);
+    await page.unroute("**/api/v2/principals?*", handler);
+    await page.unroute("**/api/v2/grants?*", handler);
+    await page.unroute("**/api/v2/mcp/servers?*", serverLookup);
     await page.evaluate((fragment) => {
       window.location.hash = fragment;
     }, original);

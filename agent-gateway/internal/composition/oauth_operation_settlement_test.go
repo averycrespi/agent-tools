@@ -101,7 +101,7 @@ func TestOAuthCallbackSettlesDurableOperationAndRestoresAdmission(t *testing.T) 
 	// the unchanged HTTP boundary tests, not this composition fixture.
 	handler := api.New(api.Options{Servers: built.servers})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/servers/"+server.ID+"/operations/"+original.ID, nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v2/mcp/servers/"+server.ID+"/operations/"+original.ID, nil))
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	var detail contract.ServerOperation

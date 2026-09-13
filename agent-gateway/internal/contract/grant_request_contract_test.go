@@ -79,10 +79,10 @@ func TestGrantRequestRoutesProblemsAndLimitsAreExact(t *testing.T) {
 	}
 
 	expectedRoutes := []Route{
-		{Pattern: "/api/v1/grant-requests", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/grant-requests/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/grant-requests/{id}/approve", Methods: []string{"POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/grant-requests/{id}/reject", Methods: []string{"POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/grant-requests", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/grant-requests/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/grant-requests/{id}/approve", Methods: []string{"POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/grant-requests/{id}/reject", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
 	routeStart := -1
@@ -146,7 +146,7 @@ func TestGrantRequestResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T)
 	requireJSONKeys(t, ListGrantRequestsResult{}, "outcome", "items", "next_cursor")
 	requireJSONKeys(t, CancelGrantRequestResult{}, "outcome", "request")
 	require.Equal(t, []string{SummaryIdentityReturned, SummaryGrantsReturned, SummaryGrantRequestProcessed, SummaryGrantRequestReturned, SummaryGrantRequestsReturned, SummaryGrantRequestCancellationProcessed}, []string{"Identity returned.", "Grants returned.", "Grant request processed.", "Grant request returned.", "Grant requests returned.", "Grant request cancellation processed."})
-	requireJSONKeys(t, LimitsStatus{}, "http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions", "event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes", "server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work", "s2_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants", "grant_requests", "grant_request_evidence_bytes")
+	requireJSONKeys(t, LimitsStatus{}, "http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions", "event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes", "server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work", "server_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants", "grant_requests", "grant_request_evidence_bytes")
 
 	etag := GrantRequestETag(request.ID, request.Revision)
 	require.Equal(t, `"grant-request-01ARZ3NDEKTSV4RRFFQ69G5FAV-1"`, etag)
@@ -157,10 +157,10 @@ func TestGrantRequestResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T)
 
 	mechanics := ResourceMechanics()
 	expectedMechanics := []ResourceMechanic{
-		{Pattern: "/api/v1/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "Page<GrantRequestSummary>|QueryPage<GrantRequestTableItem>", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
-		{Pattern: "/api/v1/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-		{Pattern: "/api/v1/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+		{Pattern: "/api/v2/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "QueryPage<GrantRequestTableItem>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
+		{Pattern: "/api/v2/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+		{Pattern: "/api/v2/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	}
 	start := -1
 	for index, mechanic := range mechanics {

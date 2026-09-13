@@ -8,7 +8,7 @@ import (
 )
 
 func TestBrowserEventPostContract(t *testing.T) {
-	route, ok := RouteForPath("/api/v1/events")
+	route, ok := RouteForPath("/api/v2/events")
 	require.True(t, ok)
 	assert.Equal(t, []string{"GET", "POST"}, route.Methods)
 	assert.Equal(t, "GET, POST", route.Allow())

@@ -129,7 +129,7 @@ func TestInitializePersistentDataDirRendersMatchingServeCommand(t *testing.T) {
 	command.SetArgs([]string{"--data-dir", root, "initialize"})
 	require.NoError(t, command.ExecuteContext(context.Background()))
 	assert.Contains(t, stdout.String(), "data_dir=$(printf '%b_' '"+root+"')")
-	assert.Contains(t, stdout.String(), "mcp-gateway serve --data-dir \"$data_dir\"")
+	assert.Contains(t, stdout.String(), "agent-gateway serve --data-dir \"$data_dir\"")
 }
 
 func TestRootCompositionFailurePreventsStartupOutput(t *testing.T) {
@@ -192,7 +192,7 @@ func TestStatusBaseIncludesGlobalRequestLimitsAndPositiveAgentAuth(t *testing.T)
 		"catalog_traversals":           status.Limits.CatalogTraversals,
 		"oauth_flows":                  status.Limits.OAuthFlows,
 		"oauth_callback_work":          status.Limits.OAuthCallbackWork,
-		"s2_idempotency_records":       status.Limits.S2IdempotencyRecords,
+		"server_idempotency_records":   status.Limits.S2IdempotencyRecords,
 		"active_tools":                 status.Limits.ActiveTools,
 		"durable_tool_identities":      status.Limits.DurableToolIdentities,
 		"downstream_dispatch":          status.Limits.DownstreamDispatch,
@@ -230,7 +230,7 @@ func TestInitializeDefaultsToXDGWithHumanNextSteps(t *testing.T) {
 	assert.Contains(t, stdout.String(), "Gateway initialized successfully.")
 	assert.Contains(t, stdout.String(), root)
 	assert.Contains(t, stdout.String(), bearerPath)
-	assert.Contains(t, stdout.String(), "mcp-gateway serve")
+	assert.Contains(t, stdout.String(), "agent-gateway serve")
 	assert.Contains(t, stdout.String(), "http://127.0.0.1:8210/")
 	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(bearer)))
 	assert.Empty(t, stderr.String())
@@ -281,7 +281,7 @@ func TestInitializeRendersShellSafeCustomStartCommand(t *testing.T) {
 	assert.Contains(t, stdout.String(), `\012`)
 	assert.Contains(t, stdout.String(), `'"'"'`)
 	assert.Contains(t, stdout.String(), "cannot be shown again")
-	assert.Contains(t, stdout.String(), "mcp-gateway serve --data-dir")
+	assert.Contains(t, stdout.String(), "agent-gateway serve --data-dir")
 }
 
 func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {

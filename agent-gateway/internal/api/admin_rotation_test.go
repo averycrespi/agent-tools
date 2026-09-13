@@ -91,51 +91,51 @@ func TestAdminCredentialRotationAPI(t *testing.T) {
 	auth := map[string]string{"Authorization": "Bearer " + testBearer}
 	jsonAuth := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
 
-	authority := perform(boundary, http.MethodGet, "/api/v1/admin-authority", "", auth)
+	authority := perform(boundary, http.MethodGet, "/api/v2/admin-authority", "", auth)
 	require.Equal(t, http.StatusOK, authority.Code, authority.Body.String())
 	assert.Equal(t, contract.AdminAuthorityETag("1"), authority.Header().Get("ETag"))
 	assert.JSONEq(t, `{"revision":"1"}`, authority.Body.String())
 
-	sessionOnly := perform(boundary, http.MethodGet, "/api/v1/admin-authority", "", map[string]string{"Cookie": contract.SessionCookieName + "=session"})
+	sessionOnly := perform(boundary, http.MethodGet, "/api/v2/admin-authority", "", map[string]string{"Cookie": contract.SessionCookieName + "=session"})
 	assert.Equal(t, http.StatusUnauthorized, sessionOnly.Code)
 
-	unconditional := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", `{"expires_at":null}`, jsonAuth)
+	unconditional := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", `{"expires_at":null}`, jsonAuth)
 	require.Equal(t, http.StatusCreated, unconditional.Code, unconditional.Body.String())
 	assert.Empty(t, unconditional.Header().Get("ETag"))
 	credentials.items = credentials.items[:1]
 	credentials.authority = "1"
 
-	sessionConditional := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", `{"expires_at":null}`, map[string]string{
+	sessionConditional := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", `{"expires_at":null}`, map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "X-CSRF-Token": "csrf", "Content-Type": contract.MediaTypeJSON, "If-Match": contract.AdminAuthorityETag("1"),
 	})
 	assert.Equal(t, http.StatusUnauthorized, sessionConditional.Code)
 	assert.Len(t, credentials.items, 1)
 
 	conditionalHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.AdminAuthorityETag("1")}
-	conditional := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", `{"expires_at":null}`, conditionalHeaders)
+	conditional := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", `{"expires_at":null}`, conditionalHeaders)
 	require.Equal(t, http.StatusCreated, conditional.Code, conditional.Body.String())
 	assert.Equal(t, contract.AdminAuthorityETag("2"), conditional.Header().Get("ETag"))
 	assert.Contains(t, conditional.Body.String(), credentials.bearer)
 
 	staleHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.AdminAuthorityETag("1")}
-	stale := perform(boundary, http.MethodPost, "/api/v1/admin-credentials", `{"expires_at":null}`, staleHeaders)
+	stale := perform(boundary, http.MethodPost, "/api/v2/admin-credentials", `{"expires_at":null}`, staleHeaders)
 	assert.Equal(t, http.StatusPreconditionFailed, stale.Code)
 	assert.Contains(t, stale.Body.String(), string(contract.ProblemStaleAdminAuthority))
 	assert.Len(t, credentials.items, 2)
 
-	missing := perform(boundary, http.MethodPost, "/api/v1/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, jsonAuth)
+	missing := perform(boundary, http.MethodPost, "/api/v2/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, jsonAuth)
 	assert.Equal(t, http.StatusPreconditionRequired, missing.Code)
 	staleCompletionHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.AdminAuthorityETag("1")}
-	staleCompletion := perform(boundary, http.MethodPost, "/api/v1/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, staleCompletionHeaders)
+	staleCompletion := perform(boundary, http.MethodPost, "/api/v2/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, staleCompletionHeaders)
 	assert.Equal(t, http.StatusPreconditionFailed, staleCompletion.Code)
 	completionHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.AdminAuthorityETag("2")}
-	completed := perform(boundary, http.MethodPost, "/api/v1/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, completionHeaders)
+	completed := perform(boundary, http.MethodPost, "/api/v2/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, completionHeaders)
 	require.Equal(t, http.StatusOK, completed.Code, completed.Body.String())
 	assert.Equal(t, contract.AdminAuthorityETag("3"), completed.Header().Get("ETag"))
 	assert.NotContains(t, completed.Body.String(), credentials.bearer)
 	assert.Contains(t, completed.Body.String(), `"status":"revoked"`)
 	conflictHeaders := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": contract.AdminAuthorityETag("3")}
-	conflict := perform(boundary, http.MethodPost, "/api/v1/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, conflictHeaders)
+	conflict := perform(boundary, http.MethodPost, "/api/v2/admin-credentials/"+testID+"/rotation-completion", `{"replacement_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}`, conflictHeaders)
 	assert.Equal(t, http.StatusConflict, conflict.Code)
 	assert.Contains(t, conflict.Body.String(), string(contract.ProblemAdminRotationConflict))
 
@@ -150,7 +150,7 @@ func TestAdminCredentialRotationAPI(t *testing.T) {
 	} {
 		t.Run(invalid.name, func(t *testing.T) {
 			headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "If-Match": invalid.etag}
-			response := perform(boundary, http.MethodPost, "/api/v1/admin-credentials/"+testID+"/rotation-completion", invalid.body, headers)
+			response := perform(boundary, http.MethodPost, "/api/v2/admin-credentials/"+testID+"/rotation-completion", invalid.body, headers)
 			assert.Equal(t, invalid.status, response.Code, response.Body.String())
 		})
 	}

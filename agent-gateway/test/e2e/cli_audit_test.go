@@ -21,14 +21,14 @@ func TestCLIAudit(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	list := runOnlineCLI(t, harness, bearerPath, true, "audit", "list", "--limit", "1", "--json")
-	api := harness.adminSnapshot(http.MethodGet, "/api/v1/audit-events?limit=1", nil)
+	api := harness.adminSnapshot(http.MethodGet, "/api/v2/audit-events?limit=1", nil)
 	assert.JSONEq(t, string(api.Body), string(list.Stdout))
 	var page contract.AuditPage
 	require.NoError(t, json.Unmarshal(list.Stdout, &page))
 	require.Len(t, page.Items, 1)
 	require.NotNil(t, page.NextCursor)
 	item := runOnlineCLI(t, harness, bearerPath, true, "audit", "get", page.Items[0].ID, "--generation", page.History.Generation, "--json")
-	itemAPI := harness.adminSnapshot(http.MethodGet, "/api/v1/audit-events/"+page.Items[0].ID+"?generation="+page.History.Generation, nil)
+	itemAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/audit-events/"+page.Items[0].ID+"?generation="+page.History.Generation, nil)
 	assert.JSONEq(t, string(itemAPI.Body), string(item.Stdout))
 	older := runOnlineCLI(t, harness, bearerPath, true, "audit", "list", "--limit", "1", "--generation", page.History.Generation, "--cursor", *page.NextCursor, "--json")
 	var olderPage contract.AuditPage

@@ -717,14 +717,13 @@ function listPath(
 ): string {
   const query = new URLSearchParams();
   query.set("limit", "50");
-  if (kind === "descriptors") query.set("retired", "include");
   if (next !== null) query.set("cursor", next);
-  if (kind === "servers") return `/api/v1/servers?${query.toString()}`;
-  if (kind === "catalog") return `/api/v1/catalog?${query.toString()}`;
+  if (kind === "servers") return `/api/v2/mcp/servers?${query.toString()}`;
+  if (kind === "catalog") return `/api/v2/mcp/catalog?${query.toString()}`;
   if (kind === "operations") {
     const id = serverIDFromViewKey(viewKey);
     if (id === undefined) throw new Error("invalid server activity location");
-    return `/api/v1/servers/${id}/operations?projection=active`;
+    return `/api/v2/mcp/servers/${id}/operations?projection=active`;
   }
   if (kind === "authFlows") {
     const match =
@@ -732,14 +731,14 @@ function listPath(
         viewKey,
       );
     if (match === null) throw new Error("invalid server history location");
-    const resource = "auth-flows";
-    return `/api/v1/servers/${match[1]!}/${resource}?${query.toString()}`;
+    const resource = "oauth-flows";
+    return `/api/v2/mcp/servers/${match[1]!}/${resource}?${query.toString()}`;
   }
   const match = /^#\/servers\/([0-7][0-9A-HJKMNP-TV-Z]{25})\?tab=tools$/.exec(
     viewKey,
   );
   if (match === null) throw new Error("invalid descriptor location");
-  return `/api/v1/servers/${match[1]!}/descriptors?${query.toString()}`;
+  return `/api/v2/mcp/servers/${match[1]!}/descriptors?${query.toString()}`;
 }
 
 function serverIDFromViewKey(viewKey: string): string | undefined {
@@ -922,7 +921,7 @@ export class ServerReadsController {
     if (collection === "descriptors") {
       const response = await get(
         context,
-        `/api/v1/servers/${serverIDFromViewKey(context.viewKey)!}`,
+        `/api/v2/mcp/servers/${serverIDFromViewKey(context.viewKey)!}`,
       );
       const server = decodeServer(await json(response));
       const etag = response.headers.get("ETag");
@@ -936,10 +935,10 @@ export class ServerReadsController {
       );
     if (authFlowItem !== null) {
       const [serverResponse, flowResponse] = await Promise.all([
-        get(context, `/api/v1/servers/${authFlowItem[1]!}`),
+        get(context, `/api/v2/mcp/servers/${authFlowItem[1]!}`),
         get(
           context,
-          `/api/v1/servers/${authFlowItem[1]!}/auth-flows/${authFlowItem[2]!}`,
+          `/api/v2/mcp/servers/${authFlowItem[1]!}/oauth-flows/${authFlowItem[2]!}`,
         ),
       ]);
       const server = decodeServer(await json(serverResponse));
@@ -963,10 +962,10 @@ export class ServerReadsController {
       );
     if (operationItem !== null) {
       const [serverResponse, operationResponse] = await Promise.all([
-        get(context, `/api/v1/servers/${operationItem[1]!}`),
+        get(context, `/api/v2/mcp/servers/${operationItem[1]!}`),
         get(
           context,
-          `/api/v1/servers/${operationItem[1]!}/operations/${operationItem[2]!}`,
+          `/api/v2/mcp/servers/${operationItem[1]!}/operations/${operationItem[2]!}`,
         ),
       ]);
       const server = decodeServer(await json(serverResponse));
@@ -993,10 +992,10 @@ export class ServerReadsController {
       );
     if (descriptorItem !== null) {
       const [serverResponse, descriptorResponse] = await Promise.all([
-        get(context, `/api/v1/servers/${descriptorItem[1]!}`),
+        get(context, `/api/v2/mcp/servers/${descriptorItem[1]!}`),
         get(
           context,
-          `/api/v1/servers/${descriptorItem[1]!}/descriptors/${descriptorItem[2]!}`,
+          `/api/v2/mcp/servers/${descriptorItem[1]!}/descriptors/${descriptorItem[2]!}`,
         ),
       ]);
       const server = decodeServer(await json(serverResponse));
@@ -1016,7 +1015,10 @@ export class ServerReadsController {
         context.viewKey,
       );
     if (serverItem !== null && forcedKind === undefined) {
-      const response = await get(context, `/api/v1/servers/${serverItem[1]!}`);
+      const response = await get(
+        context,
+        `/api/v2/mcp/servers/${serverItem[1]!}`,
+      );
       const server = decodeServer(await json(response));
       const etag = response.headers.get("ETag");
       if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
@@ -1037,7 +1039,7 @@ export class ServerReadsController {
       kind === "operations" || kind === "authFlows" || kind === "descriptors"
         ? get(
             context,
-            `/api/v1/servers/${context.viewKey.slice("#/servers/".length, "#/servers/".length + 26)}`,
+            `/api/v2/mcp/servers/${context.viewKey.slice("#/servers/".length, "#/servers/".length + 26)}`,
           )
         : undefined;
     let [response, historyServerResponse] = await Promise.all([
@@ -1871,12 +1873,18 @@ function ServerCollectionTable<T>({
           (query.sort === undefined ? initialSort.direction : "ascending"),
       });
       for (const [key, value] of Object.entries(query))
-        if (key.startsWith("filter_")) params.set(key.slice(7), value);
+        if (key.startsWith("filter_"))
+          params.set(
+            key.slice(7),
+            kind === "servers" && key === "filter_status"
+              ? value.toLowerCase().replaceAll(" ", "_")
+              : value,
+          );
       if (cursor !== null) params.set("cursor", cursor);
       const route =
         kind === "descriptors" || kind === "operations"
-          ? `/api/v1/servers/${resolved.location.segments[1]!}/${kind}`
-          : `/api/v1/${kind}`;
+          ? `/api/v2/mcp/servers/${resolved.location.segments[1]!}/${kind}`
+          : `/api/v2/mcp/${kind}`;
       if (kind === "operations")
         return readCollectionPage<T>(
           session,

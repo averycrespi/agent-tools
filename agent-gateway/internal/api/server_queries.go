@@ -67,44 +67,48 @@ func parseInventoryQuery(raw string) (inventoryQuery, url.Values, bool, contract
 			}
 		}
 	}
-	if !slices.Contains([]string{"", "Ready", "Connecting", "Authorization required", "Authentication unavailable", "Capacity saturated", "Disabled", "Deleted", "Needs attention"}, query.Status) || !slices.Contains([]string{"", "name", "id", "namespace", "status", "tools"}, query.Sort) || query.Direction != "" && (query.Sort == "" || !slices.Contains([]string{"ascending", "descending"}, query.Direction)) {
+	if (query.Status != "" && !slices.Contains(contract.ServerStatusFilters(), query.Status)) || !slices.Contains([]string{"", "name", "id", "namespace", "status", "tools"}, query.Sort) || query.Direction != "" && (query.Sort == "" || !slices.Contains([]string{"ascending", "descending"}, query.Direction)) {
 		return query, nil, enabled, contract.ProblemMalformedRequest
 	}
-	if enabled {
-		for key, members := range values {
-			if (key != "cursor" && key != "limit") || len(members) != 1 || members[0] == "" {
-				return query, nil, true, contract.ProblemMalformedRequest
-			}
+	for key, members := range values {
+		if (key != "cursor" && key != "limit") || len(members) != 1 || members[0] == "" {
+			return query, nil, true, contract.ProblemMalformedRequest
 		}
+	}
+	if query.Sort == "" {
+		query.Sort = "name"
+	}
+	if query.Direction == "" {
+		query.Direction = "ascending"
 	}
 	return query, values, enabled, ""
 }
 
 func inventoryStatus(server contract.Server) string {
 	if server.DesiredState == contract.DesiredServerDeleted {
-		return "Deleted"
+		return "deleted"
 	}
 	if server.DesiredState == contract.DesiredServerDisabled {
-		return "Disabled"
+		return "disabled"
 	}
 	credential := string(server.CredentialState)
 	if server.Runtime.State == contract.RuntimeAuthenticationRequired || credential == "absent" || credential == "reauthentication_required" {
-		return "Authorization required"
+		return "authorization_required"
 	}
 	if slices.Contains([]string{"locked", "interaction_required", "unavailable", "unsupported"}, credential) {
-		return "Authentication unavailable"
+		return "authentication_unavailable"
 	}
 	if slices.Contains([]string{"activating", "retry_wait"}, string(server.Runtime.State)) || slices.Contains([]string{"refreshing", "disconnecting", "cleanup_pending"}, credential) {
-		return "Connecting"
+		return "connecting"
 	}
 	saturated := server.Runtime.Reconciliation.Saturated || server.Runtime.Dispatch.Saturated || server.Catalog.Traversal.Saturated
 	if server.Runtime.State == contract.RuntimeActive && server.Catalog.ActiveState == contract.ActiveCatalogCurrent && (credential == "ready" || credential == "not_required") && !saturated {
-		return "Ready"
+		return "ready"
 	}
 	if server.Runtime.State != contract.RuntimeActive || server.Catalog.ActiveState != contract.ActiveCatalogCurrent {
-		return "Needs attention"
+		return "needs_attention"
 	}
-	return "Capacity saturated"
+	return "capacity_saturated"
 }
 
 func (handler *Handler) queryServers(writer http.ResponseWriter, request *http.Request, query inventoryQuery, values url.Values) {

@@ -159,7 +159,7 @@ async function readCredentials(
   for (;;) {
     const params = new URLSearchParams({ limit: "100" });
     if (cursor !== null) params.set("cursor", cursor);
-    const response = await fetch(`/api/v1/admin-credentials?${params}`, {
+    const response = await fetch(`/api/v2/admin-credentials?${params}`, {
       method: "GET",
       headers: { "X-CSRF-Token": csrfToken },
       credentials: "same-origin",
@@ -198,7 +198,7 @@ async function readBackups(
   for (;;) {
     const params = new URLSearchParams({ limit: "100" });
     if (cursor !== null) params.set("cursor", cursor);
-    const response = await fetch(`/api/v1/backups?${params}`, {
+    const response = await fetch(`/api/v2/backups?${params}`, {
       method: "GET",
       headers: { "X-CSRF-Token": csrfToken },
       credentials: "same-origin",
@@ -231,7 +231,7 @@ async function getStatus(
   csrfToken: string,
   signal: AbortSignal,
 ): Promise<Response> {
-  return fetch("/api/v1/system-status", {
+  return fetch("/api/v2/system-status", {
     method: "GET",
     headers: { "X-CSRF-Token": csrfToken },
     credentials: "same-origin",
@@ -739,7 +739,7 @@ function Backups({
   const create = () => {
     setNotice(undefined);
     const spec: MutationSpec<Backup | undefined> = {
-      route: "/api/v1/backups",
+      route: "/api/v2/backups",
       method: "POST",
       body: "{}",
       precondition: null,
@@ -754,7 +754,7 @@ function Backups({
   const confirmCreate = () => void controller.submit().then(settle);
   const inspect = async (backupID: string) => {
     const value = await session.runProtected(async (context) => {
-      const response = await fetch(`/api/v1/backups/${backupID}`, {
+      const response = await fetch(`/api/v2/backups/${backupID}`, {
         method: "GET",
         headers: { "X-CSRF-Token": context.csrfToken },
         credentials: "same-origin",
@@ -775,7 +775,7 @@ function Backups({
     setNotice(undefined);
     setDeleting(backup);
     const spec: MutationSpec<Backup | undefined> = {
-      route: `/api/v1/backups/${backup.id}`,
+      route: `/api/v2/backups/${backup.id}`,
       method: "DELETE",
       body: "{}",
       precondition: null,
@@ -1122,7 +1122,7 @@ function AdminCredentials({
     setIntent("create");
     setPrepared(undefined);
     const spec: MutationSpec<CreatedAdminCredential | undefined> = {
-      route: "/api/v1/admin-credentials",
+      route: "/api/v2/admin-credentials",
       method: "POST",
       body: JSON.stringify({ expires_at: expiresAt }),
       precondition: null,
@@ -1166,7 +1166,7 @@ function AdminCredentials({
     setIntent("revoke");
     setRevoke(credential);
     const spec: MutationSpec<CreatedAdminCredential | undefined> = {
-      route: `/api/v1/admin-credentials/${credential.id}`,
+      route: `/api/v2/admin-credentials/${credential.id}`,
       method: "DELETE",
       body: "{}",
       precondition: null,

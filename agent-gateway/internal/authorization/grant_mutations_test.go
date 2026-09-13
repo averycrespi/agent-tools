@@ -404,7 +404,7 @@ func mustCreateS2Server(t *testing.T, repository *servers.Repository, serverID, 
 		Definition: servers.Definition{Namespace: namespace, DisplayName: namespace, Enabled: false, Transport: contract.StdioTransport{
 			Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{},
 		}},
-		Idempotency: &servers.IdempotencyRequest{AuthorityID: testInstallationID, Method: "POST", Route: "/api/v1/servers", Key: namespace, RequestHash: digest},
+		Idempotency: &servers.IdempotencyRequest{AuthorityID: testInstallationID, Method: "POST", Route: "/api/v2/mcp/servers", Key: namespace, RequestHash: digest},
 	})
 	require.NoError(t, err)
 	return created.Server

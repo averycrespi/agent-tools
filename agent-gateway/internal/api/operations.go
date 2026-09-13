@@ -67,7 +67,7 @@ func (handler *Handler) createOperation(writer http.ResponseWriter, request *htt
 		Idempotency: &serverdomain.IdempotencyRequest{
 			AuthorityID:  authenticated.credential.ID,
 			Method:       request.Method,
-			Route:        "/api/v1/servers/" + serverID + "/operations",
+			Route:        serverCreateIdempotencyRoute + "/" + serverID + "/operations",
 			Key:          key,
 			RequestHash:  sha256.Sum256(canonical),
 			Precondition: precondition,
@@ -93,29 +93,7 @@ func (handler *Handler) listOperations(writer http.ResponseWriter, request *http
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	if handler.operationQuery(writer, request, serverID) {
-		return
-	}
-	limit, cursor, problem := parseServerQuery(request.URL.Query())
-	if problem != "" {
-		writeProblem(writer, problem)
-		return
-	}
-	page, err := handler.servers.ListOperations(request.Context(), serverID, cursor, limit)
-	if err != nil {
-		writeServerError(writer, err)
-		return
-	}
-	items := make([]contract.ServerOperation, 0, len(page.Items))
-	for index := range page.Items {
-		items = append(items, *operationResource(&page.Items[index]))
-	}
-	var next *string
-	if page.Next != nil {
-		value := encodeServerCursor(*page.Next)
-		next = &value
-	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.ServerOperation]{Items: items, NextCursor: next})
+	handler.operationQuery(writer, request, serverID)
 }
 
 func operationStatePointer(state serverdomain.OperationTriggerState) *serverdomain.OperationTriggerState {

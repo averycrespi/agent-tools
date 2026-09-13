@@ -26,12 +26,12 @@ type credentialETagRequest struct {
 
 func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 	const resourceID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	t.Run("server credential replace", func(t *testing.T) {
+	t.Run("mcp server credential replace", func(t *testing.T) {
 		input := filepath.Join(t.TempDir(), "credential.json")
 		require.NoError(t, os.WriteFile(input, []byte(`{"kind":"static_credential","expected_revision":"0","values":{"token":"secret"}}`), 0o600))
 		for _, explicit := range []bool{false, true} {
 			server, requests := newServerCredentialETagServer(t, resourceID)
-			args := []string{"server", "credential", "replace", resourceID, "--file", input, "--yes"}
+			args := []string{"mcp", "server", "credential", "replace", resourceID, "--file", input, "--yes"}
 			if explicit {
 				args = append(args, "--etag", contract.ServerETag(resourceID, "6"))
 			}
@@ -82,7 +82,7 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 		require.Len(t, emptyRequests, 2)
 		assert.Equal(t, http.MethodGet, (<-emptyRequests).method)
 		issueRequest := <-emptyRequests
-		assert.Equal(t, "/api/v1/principals/"+resourceID+"/credential", issueRequest.path)
+		assert.Equal(t, "/api/v2/principals/"+resourceID+"/credential", issueRequest.path)
 		assert.Equal(t, contract.PrincipalETag(resourceID, "7"), issueRequest.etag)
 		assert.FileExists(t, issuePath)
 
@@ -93,7 +93,7 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 		require.Len(t, occupiedRequests, 2)
 		assert.Equal(t, http.MethodGet, (<-occupiedRequests).method)
 		rotateRequest := <-occupiedRequests
-		assert.Equal(t, "/api/v1/principals/"+resourceID+"/credential", rotateRequest.path)
+		assert.Equal(t, "/api/v2/principals/"+resourceID+"/credential", rotateRequest.path)
 		assert.Equal(t, contract.PrincipalETag(resourceID, "7"), rotateRequest.etag)
 		assert.FileExists(t, rotatePath)
 
@@ -172,7 +172,7 @@ func newServerCredentialETagServer(t *testing.T, id string) (*httptest.Server, c
 			return
 		}
 		response.WriteHeader(http.StatusCreated)
-		_, _ = response.Write([]byte(`{"flow":{"id":"` + id + `","server_id":"` + id + `","flow_state":"awaiting_callback","target_desired_revision":"7","registration_revision":"1","created_at":"2026-08-30T00:00:00Z","expires_at":"2026-08-30T01:00:00Z","finished_at":null,"reason":null},"authorization_url":"https://example.test/authorize"}`))
+		_, _ = response.Write([]byte(`{"flow":{"id":"` + id + `","server_id":"` + id + `","state":"awaiting_callback","target_desired_revision":"7","registration_revision":"1","created_at":"2026-08-30T00:00:00Z","expires_at":"2026-08-30T01:00:00Z","finished_at":null,"reason":null},"authorization_url":"https://example.test/authorize"}`))
 	}))
 	t.Cleanup(server.Close)
 	return server, requests

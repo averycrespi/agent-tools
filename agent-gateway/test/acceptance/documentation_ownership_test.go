@@ -136,8 +136,8 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	}
 	recovery := read("docs/operators/backup-and-recovery.md")
 	for _, phrase := range []string{
-		"agent-gateway backup create", "mcp-gateway restore --verify-current", "mcp-gateway restore BACKUP_ID",
-		"mcp-gateway admin reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
+		"agent-gateway backup create", "agent-gateway restore --verify-current", "agent-gateway restore BACKUP_ID",
+		"agent-gateway admin reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
 		"invalidates every restored agent credential", "does not rewrite the default `admin-bearer`", "Failed commands leave stdout empty",
 	} {
 		assert.Contains(t, recovery, phrase)
@@ -160,7 +160,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 	}
 	markers := map[string]string{
 		"product.server_catalog.state_separation":           "desired configuration, durable catalog evidence, and active runtime state",
-		"product.server_catalog.safe_server_registration":   "mcp-gateway server create --file PATH",
+		"product.server_catalog.safe_server_registration":   "agent-gateway mcp server create --file PATH",
 		"product.server_catalog.etag_updates":               "--etag ETAG",
 		"product.server_catalog.eligible_operations":        "reload`, `retry`, `refresh_catalog`, or `disconnect_credentials",
 		"product.server_catalog.operation_polling":          "does not poll automatically",
@@ -223,7 +223,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 		"invocation": guides["product.invocation."],
 	} {
 		assert.Contains(t, guide, "[DESIGN](../../DESIGN.md)", path)
-		assert.NotContains(t, guide, "/api/v1/", path+" should link to normative routes rather than copy them")
+		assert.NotContains(t, guide, "/api/v2/", path+" should link to normative routes rather than copy them")
 		assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|executable|milestone|implementation phase)`), guide, path)
 	}
 }

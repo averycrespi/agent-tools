@@ -37,7 +37,7 @@ export const limitNames = [
   "catalog_traversals",
   "oauth_flows",
   "oauth_callback_work",
-  "s2_idempotency_records",
+  "server_idempotency_records",
   "active_tools",
   "durable_tool_identities",
   "downstream_dispatch",
@@ -458,9 +458,21 @@ function validatePolicy(value: unknown): string {
   return target;
 }
 function decodeRequestPage(value: unknown): RequestSummary {
-  const page = record(value, ["items", "next_cursor"]);
+  const page = record(value, ["items", "next_cursor", "total_count", "offset"]);
   const items = array(page.items).map((candidate): RequestView => {
-    const item = record(candidate, [
+    const row = record(candidate, [
+      "request",
+      "principal_display_name",
+      "server_display_name",
+      "resolved_server_id",
+      "resolved_upstream_name",
+    ]);
+    stringValue(row.principal_display_name);
+    stringValue(row.server_display_name);
+    identifier(row.resolved_server_id);
+    if (row.resolved_upstream_name !== null)
+      stringValue(row.resolved_upstream_name);
+    const item = record(row.request, [
       "id",
       "principal_id",
       "state",
@@ -545,7 +557,7 @@ async function readServers(context: ViewReadContext): Promise<ServerSummary> {
   let restarted = false;
   const seen = new Set<string>();
   for (let pageNumber = 0; pageNumber < 32; pageNumber += 1) {
-    const path = `/api/v1/servers?limit=100${next === null ? "" : `&cursor=${encodeURIComponent(next)}`}`;
+    const path = `/api/v2/mcp/servers?limit=50${next === null ? "" : `&cursor=${encodeURIComponent(next)}`}`;
     const response = await get(context, path);
     if (next !== null && !restarted && (await isStaleCursor(response))) {
       items = [];
@@ -583,7 +595,7 @@ export class OverviewController {
       invalidations: ["system_status"],
       read: async (context) =>
         decodeStatus(
-          await responseJSON(await get(context, "/api/v1/system-status")),
+          await responseJSON(await get(context, "/api/v2/system-status")),
         ),
       publish: (status) => {
         this.value = { ...this.value, status };
@@ -608,7 +620,10 @@ export class OverviewController {
       read: async (context) =>
         decodeRequestPage(
           await responseJSON(
-            await get(context, "/api/v1/grant-requests?limit=5&state=pending"),
+            await get(
+              context,
+              "/api/v2/grant-requests?limit=5&state=pending&sort=submitted&direction=ascending",
+            ),
           ),
         ),
       publish: (requests) => {

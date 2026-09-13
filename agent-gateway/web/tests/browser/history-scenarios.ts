@@ -51,7 +51,7 @@ export async function assertAuthoritativeHistory(
       await initialBarrier;
       await route.fallback();
     };
-    await page.route("**/api/v1/invocations?*", holdInitial);
+    await page.route("**/api/v2/invocations?*", holdInitial);
     try {
       await page.evaluate(() => {
         window.location.hash = "#/invocations";
@@ -73,11 +73,11 @@ export async function assertAuthoritativeHistory(
     ).toBeVisible();
     await expect(page.getByLabel("Outcome", { exact: true })).toBeVisible();
     await capture("initial-empty");
-    await page.unroute("**/api/v1/invocations?*", holdInitial);
+    await page.unroute("**/api/v2/invocations?*", holdInitial);
     await page.evaluate(() => {
       window.location.hash = "#/overview";
     });
-    const creation = await api.post(`${baseURL}/api/v1/principals`, {
+    const creation = await api.post(`${baseURL}/api/v2/principals`, {
       headers,
       data: { display_name: "Café Investigator", visibility: "all" },
     });
@@ -85,7 +85,7 @@ export async function assertAuthoritativeHistory(
     const principalID: string = (await creation.json()).principal.id;
     let etag = creation.headers().etag!;
     const issued = await api.post(
-      `${baseURL}/api/v1/principals/${principalID}/credential`,
+      `${baseURL}/api/v2/principals/${principalID}/credential`,
       { headers: { ...headers, "If-Match": etag }, data: {} },
     );
     if (issued.status() !== 201) fail("History credential creation failed");
@@ -125,7 +125,7 @@ export async function assertAuthoritativeHistory(
     };
     const rename = async (name: string) => {
       const response = await api.patch(
-        `${baseURL}/api/v1/principals/${principalID}`,
+        `${baseURL}/api/v2/principals/${principalID}`,
         {
           headers: { ...headers, "If-Match": etag },
           data: { display_name: name },
@@ -165,7 +165,7 @@ export async function assertAuthoritativeHistory(
         });
       } else await route.fallback();
     };
-    await page.route("**/api/v1/audit-events?*", auditFailure);
+    await page.route("**/api/v2/audit-events?*", auditFailure);
     await page.getByRole("button", { name: "Load older audit events" }).click();
     await expect(
       page.getByText("Older audit results unavailable.", { exact: false }),
@@ -177,10 +177,10 @@ export async function assertAuthoritativeHistory(
     await capture("audit-continuation-error");
     await page.getByRole("button", { name: "Load older audit events" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(100);
-    await page.unroute("**/api/v1/audit-events?*", auditFailure);
+    await page.unroute("**/api/v2/audit-events?*", auditFailure);
     const auditResponse = page.waitForResponse(
       (r) =>
-        new URL(r.url()).pathname === "/api/v1/audit-events" &&
+        new URL(r.url()).pathname === "/api/v2/audit-events" &&
         new URL(r.url()).searchParams.get("action") === "create",
     );
     await page.evaluate((id) => {
@@ -224,7 +224,7 @@ export async function assertAuthoritativeHistory(
     await expect(page.getByTestId("audit-view")).toHaveCount(0);
     const filteredResponse = page.waitForResponse(
       (r) =>
-        new URL(r.url()).pathname === "/api/v1/invocations" &&
+        new URL(r.url()).pathname === "/api/v2/invocations" &&
         new URL(r.url()).searchParams.get("tool") === "historical lokoup",
     );
     await page.getByLabel("Tool", { exact: true }).fill("historical lokoup");
@@ -271,7 +271,7 @@ export async function assertAuthoritativeHistory(
         });
       } else await route.fallback();
     };
-    await page.route("**/api/v1/invocations?*", failures);
+    await page.route("**/api/v2/invocations?*", failures);
     await rename("Café Investigator two");
     await expect(
       page.getByText("Refresh failed; shown results are stale", {
@@ -316,7 +316,7 @@ export async function assertAuthoritativeHistory(
     await capture("empty");
     const nonmatchResponse = page.waitForResponse(
       (r) =>
-        new URL(r.url()).pathname === "/api/v1/invocations" &&
+        new URL(r.url()).pathname === "/api/v2/invocations" &&
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("workshop.echo");
@@ -327,7 +327,7 @@ export async function assertAuthoritativeHistory(
     ).toBeVisible();
     const arrivalResponse = page.waitForResponse(
       (r) =>
-        new URL(r.url()).pathname === "/api/v1/invocations" &&
+        new URL(r.url()).pathname === "/api/v2/invocations" &&
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("arrival.lookup");
@@ -472,7 +472,7 @@ export async function assertAuthoritativeHistory(
         markSettled();
       }
     };
-    await page.route("**/api/v1/invocations?*", holdLate);
+    await page.route("**/api/v2/invocations?*", holdLate);
     try {
       await page.getByLabel("Tool", { exact: true }).fill("superseded.lookup");
       await lateStarted;
@@ -487,8 +487,8 @@ export async function assertAuthoritativeHistory(
     await expect(
       page.getByText("No matching invocations", { exact: true }),
     ).toHaveCount(0);
-    await page.unroute("**/api/v1/invocations?*", holdLate);
-    await page.unroute("**/api/v1/invocations?*", failures);
+    await page.unroute("**/api/v2/invocations?*", holdLate);
+    await page.unroute("**/api/v2/invocations?*", failures);
     agentBearer = "";
     await page
       .getByRole("button", { name: "Clear filters", exact: true })

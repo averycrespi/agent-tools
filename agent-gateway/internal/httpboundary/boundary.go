@@ -124,7 +124,7 @@ func New(options Options) (*Boundary, error) {
 }
 
 func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	if strings.HasPrefix(request.URL.Path, "/api/v1/") {
+	if strings.HasPrefix(request.URL.Path, "/api/v2/") || strings.HasPrefix(request.URL.Path, "/api/v1/") {
 		writer.Header().Set("Cache-Control", "no-store")
 	}
 	if code := boundary.validateEarly(request); code != "" {
@@ -195,13 +195,13 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 			}
 			release(permit)
 			permit = boundary.admin
-			if route.Pattern == "/api/v1/events" {
+			if route.Pattern == "/api/v2/events" {
 				release(permit)
 				permit = nil
 			}
 		}
 	}
-	if boundary.draining() && request.URL.Path != "/api/v1/system-status" {
+	if boundary.draining() && request.URL.Path != "/api/v2/system-status" {
 		code := contract.ProblemShuttingDown
 		if isAdmin(authority) {
 			code = boundary.admitAuthenticatedProblem(request, code)

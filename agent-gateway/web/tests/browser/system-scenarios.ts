@@ -124,7 +124,7 @@ export async function runSystemAdministrationCanary(
   page.on("request", (request) => {
     if (
       request.method() !== "GET" &&
-      /\/api\/v1\/(?:admin-credentials|backups)/.test(request.url())
+      /\/api\/v2\/(?:admin-credentials|backups)/.test(request.url())
     )
       domainMutations += 1;
   });
@@ -179,17 +179,17 @@ export async function runCapabilityAudit(
   let eventStreams = 0;
   let mutations = 0;
   page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().endsWith("/api/v1/events"))
+    if (request.method() === "POST" && request.url().endsWith("/api/v2/events"))
       eventStreams += 1;
   });
-  await page.route("**/api/v1/system-status", async (route) =>
+  await page.route("**/api/v2/system-status", async (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(overviewStatusFixture()),
     }),
   );
-  await page.route("**/api/v1/admin-credentials?*", async (route) => {
+  await page.route("**/api/v2/admin-credentials?*", async (route) => {
     if (route.request().method() !== "GET") mutations += 1;
     await route.fulfill({
       status: 200,
@@ -197,7 +197,7 @@ export async function runCapabilityAudit(
       body: JSON.stringify({ items: [], next_cursor: null }),
     });
   });
-  await page.route("**/api/v1/backups?*", async (route) => {
+  await page.route("**/api/v2/backups?*", async (route) => {
     if (route.request().method() !== "GET") mutations += 1;
     await route.fulfill({
       status: 200,
@@ -206,7 +206,7 @@ export async function runCapabilityAudit(
     });
   });
   await page.route(
-    "**/api/v1/events",
+    "**/api/v2/events",
     async (route) =>
       route.fulfill({
         status: 200,
@@ -286,11 +286,11 @@ export async function runBackups(
   let deletes = 0;
   let details = 0;
   let recoveryKey: string | undefined;
-  await page.route("**/api/v1/backups**", async (route) => {
+  await page.route("**/api/v2/backups**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const id =
-      url.pathname === "/api/v1/backups"
+      url.pathname === "/api/v2/backups"
         ? undefined
         : url.pathname.split("/").pop();
     if (request.method() === "GET" && id === undefined) {
@@ -457,11 +457,11 @@ export async function runAdminCredentials(
     markLostStarted = resolve;
   });
 
-  await page.route("**/api/v1/admin-credentials**", async (route) => {
+  await page.route("**/api/v2/admin-credentials**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const id =
-      path === "/api/v1/admin-credentials" ? undefined : path.split("/").pop();
+      path === "/api/v2/admin-credentials" ? undefined : path.split("/").pop();
     if (request.method() === "GET" && id === undefined) {
       const query = new URL(request.url()).searchParams;
       if (query.get("limit") !== "100")
@@ -759,7 +759,7 @@ export async function runAdminCredentials(
     .waitFor();
   const logoutResponse = page.waitForResponse(
     (response) =>
-      new URL(response.url()).pathname === "/api/v1/admin-sessions/current" &&
+      new URL(response.url()).pathname === "/api/v2/admin-sessions/current" &&
       response.request().method() === "DELETE",
   );
   await page.locator('[data-testid="logout"]').click();
@@ -829,7 +829,7 @@ export async function runOverview(
   });
   let heldStatusReads = 0;
 
-  await page.route("**/api/v1/system-status", async (route) => {
+  await page.route("**/api/v2/system-status", async (route) => {
     if (
       route.request().method() !== "GET" ||
       new URL(route.request().url()).search !== ""
@@ -872,11 +872,11 @@ export async function runOverview(
       body: JSON.stringify(status),
     });
   });
-  await page.route("**/api/v1/servers?*", async (route) => {
+  await page.route("**/api/v2/mcp/servers?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
-      query.get("limit") !== "100" ||
+      query.get("limit") !== "50" ||
       [...query.keys()].some((key) => key !== "limit" && key !== "cursor")
     )
       fail("Overview server request changed shape");
@@ -1025,13 +1025,17 @@ export async function runOverview(
       }),
     });
   });
-  await page.route("**/api/v1/grant-requests?*", async (route) => {
+  await page.route("**/api/v2/grant-requests?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "5" ||
       query.get("state") !== "pending" ||
-      [...query.keys()].some((key) => key !== "limit" && key !== "state")
+      query.get("sort") !== "submitted" ||
+      query.get("direction") !== "ascending" ||
+      [...query.keys()].some(
+        (key) => !["limit", "state", "sort", "direction"].includes(key),
+      )
     )
       fail("Overview request queue read changed shape");
     if (requestMode === "error") {
@@ -1065,16 +1069,26 @@ export async function runOverview(
                       ? `requested-${"T".repeat(180)}`
                       : `target-${index}`,
                 },
+              })).map((request) => ({
+                request,
+                principal_display_name: "Overview agent",
+                server_display_name: "Needs operator attention",
+                resolved_server_id: "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+                resolved_upstream_name: null,
               })),
+        total_count: requestMode === "quiet" ? 0 : 6,
+        offset: 0,
         next_cursor: requestMode === "quiet" ? null : "more-pending",
       }),
     });
   });
-  await page.route("**/api/v1/principals?*", async (route) => {
+  await page.route("**/api/v2/principals?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        total_count: 1,
+        offset: 0,
         items: [
           {
             id: overviewRequestFixture().principal_id,
@@ -1092,7 +1106,7 @@ export async function runOverview(
       }),
     });
   });
-  await page.route("**/api/v1/invocations?*", async (route) => {
+  await page.route("**/api/v2/invocations?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
@@ -1466,7 +1480,7 @@ export async function runOverview(
   requestMode = "quiet";
   await page.locator('[data-testid="manual-refresh"]').click();
   for (const id of ["status", "servers", "requests"]) await assertCurrent(id);
-  await page.route("**/api/v1/events", (route) =>
+  await page.route("**/api/v2/events", (route) =>
     route.fulfill({
       status: 200,
       contentType: "text/event-stream",
@@ -1493,7 +1507,7 @@ export async function runOverview(
       fail(`Stale ${id} claimed current reassurance`);
   }
   await capture("stale");
-  await page.unroute("**/api/v1/events");
+  await page.unroute("**/api/v2/events");
   await page.reload();
   for (const id of ["status", "servers", "requests"]) await assertCurrent(id);
   if (invocationReads !== 0)
@@ -1601,7 +1615,7 @@ export async function runInvocations(
   let staleMode = false;
   let staleRestarted = false;
   let itemMissing = false;
-  await page.route("**/api/v1/invocations**", async (route) => {
+  await page.route("**/api/v2/invocations**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const headers = await request.allHeaders();
@@ -1611,9 +1625,9 @@ export async function runInvocations(
       headers["x-csrf-token"] === undefined
     )
       fail("invocation view issued an unauthenticated or non-read request");
-    if (url.pathname !== "/api/v1/invocations") {
+    if (url.pathname !== "/api/v2/invocations") {
       if (
-        url.pathname !== `/api/v1/invocations/${invocationIDs.missing}` ||
+        url.pathname !== `/api/v2/invocations/${invocationIDs.missing}` ||
         url.search !== ""
       )
         fail("invocation item request changed shape");
@@ -1801,11 +1815,13 @@ export async function runInvocations(
     });
   });
 
-  await page.route("**/api/v1/principals?*", async (route) => {
+  await page.route("**/api/v2/principals?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        total_count: 1,
+        offset: 0,
         items: [
           {
             id: invocationIDs.principal,
@@ -2191,11 +2207,11 @@ export async function runSystemStatus(
   let holdStatus = false;
   let releaseStatus: (() => void) | undefined;
   page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().endsWith("/api/v1/events"))
+    if (request.method() === "POST" && request.url().endsWith("/api/v2/events"))
       eventStreams += 1;
   });
 
-  await page.route("**/api/v1/system-status", async (route) => {
+  await page.route("**/api/v2/system-status", async (route) => {
     if (
       route.request().method() !== "GET" ||
       new URL(route.request().url()).search !== ""
@@ -2214,7 +2230,7 @@ export async function runSystemStatus(
     });
   });
   await page.route(
-    "**/api/v1/events",
+    "**/api/v2/events",
     async (route) =>
       route.fulfill({
         status: 200,

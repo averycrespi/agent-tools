@@ -67,14 +67,14 @@ func TestCLIAdminCredentialRotationWorkflow(t *testing.T) {
 		require.NoError(t, readErr)
 		assert.Equal(t, rotationNewBearer+"\n", string(contents))
 		assertRotationRequestOrder(t, *requests, []rotationWorkflowRequest{
-			{method: "GET", path: "/api/v1/admin-credentials/" + rotationOldID, auth: "old"},
-			{method: "GET", path: "/api/v1/admin-authority", auth: "old"},
-			{method: "POST", path: "/api/v1/admin-credentials", auth: "old", etag: contract.AdminAuthorityETag("1"), body: `{"expires_at":null}`},
-			{method: "GET", path: "/api/v1/admin-credentials/" + rotationNewID, auth: "new"},
-			{method: "POST", path: "/api/v1/admin-credentials/" + rotationOldID + "/rotation-completion", auth: "new", etag: contract.AdminAuthorityETag("2"), body: `{"replacement_id":"` + rotationNewID + `"}`},
-			{method: "GET", path: "/api/v1/admin-credentials/" + rotationOldID, auth: "new"},
-			{method: "GET", path: "/api/v1/admin-credentials/" + rotationNewID, auth: "new"},
-			{method: "GET", path: "/api/v1/admin-authority", auth: "new"},
+			{method: "GET", path: "/api/v2/admin-credentials/" + rotationOldID, auth: "old"},
+			{method: "GET", path: "/api/v2/admin-authority", auth: "old"},
+			{method: "POST", path: "/api/v2/admin-credentials", auth: "old", etag: contract.AdminAuthorityETag("1"), body: `{"expires_at":null}`},
+			{method: "GET", path: "/api/v2/admin-credentials/" + rotationNewID, auth: "new"},
+			{method: "POST", path: "/api/v2/admin-credentials/" + rotationOldID + "/rotation-completion", auth: "new", etag: contract.AdminAuthorityETag("2"), body: `{"replacement_id":"` + rotationNewID + `"}`},
+			{method: "GET", path: "/api/v2/admin-credentials/" + rotationOldID, auth: "new"},
+			{method: "GET", path: "/api/v2/admin-credentials/" + rotationNewID, auth: "new"},
+			{method: "GET", path: "/api/v2/admin-authority", auth: "new"},
 		})
 	})
 
@@ -172,7 +172,7 @@ func TestCLIAdminCredentialRotationWorkflow(t *testing.T) {
 		require.NoError(t, err, "%s", stderr)
 		assert.Contains(t, string(stdout), `"result":"rotated"`)
 		assert.Len(t, *requests, 6)
-		assert.Equal(t, "/api/v1/admin-credentials/"+rotationOldID, (*requests)[5].path)
+		assert.Equal(t, "/api/v2/admin-credentials/"+rotationOldID, (*requests)[5].path)
 	})
 }
 

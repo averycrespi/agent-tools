@@ -87,7 +87,7 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
   const createdResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
-      new URL(response.url()).pathname === "/api/v1/servers",
+      new URL(response.url()).pathname === "/api/v2/mcp/servers",
   );
   await page.getByTestId("server-change-confirm-submit").click();
   const created = await createdResponse;
@@ -110,7 +110,8 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
     const response = page.waitForResponse(
       (item) =>
         item.request().method() === "PATCH" &&
-        new URL(item.url()).pathname === `/api/v1/servers/${body.server.id}`,
+        new URL(item.url()).pathname ===
+          `/api/v2/mcp/servers/${body.server.id}`,
     );
     await page.getByTestId("server-change-confirm-submit").click();
     const result = await response;

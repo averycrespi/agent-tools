@@ -81,11 +81,11 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 func TestCLIRetainedFileSecurity(t *testing.T) {
 	root := newRootCmd()
 	fileOwners := map[string]bool{
-		"server create":             true,
-		"server update":             true,
-		"server credential replace": true,
-		"grant create":              true,
-		"grant-request approve":     true,
+		"mcp server create":             true,
+		"mcp server update":             true,
+		"mcp server credential replace": true,
+		"grant create":                  true,
+		"grant-request approve":         true,
 	}
 	for _, spec := range onlineCommandSpecs() {
 		path := strings.Join(spec.Path, " ")
@@ -97,9 +97,9 @@ func TestCLIRetainedFileSecurity(t *testing.T) {
 	for _, test := range []struct {
 		args []string
 	}{
-		{args: []string{"server", "create", "--transport", "secret-canary"}},
-		{args: []string{"server", "credential", "replace", idForSecurityTest(), "--values", "secret-canary"}},
-		{args: []string{"server", "credential", "replace", idForSecurityTest(), "--client-secret", "secret-canary"}},
+		{args: []string{"mcp", "server", "create", "--transport", "secret-canary"}},
+		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--values", "secret-canary"}},
+		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--client-secret", "secret-canary"}},
 		{args: []string{"grant", "create", "--constraint", "secret-canary"}},
 	} {
 		command := newRootCmd()
@@ -125,12 +125,12 @@ func newPrincipalRequestETagServer(t *testing.T, id string) (*httptest.Server, c
 		requests <- principalRequestETagRecord{method: request.Method, path: request.URL.Path, etag: request.Header.Get("If-Match")}
 		response.Header().Set("Content-Type", contract.MediaTypeJSON)
 		if request.Method == http.MethodGet {
-			if strings.HasPrefix(request.URL.Path, "/api/v1/principals/") {
+			if strings.HasPrefix(request.URL.Path, "/api/v2/principals/") {
 				response.Header().Set("ETag", contract.PrincipalETag(id, "7"))
 				_, _ = response.Write([]byte(principalETagBody(id, "7", true)))
 				return
 			}
-			if strings.HasPrefix(request.URL.Path, "/api/v1/grants/") {
+			if strings.HasPrefix(request.URL.Path, "/api/v2/grants/") {
 				response.Header().Set("ETag", contract.GrantETag(id, "1"))
 				_, _ = response.Write([]byte(grantETagBody(id, "1", "Initial access")))
 				return
@@ -140,7 +140,7 @@ func newPrincipalRequestETagServer(t *testing.T, id string) (*httptest.Server, c
 			return
 		}
 		if request.Method == http.MethodPatch || request.Method == http.MethodDelete {
-			if strings.HasPrefix(request.URL.Path, "/api/v1/grants/") {
+			if strings.HasPrefix(request.URL.Path, "/api/v2/grants/") {
 				response.Header().Set("ETag", contract.GrantETag(id, "2"))
 				_, _ = response.Write([]byte(grantETagBody(id, "2", "Updated access")))
 				return

@@ -107,11 +107,11 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 	encoded, err := json.Marshal(map[string]any{"namespace": "slack-shaped", "display_name": "Synthetic compatibility", "enabled": false, "transport": transport})
 	require.NoError(t, err)
 	var created stdioCreation
-	response := harness.AdminJSON("POST", "/api/v1/servers", string(encoded), map[string]string{"Idempotency-Key": "slack-shaped"}, &created)
+	response := harness.AdminJSON("POST", "/api/v2/mcp/servers", string(encoded), map[string]string{"Idempotency-Key": "slack-shaped"}, &created)
 	require.Equal(t, 201, response.StatusCode)
 	etag := response.Header.Get("ETag")
 	require.NoError(t, response.Body.Close())
-	flowPath := "/api/v1/servers/" + created.Server.ID + "/auth-flows"
+	flowPath := "/api/v2/mcp/servers/" + created.Server.ID + "/oauth-flows"
 	response = harness.AdminJSON("POST", flowPath, `{}`, map[string]string{"If-Match": etag}, nil)
 	require.NotEqual(t, 201, response.StatusCode, "standard discovery must not pass this provider")
 	require.NoError(t, response.Body.Close())
@@ -129,7 +129,7 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 		encoded, err := json.Marshal(map[string]any{"transport": transport})
 		require.NoError(t, err)
 		var result stdioCreation
-		response := harness.AdminJSON("PATCH", "/api/v1/servers/"+created.Server.ID, string(encoded), map[string]string{"If-Match": etag}, &result)
+		response := harness.AdminJSON("PATCH", "/api/v2/mcp/servers/"+created.Server.ID, string(encoded), map[string]string{"If-Match": etag}, &result)
 		require.Equal(t, 200, response.StatusCode)
 		etag = response.Header.Get("ETag")
 		require.NoError(t, response.Body.Close())
@@ -145,7 +145,7 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 				Authentication map[string]any `json:"authentication"`
 			} `json:"transport"`
 		}
-		response = harness.AdminJSON("GET", "/api/v1/servers/"+created.Server.ID, "", nil, &snapshot)
+		response = harness.AdminJSON("GET", "/api/v2/mcp/servers/"+created.Server.ID, "", nil, &snapshot)
 		require.Equal(t, 200, response.StatusCode)
 		require.NoError(t, response.Body.Close())
 		return snapshot.Transport.Authentication
@@ -225,7 +225,7 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 	var installed struct {
 		CredentialRevisions contract.CredentialRevisions `json:"credential_revisions"`
 	}
-	response = harness.AdminJSON("GET", "/api/v1/servers/"+created.Server.ID, "", nil, &installed)
+	response = harness.AdminJSON("GET", "/api/v2/mcp/servers/"+created.Server.ID, "", nil, &installed)
 	require.Equal(t, 200, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	assert.Equal(t, "1", installed.CredentialRevisions.OAuthTokens)

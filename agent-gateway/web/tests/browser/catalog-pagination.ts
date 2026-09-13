@@ -80,19 +80,19 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
   let staleRequests = 0;
   let release: (() => void) | undefined;
   let delayed = false;
-  await page.unroute("**/api/v1/servers**");
-  await page.unroute("**/api/v1/catalog**");
+  await page.unroute("**/api/v2/mcp/servers**");
+  await page.unroute("**/api/v2/mcp/catalog**");
   const fulfill = async (route: import("@playwright/test").Route) => {
     const url = new URL(route.request().url());
     const query = url.searchParams;
     const isDescriptor = url.pathname.endsWith("/descriptors");
     const kind =
-      url.pathname === "/api/v1/catalog"
+      url.pathname === "/api/v2/mcp/catalog"
         ? "catalog"
         : isDescriptor
           ? "descriptors"
           : "servers";
-    if (url.pathname !== "/api/v1/servers" && kind === "servers") {
+    if (url.pathname !== "/api/v2/mcp/servers" && kind === "servers") {
       await route.fulfill({
         status: 200,
         headers: {
@@ -149,7 +149,7 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
         return false;
       const status =
         kind === "servers"
-          ? "Disabled"
+          ? "disabled"
           : kind === "catalog"
             ? item.server_catalog_state === "current"
               ? "available"
@@ -202,8 +202,8 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
       ),
     });
   };
-  await page.route("**/api/v1/servers**", fulfill);
-  await page.route("**/api/v1/catalog**", fulfill);
+  await page.route("**/api/v2/mcp/servers**", fulfill);
+  await page.route("**/api/v2/mcp/catalog**", fulfill);
   const next = page.getByRole("button", { name: "Next", exact: true }).last();
   const previous = page
     .getByRole("button", { name: "Previous", exact: true })
@@ -441,7 +441,7 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
     await expect(row).toHaveCount(kind === "descriptors" ? 5 : 50);
     await expect(page.locator("body")).not.toContainText("undefined");
   }
-  await page.unroute("**/api/v1/servers**", fulfill);
-  await page.unroute("**/api/v1/catalog**", fulfill);
+  await page.unroute("**/api/v2/mcp/servers**", fulfill);
+  await page.unroute("**/api/v2/mcp/catalog**", fulfill);
   return screenshots;
 }

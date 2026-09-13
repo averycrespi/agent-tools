@@ -20,7 +20,7 @@ func TestCredentialReplacementIsWriteOnlyAndReturnsSafeOperation(t *testing.T) {
 	var invalidations []contract.Invalidation
 	var triggered string
 	handler := New(Options{Replacements: service, Invalidate: func(value contract.Invalidation) { invalidations = append(invalidations, value) }, TriggerServer: func(_ context.Context, _ string, operationID *string, _ bool) { triggered = *operationID }})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements", strings.NewReader(`{"kind":"static_credential","expected_revision":"0","values":{"token":"replacement-canary"}}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements", strings.NewReader(`{"kind":"static_credential","expected_revision":"0","values":{"token":"replacement-canary"}}`))
 	request.Header.Set("Content-Type", contract.MediaTypeJSON)
 	request.Header.Set("If-Match", `"server-01ARZ3NDEKTSV4RRFFQ69G5FAV-1"`)
 	response := httptest.NewRecorder()
@@ -41,7 +41,7 @@ func TestCredentialReplacementLostResponseStillTriggersObservableOperation(t *te
 	service := &replacementServiceFake{replaceErr: errors.New("acknowledgement lost")}
 	triggered := false
 	handler := New(Options{Replacements: service, TriggerServer: func(context.Context, string, *string, bool) { triggered = true }})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements", strings.NewReader(`{"kind":"static_credential","expected_revision":"0","values":{"token":"replacement-canary"}}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements", strings.NewReader(`{"kind":"static_credential","expected_revision":"0","values":{"token":"replacement-canary"}}`))
 	request.Header.Set("Content-Type", contract.MediaTypeJSON)
 	request.Header.Set("If-Match", `"server-01ARZ3NDEKTSV4RRFFQ69G5FAV-1"`)
 	response := httptest.NewRecorder()
@@ -55,7 +55,7 @@ func TestCredentialReplacementLostResponseStillTriggersObservableOperation(t *te
 func TestCredentialReplacementRejectsWrongUnionBeforeService(t *testing.T) {
 	service := &replacementServiceFake{}
 	handler := New(Options{Replacements: service})
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements", strings.NewReader(`{"kind":"oauth_client","expected_revision":"0","values":{},"client_secret":"secret"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements", strings.NewReader(`{"kind":"oauth_client","expected_revision":"0","values":{},"client_secret":"secret"}`))
 	request.Header.Set("Content-Type", contract.MediaTypeJSON)
 	request.Header.Set("If-Match", `"server-01ARZ3NDEKTSV4RRFFQ69G5FAV-1"`)
 	response := httptest.NewRecorder()

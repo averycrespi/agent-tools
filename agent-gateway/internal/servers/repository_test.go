@@ -948,7 +948,7 @@ func operationCount(t *testing.T, repository *Repository, serverID string) int64
 
 func seedIdempotencyCapacity(t *testing.T, repository *Repository, serverID string, now time.Time) {
 	t.Helper()
-	limit, ok := contract.FixedLimitByName("s2_idempotency_records")
+	limit, ok := contract.FixedLimitByName("server_idempotency_records")
 	require.True(t, ok)
 	require.NoError(t, repository.store.Mutate(context.Background(), func(transaction *sql.Tx) error {
 		if _, err := transaction.Exec(`DELETE FROM s2_idempotency`); err != nil {

@@ -19,7 +19,7 @@ func runPrincipalCreate(command *cobra.Command, options *onlineOptions) error {
 	if err != nil || !members["display_name"] || !members["visibility"] || len(members) != 2 {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal create input is invalid."))
 	}
-	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPost, path: "/api/v1/principals", body: body, create: true})
+	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPost, path: "/api/v2/principals", body: body, create: true})
 }
 
 func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []string) error {
@@ -39,7 +39,7 @@ func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []s
 	if failure != nil {
 		return writeOnlineFailure(command, options.output, failure)
 	}
-	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPatch, path: "/api/v1/principals/" + args[0], body: body, etag: etag, principalID: args[0]})
+	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPatch, path: "/api/v2/principals/" + args[0], body: body, etag: etag, principalID: args[0]})
 }
 
 func readPrincipalInput(command *cobra.Command, options *onlineOptions, create bool) ([]byte, map[string]bool, error) {
@@ -174,7 +174,7 @@ func validPrincipal(principal contract.Principal) bool {
 }
 
 func principalListTable(body []byte) (controlclient.Table, error) {
-	var page contract.Collection[contract.Principal]
+	var page contract.QueryCollection[contract.Principal]
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
 	}

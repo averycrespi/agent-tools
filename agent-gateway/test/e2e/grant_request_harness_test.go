@@ -86,16 +86,21 @@ func (harness *gatewayHarness) ListGrantRequests(principalID string) []contract.
 	if principalID != "" {
 		query.Set("principal_id", principalID)
 	}
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/grant-requests?"+query.Encode(), nil)
-	var page contract.Collection[contract.GrantRequestSummary]
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grant-requests?"+query.Encode(), nil)
+	var page contract.QueryCollection[contract.GrantRequestTableItem]
 	decodeSnapshot(harness.t, response, http.StatusOK, &page)
 	require.Nil(harness.t, page.NextCursor)
-	return page.Items
+	require.Equal(harness.t, len(page.Items), page.TotalCount)
+	items := make([]contract.GrantRequestSummary, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, item.Request)
+	}
+	return items
 }
 
 func (harness *gatewayHarness) GetGrantRequest(requestID string) grantRequestHandle {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/grant-requests/"+url.PathEscape(requestID), nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grant-requests/"+url.PathEscape(requestID), nil)
 	var request contract.GrantRequest
 	decodeSnapshot(harness.t, response, http.StatusOK, &request)
 	return checkedGrantRequest(harness.t, request, response.Header.Get("ETag"))
@@ -105,7 +110,7 @@ func (harness *gatewayHarness) ApproveGrantRequest(current grantRequestHandle, p
 	harness.t.Helper()
 	description := "Approved request access"
 	body := marshalHarnessJSON(harness.t, contract.GrantRequestApproval{Description: &description, ApprovedPolicy: policy})
-	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/grant-requests/"+url.PathEscape(current.Resource.ID)+"/approve", body, map[string]string{"If-Match": current.ETag})
+	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/grant-requests/"+url.PathEscape(current.Resource.ID)+"/approve", body, map[string]string{"If-Match": current.ETag})
 	var request contract.GrantRequest
 	decodeSnapshot(harness.t, response, http.StatusOK, &request)
 	return checkedGrantRequest(harness.t, request, response.Header.Get("ETag"))
@@ -114,7 +119,7 @@ func (harness *gatewayHarness) ApproveGrantRequest(current grantRequestHandle, p
 func (harness *gatewayHarness) RejectGrantRequest(current grantRequestHandle, reason contract.GrantRequestRejectionReason) grantRequestHandle {
 	harness.t.Helper()
 	body := marshalHarnessJSON(harness.t, contract.GrantRequestRejection{Reason: reason})
-	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/grant-requests/"+url.PathEscape(current.Resource.ID)+"/reject", body, map[string]string{"If-Match": current.ETag})
+	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/grant-requests/"+url.PathEscape(current.Resource.ID)+"/reject", body, map[string]string{"If-Match": current.ETag})
 	var request contract.GrantRequest
 	decodeSnapshot(harness.t, response, http.StatusOK, &request)
 	return checkedGrantRequest(harness.t, request, response.Header.Get("ETag"))
@@ -128,7 +133,7 @@ func checkedGrantRequest(t *testing.T, request contract.GrantRequest, etag strin
 
 func (harness *gatewayHarness) GetOnlyDescriptor(serverID string) contract.ToolDescriptor {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+url.PathEscape(serverID)+"/descriptors?limit=2&retired=include", nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+url.PathEscape(serverID)+"/descriptors?limit=2", nil)
 	var page contract.Collection[contract.ToolDescriptor]
 	decodeSnapshot(harness.t, response, http.StatusOK, &page)
 	require.Len(harness.t, page.Items, 1)

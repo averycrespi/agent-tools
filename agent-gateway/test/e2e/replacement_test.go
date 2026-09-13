@@ -145,7 +145,7 @@ func patchServer(t *testing.T, harness *gatewayHarness, serverID, etag, body str
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		response := harness.adminSnapshotWithHeaders(http.MethodPatch, "/api/v1/servers/"+serverID, []byte(body), map[string]string{"If-Match": etag})
+		response := harness.adminSnapshotWithHeaders(http.MethodPatch, "/api/v2/mcp/servers/"+serverID, []byte(body), map[string]string{"If-Match": etag})
 		if response.StatusCode == http.StatusOK {
 			var mutation replacementMutation
 			require.NoError(t, json.Unmarshal(response.Body, &mutation))
@@ -171,7 +171,7 @@ func activeCatalog(server stdioServerView) bool {
 func assertOperationState(t *testing.T, harness *gatewayHarness, serverID, operationID string, state contract.ServerOperationState) {
 	t.Helper()
 	var operation contract.ServerOperation
-	response := harness.AdminJSON(http.MethodGet, "/api/v1/servers/"+serverID+"/operations/"+operationID, "", nil, &operation)
+	response := harness.AdminJSON(http.MethodGet, "/api/v2/mcp/servers/"+serverID+"/operations/"+operationID, "", nil, &operation)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	assert.Equal(t, state, operation.State)

@@ -12,31 +12,31 @@ func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 	t.Parallel()
 
 	expectedRoutes := []Route{
-		{Pattern: "/api/v1/servers", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}/operations", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}/operations/{operation_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}/credential-replacements", Methods: []string{"POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}/auth-flows", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/catalog", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}/descriptors", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}/operations", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}/operations/{operation_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}/credential-replacements", Methods: []string{"POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}/oauth-flows", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}/oauth-flows/{flow_id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/catalog", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}/descriptors", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/servers/{id}/descriptors/{tool_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
 	require.Equal(t, expectedRoutes, routes[14:14+len(expectedRoutes)], "S2 routes must remain after the S1 prefix")
 
 	paths := map[string]string{
-		"/api/v1/servers": "/api/v1/servers",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV":                                       "/api/v1/servers/{id}",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/operations":                            "/api/v1/servers/{id}/operations",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/operations/01ARZ3NDEKTSV4RRFFQ69G5FAA": "/api/v1/servers/{id}/operations/{operation_id}",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements":               "/api/v1/servers/{id}/credential-replacements",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/auth-flows":                            "/api/v1/servers/{id}/auth-flows",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/auth-flows/01ARZ3NDEKTSV4RRFFQ69G5FAB": "/api/v1/servers/{id}/auth-flows/{flow_id}",
-		"/api/v1/catalog": "/api/v1/catalog",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/descriptors":                            "/api/v1/servers/{id}/descriptors",
-		"/api/v1/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FAC": "/api/v1/servers/{id}/descriptors/{tool_id}",
+		"/api/v2/mcp/servers":                                                                   "/api/v2/mcp/servers",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV":                                        "/api/v2/mcp/servers/{id}",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/operations":                             "/api/v2/mcp/servers/{id}/operations",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/operations/01ARZ3NDEKTSV4RRFFQ69G5FAA":  "/api/v2/mcp/servers/{id}/operations/{operation_id}",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements":                "/api/v2/mcp/servers/{id}/credential-replacements",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/oauth-flows":                            "/api/v2/mcp/servers/{id}/oauth-flows",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/oauth-flows/01ARZ3NDEKTSV4RRFFQ69G5FAB": "/api/v2/mcp/servers/{id}/oauth-flows/{flow_id}",
+		"/api/v2/mcp/catalog": "/api/v2/mcp/catalog",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/descriptors":                            "/api/v2/mcp/servers/{id}/descriptors",
+		"/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FAC": "/api/v2/mcp/servers/{id}/descriptors/{tool_id}",
 	}
 	for path, pattern := range paths {
 		route, ok := RouteForPath(path)
@@ -44,30 +44,30 @@ func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 		require.Equal(t, pattern, route.Pattern, path)
 	}
 	for _, path := range []string{
-		"/api/v1/servers/", "/api/v1/servers/a/b", "/api/v1/servers/a/operations/", "/api/v1/servers/a/operations/b/c",
-		"/api/v1/servers/a/auth-flows/", "/api/v1/servers/a/descriptors/b/c", "/api/v1/catalog/extra",
+		"/api/v2/mcp/servers/", "/api/v2/mcp/servers/a/b", "/api/v2/mcp/servers/a/operations/", "/api/v2/mcp/servers/a/operations/b/c",
+		"/api/v2/mcp/servers/a/oauth-flows/", "/api/v2/mcp/servers/a/descriptors/b/c", "/api/v2/mcp/catalog/extra",
 	} {
 		_, ok := RouteForPath(path)
 		require.False(t, ok, path)
 	}
 
 	expectedMechanics := []ResourceMechanic{
-		{Pattern: "/api/v1/servers", Method: "GET", RequestSchema: "ServerListQuery|ServerTableQuery", SuccessSchema: "Page<Server>", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/servers", Method: "POST", RequestSchema: "ServerCreate", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200, 201}, Idempotency: true, ETag: true},
-		{Pattern: "/api/v1/servers/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Server", SuccessStatuses: []int{200}, ETag: true},
-		{Pattern: "/api/v1/servers/{id}", Method: "PATCH", RequestSchema: "ServerPatch", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-		{Pattern: "/api/v1/servers/{id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200, 202}, Precondition: true, ETag: true},
-		{Pattern: "/api/v1/servers/{id}/operations", Method: "GET", RequestSchema: "ServerOperationListQuery|ServerOperationTableQuery|ActiveServerOperationsQuery", SuccessSchema: "Page<ServerOperation>|QueryPage<ServerOperation>|ActiveServerOperations", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/servers/{id}/operations", Method: "POST", RequestSchema: "ServerOperationCreate", SuccessSchema: "ServerOperationMutation", SuccessStatuses: []int{200, 202}, Idempotency: true, Precondition: true},
-		{Pattern: "/api/v1/servers/{id}/operations/{operation_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerOperation", SuccessStatuses: []int{200}},
-		{Pattern: "/api/v1/servers/{id}/credential-replacements", Method: "POST", RequestSchema: "CredentialReplacement", SuccessSchema: "CredentialReplacementResult", SuccessStatuses: []int{202}, Precondition: true},
-		{Pattern: "/api/v1/servers/{id}/auth-flows", Method: "GET", RequestSchema: "ServerAuthFlowListQuery", SuccessSchema: "Page<ServerAuthFlow>", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/servers/{id}/auth-flows", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AuthFlowCreation", SuccessStatuses: []int{201}, Precondition: true},
-		{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerAuthFlow", SuccessStatuses: []int{200}},
-		{Pattern: "/api/v1/servers/{id}/auth-flows/{flow_id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
-		{Pattern: "/api/v1/catalog", Method: "GET", RequestSchema: "CatalogListQuery|CatalogTableQuery", SuccessSchema: "CatalogPage", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery|DescriptorTableQuery", SuccessSchema: "Page<ToolDescriptor>|Page<ToolDescriptorSummary>", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v1/servers/{id}/descriptors/{tool_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ToolDescriptor", SuccessStatuses: []int{200}},
+		{Pattern: "/api/v2/mcp/servers", Method: "GET", RequestSchema: "ServerListQuery", SuccessSchema: "Page<Server>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/mcp/servers", Method: "POST", RequestSchema: "ServerCreate", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200, 201}, Idempotency: true, ETag: true},
+		{Pattern: "/api/v2/mcp/servers/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Server", SuccessStatuses: []int{200}, ETag: true},
+		{Pattern: "/api/v2/mcp/servers/{id}", Method: "PATCH", RequestSchema: "ServerPatch", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+		{Pattern: "/api/v2/mcp/servers/{id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200, 202}, Precondition: true, ETag: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/operations", Method: "GET", RequestSchema: "ServerOperationListQuery|ActiveServerOperationsQuery", SuccessSchema: "QueryPage<ServerOperation>|ActiveServerOperations", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/operations", Method: "POST", RequestSchema: "ServerOperationCreate", SuccessSchema: "ServerOperationMutation", SuccessStatuses: []int{200, 202}, Idempotency: true, Precondition: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/operations/{operation_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerOperation", SuccessStatuses: []int{200}},
+		{Pattern: "/api/v2/mcp/servers/{id}/credential-replacements", Method: "POST", RequestSchema: "CredentialReplacement", SuccessSchema: "CredentialReplacementResult", SuccessStatuses: []int{202}, Precondition: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/oauth-flows", Method: "GET", RequestSchema: "ServerAuthFlowListQuery", SuccessSchema: "Page<ServerAuthFlow>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/oauth-flows", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AuthFlowCreation", SuccessStatuses: []int{201}, Precondition: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/oauth-flows/{flow_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ServerAuthFlow", SuccessStatuses: []int{200}},
+		{Pattern: "/api/v2/mcp/servers/{id}/oauth-flows/{flow_id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
+		{Pattern: "/api/v2/mcp/catalog", Method: "GET", RequestSchema: "CatalogListQuery", SuccessSchema: "CatalogPage", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/descriptors", Method: "GET", RequestSchema: "DescriptorListQuery", SuccessSchema: "Page<ToolDescriptor>|Page<ToolDescriptorSummary>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/mcp/servers/{id}/descriptors/{tool_id}", Method: "GET", RequestSchema: "None", SuccessSchema: "ToolDescriptor", SuccessStatuses: []int{200}},
 		{Pattern: "/oauth/callback", Method: "GET", RequestSchema: "OAuthCallbackQuery", SuccessSchema: "OAuthCallbackHTML", SuccessStatuses: []int{200, 400, 503}},
 	}
 	mechanics := ResourceMechanics()
@@ -172,7 +172,7 @@ func TestServerLimitsAndDeadlinesAreExact(t *testing.T) {
 		"oauth_client_id_bytes": 8 * 1024, "oauth_client_secret_bytes": 8 * 1024, "oauth_scope_count": 64, "oauth_scope_token_bytes": 256,
 		"oauth_scope_bytes": 8 * 1024, "stdio_protocol_frame_bytes": 4 * 1024 * 1024, "stdio_stderr_bytes": 64 * 1024,
 		"stdio_output_rate_bytes_per_second": 8 * 1024 * 1024, "stdio_output_burst_bytes": 8 * 1024 * 1024,
-		"downstream_dispatch": 32, "per_server_downstream_dispatch": 4, "s2_idempotency_records": 1024,
+		"downstream_dispatch": 32, "per_server_downstream_dispatch": 4, "server_idempotency_records": 1024,
 	}
 	require.GreaterOrEqual(t, len(FixedLimits()), 32+len(expected), "later slices may only append fixed limits")
 	for name, maximum := range map[string]int64{"request_header_bytes": 32 * 1024, "request_header_count": 100, "request_header_value_bytes": 8 * 1024} {
@@ -229,7 +229,7 @@ func TestServerEventsSecretSinksETagsAndStatusOccupancies(t *testing.T) {
 	require.NoError(t, err)
 	var limits map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(encoded, &limits))
-	for _, name := range []string{"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work", "s2_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch"} {
+	for _, name := range []string{"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work", "server_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch"} {
 		require.Contains(t, limits, name)
 	}
 }
@@ -253,7 +253,7 @@ func TestServerResourceShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, StaticOAuthRegistration{}, "mode", "issuer", "client_id", "token_endpoint_auth_method")
 	requireJSONKeys(t, DynamicOAuthRegistration{}, "mode", "issuer")
 	requireJSONKeys(t, ServerOperation{}, "id", "server_id", "kind", "target_desired_revision", "target_credential_revisions", "state", "reason", "created_at", "started_at", "finished_at")
-	requireJSONKeys(t, ServerAuthFlow{}, "id", "server_id", "flow_state", "target_desired_revision", "registration_revision", "created_at", "expires_at", "finished_at", "reason", "diagnostic")
+	requireJSONKeys(t, ServerAuthFlow{}, "id", "server_id", "state", "target_desired_revision", "registration_revision", "created_at", "expires_at", "finished_at", "reason", "diagnostic")
 	requireJSONKeys(t, OAuthDiagnostic{}, "correlation_id", "stage", "reason", "http_status")
 	requireJSONKeys(t, ToolDescriptor{}, "id", "server_id", "upstream_name", "external_name", "descriptor", "fingerprint", "catalog_revision", "first_seen_at", "last_seen_at", "retired_at")
 	requireJSONKeys(t, ToolDescriptorSummary{}, "id", "server_id", "upstream_name", "external_name", "catalog_revision")

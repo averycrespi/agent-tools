@@ -61,14 +61,7 @@ func (handler *Handler) grantRequestsCollection(writer http.ResponseWriter, requ
 		value := encodeGrantRequestCursor(*page.Next)
 		next = &value
 	}
-	if filter.Query != nil {
-		writeJSONUnescaped(writer, http.StatusOK, struct {
-			contract.Collection[contract.GrantRequestTableItem]
-			contract.CollectionRange
-		}{contract.Collection[contract.GrantRequestTableItem]{Items: page.Table, NextCursor: next}, page.CollectionRange})
-		return
-	}
-	writeJSONUnescaped(writer, http.StatusOK, contract.Collection[contract.GrantRequestSummary]{Items: page.Items, NextCursor: next})
+	writeJSONUnescaped(writer, http.StatusOK, contract.QueryCollection[contract.GrantRequestTableItem]{Collection: contract.Collection[contract.GrantRequestTableItem]{Items: page.Table, NextCursor: next}, CollectionRange: page.CollectionRange})
 }
 
 func (handler *Handler) grantRequestMember(writer http.ResponseWriter, request *http.Request, requestID string, action string) {
@@ -156,27 +149,27 @@ func parseGrantRequestQuery(rawQuery string) (int, grantrequests.AdminFilter, *g
 		return 0, grantrequests.AdminFilter{}, nil, contract.ProblemMalformedRequest
 	}
 	for key, values := range query {
-		if (key != "cursor" && key != "limit" && key != "principal_id" && key != "state" && key != "representation" && key != "request" && key != "principal" && key != "target" && key != "scope" && key != "sort" && key != "direction") || len(values) != 1 || values[0] == "" || values[0] == "null" {
+		if (key != "cursor" && key != "limit" && key != "principal_id" && key != "state" && key != "request" && key != "principal" && key != "target" && key != "scope" && key != "sort" && key != "direction") || len(values) != 1 || values[0] == "" || values[0] == "null" {
 			return 0, grantrequests.AdminFilter{}, nil, contract.ProblemMalformedRequest
 		}
 	}
 	limit := contract.S5ListPageDefault
 	if values, ok := query["limit"]; ok {
 		value, err := strconv.Atoi(values[0])
-		if err != nil || value < 1 || value > limitValue("admin_list_page") {
+		if err != nil || value < 1 || value > limitValue("admin_list_page") || strconv.Itoa(value) != values[0] {
 			return 0, grantrequests.AdminFilter{}, nil, contract.ProblemMalformedRequest
 		}
 		limit = value
 	}
 	filter := grantrequests.AdminFilter{}
-	if query.Has("representation") || query.Has("request") || query.Has("principal") || query.Has("target") || query.Has("scope") || query.Has("sort") || query.Has("direction") {
-		if query.Get("representation") != "table" {
-			return 0, filter, nil, contract.ProblemMalformedRequest
-		}
-		filter.Query = &grantrequests.AdminQuery{Request: query.Get("request"), Principal: query.Get("principal"), Target: query.Get("target"), Scope: query.Get("scope"), Sort: query.Get("sort"), Direction: query.Get("direction")}
-		if !filter.Query.Valid() {
-			return 0, filter, nil, contract.ProblemMalformedRequest
-		}
+	filter.Query = &grantrequests.AdminQuery{Request: query.Get("request"), Principal: query.Get("principal"), Target: query.Get("target"), Scope: query.Get("scope"), Sort: query.Get("sort"), Direction: query.Get("direction")}
+	if !filter.Query.Valid() {
+		return 0, filter, nil, contract.ProblemMalformedRequest
+	}
+	if filter.Query.Sort == "" {
+		filter.Query.Sort, filter.Query.Direction = "submitted", "descending"
+	} else if filter.Query.Direction == "" {
+		filter.Query.Direction = "ascending"
 	}
 	if values, ok := query["principal_id"]; ok {
 		filter.PrincipalID = values[0]

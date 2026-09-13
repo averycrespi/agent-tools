@@ -94,7 +94,7 @@ func TestGatewayBinaryDeliversPrincipalSpecificDiscoveryAcrossBothEras(t *testin
 	deleted := harness.LegacyDelete(allCredential.Bearer, legacySession)
 	require.Equal(t, http.StatusNoContent, deleted.StatusCode, string(deleted.Body))
 
-	statusResponse := harness.adminSnapshot(http.MethodGet, "/api/v1/system-status", nil)
+	statusResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
 	require.Equal(t, http.StatusOK, statusResponse.StatusCode, string(statusResponse.Body))
 	assert.Equal(t, contract.MediaTypeJSON, statusResponse.Header.Get("Content-Type"))
 	assert.Equal(t, "no-store", statusResponse.Header.Get("Cache-Control"))

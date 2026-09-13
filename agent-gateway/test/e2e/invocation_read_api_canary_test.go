@@ -16,7 +16,7 @@ func TestInvocationReadOnlyAPICanary(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
 
-	response := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations?limit=1", nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations?limit=1", nil)
 	var page contract.InvocationPage
 	decodeSnapshot(t, response, http.StatusOK, &page)
 	assert.Empty(t, page.Items)
@@ -25,10 +25,10 @@ func TestInvocationReadOnlyAPICanary(t *testing.T) {
 	assert.Equal(t, contract.MediaTypeJSON, response.Header.Get("Content-Type"))
 	assert.Empty(t, response.Header.Get("Access-Control-Allow-Origin"))
 
-	method := harness.adminSnapshot(http.MethodPost, "/api/v1/invocations", nil)
+	method := harness.adminSnapshot(http.MethodPost, "/api/v2/invocations", nil)
 	require.Equal(t, http.StatusMethodNotAllowed, method.StatusCode, string(method.Body))
 	assert.Equal(t, http.MethodGet, method.Header.Get("Allow"))
-	missing := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV/replay", nil)
+	missing := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV/replay", nil)
 	assertProblem(t, missing, http.StatusNotFound, "not_found", "The resource was not found.", false)
 
 	harness.Stop(syscall.SIGTERM)

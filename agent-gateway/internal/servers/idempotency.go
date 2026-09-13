@@ -36,7 +36,7 @@ func (repository *Repository) IdempotencyStatus(ctx context.Context) (contract.L
 		}
 		return rows.Err()
 	})
-	limit := mustLimit("s2_idempotency_records")
+	limit := mustLimit("server_idempotency_records")
 	return contract.LimitStatus{InUse: inUse, Limit: limit, Saturated: inUse >= limit}, mapViewError(err)
 }
 
@@ -169,7 +169,7 @@ func admitIdempotencyTx(ctx context.Context, transaction *sql.Tx, now time.Time)
 	if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM s2_idempotency`).Scan(&count); err != nil {
 		return fmt.Errorf("count S2 idempotency records: %w", err)
 	}
-	if count >= mustLimit("s2_idempotency_records") {
+	if count >= mustLimit("server_idempotency_records") {
 		return ErrResourceLimit
 	}
 	return nil

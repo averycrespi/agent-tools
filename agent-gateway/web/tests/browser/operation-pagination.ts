@@ -81,7 +81,7 @@ export async function exerciseOperationPagination(
     conflictSettles = false;
   let delay: Promise<void> | undefined;
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations?*`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations?*`,
     async (route) => {
       const query = new URL(route.request().url()).searchParams;
       if (query.get("projection") === "active") {
@@ -144,7 +144,7 @@ export async function exerciseOperationPagination(
     },
   );
   await page.route(
-    `${baseURL}/api/v1/servers/${serverID}/operations`,
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations`,
     async (route) => {
       expect(route.request().method()).toBe("POST");
       starts++;
@@ -160,16 +160,19 @@ export async function exerciseOperationPagination(
       });
     },
   );
-  await page.route(`${baseURL}/api/v1/servers/${serverID}`, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: {
-        ETag: `"server-${serverID}-${(server as { desired_revision: string }).desired_revision}"`,
-      },
-      body: JSON.stringify(server),
-    });
-  });
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: {
+          ETag: `"server-${serverID}-${(server as { desired_revision: string }).desired_revision}"`,
+        },
+        body: JSON.stringify(server),
+      });
+    },
+  );
   const navigate = async (suffix = "") => {
     const fragment = `#/servers/${serverID}?tab=activity${suffix}`;
     expect(serializeLocation(parseFragment(fragment)!)).toBe(fragment);

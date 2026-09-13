@@ -192,31 +192,12 @@ func (handler *Handler) listPrincipals(writer http.ResponseWriter, request *http
 		writeProblem(writer, contract.ProblemMalformedRequest)
 		return
 	}
-	query, legacy, enabled, problem := parseAuthorizationCollectionQuery(request.URL.RawQuery, "principals")
+	query, values, problem := parseAuthorizationCollectionQuery(request.URL.RawQuery, "principals")
 	if problem != "" {
 		writeProblem(writer, problem)
 		return
 	}
-	if enabled {
-		handler.queryPrincipals(writer, request, query, legacy)
-		return
-	}
-	limit, cursor, problem := parsePrincipalQuery(request.URL.RawQuery)
-	if problem != "" {
-		writeProblem(writer, problem)
-		return
-	}
-	page, err := handler.principals.ListPrincipals(request.Context(), cursor, limit)
-	if err != nil {
-		writePrincipalError(writer, err)
-		return
-	}
-	var next *string
-	if page.Next != nil {
-		encoded := encodePrincipalCursor(*page.Next)
-		next = &encoded
-	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.Principal]{Items: page.Items, NextCursor: next})
+	handler.queryPrincipals(writer, request, query, values)
 }
 
 func parsePrincipalQuery(rawQuery string) (int, *authorization.SnapshotCursor, contract.ProblemCode) {
@@ -232,7 +213,7 @@ func parsePrincipalQuery(rawQuery string) (int, *authorization.SnapshotCursor, c
 	limit := contract.S3ListPageDefault
 	if values, ok := query["limit"]; ok {
 		value, parseErr := strconv.Atoi(values[0])
-		if parseErr != nil || value < 1 || value > limitValue("admin_list_page") {
+		if parseErr != nil || value < 1 || value > limitValue("admin_list_page") || strconv.Itoa(value) != values[0] {
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 		limit = value

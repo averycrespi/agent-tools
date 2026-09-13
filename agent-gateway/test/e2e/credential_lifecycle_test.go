@@ -76,7 +76,7 @@ func TestGatewayBinaryIsolatesCredentialLifecycleAndRestartAuthority(t *testing.
 	disabledA := harness.PatchPrincipal(credentialA3.Principal, principalPatch{State: &disabledState})
 	assertPrincipalVersion(t, disabledA, contract.PrincipalDisabled, "6", "5", false)
 	assertAuthenticationProblem(t, harness.ModernList(credentialA3.Bearer, json.RawMessage(`"disabled-a3"`), ""))
-	disabledIssue := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/principals/"+disabledA.Resource.ID+"/credential", []byte(`{}`), map[string]string{"If-Match": disabledA.ETag})
+	disabledIssue := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/principals/"+disabledA.Resource.ID+"/credential", []byte(`{}`), map[string]string{"If-Match": disabledA.ETag})
 	assertProblem(t, disabledIssue, http.StatusConflict, "conflict", "The request conflicts with current state.", false)
 	assertPrincipalVersion(t, harness.GetPrincipal(principalA.Resource.ID), contract.PrincipalDisabled, "6", "5", false)
 

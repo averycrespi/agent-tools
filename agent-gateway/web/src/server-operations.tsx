@@ -254,7 +254,7 @@ function OperationStarter({
   const spec = (
     kind: ExplicitOperationKind,
   ): MutationSpec<ServerOperationView> => ({
-    route: `/api/v1/servers/${server.id}/operations`,
+    route: `/api/v2/mcp/servers/${server.id}/operations`,
     method: "POST",
     body: JSON.stringify({ kind }),
     precondition: etag,

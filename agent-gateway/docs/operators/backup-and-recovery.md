@@ -4,11 +4,11 @@ Audience: Operators responsible for Gateway recovery
 
 Purpose: Create backups and perform restore or stopped-process recovery safely.
 
-This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. Prefer `agent-gateway` for new commands; the `mcp-gateway` compatibility examples below accept the same commands and flags. Both names share the existing process lock, installation identity, database and backup lineage. Switching names is not a restore or migration and does not bypass a running owner. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
+This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. Prefer `agent-gateway` for new commands; the `mcp-gateway` binary accepts the same commands and flags. Both names share the existing process lock, installation identity, database and backup lineage. Switching names is not a restore or migration and does not bypass a running owner. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
 
-- `mcp-gateway backup --help`
-- `mcp-gateway restore --help`
-- `mcp-gateway admin reset --help`
+- `agent-gateway backup --help`
+- `agent-gateway restore --help`
+- `agent-gateway admin reset --help`
 
 Gateway must be stopped for `restore`, `restore --verify-current`, and `admin reset`. Online backup commands require a running Gateway. The legacy hyphenated spelling has no alias and performs no work.
 
@@ -32,7 +32,7 @@ Creation generates an idempotency key unless one is supplied. If the response is
 After stopping every Gateway process that owns the installation, verify storage and clear a recoverable latch without replacing the database:
 
 ```bash
-mcp-gateway restore --verify-current \
+agent-gateway restore --verify-current \
   --data-dir /path/to/gateway-data \
   --output json
 ```
@@ -42,7 +42,7 @@ mcp-gateway restore --verify-current \
 A recognized uncertain agent-credential candidate is cleared only when its principal, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. The command does not start Gateway; return ownership to the service before any online read:
 
 ```bash
-mcp-gateway serve --data-dir /path/to/gateway-data
+agent-gateway serve --data-dir /path/to/gateway-data
 ```
 
 ## Restore a backup
@@ -50,7 +50,7 @@ mcp-gateway serve --data-dir /path/to/gateway-data
 Stop Gateway, choose one published generation, and prepare a fresh owner-only output path for replacement administrator authority:
 
 ```bash
-mcp-gateway restore BACKUP_ID \
+agent-gateway restore BACKUP_ID \
   --data-dir /path/to/gateway-data \
   --secret-output /safe/new/restored-admin-bearer
 ```
@@ -62,9 +62,9 @@ A successful restore preserves safe principals, grants, requests, request eviden
 Restore does not rewrite the default `admin-bearer`. Start the verified replacement generation, then explicitly select its replacement authority for online recovery:
 
 ```bash
-mcp-gateway serve --data-dir /path/to/gateway-data
+agent-gateway serve --data-dir /path/to/gateway-data
 # In another terminal:
-mcp-gateway --data-dir /path/to/gateway-data \
+agent-gateway --data-dir /path/to/gateway-data \
   status --admin-bearer-file /safe/new/restored-admin-bearer
 ```
 
@@ -75,7 +75,7 @@ Issue fresh agent credentials after reviewing restored principal and policy stat
 With Gateway stopped, publish replacement administrator authority to a fresh path:
 
 ```bash
-mcp-gateway admin reset \
+agent-gateway admin reset \
   --data-dir /path/to/gateway-data \
   --secret-output /safe/new/replacement-admin-bearer
 ```
@@ -83,9 +83,9 @@ mcp-gateway admin reset \
 A successful reset revokes every prior administrator bearer and activates the published replacement in one storage transaction. It does not rewrite the default `admin-bearer` or promote the replacement into that path. A failed secret publication activates nothing and leaves existing known authority valid. Start Gateway and select the replacement explicitly:
 
 ```bash
-mcp-gateway serve --data-dir /path/to/gateway-data
+agent-gateway serve --data-dir /path/to/gateway-data
 # In another terminal:
-mcp-gateway status --admin-bearer-file /safe/new/replacement-admin-bearer
+agent-gateway status --admin-bearer-file /safe/new/replacement-admin-bearer
 ```
 
 Use reset for stopped-process all-authority recovery without replacing durable product state. Use online `admin credential rotate` for routine replacement-first rollover of one named administrator credential. Use restore only for a verified backup generation, and use `--verify-current` only to validate and recover the current stopped generation.

@@ -31,15 +31,15 @@ func TestCLIOperationStartDirectInput(t *testing.T) {
 	bearerPath := writeDirectInputBearer(t)
 	etag := contract.ServerETag(directInputResourceID, "1")
 
-	output, err := executeDirectInputCommand(t, server.URL, bearerPath, "server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "retry", "--idempotency-key", "operation-key")
+	output, err := executeDirectInputCommand(t, server.URL, bearerPath, "mcp", "server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "retry", "--idempotency-key", "operation-key")
 	require.NoError(t, err, "%s", output)
 	request := <-requests
-	assert.Equal(t, "/api/v1/servers/"+directInputResourceID+"/operations", request.path)
+	assert.Equal(t, "/api/v2/mcp/servers/"+directInputResourceID+"/operations", request.path)
 	assert.Equal(t, etag, request.etag)
 	assert.Equal(t, "operation-key", request.idempotencyKey)
 	assert.JSONEq(t, `{"kind":"retry"}`, string(request.body))
 
-	output, err = executeDirectInputCommand(t, server.URL, bearerPath, "server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "reload", "--idempotency-key", "reload-key", "--yes")
+	output, err = executeDirectInputCommand(t, server.URL, bearerPath, "mcp", "server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "reload", "--idempotency-key", "reload-key", "--yes")
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"kind":"reload"}`, string((<-requests).body))
 
@@ -47,10 +47,10 @@ func TestCLIOperationStartDirectInput(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "missing kind", args: []string{"server", "operation", "start", directInputResourceID, "--etag", etag}},
-		{name: "invalid kind", args: []string{"server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "activate"}},
-		{name: "old file", args: []string{"server", "operation", "start", directInputResourceID, "--etag", etag, "--file", filepath.Join(t.TempDir(), "old.json")}},
-		{name: "reload unconfirmed", args: []string{"server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "reload"}},
+		{name: "missing kind", args: []string{"mcp", "server", "operation", "start", directInputResourceID, "--etag", etag}},
+		{name: "invalid kind", args: []string{"mcp", "server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "activate"}},
+		{name: "old file", args: []string{"mcp", "server", "operation", "start", directInputResourceID, "--etag", etag, "--file", filepath.Join(t.TempDir(), "old.json")}},
+		{name: "reload unconfirmed", args: []string{"mcp", "server", "operation", "start", directInputResourceID, "--etag", etag, "--kind", "reload"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := executeDirectInputCommand(t, server.URL, bearerPath, test.args...)
@@ -61,7 +61,7 @@ func TestCLIOperationStartDirectInput(t *testing.T) {
 	}
 
 	root := newRootCmd()
-	command, _, err := root.Find([]string{"server", "operation", "start"})
+	command, _, err := root.Find([]string{"mcp", "server", "operation", "start"})
 	require.NoError(t, err)
 	assert.NotNil(t, command.Flags().Lookup("kind"))
 	assert.Nil(t, command.Flags().Lookup("file"))
@@ -76,7 +76,7 @@ func TestCLIGrantRequestRejectDirectInput(t *testing.T) {
 	output, err := executeDirectInputCommand(t, server.URL, bearerPath, "grant-request", "reject", directInputResourceID, "--etag", etag, "--reason", "not_approved", "--yes")
 	require.NoError(t, err, "%s", output)
 	request := <-requests
-	assert.Equal(t, "/api/v1/grant-requests/"+directInputResourceID+"/reject", request.path)
+	assert.Equal(t, "/api/v2/grant-requests/"+directInputResourceID+"/reject", request.path)
 	assert.Equal(t, etag, request.etag)
 	assert.JSONEq(t, `{"reason":"not_approved"}`, string(request.body))
 

@@ -118,7 +118,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	assert.Equal(t, contract.InvocationBasisTerminal, localSummary.Outcome.Basis)
 
 	privateSummary := invocationByID(t, allPage.Items, privateID)
-	itemResponse := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations/"+privateSummary.ID, nil)
+	itemResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations/"+privateSummary.ID, nil)
 	var item contract.Invocation
 	decodeSnapshot(t, itemResponse, http.StatusOK, &item)
 	assert.JSONEq(t, `{"note":"`+inertCapture+`","token":"[REDACTED]"}`, string(item.RedactedArguments))
@@ -140,16 +140,16 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 
 	// T7 owns the sole 65,536-row fixture; advance the retained floor directly to test the real API boundary without repeating it.
 	simulateRetainedInvocationWindow(t, harness, localSummary.ID)
-	staleResponse := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations?limit=1&cursor="+url.QueryEscape(*newestPage.NextCursor), nil)
+	staleResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations?limit=1&cursor="+url.QueryEscape(*newestPage.NextCursor), nil)
 	assertProblem(t, staleResponse, http.StatusConflict, "stale_cursor", "The cursor snapshot is no longer available.", false)
-	evictedResponse := harness.adminSnapshot(http.MethodGet, "/api/v1/invocations/"+admissionID, nil)
+	evictedResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations/"+admissionID, nil)
 	assertProblem(t, evictedResponse, http.StatusNotFound, "not_found", "The resource was not found.", false)
 	retainedResponse, retainedPage := listInvocations(t, harness, url.Values{"limit": {"100"}})
 	require.Len(t, retainedPage.Items, 1)
 	assert.Equal(t, localSummary.ID, retainedPage.Items[0].ID)
 	assert.Equal(t, callsBeforeReads, catalog.CallCount(), "list/item/stale/evicted reads must not dispatch or replay")
 
-	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "s6-invocation-read-privacy"})
+	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "s6-invocation-read-privacy"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
 	backupEvent := eventReader.frame(t)
@@ -182,7 +182,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 
 func listInvocations(t *testing.T, harness *gatewayHarness, query url.Values) (responseSnapshot, contract.InvocationPage) {
 	t.Helper()
-	path := "/api/v1/invocations"
+	path := "/api/v2/invocations"
 	if len(query) > 0 {
 		path += "?" + query.Encode()
 	}
@@ -241,7 +241,7 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	require.Equal(t, http.StatusOK, events.StatusCode)
 	eventReader := newBoundedEventReader(events.Body)
 	evidence := [][]byte{eventReader.frame(t)}
-	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-retention"})
+	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-retention"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
 	evidence = append(evidence, append([]byte(nil), backupResponse.Body...), eventReader.frame(t), eventReader.frame(t))
@@ -279,7 +279,7 @@ func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
 	assertCallError(t, response, json.RawMessage(`"tool-error"`), contract.DownstreamFailure, false)
 	evidence := [][]byte{append([]byte(nil), response.Body...)}
 	clear(response.Body)
-	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v1/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-privacy"})
+	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-privacy"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
 	evidence = append(evidence, append([]byte(nil), backupResponse.Body...))

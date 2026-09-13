@@ -230,7 +230,7 @@ function ReplacementForm({
             client_secret: secrets.client_secret,
           });
     const spec: MutationSpec<ReplacementResult> = {
-      route: `/api/v1/servers/${server.id}/credential-replacements`,
+      route: `/api/v2/mcp/servers/${server.id}/credential-replacements`,
       method: "POST",
       body,
       precondition: etag,

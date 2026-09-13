@@ -104,7 +104,7 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 		createdServer, err := targets.Create(ctx, servers.CreateRequest{Definition: servers.Definition{
 			Namespace: "sample", DisplayName: "Sample", Enabled: false,
 			Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}},
-		}, Idempotency: &servers.IdempotencyRequest{AuthorityID: backupTestInstallationID, Method: "POST", Route: "/api/v1/servers", Key: "restore-target", RequestHash: requestHash}})
+		}, Idempotency: &servers.IdempotencyRequest{AuthorityID: backupTestInstallationID, Method: "POST", Route: "/api/v2/mcp/servers", Key: "restore-target", RequestHash: requestHash}})
 		require.NoError(t, err)
 		authority, err := authorization.New(store, clock, bytes.NewReader(restoreTestEntropy(0xB2, 4096)))
 		require.NoError(t, err)

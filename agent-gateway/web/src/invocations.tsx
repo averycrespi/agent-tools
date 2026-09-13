@@ -291,7 +291,7 @@ function listPath(
   if (filters.filter_tool || filters.filter_principal)
     query.set("search_locale", Intl.DateTimeFormat().resolvedOptions().locale);
   if (nextCursor !== null) query.set("cursor", nextCursor);
-  return `/api/v1/invocations?${query.toString()}`;
+  return `/api/v2/invocations?${query.toString()}`;
 }
 
 type ReadResult =
@@ -490,7 +490,7 @@ export class InvocationsController {
     }
     const itemID = location.segments[1];
     if (itemID !== undefined) {
-      const response = await get(context, `/api/v1/invocations/${itemID}`);
+      const response = await get(context, `/api/v2/invocations/${itemID}`);
       if ((await problemCode(response, 404)) === "not_found")
         return { kind: "missing", viewKey: context.viewKey };
       return {

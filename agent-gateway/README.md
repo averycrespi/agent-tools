@@ -92,7 +92,7 @@ Generated `agent-gateway --help` and subcommand help are the exact command refer
 
 Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.
 
-If an online command proves that the selected loopback Gateway is stopped, its error renders the matching `mcp-gateway serve` command, including nondefault address and data-directory selections. Gateway never automatically replays a mutation or governed tool call. Follow the command-specific read guidance before deciding whether an explicit retry is safe.
+If an online command proves that the selected loopback Gateway is stopped, its error renders the matching `agent-gateway serve` command, including nondefault address and data-directory selections. Gateway never automatically replays a mutation or governed tool call. Follow the command-specific read guidance before deciding whether an explicit retry is safe.
 
 ## Security
 

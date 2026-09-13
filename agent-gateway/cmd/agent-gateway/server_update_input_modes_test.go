@@ -84,7 +84,7 @@ func TestCLIServerUpdateInputModes(t *testing.T) {
 		}
 		return stdout.Bytes(), nil
 	}
-	updateArgs := []string{"server", "update", serverID, "--etag", etag}
+	updateArgs := []string{"mcp", "server", "update", serverID, "--etag", etag}
 
 	output, err := execute(append(updateArgs, "--display-name", "Renamed")...)
 	require.NoError(t, err, "%s", output)
@@ -134,7 +134,7 @@ func TestCLIServerUpdateInputModes(t *testing.T) {
 	}
 
 	root := newRootCmd()
-	command, _, err := root.Find([]string{"server", "update"})
+	command, _, err := root.Find([]string{"mcp", "server", "update"})
 	require.NoError(t, err)
 	assert.NotNil(t, command.Flags().Lookup("display-name"))
 	assert.NotNil(t, command.Flags().Lookup("enable"))

@@ -43,7 +43,7 @@ func TestCLIFirstRun(t *testing.T) {
 	assert.Contains(t, string(initialized.Stdout), "Gateway initialized successfully.")
 	assert.Contains(t, string(initialized.Stdout), root)
 	assert.Contains(t, string(initialized.Stdout), bearerPath)
-	assert.Contains(t, string(initialized.Stdout), "mcp-gateway serve")
+	assert.Contains(t, string(initialized.Stdout), "agent-gateway serve")
 	assert.NotContains(t, string(initialized.Stdout), strings.TrimSpace(string(bearer)))
 	assert.NotContains(t, string(initialized.Stderr), strings.TrimSpace(string(bearer)))
 	assert.Empty(t, initialized.Stderr)

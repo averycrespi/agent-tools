@@ -179,6 +179,12 @@ func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.
 	require.NoError(t, err)
 	require.Len(t, summaries.Items, 1)
 	assert.Equal(t, "two", summaries.Items[0].Resource.UpstreamName)
+	querySummaries, err := repository.QueryDescriptors(context.Background(), server.ID, ToolQuery{Status: "available", Projection: "summary"}, nil, 10)
+	require.NoError(t, err)
+	require.Len(t, querySummaries.Items, 1)
+	assert.Equal(t, "two", querySummaries.Items[0].Resource.UpstreamName)
+	_, err = repository.QueryDescriptors(context.Background(), server.ID, ToolQuery{Status: "available", Projection: "full"}, nil, 10)
+	assert.ErrorIs(t, err, servers.ErrStorageUnavailable)
 	_, err = repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredExclude, nil, 10)
 	assert.ErrorIs(t, err, servers.ErrStorageUnavailable)
 }
@@ -411,7 +417,7 @@ func newCatalogRepository(t *testing.T) (*Repository, *servers.Repository, *cata
 func createCatalogServer(t *testing.T, repository *servers.Repository, namespace string) servers.Server {
 	t.Helper()
 	digest := sha256.Sum256([]byte(namespace))
-	created, err := repository.Create(context.Background(), servers.CreateRequest{Definition: servers.Definition{Namespace: namespace, DisplayName: namespace, Enabled: true, Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}}, Idempotency: &servers.IdempotencyRequest{AuthorityID: catalogInstallationID, Method: "POST", Route: "/api/v1/servers", Key: namespace, RequestHash: digest}})
+	created, err := repository.Create(context.Background(), servers.CreateRequest{Definition: servers.Definition{Namespace: namespace, DisplayName: namespace, Enabled: true, Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}}}, Idempotency: &servers.IdempotencyRequest{AuthorityID: catalogInstallationID, Method: "POST", Route: "/api/v2/mcp/servers", Key: namespace, RequestHash: digest}})
 	require.NoError(t, err)
 	return created.Server
 }

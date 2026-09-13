@@ -52,7 +52,7 @@ func runServerCreate(command *cobra.Command, options *onlineOptions) error {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The idempotency key is invalid."))
 	}
 	return runServerMutation(command, options, serverMutationRequest{
-		method: http.MethodPost, path: "/api/v1/servers", body: body, idempotencyKey: key,
+		method: http.MethodPost, path: "/api/v2/mcp/servers", body: body, idempotencyKey: key,
 		successStatuses: map[int]struct{}{http.StatusOK: {}, http.StatusCreated: {}}, create: true,
 	})
 }
@@ -72,7 +72,7 @@ func runServerDelete(command *cobra.Command, options *onlineOptions, args []stri
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	return runServerMutation(command, options, serverMutationRequest{
-		method: http.MethodDelete, path: "/api/v1/servers/" + args[0], body: []byte("{}"), etag: etag,
+		method: http.MethodDelete, path: "/api/v2/mcp/servers/" + args[0], body: []byte("{}"), etag: etag,
 		successStatuses: map[int]struct{}{http.StatusOK: {}, http.StatusAccepted: {}}, serverID: args[0], delete: true,
 	})
 }
@@ -98,7 +98,7 @@ func runServerUpdate(command *cobra.Command, options *onlineOptions, args []stri
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	return runServerMutation(command, options, serverMutationRequest{
-		method: http.MethodPatch, path: "/api/v1/servers/" + args[0], body: body, etag: etag,
+		method: http.MethodPatch, path: "/api/v2/mcp/servers/" + args[0], body: body, etag: etag,
 		successStatuses: map[int]struct{}{http.StatusOK: {}}, serverID: args[0],
 	})
 }
@@ -153,7 +153,7 @@ func runServerMutation(command *cobra.Command, options *onlineOptions, request s
 		return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: mutationUncertainTitle(request), Exit: 8, Uncertain: true})
 	}
 	if request.create {
-		if response.Header.Get("Location") != "/api/v1/servers/"+mutation.Server.ID {
+		if response.Header.Get("Location") != "/api/v2/mcp/servers/"+mutation.Server.ID {
 			return writeOnlineFailure(command, options.output, &controlclient.OnlineError{Code: "client_outcome_uncertain", Title: mutationUncertainTitle(request), Exit: 8, Uncertain: true})
 		}
 	} else if mutation.Server.ID != request.serverID {

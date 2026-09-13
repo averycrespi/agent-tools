@@ -56,10 +56,10 @@ func TestBoundaryRejectsBeforeAuthenticationAndRoutesExactly(t *testing.T) {
 		{name: "unknown", method: "GET", target: "/missing", host: contract.DefaultAuthority, status: 404},
 		{name: "head not inherited", method: "HEAD", target: "/livez", host: contract.DefaultAuthority, status: 405, allow: "GET"},
 		{name: "exact allow", method: "PUT", target: "/mcp", host: contract.DefaultAuthority, status: 405, allow: "DELETE, GET, POST"},
-		{name: "host alias", method: "GET", target: "/api/v1/system-status", host: "localhost:8210", status: 421},
-		{name: "forwarded", method: "GET", target: "/api/v1/system-status", host: contract.DefaultAuthority, headers: map[string]string{"Forwarded": "host=evil"}, status: 400},
-		{name: "x forwarded", method: "GET", target: "/api/v1/system-status", host: contract.DefaultAuthority, headers: map[string]string{"X-Forwarded-For": "127.0.0.1"}, status: 400},
-		{name: "origin", method: "GET", target: "/api/v1/system-status", host: contract.DefaultAuthority, headers: map[string]string{"Origin": "http://localhost:8210"}, status: 403},
+		{name: "host alias", method: "GET", target: "/api/v2/system-status", host: "localhost:8210", status: 421},
+		{name: "forwarded", method: "GET", target: "/api/v2/system-status", host: contract.DefaultAuthority, headers: map[string]string{"Forwarded": "host=evil"}, status: 400},
+		{name: "x forwarded", method: "GET", target: "/api/v2/system-status", host: contract.DefaultAuthority, headers: map[string]string{"X-Forwarded-For": "127.0.0.1"}, status: 400},
+		{name: "origin", method: "GET", target: "/api/v2/system-status", host: contract.DefaultAuthority, headers: map[string]string{"Origin": "http://localhost:8210"}, status: 403},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -134,7 +134,7 @@ func TestBoundaryAdminWorkRejectsNPlusOneWithoutQueuing(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			request := httptest.NewRequest(http.MethodGet, "/api/v1/system-status", nil)
+			request := httptest.NewRequest(http.MethodGet, "/api/v2/system-status", nil)
 			request.Host = contract.DefaultAuthority
 			boundary.ServeHTTP(httptest.NewRecorder(), request)
 		}()
@@ -142,7 +142,7 @@ func TestBoundaryAdminWorkRejectsNPlusOneWithoutQueuing(t *testing.T) {
 	for range 16 {
 		<-started
 	}
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/system-status", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/system-status", nil)
 	request.Host = contract.DefaultAuthority
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, request)
@@ -163,7 +163,7 @@ func TestEventStreamsDoNotConsumeAuthenticatedAdminWorkCapacity(t *testing.T) {
 			return ctx, nil
 		},
 		Next: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if request.URL.Path == "/api/v1/events" {
+			if request.URL.Path == "/api/v2/events" {
 				started <- struct{}{}
 				<-release
 			}
@@ -178,7 +178,7 @@ func TestEventStreamsDoNotConsumeAuthenticatedAdminWorkCapacity(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+			request := httptest.NewRequest(http.MethodGet, "/api/v2/events", nil)
 			request.Host = contract.DefaultAuthority
 			boundary.ServeHTTP(httptest.NewRecorder(), request)
 		}()
@@ -186,7 +186,7 @@ func TestEventStreamsDoNotConsumeAuthenticatedAdminWorkCapacity(t *testing.T) {
 	for range 16 {
 		<-started
 	}
-	status := httptest.NewRequest(http.MethodGet, "/api/v1/system-status", nil)
+	status := httptest.NewRequest(http.MethodGet, "/api/v2/system-status", nil)
 	status.Host = contract.DefaultAuthority
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, status)
@@ -213,7 +213,7 @@ func TestDrainingRejectsNewWorkButKeepsHealthAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string]int{"/livez": 200, "/readyz": 503, "/api/v1/system-status": 204, "/api/v1/backups": 503} {
+	for path, want := range map[string]int{"/livez": 200, "/readyz": 503, "/api/v2/system-status": 204, "/api/v2/backups": 503} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.Host = contract.DefaultAuthority
 		if strings.HasPrefix(path, "/api/") {
@@ -225,7 +225,7 @@ func TestDrainingRejectsNewWorkButKeepsHealthAndStatus(t *testing.T) {
 			t.Errorf("%s = %d, want %d: %s", path, response.Code, want, response.Body.String())
 		}
 	}
-	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v1/backups", nil)
+	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v2/backups", nil)
 	unauthenticated.Host = contract.DefaultAuthority
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, unauthenticated)
@@ -260,7 +260,7 @@ func TestBoundaryRejectsOversizedInputBeforeHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/system-status", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/system-status", nil)
 	request.Host = contract.DefaultAuthority
 	request.Header.Set("X-Large", strings.Repeat("x", 8193))
 	response := httptest.NewRecorder()

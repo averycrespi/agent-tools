@@ -187,7 +187,7 @@ func perform(handler http.Handler, method, target, body string, headers map[stri
 func TestStatusIsAuthenticatedNoStoreAndUsesSnapshot(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
-	response := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	response := perform(handler, http.MethodGet, "/api/v2/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	if response.Code != 200 {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -202,27 +202,27 @@ func TestStatusIsAuthenticatedNoStoreAndUsesSnapshot(t *testing.T) {
 func TestAuthenticationDomainsAndAmbiguity(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
-	wrong := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{"Authorization": "Bearer mgw_agent_value"})
+	wrong := perform(handler, http.MethodGet, "/api/v2/system-status", "", map[string]string{"Authorization": "Bearer mgw_agent_value"})
 	if wrong.Code != 403 || !strings.Contains(wrong.Body.String(), "credential_domain_mismatch") {
 		t.Fatalf("wrong domain: %d %s", wrong.Code, wrong.Body.String())
 	}
-	ambiguous := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer, "Cookie": contract.SessionCookieName + "=session"})
+	ambiguous := perform(handler, http.MethodGet, "/api/v2/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer, "Cookie": contract.SessionCookieName + "=session"})
 	if ambiguous.Code != 400 || !strings.Contains(ambiguous.Body.String(), "ambiguous_credentials") {
 		t.Fatalf("ambiguous: %d %s", ambiguous.Code, ambiguous.Body.String())
 	}
-	browserRead := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{
+	browserRead := perform(handler, http.MethodGet, "/api/v2/system-status", "", map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "csrf",
 	})
 	if browserRead.Code != 200 {
 		t.Fatalf("same-origin browser read: %d %s", browserRead.Code, browserRead.Body.String())
 	}
-	wrongBrowserCSRF := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{
+	wrongBrowserCSRF := perform(handler, http.MethodGet, "/api/v2/system-status", "", map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "X-CSRF-Token": "wrong",
 	})
 	if wrongBrowserCSRF.Code != 401 || !strings.Contains(wrongBrowserCSRF.Body.String(), "authentication_required") {
 		t.Fatalf("wrong browser CSRF: %d %s", wrongBrowserCSRF.Code, wrongBrowserCSRF.Body.String())
 	}
-	crossSiteRead := perform(handler, http.MethodGet, "/api/v1/system-status", "", map[string]string{
+	crossSiteRead := perform(handler, http.MethodGet, "/api/v2/system-status", "", map[string]string{
 		"Cookie": contract.SessionCookieName + "=session", "Origin": "https://example.test", "X-CSRF-Token": "csrf",
 	})
 	if crossSiteRead.Code != 403 || !strings.Contains(crossSiteRead.Body.String(), "forbidden_origin") {
@@ -233,15 +233,15 @@ func TestAuthenticationDomainsAndAmbiguity(t *testing.T) {
 func TestSessionExchangeAndCSRFLifecycle(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
-	exchange := perform(handler, http.MethodPost, "/api/v1/admin-sessions", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
+	exchange := perform(handler, http.MethodPost, "/api/v2/admin-sessions", `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
 	if exchange.Code != 201 || !strings.Contains(exchange.Header().Get("Set-Cookie"), "HttpOnly") || !strings.Contains(exchange.Header().Get("Set-Cookie"), "SameSite=Strict") || strings.Contains(exchange.Header().Get("Set-Cookie"), "Domain=") {
 		t.Fatalf("exchange: %d %s %s", exchange.Code, exchange.Header().Get("Set-Cookie"), exchange.Body.String())
 	}
-	logout := perform(handler, http.MethodDelete, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "Content-Type": contract.MediaTypeJSON, "X-CSRF-Token": "csrf"})
+	logout := perform(handler, http.MethodDelete, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin, "Content-Type": contract.MediaTypeJSON, "X-CSRF-Token": "csrf"})
 	if logout.Code != 204 {
 		t.Fatalf("logout: %d %s", logout.Code, logout.Body.String())
 	}
-	missingOrigin := perform(handler, http.MethodDelete, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Content-Type": contract.MediaTypeJSON, "X-CSRF-Token": "csrf"})
+	missingOrigin := perform(handler, http.MethodDelete, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Cookie": contract.SessionCookieName + "=session", "Content-Type": contract.MediaTypeJSON, "X-CSRF-Token": "csrf"})
 	if missingOrigin.Code != 403 || !strings.Contains(missingOrigin.Body.String(), "forbidden_origin") {
 		t.Fatalf("missing origin: %d %s", missingOrigin.Code, missingOrigin.Body.String())
 	}
@@ -257,13 +257,13 @@ func TestCredentialCreateUsesStrictJSON(t *testing.T) {
 		"missing":   `{}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			response := perform(handler, http.MethodPost, "/api/v1/admin-credentials", body, headers)
+			response := perform(handler, http.MethodPost, "/api/v2/admin-credentials", body, headers)
 			if response.Code != 400 || !strings.Contains(response.Body.String(), "invalid_json") {
 				t.Fatalf("response: %d %s", response.Code, response.Body.String())
 			}
 		})
 	}
-	valid := perform(handler, http.MethodPost, "/api/v1/admin-credentials", `{"expires_at":null}`, headers)
+	valid := perform(handler, http.MethodPost, "/api/v2/admin-credentials", `{"expires_at":null}`, headers)
 	if valid.Code != 201 || !strings.Contains(valid.Body.String(), `"bearer":"mgw_admin_ONETIME"`) {
 		t.Fatalf("valid create: %d %s", valid.Code, valid.Body.String())
 	}
@@ -446,13 +446,13 @@ func TestEventsStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	invalid := perform(boundary, http.MethodGet, "/api/v1/events", "", map[string]string{"Authorization": "Bearer " + testBearer, "Last-Event-ID": "old"})
+	invalid := perform(boundary, http.MethodGet, "/api/v2/events", "", map[string]string{"Authorization": "Bearer " + testBearer, "Last-Event-ID": "old"})
 	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "malformed_request") {
 		t.Fatalf("Last-Event-ID: %d %s", invalid.Code, invalid.Body.String())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
+	request := httptest.NewRequest(http.MethodGet, "/api/v2/events", nil).WithContext(ctx)
 	request.Host = contract.DefaultAuthority
 	request.Header.Set("Authorization", "Bearer "+testBearer)
 	writer := newStreamWriter()
@@ -501,24 +501,24 @@ func TestBackupResourcesAreIdempotentBoundedAndNoStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "retry"}
-	created := perform(boundary, http.MethodPost, "/api/v1/backups", `{}`, headers)
+	created := perform(boundary, http.MethodPost, "/api/v2/backups", `{}`, headers)
 	if created.Code != 201 || created.Header().Get("Cache-Control") != "no-store" || created.Header().Get("ETag") != "" {
 		t.Fatalf("create: %d %v %s", created.Code, created.Header(), created.Body.String())
 	}
-	replayed := perform(boundary, http.MethodPost, "/api/v1/backups", `{}`, headers)
+	replayed := perform(boundary, http.MethodPost, "/api/v2/backups", `{}`, headers)
 	if replayed.Code != 200 || replayed.Body.String() != created.Body.String() || len(invalidations) != 2 {
 		t.Fatalf("replay: %d %s invalidations=%d", replayed.Code, replayed.Body.String(), len(invalidations))
 	}
-	listed := perform(boundary, http.MethodGet, "/api/v1/backups?limit=50", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	listed := perform(boundary, http.MethodGet, "/api/v2/backups?limit=50", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	if listed.Code != 200 || !strings.Contains(listed.Body.String(), `"next_cursor":null`) {
 		t.Fatalf("list: %d %s", listed.Code, listed.Body.String())
 	}
 	id := backups.items[0].ID
-	got := perform(boundary, http.MethodGet, "/api/v1/backups/"+id, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	got := perform(boundary, http.MethodGet, "/api/v2/backups/"+id, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	if got.Code != 200 || got.Header().Get("ETag") != "" {
 		t.Fatalf("get: %d %s", got.Code, got.Body.String())
 	}
-	deleted := perform(boundary, http.MethodDelete, "/api/v1/backups/"+id, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
+	deleted := perform(boundary, http.MethodDelete, "/api/v2/backups/"+id, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
 	if deleted.Code != 204 || len(invalidations) != 4 || invalidations[2].Kind != contract.InvalidationBackups {
 		t.Fatalf("delete: %d %s invalidations=%v", deleted.Code, deleted.Body.String(), invalidations)
 	}
@@ -528,17 +528,17 @@ func TestBackupCreateRequiresValidIdempotencyKeyAndExactBody(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	base := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	missing := perform(handler, http.MethodPost, "/api/v1/backups", `{}`, base)
+	missing := perform(handler, http.MethodPost, "/api/v2/backups", `{}`, base)
 	if missing.Code != 400 || !strings.Contains(missing.Body.String(), "invalid_idempotency_key") {
 		t.Fatalf("missing key: %d %s", missing.Code, missing.Body.String())
 	}
 	base["Idempotency-Key"] = "retry"
-	invalidBody := perform(handler, http.MethodPost, "/api/v1/backups", `{"extra":true}`, base)
+	invalidBody := perform(handler, http.MethodPost, "/api/v2/backups", `{"extra":true}`, base)
 	if invalidBody.Code != 400 || !strings.Contains(invalidBody.Body.String(), "invalid_json") {
 		t.Fatalf("invalid body: %d %s", invalidBody.Code, invalidBody.Body.String())
 	}
 	base["Idempotency-Key"] = "bad key"
-	invalidKey := perform(handler, http.MethodPost, "/api/v1/backups", `{}`, base)
+	invalidKey := perform(handler, http.MethodPost, "/api/v2/backups", `{}`, base)
 	if invalidKey.Code != 400 || !strings.Contains(invalidKey.Body.String(), "invalid_idempotency_key") {
 		t.Fatalf("invalid key: %d %s", invalidKey.Code, invalidKey.Body.String())
 	}
@@ -548,15 +548,15 @@ func TestCredentialPaginationRejectsCrossCollectionCursor(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer}
-	response := perform(handler, http.MethodGet, "/api/v1/admin-credentials?limit=1", "", headers)
+	response := perform(handler, http.MethodGet, "/api/v2/admin-credentials?limit=1", "", headers)
 	if response.Code != 200 || !strings.Contains(response.Body.String(), `"next_cursor":`) {
 		t.Fatalf("list: %d %s", response.Code, response.Body.String())
 	}
-	invalid := perform(handler, http.MethodGet, "/api/v1/admin-credentials?cursor=dmVyMQBiYWNrdXBzADA", "", headers)
+	invalid := perform(handler, http.MethodGet, "/api/v2/admin-credentials?cursor=dmVyMQBiYWNrdXBzADA", "", headers)
 	if invalid.Code != 400 || !strings.Contains(invalid.Body.String(), "invalid_cursor") {
 		t.Fatalf("cursor: %d %s", invalid.Code, invalid.Body.String())
 	}
-	unknown := perform(handler, http.MethodGet, "/api/v1/admin-credentials?other=1", "", headers)
+	unknown := perform(handler, http.MethodGet, "/api/v2/admin-credentials?other=1", "", headers)
 	if unknown.Code != 400 || !strings.Contains(unknown.Body.String(), "malformed_request") {
 		t.Fatalf("unknown query: %d %s", unknown.Code, unknown.Body.String())
 	}

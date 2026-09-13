@@ -57,13 +57,13 @@ func TestAdminSessionBootstrapAPI(t *testing.T) {
 		assert.Contains(t, value, "Expires=")
 	}
 
-	missingOrigin := perform(boundary, http.MethodPost, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Cookie": cookie + "; " + cookie, "Content-Type": contract.MediaTypeJSON})
+	missingOrigin := perform(boundary, http.MethodPost, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Cookie": cookie + "; " + cookie, "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusForbidden, missingOrigin.Code)
 	assert.Contains(t, missingOrigin.Body.String(), "forbidden_origin")
 	assert.Empty(t, missingOrigin.Header().Get("Set-Cookie"))
 	assert.Zero(t, sessions.calls)
 
-	ambiguous := perform(boundary, http.MethodPost, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Authorization": "anything", "Cookie": contract.SessionCookieName + "=bad", "Content-Type": contract.MediaTypeJSON})
+	ambiguous := perform(boundary, http.MethodPost, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Authorization": "anything", "Cookie": contract.SessionCookieName + "=bad", "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusBadRequest, ambiguous.Code)
 	assert.Contains(t, ambiguous.Body.String(), "ambiguous_credentials")
 	assert.Empty(t, ambiguous.Header().Get("Set-Cookie"))
@@ -74,20 +74,20 @@ func TestAdminSessionBootstrapAPI(t *testing.T) {
 		"no credentials":     {"Origin": contract.CanonicalOrigin, "Content-Type": contract.MediaTypeJSON},
 	} {
 		t.Run(name, func(t *testing.T) {
-			response := perform(boundary, http.MethodPost, "/api/v1/admin-sessions/current", `{}`, headers)
+			response := perform(boundary, http.MethodPost, "/api/v2/admin-sessions/current", `{}`, headers)
 			assert.Equal(t, http.StatusUnauthorized, response.Code)
 			assert.Empty(t, response.Header().Get("Set-Cookie"))
 		})
 	}
 
-	duplicate := perform(boundary, http.MethodPost, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": cookie + "; " + cookie, "Content-Type": contract.MediaTypeJSON})
+	duplicate := perform(boundary, http.MethodPost, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": cookie + "; " + cookie, "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusBadRequest, duplicate.Code)
 	expiry(duplicate.Header())
 	assert.Zero(t, sessions.calls)
 
 	for name, value := range map[string]string{"empty": "", "malformed": "short", "noncanonical": canonicalSessionValue + "="} {
 		t.Run(name, func(t *testing.T) {
-			response := perform(boundary, http.MethodPost, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": contract.SessionCookieName + "=" + value, "Content-Type": contract.MediaTypeJSON})
+			response := perform(boundary, http.MethodPost, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": contract.SessionCookieName + "=" + value, "Content-Type": contract.MediaTypeJSON})
 			assert.Equal(t, http.StatusUnauthorized, response.Code)
 			expiry(response.Header())
 		})
@@ -95,12 +95,12 @@ func TestAdminSessionBootstrapAPI(t *testing.T) {
 	assert.Zero(t, sessions.calls)
 
 	unknown := "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
-	unknownResponse := perform(boundary, http.MethodPost, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": contract.SessionCookieName + "=" + unknown, "Content-Type": contract.MediaTypeJSON})
+	unknownResponse := perform(boundary, http.MethodPost, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": contract.SessionCookieName + "=" + unknown, "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusUnauthorized, unknownResponse.Code)
 	expiry(unknownResponse.Header())
 	assert.Equal(t, 1, sessions.calls)
 
-	current := perform(boundary, http.MethodPost, "/api/v1/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": cookie, "Content-Type": contract.MediaTypeJSON})
+	current := perform(boundary, http.MethodPost, "/api/v2/admin-sessions/current", `{}`, map[string]string{"Origin": contract.CanonicalOrigin, "Cookie": cookie, "Content-Type": contract.MediaTypeJSON})
 	assert.Equal(t, http.StatusOK, current.Code)
 	assert.JSONEq(t, `{"csrf_token":"csrf","idle_expires_at":"2026-08-28T16:30:00Z","absolute_expires_at":"2026-08-29T00:00:00Z"}`, current.Body.String())
 	assert.Empty(t, current.Header().Get("Set-Cookie"))

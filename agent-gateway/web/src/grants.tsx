@@ -160,9 +160,9 @@ async function readServers(session: SessionClient): Promise<ServerView[]> {
   const items: ServerView[] = [];
   let cursor: string | null = null;
   for (;;) {
-    const params = new URLSearchParams({ limit: "100" });
+    const params = new URLSearchParams({ limit: "50" });
     if (cursor !== null) params.set("cursor", cursor);
-    const result = await requestJSON(session, `/api/v1/servers?${params}`);
+    const result = await requestJSON(session, `/api/v2/mcp/servers?${params}`);
     if (result === undefined) return [];
     if (!result.response.ok) throw new Error("Server data is unavailable.");
     const page = record(result.value, ["items", "next_cursor"]);
@@ -180,7 +180,7 @@ async function readGrants(session: SessionClient): Promise<Grant[]> {
   for (;;) {
     const params = new URLSearchParams({ limit: "50" });
     if (cursor !== null) params.set("cursor", cursor);
-    const result = await requestJSON(session, `/api/v1/grants?${params}`);
+    const result = await requestJSON(session, `/api/v2/grants?${params}`);
     if (result === undefined) return [];
     if (result.response.status === 409 && cursor !== null && !restarted) {
       items.length = 0;
@@ -189,9 +189,25 @@ async function readGrants(session: SessionClient): Promise<Grant[]> {
       continue;
     }
     if (!result.response.ok) throw new Error("Grant data is unavailable.");
-    const page = record(result.value, ["items", "next_cursor"]);
+    const page = record(result.value, [
+      "items",
+      "next_cursor",
+      "total_count",
+      "offset",
+    ]);
     if (!Array.isArray(page.items)) throw new Error("invalid response");
-    items.push(...page.items.map(decodeGrant));
+    items.push(
+      ...page.items.map((value) => {
+        const item = record(value, [
+          "grant",
+          "principal_display_name",
+          "server_display_name",
+        ]);
+        text(item.principal_display_name);
+        text(item.server_display_name);
+        return decodeGrant(item.grant);
+      }),
+    );
     if (page.next_cursor === null) return items;
     cursor = text(page.next_cursor);
     if (cursor.length === 0 || cursor.length > 4096)
@@ -202,7 +218,7 @@ async function readGrant(
   session: SessionClient,
   grantID: string,
 ): Promise<Grant | undefined> {
-  const result = await requestJSON(session, `/api/v1/grants/${grantID}`);
+  const result = await requestJSON(session, `/api/v2/grants/${grantID}`);
   if (result === undefined) return undefined;
   if (!result.response.ok) throw new Error("Grant data is unavailable.");
   return decodeGrant(result.value);
@@ -425,7 +441,7 @@ function GrantCreate({
       }
       const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}${readOnlyMember(readOnly)}}`;
       const spec: MutationSpec<Grant> = {
-        route: "/api/v1/grants",
+        route: "/api/v2/grants",
         method: "POST",
         body,
         precondition: null,
@@ -852,7 +868,7 @@ async function principalVisibility(
 ): Promise<"requestable" | "allowed-only" | "all" | undefined> {
   const result = await requestJSON(
     session,
-    `/api/v1/principals/${principalID}`,
+    `/api/v2/principals/${principalID}`,
   );
   if (result === undefined || !result.response.ok) return undefined;
   const value = record(result.value, [
@@ -910,7 +926,7 @@ function GrantDescriptionEditor({
       return;
     }
     controller.begin({
-      route: `/api/v1/grants/${grant.id}`,
+      route: `/api/v2/grants/${grant.id}`,
       method: "PATCH",
       body: JSON.stringify({
         description: description === "" ? null : description,
@@ -1040,7 +1056,7 @@ function GrantActions({
       expires_at: null,
     });
     return {
-      route: "/api/v1/grants",
+      route: "/api/v2/grants",
       method: "POST",
       body,
       precondition: null,
@@ -1055,7 +1071,7 @@ function GrantActions({
     };
   };
   const deleteSpec = (): MutationSpec<GrantActionResult> => ({
-    route: `/api/v1/grants/${grant.id}`,
+    route: `/api/v2/grants/${grant.id}`,
     method: "DELETE",
     body: null,
     precondition: null,
@@ -1512,7 +1528,6 @@ function GrantCollection({
     (query, cursor, signal) => {
       const params = new URLSearchParams({
         limit: "50",
-        representation: "table",
         sort: query.sort ?? "description",
         direction: query.direction ?? "ascending",
       });
@@ -1529,7 +1544,7 @@ function GrantCollection({
       if (cursor !== null) params.set("cursor", cursor);
       return readCollectionPage(
         session,
-        `/api/v1/grants?${params}`,
+        `/api/v2/grants?${params}`,
         (value) => {
           const item = record(value, [
             "grant",

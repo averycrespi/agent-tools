@@ -77,7 +77,7 @@ func TestServicePublishesOneCompleteStaticGenerationAndSafeOperation(t *testing.
 	created, err := repository.Create(context.Background(), servers.CreateRequest{ID: replacementServerID, Definition: servers.Definition{
 		Namespace: "replacement", DisplayName: "Replacement", Enabled: false,
 		Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{"TOKEN": "token"}},
-	}, Idempotency: &servers.IdempotencyRequest{AuthorityID: replacementInstallationID, Method: "POST", Route: "/api/v1/servers", Key: "replacement", RequestHash: digest}})
+	}, Idempotency: &servers.IdempotencyRequest{AuthorityID: replacementInstallationID, Method: "POST", Route: "/api/v2/mcp/servers", Key: "replacement", RequestHash: digest}})
 	require.NoError(t, err)
 	coordinator := &replacementCoordinator{store: store, entropy: entropy}
 	fenced := 0

@@ -66,7 +66,7 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	created := <-requests
 	assert.Equal(t, http.MethodPost, created.method)
-	assert.Equal(t, "/api/v1/principals", created.path)
+	assert.Equal(t, "/api/v2/principals", created.path)
 	assert.Empty(t, created.etag)
 	assert.JSONEq(t, `{"display_name":"Direct agent","visibility":"requestable"}`, string(created.body))
 
@@ -75,7 +75,7 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 	require.NoError(t, err, "%s", output)
 	updated := <-requests
 	assert.Equal(t, http.MethodPatch, updated.method)
-	assert.Equal(t, "/api/v1/principals/"+principalID, updated.path)
+	assert.Equal(t, "/api/v2/principals/"+principalID, updated.path)
 	assert.Equal(t, etag, updated.etag)
 	assert.JSONEq(t, `{"display_name":"Renamed"}`, string(updated.body))
 

@@ -370,7 +370,7 @@ func newServerCutoverHarness(
 			Transport: contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/true", Arguments: []string{}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}},
 		},
 		Idempotency: &servers.IdempotencyRequest{
-			AuthorityID: serverTestInstallationID, Method: "POST", Route: "/api/v1/servers", Key: "server-cutover", RequestHash: digest,
+			AuthorityID: serverTestInstallationID, Method: "POST", Route: "/api/v2/mcp/servers", Key: "server-cutover", RequestHash: digest,
 		},
 	})
 	require.NoError(t, err)

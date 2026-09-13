@@ -73,7 +73,7 @@ func TestDemoHelper(t *testing.T) {
 			if r.URL.Path == "/readyz" && (scenario == "timeout" || (scenario == "delay" && time.Now().Before(until))) {
 				return nil, errors.New("test readiness delay")
 			}
-			if scenario == "seed" && r.Method == "POST" && r.URL.Path == "/api/v1/principals" {
+			if scenario == "seed" && r.Method == "POST" && r.URL.Path == "/api/v2/principals" {
 				raw, err := io.ReadAll(r.Body)
 				if err != nil {
 					return nil, err
@@ -281,7 +281,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Equal(t, "curated", manifest.Dataset)
 		require.Len(t, manifest.Fixtures, 2)
 		c := testClient(t, s.listen, root)
-		require.Len(t, rows(c.get("servers"), "items"), 2)
+		require.Len(t, rows(c.get("mcp/servers"), "items"), 2)
 		require.Len(t, rows(c.get("grants"), "items"), 13)
 		names := []string{}
 		for _, item := range rows(c.get("principals"), "items") {
@@ -293,7 +293,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Len(t, requests, 5)
 		for _, item := range requests {
 			request, _ := item.(map[string]any)
-			require.Equal(t, "pending", text(request, "state"))
+			require.Equal(t, "pending", text(request, "request", "state"))
 		}
 		explorer, err := readBearer(filepath.Join(root, "explorer-bearer"))
 		require.NoError(t, err)
@@ -377,7 +377,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			bearers[bearer] = true
 			c := testClient(t, s.listen, root)
-			for _, collection := range []string{"servers", "principals", "grants", "grant-requests", "invocations"} {
+			for _, collection := range []string{"mcp/servers", "principals", "grants", "grant-requests", "invocations"} {
 				require.Empty(t, rows(c.get(collection), "items"))
 			}
 			require.NoError(t, c.err)

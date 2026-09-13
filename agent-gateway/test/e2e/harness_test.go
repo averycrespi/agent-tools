@@ -194,7 +194,7 @@ func (harness *gatewayHarness) AdminJSON(method, path, body string, headers map[
 
 func (harness *gatewayHarness) OpenEvents() *http.Response {
 	harness.t.Helper()
-	return harness.AdminJSON(http.MethodGet, "/api/v1/events", "", nil, nil)
+	return harness.AdminJSON(http.MethodGet, "/api/v2/events", "", nil, nil)
 }
 
 func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state contract.ServerOperationState) contract.ServerOperation {
@@ -205,7 +205,7 @@ func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state
 	defer ticker.Stop()
 	var operation contract.ServerOperation
 	for {
-		response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID+"/operations/"+operationID, nil)
+		response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID+"/operations/"+operationID, nil)
 		if response.StatusCode == http.StatusOK {
 			require.NoError(harness.t, json.Unmarshal(response.Body, &operation))
 		}
@@ -234,7 +234,7 @@ func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state
 func (harness *gatewayHarness) WaitSettledOperation(serverID, operationID string) {
 	harness.t.Helper()
 	require.Eventually(harness.t, func() bool {
-		response := harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID+"/operations/"+operationID, nil)
+		response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID+"/operations/"+operationID, nil)
 		if response.StatusCode != http.StatusOK {
 			return false
 		}
@@ -244,7 +244,7 @@ func (harness *gatewayHarness) WaitSettledOperation(serverID, operationID string
 			return false
 		}
 		// A terminal operation is readable before post-commit cleanup releases the writer.
-		response = harness.adminSnapshot(http.MethodGet, "/api/v1/servers/"+serverID, nil)
+		response = harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+serverID, nil)
 		if response.StatusCode != http.StatusOK {
 			return false
 		}

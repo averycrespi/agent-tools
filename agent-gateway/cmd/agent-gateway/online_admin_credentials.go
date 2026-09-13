@@ -32,7 +32,7 @@ func runAdminCredentialCreate(command *cobra.Command, options *onlineOptions) er
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	sink.MarkSubmitted()
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v1/admin-credentials", Header: header, Body: body})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodPost, Path: "/api/v2/admin-credentials", Header: header, Body: body})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {
@@ -97,7 +97,7 @@ func runAdminCredentialRevoke(command *cobra.Command, options *onlineOptions, ar
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	header, _ := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: options.adminBearer.value, JSONBody: true})
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v1/admin-credentials/" + args[0], Header: header, Body: []byte("{}")})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodDelete, Path: "/api/v2/admin-credentials/" + args[0], Header: header, Body: []byte("{}")})
 	if err != nil {
 		failure := controlclient.ClassifyClientError(err)
 		if failure.Code == "client_outcome_uncertain" {

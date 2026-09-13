@@ -69,8 +69,8 @@ func TestInvocationReadComposition(t *testing.T) {
 		assert.NotContains(t, apiSource, forbidden, "internal/api/invocations.go: prohibited read surface %s", forbidden)
 	}
 	handlerSource := readProductionSource(t, root, "internal/api/handler.go")
-	assert.Equal(t, 1, strings.Count(handlerSource, `path == "/api/v1/invocations"`))
-	assert.Equal(t, 1, strings.Count(handlerSource, `strings.HasPrefix(path, "/api/v1/invocations/")`))
+	assert.Equal(t, 1, strings.Count(handlerSource, `path == "/api/v2/invocations"`))
+	assert.Equal(t, 1, strings.Count(handlerSource, `strings.HasPrefix(path, "/api/v2/invocations/")`))
 	rootSource := readProductionSource(t, root, "cmd/agent-gateway/root.go")
 	assert.Contains(t, rootSource, "Invocations:   controlAPI.Invocations")
 	assert.NotContains(t, rootSource, "/internal/invocation")
@@ -685,7 +685,7 @@ func createCompositionServer(t *testing.T, repository *servers.Repository, names
 		Definition: servers.Definition{Namespace: namespace, DisplayName: namespace, Enabled: enabled, Transport: contract.StdioTransport{
 			Kind: contract.TransportStdio, Executable: executable, Arguments: []string{}, WorkingDirectory: "/", Environment: map[string]string{}, SecretEnvironment: map[string]string{},
 		}},
-		Idempotency: &servers.IdempotencyRequest{AuthorityID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: "POST", Route: "/api/v1/servers", Key: namespace, RequestHash: digest},
+		Idempotency: &servers.IdempotencyRequest{AuthorityID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Method: "POST", Route: "/api/v2/mcp/servers", Key: namespace, RequestHash: digest},
 	})
 	require.NoError(t, err)
 	return result.Server

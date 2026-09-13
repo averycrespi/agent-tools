@@ -66,15 +66,15 @@ func (service *fakeCatalogService) QueryDescriptors(_ context.Context, serverID 
 	return service.page, service.err
 }
 
-func TestDescriptorCollectionQueriesAreOptInAndStrict(t *testing.T) {
+func TestDescriptorCollectionQueriesHaveOneStrictDefault(t *testing.T) {
 	item := descriptorResource()
 	service := &fakeCatalogService{page: catalog.DescriptorPage{Items: []catalog.DescriptorRecord{{Resource: item}}}}
 	handler := newCatalogTestHandler(t, service)
-	root := "/api/v1/servers/" + testID + "/descriptors"
+	root := "/api/v2/mcp/servers/" + testID + "/descriptors"
 	headers := map[string]string{"Authorization": "Bearer " + testBearer}
 	response := perform(handler, http.MethodGet, root+"?tool=echo&status=available&sort=last-seen&direction=descending&limit=50", "", headers)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	assert.Equal(t, catalog.ToolQuery{Tool: "echo", Status: "available", Sort: "last-seen", Direction: "descending"}, service.query)
+	assert.Equal(t, catalog.ToolQuery{Tool: "echo", Status: "available", Sort: "last-seen", Direction: "descending", Projection: "full"}, service.query)
 	assert.Equal(t, 50, service.limit)
 	assert.Equal(t, testID, service.server)
 	assert.Equal(t, 1, service.queryCalls)
@@ -92,10 +92,11 @@ func TestDescriptorCollectionQueriesAreOptInAndStrict(t *testing.T) {
 	}
 	assert.Equal(t, 1, service.queryCalls)
 	legacy := perform(handler, http.MethodGet, root+"?limit=100&retired=only", "", headers)
-	require.Equal(t, http.StatusOK, legacy.Code, legacy.Body.String())
-	assert.Equal(t, 100, service.limit)
-	assert.Equal(t, contract.DescriptorRetiredOnly, service.filter)
-	assert.Equal(t, 1, service.fullCalls)
+	require.Equal(t, http.StatusBadRequest, legacy.Code, legacy.Body.String())
+	defaults := perform(handler, http.MethodGet, root, "", headers)
+	require.Equal(t, http.StatusOK, defaults.Code, defaults.Body.String())
+	assert.Equal(t, 50, service.limit)
+	assert.Equal(t, catalog.ToolQuery{Sort: "last-seen", Direction: "descending", Projection: "full"}, service.query)
 	service.err = servers.ErrStaleCursor
 	stale := perform(handler, http.MethodGet, root+"?sort=tool", "", headers)
 	assert.Equal(t, http.StatusConflict, stale.Code)
@@ -107,29 +108,30 @@ func TestDescriptorListAndMemberResources(t *testing.T) {
 	next := catalog.DescriptorCursor{ServerID: testID, Retired: contract.DescriptorRetiredInclude, CatalogRevision: "1", Upper: 2, After: 1, AfterID: item.ID}
 	service := &fakeCatalogService{page: catalog.DescriptorPage{Items: []catalog.DescriptorRecord{{InsertionSequence: 1, Resource: item}}, Next: &next}, item: item}
 	handler := newCatalogTestHandler(t, service)
-	listed := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors?limit=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	listed := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors?limit=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	assert.Contains(t, listed.Body.String(), `"upstream_name":"echo"`)
 	assert.Contains(t, listed.Body.String(), `"next_cursor":"`)
-	assert.Equal(t, contract.DescriptorRetiredInclude, service.filter)
+	assert.Equal(t, "full", service.query.Projection)
 	assert.Equal(t, 1, service.limit)
 
-	summary := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors?limit=1&representation=summary", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	summary := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors?limit=1&projection=summary", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, summary.Code, summary.Body.String())
 	assert.Contains(t, summary.Body.String(), `"upstream_name":"echo"`)
 	assert.NotContains(t, summary.Body.String(), `"descriptor"`)
 	assert.NotContains(t, summary.Body.String(), `"fingerprint"`)
-	assert.Equal(t, 1, service.fullCalls)
-	assert.Equal(t, 1, service.summaryCalls)
+	assert.Equal(t, "summary", service.query.Projection)
+	assert.Zero(t, service.fullCalls)
+	assert.Zero(t, service.summaryCalls)
 
 	cursor := encodeDescriptorCursor(next)
-	second := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors?limit=2&retired=only&cursor="+cursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	second := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors?limit=2&status=retired&cursor="+cursor, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
-	assert.Equal(t, contract.DescriptorRetiredOnly, service.filter)
+	assert.Equal(t, "retired", service.query.Status)
 	require.NotNil(t, service.cursor)
 	assert.Equal(t, next.AfterID, service.cursor.AfterID)
 
-	member := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors/"+item.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	member := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors/"+item.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, member.Code, member.Body.String())
 	assert.Empty(t, member.Header().Get("ETag"))
 	assert.Equal(t, item.ID, service.toolID)
@@ -139,32 +141,32 @@ func TestDescriptorRequestValidationAndSafeErrors(t *testing.T) {
 	service := &fakeCatalogService{item: descriptorResource()}
 	handler := newCatalogTestHandler(t, service)
 	for _, target := range []string{
-		"/api/v1/servers/" + testID + "/descriptors?unknown=1",
-		"/api/v1/servers/" + testID + "/descriptors?limit=0",
-		"/api/v1/servers/" + testID + "/descriptors?retired=bad",
-		"/api/v1/servers/" + testID + "/descriptors?retired=include&retired=only",
-		"/api/v1/servers/" + testID + "/descriptors?representation=full",
-		"/api/v1/servers/" + testID + "/descriptors?representation=",
-		"/api/v1/servers/" + testID + "/descriptors?representation=summary&representation=summary",
+		"/api/v2/mcp/servers/" + testID + "/descriptors?unknown=1",
+		"/api/v2/mcp/servers/" + testID + "/descriptors?limit=0",
+		"/api/v2/mcp/servers/" + testID + "/descriptors?retired=bad",
+		"/api/v2/mcp/servers/" + testID + "/descriptors?retired=include&retired=only",
+		"/api/v2/mcp/servers/" + testID + "/descriptors?representation=full",
+		"/api/v2/mcp/servers/" + testID + "/descriptors?representation=",
+		"/api/v2/mcp/servers/" + testID + "/descriptors?representation=summary&representation=summary",
 	} {
 		response := perform(handler, http.MethodGet, target, "", map[string]string{"Authorization": "Bearer " + testBearer})
 		assert.Equal(t, http.StatusBadRequest, response.Code, target)
 	}
-	invalidCursor := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors?cursor=not-base64!", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	invalidCursor := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors?cursor=not-base64!", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, http.StatusBadRequest, invalidCursor.Code)
 	assert.Contains(t, invalidCursor.Body.String(), "invalid_cursor")
-	memberQuery := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors/"+service.item.ID+"?x=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	memberQuery := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors/"+service.item.ID+"?x=1", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, http.StatusBadRequest, memberQuery.Code)
 
 	service.err = servers.ErrStaleCursor
-	stale := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	stale := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors", "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, http.StatusConflict, stale.Code)
 	assert.Contains(t, stale.Body.String(), "stale_cursor")
 	service.err = servers.ErrNotFound
-	missing := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors/"+service.item.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	missing := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors/"+service.item.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, http.StatusNotFound, missing.Code)
 	service.err = errors.New("private dependency details")
-	failed := perform(handler, http.MethodGet, "/api/v1/servers/"+testID+"/descriptors/"+service.item.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	failed := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors/"+service.item.ID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	assert.Equal(t, http.StatusServiceUnavailable, failed.Code)
 	assert.NotContains(t, failed.Body.String(), "private")
 }
@@ -179,7 +181,7 @@ func TestServerResourceComposesDurableAndProcessLocalActiveCatalog(t *testing.T)
 	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Servers: serverService, Catalog: catalogService, ActiveCatalog: activeCatalog})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	require.NoError(t, err)
-	response := perform(boundary, http.MethodGet, "/api/v1/servers/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	response := perform(boundary, http.MethodGet, "/api/v2/mcp/servers/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	assert.Contains(t, response.Body.String(), `"durable_state":"current","active_state":"current","durable_revision":"7","active_revision":"7","durable_tool_count":3,"active_tool_count":3,"last_success_at":"2026-08-23T00:00:00Z"`)
 }

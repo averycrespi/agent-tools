@@ -25,11 +25,11 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 		dataDir  string
 		expected string
 	}{
-		{name: "defaults", address: controlclient.DefaultAddress, expected: "MCP Gateway is not running. Start it with: mcp-gateway serve.\n"},
-		{name: "alternate port", address: "http://127.0.0.1:9000", expected: "MCP Gateway is not running. Start it with: mcp-gateway serve --listen 127.0.0.1:9000.\n"},
-		{name: "alternate loopback", address: "http://127.2.3.4:8210", expected: "MCP Gateway is not running. Start it with: mcp-gateway serve --listen 127.2.3.4:8210.\n"},
-		{name: "data directory", address: controlclient.DefaultAddress, dataDir: "/tmp/custom gateway", expected: "MCP Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; mcp-gateway serve --data-dir \"$data_dir\".\n"},
-		{name: "combined", address: "http://127.2.3.4:9000", dataDir: "/tmp/custom gateway", expected: "MCP Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; mcp-gateway serve --listen 127.2.3.4:9000 --data-dir \"$data_dir\".\n"},
+		{name: "defaults", address: controlclient.DefaultAddress, expected: "Agent Gateway is not running. Start it with: agent-gateway serve.\n"},
+		{name: "alternate port", address: "http://127.0.0.1:9000", expected: "Agent Gateway is not running. Start it with: agent-gateway serve --listen 127.0.0.1:9000.\n"},
+		{name: "alternate loopback", address: "http://127.2.3.4:8210", expected: "Agent Gateway is not running. Start it with: agent-gateway serve --listen 127.2.3.4:8210.\n"},
+		{name: "data directory", address: controlclient.DefaultAddress, dataDir: "/tmp/custom gateway", expected: "Agent Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; agent-gateway serve --data-dir \"$data_dir\".\n"},
+		{name: "combined", address: "http://127.2.3.4:9000", dataDir: "/tmp/custom gateway", expected: "Agent Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; agent-gateway serve --listen 127.2.3.4:9000 --data-dir \"$data_dir\".\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -42,7 +42,7 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 			}
 			var stderr bytes.Buffer
 			command.SetErr(&stderr)
-			err = writeOnlineFailure(command, string(controlclient.OutputHuman), &controlclient.OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9})
+			err = writeOnlineFailure(command, string(controlclient.OutputHuman), &controlclient.OnlineError{Code: "gateway_not_running", Title: "Agent Gateway is not running.", Exit: 9})
 			require.Error(t, err)
 			assert.Equal(t, test.expected, stderr.String())
 		})
@@ -53,9 +53,9 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 	require.NoError(t, err)
 	var stderr bytes.Buffer
 	command.SetErr(&stderr)
-	err = writeOnlineFailure(command, string(controlclient.OutputJSON), &controlclient.OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9})
+	err = writeOnlineFailure(command, string(controlclient.OutputJSON), &controlclient.OnlineError{Code: "gateway_not_running", Title: "Agent Gateway is not running.", Exit: 9})
 	require.Error(t, err)
-	assert.Equal(t, "{\"status\":null,\"code\":\"gateway_not_running\",\"title\":\"MCP Gateway is not running. Start it with: mcp-gateway serve.\",\"exit_code\":9,\"uncertain\":false}\n", stderr.String())
+	assert.Equal(t, "{\"status\":null,\"code\":\"gateway_not_running\",\"title\":\"Agent Gateway is not running. Start it with: agent-gateway serve.\",\"exit_code\":9,\"uncertain\":false}\n", stderr.String())
 
 	unsafeDataDir := "/tmp/quote'line\nbreak"
 	root = newRootCmd()
@@ -64,7 +64,7 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 	require.NoError(t, root.PersistentFlags().Set("data-dir", unsafeDataDir))
 	stderr.Reset()
 	command.SetErr(&stderr)
-	err = writeOnlineFailure(command, string(controlclient.OutputHuman), &controlclient.OnlineError{Code: "gateway_not_running", Title: "MCP Gateway is not running.", Exit: 9})
+	err = writeOnlineFailure(command, string(controlclient.OutputHuman), &controlclient.OnlineError{Code: "gateway_not_running", Title: "Agent Gateway is not running.", Exit: 9})
 	require.Error(t, err)
 	assert.NotContains(t, stderr.String(), "line\nbreak")
 	assert.Contains(t, stderr.String(), `quote'"'"'line\012break`)
@@ -91,25 +91,25 @@ func TestCLIOutputMatrix(t *testing.T) {
 		"read": {
 			"audit list", "audit get AUDIT_EVENT_ID",
 			"status", "admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
-			"server list", "server get ID", "server operation list ID", "server operation get ID OPERATION_ID",
-			"server auth-flow list ID", "server auth-flow get ID FLOW_ID", "server descriptor list ID", "server descriptor get ID TOOL_ID",
-			"catalog list", "principal list", "principal get ID", "grant list", "grant get ID",
+			"mcp server list", "mcp server get ID", "mcp server operation list ID", "mcp server operation get ID OPERATION_ID",
+			"mcp server auth-flow list ID", "mcp server auth-flow get ID FLOW_ID", "mcp server descriptor list ID", "mcp server descriptor get ID TOOL_ID",
+			"mcp catalog list", "principal list", "principal get ID", "grant list", "grant get ID",
 			"grant-request list", "grant-request get REQUEST_ID", "invocation list", "invocation get INVOCATION_ID",
 		},
 		"mutation": {
-			"backup create", "server create --file PATH", "server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "server delete ID [--etag ETAG]",
-			"server operation start ID --kind KIND [--etag ETAG]", "server credential replace ID --file PATH [--etag ETAG]",
+			"backup create", "mcp server create --file PATH", "mcp server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "mcp server delete ID [--etag ETAG]",
+			"mcp server operation start ID --kind KIND [--etag ETAG]", "mcp server credential replace ID --file PATH [--etag ETAG]",
 			"principal create --display-name NAME --visibility VISIBILITY", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE]", "principal credential revoke ID [--etag ETAG]",
 			"grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "grant update ID --description TEXT [--etag ETAG]", "grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
 		},
 		"no_content": {
-			"admin credential revoke ID", "backup delete BACKUP_ID", "server auth-flow cancel ID FLOW_ID", "grant delete ID",
+			"admin credential revoke ID", "backup delete BACKUP_ID", "mcp server auth-flow cancel ID FLOW_ID", "grant delete ID",
 		},
 		"one_time_secret": {
 			"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH",
 			"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]",
 		},
-		"terminal_auth_flow": {"server auth-flow start ID [--etag ETAG] [--open]"},
+		"terminal_auth_flow": {"mcp server auth-flow start ID [--etag ETAG] [--open]"},
 	}
 	seen := make(map[string]string)
 	for category, uses := range categories {

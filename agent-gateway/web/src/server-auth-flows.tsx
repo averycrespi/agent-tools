@@ -206,7 +206,7 @@ function StartFlow({
       return;
     }
     controller.begin({
-      route: `/api/v1/servers/${server.id}/auth-flows`,
+      route: `/api/v2/mcp/servers/${server.id}/oauth-flows`,
       method: "POST",
       body: "{}",
       precondition: etag,
@@ -345,7 +345,7 @@ function CancelFlow({
   };
   const review = () => {
     controller.begin({
-      route: `/api/v1/servers/${flow.serverID}/auth-flows/${flow.id}`,
+      route: `/api/v2/mcp/servers/${flow.serverID}/oauth-flows/${flow.id}`,
       method: "DELETE",
       body: "{}",
       precondition: null,

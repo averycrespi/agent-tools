@@ -12,7 +12,7 @@ import (
 func TestAdminSessionBootstrapContract(t *testing.T) {
 	assert.Equal(t, 24*time.Hour, AdminSessionIdleLifetime)
 	assert.Equal(t, 7*24*time.Hour, AdminSessionAbsoluteLifetime)
-	route, ok := RouteForPath("/api/v1/admin-sessions/current")
+	route, ok := RouteForPath("/api/v2/admin-sessions/current")
 	require.True(t, ok)
 	assert.Equal(t, []string{"DELETE", "POST"}, route.Methods)
 	assert.Equal(t, "DELETE, POST", route.Allow())
