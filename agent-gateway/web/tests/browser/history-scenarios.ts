@@ -54,7 +54,7 @@ export async function assertAuthoritativeHistory(
     await page.route("**/api/v2/invocations?*", holdInitial);
     try {
       await page.evaluate(() => {
-        window.location.hash = "#/invocations";
+        window.location.hash = "#/activity/invocations";
       });
       await initialRead;
       await expect(page.getByLabel("Tool", { exact: true })).toBeVisible();
@@ -144,7 +144,7 @@ export async function assertAuthoritativeHistory(
     // Audit's predicates already precede LIMIT. Reproduce the older-only report
     // against the unchanged TOOLS-26 UI before adding simulated failure states.
     await page.evaluate(() => {
-      window.location.hash = "#/audit";
+      window.location.hash = "#/activity/audit";
     });
     await expect(page.getByTestId("audit-row")).toHaveCount(50);
     let failAuditOlder = true;
@@ -184,7 +184,7 @@ export async function assertAuthoritativeHistory(
         new URL(r.url()).searchParams.get("action") === "create",
     );
     await page.evaluate((id) => {
-      window.location.hash = `#/audit?filter_action=create&filter_category=principal&filter_outcome=succeeded&filter_target_id=${id}`;
+      window.location.hash = `#/activity/audit?filter_action=create&filter_category=principal&filter_outcome=succeeded&filter_target_id=${id}`;
     }, principalID);
     const auditData = await (await auditResponse).json();
     if (
@@ -206,7 +206,7 @@ export async function assertAuthoritativeHistory(
     await expect(page).toHaveURL(/filter_action=create/);
 
     await page.evaluate(() => {
-      window.location.hash = "#/invocations";
+      window.location.hash = "#/activity/invocations";
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(
@@ -509,7 +509,7 @@ export async function assertAuthoritativeHistory(
     await page.getByTestId("sign-in-submit").click();
     await waitForLifecycle(page, "authenticated");
     await page.evaluate(() => {
-      window.location.hash = "#/invocations";
+      window.location.hash = "#/activity/invocations";
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(live).toBeChecked();

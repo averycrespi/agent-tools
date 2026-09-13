@@ -6,32 +6,32 @@ export const visualDestinations = [
   },
   {
     id: "servers",
-    route: "#/servers",
+    route: "#/mcp/servers",
     selector: '[data-testid="servers-view"]',
   },
   {
     id: "catalog",
-    route: "#/catalog",
+    route: "#/mcp/tools",
     selector: '[data-testid="catalog-view"]',
   },
   {
     id: "principals",
-    route: "#/principals",
+    route: "#/access/principals",
     selector: '[data-testid="principals-view"]',
   },
   {
     id: "grants",
-    route: "#/grants",
+    route: "#/access/grants",
     selector: '[data-testid="grants-view"]',
   },
   {
     id: "requests",
-    route: "#/requests",
+    route: "#/access/requests",
     selector: '[data-testid="requests-view"]',
   },
   {
     id: "invocations",
-    route: "#/invocations",
+    route: "#/activity/invocations",
     selector: '[data-testid="invocations-view"]',
   },
   { id: "system", route: "#/system", selector: '[data-testid="system-view"]' },

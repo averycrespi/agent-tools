@@ -9,13 +9,13 @@ import { ViewCoordinator } from "../src/view.ts";
 test("invocation list/detail share closed applied filters, never live authority or cursors", () => {
   for (const [key, options] of Object.entries(invocationOptions)) {
     for (const [value] of options) {
-      const fragment = `#/invocations/00000000000000000000000001?filter_${key}=${value}`;
+      const fragment = `#/activity/invocations/00000000000000000000000001?filter_${key}=${value}`;
       const location = parseFragment(fragment)!;
       assert.ok(location);
       assert.equal(serializeLocation(location), fragment);
       assert.equal(
         serializeLocation({ ...location, segments: ["invocations"] }),
-        `#/invocations?filter_${key}=${value}`,
+        `#/activity/invocations?filter_${key}=${value}`,
       );
     }
   }
@@ -29,15 +29,17 @@ test("invocation list/detail share closed applied filters, never live authority 
     "filter_tool=" + "x".repeat(257),
     "filter_principal=%00",
   ]) {
-    assert.equal(parseFragment(`#/invocations?${query}`), undefined);
+    assert.equal(parseFragment(`#/activity/invocations?${query}`), undefined);
     assert.equal(
-      parseFragment(`#/invocations/00000000000000000000000001?${query}`),
+      parseFragment(
+        `#/activity/invocations/00000000000000000000000001?${query}`,
+      ),
       undefined,
     );
   }
   assert.ok(
     parseFragment(
-      "#/invocations?filter_tool=historical%20lokoup&filter_principal=caf%C3%A9",
+      "#/activity/invocations?filter_tool=historical%20lokoup&filter_principal=caf%C3%A9",
     ),
   );
 });
@@ -127,7 +129,7 @@ test("shared coalescer rechecks automatic eligibility without blocking explicit 
   const initial = new Promise<void>((resolve) => {
     notify = resolve;
   });
-  views.activate("#/invocations");
+  views.activate("#/activity/invocations");
   await initial;
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const before = published;

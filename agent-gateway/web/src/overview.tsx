@@ -862,7 +862,7 @@ export function Overview({
               <ul class="overview-triage-list">
                 {serversNeedingAttention.slice(0, 5).map((item) => (
                   <li key={item.id} data-testid="overview-server-row">
-                    <a href={`#/servers/${item.id}?tab=status`}>{item.name}</a>
+                    <a href={`#/mcp/servers/${item.id}`}>{item.name}</a>
                     <p>{attentionReason(item)}</p>
                   </li>
                 ))}
@@ -906,7 +906,7 @@ export function Overview({
                       {principalNames.get(item.principalID) ??
                         `Principal ${item.principalID}`}
                     </div>
-                    <a href={`#/requests/${item.id}`}>
+                    <a href={`#/access/requests/${item.id}`}>
                       Review access to {item.target}
                     </a>
                     <p>

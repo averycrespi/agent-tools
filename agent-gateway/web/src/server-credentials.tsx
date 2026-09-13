@@ -174,7 +174,7 @@ function ReplacementForm({
       );
       controller.abandon();
       navigate(
-        `#/servers/${server.id}/operations/${outcome.value.operation.id}`,
+        `#/mcp/servers/${server.id}/operations/${outcome.value.operation.id}`,
         true,
       );
     } else if (

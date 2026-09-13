@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Requests); **MCP** (Servers, Tools); **Activity** (Agents, Administrators); **System**. Agents shows existing bounded, redacted MCP invocation evidence; Administrators shows the separate administrative audit history of control-plane changes, including system and offline maintenance events. Existing bookmarked routes and valid filters still work, including `#/catalog`, `#/requests`, `#/invocations`, and `#/audit`.
+Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Requests); **MCP** (Servers, Tools); **Activity** (Agents, Administrators); **System**. Agents shows existing bounded, redacted MCP invocation evidence; Administrators shows the separate administrative audit history of control-plane changes, including system and offline maintenance events. Browser locations use domain-grouped hashes; see the [location cutover](docs/operators/administration.md#browser-location-cutover) before updating bookmarks or automation.
 
 The Grants table shows expiry and numeric constraint counts; Requests shows requested duration and constraint counts in separate columns. Both use **No expiry** for non-expiring access and **0** for no argument constraints. Cancelled requests use a neutral grey state label.
 

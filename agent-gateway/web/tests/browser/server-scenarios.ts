@@ -106,7 +106,7 @@ export async function runServerManagementCanary(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}`;
+    window.location.hash = `#/mcp/servers/${id}`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -114,13 +114,16 @@ export async function runServerManagementCanary(
   await waitForLifecycle(page, "authenticated");
 
   const destinations: Array<[string, string]> = [
-    [`#/servers/${serverID}`, "server-status-view"],
-    [`#/servers/${serverID}?tab=status`, "server-status-view"],
-    [`#/servers/${serverID}?tab=tools`, "descriptor-list"],
-    [`#/servers/${serverID}?tab=activity`, "server-activity-view"],
-    [`#/servers/${serverID}?tab=authentication`, "server-authentication-view"],
-    [`#/servers/${serverID}?tab=settings`, "server-settings-view"],
-    ["#/catalog", "catalog-view"],
+    [`#/mcp/servers/${serverID}`, "server-status-view"],
+    [`#/mcp/servers/${serverID}?tab=status`, "server-status-view"],
+    [`#/mcp/servers/${serverID}?tab=tools`, "descriptor-list"],
+    [`#/mcp/servers/${serverID}?tab=operations`, "server-activity-view"],
+    [
+      `#/mcp/servers/${serverID}?tab=authentication`,
+      "server-authentication-view",
+    ],
+    [`#/mcp/servers/${serverID}?tab=settings`, "server-settings-view"],
+    ["#/mcp/tools", "catalog-view"],
   ];
   for (const [hash, testID] of destinations) {
     await page.evaluate((target) => {
@@ -141,7 +144,7 @@ export async function runServerManagementCanary(
     }
   }
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=status`;
+    window.location.hash = `#/mcp/servers/${id}?tab=status`;
   }, serverID);
   const serverStatus = page.locator('[data-testid="server-status-view"]');
   await serverStatus
@@ -188,7 +191,7 @@ export async function runServerManagementCanary(
     );
   });
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=settings`;
+    window.location.hash = `#/mcp/servers/${id}?tab=settings`;
   }, serverID);
   await page.locator('[data-testid="server-editor"]').waitFor();
   await page.locator('[data-testid="server-destructive-actions"]').waitFor();
@@ -398,7 +401,7 @@ export async function runServerCreateUpdate(
   );
 
   await page.evaluate(() => {
-    window.location.hash = "#/servers/new";
+    window.location.hash = "#/mcp/servers/new";
   });
   const editor = page.locator('[data-testid="server-editor"]');
   await editor.waitFor();
@@ -414,7 +417,7 @@ export async function runServerCreateUpdate(
     );
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
   if (
-    (await page.evaluate(() => window.location.hash)) !== "#/servers/new" ||
+    (await page.evaluate(() => window.location.hash)) !== "#/mcp/servers/new" ||
     (await page.locator("#server-display-name").inputValue()) !==
       "Unsaved draft"
   )
@@ -425,7 +428,7 @@ export async function runServerCreateUpdate(
     .getByRole("heading", { name: "Overview", exact: true, level: 1 })
     .waitFor();
   await page.evaluate(() => {
-    window.location.hash = "#/servers/new";
+    window.location.hash = "#/mcp/servers/new";
   });
   await editor.waitFor();
   const dispatchBeforeUnload = () =>
@@ -454,7 +457,7 @@ export async function runServerCreateUpdate(
     .catch(() => "missing");
   if (
     backPrompt !== "Leave this page? Unsaved changes will be discarded." ||
-    hashAfterBack !== "#/servers/new" ||
+    hashAfterBack !== "#/mcp/servers/new" ||
     draftAfterBack !== "Back-button draft"
   )
     fail(
@@ -1302,7 +1305,7 @@ export async function runServerOperations(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=activity`;
+    window.location.hash = `#/mcp/servers/${id}?tab=operations`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -1428,7 +1431,7 @@ export async function runServerOperations(
     fail("operation detail retained unrelated navigation or actions");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=activity`;
+    window.location.hash = `#/mcp/servers/${id}?tab=operations`;
   }, serverID);
   await page.locator('[data-testid="operation-list"]').waitFor();
   await page.locator('[data-testid="start-operation-reload"]').click();
@@ -1447,7 +1450,7 @@ export async function runServerOperations(
   await page.locator('[data-testid="operation-detail"]').waitFor();
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=activity`;
+    window.location.hash = `#/mcp/servers/${id}?tab=operations`;
   }, serverID);
   const disconnectAction = page.locator(
     '[data-testid="start-operation-disconnect_credentials"]',
@@ -1483,7 +1486,7 @@ export async function runServerOperations(
     },
   };
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=activity`;
+    window.location.hash = `#/mcp/servers/${id}?tab=operations`;
   }, serverID);
   await page.locator('[data-testid="operation-list"]').waitFor();
   await page.locator('[data-testid="manual-refresh"]').click();
@@ -1503,7 +1506,7 @@ export async function runServerOperations(
     runtime: { ...currentServer.runtime, state: "active", reason: null },
   };
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=activity`;
+    window.location.hash = `#/mcp/servers/${id}?tab=operations`;
   }, serverID);
   await page.getByText("No actions are currently available").waitFor();
   if ((await page.locator('[data-testid^="start-operation-"]').count()) !== 0)
@@ -1709,7 +1712,7 @@ export async function runServerDisconnectDelete(
   }
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=settings`;
+    window.location.hash = `#/mcp/servers/${id}?tab=settings`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -1723,7 +1726,7 @@ export async function runServerDisconnectDelete(
   )
     fail("settings retained duplicate credential disconnect");
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=activity`;
+    window.location.hash = `#/mcp/servers/${id}?tab=operations`;
   }, serverID);
   const disconnect = page.locator(
     '[data-testid="start-operation-disconnect_credentials"]',
@@ -1757,7 +1760,7 @@ export async function runServerDisconnectDelete(
   if (Number(disconnects) !== 2) fail("confirmed disconnect count changed");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=settings`;
+    window.location.hash = `#/mcp/servers/${id}?tab=settings`;
   }, serverID);
   await page.locator('[data-testid="server-destructive-actions"]').waitFor();
   const deleteButton = page.locator('[data-testid="delete-server"]');
@@ -1793,7 +1796,7 @@ export async function runServerDisconnectDelete(
   if (Number(deletes) !== 2) fail("confirmed deletion count changed");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}`;
+    window.location.hash = `#/mcp/servers/${id}`;
   }, serverID);
   await page.locator('[data-testid="server-status-view"]').waitFor();
   await page
@@ -1809,7 +1812,7 @@ export async function runServerDisconnectDelete(
   )
     fail("deleted server status did not explain its historical state");
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=status`;
+    window.location.hash = `#/mcp/servers/${id}?tab=status`;
   }, serverID);
   await page.locator('[data-testid="server-status-view"]').waitFor();
   await page.locator('time[datetime="2026-08-28T16:05:00Z"]').waitFor();
@@ -2048,7 +2051,7 @@ export async function runAuthFlows(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=authentication`;
+    window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -2068,7 +2071,7 @@ export async function runAuthFlows(
     "Flow",
   );
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=authentication`;
+    window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
   }, serverID);
   const authorizationAction = page.locator('[data-testid="start-auth-flow"]');
   await authorizationAction.waitFor();
@@ -2186,7 +2189,7 @@ export async function runAuthFlows(
   await waitForLifecycle(page, "authenticated");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE6"}`;
+    window.location.hash = `#/mcp/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE6"}`;
   }, serverID);
   await page.locator('[data-testid="auth-flow-detail"]').waitFor();
   const beforePoll = detailReads;
@@ -2213,7 +2216,7 @@ export async function runAuthFlows(
   if (Number(cancels) !== 2) fail("confirmed cancellation count changed");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE9"}`;
+    window.location.hash = `#/mcp/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE9"}`;
   }, serverID);
   await page.locator('[data-testid="auth-flow-detail"]').waitFor();
   if (
@@ -2223,7 +2226,7 @@ export async function runAuthFlows(
     fail("exchanging auth flow offered a mutation");
   showExchangeInList = true;
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=authentication`;
+    window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
   }, serverID);
   await page
     .getByText("An OAuth authorization is already in progress.")
@@ -2241,7 +2244,7 @@ export async function runAuthFlows(
     fail("authentication offered a second active OAuth flow");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE7"}`;
+    window.location.hash = `#/mcp/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE7"}`;
   }, serverID);
   await page.locator('[data-testid="auth-flow-detail"]').waitFor();
   if ((await page.locator('[data-testid="cancel-auth-flow"]').count()) !== 0)
@@ -2256,7 +2259,7 @@ export async function runAuthFlows(
   ])
     if (!finalDOM.includes(value)) fail(`OAuth detail omitted ${value}`);
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=status`;
+    window.location.hash = `#/mcp/servers/${id}?tab=status`;
   }, serverID);
   await page.locator('[data-testid="server-status-view"]').waitFor();
   finalDOM = (await page.locator("body").textContent()) ?? "";
@@ -2482,7 +2485,7 @@ export async function runServerCredentials(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=authentication`;
+    window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
   }, serverID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -3075,7 +3078,7 @@ export async function runServerCatalogReads(
   });
 
   await page.evaluate(() => {
-    window.location.hash = "#/servers";
+    window.location.hash = "#/mcp/servers";
   });
   await page.locator('[data-testid="servers-view"]').waitFor();
   await page.waitForFunction(
@@ -3141,7 +3144,7 @@ export async function runServerCatalogReads(
     await expect(row.locator(".table-identifier")).toHaveText(id);
     await expect(row.locator(".table-primary a")).toHaveAttribute(
       "href",
-      `#/servers/${id}`,
+      `#/mcp/servers/${id}`,
     );
   }
   if (
@@ -3249,7 +3252,7 @@ export async function runServerCatalogReads(
   ).toBeEnabled();
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page.waitForFunction(
-    (id) => document.querySelector(`a[href="#/servers/${id}"]`) !== null,
+    (id) => document.querySelector(`a[href="#/mcp/servers/${id}"]`) !== null,
     serverReadIDs.active,
   );
   body = (await page.locator("body").textContent()) ?? "";
@@ -3269,7 +3272,7 @@ export async function runServerCatalogReads(
     }).observe(document.body, { childList: true, subtree: true });
   });
   await page
-    .locator(`a[href="#/servers/${serverReadIDs.active}"]`)
+    .locator(`a[href="#/mcp/servers/${serverReadIDs.active}"]`)
     .first()
     .click();
   await page.locator('[data-testid="server-status-view"]').waitFor();
@@ -3308,7 +3311,7 @@ export async function runServerCatalogReads(
     fail("server overview exposed diagnostic implementation state");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=tools`;
+    window.location.hash = `#/mcp/servers/${id}?tab=tools`;
   }, serverReadIDs.active);
   await page.locator('[data-testid="descriptor-list"]').waitFor();
   await page.waitForFunction(
@@ -3331,7 +3334,7 @@ export async function runServerCatalogReads(
     fail("tool list omitted fully namespaced tool names");
   await page
     .locator(
-      `a[href="#/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.retiredTool}"]`,
+      `a[href="#/mcp/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.retiredTool}"]`,
     )
     .click();
   await page.locator('[data-testid="descriptor-detail"]').waitFor();
@@ -3355,18 +3358,18 @@ export async function runServerCatalogReads(
       .getByRole("navigation", { name: "Tool navigation" })
       .getByRole("link", { name: "Back to tools", exact: true })
       .getAttribute("href")) !==
-      `#/servers/${serverReadIDs.active}?tab=tools` ||
+      `#/mcp/servers/${serverReadIDs.active}?tab=tools` ||
     (await page
       .getByRole("navigation", { name: "Tool navigation" })
       .getByRole("link", { name: "Back to catalog", exact: true })
-      .getAttribute("href")) !== "#/catalog"
+      .getAttribute("href")) !== "#/mcp/tools"
   )
     fail(
       "descriptor detail omitted structured evidence or contextual navigation",
     );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/servers/${id}?tab=tools`;
+    window.location.hash = `#/mcp/servers/${id}?tab=tools`;
   }, serverReadIDs.active);
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page.waitForFunction(
@@ -3377,7 +3380,7 @@ export async function runServerCatalogReads(
     fail("descriptor stale traversal was merged");
 
   await page.evaluate(() => {
-    window.location.hash = "#/catalog";
+    window.location.hash = "#/mcp/tools";
   });
   await page.locator('[data-testid="catalog-view"]').waitFor();
   await page.locator('[data-testid="catalog-row"]').first().waitFor();
@@ -3449,11 +3452,11 @@ export async function runServerCatalogReads(
   await expect(page.locator('[data-testid="catalog-row"]')).toHaveCount(2);
   if (
     (await page
-      .locator(`a[href="#/servers/${serverReadIDs.active}?tab=tools"]`)
+      .locator(`a[href="#/mcp/servers/${serverReadIDs.active}?tab=tools"]`)
       .count()) === 0 ||
     (await page
       .locator(
-        `a[href="#/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.currentTool}"]`,
+        `a[href="#/mcp/servers/${serverReadIDs.active}/descriptors/${serverReadIDs.currentTool}"]`,
       )
       .count()) === 0
   )

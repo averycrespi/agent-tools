@@ -36,15 +36,19 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
     await page.setViewportSize({ width: 1280, height: 900 });
   };
   const id = (index: number) => String(index + 1000).padStart(26, "0");
-  for (const path of ["servers", `servers/${id(0)}?tab=tools`, "catalog"]) {
+  for (const path of [
+    "mcp/servers",
+    `mcp/servers/${id(0)}?tab=tools`,
+    "mcp/tools",
+  ]) {
     const separator = path.includes("?") ? "&" : "?";
-    const filter = path === "servers" ? "name" : "tool";
+    const filter = path === "mcp/servers" ? "name" : "tool";
     expect(
       parseFragment(
         `#/${path}${separator}filter_${filter}=${encodeURIComponent("\ufdfa".repeat(20))}`,
       ),
     ).toBeUndefined();
-    const sorted = `#/${path}${separator}sort=${path === "servers" ? "namespace" : "tool"}&direction=descending`;
+    const sorted = `#/${path}${separator}sort=${path === "mcp/servers" ? "namespace" : "tool"}&direction=descending`;
     const parsed = parseFragment(sorted);
     expect(parsed).toBeDefined();
     expect(parseFragment(serializeLocation(parsed!))).toEqual(parsed);
@@ -218,8 +222,10 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
     );
     const fragment =
       kind === "descriptors"
-        ? `#/servers/${servers[0]!.id}?tab=tools`
-        : `#/${kind}`;
+        ? `#/mcp/servers/${servers[0]!.id}?tab=tools`
+        : kind === "servers"
+          ? "#/mcp/servers"
+          : "#/mcp/tools";
     const before = counts[kind];
     await page.evaluate((hash) => {
       window.location.hash = hash;

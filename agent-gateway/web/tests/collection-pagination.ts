@@ -223,7 +223,7 @@ export async function exerciseCollectionPagination(
       );
       const before = requests.length;
       await page.evaluate((selected) => {
-        window.location.hash = `#/${selected}?sort=${selected === "principals" ? "name" : "description"}&direction=ascending`;
+        window.location.hash = `#/access/${selected}?sort=${selected === "principals" ? "name" : "description"}&direction=ascending`;
       }, selected);
       await settled(50);
       expect(requests.length - before).toBe(1);
@@ -273,7 +273,7 @@ export async function exerciseCollectionPagination(
       );
       // Legacy ID-sort URLs remain usable without a dedicated ID-sort control.
       await page.evaluate((selected) => {
-        location.hash = `#/${selected}?sort=id&direction=ascending`;
+        location.hash = `#/access/${selected}?sort=id&direction=ascending`;
       }, selected);
       await expect(sortColumn.locator("option:checked")).toHaveText(
         "Custom order (from URL)",
@@ -287,7 +287,9 @@ export async function exerciseCollectionPagination(
       await expect(direction).toHaveText("Descending ↓");
       await expect
         .poll(async () => (await links())[0])
-        .toBe(`#/${selected}/${id(selected === "principals" ? 127 : 327)}`);
+        .toBe(
+          `#/access/${selected}/${id(selected === "principals" ? 127 : 327)}`,
+        );
       await settled(50);
       expect(requests.at(-1)?.query.get("direction")).toBe("descending");
       await expect(direction).toBeFocused();
@@ -349,7 +351,7 @@ export async function exerciseCollectionPagination(
       expect(requests.at(-1)?.query.get("direction")).toBe("descending");
       const descending = await links();
       expect(descending[0]).toBe(
-        `#/${selected}/${id(selected === "principals" ? 127 : 327)}`,
+        `#/access/${selected}/${id(selected === "principals" ? 127 : 327)}`,
       );
       expect(descending.slice(1)).toEqual(first.slice(0, 49));
       await next.click();

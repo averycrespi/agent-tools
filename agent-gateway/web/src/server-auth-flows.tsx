@@ -114,7 +114,7 @@ function FlowRows({
           render: (flow) => (
             <TableIdentity
               primary={
-                <a href={`#/servers/${serverID}/auth-flows/${flow.id}`}>
+                <a href={`#/mcp/servers/${serverID}/auth-flows/${flow.id}`}>
                   OAuth authorization
                 </a>
               }
@@ -452,7 +452,7 @@ export function ServerAuthFlows({
             </StatusLabel>
           </div>
           <p class="detail-navigation">
-            <a href={`#/servers/${server.id}?tab=authentication`}>
+            <a href={`#/mcp/servers/${server.id}?tab=authentication`}>
               Back to authentication
             </a>
           </p>

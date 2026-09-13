@@ -40,7 +40,7 @@ func TestBrowserShellPrimitives(t *testing.T) {
 		assert.NotContains(t, authoredText, forbidden)
 	}
 	assert.Equal(t, 3, strings.Count(mainText, "href="), "shell URLs must stay in the three fixed navigation owners")
-	for _, allowed := range []string{`href="#main-content"`, `href="#/overview"`, "href={`#/${item}`}"} {
+	for _, allowed := range []string{`href="#main-content"`, `href="#/overview"`, "href={`#/${destinationPaths[item]}`}"} {
 		assert.Contains(t, mainText, allowed)
 	}
 	assert.NotContains(t, mainText, "history.replaceState")
@@ -84,16 +84,19 @@ func TestBrowserShellPrimitives(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
-		Event             string `json:"event"`
-		ChromiumVersion   string `json:"chromium_version"`
-		PlaywrightVersion string `json:"playwright_version"`
-		Requests          int    `json:"requests"`
+		Event             string   `json:"event"`
+		ChromiumVersion   string   `json:"chromium_version"`
+		PlaywrightVersion string   `json:"playwright_version"`
+		Requests          int      `json:"requests"`
+		Screenshots       []string `json:"screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "shell_primitives_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
+	assert.Len(t, event.Screenshots, 6)
+	t.Logf("domain route screenshots: %v", event.Screenshots)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "shell primitive proof must own one Gateway lifecycle")

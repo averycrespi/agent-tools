@@ -25,7 +25,7 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
   };
   const value = "default,actions,gists,issues,labels,pull_requests,users";
   await page.evaluate(() => {
-    location.hash = "#/servers/new";
+    location.hash = "#/mcp/servers/new";
   });
   await page.getByTestId("server-editor").waitFor();
   await page.locator("#server-namespace").fill("header-fixture");
@@ -120,7 +120,7 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
       "Server settings saved",
     );
     await page.evaluate((id) => {
-      location.hash = `#/servers/${id}?tab=settings`;
+      location.hash = `#/mcp/servers/${id}?tab=settings`;
     }, body.server.id);
     await page
       .getByTestId("server-editor")
@@ -169,7 +169,7 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
     });
   await expect(page.getByTestId("server-header-name")).toHaveCount(0);
   await page.evaluate(() => {
-    location.hash = "#/servers";
+    location.hash = "#/mcp/servers";
   });
   await page.getByTestId("servers-view").waitFor();
   return screenshots;

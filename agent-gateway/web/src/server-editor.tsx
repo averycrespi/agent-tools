@@ -1642,13 +1642,13 @@ export function ServerEditor({
       controller.abandon();
       initialDraft.current = draft;
       setDraft({ ...draft });
-      if (create) navigate(`#/servers/${outcome.value.server.id}`, true);
+      if (create) navigate(`#/mcp/servers/${outcome.value.server.id}`, true);
       else {
         onRefresh();
         navigate(
           outcome.value.operationID === null
-            ? `#/servers/${outcome.value.server.id}`
-            : `#/servers/${outcome.value.server.id}/operations/${outcome.value.operationID}`,
+            ? `#/mcp/servers/${outcome.value.server.id}`
+            : `#/mcp/servers/${outcome.value.server.id}/operations/${outcome.value.operationID}`,
           true,
         );
       }

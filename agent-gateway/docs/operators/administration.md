@@ -6,6 +6,24 @@ Purpose: Run local administration safely through the public CLI.
 
 Agent Gateway's `agent-gateway --help` and subcommand help are the canonical command and flag reference. Prefer `agent-gateway` for new commands. The `mcp-gateway` executable remains fully supported with the same current commands and flags. Examples and recovery guidance use `agent-gateway` directly. This guide owns operator procedures for installation roots, administrator authentication, output modes, and safe command execution. See [Administrative control plane](../design/administrative-control-plane.md) for normative defaults and trust boundaries.
 
+## Browser location cutover
+
+Old flat browser paths have **no aliases or redirects**. Update bookmarks and browser automation to the canonical locations below. Old or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
+
+| Old collection  | Canonical collection     |
+| --------------- | ------------------------ |
+| `#/servers`     | `#/mcp/servers`          |
+| `#/catalog`     | `#/mcp/tools`            |
+| `#/principals`  | `#/access/principals`    |
+| `#/grants`      | `#/access/grants`        |
+| `#/requests`    | `#/access/requests`      |
+| `#/invocations` | `#/activity/invocations` |
+| `#/audit`       | `#/activity/audit`       |
+
+Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. Existing `#/access/principals` and `#/access/grants` paths are already canonical, not aliases. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
+
+This is not an installation migration: startup, both command names, data roots/locks, credentials/keyring, database/backups, launchd, ports, MCP ingress/self-service, OAuth callbacks, browser theme/session-cookie names, provisioning markers/token paths, and `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` are unchanged.
+
 ## Operator v2 cutover
 
 Upgrade standalone CLI binaries, API clients, JSON scripts, and the service together. This is an intentional operator breaking change, not an installation migration. Both installed executable names use the same new grammar; there are no v1 HTTP handlers, top-level server/catalog aliases, redirects, or compatibility completions.
@@ -27,7 +45,7 @@ Upgrade standalone CLI binaries, API clients, JSON scripts, and the service toge
 
 `projection=active` remains an exclusive operation read with `{items,has_more}`. Other ordinary pages do not acquire invented totals. The CLI's `--retired` descriptor selector translates to the new status query; API clients must use the new grammar. Exact grant/request policy fields and member-resource shapes are unchanged.
 
-After a service upgrade, reload an already-open browser tab to load the bundled client, and sign in again if its session expired. Browser fragments and layout are unchanged. Discard old page cursors; reload starts a fresh traversal. A failed or uncertain mutation during version skew is **not** permission to retry: retain its input/key/precondition, inspect current resources with the upgraded client, and resolve the outcome before any deliberate same-intent action. Never retry merely because the old tab or CLI cannot decode a response.
+After a service upgrade, reload an already-open browser tab to load the bundled client, and sign in again if its session expired. Browser fragments follow the [location cutover](#browser-location-cutover) above; layout is unchanged. Discard old page cursors; reload starts a fresh traversal. A failed or uncertain mutation during version skew is **not** permission to retry: retain its input/key/precondition, inspect current resources with the upgraded client, and resolve the outcome before any deliberate same-intent action. Never retry merely because the old tab or CLI cannot decode a response.
 
 Existing same-key server work retains its durable identity across the route rename, including conflicts and interrupted outcomes. Database/backup lineage, stored enums, bearer verifiers/prefixes, keyring identifiers/generations, roots/locks, ports, `/mcp`, OAuth callback identities, `mcp_gateway.*` tools/schemas, installed launchd argv/labels/plist/log paths, and provisioning markers/token paths are unchanged. Provisioning continues exporting `MCP_GATEWAY_ENDPOINT` and `MCP_GATEWAY_AGENT_TOKEN`. No reinitialization, credential rotation, automatic relocation, live installation mutation, or external agent-config change is part of this cutover. Offline `restore --verify-current` and `restore BACKUP_ID` remain unchanged. Historical acceptance evidence remains historical, not current release qualification.
 

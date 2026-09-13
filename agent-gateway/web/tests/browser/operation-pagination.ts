@@ -174,7 +174,7 @@ export async function exerciseOperationPagination(
     },
   );
   const navigate = async (suffix = "") => {
-    const fragment = `#/servers/${serverID}?tab=activity${suffix}`;
+    const fragment = `#/mcp/servers/${serverID}?tab=operations${suffix}`;
     expect(serializeLocation(parseFragment(fragment)!)).toBe(fragment);
     await page.evaluate((fragment) => {
       location.hash = fragment;
@@ -188,7 +188,7 @@ export async function exerciseOperationPagination(
   ).toBeVisible();
   await expect(
     page.locator('[data-testid="active-operation-link"]'),
-  ).toHaveAttribute("href", `#/servers/${serverID}/operations/${old.id}`);
+  ).toHaveAttribute("href", `#/mcp/servers/${serverID}/operations/${old.id}`);
   await expect(table.locator(`a[href$="/${old.id}"]`)).toHaveCount(0);
   await expect(page.locator('[data-testid^="start-operation-"]')).toHaveCount(
     0,

@@ -621,7 +621,7 @@ function InvocationFacts({
       <div>
         <dt>Principal</dt>
         <dd>
-          <a href={`#/principals/${item.principalID}`}>
+          <a href={`#/access/principals/${item.principalID}`}>
             {principalNames.get(item.principalID) ?? item.principalID}
           </a>
         </dd>
@@ -631,7 +631,7 @@ function InvocationFacts({
         <dd>
           {item.target?.kind === "downstream" ? (
             <a
-              href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+              href={`#/mcp/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
             >
               {invocationTargetLabel(item.target, item.requestedName)}
             </a>
@@ -651,7 +651,7 @@ function InvocationFacts({
           <div>
             <dt>Grant</dt>
             <dd>
-              <a href={`#/grants/${item.authorization.grantID}`}>
+              <a href={`#/access/grants/${item.authorization.grantID}`}>
                 Grant {item.authorization.grantID}
               </a>
             </dd>
@@ -661,7 +661,7 @@ function InvocationFacts({
         <div>
           <dt>Server</dt>
           <dd>
-            <a href={`#/servers/${item.target.serverID}`}>
+            <a href={`#/mcp/servers/${item.target.serverID}`}>
               Server {item.target.serverID}
             </a>
           </dd>
@@ -867,7 +867,7 @@ function InvocationList({
                   primary={
                     item.target?.kind === "downstream" ? (
                       <a
-                        href={`#/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+                        href={`#/mcp/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
                       >
                         {invocationTargetLabel(item.target, item.requestedName)}
                       </a>
@@ -895,7 +895,7 @@ function InvocationList({
               label: "Principal",
               role: "relation",
               render: (item) => (
-                <a href={`#/principals/${item.principalID}`}>
+                <a href={`#/access/principals/${item.principalID}`}>
                   {principalNames.get(item.principalID) ?? item.principalID}
                 </a>
               ),

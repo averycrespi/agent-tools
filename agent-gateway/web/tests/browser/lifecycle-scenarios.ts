@@ -1,4 +1,7 @@
 import { type BrowserContext, type Page, type Request } from "@playwright/test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   assertClosedStorage,
   assertSecretAbsent,
@@ -81,7 +84,7 @@ export async function runPriorSessionResponseIsolationCanary(
 
   const fragmentCanary = `INVALID_FRAGMENT_${"F".repeat(40)}`;
   await page.evaluate((value) => {
-    window.location.hash = `#/servers/${value}`;
+    window.location.hash = `#/mcp/servers/${value}`;
   }, fragmentCanary);
   await page.waitForFunction(() => window.location.hash === "#/overview");
   if (
@@ -372,61 +375,63 @@ export async function runFragmentStorage(
   const idB = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
   const accepted: Array<[string, string]> = [
     ["#/overview", "#/overview"],
-    ["#/servers", "#/servers"],
-    ["#/servers/new", "#/servers/new"],
-    [`#/servers/${idA}`, `#/servers/${idA}`],
-    ...["status", "tools", "activity", "authentication", "settings"].map(
+    ["#/mcp/servers", "#/mcp/servers"],
+    ["#/mcp/servers/new", "#/mcp/servers/new"],
+    [`#/mcp/servers/${idA}`, `#/mcp/servers/${idA}`],
+    ...["status", "tools", "operations", "authentication", "settings"].map(
       (tab): [string, string] => [
-        `#/servers/${idA}?tab=${tab}`,
-        `#/servers/${idA}?tab=${tab}`,
+        `#/mcp/servers/${idA}?tab=${tab}`,
+        tab === "status"
+          ? `#/mcp/servers/${idA}`
+          : `#/mcp/servers/${idA}?tab=${tab}`,
       ],
     ),
     [
-      `#/servers/${idA}/operations/${idB}`,
-      `#/servers/${idA}/operations/${idB}`,
+      `#/mcp/servers/${idA}/operations/${idB}`,
+      `#/mcp/servers/${idA}/operations/${idB}`,
     ],
     [
-      `#/servers/${idA}/auth-flows/${idB}`,
-      `#/servers/${idA}/auth-flows/${idB}`,
+      `#/mcp/servers/${idA}/auth-flows/${idB}`,
+      `#/mcp/servers/${idA}/auth-flows/${idB}`,
     ],
     [
-      `#/servers/${idA}/descriptors/${idB}`,
-      `#/servers/${idA}/descriptors/${idB}`,
+      `#/mcp/servers/${idA}/descriptors/${idB}`,
+      `#/mcp/servers/${idA}/descriptors/${idB}`,
     ],
-    ["#/catalog", "#/catalog"],
-    ["#/principals", "#/principals"],
+    ["#/mcp/tools", "#/mcp/tools"],
+    ["#/access/principals", "#/access/principals"],
     [
       "#/access/principals?filter_name=Caf%C3%A9&filter_visibility=all&filter_state=disabled&direction=descending&sort=name",
-      "#/principals?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
+      "#/access/principals?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
     ],
     [
-      "#/grants?filter_target=Far&filter_state=expired&filter_principal=Agent&filter_identity=Policy&filter_effect=deny&direction=ascending&sort=principal",
-      "#/grants?sort=principal&direction=ascending&filter_effect=deny&filter_identity=Policy&filter_principal=Agent&filter_state=expired&filter_target=Far",
+      "#/access/grants?filter_target=Far&filter_state=expired&filter_principal=Agent&filter_identity=Policy&filter_effect=deny&direction=ascending&sort=principal",
+      "#/access/grants?sort=principal&direction=ascending&filter_effect=deny&filter_identity=Policy&filter_principal=Agent&filter_state=expired&filter_target=Far",
     ],
-    ["#/grants?sort=description", "#/grants?sort=description"],
-    ["#/principals/new", "#/principals/new"],
-    [`#/principals/${idA}`, `#/principals/${idA}`],
-    ["#/access/principals", "#/principals"],
-    ["#/access/principals/new", "#/principals/new"],
-    [`#/access/principals/${idA}`, `#/principals/${idA}`],
-    ["#/grants", "#/grants"],
-    ["#/grants/new", "#/grants/new"],
-    [
-      `#/grants/new?server_id=${idB}&principal_id=${idA}`,
-      `#/grants/new?principal_id=${idA}&server_id=${idB}`,
-    ],
-    [`#/grants/${idA}`, `#/grants/${idA}`],
-    ["#/access/grants", "#/grants"],
-    ["#/access/grants/new", "#/grants/new"],
+    ["#/access/grants?sort=description", "#/access/grants?sort=description"],
+    ["#/access/principals/new", "#/access/principals/new"],
+    [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
+    ["#/access/principals", "#/access/principals"],
+    ["#/access/principals/new", "#/access/principals/new"],
+    [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
+    ["#/access/grants", "#/access/grants"],
+    ["#/access/grants/new", "#/access/grants/new"],
     [
       `#/access/grants/new?server_id=${idB}&principal_id=${idA}`,
-      `#/grants/new?principal_id=${idA}&server_id=${idB}`,
+      `#/access/grants/new?principal_id=${idA}&server_id=${idB}`,
     ],
-    [`#/access/grants/${idA}`, `#/grants/${idA}`],
-    ["#/requests", "#/requests"],
-    [`#/requests/${idA}`, `#/requests/${idA}`],
-    ["#/invocations", "#/invocations"],
-    [`#/invocations/${idA}`, `#/invocations/${idA}`],
+    [`#/access/grants/${idA}`, `#/access/grants/${idA}`],
+    ["#/access/grants", "#/access/grants"],
+    ["#/access/grants/new", "#/access/grants/new"],
+    [
+      `#/access/grants/new?server_id=${idB}&principal_id=${idA}`,
+      `#/access/grants/new?principal_id=${idA}&server_id=${idB}`,
+    ],
+    [`#/access/grants/${idA}`, `#/access/grants/${idA}`],
+    ["#/access/requests", "#/access/requests"],
+    [`#/access/requests/${idA}`, `#/access/requests/${idA}`],
+    ["#/activity/invocations", "#/activity/invocations"],
+    [`#/activity/invocations/${idA}`, `#/activity/invocations/${idA}`],
     ["#/system", "#/system"],
     ...["status", "resource-limits", "admin-credentials", "backups"].map(
       (tab): [string, string] => [
@@ -457,17 +462,31 @@ export async function runFragmentStorage(
   await page.waitForFunction(() => window.location.hash === "#/overview");
   await page.evaluate(() => {
     const anchor = document.createElement("a");
-    anchor.href = "#/servers";
+    anchor.href = "#/mcp/servers";
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
   });
-  await page.waitForFunction(() => window.location.hash === "#/servers");
+  await page.waitForFunction(() => window.location.hash === "#/mcp/servers");
   await page.goBack();
   await page.waitForFunction(() => window.location.hash === "#/overview");
 
   const fragmentCanary = "fragment-secret-canary-41f95d";
   const invalid = [
+    ...[
+      "servers",
+      "catalog",
+      "principals",
+      "grants",
+      "requests",
+      "invocations",
+      "audit",
+    ].flatMap((path) => [`#/${path}`, `#/${path}/${idA}`, `#/${path}/new`]),
+    `#/mcp/servers/${idA}?tab=activity`,
+    `#/mcp/servers/${idA}?tab=overview`,
+    `#/mcp/servers/${idA}?tab=settings&filter_name=x`,
+    "#/system?filter_unknown=x",
+    "#/access/grants/new?__proto__=x",
     "overview",
     "#overview",
     "#/",
@@ -478,30 +497,30 @@ export async function runFragmentStorage(
     "#/overview?unknown=x",
     "#/overview?cursor=x",
     "#/overview?requested_name=secret",
-    `#/servers/${idA.toLowerCase()}`,
-    `#/servers/${idA}?tab=unknown`,
-    `#/servers/${idA}?tab=oauth&tab=oauth`,
-    `#/servers/${idA}?tab=null`,
-    `#/grants?principal_id=${idA}`,
-    `#/grants?server_id=${idB}`,
+    `#/mcp/servers/${idA.toLowerCase()}`,
+    `#/mcp/servers/${idA}?tab=unknown`,
+    `#/mcp/servers/${idA}?tab=oauth&tab=oauth`,
+    `#/mcp/servers/${idA}?tab=null`,
     `#/access/grants?principal_id=${idA}`,
-    "#/principals?direction=ascending",
-    "#/principals?sort=unknown",
-    "#/principals?filter_unknown=value",
-    "#/principals?filter_state=expired",
-    "#/principals?filter_name=%0A",
-    `#/principals?filter_name=${encodeURIComponent("é".repeat(129))}`,
-    "#/grants?filter_effect=ALLOW",
-    "#/grants?sort=description&sort=id",
-    "#/grants?cursor=opaque",
-    "#/grants?filter_identity=%E0%A4%A",
-    "#/requests?state=pending",
-    `#/requests?principal_id=${idA}`,
-    `#/invocations?principal_id=${idA}`,
-    `#/invocations?server_id=${idB}`,
-    "#/invocations?admission_class=evaluated",
-    "#/invocations?decision=allow",
-    "#/invocations?outcome=succeeded",
+    `#/access/grants?server_id=${idB}`,
+    `#/access/grants?principal_id=${idA}`,
+    "#/access/principals?direction=ascending",
+    "#/access/principals?sort=unknown",
+    "#/access/principals?filter_unknown=value",
+    "#/access/principals?filter_state=expired",
+    "#/access/principals?filter_name=%0A",
+    `#/access/principals?filter_name=${encodeURIComponent("é".repeat(129))}`,
+    "#/access/grants?filter_effect=ALLOW",
+    "#/access/grants?sort=description&sort=id",
+    "#/access/grants?cursor=opaque",
+    "#/access/grants?filter_identity=%E0%A4%A",
+    "#/access/requests?state=pending",
+    `#/access/requests?principal_id=${idA}`,
+    `#/activity/invocations?principal_id=${idA}`,
+    `#/activity/invocations?server_id=${idB}`,
+    "#/activity/invocations?admission_class=evaluated",
+    "#/activity/invocations?decision=allow",
+    "#/activity/invocations?outcome=succeeded",
     "#/https://example.com",
     "#/overview/é",
     "#/overview/\n",
@@ -528,7 +547,7 @@ export async function runFragmentStorage(
   await page.waitForFunction(() => window.location.hash === "#/overview");
   const historyBeforeInvalid = await page.evaluate(() => history.length);
   await page.evaluate((canary) => {
-    window.location.hash = `#/servers//${canary}`;
+    window.location.hash = `#/mcp/servers//${canary}`;
   }, fragmentCanary);
   await page.waitForFunction(() => window.location.hash === "#/sign-in");
   const invalidState = await page.evaluate(
@@ -1092,13 +1111,13 @@ export async function runShellPrimitives(
 
   const expectedNavigation = [
     ["Overview", "#/overview"],
-    ["Principals", "#/principals"],
-    ["Grants", "#/grants"],
-    ["Requests", "#/requests"],
-    ["Servers", "#/servers"],
-    ["Tools", "#/catalog"],
-    ["Agents", "#/invocations"],
-    ["Administrators", "#/audit"],
+    ["Principals", "#/access/principals"],
+    ["Grants", "#/access/grants"],
+    ["Requests", "#/access/requests"],
+    ["Servers", "#/mcp/servers"],
+    ["Tools", "#/mcp/tools"],
+    ["Agents", "#/activity/invocations"],
+    ["Administrators", "#/activity/audit"],
     ["System", "#/system"],
   ] as const;
   const primary = page.getByRole("navigation", {
@@ -1140,7 +1159,7 @@ export async function runShellPrimitives(
       fail("navigation must have exactly one current destination");
   }
 
-  await page.locator('aside nav a[href="#/servers"]').focus();
+  await page.locator('aside nav a[href="#/mcp/servers"]').focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => {
     const title = document.querySelector("#page-title");
@@ -1148,7 +1167,7 @@ export async function runShellPrimitives(
       '[data-testid="shell-announcement"]',
     );
     return (
-      window.location.hash === "#/servers" &&
+      window.location.hash === "#/mcp/servers" &&
       title?.textContent?.trim() === "Servers" &&
       title === document.activeElement &&
       announcement?.textContent?.includes("Servers")
@@ -1232,14 +1251,16 @@ export async function runShellPrimitives(
     fail(`narrow navigation Escape state: ${JSON.stringify(state)}`);
   }
   await page.keyboard.press("Space");
-  const invocationLink = page.locator('aside nav a[href="#/invocations"]');
+  const invocationLink = page.locator(
+    'aside nav a[href="#/activity/invocations"]',
+  );
   await invocationLink.focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => {
     const toggle = document.querySelector('[data-testid="navigation-toggle"]');
     const navigation = document.querySelector("#primary-navigation");
     return (
-      window.location.hash === "#/invocations" &&
+      window.location.hash === "#/activity/invocations" &&
       toggle?.getAttribute("aria-expanded") === "false" &&
       navigation !== null &&
       getComputedStyle(navigation).display === "none"
@@ -1248,7 +1269,7 @@ export async function runShellPrimitives(
 
   const longCanary = `LONG_INERT_${"A".repeat(1800)}`;
   await page.evaluate((value) => {
-    window.location.hash = `#/invocations?outcome=${value}`;
+    window.location.hash = `#/activity/invocations?outcome=${value}`;
   }, longCanary);
   await page.waitForFunction(() => window.location.hash === "#/overview");
   if ((await page.locator("body").textContent())?.includes(longCanary))
@@ -1259,6 +1280,59 @@ export async function runShellPrimitives(
       document.documentElement.clientWidth,
   );
   if (overflow > 1) fail(`narrow shell overflowed by ${overflow}px`);
+
+  const artifacts = await mkdtemp(
+    join(tmpdir(), "agent-gateway-domain-routes-"),
+  );
+  const screenshots: string[] = [];
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    // Reloaded invalid bookmarks must retain the safe notice after bootstrap.
+    await page.goto(`${baseURL}/#/servers/new`, {
+      waitUntil: "domcontentloaded",
+    });
+    await waitForLifecycle(page, "authenticated");
+    await page.locator('[data-testid="location-notice"]').waitFor();
+    if (await page.locator('[data-testid="server-create-view"]').count())
+      fail("old create path opened a mutation editor");
+    const invalidPath = join(artifacts, `invalid-${width}.png`);
+    await page.screenshot({ path: invalidPath });
+    screenshots.push(invalidPath);
+    if (width < 800) await page.getByTestId("navigation-toggle").click();
+    await primary.waitFor({ state: "visible" });
+    await page.keyboard.press("Tab");
+    const link = primary.getByRole("link", { name: "Servers", exact: true });
+    await link.focus();
+    if (!(await link.evaluate((element) => element === document.activeElement)))
+      fail("canonical navigation link did not receive focus");
+    const focusPath = join(artifacts, `navigation-focus-${width}.png`);
+    await page.screenshot({ path: focusPath });
+    screenshots.push(focusPath);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => location.hash === "#/mcp/servers");
+    await page.getByTestId("location-notice").waitFor({ state: "hidden" });
+  }
+  const filtered =
+    "#/mcp/servers?sort=name&direction=descending&filter_name=missing";
+  await page.goto(`${baseURL}/${filtered}`, { waitUntil: "domcontentloaded" });
+  await waitForLifecycle(page, "authenticated");
+  if ((await page.evaluate(() => location.hash)) !== filtered)
+    fail("copied filter direct-load changed its query");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForLifecycle(page, "authenticated");
+  if ((await page.evaluate(() => location.hash)) !== filtered)
+    fail("reload lost canonical filters");
+  await page.evaluate(() => {
+    location.hash = "#/mcp/tools";
+  });
+  await page.waitForFunction(() => location.hash === "#/mcp/tools");
+  await page.goBack();
+  await page.waitForFunction(
+    (expected) => location.hash === expected,
+    filtered,
+  );
+  await page.goForward();
+  await page.waitForFunction(() => location.hash === "#/mcp/tools");
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   const animationDuration = await page
@@ -1280,6 +1354,7 @@ export async function runShellPrimitives(
   process.stdout.write(
     `${JSON.stringify({
       event: "shell_primitives_complete",
+      screenshots,
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),

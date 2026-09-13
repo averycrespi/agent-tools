@@ -697,7 +697,9 @@ function Evidence({
           </dd>
         </div>
       </dl>
-      <a href={`#/servers/${evidence.serverID}/descriptors/${evidence.toolID}`}>
+      <a
+        href={`#/mcp/servers/${evidence.serverID}/descriptors/${evidence.toolID}`}
+      >
         Open retained descriptor
       </a>
       <InertJSON
@@ -1778,7 +1780,7 @@ export function Requests({
   const [uncertain, setUncertain] = useState<string>();
   const queue = useRef<ResolvedLocation>({
     location: { destination: "requests", segments: ["requests"], query: {} },
-    canonicalFragment: "#/requests",
+    canonicalFragment: "#/access/requests",
     invalid: false,
   });
   if (requestID === undefined) queue.current = resolved;
@@ -1879,7 +1881,7 @@ export function Requests({
             requests
           </a>
           {detail.state !== "pending" && nextRequest !== undefined && (
-            <a href={`#/requests/${nextRequest}`}>Review next</a>
+            <a href={`#/access/requests/${nextRequest}`}>Review next</a>
           )}
           {detail.state !== "pending" && nextRequest === undefined && (
             <span>
@@ -1915,7 +1917,7 @@ export function Requests({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/principals/${detail.principalID}`}>
+                <a href={`#/access/principals/${detail.principalID}`}>
                   {principalName}
                 </a>
               </dd>
@@ -1929,7 +1931,7 @@ export function Requests({
             <div>
               <dt>Requested target</dt>
               <dd>
-                <a href={`#/servers/${detail.resolvedServerID}?tab=tools`}>
+                <a href={`#/mcp/servers/${detail.resolvedServerID}?tab=tools`}>
                   {serverName}
                 </a>
               </dd>
@@ -2104,7 +2106,7 @@ export function Requests({
                 <div>
                   <dt>Created grant</dt>
                   <dd>
-                    <a href={`#/grants/${detail.approvedGrantID}`}>
+                    <a href={`#/access/grants/${detail.approvedGrantID}`}>
                       {detail.approvedGrantID}
                     </a>
                   </dd>
@@ -2172,11 +2174,14 @@ export function Requests({
     <div class="domain-view" data-testid="requests-view">
       <section class="panel domain-panel" aria-label="Grant requests">
         <nav class="subnav request-queue-tabs" aria-label="Request queues">
-          <a href="#/requests" aria-current={!allRequests ? "page" : undefined}>
+          <a
+            href="#/access/requests"
+            aria-current={!allRequests ? "page" : undefined}
+          >
             Pending
           </a>
           <a
-            href="#/requests?queue=all"
+            href="#/access/requests?queue=all"
             aria-current={allRequests ? "page" : undefined}
           >
             All requests
@@ -2253,7 +2258,9 @@ export function Requests({
               role: "identity",
               render: (item) => (
                 <TableIdentity
-                  primary={<a href={`#/requests/${item.id}`}>Access request</a>}
+                  primary={
+                    <a href={`#/access/requests/${item.id}`}>Access request</a>
+                  }
                   secondary={item.id}
                 />
               ),
@@ -2264,7 +2271,7 @@ export function Requests({
               label: "Principal",
               role: "relation",
               render: (item) => (
-                <a href={`#/principals/${item.principalID}`}>
+                <a href={`#/access/principals/${item.principalID}`}>
                   {item.principalName}
                 </a>
               ),
@@ -2276,7 +2283,7 @@ export function Requests({
               role: "relation",
               render: (item) => (
                 <a
-                  href={`#/servers/${item.serverID}?tab=tools`}
+                  href={`#/mcp/servers/${item.serverID}?tab=tools`}
                   title={item.requestedPolicy.target}
                 >
                   {item.serverName} ·{" "}
@@ -2332,7 +2339,7 @@ export function Requests({
               render: (item) => (
                 <a
                   class={`button-link${item.state === "pending" ? " primary-action" : ""}`}
-                  href={`#/requests/${item.id}`}
+                  href={`#/access/requests/${item.id}`}
                 >
                   {item.state === "pending" ? "Review" : "View decision"}
                 </a>
