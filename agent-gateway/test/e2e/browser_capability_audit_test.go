@@ -36,7 +36,7 @@ func TestBrowserCapabilityAudit(t *testing.T) {
 		assert.Contains(t, mechanics.String(), marker)
 	}
 	lifecycle := contract.ControlPlaneLifecycleManifest()
-	require.Len(t, lifecycle, 8)
+	require.Len(t, lifecycle, 9)
 	for _, row := range lifecycle[4:] {
 		assert.Empty(t, row.WebScenario, "CLI/offline capability must have no web owner")
 	}

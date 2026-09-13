@@ -17,6 +17,8 @@ import (
 func TestPurposeNamedLeafTargetDryRuns(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	checks := map[string][]string{
+		"lint":                           {"GOMEMLIMIT=512MiB GOGC=50 GOMAXPROCS=1 go tool golangci-lint run ./..."},
+		"verify":                         {"go mod tidy -diff", "go mod verify", "go tool golangci-lint fmt --diff", "GOMEMLIMIT=512MiB GOGC=50 GOMAXPROCS=1 go tool golangci-lint run ./..."},
 		"test-stress":                    {"go run ./test/acceptance/cmd run-suite test-stress --count=20"},
 		"test-keyring-native":            {"./test/keyring-native.sh"},
 		"test-serve-demo":                {"go run ./test/acceptance/cmd run-suite test-serve-demo"},

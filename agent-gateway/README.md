@@ -46,7 +46,7 @@ Gateway never queues or automatically replays tool calls. If a handoff leaves th
 
 ## Installation
 
-Requirements: Go 1.25.13 or later, GNU Make, and a supported operating-system keyring for server credentials.
+Requirements: Go 1.26.6 or later, GNU Make, and a supported operating-system keyring for server credentials.
 
 From the `agent-gateway` directory:
 
@@ -54,7 +54,7 @@ From the `agent-gateway` directory:
 make install
 ```
 
-This installs `agent-gateway` (recommended) and compatible `mcp-gateway` into `$(go env GOPATH)/bin`, sharing one implementation, root and lock. New installations use canonical paths and service naming; legacy defaults refuse rather than initialize another root. Existing explicit-root commands remain supported. Follow [stopped installation migration](docs/operators/installation-migration.md) for separately authorized host adoption—never reinitialize or rotate credentials for naming. [Administration](docs/operators/administration.md) covers path and credential selection.
+This installs `agent-gateway` (recommended) and compatible `mcp-gateway` into `$(go env GOPATH)/bin`, sharing one implementation, root and lock. New installations use canonical paths and service naming; legacy defaults refuse rather than initialize another root. Existing explicit-root commands remain supported. Follow [stopped installation migration](docs/operators/installation-migration.md) for separately authorized host adoption—never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/administration.md#browser-persistence-cutover) for preference preservation and fresh sign-in.
 
 ## Quick start
 
@@ -81,7 +81,7 @@ For trusted local VM/container forwarding, `agent-gateway serve --allowed-host h
 
 ## Common workflows
 
-Generated `agent-gateway --help` and subcommand help are the exact command reference. `mcp-gateway` accepts the same commands and flags; legacy spellings in recovery output and compatibility examples remain valid.
+Generated `agent-gateway --help` and subcommand help are the exact command reference. `mcp-gateway` accepts the same commands and flags; compatibility examples using that name with the current grammar remain valid, not retired API/CLI grammar.
 
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).

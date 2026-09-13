@@ -78,7 +78,7 @@ export async function runDevelopmentControlPlane(
   }
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   const sessionCookies = (await context.cookies(baseURL)).filter(
-    (cookie) => cookie.name === "mcp_gateway_session",
+    (cookie) => cookie.name === "agent_gateway_session",
   );
   const cookieHostOnly =
     sessionCookies.length === 1 &&

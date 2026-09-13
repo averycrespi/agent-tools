@@ -183,7 +183,13 @@ export async function assertSessionCookieAbsent(
   baseURL: string,
 ): Promise<void> {
   const cookies = await context.cookies(baseURL);
-  if (cookies.some((cookie) => cookie.name === "mcp_gateway_session"))
+  if (
+    cookies.some(
+      (cookie) =>
+        cookie.name === "agent_gateway_session" ||
+        cookie.name === "mcp_gateway_session",
+    )
+  )
     fail("session cookie was not cleared");
 }
 
@@ -266,7 +272,7 @@ export function assertClosedStorage(
   expectedTheme?: "system" | "light" | "dark",
 ): void {
   const expected =
-    expectedTheme === undefined ? [] : [["mcp_gateway_theme", expectedTheme]];
+    expectedTheme === undefined ? [] : [["agent_gateway_theme", expectedTheme]];
   if (
     JSON.stringify(snapshot.local) !== JSON.stringify(expected) ||
     snapshot.session.length !== 0 ||
@@ -327,7 +333,7 @@ export async function assertSecretAbsent(
   assertClosedStorage(await browserStorage(page), expectedTheme);
   const cookies = await context.cookies(baseURL);
   const sessions = cookies.filter(
-    (cookie) => cookie.name === "mcp_gateway_session",
+    (cookie) => cookie.name === "agent_gateway_session",
   );
   if (
     sessions.length !== (expectSessionCookie ? 1 : 0) ||

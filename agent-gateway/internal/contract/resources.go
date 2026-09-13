@@ -10,10 +10,11 @@ const (
 	ModernProtocolVersion = "2026-07-28"
 	LegacyProtocolVersion = "2025-11-25"
 
-	AdminBearerPrefix = "mgw_admin_"
-	AgentBearerPrefix = "mgw_agent_"
-	SessionCookieName = "mcp_gateway_session"
-	SessionValueBytes = 32
+	AdminBearerPrefix       = "mgw_admin_"
+	AgentBearerPrefix       = "mgw_agent_"
+	SessionCookieName       = "agent_gateway_session"
+	LegacySessionCookieName = "mcp_gateway_session"
+	SessionValueBytes       = 32
 )
 
 type ResourceMechanic struct {

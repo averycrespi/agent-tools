@@ -99,7 +99,7 @@ See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
 
 Requirements:
 
-- Go 1.25.13 or later and GNU Make
+- Go 1.26.6 or later and GNU Make
 - macOS and Lima for Sandbox Manager (`brew bundle` installs Lima from the repository root)
 - A supported operating-system keyring for Agent Gateway server credentials
 

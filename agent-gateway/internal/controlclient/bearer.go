@@ -109,9 +109,9 @@ func ProjectBearerProblem(err error, path string) *Problem {
 	case errors.Is(err, ErrBearerUnreadable):
 		return &Problem{Code: "client_bearer_unreadable", Title: fmt.Sprintf("%s could not be read. Check its path and owner-read permission.", capitalize(label)), Exit: 2}
 	case errors.Is(err, ErrBearerOversized):
-		return &Problem{Code: "client_bearer_oversized", Title: fmt.Sprintf("%s is too large. Select the exact bearer file created by mcp-gateway.", capitalize(label)), Exit: 2}
+		return &Problem{Code: "client_bearer_oversized", Title: fmt.Sprintf("%s is too large. Select the exact bearer file created by Agent Gateway.", capitalize(label)), Exit: 2}
 	case errors.Is(err, ErrBearerMalformed):
-		return &Problem{Code: "client_bearer_malformed", Title: fmt.Sprintf("%s is malformed. Select the exact bearer file created by mcp-gateway.", capitalize(label)), Exit: 2}
+		return &Problem{Code: "client_bearer_malformed", Title: fmt.Sprintf("%s is malformed. Select the exact bearer file created by Agent Gateway.", capitalize(label)), Exit: 2}
 	case errors.Is(err, ErrBearerConflict):
 		return &Problem{Code: "client_bearer_source_conflict", Title: "Choose exactly one administrator bearer source: a file or standard input.", Exit: 2}
 	default:

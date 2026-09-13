@@ -20,7 +20,7 @@ func TestAdminSessionBootstrapBoundary(t *testing.T) {
 			if request.Header.Get("Origin") == "" {
 				return ctx, Error{Code: contract.ProblemForbiddenOrigin}
 			}
-			return ctx, Error{Code: contract.ProblemAuthenticationRequired, SetCookie: "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"}
+			return ctx, Error{Code: contract.ProblemAuthenticationRequired, SetCookie: "agent_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"}
 		},
 		Next: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected handler call") }),
 	})
@@ -33,7 +33,7 @@ func TestAdminSessionBootstrapBoundary(t *testing.T) {
 	boundary.ServeHTTP(response, request)
 	assert.Equal(t, http.StatusUnauthorized, response.Code)
 	assert.Equal(t, 1, lookups)
-	assert.Equal(t, "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict", response.Header().Get("Set-Cookie"))
+	assert.Equal(t, "agent_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict", response.Header().Get("Set-Cookie"))
 
 	missingOrigin := httptest.NewRequest(http.MethodPost, "/api/v2/admin-sessions/current", http.NoBody)
 	missingOrigin.Host = contract.DefaultAuthority

@@ -32,7 +32,35 @@ export async function runSessionLifecycleCanary(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  const session = await exchange(page, bearer);
+  const first = await exchange(page, bearer);
+  const oldCookie = (await context.cookies(baseURL)).find(
+    (cookie) => cookie.name === "agent_gateway_session",
+  );
+  if (oldCookie === undefined) fail("canonical session cookie missing");
+  await context.clearCookies({ name: "agent_gateway_session" });
+  await context.addCookies([{ ...oldCookie, name: "mcp_gateway_session" }]);
+  const recoveryMutations: string[] = [];
+  const observeRecovery = (request: Request) => {
+    if (
+      !["GET", "HEAD"].includes(request.method()) &&
+      !request.url().endsWith("/api/v2/admin-sessions/current")
+    )
+      recoveryMutations.push(request.url());
+  };
+  page.on("request", observeRecovery);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForLifecycle(page, "signed_out");
+  await assertSessionCookieAbsent(context, baseURL);
+  page.off("request", observeRecovery);
+  if (recoveryMutations.length !== 0)
+    fail("old-only recovery replayed a mutation");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  const session = (await bootstrap(page)).session;
+  if (session === undefined || session.csrf_token === first.csrf_token)
+    fail("old-only browser did not establish fresh sign-in authority");
+  await context.addCookies([{ ...oldCookie, name: "mcp_gateway_session" }]);
   const current = await bootstrap(page);
   if (
     current.status !== 200 ||
@@ -40,7 +68,16 @@ export async function runSessionLifecycleCanary(
   ) {
     fail("browser session bootstrap canary failed");
   }
+  if (
+    (await context.cookies(baseURL)).some(
+      (cookie) => cookie.name === "mcp_gateway_session",
+    )
+  )
+    fail("mixed bootstrap did not retire legacy cookie");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForLifecycle(page, "authenticated");
   await connectAndCancelStream(page, session.csrf_token);
+  await context.addCookies([{ ...oldCookie, name: "mcp_gateway_session" }]);
   const logout = await sessionRequest(
     page,
     "/api/v2/admin-sessions/current",
@@ -121,7 +158,7 @@ export async function runPriorSessionResponseIsolationCanary(
         contentType: "application/json",
         headers: {
           "Set-Cookie":
-            "mcp_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict",
+            "agent_gateway_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict",
         },
         body: JSON.stringify({
           status: 500,
@@ -593,10 +630,96 @@ export async function runFragmentStorage(
 
   const storageCanary = "theme-secret-canary-7a20f1";
   await page.evaluate((canary) => {
-    localStorage.setItem("mcp_gateway_theme", canary);
+    localStorage.setItem("agent_gateway_theme", canary);
   }, storageCanary);
   await page.reload({ waitUntil: "domcontentloaded" });
   assertClosedStorage(await browserStorage(page));
+
+  for (const [legacy, canonical, expected] of [
+    ["light", null, "light"],
+    ["dark", "invalid", "dark"],
+    ["system", null, "system"],
+    ["dark", "light", "light"],
+    ["invalid", null, "system"],
+  ] as const) {
+    await page.evaluate(
+      ({ legacy, canonical }) => {
+        localStorage.clear();
+        localStorage.setItem("mcp_gateway_theme", legacy);
+        if (canonical !== null)
+          localStorage.setItem("agent_gateway_theme", canonical);
+      },
+      { legacy, canonical },
+    );
+    for (let load = 0; load < 2; load += 1) {
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await waitForLifecycle(page, "signed_out");
+      await page.waitForFunction(
+        (expected) =>
+          document.documentElement.dataset.themePreference === expected,
+        expected,
+      );
+      if (legacy !== "invalid")
+        assertClosedStorage(await browserStorage(page), expected);
+    }
+  }
+  // Inject failure before application startup, keeping the real persistence owner.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem("mcp_gateway_theme", "dark");
+  });
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException("denied", "SecurityError");
+    };
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(
+    () => document.documentElement.dataset.themePreference === "dark",
+  );
+  await waitForLifecycle(page, "signed_out");
+  if (
+    (await page.evaluate(() => localStorage.getItem("mcp_gateway_theme"))) !==
+    "dark"
+  )
+    fail("failed migration destroyed the persisted preference");
+  await page.getByTestId("theme-preference").selectOption("light");
+  await page.waitForFunction(
+    () => document.documentElement.dataset.theme === "light",
+  );
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(
+    () => document.documentElement.dataset.themePreference === "dark",
+  );
+  await waitForLifecycle(page, "signed_out");
+  const screenshots = await mkdtemp(
+    join(tmpdir(), "agent-gateway-theme-migration-"),
+  );
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.screenshot({
+      path: join(screenshots, `migrated-dark-${width}.png`),
+    });
+  }
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      get() {
+        throw new DOMException("denied", "SecurityError");
+      },
+    });
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(
+    () => document.documentElement.dataset.themePreference === "system",
+  );
+  await page.getByTestId("theme-preference").selectOption("light");
+  await page.waitForFunction(
+    () => document.documentElement.dataset.theme === "light",
+  );
+  await waitForLifecycle(page, "signed_out");
+  await page.screenshot({
+    path: join(screenshots, "storage-denied-light-390.png"),
+  });
   const finalDocument = await page.content();
   if (
     finalDocument.includes(fragmentCanary) ||
@@ -610,6 +733,7 @@ export async function runFragmentStorage(
   process.stdout.write(
     `${JSON.stringify({
       event: "fragment_storage_complete",
+      screenshots,
       chromium_version: browserVersion,
       playwright_version: "1.62.1",
       requests: requestCount(),
