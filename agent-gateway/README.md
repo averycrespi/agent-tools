@@ -32,27 +32,9 @@ Use Gateway with your preferred MCP client and sandbox setup. It does not requir
 
 Gateway listens on loopback. Local clients connect directly; VMs and containers need a trusted local forwarding path. It is a local access-control service, not an internet-facing gateway or a replacement for sandbox isolation.
 
-### Browser location cutover
-
-Old flat browser paths have **no aliases or redirects**. Update bookmarks and browser automation to the canonical locations below. Old or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
-
-| Old collection  | Canonical collection     |
-| --------------- | ------------------------ |
-| `#/servers`     | `#/mcp/servers`          |
-| `#/catalog`     | `#/mcp/tools`            |
-| `#/principals`  | `#/access/principals`    |
-| `#/grants`      | `#/access/grants`        |
-| `#/requests`    | `#/access/requests`      |
-| `#/invocations` | `#/activity/invocations` |
-| `#/audit`       | `#/activity/audit`       |
-
-Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. Existing `#/access/principals` and `#/access/grants` paths are already canonical, not aliases. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
-
-This is not an installation migration: startup, both executable names, data roots/locks, credentials/keyring, database/backups, launchd, ports, MCP ingress/self-service, OAuth callbacks, browser theme/session-cookie names, provisioning markers/token paths, and `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` are unchanged.
-
 ### Operator-friendly
 
-Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Requests); **MCP** (Servers, Tools); **Activity** (Agents, Administrators); **System**. Agents shows existing bounded, redacted MCP invocation evidence; Administrators shows the separate administrative audit history of control-plane changes, including system and offline maintenance events. Browser locations use domain-grouped hashes; see the [location cutover](#browser-location-cutover) before updating bookmarks or automation.
+Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Requests); **MCP** (Servers, Tools); **Activity** (Agents, Administrators); **System**. Agents shows existing bounded, redacted MCP invocation evidence; Administrators shows the separate administrative audit history of control-plane changes, including system and offline maintenance events. Browser locations use domain-grouped hashes; see the [location cutover](docs/operators/administration.md#browser-location-cutover) before updating bookmarks or automation.
 
 The Grants table shows expiry and numeric constraint counts; Requests shows requested duration and constraint counts in separate columns. Both use **No expiry** for non-expiring access and **0** for no argument constraints. Cancelled requests use a neutral grey state label.
 

@@ -33,7 +33,7 @@ Collections omit argument captures and return summary evidence only. `agent-gate
 
 ## Filter browser history
 
-Open **Activity → Agents** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/activity/invocations` and its detail suffixes with valid filters. Old `#/invocations` bookmarks are invalid and have no redirects; see the [location cutover](../../README.md#browser-location-cutover). **Back to agent activity** retains the applied query; **Activity → Administrators** remains the separate administrative audit history.
+Open **Activity → Agents** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/activity/invocations` and its detail suffixes with valid filters. Old `#/invocations` bookmarks are invalid and have no redirects; see the [location cutover](administration.md#browser-location-cutover). **Back to agent activity** retains the applied query; **Activity → Administrators** remains the separate administrative audit history.
 
 Tool, Principal, Authorization and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Principal searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
 
