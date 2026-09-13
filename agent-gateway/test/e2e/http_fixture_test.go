@@ -266,11 +266,12 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 				writer.Header().Set("Mcp-Session-Id", session)
 			}
 		}
-		if customTools {
+		switch {
+		case customTools:
 			fixture.writeToolsPage(writer, envelope.ID, envelope.Params.Cursor, tools)
-		} else if envelope.Params.Cursor == "" {
+		case envelope.Params.Cursor == "":
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"tools":[{"name":"http-alpha","inputSchema":{"type":"object"}}],"nextCursor":"page-2"}`))
-		} else {
+		default:
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"tools":[{"name":"http-beta","inputSchema":{"type":"object"}}],"nextCursor":null}`))
 		}
 	case "tools/call":

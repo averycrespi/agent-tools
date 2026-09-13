@@ -55,8 +55,6 @@ func runCLIServerInputMatrix(t *testing.T) {
 	assert.Equal(t, 5, conflict.ExitCode)
 	assert.Contains(t, string(conflict.Stderr), `"code":"idempotency_conflict"`)
 
-	get := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+creation.Server.ID, nil)
-	etag := get.Header.Get("ETag")
 	display := runOnlineCLI(t, harness, bearerPath, true, "mcp", "server", "update", creation.Server.ID, "--display-name", "CLI renamed", "--output", "json")
 	results = append(results, display)
 	var displayMutation struct {
@@ -70,8 +68,8 @@ func runCLIServerInputMatrix(t *testing.T) {
 	assert.Equal(t, "CLI renamed", displayMutation.Server.DisplayName)
 	assert.Nil(t, displayMutation.Operation, "display-only update must not invent behavioral work")
 
-	get = harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+creation.Server.ID, nil)
-	etag = get.Header.Get("ETag")
+	get := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+creation.Server.ID, nil)
+	etag := get.Header.Get("ETag")
 	behaviorPath := writeInput("behavior.json", `{"enabled":true}`)
 	refused := runOnlineCLI(t, harness, bearerPath, false, "mcp", "server", "update", creation.Server.ID, "--etag", etag, "--file", behaviorPath, "--output", "json")
 	results = append(results, refused)
