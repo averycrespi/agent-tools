@@ -73,7 +73,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		}
 		command.AddCommand(online)
 	}
-	command.Long = command.Short + ".\n\nThe mcp-gateway executable remains supported with the same commands,\ninstallation, credentials, and process lock. Operator clients must upgrade\nwith the service for the API v2 and mcp command namespaces."
+	command.Long = command.Short + ".\n\nOnly agent-gateway is published. Renaming a current binary does not change\nits commands, installation, credentials, or process lock. Operator clients\nmust upgrade with the service for the API v2 and mcp command namespaces."
 	return command
 }
 

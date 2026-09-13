@@ -6,11 +6,11 @@ Purpose: Move one existing installation without replacing its authority or recov
 
 **Capability delivery is not host adoption.** Building, testing, or merging this code does not authorize stopping a real service, moving real data, changing Keychain permissions, or deploying a binary. Obtain that authority separately. Development tests use disposable roots and synthetic credentials only. Native launchd, filesystem durability and native-keyring qualification remain separate evidence.
 
-Syntax: `agent-gateway installation --help` and `agent-gateway installation migrate --help`. Both installed executable names expose the same command. This is not `storage verify`, `backup restore`, initialization, or a credential reset.
+Syntax: `agent-gateway installation --help` and `agent-gateway installation migrate --help`. This is not `storage verify`, `backup restore`, initialization, or a credential reset.
 
 ## Selection matrix
 
-Both names resolve an explicit `--data-dir` first (including an existing custom or legacy root). Otherwise the selected base is absolute `XDG_DATA_HOME`, or the OS-account home plus `.local/share`; shell `HOME` is not authoritative. Relative XDG input fails unless overridden explicitly.
+The current `agent-gateway` resolves an explicit `--data-dir` first (including an existing custom or legacy root). Otherwise the selected base is absolute `XDG_DATA_HOME`, or the OS-account home plus `.local/share`; shell `HOME` is not authoritative. Relative XDG input fails unless overridden explicitly.
 
 | Selected base contains                                                      | Implicit CLI selection                                                      | Installer                                       |
 | --------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------- |
@@ -50,7 +50,7 @@ Run installation management serially. Disable any additional custom supervisor, 
    The result identifies source, destination and installation ID with `migrated:false`. No root, lock file, recovery marker, credential, service or reservation is created. Existing locks are opened and acquired nonblockingly, then released. Preflight does not reserve a future operation.
 
 4. **Confirm the exact selection.** After reviewing preflight, repeat those same explicit selections with `--confirm`. This invocation rechecks service/process absence, acquires the existing source lock, validates identity and the private complete tree, and rechecks stop facts. It exclusively creates and locks a synced destination reservation file, then performs **one atomic exchange** of that file and the whole source directory. The original lock inode moves and remains locked through final sync and verification. The old source becomes a permanent `0600` regular-file tombstone that blocks even older binaries from preparing a new directory. No database or bearer is copied, rekeyed or reinitialized. Success reports `migrated:true`; this is not readiness.
-5. **Install, inspect, then explicitly start one service.** Install the intended production binaries using the separately authorized deployment procedure. The installer can preserve the archived literal custom argv, replacing only binary and data root:
+5. **Install, inspect, then explicitly start one service.** Install the intended production `agent-gateway` using the separately authorized deployment procedure. The installer can preserve the archived literal custom argv, replacing only binary and data root:
 
    ```bash
    ./scripts/install-launchd-agent.sh \
@@ -68,7 +68,7 @@ Failures emit no success result. Filesystem errors may identify paths but never 
 | Observed paths                                                                                   | Meaning and next action                                                                                                                                                                                                                         |
 | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Source directory, destination absent                                                             | No reservation survived. Reestablish stop/ownership and run a fresh read-only preflight.                                                                                                                                                        |
-| Source directory, destination complete matching reservation file                                 | Cutover did not happen. Both names remain fenced appropriately. After reestablishing stop/identity, explicit preflight and confirmation may resume this exact reservation. No automatic retry.                                                  |
+| Source directory, destination complete matching reservation file                                 | Cutover did not happen. Both paths remain fenced appropriately. After reestablishing stop/identity, explicit preflight and confirmation may resume this exact reservation. No automatic retry.                                                  |
 | Source matching tombstone, destination original directory                                        | Cutover happened. A repeated mutation refuses rather than exchanging back. Verify destination and directory-sync evidence; do not initialize or restore the source.                                                                             |
 | Incomplete/foreign reservation, two directories, missing/changed identities, or sync uncertainty | Stop. Keep all evidence and services stopped. A qualified operator must inspect directory entries, inodes, filesystem durability and archived configuration; do not remove the blocking file or substitute a copied root to bypass the refusal. |
 
@@ -88,7 +88,29 @@ Record these facts for each separately authorized host adoption; retain earlier 
 - [ ] Existing administrator credential authenticates; existing principal/agent credential and grant policy still function; no replacement credential used to mask failure.
 - [ ] Native-keyring credential access/OAuth functionality checked with attended consent; immutable native service IDs/handles retained.
 - [ ] Historical backup metadata/lineage retained and recovery verification recorded separately; unresolved intent/unclean state remains visible.
-- [ ] Listener, allowed hosts, `/mcp`, `/oauth/callback`, MCP identities, `mcp_gateway.*` schemas and provisioning variables/markers/token paths unchanged.
+- [ ] Listener, allowed hosts, `/mcp`, `/oauth/callback`, MCP identities and `mcp_gateway.*` schemas unchanged; provisioning follows the [current client matrix](access-control.md#consumer-compatibility-qualification-and-rollback).
 - [ ] Readiness, logs, storage posture and rollback location verified; unrun native/external checks explicitly recorded.
+
+## Retired executable and operator cleanup
+
+Build/install publishes only `agent-gateway`. The old output copy and basename-specific help/completion registration are removed. If someone renames a **current** binary to `mcp-gateway`, it still executes the canonical command tree, emits canonical help/completions and uses the same selected root/lock. This is not a second supported installation entry point or an old-grammar adapter. An **old standalone binary** left on PATH has its own old implementation: do not use it against the current installation/control contract. Upgrade service and operator clients together; a filename is not version evidence.
+
+| Installation/client case              | Supported action                                                                                                                                                           |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New canonical installation            | Build/install `agent-gateway`; initialize explicitly and configure one canonical service                                                                                   |
+| Existing canonical or custom root     | Use current `agent-gateway` with the exact existing `--data-dir`; no reinitialization                                                                                      |
+| Unmigrated legacy root/service        | Implicit selection refuses; use the stopped migration above or explicitly selected current-binary operation                                                                |
+| Stale executable or script references | Update PATH, completions, launchers and profiles to canonical selections; no automatic cleanup                                                                             |
+| Current Pi provisioning               | Canonical script and token path, with both canonical and legacy export pairs; see the [client matrix](access-control.md#consumer-compatibility-qualification-and-rollback) |
+
+For each separately authorized operator cleanup:
+
+1. Inventory command resolution (`type -a agent-gateway mcp-gateway` in each relevant shell), executable paths/revisions and completion registrations. Inspect both known launchd labels/plists and every supported custom launcher, profile `copy_paths`/script and fresh shell/Pi environment using the nonsecret checklists. Do not execute an unknown old binary to discover its version against real state; do not dump environments or token contents.
+2. Reconcile references to the selected canonical executable/root/service/script/token path. Prove the old process is stopped and one intended owner remains before changing any live service. Requalify existing credentials and recovery as above; source tests and green CI do not prove machine adoption.
+3. Under **separate exact-path removal authority**, remove only positively identified stale binary/completion artifacts after checking no supported launcher or rollback procedure needs them. Never wildcard-delete by old-name substring, follow unknown links, or overwrite an unclassified file. Neither `make build` nor `make install` deletes or overwrites the old output; they leave existing `mcp-gateway` bytes untouched, including in a reused output directory.
+
+Retain old data-root tombstones/reservations, historical backups and reports, archived plists outside auto-load paths, old logs, token copies, native-keyring generations and rollback material. They have distinct safety/recovery purposes, not automatic removal eligibility. The migration command never removes them. A retained old token copy must still match the current canonical file or provisioning fails closed; cleanup/rotation must be separately reconciled. Never remove the source tombstone to make an old root runnable.
+
+The rollout owner explicitly attested migration of their supported scope and authorized this source retirement without a separately enumerated inventory. This is an operator acceptance decision, not native/live inspection evidence; it does not authorize further host mutation or classify unknown installations as adopted.
 
 Return to [administration](administration.md#installation-root), [launchd](launchd.md), or the [documentation map](../README.md).

@@ -6,7 +6,7 @@ Purpose: Install, verify, and manage a per-user LaunchAgent with the [example pl
 
 ## Executable naming compatibility
 
-`make install` provides both `agent-gateway` (the new default) and compatible `mcp-gateway` from the same implementation. New installations use canonical Agent Gateway paths and service naming. Existing explicit-root commands remain supported; implicit selection refuses unmigrated legacy roots rather than initializing another installation. Follow the [stopped installation migration](installation-migration.md) procedure for an existing host. Code delivery does not perform or authorize host adoption. Native-keyring identifiers and both command names remain unchanged.
+`make install` provides only `agent-gateway`. It leaves stale legacy binaries untouched; follow [retirement and operator cleanup](installation-migration.md#retired-executable-and-operator-cleanup). New installations use canonical Agent Gateway paths and service naming. Existing explicit-root commands remain supported; implicit selection refuses unmigrated legacy roots rather than initializing another installation. Follow the [stopped installation migration](installation-migration.md) procedure for an existing host. Code delivery does not perform or authorize host adoption. Native-keyring identifiers remain unchanged; old service/process detection remains a safety boundary, not supported legacy launch selection.
 
 For a **new** LaunchAgent, the recommended name is selected by default (an explicit path is also supported):
 

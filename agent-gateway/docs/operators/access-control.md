@@ -4,7 +4,7 @@ Audience: Gateway administrators managing agent access
 
 Purpose: Manage principals, credentials, grants, and grant requests.
 
-This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Prefer `agent-gateway` for new commands; the `mcp-gateway` binary accepts the same commands and flags. Neither name changes credentials or the fixed `mcp_gateway.*` self-service tools. The shared internal access-target boundary also requires no database migration, grant/request rewrite, credential replacement, or MCP agent-client changes. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). MCP remains the only supported target domain. Generated help owns exact syntax:
+This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. The shared internal access-target boundary also requires no database migration, grant/request rewrite, credential replacement, or MCP agent-client changes. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). MCP remains the only supported target domain. Generated help owns exact syntax:
 
 - `agent-gateway principal --help`
 - `agent-gateway grant --help`
@@ -75,9 +75,9 @@ Issue, rotate, revoke, and disable never replay automatically. On an uncertain r
 
 ## Provision a Pi agent in a Lima sandbox
 
-Use [configure-agent-gateway.sh](../../examples/provision/configure-agent-gateway.sh) to configure Pi's Gateway integration in a Linux guest (the pinned external extension still uses its legacy package path, as documented below). It emits **both** `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and the temporary `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` compatibility pair. All four values derive from one selected endpoint and one current token file. [configure-mcp-gateway.sh](../../examples/provision/configure-mcp-gateway.sh) is a standalone, byte-identical compatibility entry point. This duplication is deliberate: sandbox-manager copies each script individually to a temporary filename, without siblings. The regression test guards equality; maintain the canonical file and refresh the compatibility copy together.
+Use [configure-agent-gateway.sh](../../examples/provision/configure-agent-gateway.sh) to configure Pi's Gateway integration in a Linux guest (the pinned external extension still uses its legacy package path, as documented below). It retains **both** `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` as supported export pairs. All four values derive from one selected endpoint and the current canonical token file. The old `configure-mcp-gateway.sh` entry point is retired; update profile script references before reprovisioning. The canonical script is self-contained because sandbox-manager copies each script individually without siblings.
 
-This is client configuration only: no installation, grant changes, credential issuance/rotation, or network connectivity test. There is no canonical-only mode. The external consumer gate below must pass before compatibility exports can be retired.
+This is client configuration only: no installation, grant changes, credential issuance/rotation, or network connectivity test. There is no canonical-only mode. Legacy exports deliberately remain supported for the pinned consumer below; their removal requires a separately authorized and qualified consumer cutover.
 
 On the host, start the initialized Gateway with the trusted forwarding hostname allowed:
 
@@ -111,7 +111,7 @@ Add these entries to sandbox-manager configuration, preserving other paths and s
 }
 ```
 
-Before the first transfer, open `sb shell` and create the guest's `~/.config/agent-gateway` directory with mode `0700` (and the legacy directory too if transferring that path). Verify ownership, absence of symlinks and any existing destination before copying. Sandbox-manager's parent `mkdir -p` does not enforce private permissions; provisioning scripts run too late to protect the initial transfer.
+Before the first transfer, open `sb shell` and create the guest's `~/.config/agent-gateway` directory with mode `0700` (and any retained legacy directory if refreshing a rollback copy). Verify ownership, absence of symlinks and any existing destination before copying. Sandbox-manager's parent `mkdir -p` does not enforce private permissions; provisioning scripts run too late to protect the initial transfer.
 
 Then run `sb provision`. It refreshes `copy_paths` **before** scripts. Copy only the agent credential, never an administrator credential or the Gateway data directory. The guest token directory must be owned by the guest user with mode `0700`, the regular token file `0600` (or read-only `0400`), and `.config` owned and not group/world-writable. Symlinked `.config`, token directories/files, and `.bashrc` are refused. Ensure guest permissions before running the script; it never repairs or overwrites credentials.
 
@@ -128,16 +128,16 @@ Tokens are never embedded in `.bashrc`, printed, or passed as arguments. The blo
 
 ### Existing sandbox migration and conflicts
 
-| Previous interface                                | Transition interface                                                      |
+| Previous interface                                | Current interface                                                         |
 | ------------------------------------------------- | ------------------------------------------------------------------------- |
-| `configure-mcp-gateway.sh`                        | Standalone compatibility copy of `configure-agent-gateway.sh`             |
-| `~/.config/mcp-gateway/agent-token`               | Legacy fallback; canonical `~/.config/agent-gateway/agent-token`          |
+| `configure-mcp-gateway.sh`                        | Retired; use `configure-agent-gateway.sh`                                 |
+| `~/.config/mcp-gateway/agent-token`               | Detection only; require `~/.config/agent-gateway/agent-token`             |
 | `# >>> mcp-gateway >>>` / `# <<< mcp-gateway <<<` | One `agent-gateway` marker pair                                           |
 | `MCP_GATEWAY_ENDPOINT`, `MCP_GATEWAY_AGENT_TOKEN` | Retained aliases of `AGENT_GATEWAY_ENDPOINT`, `AGENT_GATEWAY_AGENT_TOKEN` |
 
 Token selection is evaluated at provisioning **and** shell startup:
 
-- Only canonical present: use canonical. Only legacy present: use legacy; this supports already-provisioned profiles without moving a credential.
+- Only canonical present: use canonical. Only legacy present: refuse without rewriting `.bashrc`; update `copy_paths` and transfer the same current credential to the private canonical path. There is no legacy-token fallback, even though legacy exports remain supported.
 - Both present: validate both and require the same bearer (one optional final newline is insignificant); select canonical. A missing file is not an empty file: an existing empty, unreadable, invalid, administrator-shaped, nonprivate or symlinked file is an error, even when the other path is valid.
 - Neither present or any conflict: provisioning fails without changing `.bashrc`; startup clears all four exports and emits a value-free diagnostic. Existing parent directories are validated even when their token file is absent; an empty or dangling symlink directory is not a missing-token fallback. There is no fallback to stale inherited credentials.
 - Files are never moved, deleted or overwritten by either script. Existing legacy credentials remain until separately reconciled by their owner.
@@ -157,16 +157,17 @@ For a real rotation, use the explicit `principal credential rotate` procedure ab
 
 The inspected external consumer revision is [agent-config `fadc9ac8d681f27bf9c8e5f59fc56011a0d512b1`](https://github.com/averycrespi/agent-config/commit/fadc9ac8d681f27bf9c8e5f59fc56011a0d512b1). Its `pi/agent/extensions/mcp-gateway/config.ts` accepts only `MCP_GATEWAY_*`: endpoint environment overrides trusted global settings; the bearer comes only from the environment. Project settings are ignored, so they cannot redirect a global credential. It validates exact `/mcp`, transport/hostname rules and `mgw_agent_` shape; administrator-shaped tokens and endpoint-embedded credentials are rejected without reflecting input. `config.test.ts` covers these boundaries; `pi/agent/extensions/code-mode/tool.test.ts` still uses the legacy pair.
 
-| Producer                                         | Consumer                                | Qualification boundary                                                                                                                                                                             |
-| ------------------------------------------------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Old (`ce28fd6c447bf83a6058295be19e2b5c3d60f3b4`) | Pinned legacy revision above            | Baseline legacy pair; qualify in isolated configuration integration                                                                                                                                |
-| Transition (this change), either entry point     | Pinned legacy revision above            | Legacy aliases preserve access; qualify resulting shell environment through the real loader                                                                                                        |
-| Transition                                       | Separately delivered canonical consumer | **Blocked:** no compatible delivered revision identified; qualify canonical/legacy precedence, conflicts, atomic pairing, redaction, administrator rejection and global/project authority together |
-| Canonical-only                                   | Any consumer                            | **Not enabled.** Requires compatible consumer qualification and separately authorized rollout/alias retirement                                                                                     |
+| Producer                                                                               | Consumer                                | Supported surface and evidence boundary                                                                                                          |
+| -------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Historical old (`ce28fd6c447bf83a6058295be19e2b5c3d60f3b4`)                            | Pinned legacy revision above            | Old script/path and legacy pair; historical baseline, not the current installation procedure                                                     |
+| Historical transition (`3853aca711aecf5d15b646134178193f9c46135f`), either entry point | Pinned legacy revision above            | Both pairs and legacy-path fallback; historical rollout/rollback evidence                                                                        |
+| Current `configure-agent-gateway.sh`                                                   | Pinned legacy revision above            | Canonical token path required, both export pairs retained from one authority; real-loader qualification uses isolated synthetic material         |
+| Current producer                                                                       | Separately delivered canonical consumer | Not qualified here; verify pairing, precedence, redaction, administrator rejection and global/project authority before adopting another consumer |
+| Canonical-only exports                                                                 | Any consumer                            | **Not enabled or part of this retirement.** Legacy exports remain supported by explicit scope decision                                           |
 
 Use synthetic agent material and disposable homes/project/global settings for configuration integration; never real tokens or native credentials. Record exact producer/consumer revisions, command, results and scope. Loader/source tests do not prove an MCP connection, installation or rollout. A merged consumer PR alone does not satisfy adoption. No external repository edits, Pi extension/settings namespace changes, MCP wire renames, keyring migrations or credential replacement are implied.
 
-Rollback during transition normally means retaining the transition producer and selecting the known legacy consumer: it already receives the same legacy pair. If restoring the old producer is necessary, stop Pi/launchers, privately reconcile the old-path file to the **current** credential, restore the old `copy_paths`/script together, and explicitly remove the canonical managed block before running the old script (the old script cannot recognize it). Remove stale canonical exports from launcher environments, open a fresh shell and requalify. Keep unrelated content and private backups; do not delete credentials or revert to an invalidated bearer. Restoring an old shell without reconciling the marker/file mapping is unsafe.
+Normal client rollback retains the current canonical script/token path and selects the known legacy consumer: it still receives the same legacy pair. If restoring the old producer is necessary, stop Pi/launchers, privately reconcile the old-path file to the **current** credential, restore the old `copy_paths`/script together, and explicitly remove the canonical managed block before running the old script (the old script cannot recognize it). Remove stale canonical exports from launcher environments, open a fresh shell and requalify. Keep unrelated content and private backups; do not delete credentials or revert to an invalidated bearer. Restoring an old shell without reconciling the marker/file mapping is unsafe.
 
 ### Nonsecret adoption evidence
 
@@ -177,7 +178,7 @@ For **each known sandbox profile and each client launch environment** (interacti
 - Public-safe results of configuration validation, administrator-token rejection, project-versus-global authority and redaction tests; separately authorized MCP connectivity/admission evidence, if obtained.
 - Outcome, outstanding conflicts, operator, rollback choice and next action. Missing profiles/launchers stay explicitly unqualified; do not infer adoption from this repository's tests or CI.
 
-This change does not inventory or mutate live profiles, start services, transfer real credentials, or claim deployment. The external canonical-consumer and live-adoption gaps remain open.
+This source retirement does not inventory or mutate live profiles, start services, transfer real credentials, or claim deployment. The rollout owner attested that migrated clients cover their supported scope and explicitly authorized proceeding without a separately enumerated fleet inventory. That is an operator decision, not independently verified live-adoption evidence. Canonical-consumer qualification remains unrun; retaining the legacy exports keeps it outside this delivery's prerequisite.
 
 ## Create and inspect immutable grants
 

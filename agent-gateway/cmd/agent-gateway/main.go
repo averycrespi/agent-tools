@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/lifecycle"
@@ -21,10 +20,6 @@ func main() {
 	}()
 	exitCode := 0
 	command := newRootCmd()
-	// Cobra completion scripts must still register the invoked compatibility name.
-	if filepath.Base(os.Args[0]) == "mcp-gateway" {
-		command.Use = "mcp-gateway"
-	}
 	if err := command.ExecuteContext(coordinator.Context()); err != nil {
 		exitCode = commandExitCode(err)
 	}

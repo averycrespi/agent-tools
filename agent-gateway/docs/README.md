@@ -14,7 +14,7 @@ Start with the [Gateway README](../README.md) for installation and the quick sta
 - [Invocation evidence](operators/invocation-evidence.md) — retained evidence, redaction, and unknown outcomes.
 - [Backup and recovery](operators/backup-and-recovery.md) — backups, verification, restore, and administrator reset.
 
-Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. The compatible `mcp-gateway` name accepts the same grammar; examples using that executable with the current grammar remain valid; retired API/CLI grammar does not. Prefer `agent-gateway` for new commands. New installations use canonical naming; existing hosts use explicit roots or the separately authorized stopped migration procedure, never automatic relocation. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
+Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. Only `agent-gateway` is published; old standalone binaries and retired API/CLI grammar are unsupported. See [executable retirement and cleanup](operators/installation-migration.md#retired-executable-and-operator-cleanup) before reconciling installed artifacts. New installations use canonical naming; existing hosts use explicit roots or the separately authorized stopped migration procedure, never automatic relocation. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
 
 ## Change Gateway
 

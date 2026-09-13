@@ -2,8 +2,8 @@
 # Configure a Linux guest's Pi client, not the host Gateway service.
 # copy_paths: ["~/.config/agent-gateway/agent-token"]
 # Never copy administrator credentials or the Gateway data root.
-# Both exports remain required until external consumer qualification/retirement.
-# Keep configure-mcp-gateway.sh byte-identical: sb copies scripts individually.
+# Both export pairs remain supported from the canonical current token file.
+# The legacy token path is inspected only to reject stale/conflicting authority.
 
 set +x
 set -euo pipefail
@@ -44,7 +44,7 @@ _agent_gateway_load() {
 			token="$current"
 		fi
 	done
-	[[ -n "$selected" ]] || return 1
+	[[ "$selected" == "$HOME/.config/agent-gateway/agent-token" ]] || return 1
 	export AGENT_GATEWAY_ENDPOINT="$endpoint"
 	export AGENT_GATEWAY_AGENT_TOKEN="$token"
 	export MCP_GATEWAY_ENDPOINT="$AGENT_GATEWAY_ENDPOINT"
@@ -52,7 +52,7 @@ _agent_gateway_load() {
 }
 
 if ! ( _agent_gateway_load ); then
-	echo 'error: reconcile copy_paths: require an owner-private valid agent-token file; old/new files must agree. See the access-control guide. No credential was changed.' >&2
+	echo 'error: reconcile copy_paths: require an owner-private valid ~/.config/agent-gateway/agent-token; the retired ~/.config/mcp-gateway/agent-token cannot be a fallback and any retained copy must agree. See the access-control guide. No credential was changed.' >&2
 	exit 1
 fi
 
@@ -111,7 +111,7 @@ fi
 	declare -f _agent_gateway_load
 	cat <<'BLOCK'
 if ! _agent_gateway_load; then
-	printf '%s\n' 'Agent Gateway: no client credentials exported; reconcile private old/new token files and reprovision.' >&2
+	printf '%s\n' 'Agent Gateway: no client credentials exported; restore the private canonical agent-token, reconcile any retained legacy copy and reprovision.' >&2
 fi
 unset -f _agent_gateway_load
 # <<< agent-gateway <<<

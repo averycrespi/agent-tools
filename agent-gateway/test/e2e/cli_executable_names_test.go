@@ -24,12 +24,31 @@ func TestCLIExecutableNames(t *testing.T) {
 	require.NoError(t, err)
 	builder, err := testutil.NewBinaryRunner(300*time.Second, 128*1024)
 	require.NoError(t, err)
-	// The real Make targets publish both names; only the existing provider seam
-	// is replaced so lifecycle evidence never touches the native keyring.
+	// Only the existing provider seam is replaced so lifecycle evidence never
+	// touches the native keyring. Publication must not remove stale artifacts.
 	built, err := builder.Run(t.Context(), "make", "-C", module, "build", "install",
 		"AGENT_GATEWAY_BUILD_DIR="+buildDir, "AGENT_GATEWAY_INSTALL_DIR="+installDir, "GOFLAGS=-tags=e2e")
 	require.NoError(t, err, "build/install: %s", built.Stderr)
 	assertSettledResult(t, built)
+
+	for _, directory := range []string{buildDir, installDir} {
+		assertDirectoryEntries(t, directory, []string{"agent-gateway"})
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "mcp-gateway"), []byte("stale operator-owned binary"), 0o700))
+	}
+	rebuilt, err := builder.Run(t.Context(), "make", "-C", module, "build", "install",
+		"AGENT_GATEWAY_BUILD_DIR="+buildDir, "AGENT_GATEWAY_INSTALL_DIR="+installDir, "GOFLAGS=-tags=e2e")
+	require.NoError(t, err, "repeat build/install: %s", rebuilt.Stderr)
+	assertSettledResult(t, rebuilt)
+	for _, directory := range []string{buildDir, installDir} {
+		stale, readErr := os.ReadFile(filepath.Join(directory, "mcp-gateway"))
+		require.NoError(t, readErr)
+		assert.Equal(t, "stale operator-owned binary", string(stale))
+		// An operator-renamed current binary is still the canonical command:
+		// no basename-dependent grammar, completion registration, or identity.
+		canonical, readErr := os.ReadFile(filepath.Join(directory, "agent-gateway"))
+		require.NoError(t, readErr)
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "mcp-gateway"), canonical, 0o700))
+	}
 
 	runner := firstRunRunner(t)
 	var help []byte
@@ -40,9 +59,9 @@ func TestCLIExecutableNames(t *testing.T) {
 			assertSettledResult(t, result)
 			assert.Empty(t, result.Stderr)
 			assert.Contains(t, string(result.Stdout), "Agent Gateway")
-			assert.Contains(t, string(result.Stdout), "mcp-gateway executable remains supported")
-			assert.Contains(t, string(result.Stdout), name+" [command]")
-			normalized := strings.ReplaceAll(string(result.Stdout), "mcp-gateway", "agent-gateway")
+			assert.Contains(t, string(result.Stdout), "Only agent-gateway is published")
+			assert.Contains(t, string(result.Stdout), "agent-gateway [command]")
+			normalized := string(result.Stdout)
 			if help == nil {
 				help = []byte(normalized)
 			} else {
@@ -52,7 +71,8 @@ func TestCLIExecutableNames(t *testing.T) {
 			require.NoError(t, completionErr)
 			assertSettledResult(t, completion)
 			assert.Empty(t, completion.Stderr)
-			assert.Contains(t, string(completion.Stdout), "__start_"+name+" "+name)
+			assert.Contains(t, string(completion.Stdout), "__start_agent-gateway agent-gateway")
+			assert.NotContains(t, string(completion.Stdout), "__start_mcp-gateway")
 			rootCompletions, completeErr := runner.Run(t.Context(), filepath.Join(directory, name), "__complete", "")
 			require.NoError(t, completeErr)
 			assert.Contains(t, string(rootCompletions.Stdout), "mcp\t")
