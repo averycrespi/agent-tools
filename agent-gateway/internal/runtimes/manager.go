@@ -257,6 +257,7 @@ type reconciliationWork struct {
 	returned             bool
 	settled              bool
 	failed               bool
+	failureCause         diagnostics.Cause
 }
 
 type entry struct {
@@ -1485,7 +1486,15 @@ func (manager *Manager) finishWithOperationState(serverID string, generation uin
 		return
 	}
 	{
-		if err := manager.completeReconciliation(*current, operationID, operationState, outcome.Reason); err != nil {
+		if err := manager.completeReconciliation(serverID, *current, operationID, operationState, outcome.Reason); err != nil {
+			if errors.Is(err, errCompletionDisplaced) {
+				manager.mu.Unlock()
+				if candidate != nil && !manager.stopCandidate(*candidate) {
+					manager.rememberBlockedStop(serverID, *candidate)
+				}
+				manager.finishStale(serverID, generation)
+				return
+			}
 			current.generation++
 			manager.publisher.Fence(serverID, current.generation)
 			current.active = nil
@@ -1539,7 +1548,13 @@ func (manager *Manager) finishFailure(serverID string, generation uint64, operat
 		manager.releaseLocked(current)
 		return
 	}
-	if err := manager.completeReconciliation(*current, operationID, contract.OperationFailed, &reason); err != nil {
+	if err := manager.completeReconciliation(serverID, *current, operationID, contract.OperationFailed, &reason); err != nil {
+		if errors.Is(err, errCompletionDisplaced) {
+			manager.mu.Unlock()
+			manager.finishStale(serverID, generation)
+			manager.mu.Lock()
+			return
+		}
 		current.pending = false
 		current.status.State = contract.RuntimeDegraded
 		manager.releaseLocked(current)
@@ -1561,7 +1576,7 @@ func (manager *Manager) finishFailure(serverID string, generation uint64, operat
 
 // The lifecycle lock fences generation changes and failure reports through
 // the completion commit, just as it does for operation transitions.
-func (manager *Manager) completeReconciliation(current entry, operationID *string, state contract.ServerOperationState, reason *contract.PublicReason) error {
+func (manager *Manager) completeReconciliation(serverID string, current entry, operationID *string, state contract.ServerOperationState, reason *contract.PublicReason) error {
 	if current.work != nil {
 		current.cause = current.work.cause
 		current.reconcileAttempt = current.work.attempt
@@ -1571,11 +1586,10 @@ func (manager *Manager) completeReconciliation(current entry, operationID *strin
 		if operationID == nil {
 			return nil
 		}
-		_, err := manager.repository.TransitionOperation(ctx, *operationID, state, reason)
-		if current.work != nil {
-			current.work.settled, current.work.failed = err == nil, err != nil
-		}
-		return err
+		return manager.persistCompletionLocked(serverID, current, func() error {
+			_, err := manager.repository.TransitionOperation(ctx, *operationID, state, reason)
+			return err
+		})
 	}
 	result := "failed"
 	if state == contract.OperationSucceeded {
@@ -1589,15 +1603,13 @@ func (manager *Manager) completeReconciliation(current entry, operationID *strin
 		return err
 	}
 	event.Detail.Reason = reason
-	if operationID == nil {
-		err = manager.repository.RecordReconciliation(ctx, event)
-	} else {
-		_, err = manager.repository.CompleteReconciliation(ctx, *operationID, state, reason, event)
-	}
-	if current.work != nil {
-		current.work.settled, current.work.failed = err == nil, err != nil
-	}
-	return err
+	return manager.persistCompletionLocked(serverID, current, func() error {
+		if operationID == nil {
+			return manager.repository.RecordReconciliation(ctx, event)
+		}
+		_, err := manager.repository.CompleteReconciliation(ctx, *operationID, state, reason, event)
+		return err
+	})
 }
 
 func (manager *Manager) transitionCurrent(serverID string, generation uint64, operationID string, state contract.ServerOperationState, reason *contract.PublicReason) (servers.Operation, error) {

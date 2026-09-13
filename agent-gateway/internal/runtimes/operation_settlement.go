@@ -22,7 +22,10 @@ func (manager *Manager) finishWork(serverID string, work *reconciliationWork) {
 	}
 	work.returned = true
 	displaced := work.displaced || work.cleanupOnly || current.generation != work.generation
-	failureCause := diagnostics.Unavailable
+	failureCause := work.failureCause
+	if failureCause == diagnostics.None {
+		failureCause = diagnostics.Unavailable
+	}
 	if !manager.draining && displaced && !work.settled && !work.failed {
 		if current.blockedStop != nil {
 			work.failed = true
@@ -58,7 +61,7 @@ func (manager *Manager) finishWork(serverID string, work *reconciliationWork) {
 	facts.Event = diagnostics.UpstreamAttemptComplete
 	facts.Attempt = work.diagnosticAttempt
 	facts.Duration = diagnostics.Elapsed(work.diagnosticStart, manager.diagnosticNow())
-	if displaced {
+	if displaced && !work.failed {
 		facts.Reason, facts.Disposition = diagnostics.ReasonSuperseded, diagnostics.DispositionSuperseded
 	}
 	if manager.draining {

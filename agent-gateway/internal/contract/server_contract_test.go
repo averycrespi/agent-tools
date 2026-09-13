@@ -190,6 +190,8 @@ func TestServerLimitsAndDeadlinesAreExact(t *testing.T) {
 
 	require.Equal(t, 50, S2ListPageDefault)
 	require.Equal(t, 5*time.Minute, OAuthFlowLifetime)
+	require.Equal(t, 4, ReconciliationCompletionAttempts)
+	require.Equal(t, 25*time.Millisecond, ReconciliationCompletionDelay)
 	require.Equal(t, 10*time.Second, DownstreamConnectDeadline)
 	require.Equal(t, 15*time.Second, OAuthRequestDeadline)
 	require.Equal(t, 30*time.Second, DownstreamInitializationDeadline)

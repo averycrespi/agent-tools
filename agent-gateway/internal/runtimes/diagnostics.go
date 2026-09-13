@@ -52,6 +52,11 @@ func diagnosticStatus(current *entry) diagnostics.Facts {
 		}
 	}
 	switch {
+	case current.unsettled != nil && current.blockedStop == nil:
+		facts.Phase, facts.Reason, facts.Disposition = diagnostics.PhaseReconciliation, diagnostics.ReasonConnectivity, diagnostics.DispositionStopped
+		if current.unsettled.failureCause == diagnostics.Capacity {
+			facts.Reason = diagnostics.ReasonResourceLimit
+		}
 	case current.blockedStop != nil || current.status.Reason != nil && *current.status.Reason == contract.ReasonStopUnconfirmed:
 		facts.Phase, facts.Reason, facts.Disposition = diagnostics.PhaseCleanup, diagnostics.ReasonStopUnconfirmed, diagnostics.DispositionCleanupUncertain
 	case current.status.State == contract.RuntimeAuthenticationRequired:

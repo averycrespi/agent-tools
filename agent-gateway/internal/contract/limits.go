@@ -35,6 +35,8 @@ const (
 	CredentialMinimumLifetime        = 5 * time.Minute
 	CredentialMaximumLifetime        = 365 * 24 * time.Hour
 	OAuthFlowLifetime                = 5 * time.Minute
+	ReconciliationCompletionAttempts = 4
+	ReconciliationCompletionDelay    = 25 * time.Millisecond
 	DownstreamConnectDeadline        = 10 * time.Second
 	OAuthRequestDeadline             = 15 * time.Second
 	DownstreamInitializationDeadline = 30 * time.Second
