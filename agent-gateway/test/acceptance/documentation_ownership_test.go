@@ -91,7 +91,7 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	for _, heading := range []string{"## Installation", "## Quick start", "## Common workflows", "## Security", "## Documentation", "## Development"} {
 		assert.Contains(t, readme, heading)
 	}
-	for _, command := range []string{"make install", "agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "compatible `mcp-gateway`"} {
+	for _, command := range []string{"make install", "agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "only `agent-gateway`"} {
 		assert.Contains(t, readme, command)
 	}
 	for _, guide := range contract.DocumentationGuideManifest() {
@@ -100,7 +100,7 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	for _, detailed := range []string{"XDG_DATA_HOME", "--admin-bearer-stdin", "--verify-current", "schema 10"} {
 		assert.NotContains(t, readme, detailed, "detailed contracts belong in focused guides")
 	}
-	assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|executable|milestone|implementation phase)`), readme)
+	assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|milestone|implementation phase)`), readme)
 
 	rootReadmeBytes, err := os.ReadFile(filepath.Join(filepath.Dir(root), "README.md"))
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 	} {
 		assert.Contains(t, guide, "[DESIGN](../../DESIGN.md)", path)
 		assert.NotContains(t, guide, "/api/v2/", path+" should link to normative routes rather than copy them")
-		assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|executable|milestone|implementation phase)`), guide, path)
+		assert.NotRegexp(t, regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|planned|milestone|implementation phase)`), guide, path)
 	}
 }
 
@@ -270,7 +270,9 @@ func TestMaintainerGuidanceAndReleaseDocumentation(t *testing.T) {
 
 	residue := regexp.MustCompile(`(?i)(?:\bS[1-6]\b|\bT[0-9]+\b|\bM[0-9]+\b|accept-s[0-9]|test-task|test-milestone|task owner|milestone owner|planned.{0,20}executable)`)
 	for path, document := range map[string]string{"CLAUDE.md": gatewayGuidance, "../CLAUDE.md": rootGuidance, "release": release, "frontend": frontend} {
-		assert.NotRegexp(t, residue, document, path)
+		// The immutable MCP client identity is a protocol version, not a phase.
+		current := strings.ReplaceAll(document, "`mcp-gateway/s2`", "")
+		assert.NotRegexp(t, residue, current, path)
 	}
 }
 

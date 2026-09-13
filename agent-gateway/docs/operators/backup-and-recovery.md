@@ -4,7 +4,7 @@ Audience: Operators responsible for Gateway recovery
 
 Purpose: Create backups and perform restore or stopped-process recovery safely.
 
-This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. Prefer `agent-gateway` for new commands; the `mcp-gateway` binary accepts the same commands and flags. Both names share the existing process lock, installation identity, database and backup lineage. Switching names is not a restore or migration and does not bypass a running owner. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
+This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. Use the current `agent-gateway` executable. Retirement preserves the existing process lock, installation identity, database and backup lineage. Renaming a current binary is not a restore or migration and does not bypass a running owner; old standalone binaries are unsupported. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
 
 - `agent-gateway backup --help`
 - `agent-gateway backup restore --help`

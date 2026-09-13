@@ -54,7 +54,7 @@ From the `agent-gateway` directory:
 make install
 ```
 
-This installs `agent-gateway` (recommended) and compatible `mcp-gateway` into `$(go env GOPATH)/bin`, sharing one implementation, root and lock. New installations use canonical paths and service naming; legacy defaults refuse rather than initialize another root. Existing explicit-root commands remain supported. Follow [stopped installation migration](docs/operators/installation-migration.md) for separately authorized host adoption—never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/administration.md#browser-persistence-cutover) for preference preservation and fresh sign-in.
+This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-migration.md#retired-executable-and-operator-cleanup). New installations use canonical paths; legacy defaults refuse. Existing explicit roots remain supported. Use [stopped installation migration](docs/operators/installation-migration.md), never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/administration.md#browser-persistence-cutover) for preferences and fresh sign-in.
 
 ## Quick start
 
@@ -81,7 +81,7 @@ For trusted local VM/container forwarding, `agent-gateway serve --allowed-host h
 
 ## Common workflows
 
-Generated `agent-gateway --help` and subcommand help are the exact command reference. `mcp-gateway` accepts the same commands and flags; compatibility examples using that name with the current grammar remain valid, not retired API/CLI grammar.
+Generated `agent-gateway --help` and subcommand help are the exact command reference. Renaming a current binary does not change its canonical grammar or completion name; old standalone binaries are not compatible operator clients for the current installation/control contract.
 
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).

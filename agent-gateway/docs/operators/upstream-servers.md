@@ -4,7 +4,7 @@ Audience: Gateway operators configuring upstream MCP servers
 
 Purpose: Configure servers, credentials, and OAuth without broadening trust.
 
-This guide owns Agent Gateway operator procedures for server configuration, durable catalog inspection, write-only static credentials, OAuth authorization, and runtime operations. Prefer `agent-gateway` for new commands; the `mcp-gateway` binary accepts the same commands and flags. Existing native-keyring identifiers and credential generations are unchanged; no credential migration is required. Generated help owns exact syntax:
+This guide owns Agent Gateway operator procedures for server configuration, durable catalog inspection, write-only static credentials, OAuth authorization, and runtime operations. Use the current `agent-gateway` executable; old standalone binaries are unsupported. Existing native-keyring identifiers and credential generations are unchanged; no credential migration is required. Generated help owns exact syntax:
 
 - `agent-gateway mcp server --help`
 - `agent-gateway mcp catalog --help`

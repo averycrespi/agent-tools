@@ -9,8 +9,8 @@ Purpose: Commands, ownership, editing and verification. The [documentation map](
 Run commands from `agent-gateway/` unless noted:
 
 ```bash
-make build                 # build both names from ./cmd/agent-gateway
-make install               # install both names into GOPATH/bin
+make build                 # build agent-gateway from ./cmd/agent-gateway
+make install               # install only agent-gateway into GOPATH/bin
 make serve-demo            # build and serve an interactive isolated seeded Gateway
 make test                  # disjoint unit/integration/harness/material/demo aggregate
 make test-unit             # count-one dependency-light contract and algorithm tests

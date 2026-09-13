@@ -21,7 +21,7 @@ func TestCLIHelpTree(t *testing.T) {
 	root := newRootCmd()
 	assert.Equal(t, "agent-gateway", root.Name())
 	assert.Contains(t, root.Long, "Agent Gateway")
-	assert.Contains(t, root.Long, "mcp-gateway executable remains supported")
+	assert.Contains(t, root.Long, "Only agent-gateway is published")
 	assert.Contains(t, root.Example, "agent-gateway initialize")
 	assert.Contains(t, root.Example, "agent-gateway serve")
 	assert.Contains(t, root.Example, "agent-gateway status")
@@ -56,7 +56,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:1e443a293a31cfc8052e36d315f65150691b4dab5f90b7d16ac5d0629dee1f51", digest)
+	assert.Equal(t, "sha256:ca66f5c249c4184788dbb3c87cf91dc2dc0989d028ea7462f0faa5c0a487d867", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -106,7 +106,7 @@ func testDocumentationCommandHelpProjection(t *testing.T) {
 		require.NoError(t, err, family.ID)
 		assert.Empty(t, remaining, family.ID)
 		assert.Equal(t, "agent-gateway "+family.CommandPath, command.CommandPath(), family.ID)
-		// The manifest retains supported legacy invocations, not a second grammar.
+		// The manifest uses only the canonical executable and grammar.
 		assert.Equal(t, "agent-gateway "+family.CommandPath+" --help", family.HelpInvocation, family.ID)
 		output := new(bytes.Buffer)
 		command.SetOut(output)

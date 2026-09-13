@@ -25,6 +25,7 @@ profile.cov
 node_modules/
 /agent-gateway/.demo-bin/
 /agent-gateway/agent-gateway
+# Retained local output from older revisions must not be staged or auto-deleted.
 /agent-gateway/mcp-gateway
 
 # Go workspace file

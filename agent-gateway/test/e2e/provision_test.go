@@ -20,44 +20,35 @@ const rotatedProvisionToken = "mgw_agent_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 const provisionUnrelated = "export EXISTING=value\n# >>> mcp-broker >>>\nexport MCP_BROKER_ENDPOINT=unchanged\n# <<< mcp-broker <<<"
 
 func TestProvisionGatewayScript(t *testing.T) {
-	canonical, err := os.ReadFile("../../examples/provision/configure-agent-gateway.sh")
-	require.NoError(t, err)
-	legacy, err := os.ReadFile("../../examples/provision/configure-mcp-gateway.sh")
-	require.NoError(t, err)
-	require.Equal(t, string(canonical), string(legacy), "standalone compatibility copy must not drift")
-	for _, entry := range []string{"configure-agent-gateway.sh", "configure-mcp-gateway.sh"} {
-		t.Run(entry, func(t *testing.T) {
-			for _, paths := range []string{"legacy", "canonical", "both"} {
-				t.Run(paths, func(t *testing.T) {
-					home, run := provisionFixture(t, entry)
-					writeTokens := func(token string) {
-						if paths != "canonical" {
-							writeProvisionToken(t, home, "mcp-gateway", token+"\n")
-						}
-						if paths != "legacy" {
-							writeProvisionToken(t, home, "agent-gateway", token)
-						}
-					}
-					writeTokens(provisionToken)
-					rc := filepath.Join(home, ".bashrc")
-					require.NoError(t, os.WriteFile(rc, []byte(provisionUnrelated), 0o600))
-					require.True(t, run())
-					first := readProvisionRC(t, home)
-					require.True(t, strings.HasPrefix(first, provisionUnrelated+"\n# >>> agent-gateway >>>\n"))
-					require.NotContains(t, first, provisionToken)
-					require.NotContains(t, first, "# >>> mcp-gateway >>>")
-					require.True(t, run())
-					require.Equal(t, first, readProvisionRC(t, home))
-					require.Equal(t, 1, strings.Count(first, "# >>> agent-gateway >>>"))
-					info, err := os.Stat(rc)
-					require.NoError(t, err)
-					require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-					for _, token := range []string{provisionToken, rotatedProvisionToken} {
-						writeTokens(token)
-						assertProvisionStartup(t, home, token, true)
-						require.Equal(t, first, readProvisionRC(t, home), "rotation needs no bashrc rewrite")
-					}
-				})
+	_, err := os.Lstat("../../examples/provision/configure-mcp-gateway.sh")
+	require.ErrorIs(t, err, os.ErrNotExist, "retired script must not be published")
+	for _, paths := range []string{"canonical", "both"} {
+		t.Run(paths, func(t *testing.T) {
+			home, run := provisionFixture(t, "configure-agent-gateway.sh")
+			writeTokens := func(token string) {
+				if paths == "both" {
+					writeProvisionToken(t, home, "mcp-gateway", token+"\n")
+				}
+				writeProvisionToken(t, home, "agent-gateway", token)
+			}
+			writeTokens(provisionToken)
+			rc := filepath.Join(home, ".bashrc")
+			require.NoError(t, os.WriteFile(rc, []byte(provisionUnrelated), 0o600))
+			require.True(t, run())
+			first := readProvisionRC(t, home)
+			require.True(t, strings.HasPrefix(first, provisionUnrelated+"\n# >>> agent-gateway >>>\n"))
+			require.NotContains(t, first, provisionToken)
+			require.NotContains(t, first, "# >>> mcp-gateway >>>")
+			require.True(t, run())
+			require.Equal(t, first, readProvisionRC(t, home))
+			require.Equal(t, 1, strings.Count(first, "# >>> agent-gateway >>>"))
+			info, err := os.Stat(rc)
+			require.NoError(t, err)
+			require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+			for _, token := range []string{provisionToken, rotatedProvisionToken} {
+				writeTokens(token)
+				assertProvisionStartup(t, home, token, true)
+				require.Equal(t, first, readProvisionRC(t, home), "rotation needs no bashrc rewrite")
 			}
 		})
 	}
@@ -110,7 +101,7 @@ func TestProvisionGatewayRefusesAmbiguousMarkers(t *testing.T) {
 }
 
 func TestProvisionGatewayRejectsUnsafeTokens(t *testing.T) {
-	for _, state := range []string{"missing", "empty", "directory", "symlink", "public-file", "public-directory", "writable-config", "unreadable", "invalid", "administrator", "nul", "conflict", "empty-canonical-with-legacy"} {
+	for _, state := range []string{"missing", "empty", "directory", "symlink", "public-file", "public-directory", "writable-config", "unreadable", "invalid", "administrator", "nul", "conflict", "legacy-only", "empty-canonical-with-legacy"} {
 		t.Run(state, func(t *testing.T) {
 			home, run := provisionFixture(t, "configure-agent-gateway.sh")
 			path := writeProvisionToken(t, home, "agent-gateway", provisionToken)
@@ -141,6 +132,9 @@ func TestProvisionGatewayRejectsUnsafeTokens(t *testing.T) {
 				require.NoError(t, os.WriteFile(path, []byte(provisionToken+"\x00"), 0o600))
 			case "conflict":
 				writeProvisionToken(t, home, "mcp-gateway", rotatedProvisionToken)
+			case "legacy-only":
+				require.NoError(t, os.Remove(path))
+				writeProvisionToken(t, home, "mcp-gateway", provisionToken)
 			case "empty-canonical-with-legacy":
 				require.NoError(t, os.WriteFile(path, nil, 0o600))
 				writeProvisionToken(t, home, "mcp-gateway", provisionToken)
@@ -157,14 +151,13 @@ func TestProvisionGatewayRejectsUnsafeDirectories(t *testing.T) {
 		for _, state := range []string{"empty-symlink", "dangling-symlink", "public-directory", "regular-file"} {
 			t.Run(directory+"/"+state, func(t *testing.T) {
 				home, run := provisionFixture(t, "configure-agent-gateway.sh")
-				other := "mcp-gateway"
-				if directory == other {
-					other = "agent-gateway"
-				}
-				writeProvisionToken(t, home, other, provisionToken)
+				writeProvisionToken(t, home, "agent-gateway", provisionToken)
+				writeProvisionToken(t, home, "mcp-gateway", provisionToken)
 				require.True(t, run())
 				before := readProvisionRC(t, home)
 				path := filepath.Join(home, ".config", directory)
+				require.NoError(t, os.Remove(filepath.Join(path, "agent-token")))
+				require.NoError(t, os.Remove(path))
 				switch state {
 				case "empty-symlink":
 					require.NoError(t, os.Symlink(t.TempDir(), path))
@@ -185,14 +178,17 @@ func TestProvisionGatewayRejectsUnsafeDirectories(t *testing.T) {
 }
 
 func TestProvisionGatewayStartupFailsClosed(t *testing.T) {
-	for _, state := range []string{"removed", "empty", "conflict"} {
+	for _, state := range []string{"removed", "empty", "conflict", "legacy-only"} {
 		t.Run(state, func(t *testing.T) {
 			home, run := provisionFixture(t, "configure-agent-gateway.sh")
 			path := writeProvisionToken(t, home, "agent-gateway", provisionToken)
 			require.True(t, run())
 			switch state {
-			case "removed":
+			case "removed", "legacy-only":
 				require.NoError(t, os.Remove(path))
+				if state == "legacy-only" {
+					writeProvisionToken(t, home, "mcp-gateway", provisionToken)
+				}
 			case "empty":
 				require.NoError(t, os.WriteFile(path, nil, 0o600))
 			case "conflict":

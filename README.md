@@ -63,13 +63,13 @@ See the [MCP Broker README](mcp-broker/README.md) for setup and usage.
 
 ### Agent Gateway
 
-`agent-gateway` (also available as `mcp-gateway`) provides a local MCP endpoint when you want separate agent identities and scoped permissions that agents can request through MCP.
+`agent-gateway` provides a local MCP endpoint when you want separate agent identities and scoped permissions that agents can request through MCP.
 
 - Denies access unless granted, with scopes for servers, tools, or matching arguments and optional expiry.
 - Manages upstream credentials and OAuth; agents receive a separate Gateway credential, not upstream service secrets.
 - Provides a web application and CLI for administration, with redacted invocation history and control-plane audit records.
 
-Both names share one implementation and the existing installation; no state or service migration is required. The source directory and Go module are `agent-gateway`; installed identities remain unchanged.
+Only the canonical executable is published. Existing installations retain explicit-root operation and the separately authorized [stopped migration procedure](agent-gateway/docs/operators/installation-migration.md); publication never removes stale installed artifacts. The source directory and Go module are `agent-gateway`; durable and MCP identities remain unchanged.
 
 See the [Agent Gateway README](agent-gateway/README.md) for setup and usage.
 

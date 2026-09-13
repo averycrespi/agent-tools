@@ -35,10 +35,9 @@ help:
 		'serve-demo [AGENT_GATEWAY_DEMO_DATASET=curated|empty] [AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:8211]' \
 		'build | install | lint | fmt | tidy | verify | audit'
 
-# Both names are the same command, not separate composition roots.
+# Publish only the canonical command; stale external binaries are operator-owned.
 build:
 	go build -o "$(AGENT_GATEWAY_BUILD_DIR)/agent-gateway" ./cmd/agent-gateway
-	cp "$(AGENT_GATEWAY_BUILD_DIR)/agent-gateway" "$(AGENT_GATEWAY_BUILD_DIR)/mcp-gateway"
 
 export AGENT_GATEWAY_DEMO_LISTEN AGENT_GATEWAY_DEMO_DATASET
 serve-demo:
@@ -46,7 +45,6 @@ serve-demo:
 
 install:
 	GOBIN="$(AGENT_GATEWAY_INSTALL_DIR)" go install ./cmd/agent-gateway
-	cp "$(AGENT_GATEWAY_INSTALL_DIR)/agent-gateway" "$(AGENT_GATEWAY_INSTALL_DIR)/mcp-gateway"
 
 test: test-unit test-integration test-harness test-material test-serve-demo
 
