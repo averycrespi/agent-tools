@@ -72,7 +72,7 @@ func (f *fixture) run(_ context.Context, name string, args ...string) ([]byte, i
 		if identity == "" {
 			identity = "Mon Sep 14 00:00:00 2026"
 		}
-		return []byte(fmt.Sprintf("%d %s %s\n", f.m.uid, identity, d.Binary)), 0, nil
+		return []byte(fmt.Sprintf("%d %s S %s\n", f.m.uid, identity, d.Binary)), 0, nil
 	}
 	if args[0] == "print" {
 		if f.fail == "inspect" {
