@@ -19,6 +19,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMCPGrantTransportPreservesPathsWithoutReplay(t *testing.T) {
+	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	for _, test := range []struct{ method, path string }{
+		{"GET", "/api/v2/mcp/grants?limit=1"},
+		{"POST", "/api/v2/mcp/grants"},
+		{"GET", "/api/v2/mcp/grants/" + id},
+		{"PATCH", "/api/v2/mcp/grants/" + id},
+		{"DELETE", "/api/v2/mcp/grants/" + id},
+		{"POST", "/api/v2/mcp/grant-constraints/validate"},
+		{"GET", "/api/v2/mcp/grant-requests?state=pending"},
+		{"GET", "/api/v2/mcp/grant-requests/" + id},
+		{"POST", "/api/v2/mcp/grant-requests/" + id + "/approve"},
+		{"POST", "/api/v2/mcp/grant-requests/" + id + "/reject"},
+	} {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				calls++
+				assert.Equal(t, test.method, request.Method)
+				assert.Equal(t, test.path, request.URL.RequestURI())
+				response.Header().Set("Location", strings.Replace(test.path, "/mcp/", "/", 1))
+				response.WriteHeader(http.StatusTemporaryRedirect)
+			}))
+			defer server.Close()
+			_, err := newTestClient(t, server.URL, TransportOptions{}).Do(t.Context(), Request{Method: test.method, Path: test.path})
+			require.ErrorIs(t, err, ErrRedirect)
+			require.Equal(t, 1, calls, "redirect must not retry under a retired spelling")
+		})
+	}
+}
+
 func TestControlTransport(t *testing.T) {
 	t.Run("canonical loopback addresses", func(t *testing.T) {
 		for _, address := range []string{DefaultAddress, "http://127.0.0.1:1", "http://127.255.254.253:65535", "http://localhost:8210", "http://Host.Lima.Internal:18210", "http://container.internal:65535"} {

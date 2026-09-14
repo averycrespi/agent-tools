@@ -32,9 +32,9 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 	}{
 		{name: "principal update", args: []string{"principal", "update", id, "--display-name", "Renamed"}, etag: contract.PrincipalETag(id, "7")},
 		{name: "principal credential revoke", args: []string{"principal", "credential", "revoke", id, "--yes"}, etag: contract.PrincipalETag(id, "7")},
-		{name: "grant update", args: []string{"grant", "update", id, "--description", "Updated access"}, etag: contract.GrantETag(id, "1")},
-		{name: "grant request approve", args: []string{"grant-request", "approve", id, "--description", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
-		{name: "grant request reject", args: []string{"grant-request", "reject", id, "--reason", "not_approved", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
+		{name: "mcp grant update", args: []string{"mcp", "grant", "update", id, "--description", "Updated access"}, etag: contract.GrantETag(id, "1")},
+		{name: "grant request approve", args: []string{"mcp", "grant-request", "approve", id, "--description", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
+		{name: "grant request reject", args: []string{"mcp", "grant-request", "reject", id, "--reason", "not_approved", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
 	}
 	for _, test := range cases {
 		t.Run(test.name+"/omitted", func(t *testing.T) {
@@ -84,8 +84,8 @@ func TestCLIRetainedFileSecurity(t *testing.T) {
 		"mcp server create":             true,
 		"mcp server update":             true,
 		"mcp server credential replace": true,
-		"grant create":                  true,
-		"grant-request approve":         true,
+		"mcp grant create":              true,
+		"mcp grant-request approve":     true,
 	}
 	for _, spec := range onlineCommandSpecs() {
 		path := strings.Join(spec.Path, " ")
@@ -100,7 +100,7 @@ func TestCLIRetainedFileSecurity(t *testing.T) {
 		{args: []string{"mcp", "server", "create", "--transport", "secret-canary"}},
 		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--values", "secret-canary"}},
 		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--client-secret", "secret-canary"}},
-		{args: []string{"grant", "create", "--constraint", "secret-canary"}},
+		{args: []string{"mcp", "grant", "create", "--constraint", "secret-canary"}},
 	} {
 		command := newRootCmd()
 		var stdout, stderr bytes.Buffer
@@ -130,7 +130,7 @@ func newPrincipalRequestETagServer(t *testing.T, id string) (*httptest.Server, c
 				_, _ = response.Write([]byte(principalETagBody(id, "7", true)))
 				return
 			}
-			if strings.HasPrefix(request.URL.Path, "/api/v2/grants/") {
+			if strings.HasPrefix(request.URL.Path, "/api/v2/mcp/grants/") {
 				response.Header().Set("ETag", contract.GrantETag(id, "1"))
 				_, _ = response.Write([]byte(grantETagBody(id, "1", "Initial access")))
 				return
@@ -140,7 +140,7 @@ func newPrincipalRequestETagServer(t *testing.T, id string) (*httptest.Server, c
 			return
 		}
 		if request.Method == http.MethodPatch || request.Method == http.MethodDelete {
-			if strings.HasPrefix(request.URL.Path, "/api/v2/grants/") {
+			if strings.HasPrefix(request.URL.Path, "/api/v2/mcp/grants/") {
 				response.Header().Set("ETag", contract.GrantETag(id, "2"))
 				_, _ = response.Write([]byte(grantETagBody(id, "2", "Updated access")))
 				return

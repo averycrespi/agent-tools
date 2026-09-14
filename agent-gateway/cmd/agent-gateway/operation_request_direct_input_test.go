@@ -73,10 +73,10 @@ func TestCLIGrantRequestRejectDirectInput(t *testing.T) {
 	bearerPath := writeDirectInputBearer(t)
 	etag := contract.GrantRequestETag(directInputResourceID, "1")
 
-	output, err := executeDirectInputCommand(t, server.URL, bearerPath, "grant-request", "reject", directInputResourceID, "--etag", etag, "--reason", "not_approved", "--yes")
+	output, err := executeDirectInputCommand(t, server.URL, bearerPath, "mcp", "grant-request", "reject", directInputResourceID, "--etag", etag, "--reason", "not_approved", "--yes")
 	require.NoError(t, err, "%s", output)
 	request := <-requests
-	assert.Equal(t, "/api/v2/grant-requests/"+directInputResourceID+"/reject", request.path)
+	assert.Equal(t, "/api/v2/mcp/grant-requests/"+directInputResourceID+"/reject", request.path)
 	assert.Equal(t, etag, request.etag)
 	assert.JSONEq(t, `{"reason":"not_approved"}`, string(request.body))
 
@@ -84,10 +84,10 @@ func TestCLIGrantRequestRejectDirectInput(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "missing reason", args: []string{"grant-request", "reject", directInputResourceID, "--etag", etag, "--yes"}},
-		{name: "invalid reason", args: []string{"grant-request", "reject", directInputResourceID, "--etag", etag, "--reason", "denied", "--yes"}},
-		{name: "old file", args: []string{"grant-request", "reject", directInputResourceID, "--etag", etag, "--file", filepath.Join(t.TempDir(), "old.json"), "--yes"}},
-		{name: "unconfirmed", args: []string{"grant-request", "reject", directInputResourceID, "--etag", etag, "--reason", "policy_conflict"}},
+		{name: "missing reason", args: []string{"mcp", "grant-request", "reject", directInputResourceID, "--etag", etag, "--yes"}},
+		{name: "invalid reason", args: []string{"mcp", "grant-request", "reject", directInputResourceID, "--etag", etag, "--reason", "denied", "--yes"}},
+		{name: "old file", args: []string{"mcp", "grant-request", "reject", directInputResourceID, "--etag", etag, "--file", filepath.Join(t.TempDir(), "old.json"), "--yes"}},
+		{name: "unconfirmed", args: []string{"mcp", "grant-request", "reject", directInputResourceID, "--etag", etag, "--reason", "policy_conflict"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := executeDirectInputCommand(t, server.URL, bearerPath, test.args...)
@@ -98,7 +98,7 @@ func TestCLIGrantRequestRejectDirectInput(t *testing.T) {
 	}
 
 	root := newRootCmd()
-	command, _, err := root.Find([]string{"grant-request", "reject"})
+	command, _, err := root.Find([]string{"mcp", "grant-request", "reject"})
 	require.NoError(t, err)
 	assert.NotNil(t, command.Flags().Lookup("reason"))
 	assert.Nil(t, command.Flags().Lookup("file"))

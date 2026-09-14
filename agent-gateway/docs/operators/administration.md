@@ -147,13 +147,13 @@ Finite successes write to stdout. Finite and pre-start failures leave stdout emp
 
 Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. When another page exists, human output ends with `NEXT_CURSOR`; JSON retains the exact `next_cursor` member. Supply that cursor explicitly for the next page. Closed JSON requests reject duplicate, unknown, missing, or trailing values. Command input is intentionally split:
 
-| Input mode                                  | Commands                                                                                                                                |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Direct flags only                           | `admin credential create`, `principal create`, `principal update`, `mcp server operation start`, `grant update`, `grant-request reject` |
-| Strict `--file` only                        | `mcp server create`, `mcp server credential replace`                                                                                    |
-| Direct flags or strict `--file`, never both | `mcp server update`, `grant create`, `grant-request approve`                                                                            |
+| Input mode                                  | Commands                                                                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Direct flags only                           | `admin credential create`, `principal create`, `principal update`, `mcp server operation start`, `mcp grant update`, `mcp grant-request reject` |
+| Strict `--file` only                        | `mcp server create`, `mcp server credential replace`                                                                                            |
+| Direct flags or strict `--file`, never both | `mcp server update`, `mcp grant create`, `mcp grant-request approve`                                                                            |
 
-Use `--file PATH` or `--file -` for the strict file form. `--file -` conflicts with `--admin-bearer-stdin`. Constrained grant and approval shapes require the file form; their direct forms cover the ordinary unconstrained case. Strict files accept permanent v1 `{"equals":{...}}` constraints and closed v2 `{"version":2,"equals":{...},"regex":{...}}` constraints, validate them against the matcher compiler's grammar and limits, and preserve lexical number and regex bytes through submission. Table output identifies `v1 equals` or the v2 equality/regex atom counts. Both grant creation and approval forms accept an optional human-readable `description` (`--description` in direct mode). Grant descriptions are display metadata; `grant update` changes or clears only that metadata under an exact ETag. Credential issue, rotate, and revoke commands have no request-document input.
+Use `--file PATH` or `--file -` for the strict file form. `--file -` conflicts with `--admin-bearer-stdin`. Constrained grant and approval shapes require the file form; their direct forms cover the ordinary unconstrained case. Strict files accept permanent v1 `{"equals":{...}}` constraints and closed v2 `{"version":2,"equals":{...},"regex":{...}}` constraints, validate them against the matcher compiler's grammar and limits, and preserve lexical number and regex bytes through submission. Table output identifies `v1 equals` or the v2 equality/regex atom counts. Both grant creation and approval forms accept an optional human-readable `description` (`--description` in direct mode). Grant descriptions are display metadata; `mcp grant update` changes or clears only that metadata under an exact ETag. Credential issue, rotate, and revoke commands have no request-document input.
 
 ## Confirmations and one-time values
 
@@ -214,7 +214,7 @@ Lists are descending sequence, not client-sorted timestamps. `--limit` is 1–10
 
 Browser filters query the server automatically and start page one: dropdowns apply immediately, IDs after a short pause, and From/Until only when both dates form a valid ordered range of at most 366 days. **More filters** contains IDs, dates and additional attribution/target selectors; its summary indicates active advanced filters and draft errors. The applied query remains visible, and invalid drafts do not replace results or prevent independent valid dropdown changes. **Clear filters** immediately clears both draft and applied values; filters remain usable with no matches. Back/Forward restores applied filters. Event links retain the applied query, and **Back to audit history** restarts the newest matching page rather than restoring an unverified traversal or losing filters. **Load older audit events** appends only compatible pages. **Refresh** restarts at the newest matching page. Cursors and generation comparisons live only in the authenticated session, not in URLs or browser storage; reload and a new session cannot compare with forgotten prior history. Stale cursors discard the traversal and fetch page one once with a notice. Replacement clears previous-history state and warns even if the fresh read fails. Pinned detail is discarded rather than reopening a potentially reused ID after replacement. A missing event is not proof of nonexecution. List targets link to supported server, principal, grant, or request routes without per-row resource discovery; unknown existence is checked at the destination, not asserted by the historical link. Known deleted/unavailable and unsupported targets remain plain text. Detail links to current resources only after verifying they still exist; failure to verify a link does not hide the audit evidence. Retention context and pruning warnings appear below results/detail; **Retention details** discloses generation and boundary facts. Narrow audit rows show labeled fields with full identities rather than requiring horizontal scrolling. Empty filtered results say **No matching audit events** and offer Clear filters; **No audit events yet** describes only unfiltered retained history.
 
-Performer labels distinguish **Operator**, **System**, and **Offline maintenance**. A system event's optional initiating credential is attribution, not its performer or a named human. Attempts and outcomes are immutable separate events joined by correlation ID; `pending`, `failed`, `rejected`, and `unknown` must not be interpreted as success or rollback. The detail correlation link selects matching retained events. Administrative audit is separate from **Activity → Agents** (MCP invocation history) and **Access → Requests**: request submissions and invocation evidence are not copied here.
+Performer labels distinguish **Operator**, **System**, and **Offline maintenance**. A system event's optional initiating credential is attribution, not its performer or a named human. Attempts and outcomes are immutable separate events joined by correlation ID; `pending`, `failed`, `rejected`, and `unknown` must not be interpreted as success or rollback. The detail correlation link selects matching retained events. Administrative audit is separate from **Activity → Agents** (MCP invocation history) and **MCP → Access requests**: request submissions and invocation evidence are not copied here.
 
 See the [public audit contract](../design/public-contract.md#control-plane-audit-reads) for exact response shapes. Audit stores only credential IDs/fingerprints and allowlisted reason/problem codes, never raw secrets, raw error bodies, unrestricted snapshots, or invocation payloads. No export format or permanent-retention guarantee is provided.
 
@@ -227,8 +227,8 @@ agent-gateway --help
 agent-gateway mcp server --help
 agent-gateway mcp catalog --help
 agent-gateway principal --help
-agent-gateway grant --help
-agent-gateway grant-request --help
+agent-gateway mcp grant --help
+agent-gateway mcp grant-request --help
 agent-gateway invocation --help
 agent-gateway audit --help
 agent-gateway backup --help
@@ -262,14 +262,34 @@ Old flat browser paths have **no aliases or redirects**. Update bookmarks and br
 | `#/servers`     | `#/mcp/servers`          |
 | `#/catalog`     | `#/mcp/tools`            |
 | `#/principals`  | `#/access/principals`    |
-| `#/grants`      | `#/access/grants`        |
-| `#/requests`    | `#/access/requests`      |
+| `#/grants`      | `#/mcp/grants`           |
+| `#/requests`    | `#/mcp/access-requests`  |
 | `#/invocations` | `#/activity/invocations` |
 | `#/audit`       | `#/activity/audit`       |
 
-Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. Existing `#/access/principals` and `#/access/grants` paths are already canonical, not aliases. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
+Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. Existing `#/access/principals` remains canonical; `#/access/grants` and `#/access/requests` are retired by the MCP permission cutover below. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
 
 The location cutover itself is not an installation or browser-persistence migration. Durable authority, ports, MCP ingress/self-service and OAuth callback identities remain compatible. Current browser persistence follows the cutover above; current root/service and provisioning names follow the separately documented installation and client migrations.
+
+## MCP permission namespace cutover
+
+Upgrade the service, standalone CLI, bundled browser, API consumers, and automation together. Reload open browser tabs after the upgrade and sign in again if the service restarted. This is a coordinated clean cutover within API v2, not a storage or credential migration. **Access** retains Principals; **MCP** contains Servers, Tools, Grants, and **Access requests**. Access requests approve MCP permissions, not network traffic or queued calls.
+
+| Retired interface                     | Canonical interface                       |
+| ------------------------------------- | ----------------------------------------- |
+| `/api/v2/grants` and `/{id}`          | `/api/v2/mcp/grants` and `/{id}`          |
+| `/api/v2/grant-requests` and `/{id}`  | `/api/v2/mcp/grant-requests` and `/{id}`  |
+| `/api/v2/grant-requests/{id}/approve` | `/api/v2/mcp/grant-requests/{id}/approve` |
+| `/api/v2/grant-requests/{id}/reject`  | `/api/v2/mcp/grant-requests/{id}/reject`  |
+| `/api/v2/grant-constraints/validate`  | `/api/v2/mcp/grant-constraints/validate`  |
+| `agent-gateway grant ...`             | `agent-gateway mcp grant ...`             |
+| `agent-gateway grant-request ...`     | `agent-gateway mcp grant-request ...`     |
+| `#/access/grants`, `/{id}`, `/new`    | `#/mcp/grants`, `/{id}`, `/new`           |
+| `#/access/requests` and `/{id}`       | `#/mcp/access-requests` and `/{id}`       |
+
+Methods, flags, representations, filters, ordering, counts, ETags, and confirmation semantics are unchanged. Carry only supported query parameters into new bookmarks. Principals and credentials stay top-level; MCP server/catalog routes, ingress, callbacks, and `mcp_gateway` self-service tools are unchanged. IDs, descriptions, historical rows, policy, audit/event names, and backup lineage are preserved without a database migration.
+
+Old API paths return not found, old CLI commands fail locally, and old browser links show the existing invalid-location notice with a fixed fallback. There are no aliases, redirects, compatibility retries, or automatic mutation replay. Recover an old link by explicitly navigating through the current menu or updating the bookmark, then inspect the intended resource. After a rejected or uncertain mutation, inspect current state before a deliberate new action; changing the URL is never permission to replay it. Approval still does not execute the original tool call.
 
 ## Operator v2 cutover
 

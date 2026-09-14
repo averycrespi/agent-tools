@@ -55,13 +55,13 @@ The main callback remains unchanged. A configured per-flow callback-only numeric
 | `/api/v2/principals`                                 | `GET, POST`          | admin bearer or session                           |
 | `/api/v2/principals/{id}`                            | `GET, PATCH`         | admin bearer or session                           |
 | `/api/v2/principals/{id}/credential`                 | `DELETE, POST`       | admin bearer or session                           |
-| `/api/v2/grants`                                     | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/grants/{id}`                                | `DELETE, GET, PATCH` | admin bearer or session                           |
-| `/api/v2/grant-constraints/validate`                 | `POST`               | admin bearer or session                           |
-| `/api/v2/grant-requests`                             | `GET`                | admin bearer or session                           |
-| `/api/v2/grant-requests/{id}`                        | `GET`                | admin bearer or session                           |
-| `/api/v2/grant-requests/{id}/approve`                | `POST`               | admin bearer or session                           |
-| `/api/v2/grant-requests/{id}/reject`                 | `POST`               | admin bearer or session                           |
+| `/api/v2/mcp/grants`                                 | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/mcp/grants/{id}`                            | `DELETE, GET, PATCH` | admin bearer or session                           |
+| `/api/v2/mcp/grant-constraints/validate`             | `POST`               | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests`                         | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests/{id}`                    | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests/{id}/approve`            | `POST`               | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests/{id}/reject`             | `POST`               | admin bearer or session                           |
 | `/api/v2/invocations`                                | `GET`                | admin bearer or session                           |
 | `/api/v2/invocations/{id}`                           | `GET`                | admin bearer or session                           |
 | `/api/v2/audit-events`                               | `GET`                | admin bearer or session                           |
@@ -347,8 +347,8 @@ Administrator rotation uses `AdminAuthority` exactly `{revision}`; its revision 
 | `mcp/servers/{id}/operations`  | created descending                      |      50 | `QueryPage<ServerOperation>`       |
 | `mcp/servers/{id}/oauth-flows` | insertion sequence ascending            |     100 | `Page<ServerAuthFlow>`             |
 | `principals`                   | name ascending                          |     100 | `QueryPage<Principal>`             |
-| `grants`                       | description ascending                   |     100 | `QueryPage<GrantTableItem>`        |
-| `grant-requests`               | submitted insertion sequence descending |     100 | `QueryPage<GrantRequestTableItem>` |
+| `mcp/grants`                   | description ascending                   |     100 | `QueryPage<GrantTableItem>`        |
+| `mcp/grant-requests`           | submitted insertion sequence descending |     100 | `QueryPage<GrantRequestTableItem>` |
 | `invocations`                  | insertion sequence descending           |     100 | `InvocationPage`                   |
 | `audit-events`                 | insertion sequence descending           |     100 | `AuditPage`                        |
 

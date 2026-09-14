@@ -1025,7 +1025,7 @@ export async function runOverview(
       }),
     });
   });
-  await page.route("**/api/v2/grant-requests?*", async (route) => {
+  await page.route("**/api/v2/mcp/grant-requests?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
@@ -1278,7 +1278,7 @@ export async function runOverview(
     requestLinks.join("|") !==
     Array.from(
       { length: 5 },
-      (_, index) => `#/access/requests/01ARZ3NDEKTSV4RRFFQ69G5FC${index}`,
+      (_, index) => `#/mcp/access-requests/01ARZ3NDEKTSV4RRFFQ69G5FC${index}`,
     ).join("|")
   )
     fail(
@@ -1301,7 +1301,7 @@ export async function runOverview(
     "#/system",
     "#/mcp/servers",
     "#/mcp/tools",
-    "#/access/requests",
+    "#/mcp/access-requests",
     "#/activity/invocations",
   ])
     if (
@@ -2136,7 +2136,7 @@ export async function runInvocations(
       .count()) !== 1 ||
     (await page
       .locator(
-        `[data-testid="invocation-detail"] a[href="#/access/grants/${invocationIDs.grant}"]`,
+        `[data-testid="invocation-detail"] a[href="#/mcp/grants/${invocationIDs.grant}"]`,
       )
       .count()) !== 1
   )

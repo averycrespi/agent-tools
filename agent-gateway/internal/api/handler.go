@@ -379,10 +379,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		} else {
 			writeProblem(writer, contract.ProblemNotFound)
 		}
-	case path == "/api/v2/grant-requests" && handler.grantRequests != nil:
+	case path == "/api/v2/mcp/grant-requests" && handler.grantRequests != nil:
 		handler.grantRequestsCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v2/grant-requests/") && handler.grantRequests != nil:
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/grant-requests/"), "/")
+	case strings.HasPrefix(path, "/api/v2/mcp/grant-requests/") && handler.grantRequests != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/mcp/grant-requests/"), "/")
 		switch {
 		case len(segments) == 1 && segments[0] != "":
 			handler.grantRequestMember(writer, request, segments[0], "")
@@ -391,12 +391,12 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
-	case path == "/api/v2/grant-constraints/validate" && handler.principals != nil && request.Method == http.MethodPost:
+	case path == "/api/v2/mcp/grant-constraints/validate" && handler.principals != nil && request.Method == http.MethodPost:
 		handler.validateGrantConstraint(writer, request)
-	case path == "/api/v2/grants" && handler.principals != nil:
+	case path == "/api/v2/mcp/grants" && handler.principals != nil:
 		handler.grantsCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v2/grants/") && handler.principals != nil:
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/grants/"), "/")
+	case strings.HasPrefix(path, "/api/v2/mcp/grants/") && handler.principals != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/mcp/grants/"), "/")
 		if len(segments) == 1 && segments[0] != "" {
 			handler.grantMember(writer, request, segments[0])
 		} else {

@@ -426,7 +426,7 @@ function readQueue(
   if (cursor !== null) params.set("cursor", cursor);
   return readCollectionPage(
     session,
-    `/api/v2/grant-requests?${params}`,
+    `/api/v2/mcp/grant-requests?${params}`,
     decodeRequestRow,
     signal,
   );
@@ -437,7 +437,7 @@ async function readRequest(
 ): Promise<RequestDetail | undefined> {
   const result = await requestJSON(
     session,
-    `/api/v2/grant-requests/${requestID}`,
+    `/api/v2/mcp/grant-requests/${requestID}`,
   );
   if (result === undefined) return undefined;
   if (!result.response.ok) throw new Error("Request data is unavailable.");
@@ -1125,7 +1125,7 @@ function RequestActions({
         body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"approved_policy":{"scope":${JSON.stringify(policy.scope)},"target":${JSON.stringify(policy.target)},"constraint":${constraintToken},"duration_seconds":${policy.durationSeconds === null ? "null" : JSON.stringify(policy.durationSeconds)},"future_tools_acknowledged":${String(policy.futureToolsAcknowledged)}${readOnlyMember(policy.readOnly)}}}`;
       } else body = JSON.stringify({ reason });
       const spec: MutationSpec<RequestDetail> = {
-        route: `/api/v2/grant-requests/${detail.id}/${next}`,
+        route: `/api/v2/mcp/grant-requests/${detail.id}/${next}`,
         method: "POST",
         body,
         precondition: detail.etag,
@@ -1780,7 +1780,7 @@ export function Requests({
   const [uncertain, setUncertain] = useState<string>();
   const queue = useRef<ResolvedLocation>({
     location: { destination: "requests", segments: ["requests"], query: {} },
-    canonicalFragment: "#/access/requests",
+    canonicalFragment: "#/mcp/access-requests",
     invalid: false,
   });
   if (requestID === undefined) queue.current = resolved;
@@ -1881,7 +1881,7 @@ export function Requests({
             requests
           </a>
           {detail.state !== "pending" && nextRequest !== undefined && (
-            <a href={`#/access/requests/${nextRequest}`}>Review next</a>
+            <a href={`#/mcp/access-requests/${nextRequest}`}>Review next</a>
           )}
           {detail.state !== "pending" && nextRequest === undefined && (
             <span>
@@ -2106,7 +2106,7 @@ export function Requests({
                 <div>
                   <dt>Created grant</dt>
                   <dd>
-                    <a href={`#/access/grants/${detail.approvedGrantID}`}>
+                    <a href={`#/mcp/grants/${detail.approvedGrantID}`}>
                       {detail.approvedGrantID}
                     </a>
                   </dd>
@@ -2175,13 +2175,13 @@ export function Requests({
       <section class="panel domain-panel" aria-label="Grant requests">
         <nav class="subnav request-queue-tabs" aria-label="Request queues">
           <a
-            href="#/access/requests"
+            href="#/mcp/access-requests"
             aria-current={!allRequests ? "page" : undefined}
           >
             Pending
           </a>
           <a
-            href="#/access/requests?queue=all"
+            href="#/mcp/access-requests?queue=all"
             aria-current={allRequests ? "page" : undefined}
           >
             All requests
@@ -2259,7 +2259,9 @@ export function Requests({
               render: (item) => (
                 <TableIdentity
                   primary={
-                    <a href={`#/access/requests/${item.id}`}>Access request</a>
+                    <a href={`#/mcp/access-requests/${item.id}`}>
+                      Access request
+                    </a>
                   }
                   secondary={item.id}
                 />
@@ -2339,7 +2341,7 @@ export function Requests({
               render: (item) => (
                 <a
                   class={`button-link${item.state === "pending" ? " primary-action" : ""}`}
-                  href={`#/access/requests/${item.id}`}
+                  href={`#/mcp/access-requests/${item.id}`}
                 >
                   {item.state === "pending" ? "Review" : "View decision"}
                 </a>

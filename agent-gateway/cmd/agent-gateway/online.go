@@ -203,7 +203,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
-	case "grant create", "grant-request approve":
+	case "mcp grant create", "mcp grant-request approve":
 		return spec.Short + ". --read-only restricts server ALLOW access to current and future tools explicitly declaring readOnlyHint=true. Hints are trusted server declarations, not side-effect isolation. Other ALLOW grants may authorize writes; matching DENY still wins. Read-only requests must retain --read-only and server scope; --acknowledge-future-tools remains required for server approval. Approval reads the submitted restriction before mutation, even with an explicit ETag, and never refreshes that ETag or replays a mutation. Direct flags and --file are mutually exclusive."
 	case "audit list", "audit get":
 		return spec.Short + ". Filters are authoritative and conjunctive. --from and --until must occur together as UTC timestamps with nine fractional digits, at most 366 days apart. --credential-id matches the operator or known system initiator, not a named human. Continue pages with the same filters and --generation. On stale_cursor discard the traversal and restart; on audit_history_replaced discard prior-history state and restart without the old generation. Restore can discard newer local events. See docs/operators/administration.md."
@@ -414,15 +414,15 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"principal", "credential", "issue"}, "issue ID", "principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
 		onlineSpec([]string{"principal", "credential", "rotate"}, "rotate ID", "principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
 		onlineSpec([]string{"principal", "credential", "revoke"}, "revoke ID", "principal credential revoke ID [--etag ETAG]", "etag", "yes"),
-		onlineSpec([]string{"grant", "list"}, "list", "grant list", "limit", "cursor", "principal-id", "server-id"),
-		onlineSpec([]string{"grant", "get"}, "get ID", "grant get ID"),
-		onlineSpec([]string{"grant", "create"}, "create", "grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "description", "principal-id", "effect", "server-id", "upstream-name", "expires-at", "read-only", "file"),
-		onlineSpec([]string{"grant", "update"}, "update ID", "grant update ID --description TEXT [--etag ETAG]", "description", "etag"),
-		onlineSpec([]string{"grant", "delete"}, "delete ID", "grant delete ID", "yes"),
-		onlineSpec([]string{"grant-request", "list"}, "list", "grant-request list", "limit", "cursor", "principal-id", "state"),
-		onlineSpec([]string{"grant-request", "get"}, "get REQUEST_ID", "grant-request get REQUEST_ID"),
-		onlineSpec([]string{"grant-request", "approve"}, "approve REQUEST_ID", "grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "description", "scope", "target", "etag", "duration-seconds", "acknowledge-future-tools", "read-only", "file", "yes"),
-		onlineSpec([]string{"grant-request", "reject"}, "reject REQUEST_ID", "grant-request reject REQUEST_ID --reason REASON [--etag ETAG]", "reason", "etag", "yes"),
+		onlineSpec([]string{"mcp", "grant", "list"}, "list", "mcp grant list", "limit", "cursor", "principal-id", "server-id"),
+		onlineSpec([]string{"mcp", "grant", "get"}, "get ID", "mcp grant get ID"),
+		onlineSpec([]string{"mcp", "grant", "create"}, "create", "mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "description", "principal-id", "effect", "server-id", "upstream-name", "expires-at", "read-only", "file"),
+		onlineSpec([]string{"mcp", "grant", "update"}, "update ID", "mcp grant update ID --description TEXT [--etag ETAG]", "description", "etag"),
+		onlineSpec([]string{"mcp", "grant", "delete"}, "delete ID", "mcp grant delete ID", "yes"),
+		onlineSpec([]string{"mcp", "grant-request", "list"}, "list", "mcp grant-request list", "limit", "cursor", "principal-id", "state"),
+		onlineSpec([]string{"mcp", "grant-request", "get"}, "get REQUEST_ID", "mcp grant-request get REQUEST_ID"),
+		onlineSpec([]string{"mcp", "grant-request", "approve"}, "approve REQUEST_ID", "mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "description", "scope", "target", "etag", "duration-seconds", "acknowledge-future-tools", "read-only", "file", "yes"),
+		onlineSpec([]string{"mcp", "grant-request", "reject"}, "reject REQUEST_ID", "mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]", "reason", "etag", "yes"),
 		onlineSpec([]string{"invocation", "list"}, "list", "invocation list", "limit", "cursor", "principal-id", "server-id", "requested-name", "admission-class", "decision", "outcome"),
 		onlineSpec([]string{"invocation", "get"}, "get INVOCATION_ID", "invocation get INVOCATION_ID"),
 	}
@@ -440,7 +440,7 @@ var onlineGroupDescriptions = map[string]string{
 	"admin":                 "Manage administrator authority",
 	"admin credential":      "Manage administrator credentials",
 	"backup":                "Create and manage recovery backups",
-	"mcp":                   "Manage MCP servers and tools",
+	"mcp":                   "Manage MCP servers, tools, and permissions",
 	"mcp server":            "Manage upstream MCP server configurations",
 	"mcp server operation":  "Inspect and request server operations",
 	"mcp server credential": "Replace server credentials",
@@ -449,8 +449,8 @@ var onlineGroupDescriptions = map[string]string{
 	"mcp catalog":           "Inspect published Gateway tools",
 	"principal":             "Manage agent principals",
 	"principal credential":  "Issue, rotate, and revoke agent credentials",
-	"grant":                 "Manage agent authorization grants",
-	"grant-request":         "Review agent grant requests",
+	"mcp grant":             "Manage MCP authorization grants",
+	"mcp grant-request":     "Review MCP permission approval requests",
 	"invocation":            "Inspect governed tool invocations",
 	"audit":                 "Inspect retained control-plane audit evidence",
 }
@@ -492,15 +492,15 @@ var onlineLeafDescriptions = map[string]string{
 	"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]":                            "Issue an agent credential into an empty slot",
 	"principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]":                           "Rotate an occupied agent credential atomically",
 	"principal credential revoke ID [--etag ETAG]":                                                      "Revoke an agent credential",
-	"grant list":   "List authorization grants",
-	"grant get ID": "Look up an authorization grant by ID",
-	"grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]": "Create an authorization grant",
-	"grant update ID --description TEXT [--etag ETAG]": "Update grant display metadata",
-	"grant delete ID":              "Delete an authorization grant",
-	"grant-request list":           "List agent grant requests",
-	"grant-request get REQUEST_ID": "Show grant-request evidence and the current mutation ETag",
-	"grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]": "Approve an agent grant request",
-	"grant-request reject REQUEST_ID --reason REASON [--etag ETAG]": "Reject an agent grant request",
+	"mcp grant list":   "List authorization grants",
+	"mcp grant get ID": "Look up an authorization grant by ID",
+	"mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]": "Create an authorization grant",
+	"mcp grant update ID --description TEXT [--etag ETAG]": "Update grant display metadata",
+	"mcp grant delete ID":              "Delete an authorization grant",
+	"mcp grant-request list":           "List agent grant requests",
+	"mcp grant-request get REQUEST_ID": "Show grant-request evidence and the current mutation ETag",
+	"mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]": "Approve an agent grant request",
+	"mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]": "Reject an agent grant request",
 	"invocation list":              "List governed tool invocations",
 	"invocation get INVOCATION_ID": "Show invocation evidence; JSON includes retained redacted arguments",
 }

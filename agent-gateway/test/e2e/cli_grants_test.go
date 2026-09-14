@@ -37,15 +37,15 @@ func runCLIGrantInputMatrix(t *testing.T) {
 	require.NoError(t, os.WriteFile(invalidPath, []byte(invalidBody), 0o600))
 	results := []testutil.ProcessResult{principalResult}
 
-	invalid := runOnlineCLI(t, harness, bearerPath, false, "grant", "create", "--file", invalidPath, "--output", "json")
+	invalid := runOnlineCLI(t, harness, bearerPath, false, "mcp", "grant", "create", "--file", invalidPath, "--output", "json")
 	results = append(results, invalid)
 	assert.Equal(t, 2, invalid.ExitCode)
-	direct := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--description", "Direct access", "--principal-id", principalID, "--effect", "allow", "--server-id", contract.SyntheticServerID, "--upstream-name", "get_identity", "--output", "json")
+	direct := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "create", "--description", "Direct access", "--principal-id", principalID, "--effect", "allow", "--server-id", contract.SyntheticServerID, "--upstream-name", "get_identity", "--output", "json")
 	results = append(results, direct)
 	var directGrant contract.Grant
 	require.NoError(t, json.Unmarshal(direct.Stdout, &directGrant))
 	assert.Nil(t, directGrant.Constraint)
-	created := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--file", grantPath, "--output", "json")
+	created := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "create", "--file", grantPath, "--output", "json")
 	results = append(results, created)
 	var grant contract.Grant
 	require.NoError(t, json.Unmarshal(created.Stdout, &grant))
@@ -53,19 +53,19 @@ func runCLIGrantInputMatrix(t *testing.T) {
 	require.NotNil(t, grant.Constraint)
 	assert.Contains(t, string(*grant.Constraint), "1.0")
 
-	listed := runOnlineCLI(t, harness, bearerPath, true, "grant", "list", "--principal-id", principalID, "--server-id", contract.SyntheticServerID, "--limit", "10", "--output", "json")
-	got := runOnlineCLI(t, harness, bearerPath, true, "grant", "get", grant.ID)
+	listed := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "list", "--principal-id", principalID, "--server-id", contract.SyntheticServerID, "--limit", "10", "--output", "json")
+	got := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "get", grant.ID)
 	results = append(results, listed, got)
 	assert.Contains(t, string(listed.Stdout), grant.ID)
 	assert.Contains(t, string(got.Stdout), "v1 equals (2)")
 
-	refused := runOnlineCLI(t, harness, bearerPath, false, "grant", "delete", grant.ID, "--output", "json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "mcp", "grant", "delete", grant.ID, "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
-	deleted := runOnlineCLI(t, harness, bearerPath, true, "grant", "delete", grant.ID, "--yes", "--output", "json")
+	deleted := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "delete", grant.ID, "--yes", "--output", "json")
 	results = append(results, deleted)
 	assert.JSONEq(t, `{}`, string(deleted.Stdout))
-	missing := runOnlineCLI(t, harness, bearerPath, false, "grant", "get", grant.ID, "--output", "json")
+	missing := runOnlineCLI(t, harness, bearerPath, false, "mcp", "grant", "get", grant.ID, "--output", "json")
 	results = append(results, missing)
 	assert.Equal(t, 4, missing.ExitCode)
 
@@ -77,14 +77,14 @@ func runCLIGrantInputMatrix(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"status":503,"code":"storage_unavailable","title":"Storage is unavailable."}`))
 	}))
 	defer fake.Close()
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "grant", "create", "--file", grantPath, "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "mcp", "grant", "create", "--file", grantPath, "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Equal(t, int64(1), attempts.Load())
 	assert.Contains(t, string(uncertain.Stderr), "identical immutable rows")
 
 	harness.Stop(syscall.SIGTERM)
-	preHandoff := runOnlineCLI(t, harness, bearerPath, false, "grant", "list", "--output", "json")
+	preHandoff := runOnlineCLI(t, harness, bearerPath, false, "mcp", "grant", "list", "--output", "json")
 	results = append(results, preHandoff)
 	assert.Equal(t, 9, preHandoff.ExitCode)
 	for _, result := range results {

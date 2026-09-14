@@ -200,7 +200,7 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 			return err
 		}
 	} else {
-		for _, collection := range []string{"mcp/servers", "principals", "grants", "grant-requests", "invocations"} {
+		for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "invocations"} {
 			response := c.get(collection)
 			c.require(value(response, "items") != nil && len(rows(response, "items")) == 0, "empty dataset contains records")
 		}

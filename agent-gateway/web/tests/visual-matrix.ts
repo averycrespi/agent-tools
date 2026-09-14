@@ -21,12 +21,12 @@ export const visualDestinations = [
   },
   {
     id: "grants",
-    route: "#/access/grants",
+    route: "#/mcp/grants",
     selector: '[data-testid="grants-view"]',
   },
   {
     id: "requests",
-    route: "#/access/requests",
+    route: "#/mcp/access-requests",
     selector: '[data-testid="requests-view"]',
   },
   {

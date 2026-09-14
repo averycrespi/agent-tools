@@ -96,7 +96,7 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 		}
 		return stdout.Bytes(), nil
 	}
-	directArgs := []string{"grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", resourceID}
+	directArgs := []string{"mcp", "grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", resourceID}
 	baseBody := `{"description":"Test grant","principal_id":"` + resourceID + `","effect":"allow","server_id":"` + resourceID + `","upstream_name":null,"constraint":null,"expires_at":null}`
 
 	output, err := execute(directArgs...)
@@ -106,7 +106,7 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 
 	baseFile := filepath.Join(dir, "base.json")
 	require.NoError(t, os.WriteFile(baseFile, []byte(baseBody), 0o600))
-	output, err = execute("grant", "create", "--file", baseFile)
+	output, err = execute("mcp", "grant", "create", "--file", baseFile)
 	require.NoError(t, err, "%s", output)
 	assert.Equal(t, string(directBody), string(<-requests))
 
@@ -118,7 +118,7 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 	constrainedBody := `{"description":"Test grant","principal_id":"` + resourceID + `","effect":"deny","server_id":"` + resourceID + `","upstream_name":"example_tool","constraint":{"version":2,"equals":{"/attempt":1e0},"regex":{"/resource":"item-\\d+"}},"expires_at":null}`
 	constrainedFile := filepath.Join(dir, "constrained.json")
 	require.NoError(t, os.WriteFile(constrainedFile, []byte(constrainedBody), 0o600))
-	output, err = execute("grant", "create", "--file", constrainedFile)
+	output, err = execute("mcp", "grant", "create", "--file", constrainedFile)
 	require.NoError(t, err, "%s", output)
 	constrainedRequest := string(<-requests)
 	assert.JSONEq(t, constrainedBody, constrainedRequest)
@@ -131,13 +131,13 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "missing principal", args: []string{"grant", "create", "--description", "Test grant", "--effect", "allow", "--server-id", resourceID}},
-		{name: "invalid effect", args: []string{"grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "audit", "--server-id", resourceID}},
-		{name: "invalid server", args: []string{"grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", "bad"}},
+		{name: "missing principal", args: []string{"mcp", "grant", "create", "--description", "Test grant", "--effect", "allow", "--server-id", resourceID}},
+		{name: "invalid effect", args: []string{"mcp", "grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "audit", "--server-id", resourceID}},
+		{name: "invalid server", args: []string{"mcp", "grant", "create", "--description", "Test grant", "--principal-id", resourceID, "--effect", "allow", "--server-id", "bad"}},
 		{name: "empty upstream", args: append(directArgs, "--upstream-name", "")},
 		{name: "invalid expiry", args: append(directArgs, "--expires-at", "tomorrow")},
 		{name: "mixed", args: append(directArgs, "--file", baseFile)},
-		{name: "incomplete file", args: []string{"grant", "create", "--file", incompleteFile}},
+		{name: "incomplete file", args: []string{"mcp", "grant", "create", "--file", incompleteFile}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := execute(test.args...)
@@ -148,7 +148,7 @@ func TestCLIGrantCreateInputModes(t *testing.T) {
 	}
 
 	root := newRootCmd()
-	command, _, err := root.Find([]string{"grant", "create"})
+	command, _, err := root.Find([]string{"mcp", "grant", "create"})
 	require.NoError(t, err)
 	for _, flag := range []string{"description", "principal-id", "effect", "server-id", "upstream-name", "expires-at", "file"} {
 		assert.NotNil(t, command.Flags().Lookup(flag), flag)

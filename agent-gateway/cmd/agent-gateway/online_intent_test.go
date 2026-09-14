@@ -65,6 +65,17 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 		return stderr.String()
 	}
 
+	for family, leaves := range map[string][]string{
+		"grant":         {"list", "get", "create", "update", "delete"},
+		"grant-request": {"list", "get", "approve", "reject"},
+	} {
+		for _, leaf := range leaves {
+			t.Run("retired "+family+" "+leaf, func(t *testing.T) {
+				assertRejectedBeforeAuthority(t, []string{family, leaf})
+			})
+		}
+	}
+
 	root := t.TempDir()
 	malformed := filepath.Join(root, "malformed.json")
 	require.NoError(t, os.WriteFile(malformed, []byte(`{"namespace":`), 0o600))
@@ -103,9 +114,9 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 		"mcp server operation start": {"kind"},
 		"principal create":           {"display-name", "visibility"},
 		"principal update":           {"display-name", "visibility", "state"},
-		"grant create":               {"description", "principal-id", "effect", "server-id", "upstream-name", "expires-at"},
-		"grant-request approve":      {"description", "scope", "target", "duration-seconds", "acknowledge-future-tools"},
-		"grant-request reject":       {"reason"},
+		"mcp grant create":           {"description", "principal-id", "effect", "server-id", "upstream-name", "expires-at"},
+		"mcp grant-request approve":  {"description", "scope", "target", "duration-seconds", "acknowledge-future-tools"},
+		"mcp grant-request reject":   {"reason"},
 	}
 	command = newRootCmd()
 	for path, flags := range declarations {
@@ -120,7 +131,7 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	body, err := principalSpec.buildBody(map[string]string{"display-name": "Agent", "visibility": "requestable"}, nil, map[string]bool{"display-name": true, "visibility": true})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"display_name":"Agent","visibility":"requestable"}`, string(body))
-	grantSpec := onlineIntentSpecs["grant create"]
+	grantSpec := onlineIntentSpecs["mcp grant create"]
 	body, err = grantSpec.buildBody(map[string]string{"description": "Test grant", "principal-id": id, "effect": "allow", "server-id": id}, nil, map[string]bool{"description": true, "principal-id": true, "effect": true, "server-id": true})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"description":"Test grant","principal_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","effect":"allow","server_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","upstream_name":null,"constraint":null,"expires_at":null}`, string(body))

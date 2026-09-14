@@ -37,8 +37,8 @@ const replacementNotice =
 const targetRoutes: Readonly<Record<string, readonly [string, Destination]>> = {
   server: ["mcp/servers", "servers"],
   principal: ["principals", "principals"],
-  grant: ["grants", "grants"],
-  grant_request: ["grant-requests", "requests"],
+  grant: ["mcp/grants", "grants"],
+  grant_request: ["mcp/grant-requests", "requests"],
 };
 function outcomeState(outcome: string): OperationalState {
   return outcome === "succeeded"

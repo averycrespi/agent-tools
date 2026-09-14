@@ -282,14 +282,14 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Len(t, manifest.Fixtures, 2)
 		c := testClient(t, s.listen, root)
 		require.Len(t, rows(c.get("mcp/servers"), "items"), 2)
-		require.Len(t, rows(c.get("grants"), "items"), 13)
+		require.Len(t, rows(c.get("mcp/grants"), "items"), 13)
 		names := []string{}
 		for _, item := range rows(c.get("principals"), "items") {
 			row, _ := item.(map[string]any)
 			names = append(names, text(row, "display_name"))
 		}
 		require.ElementsMatch(t, []string{"Demo Explorer", "Demo Reader", "Demo Disabled", "Demo Request Tool", "Demo Request Constraints", "Demo Request Duration", "Demo Request Server", "Demo Request Read-only"}, names)
-		requests := rows(c.get("grant-requests"), "items")
+		requests := rows(c.get("mcp/grant-requests"), "items")
 		require.Len(t, requests, 5)
 		for _, item := range requests {
 			request, _ := item.(map[string]any)
@@ -377,7 +377,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			bearers[bearer] = true
 			c := testClient(t, s.listen, root)
-			for _, collection := range []string{"mcp/servers", "principals", "grants", "grant-requests", "invocations"} {
+			for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "invocations"} {
 				require.Empty(t, rows(c.get(collection), "items"))
 			}
 			require.NoError(t, c.err)

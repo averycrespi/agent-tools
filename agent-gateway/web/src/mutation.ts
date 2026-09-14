@@ -81,9 +81,11 @@ const preconditionRoutes = [
   new RegExp(`^POST /api/v2/mcp/servers/${gatewayID}/credential-replacements$`),
   new RegExp(`^POST /api/v2/mcp/servers/${gatewayID}/oauth-flows$`),
   new RegExp(`^PATCH /api/v2/principals/${gatewayID}$`),
-  new RegExp(`^PATCH /api/v2/grants/${gatewayID}$`),
+  new RegExp(`^PATCH /api/v2/mcp/grants/${gatewayID}$`),
   new RegExp(`^(?:POST|DELETE) /api/v2/principals/${gatewayID}/credential$`),
-  new RegExp(`^POST /api/v2/grant-requests/${gatewayID}/(?:approve|reject)$`),
+  new RegExp(
+    `^POST /api/v2/mcp/grant-requests/${gatewayID}/(?:approve|reject)$`,
+  ),
 ];
 const strongETag = /^"[\x21\x23-\x7e]{1,255}"$/;
 const mutationRoute = /^\/api\/v2\/[A-Za-z0-9_/-]{1,512}$/;
@@ -91,7 +93,7 @@ const credentialReplacementRoute = new RegExp(
   `^/api/v2/mcp/servers/${gatewayID}/credential-replacements$`,
 );
 const matcherApprovalRoute = new RegExp(
-  `^/api/v2/grant-requests/${gatewayID}/approve$`,
+  `^/api/v2/mcp/grant-requests/${gatewayID}/approve$`,
 );
 const maximumBodyBytes = 1024 * 1024;
 
@@ -116,7 +118,8 @@ function isTokenPreservingMatcherMutationJSON(
   if (
     spec.method !== "POST" ||
     spec.body === null ||
-    (spec.route !== "/api/v2/grants" && !matcherApprovalRoute.test(spec.route))
+    (spec.route !== "/api/v2/mcp/grants" &&
+      !matcherApprovalRoute.test(spec.route))
   )
     return false;
   try {

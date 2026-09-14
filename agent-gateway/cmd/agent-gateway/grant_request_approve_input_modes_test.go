@@ -71,7 +71,7 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 		}
 		return stdout.Bytes(), nil
 	}
-	approveArgs := []string{"grant-request", "approve", resourceID, "--etag", etag}
+	approveArgs := []string{"mcp", "grant-request", "approve", resourceID, "--etag", etag}
 	directTool := append(append([]string(nil), approveArgs...), "--description", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes")
 	toolBody := `{"description":"Approved access","approved_policy":{"scope":"tool","target":"example_tool","constraint":null,"duration_seconds":null,"future_tools_acknowledged":false}}`
 
@@ -130,7 +130,7 @@ func TestCLIGrantRequestApproveInputModes(t *testing.T) {
 	}
 
 	root := newRootCmd()
-	command, _, err := root.Find([]string{"grant-request", "approve"})
+	command, _, err := root.Find([]string{"mcp", "grant-request", "approve"})
 	require.NoError(t, err)
 	for _, flag := range []string{"description", "scope", "target", "duration-seconds", "acknowledge-future-tools", "file"} {
 		assert.NotNil(t, command.Flags().Lookup(flag), flag)

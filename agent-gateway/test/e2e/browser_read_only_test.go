@@ -39,12 +39,12 @@ func TestBrowserReadOnlyAgentCLIAndBrowserEnforcement(t *testing.T) {
 	cliRequest := create(true)
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0600))
-	inspected := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "get", cliRequest.ID)
+	inspected := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant-request", "get", cliRequest.ID)
 	require.Contains(t, string(inspected.Stdout), "read-only server tools")
-	refused := runOnlineCLI(t, harness, bearerPath, false, "grant-request", "approve", cliRequest.ID, "--scope", "tool", "--target", catalog.Namespace+".read", "--yes", "--json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "mcp", "grant-request", "approve", cliRequest.ID, "--scope", "tool", "--target", catalog.Namespace+".read", "--yes", "--json")
 	require.Equal(t, 2, refused.ExitCode)
 	require.Equal(t, contract.RequestPending, harness.GetGrantRequest(cliRequest.ID).Resource.State)
-	result := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "approve", cliRequest.ID, "--scope", "server", "--target", catalog.Namespace, "--read-only", "--acknowledge-future-tools", "--yes", "--json")
+	result := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant-request", "approve", cliRequest.ID, "--scope", "server", "--target", catalog.Namespace, "--read-only", "--acknowledge-future-tools", "--yes", "--json")
 	var cliApproved contract.GrantRequest
 	require.NoError(t, json.Unmarshal(result.Stdout, &cliApproved))
 	require.True(t, cliApproved.ApprovedPolicy.ReadOnly)
@@ -87,12 +87,12 @@ func TestBrowserReadOnlyAgentCLIAndBrowserEnforcement(t *testing.T) {
 	require.Len(t, grants, 2)
 	for _, grant := range grants {
 		require.True(t, grant.ReadOnly)
-		readback := runOnlineCLI(t, harness, bearerPath, true, "grant", "get", grant.ID, "--json")
+		readback := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "get", grant.ID, "--json")
 		var loaded contract.Grant
 		require.NoError(t, json.Unmarshal(readback.Stdout, &loaded))
 		require.True(t, loaded.ReadOnly)
 	}
-	readback := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "get", browserRequest.ID)
+	readback := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant-request", "get", browserRequest.ID)
 	assert.Contains(t, string(readback.Stdout), "unrestricted server tools")
 	assert.Contains(t, string(readback.Stdout), "read-only server tools")
 	catalog.Fixture.SetCallOutcome(fixtureCallSuccess)

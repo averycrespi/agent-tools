@@ -52,8 +52,8 @@ const navigation: ReadonlyArray<{
   destinations: ReadonlyArray<Exclude<Destination, "sign-in">>;
 }> = [
   { destinations: ["overview"] },
-  { label: "Access", destinations: ["principals", "grants", "requests"] },
-  { label: "MCP", destinations: ["servers", "catalog"] },
+  { label: "Access", destinations: ["principals"] },
+  { label: "MCP", destinations: ["servers", "catalog", "grants", "requests"] },
   { label: "Activity", destinations: ["invocations", "audit"] },
   { destinations: ["system"] },
 ];
@@ -64,7 +64,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   catalog: "Tools",
   principals: "Principals",
   grants: "Grants",
-  requests: "Requests",
+  requests: "Access requests",
   invocations: "Agents",
   audit: "Administrators",
   system: "System",
@@ -124,17 +124,18 @@ registerInvalidationTrigger(
 );
 registerInvalidationTrigger(
   "grant-invalidation",
-  (key) => /^#\/access\/grants(?:[/?]|$)/.test(key),
+  (key) => /^#\/mcp\/grants(?:[/?]|$)/.test(key),
   ["authorization", "servers"],
 );
 registerInvalidationTrigger(
   "request-list-invalidation",
-  (key) => key === "#/access/requests" || key.startsWith("#/access/requests?"),
+  (key) =>
+    key === "#/mcp/access-requests" || key.startsWith("#/mcp/access-requests?"),
   ["grant_requests"],
 );
 registerInvalidationTrigger(
   "request-detail-invalidation",
-  (key) => /^#\/access\/requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
+  (key) => /^#\/mcp\/access-requests\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
   ["grant_requests", "servers", "catalog"],
 );
 applyTheme(initialTheme);
@@ -462,7 +463,7 @@ function App() {
           resolved.canonicalFragment === "#/access/principals/new"
         ? "Create principal"
         : destination === "grants" &&
-            resolved.canonicalFragment.startsWith("#/access/grants/new")
+            resolved.canonicalFragment.startsWith("#/mcp/grants/new")
           ? "Create grant"
           : resolved.canonicalFragment === "#/system/backups/new"
             ? "Create backup"

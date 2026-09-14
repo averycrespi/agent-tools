@@ -651,7 +651,7 @@ function InvocationFacts({
           <div>
             <dt>Grant</dt>
             <dd>
-              <a href={`#/access/grants/${item.authorization.grantID}`}>
+              <a href={`#/mcp/grants/${item.authorization.grantID}`}>
                 Grant {item.authorization.grantID}
               </a>
             </dd>

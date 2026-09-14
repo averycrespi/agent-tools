@@ -86,7 +86,7 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 		if grant.name != "" {
 			name = grant.name
 		}
-		c.post("grants", object{"description": "Demo " + grant.label + " " + grant.kind + " access", "principal_id": principals[grant.label], "effect": effect, "server_id": servers[grant.kind], "upstream_name": name, "constraint": nil, "expires_at": nil})
+		c.post("mcp/grants", object{"description": "Demo " + grant.label + " " + grant.kind + " access", "principal_id": principals[grant.label], "effect": effect, "server_id": servers[grant.kind], "upstream_name": name, "constraint": nil, "expires_at": nil})
 	}
 	for _, call := range []struct {
 		name string
@@ -107,10 +107,10 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 	for _, collection := range []struct {
 		name  string
 		count int
-	}{{"mcp/servers", 2}, {"principals", 8}, {"grants", 13}} {
+	}{{"mcp/servers", 2}, {"principals", 8}, {"mcp/grants", 13}} {
 		c.require(len(rows(c.get(collection.name), "items")) == collection.count, collection.name+" verification failed")
 	}
-	requests := rows(c.get("grant-requests"), "items")
+	requests := rows(c.get("mcp/grant-requests"), "items")
 	c.require(len(requests) == len(pendingDemoRequests), "pending requests missing")
 	for _, item := range requests {
 		row, _ := item.(map[string]any)

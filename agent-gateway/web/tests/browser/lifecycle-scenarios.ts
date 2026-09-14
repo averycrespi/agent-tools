@@ -1,4 +1,9 @@
-import { type BrowserContext, type Page, type Request } from "@playwright/test";
+import {
+  expect,
+  type BrowserContext,
+  type Page,
+  type Request,
+} from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -437,31 +442,31 @@ export async function runFragmentStorage(
       "#/access/principals?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
     ],
     [
-      "#/access/grants?filter_target=Far&filter_state=expired&filter_principal=Agent&filter_identity=Policy&filter_effect=deny&direction=ascending&sort=principal",
-      "#/access/grants?sort=principal&direction=ascending&filter_effect=deny&filter_identity=Policy&filter_principal=Agent&filter_state=expired&filter_target=Far",
+      "#/mcp/grants?filter_target=Far&filter_state=expired&filter_principal=Agent&filter_identity=Policy&filter_effect=deny&direction=ascending&sort=principal",
+      "#/mcp/grants?sort=principal&direction=ascending&filter_effect=deny&filter_identity=Policy&filter_principal=Agent&filter_state=expired&filter_target=Far",
     ],
-    ["#/access/grants?sort=description", "#/access/grants?sort=description"],
+    ["#/mcp/grants?sort=description", "#/mcp/grants?sort=description"],
     ["#/access/principals/new", "#/access/principals/new"],
     [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
     ["#/access/principals", "#/access/principals"],
     ["#/access/principals/new", "#/access/principals/new"],
     [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
-    ["#/access/grants", "#/access/grants"],
-    ["#/access/grants/new", "#/access/grants/new"],
+    ["#/mcp/grants", "#/mcp/grants"],
+    ["#/mcp/grants/new", "#/mcp/grants/new"],
     [
-      `#/access/grants/new?server_id=${idB}&principal_id=${idA}`,
-      `#/access/grants/new?principal_id=${idA}&server_id=${idB}`,
+      `#/mcp/grants/new?server_id=${idB}&principal_id=${idA}`,
+      `#/mcp/grants/new?principal_id=${idA}&server_id=${idB}`,
     ],
-    [`#/access/grants/${idA}`, `#/access/grants/${idA}`],
-    ["#/access/grants", "#/access/grants"],
-    ["#/access/grants/new", "#/access/grants/new"],
+    [`#/mcp/grants/${idA}`, `#/mcp/grants/${idA}`],
+    ["#/mcp/grants", "#/mcp/grants"],
+    ["#/mcp/grants/new", "#/mcp/grants/new"],
     [
-      `#/access/grants/new?server_id=${idB}&principal_id=${idA}`,
-      `#/access/grants/new?principal_id=${idA}&server_id=${idB}`,
+      `#/mcp/grants/new?server_id=${idB}&principal_id=${idA}`,
+      `#/mcp/grants/new?principal_id=${idA}&server_id=${idB}`,
     ],
-    [`#/access/grants/${idA}`, `#/access/grants/${idA}`],
-    ["#/access/requests", "#/access/requests"],
-    [`#/access/requests/${idA}`, `#/access/requests/${idA}`],
+    [`#/mcp/grants/${idA}`, `#/mcp/grants/${idA}`],
+    ["#/mcp/access-requests", "#/mcp/access-requests"],
+    [`#/mcp/access-requests/${idA}`, `#/mcp/access-requests/${idA}`],
     ["#/activity/invocations", "#/activity/invocations"],
     [`#/activity/invocations/${idA}`, `#/activity/invocations/${idA}`],
     ["#/system", "#/system"],
@@ -511,6 +516,8 @@ export async function runFragmentStorage(
       "principals",
       "grants",
       "requests",
+      "access/grants",
+      "access/requests",
       "invocations",
       "audit",
     ].flatMap((path) => [`#/${path}`, `#/${path}/${idA}`, `#/${path}/new`]),
@@ -518,7 +525,7 @@ export async function runFragmentStorage(
     `#/mcp/servers/${idA}?tab=overview`,
     `#/mcp/servers/${idA}?tab=settings&filter_name=x`,
     "#/system?filter_unknown=x",
-    "#/access/grants/new?__proto__=x",
+    "#/mcp/grants/new?__proto__=x",
     "overview",
     "#overview",
     "#/",
@@ -533,21 +540,21 @@ export async function runFragmentStorage(
     `#/mcp/servers/${idA}?tab=unknown`,
     `#/mcp/servers/${idA}?tab=oauth&tab=oauth`,
     `#/mcp/servers/${idA}?tab=null`,
-    `#/access/grants?principal_id=${idA}`,
-    `#/access/grants?server_id=${idB}`,
-    `#/access/grants?principal_id=${idA}`,
+    `#/mcp/grants?principal_id=${idA}`,
+    `#/mcp/grants?server_id=${idB}`,
+    `#/mcp/grants?principal_id=${idA}`,
     "#/access/principals?direction=ascending",
     "#/access/principals?sort=unknown",
     "#/access/principals?filter_unknown=value",
     "#/access/principals?filter_state=expired",
     "#/access/principals?filter_name=%0A",
     `#/access/principals?filter_name=${encodeURIComponent("é".repeat(129))}`,
-    "#/access/grants?filter_effect=ALLOW",
-    "#/access/grants?sort=description&sort=id",
-    "#/access/grants?cursor=opaque",
-    "#/access/grants?filter_identity=%E0%A4%A",
-    "#/access/requests?state=pending",
-    `#/access/requests?principal_id=${idA}`,
+    "#/mcp/grants?filter_effect=ALLOW",
+    "#/mcp/grants?sort=description&sort=id",
+    "#/mcp/grants?cursor=opaque",
+    "#/mcp/grants?filter_identity=%E0%A4%A",
+    "#/mcp/access-requests?state=pending",
+    `#/mcp/access-requests?principal_id=${idA}`,
     `#/activity/invocations?principal_id=${idA}`,
     `#/activity/invocations?server_id=${idB}`,
     "#/activity/invocations?admission_class=evaluated",
@@ -1229,10 +1236,10 @@ export async function runShellPrimitives(
   const expectedNavigation = [
     ["Overview", "#/overview"],
     ["Principals", "#/access/principals"],
-    ["Grants", "#/access/grants"],
-    ["Requests", "#/access/requests"],
     ["Servers", "#/mcp/servers"],
     ["Tools", "#/mcp/tools"],
+    ["Grants", "#/mcp/grants"],
+    ["Access requests", "#/mcp/access-requests"],
     ["Agents", "#/activity/invocations"],
     ["Administrators", "#/activity/audit"],
     ["System", "#/system"],
@@ -1249,8 +1256,8 @@ export async function runShellPrimitives(
   if (JSON.stringify(navigationLinks) !== JSON.stringify(expectedNavigation))
     fail("domain navigation labels, order or legacy destinations changed");
   for (const [name, labels] of [
-    ["Access", ["Principals", "Grants", "Requests"]],
-    ["MCP", ["Servers", "Tools"]],
+    ["Access", ["Principals"]],
+    ["MCP", ["Servers", "Tools", "Grants", "Access requests"]],
     ["Activity", ["Agents", "Administrators"]],
   ] as const) {
     const links = await primary
@@ -1274,6 +1281,50 @@ export async function runShellPrimitives(
     );
     if ((await primary.locator('[aria-current="page"]').count()) !== 1)
       fail("navigation must have exactly one current destination");
+  }
+
+  for (const fragment of [
+    "#/mcp/grants?sort=target&filter_effect=deny",
+    "#/mcp/access-requests?queue=all&filter_state=approved",
+  ]) {
+    await page.evaluate((value) => {
+      location.hash = value;
+    }, fragment);
+    await expect(page).toHaveURL(`${baseURL}/${fragment}`);
+    await page.reload();
+    await waitForLifecycle(page, "authenticated");
+    await expect(page).toHaveURL(`${baseURL}/${fragment}`);
+    await primary.getByRole("link", { name: "Overview", exact: true }).click();
+    await page.goBack();
+    await expect(page).toHaveURL(`${baseURL}/${fragment}`);
+    await page.goForward();
+    await expect(page).toHaveURL(`${baseURL}/#/overview`);
+  }
+  const retiredResourceReads: string[] = [];
+  const observeRetiredRead = (request: Request) => {
+    const path = new URL(request.url()).pathname;
+    if (
+      /^\/api\/v2\/(?:mcp\/)?grants(?:\/|$)/.test(path) ||
+      /^\/api\/v2\/(?:mcp\/)?grant-requests\//.test(path)
+    ) {
+      retiredResourceReads.push(request.method() + " " + path);
+    }
+  };
+  page.on("request", observeRetiredRead);
+  try {
+    for (const fragment of [
+      "#/access/grants/new",
+      "#/access/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    ]) {
+      await page.goto(`${baseURL}/${fragment}`);
+      await waitForLifecycle(page, "authenticated");
+      await expect(page).toHaveURL(`${baseURL}/#/overview`);
+      await expect(page.getByTestId("location-notice")).toBeVisible();
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+    }
+    expect(retiredResourceReads).toEqual([]);
+  } finally {
+    page.off("request", observeRetiredRead);
   }
 
   await page.locator('aside nav a[href="#/mcp/servers"]').focus();

@@ -16,9 +16,9 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v2/principals", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v2/principals/{id}", Methods: []string{"GET", "PATCH"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v2/principals/{id}/credential", Methods: []string{"DELETE", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/grants/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/grant-constraints/validate", Methods: []string{"POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/grants/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/grant-constraints/validate", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
 	s3RouteStart := -1
@@ -37,15 +37,15 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		"/api/v2/principals":                                       "/api/v2/principals",
 		"/api/v2/principals/01ARZ3NDEKTSV4RRFFQ69G5FAV":            "/api/v2/principals/{id}",
 		"/api/v2/principals/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential": "/api/v2/principals/{id}/credential",
-		"/api/v2/grants":                                           "/api/v2/grants",
-		"/api/v2/grants/01ARZ3NDEKTSV4RRFFQ69G5FAV":                "/api/v2/grants/{id}",
-		"/api/v2/grant-constraints/validate":                       "/api/v2/grant-constraints/validate",
+		"/api/v2/mcp/grants":                                       "/api/v2/mcp/grants",
+		"/api/v2/mcp/grants/01ARZ3NDEKTSV4RRFFQ69G5FAV":            "/api/v2/mcp/grants/{id}",
+		"/api/v2/mcp/grant-constraints/validate":                   "/api/v2/mcp/grant-constraints/validate",
 	} {
 		route, ok := RouteForPath(path)
 		require.True(t, ok, path)
 		require.Equal(t, pattern, route.Pattern, path)
 	}
-	for _, path := range []string{"/api/v2/principals/", "/api/v2/principals/a/credential/", "/api/v2/grants/a/b"} {
+	for _, path := range []string{"/api/v2/principals/", "/api/v2/principals/a/credential/", "/api/v2/mcp/grants/a/b"} {
 		_, ok := RouteForPath(path)
 		require.False(t, ok, path)
 	}
@@ -57,12 +57,12 @@ func TestAuthorizationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v2/principals/{id}", Method: "PATCH", RequestSchema: "PrincipalPatch", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 		{Pattern: "/api/v2/principals/{id}/credential", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "AgentCredentialCreation", SuccessStatuses: []int{201}, Precondition: true, ETag: true},
 		{Pattern: "/api/v2/principals/{id}/credential", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Principal", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-		{Pattern: "/api/v2/grants", Method: "GET", RequestSchema: "GrantListQuery", SuccessSchema: "QueryPage<GrantTableItem>", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v2/grants", Method: "POST", RequestSchema: "GrantCreate", SuccessSchema: "Grant", SuccessStatuses: []int{201}, ETag: true},
-		{Pattern: "/api/v2/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Grant", SuccessStatuses: []int{200}, ETag: true},
-		{Pattern: "/api/v2/grants/{id}", Method: "PATCH", RequestSchema: "GrantPatch", SuccessSchema: "Grant", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-		{Pattern: "/api/v2/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
-		{Pattern: "/api/v2/grant-constraints/validate", Method: "POST", RequestSchema: "GrantConstraintValidation", SuccessSchema: "GrantConstraintValidationResult", SuccessStatuses: []int{200}},
+		{Pattern: "/api/v2/mcp/grants", Method: "GET", RequestSchema: "GrantListQuery", SuccessSchema: "QueryPage<GrantTableItem>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/mcp/grants", Method: "POST", RequestSchema: "GrantCreate", SuccessSchema: "Grant", SuccessStatuses: []int{201}, ETag: true},
+		{Pattern: "/api/v2/mcp/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Grant", SuccessStatuses: []int{200}, ETag: true},
+		{Pattern: "/api/v2/mcp/grants/{id}", Method: "PATCH", RequestSchema: "GrantPatch", SuccessSchema: "Grant", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+		{Pattern: "/api/v2/mcp/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}},
+		{Pattern: "/api/v2/mcp/grant-constraints/validate", Method: "POST", RequestSchema: "GrantConstraintValidation", SuccessSchema: "GrantConstraintValidationResult", SuccessStatuses: []int{200}},
 	}
 	mechanics := ResourceMechanics()
 	s3MechanicStart := -1
