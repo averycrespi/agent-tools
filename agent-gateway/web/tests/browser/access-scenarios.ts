@@ -1878,6 +1878,9 @@ export async function runGrantReadsCreate(
   }, firstGrantID);
   await page.locator('[data-testid="grant-detail"]').waitFor();
   const grantDetail = page.locator('[data-testid="grant-detail"]');
+  await expect(grantDetail.locator("#grant-page-title")).toHaveText(
+    `MCP Grant ${firstGrantID}`,
+  );
   const grantFactLabels = await grantDetail.locator("dt").allTextContents();
   if (
     !grantFactLabels.includes("Grant ID") ||
@@ -1942,7 +1945,7 @@ export async function runGrantReadsCreate(
     "";
   if (
     (await page
-      .getByRole("heading", { level: 1, name: "Create grant", exact: true })
+      .getByRole("heading", { level: 1, name: "Create MCP Grant", exact: true })
       .count()) !== 1 ||
     !grantCreateBody.includes("cannot be edited after creation") ||
     (
@@ -3559,7 +3562,10 @@ export async function runRequestReads(
 
   await navigate(requestIDs[1]!);
   await expect(
-    page.getByRole("heading", { name: "Approved request", exact: true }),
+    page.getByRole("heading", {
+      name: "Approved MCP Access Request",
+      exact: true,
+    }),
   ).toBeVisible();
   const approvedDecision = page.getByRole("region", {
     name: "Approved decision",
@@ -3596,7 +3602,10 @@ export async function runRequestReads(
   if ((await page.getByTestId("request-actions").count()) !== 0)
     fail("cancelled request remained editable");
   await expect(
-    page.getByRole("heading", { name: "Cancelled request", exact: true }),
+    page.getByRole("heading", {
+      name: "Cancelled MCP Access Request",
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     page.getByTestId("request-detail").locator(".panel-heading .status-label"),
@@ -4385,7 +4394,10 @@ export async function runRequestAdjudication(
       .getByText("Request adjudication is closed", { exact: true })
       .waitFor();
     await expect(
-      page.getByRole("heading", { name: "Rejected request", exact: true }),
+      page.getByRole("heading", {
+        name: "Rejected MCP Access Request",
+        exact: true,
+      }),
     ).toBeVisible();
   }
 

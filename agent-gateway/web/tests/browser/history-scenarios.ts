@@ -210,7 +210,7 @@ export async function assertAuthoritativeHistory(
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(
-      page.getByRole("heading", { name: "Invocations", exact: true }),
+      page.getByRole("heading", { name: "MCP Invocations", exact: true }),
     ).toBeVisible();
     await expect(
       page
@@ -300,6 +300,9 @@ export async function assertAuthoritativeHistory(
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
     ).toHaveText("Invocations");
+    await expect(page.locator("#invocation-page-title")).toHaveText(
+      `MCP Invocation ${selected.items[0].id}`,
+    );
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
     await page.getByRole("link", { name: "Back to invocations" }).click();
     await expect(live).not.toBeChecked();

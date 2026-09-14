@@ -1276,7 +1276,9 @@ export async function runShellPrimitives(
       ({ label, href }) =>
         window.location.hash === href &&
         document.querySelector("#page-title")?.textContent ===
-          (label === "Requests" ? "Access requests" : label) &&
+          (href.startsWith("#/mcp/")
+            ? `MCP ${label === "Requests" ? "Access Requests" : label}`
+            : label) &&
         document
           .querySelector("#primary-navigation a[aria-current=page]")
           ?.getAttribute("href") === href,
@@ -1343,9 +1345,9 @@ export async function runShellPrimitives(
     );
     return (
       window.location.hash === "#/mcp/servers" &&
-      title?.textContent?.trim() === "Servers" &&
+      title?.textContent?.trim() === "MCP Servers" &&
       title === document.activeElement &&
-      announcement?.textContent?.includes("Servers")
+      announcement?.textContent?.includes("MCP Servers")
     );
   });
   const authStatus = page.locator('[data-testid="authentication-status"]');

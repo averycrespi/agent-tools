@@ -1110,7 +1110,7 @@ function InvocationDetail({
       <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 id="invocation-page-title" tabindex={-1}>
-            Invocation {item.id}
+            MCP Invocation {item.id}
           </h1>
         </div>
       </header>

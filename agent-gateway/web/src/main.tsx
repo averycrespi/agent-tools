@@ -71,6 +71,15 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   "sign-in": "Sign in",
 };
 
+const pageLabels: Readonly<Record<Destination, string>> = {
+  ...destinationLabels,
+  servers: "MCP Servers",
+  catalog: "MCP Tools",
+  grants: "MCP Grants",
+  requests: "MCP Access Requests",
+  invocations: "MCP Invocations",
+};
+
 const initialLocation = synchronizeFragment(false);
 const initialTheme = readThemePreference();
 const sessionClient = new SessionClient();
@@ -457,19 +466,19 @@ function App() {
   const destinationLabel =
     destination === "servers" && resolved.location.segments[1] !== undefined
       ? resolved.canonicalFragment === "#/mcp/servers/new"
-        ? "Create server"
-        : "Server details"
+        ? "Create MCP Server"
+        : "MCP Server details"
       : destination === "principals" &&
           resolved.canonicalFragment === "#/principals/new"
         ? "Create principal"
         : destination === "grants" &&
             resolved.canonicalFragment.startsWith("#/mcp/grants/new")
-          ? "Create grant"
+          ? "Create MCP Grant"
           : resolved.canonicalFragment === "#/system/backups/new"
             ? "Create backup"
             : resolved.canonicalFragment === "#/system/admin-credentials/new"
               ? "Create admin credential"
-              : destinationLabels[destination];
+              : pageLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
 
   return (
@@ -674,10 +683,12 @@ function App() {
               {isPrincipalDetail
                 ? "Principal details"
                 : isInvocationDetail
-                  ? "Invocation details"
+                  ? "MCP Invocation details"
                   : isGrantDetail
-                    ? "Grant details"
-                    : "Request details"}
+                    ? "MCP Grant details"
+                    : isRequestDetail
+                      ? "MCP Access Request details"
+                      : "Audit event details"}
             </span>
           ) : (
             <h1

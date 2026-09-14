@@ -298,7 +298,7 @@ Invocation JSON, CLI machine output, filters, limits, cursor/generation rules, r
 
 ## MCP permission namespace cutover
 
-Upgrade the service, standalone CLI, bundled browser, API consumers, and automation together. Reload open browser tabs after the upgrade and sign in again if the service restarted. This is a coordinated clean cutover within API v2, not a storage or credential migration. The sidebar starts with Overview, Principals, Audit Log, and System; **MCP** contains Servers, Tools, Grants, **Requests**, and **Invocations**. Requests retains the page title **Access requests**. Access requests approve MCP permissions, not network traffic or queued calls.
+Upgrade the service, standalone CLI, bundled browser, API consumers, and automation together. Reload open browser tabs after the upgrade and sign in again if the service restarted. This is a coordinated clean cutover within API v2, not a storage or credential migration. The sidebar starts with Overview, Principals, Audit Log, and System; **MCP** contains Servers, Tools, Grants, **Requests**, and **Invocations**. MCP page titles include the protocol prefix; Requests opens **MCP Access Requests**. Access requests approve MCP permissions, not network traffic or queued calls.
 
 | Retired interface                     | Canonical interface                       |
 | ------------------------------------- | ----------------------------------------- |

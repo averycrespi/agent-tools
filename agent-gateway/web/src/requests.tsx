@@ -1893,8 +1893,8 @@ export function Requests({
           <div class="detail-context-heading">
             <h1 id="request-page-title" tabindex={-1}>
               {detail.state === "pending"
-                ? "Review request"
-                : `${sentenceCase(detail.state)} request`}
+                ? "Review MCP Access Request"
+                : `${sentenceCase(detail.state)} MCP Access Request`}
             </h1>
           </div>
         </header>

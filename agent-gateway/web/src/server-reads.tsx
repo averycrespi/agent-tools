@@ -1403,7 +1403,7 @@ function ServerNavigation({
     <>
       <header class="server-context" data-testid="server-context">
         <div class="server-context-heading">
-          <h2 tabindex={-1}>{server.displayName}</h2>
+          <h2 tabindex={-1}>MCP Server: {server.displayName}</h2>
           <StatusLabel state={presentation.state}>
             {presentation.label}
           </StatusLabel>
@@ -2238,7 +2238,7 @@ export function ServerReads({
                     <div class="panel-heading tool-heading">
                       <div>
                         <h2 id="descriptor-detail-title">
-                          {descriptor.externalName}
+                          MCP Tool: {descriptor.externalName}
                         </h2>
                         {typeof document.description === "string" && (
                           <p>{document.description}</p>
