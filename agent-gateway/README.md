@@ -10,13 +10,13 @@ Agents get the tools they need. You keep control over what they can do.
 
 ### Agent-first
 
-Agents can discover available tools, inspect their permissions, and request additional access without leaving MCP. Discovery is configurable per agent, so you can expose only authorized tools or let agents find tools they may need to request.
+Agents discover tools, inspect permissions, and request access through MCP. Configurable MCP discovery visibility grants no access; MCP grants remain authoritative.
 
 Access requests approve MCP permissions, not network traffic; they do not queue tool calls. After approval, the agent makes a new call.
 
 ### Scoped access, not shared authority
 
-Give each agent its own identity and credential instead of sharing one all-access token. Grant access to a whole server or a specific tool, narrow it with argument constraints, and set an expiry when access should be temporary.
+Give each agent its own shared principal identity and singular credential instead of sharing one all-access token. Creating a principal adds an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Grant access to a whole server or a specific tool, narrow it with argument constraints, and set an expiry when access should be temporary.
 
 Gateway denies calls by default and checks current policy before execution. Rotate or revoke an agent's access without distributing new upstream credentials.
 

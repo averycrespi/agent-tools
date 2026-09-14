@@ -623,7 +623,7 @@ export async function runPrincipals(
   await assertTableConventions(
     page,
     "Principal identities",
-    ["Principal", "Status", "Visibility"],
+    ["Principal", "Status", "MCP discovery visibility"],
     "Principal",
   );
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
@@ -677,7 +677,7 @@ export async function runPrincipals(
   if (
     principalHeaders
       .map((value) => value.replace(/\s?[↑↓↕]$/, ""))
-      .join("|") !== "Principal|Status|Visibility"
+      .join("|") !== "Principal|Status|MCP discovery visibility"
   )
     fail(`principal columns drifted: ${principalHeaders.join("|")}`);
   if (
@@ -713,7 +713,11 @@ export async function runPrincipals(
       .getByRole("heading", { level: 1, name: "Create principal", exact: true })
       .count()) !== 1 ||
     body.includes("permanent synthetic default ALLOW grant") ||
-    !body.includes("Gateway self-service tools") ||
+    !body.includes("six fixed MCP self-service tools") ||
+    !body.includes("not downstream tools or future protocols") ||
+    !body.includes(
+      "Discovery visibility grants no access; MCP grants remain authoritative.",
+    ) ||
     !body.includes("permanent identity")
   )
     fail("principal creation retained internal default-grant language");
@@ -770,11 +774,22 @@ export async function runPrincipals(
   if (
     !principalReview.includes("New automation") ||
     !principalReview.includes("Allowed tools only") ||
-    !principalReview.includes("Default Gateway access")
+    !principalReview.includes("Default Gateway access") ||
+    !principalReview.includes("MCP discovery visibility") ||
+    !principalReview.includes("six fixed MCP self-service tools") ||
+    !principalReview.includes("not downstream tools or future protocols") ||
+    !principalReview.includes("MCP grants remain authoritative")
   )
     fail("principal creation review omitted submitted values");
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page.locator('[data-testid="principal-detail"]').waitFor();
+  await page
+    .getByTestId("toast")
+    .filter({
+      hasText:
+        "Principal created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
+    })
+    .waitFor();
 
   await page.evaluate((id) => {
     window.location.hash = `#/access/principals/${id}`;
@@ -795,7 +810,12 @@ export async function runPrincipals(
   )
     fail("principal detail did not use the shared detail hierarchy");
   body = (await page.locator("body").textContent()) ?? "";
+  await page.getByLabel("MCP discovery visibility", { exact: true }).waitFor();
   if (
+    !body.includes(
+      "Discovery visibility grants no access; MCP grants remain authoritative.",
+    ) ||
+    !body.includes("MCP discovery visibility") ||
     body.includes("permanent synthetic default ALLOW grant") ||
     body.includes("Re-enabling restores neither") ||
     body.includes("Visibility is not call authorization") ||
@@ -855,6 +875,11 @@ export async function runPrincipals(
   await page.locator('[data-testid="principal-editor-submit"]').click();
   await page
     .getByRole("heading", { name: "Renamed agent", exact: true })
+    .waitFor();
+  await page
+    .getByText("Principal identity and MCP discovery visibility saved.", {
+      exact: true,
+    })
     .waitFor();
   const principalState = page.getByRole("switch", {
     name: "Principal enabled",

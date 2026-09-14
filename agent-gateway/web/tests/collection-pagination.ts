@@ -487,7 +487,7 @@ export async function exerciseCollectionPagination(
       };
       if (selected === "principals") {
         await selectFilter("Status", "disabled", "state");
-        await selectFilter("Visibility", "all", "visibility");
+        await selectFilter("MCP discovery visibility", "all", "visibility");
       } else {
         await selectFilter("Effect", "deny", "effect");
         await selectFilter("Status", "expired", "state");

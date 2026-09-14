@@ -167,7 +167,11 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 			} else {
 				value := ""
 				options.direct[flag] = &value
-				flags.StringVar(options.direct[flag], flag, "", "direct command input")
+				usage := "direct command input"
+				if flag == "visibility" {
+					usage = "MCP discovery visibility: requestable, allowed-only, or all; grants no access, MCP grants remain authoritative"
+				}
+				flags.StringVar(options.direct[flag], flag, "", usage)
 			}
 			continue
 		}
@@ -203,6 +207,10 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
+	case "principal create":
+		return spec.Short + ". Principals and their singular credential slot remain shared administration. Creation also adds Default Gateway access: an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Human output shows principal metadata; JSON retains principal and default_grant. Issue the credential separately; configure downstream MCP grants separately. Discovery visibility grants no access; MCP grants remain authoritative."
+	case "principal update":
+		return spec.Short + ". Principals and credentials remain shared administration. --visibility changes MCP discovery only and grants no access; MCP grants remain authoritative. Disabling clears the current credential and invalidates admitted authority; re-enabling restores neither credentials nor deleted grants."
 	case "mcp grant create", "mcp grant-request approve":
 		return spec.Short + ". --read-only restricts server ALLOW access to current and future tools explicitly declaring readOnlyHint=true. Hints are trusted server declarations, not side-effect isolation. Other ALLOW grants may authorize writes; matching DENY still wins. Read-only requests must retain --read-only and server scope; --acknowledge-future-tools remains required for server approval. Approval reads the submitted restriction before mutation, even with an explicit ETag, and never refreshes that ETag or replays a mutation. Direct flags and --file are mutually exclusive."
 	case "audit list", "audit get":

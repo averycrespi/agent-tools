@@ -82,7 +82,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:f7339647a5053bdb723cd6dc7f4d358af9db6b61ab0771052254f297edd32dd3", digest)
+	assert.Equal(t, "sha256:4e75d0c670e64cd1e44a2387e4e2af3f5e362c1957462844e8f7424751e387d9", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -91,6 +91,25 @@ func TestCLIOAuthCompatibilityHelp(t *testing.T) {
 		require.NoError(t, err)
 		for _, expected := range []string{"callback_uri", "http://localhost:3118/callback", "auth_server_metadata_url", "scopes", "null", "[]", "request_offline_access", "temporary callback-only"} {
 			assert.Contains(t, command.Long, expected)
+		}
+	}
+}
+
+func TestCLIPrincipalHelpDistinguishesMCPPolicy(t *testing.T) {
+	for _, action := range []string{"create", "update"} {
+		command, _, err := newRootCmd().Find([]string{"principal", action})
+		require.NoError(t, err)
+		output := new(bytes.Buffer)
+		command.SetOut(output)
+		require.NoError(t, command.Help())
+		for _, expected := range []string{"shared administration", "MCP discovery", "grants no access", "MCP grants remain authoritative", "requestable, allowed-only, or all"} {
+			assert.Contains(t, output.String(), expected, action)
+		}
+		assert.Empty(t, command.Flags().Lookup("visibility").DefValue)
+		if action == "create" {
+			for _, expected := range []string{"Default Gateway access", "six fixed MCP self-service tools", "not downstream tools or future protocols", "principal and default_grant", "Issue the credential separately"} {
+				assert.Contains(t, output.String(), expected)
+			}
 		}
 	}
 }

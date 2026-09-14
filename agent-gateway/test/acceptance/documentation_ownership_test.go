@@ -213,7 +213,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 	}
 	assert.Equal(t, len(markers), seen)
 	accessGuide := guides["product.access_policy."]
-	assert.Contains(t, accessGuide, "`all` discovers every current tool")
+	assert.Contains(t, accessGuide, "`all` discovers every current MCP tool")
 	assert.Contains(t, accessGuide, "canonical decimal from 60 through 2,592,000 seconds")
 	for _, tool := range []string{"get_identity", "list_grants", "create_grant_request", "get_grant_request", "list_grant_requests", "cancel_grant_request"} {
 		assert.Contains(t, accessGuide, "mcp_gateway."+tool)

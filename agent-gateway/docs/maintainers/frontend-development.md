@@ -179,7 +179,7 @@ The administrator bearer remains in the owner-only file. Read it only at the bro
 
 A small set of UI operations reaches most populated states without a downstream fixture:
 
-1. Create a principal. Creation also adds its Default Gateway grant.
+1. Create a principal. Creation also adds its ordinary Default Gateway access grant for the six fixed MCP self-service tools, not downstream tools. Check MCP discovery visibility wording in create/edit, review, details, and collection/filter states; visibility grants no access.
 2. Issue its agent credential to inspect confirmation and one-time-secret behavior.
 3. Create an exact grant against Gateway self-service tools.
 4. Create a disabled, unauthenticated HTTP server with a syntactically valid non-routable endpoint such as `https://example.invalid/mcp`. This exposes the server detail tabs without initiating downstream work.
