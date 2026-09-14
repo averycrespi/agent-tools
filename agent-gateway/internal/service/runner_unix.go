@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -75,7 +76,7 @@ func runOwned(ctx context.Context, name string, args ...string) ([]byte, int, er
 	for {
 		exited, e := childExited(command.Process.Pid)
 		if e != nil {
-			cause = errors.New("owned utility exit observation failed")
+			cause = fmt.Errorf("owned utility exit observation failed: %w", e)
 			break
 		}
 		if exited {
@@ -97,7 +98,7 @@ func runOwned(ctx context.Context, name string, args ...string) ([]byte, int, er
 	// Setpgid succeeded in Start and Wait has never been called: this PID cannot
 	// have been recycled, even if the group leader has already exited.
 	if e := syscall.Kill(-command.Process.Pid, syscall.SIGKILL); e != nil && !errors.Is(e, syscall.ESRCH) {
-		cause = errors.Join(cause, errors.New("utility group cleanup failed"))
+		cause = errors.Join(cause, fmt.Errorf("utility group cleanup failed: %w", e))
 	}
 	reaped := make(chan error, 1)
 	go func() { reaped <- command.Wait() }()

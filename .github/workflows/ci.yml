@@ -114,6 +114,31 @@ jobs:
           node-version: 24
       - run: make -C agent-gateway test-harness test-material
 
+  gateway-macos:
+    name: Gateway ${{ matrix.suite }} tests (macOS)
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [integration, harness]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/go-cache
+        with:
+          role: ${{ matrix.suite }}
+          tool: agent-gateway
+      - uses: actions/setup-node@v4
+        if: matrix.suite == 'harness'
+        with:
+          node-version: 24
+      - name: Run platform owner
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: make -C agent-gateway "test-$SUITE"
+
   sandbox-manager-macos:
     name: Sandbox Manager tests (macOS)
     needs: changes
@@ -226,6 +251,7 @@ jobs:
       - gateway-demo
       - gateway-lint
       - gateway-harness
+      - gateway-macos
       - vulnerability-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5

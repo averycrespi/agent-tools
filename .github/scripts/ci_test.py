@@ -147,7 +147,7 @@ class GateTests(unittest.TestCase):
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
                          "vulnerability-scan": "tools", "gateway-demo": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
-                         "sandbox-manager-macos": "sandbox"}.items():
+                         "gateway-macos": "gateway", "sandbox-manager-macos": "sandbox"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
 
@@ -248,6 +248,22 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(demo.count("run: make -C agent-gateway test-serve-demo"), 1)
         self.assertNotIn("continue-on-error", demo)
 
+    def test_gateway_macos_executes_disjoint_platform_owners(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        job = jobs["gateway-macos"]
+        for fragment in ("needs: changes", "if: needs.changes.outputs.gateway == 'true'",
+                         "runs-on: macos-latest", "fail-fast: false", "suite: [integration, harness]",
+                         "role: ${{ matrix.suite }}", "tool: agent-gateway",
+                         'run: make -C agent-gateway "test-$SUITE"', "SUITE: ${{ matrix.suite }}"):
+            self.assertIn(fragment, job)
+        self.assertNotIn("continue-on-error", job)
+        self.assertNotIn("keyring-native", job)
+        self.assertNotIn("DISPOSABLE_MACOS_KEYCHAIN", job)
+        for role in ("integration", "harness"):
+            self.assertNotEqual(self.identity(role=role)["prefix"],
+                                self.identity(role=role, platform="macOS/ARM64")["prefix"])
+
     def test_workflow_wires_cache_and_mandatory_independent_gateway_lint(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
@@ -256,7 +272,8 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(set(dependencies), {"changes", "quality", *SUITE_JOBS})
         roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint", "gateway-harness": "harness",
                  "integration-tests": "integration", "e2e-tests": "e2e", "gateway-demo": "demo",
-                 "vulnerability-scan": "vulnerability", "sandbox-manager-macos": "macos"}
+                 "vulnerability-scan": "vulnerability", "sandbox-manager-macos": "macos",
+                 "gateway-macos": "${{ matrix.suite }}"}
         for job, role in roles.items():
             self.assertEqual(jobs[job].count("uses: ./.github/actions/go-cache"), 1)
             self.assertIn(f"role: {role}\n", jobs[job])
