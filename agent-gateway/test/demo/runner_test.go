@@ -306,11 +306,11 @@ func TestServeDemoLifecycle(t *testing.T) {
 		}
 		require.True(t, discovered["demo_workshop.add"])
 		require.False(t, discovered["demo_workshop.controlled_error"])
-		before := rows(c.get("invocations"), "items")
+		before := rows(c.get("mcp/invocations"), "items")
 		time.Sleep(200 * time.Millisecond)
-		require.Equal(t, before, rows(c.get("invocations"), "items"), "background activity")
+		require.Equal(t, before, rows(c.get("mcp/invocations"), "items"), "background activity")
 		require.True(t, contentIs(c.call(explorer, "demo_workshop.add", object{"a": 40, "b": 2}), "42"))
-		require.Len(t, rows(c.get("invocations"), "items"), len(before)+1)
+		require.Len(t, rows(c.get("mcp/invocations"), "items"), len(before)+1)
 		require.Equal(t, "call_rejected", text(c.call(reader, "demo_workshop.add", object{"a": 1, "b": 2}), "error", "data", "code"))
 		require.Equal(t, "downstream_failure", text(c.call(explorer, "demo_workshop.controlled_error", object{}), "error", "data", "code"))
 		require.True(t, contentIs(c.call(reader, "demo_library.lookup", object{"document": "welcome"}), documents["welcome"]))
@@ -377,7 +377,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			bearers[bearer] = true
 			c := testClient(t, s.listen, root)
-			for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "invocations"} {
+			for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations"} {
 				require.Empty(t, rows(c.get(collection), "items"))
 			}
 			require.NoError(t, c.err)

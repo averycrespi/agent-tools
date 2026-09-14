@@ -117,7 +117,7 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 		c.require(text(row, "request", "state") == "pending", "demo request is not pending")
 	}
 	success, failure := false, false
-	for _, item := range rows(c.get("invocations"), "items") {
+	for _, item := range rows(c.get("mcp/invocations"), "items") {
 		row, _ := item.(map[string]any)
 		if text(row, "requested_name") == "demo_workshop.add" && text(row, "outcome", "class") == "succeeded" {
 			success = true
