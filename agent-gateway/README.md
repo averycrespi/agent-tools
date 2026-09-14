@@ -10,7 +10,7 @@ Agents get the tools they need. You keep control over what they can do.
 
 ### Agent-first
 
-Agents can discover available tools, inspect their permissions, and request additional access without leaving MCP. MCP discovery visibility is configurable per agent, so you can expose only authorized tools or let agents find tools they may need to request. Visibility grants no access; MCP grants remain authoritative.
+Agents discover tools, inspect permissions, and request access through MCP. Configurable MCP discovery visibility grants no access; MCP grants remain authoritative.
 
 Access requests approve MCP permissions, not network traffic; they do not queue tool calls. After approval, the agent makes a new call.
 
