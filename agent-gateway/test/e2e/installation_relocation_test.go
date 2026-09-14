@@ -32,7 +32,7 @@ func TestInstallationRelocationPreservesExistingAuthority(t *testing.T) {
 	issued := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "issue", creation.Principal.ID, "--secret-output", agentPath, "--yes", "--json")
 	var principal contract.Principal
 	require.NoError(t, json.Unmarshal(issued.Stdout, &principal))
-	grantResult := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--description", "Preserved policy", "--principal-id", principal.ID, "--effect", "deny", "--server-id", contract.SyntheticServerID, "--upstream-name", "get_identity", "--json")
+	grantResult := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "create", "--description", "Preserved policy", "--principal-id", principal.ID, "--effect", "deny", "--server-id", contract.SyntheticServerID, "--upstream-name", "get_identity", "--json")
 	var grant contract.Grant
 	require.NoError(t, json.Unmarshal(grantResult.Stdout, &grant))
 	backupResult := runOnlineCLI(t, harness, bearerPath, true, "backup", "create", "--json")
@@ -52,7 +52,7 @@ func TestInstallationRelocationPreservesExistingAuthority(t *testing.T) {
 	harness.Start()
 	afterPrincipal := runOnlineCLI(t, harness, bearerPath, true, "principal", "get", principal.ID, "--json")
 	require.JSONEq(t, string(issued.Stdout), string(afterPrincipal.Stdout))
-	afterGrant := runOnlineCLI(t, harness, bearerPath, true, "grant", "get", grant.ID, "--json")
+	afterGrant := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "get", grant.ID, "--json")
 	require.JSONEq(t, string(grantResult.Stdout), string(afterGrant.Stdout))
 	afterBackup := runOnlineCLI(t, harness, bearerPath, true, "backup", "get", backup.ID, "--json")
 	require.JSONEq(t, string(backupResult.Stdout), string(afterBackup.Stdout))

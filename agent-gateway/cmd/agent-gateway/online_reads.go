@@ -143,37 +143,37 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runPrincipalCredentialRotate(command, options, args)
 	case "principal credential revoke":
 		return runPrincipalCredentialRevoke(command, options, args)
-	case "grant list":
+	case "mcp grant list":
 		path, err := grantListPath(options)
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, grantListTable)
-	case "grant get":
+	case "mcp grant get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v2/grants/"+args[0], grantItemTable)
-	case "grant create":
+		return runOnlineRead(command, options, "/api/v2/mcp/grants/"+args[0], grantItemTable)
+	case "mcp grant create":
 		return runGrantCreate(command, options)
-	case "grant update":
+	case "mcp grant update":
 		return runGrantUpdate(command, options, args)
-	case "grant delete":
+	case "mcp grant delete":
 		return runGrantDelete(command, options, args)
-	case "grant-request list":
+	case "mcp grant-request list":
 		path, err := grantRequestListPath(options)
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, grantRequestListTable)
-	case "grant-request get":
+	case "mcp grant-request get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The grant-request ID is invalid."))
 		}
 		return runOnlineItemRead(command, options, onlineItemGrantRequest, args[0], grantRequestItemTable)
-	case "grant-request approve":
+	case "mcp grant-request approve":
 		return runGrantRequestApprove(command, options, args)
-	case "grant-request reject":
+	case "mcp grant-request reject":
 		return runGrantRequestReject(command, options, args)
 	case "invocation get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {

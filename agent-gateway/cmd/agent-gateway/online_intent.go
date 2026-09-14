@@ -177,9 +177,9 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 		parts = serverETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "principal "):
 		parts = principalETagPattern.FindStringSubmatch(options.etag)
-	case strings.HasPrefix(path, "grant "):
+	case strings.HasPrefix(path, "mcp grant "):
 		parts = grantETagPattern.FindStringSubmatch(options.etag)
-	case strings.HasPrefix(path, "grant-request "):
+	case strings.HasPrefix(path, "mcp grant-request "):
 		parts = grantRequestETagPattern.FindStringSubmatch(options.etag)
 	default:
 		return controlclient.NewInputError("The ETag is not valid for this command.")
@@ -234,12 +234,12 @@ func validatePreparedFileIntent(command *cobra.Command, spec onlineCommandSpec, 
 			return nil, controlclient.ErrInvalidInput
 		}
 		return body, nil
-	case "grant create":
+	case "mcp grant create":
 		return readGrantCreateInput(command, &prepared)
-	case "grant-request approve":
+	case "mcp grant-request approve":
 		body, _, err := readGrantRequestApproval(command, &prepared)
 		return body, err
-	case "grant-request reject":
+	case "mcp grant-request reject":
 		body, _, err := readGrantRequestRejection(command, &prepared)
 		return body, err
 	default:
@@ -341,7 +341,7 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			return marshalIntent(body)
 		},
 	},
-	"grant create": {
+	"mcp grant create": {
 		fileMembers: []string{"description", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "read_only"},
 		direct: []onlineDirectFlag{
 			{name: "description"}, {name: "principal-id", required: true}, {name: "effect", values: []string{"allow", "deny"}, required: true}, {name: "server-id", required: true}, {name: "upstream-name"}, {name: "expires-at"}, {name: "read-only", toggle: true},
@@ -363,7 +363,7 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			return marshalIntent(body)
 		},
 	},
-	"grant update": {
+	"mcp grant update": {
 		direct:        []onlineDirectFlag{{name: "description", required: true}},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {
@@ -374,7 +374,7 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			return marshalIntent(map[string]any{"description": description})
 		},
 	},
-	"grant-request approve": {
+	"mcp grant-request approve": {
 		fileMembers: []string{"description", "approved_policy"},
 		direct: []onlineDirectFlag{
 			{name: "description"}, {name: "scope", values: []string{"tool", "server"}, required: true}, {name: "target", required: true}, {name: "duration-seconds"}, {name: "acknowledge-future-tools", toggle: true}, {name: "read-only", toggle: true},
@@ -398,7 +398,7 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 			return marshalIntent(map[string]any{"description": description, "approved_policy": policy})
 		},
 	},
-	"grant-request reject": {
+	"mcp grant-request reject": {
 		direct:        []onlineDirectFlag{{name: "reason", values: []string{"not_approved", "existing_access", "scope_too_broad", "policy_conflict"}, required: true}},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {

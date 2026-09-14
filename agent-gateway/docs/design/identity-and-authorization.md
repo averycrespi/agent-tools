@@ -16,6 +16,8 @@ Validation remains purpose-specific: ordinary grants may be server-wide or name 
 
 ## Principal and grant contract
 
+Grant and access-request operator routes belong to MCP under `/api/v2/mcp/`; principals and credentials remain shared. This is a route-only cutover: persisted rows, IDs, descriptions, policy/dedupe bytes, ETags, audit vocabulary, `authorization`/`grant_requests` invalidations, backup lineage, and `mcp_gateway` self-service names and schemas retain their identities. No migration or protocol registry is introduced. The retired unnamespaced grant/request/validation paths reject before authentication or domain work, without redirects or inferred replacement operations.
+
 | Method and pattern                          | Closed request schema | Success schema/status             | Cursor | Idempotency | Exact `If-Match` | Response ETag |
 | ------------------------------------------- | --------------------- | --------------------------------- | ------ | ----------- | ---------------- | ------------- |
 | `GET /api/v2/principals`                    | `PrincipalListQuery`  | `QueryPage<Principal>` / 200      | yes    | no          | no               | no            |
@@ -24,11 +26,11 @@ Validation remains purpose-specific: ordinary grants may be server-wide or name 
 | `PATCH /api/v2/principals/{id}`             | `PrincipalPatch`      | `Principal` / 200                 | no     | no          | yes              | yes           |
 | `POST /api/v2/principals/{id}/credential`   | `EmptyObject`         | `AgentCredentialCreation` / 201   | no     | no          | yes              | yes           |
 | `DELETE /api/v2/principals/{id}/credential` | `EmptyObject`         | `Principal` / 200                 | no     | no          | yes              | yes           |
-| `GET /api/v2/grants`                        | `GrantListQuery`      | `QueryPage<GrantTableItem>` / 200 | yes    | no          | no               | no            |
-| `POST /api/v2/grants`                       | `GrantCreate`         | `Grant` / 201                     | no     | no          | no               | yes           |
-| `GET /api/v2/grants/{id}`                   | `None`                | `Grant` / 200                     | no     | no          | no               | yes           |
-| `PATCH /api/v2/grants/{id}`                 | `GrantPatch`          | `Grant` / 200                     | no     | no          | yes              | yes           |
-| `DELETE /api/v2/grants/{id}`                | `None`                | `Empty` / 204                     | no     | no          | no               | no            |
+| `GET /api/v2/mcp/grants`                    | `GrantListQuery`      | `QueryPage<GrantTableItem>` / 200 | yes    | no          | no               | no            |
+| `POST /api/v2/mcp/grants`                   | `GrantCreate`         | `Grant` / 201                     | no     | no          | no               | yes           |
+| `GET /api/v2/mcp/grants/{id}`               | `None`                | `Grant` / 200                     | no     | no          | no               | yes           |
+| `PATCH /api/v2/mcp/grants/{id}`             | `GrantPatch`          | `Grant` / 200                     | no     | no          | yes              | yes           |
+| `DELETE /api/v2/mcp/grants/{id}`            | `None`                | `Empty` / 204                     | no     | no          | no               | no            |
 
 Principal and grant collection cursors are authenticated with a fresh process-local repository key and expire five minutes after the first page. Continuations do not extend that lifetime. Restart, expiry, or alteration makes the cursor stale; clients must start a new traversal rather than persist cursors. Every ordinary request, including one without query settings, uses the same normalized query path and count envelope.
 
@@ -119,7 +121,7 @@ The baseline failed the retained 100-compilation assertions; the shared cache pa
 
 Administrative and agent procedures for these contracts are canonical in [access control](../operators/access-control.md). The self-service contract implements exactly six self-only descriptors under `mcp_gateway`: `get_identity`, `list_grants`, `create_grant_request`, `get_grant_request`, `list_grant_requests`, and `cancel_grant_request`. Their compiled synthetic catalog extends discoverable cardinality to 2,054 through `discoverable_tools`=2054 without changing downstream `active_tools`=2048. The request vocabulary is closed over `pending`, `approved`, `rejected`, and `cancelled`; request policy scope is `tool` or `server`, duration is permanent or a canonical 60 through 2592000 seconds, and approval/cancellation never replays an original invocation.
 
-Approval accepts an optional valid grant description alongside the approved policy. The administrator resources are `GET` `/api/v2/grant-requests`, `GET` `/api/v2/grant-requests/{id}`, `POST` `/api/v2/grant-requests/{id}/approve`, and `POST` `/api/v2/grant-requests/{id}/reject`. Their mechanics use `GrantRequestListQuery` → `QueryPage<GrantRequestTableItem>`, `None` → `GrantRequest`, `GrantRequestApproval` → `GrantRequest`, and `GrantRequestRejection` → `GrantRequest`; item/adjudication resources use exact ETags and adjudication requires a precondition. The [public contract](public-contract.md) owns the exact safe failures and fixed bounds. Authenticated status exposes only global request-row and request-evidence-byte occupancy.
+Approval accepts an optional valid grant description alongside the approved policy. The administrator resources are `GET` `/api/v2/mcp/grant-requests`, `GET` `/api/v2/mcp/grant-requests/{id}`, `POST` `/api/v2/mcp/grant-requests/{id}/approve`, and `POST` `/api/v2/mcp/grant-requests/{id}/reject`. Their mechanics use `GrantRequestListQuery` → `QueryPage<GrantRequestTableItem>`, `None` → `GrantRequest`, `GrantRequestApproval` → `GrantRequest`, and `GrantRequestRejection` → `GrantRequest`; item/adjudication resources use exact ETags and adjudication requires a precondition. The [public contract](public-contract.md) owns the exact safe failures and fixed bounds. Authenticated status exposes only global request-row and request-evidence-byte occupancy.
 
 ### Request policy and storage
 

@@ -245,7 +245,7 @@ func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, 
 	switch name {
 	case "mcp server update", "principal update":
 		args = append(args, "--display-name", "stopped-matrix")
-	case "grant-request approve":
+	case "mcp grant-request approve":
 		args = append(args, "--acknowledge-future-tools")
 	case "mcp server auth-flow start":
 		args = append(args, "--open")

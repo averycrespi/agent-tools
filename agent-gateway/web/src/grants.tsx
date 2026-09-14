@@ -180,7 +180,7 @@ async function readGrants(session: SessionClient): Promise<Grant[]> {
   for (;;) {
     const params = new URLSearchParams({ limit: "50" });
     if (cursor !== null) params.set("cursor", cursor);
-    const result = await requestJSON(session, `/api/v2/grants?${params}`);
+    const result = await requestJSON(session, `/api/v2/mcp/grants?${params}`);
     if (result === undefined) return [];
     if (result.response.status === 409 && cursor !== null && !restarted) {
       items.length = 0;
@@ -218,7 +218,7 @@ async function readGrant(
   session: SessionClient,
   grantID: string,
 ): Promise<Grant | undefined> {
-  const result = await requestJSON(session, `/api/v2/grants/${grantID}`);
+  const result = await requestJSON(session, `/api/v2/mcp/grants/${grantID}`);
   if (result === undefined) return undefined;
   if (!result.response.ok) throw new Error("Grant data is unavailable.");
   return decodeGrant(result.value);
@@ -441,7 +441,7 @@ function GrantCreate({
       }
       const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}${readOnlyMember(readOnly)}}`;
       const spec: MutationSpec<Grant> = {
-        route: "/api/v2/grants",
+        route: "/api/v2/mcp/grants",
         method: "POST",
         body,
         precondition: null,
@@ -847,7 +847,7 @@ function GrantCreate({
             setConfirming(false);
             void controller.submit().then((outcome) => {
               if (outcome.kind === "acknowledged")
-                navigate(`#/access/grants/${outcome.value.id}`, true);
+                navigate(`#/mcp/grants/${outcome.value.id}`, true);
             });
           }}
         />
@@ -926,7 +926,7 @@ function GrantDescriptionEditor({
       return;
     }
     controller.begin({
-      route: `/api/v2/grants/${grant.id}`,
+      route: `/api/v2/mcp/grants/${grant.id}`,
       method: "PATCH",
       body: JSON.stringify({
         description: description === "" ? null : description,
@@ -1056,7 +1056,7 @@ function GrantActions({
       expires_at: null,
     });
     return {
-      route: "/api/v2/grants",
+      route: "/api/v2/mcp/grants",
       method: "POST",
       body,
       precondition: null,
@@ -1071,7 +1071,7 @@ function GrantActions({
     };
   };
   const deleteSpec = (): MutationSpec<GrantActionResult> => ({
-    route: `/api/v2/grants/${grant.id}`,
+    route: `/api/v2/mcp/grants/${grant.id}`,
     method: "DELETE",
     body: null,
     precondition: null,
@@ -1094,7 +1094,7 @@ function GrantActions({
     await refreshPolicy();
     controller.abandon();
     if (!correction) {
-      window.location.hash = "#/access/grants";
+      window.location.hash = "#/mcp/grants";
       return;
     }
     if (phase === "configure") {
@@ -1116,8 +1116,8 @@ function GrantActions({
       outcome.value.kind === "created" ? outcome.value.grant.id : replacementID;
     window.location.hash =
       destination === undefined
-        ? "#/access/grants"
-        : `#/access/grants/${destination}`;
+        ? "#/mcp/grants"
+        : `#/mcp/grants/${destination}`;
   };
   const cancelConfirmation = () => {
     setConfirming(false);
@@ -1411,7 +1411,7 @@ export function Grants({
     return (
       <div class="domain-view" data-testid="grant-detail">
         <nav class="detail-navigation" aria-label="Grant navigation">
-          <a href="#/access/grants">Back to grants</a>
+          <a href="#/mcp/grants">Back to grants</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
@@ -1546,7 +1546,7 @@ function GrantCollection({
       if (cursor !== null) params.set("cursor", cursor);
       return readCollectionPage(
         session,
-        `/api/v2/grants?${params}`,
+        `/api/v2/mcp/grants?${params}`,
         (value) => {
           const item = record(value, [
             "grant",
@@ -1576,7 +1576,7 @@ function GrantCollection({
       <div class="collection-toolbar">
         <a
           class="button-link create-action"
-          href="#/access/grants/new"
+          href="#/mcp/grants/new"
           data-testid="grant-create-link"
         >
           Create grant
@@ -1649,7 +1649,7 @@ function GrantCollection({
               render: (grant) => (
                 <TableIdentity
                   primary={
-                    <a href={`#/access/grants/${grant.id}`}>
+                    <a href={`#/mcp/grants/${grant.id}`}>
                       {grant.description ?? "Unnamed grant"}
                     </a>
                   }

@@ -89,9 +89,9 @@ func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 	case onlineItemPrincipal:
 		return "/api/v2/principals/" + id, true
 	case onlineItemGrant:
-		return "/api/v2/grants/" + id, true
+		return "/api/v2/mcp/grants/" + id, true
 	case onlineItemGrantRequest:
-		return "/api/v2/grant-requests/" + id, true
+		return "/api/v2/mcp/grant-requests/" + id, true
 	default:
 		return "", false
 	}

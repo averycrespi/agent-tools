@@ -84,11 +84,11 @@ func auditMutationTarget(request *http.Request, installationID string) (string, 
 		"PATCH /api/v2/principals/{id}":                           {"principal", "update", "principal", "{id}"},
 		"POST /api/v2/principals/{id}/credential":                 {"agent_credential", "issue", "principal", "{id}"},
 		"DELETE /api/v2/principals/{id}/credential":               {"agent_credential", "revoke", "principal", "{id}"},
-		"POST /api/v2/grants":                                     {"grant", "create", "installation", ""},
-		"PATCH /api/v2/grants/{id}":                               {"grant", "update", "grant", "{id}"},
-		"DELETE /api/v2/grants/{id}":                              {"grant", "delete", "grant", "{id}"},
-		"POST /api/v2/grant-requests/{id}/approve":                {"grant_request", "approve", "grant_request", "{id}"},
-		"POST /api/v2/grant-requests/{id}/reject":                 {"grant_request", "reject", "grant_request", "{id}"},
+		"POST /api/v2/mcp/grants":                                 {"grant", "create", "installation", ""},
+		"PATCH /api/v2/mcp/grants/{id}":                           {"grant", "update", "grant", "{id}"},
+		"DELETE /api/v2/mcp/grants/{id}":                          {"grant", "delete", "grant", "{id}"},
+		"POST /api/v2/mcp/grant-requests/{id}/approve":            {"grant_request", "approve", "grant_request", "{id}"},
+		"POST /api/v2/mcp/grant-requests/{id}/reject":             {"grant_request", "reject", "grant_request", "{id}"},
 	}[request.Method+" "+route.Pattern]
 	if !ok {
 		return "", "", contract.AuditTarget{}, false

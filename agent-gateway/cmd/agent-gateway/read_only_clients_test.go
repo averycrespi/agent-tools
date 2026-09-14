@@ -36,11 +36,11 @@ func TestCLIReadOnlyGrantCreationAndReadback(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(grant)
 			}))
 			defer server.Close()
-			args := []string{"grant", "create", "--principal-id", id, "--server-id", id, "--effect", "allow", "--read-only"}
+			args := []string{"mcp", "grant", "create", "--principal-id", id, "--server-id", id, "--effect", "allow", "--read-only"}
 			if mode == "file" {
 				file := filepath.Join(t.TempDir(), "grant.json")
 				require.NoError(t, os.WriteFile(file, []byte(`{"description":null,"principal_id":"`+id+`","server_id":"`+id+`","effect":"allow","upstream_name":null,"constraint":null,"expires_at":null,"read_only":true}`), 0600))
-				args = []string{"grant", "create", "--file", file}
+				args = []string{"mcp", "grant", "create", "--file", file}
 			}
 			if mode == "false" {
 				args[len(args)-1] = "--read-only=false"
@@ -72,8 +72,8 @@ func TestCLIReadOnlyGrantCreationAndReadback(t *testing.T) {
 
 func TestCLIReadOnlyInputValidationBeforeHTTP(t *testing.T) {
 	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	grant := []string{"grant", "create", "--principal-id", id, "--server-id", id, "--effect", "allow", "--read-only"}
-	approval := []string{"grant-request", "approve", id, "--scope", "tool", "--target", "demo.read", "--read-only", "--yes"}
+	grant := []string{"mcp", "grant", "create", "--principal-id", id, "--server-id", id, "--effect", "allow", "--read-only"}
+	approval := []string{"mcp", "grant-request", "approve", id, "--scope", "tool", "--target", "demo.read", "--read-only", "--yes"}
 	for _, args := range [][]string{
 		append(append([]string{}, grant...), "--effect", "deny"),
 		append(append([]string{}, grant...), "--upstream-name", "read"),
@@ -88,20 +88,20 @@ func TestCLIReadOnlyInputValidationBeforeHTTP(t *testing.T) {
 	for _, selector := range []string{"null", `"true"`, "1", "{}"} {
 		file := filepath.Join(t.TempDir(), "grant.json")
 		require.NoError(t, os.WriteFile(file, []byte(`{"description":null,"principal_id":"`+id+`","server_id":"`+id+`","effect":"allow","upstream_name":null,"constraint":null,"expires_at":null,"read_only":`+selector+`}`), 0600))
-		output, err := executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "grant", "create", "--file", file)
+		output, err := executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "mcp", "grant", "create", "--file", file)
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err), "%s", output)
 		assert.Contains(t, string(output), "read_only must be Boolean")
-		output, err = executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "grant", "create", "--file", file, "--read-only=false")
+		output, err = executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "mcp", "grant", "create", "--file", file, "--read-only=false")
 		require.Error(t, err)
 		assert.Contains(t, string(output), "not both")
 		approvalFile := filepath.Join(t.TempDir(), "approval.json")
 		require.NoError(t, os.WriteFile(approvalFile, []byte(`{"description":null,"approved_policy":{"scope":"server","target":"demo","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true,"read_only":`+selector+`}}`), 0o600))
-		output, err = executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "grant-request", "approve", id, "--file", approvalFile, "--yes")
+		output, err = executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "mcp", "grant-request", "approve", id, "--file", approvalFile, "--yes")
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err), "%s", output)
 		assert.Contains(t, string(output), "read_only must be Boolean")
-		output, err = executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "grant-request", "approve", id, "--file", approvalFile, "--read-only=false", "--yes")
+		output, err = executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "mcp", "grant-request", "approve", id, "--file", approvalFile, "--read-only=false", "--yes")
 		require.Error(t, err)
 		assert.Contains(t, string(output), "not both")
 	}
@@ -124,7 +124,7 @@ func TestCLIReadOnlyFileCombinationDiagnostics(t *testing.T) {
 				body, err := json.Marshal(map[string]any{"description": nil, "principal_id": id, "server_id": id, "effect": test.effect, "upstream_name": json.RawMessage(test.upstream), "constraint": json.RawMessage(test.constraint), "expires_at": nil, "read_only": true})
 				require.NoError(t, err)
 				require.NoError(t, os.WriteFile(file, body, 0o600))
-				output, err := executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "grant", "create", "--file", file)
+				output, err := executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "mcp", "grant", "create", "--file", file)
 				require.Error(t, err)
 				assert.Equal(t, 2, commandExitCode(err))
 				assert.Contains(t, string(output), "read_only=true requires server ALLOW scope with no upstream tool or argument constraints")
@@ -133,7 +133,7 @@ func TestCLIReadOnlyFileCombinationDiagnostics(t *testing.T) {
 			body, err := json.Marshal(map[string]any{"description": nil, "approved_policy": map[string]any{"scope": test.scope, "target": "demo", "constraint": json.RawMessage(test.constraint), "duration_seconds": nil, "future_tools_acknowledged": test.acknowledged, "read_only": true}})
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(file, body, 0o600))
-			output, err := executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "grant-request", "approve", id, "--file", file, "--yes")
+			output, err := executePrincipalRequestETagCommand(t, "http://127.0.0.1:1", "mcp", "grant-request", "approve", id, "--file", file, "--yes")
 			require.Error(t, err)
 			assert.Equal(t, 2, commandExitCode(err))
 			assert.Contains(t, string(output), "read_only=true requires server scope, null constraints, and future-tool acknowledgement")
@@ -205,7 +205,7 @@ func TestCLIReadOnlyApprovalPreservationAndNoReplay(t *testing.T) {
 				_, _ = w.Write(responseBody("approved", "2", approved))
 			}))
 			defer server.Close()
-			args := []string{"grant-request", "approve", id, "--scope", test.scope, "--target", "demo", "--yes"}
+			args := []string{"mcp", "grant-request", "approve", id, "--scope", test.scope, "--target", "demo", "--yes"}
 			if test.scope == "server" {
 				args = append(args, "--acknowledge-future-tools")
 			}
@@ -217,7 +217,7 @@ func TestCLIReadOnlyApprovalPreservationAndNoReplay(t *testing.T) {
 				body, marshalErr := json.Marshal(contract.GrantRequestApproval{ApprovedPolicy: contract.Policy{Scope: contract.PolicyScope(test.scope), Target: "demo", FutureToolsAcknowledged: test.scope == "server", ReadOnly: test.readOnly}})
 				require.NoError(t, marshalErr)
 				require.NoError(t, os.WriteFile(path, body, 0o600))
-				args = []string{"grant-request", "approve", id, "--file", path, "--yes"}
+				args = []string{"mcp", "grant-request", "approve", id, "--file", path, "--yes"}
 			}
 			if test.etag != "" {
 				args = append(args, "--etag", test.etag)
@@ -245,7 +245,7 @@ func TestCLIReadOnlyApprovalPreservationAndNoReplay(t *testing.T) {
 }
 
 func TestCLIReadOnlyHelp(t *testing.T) {
-	for _, path := range [][]string{{"grant", "create"}, {"grant-request", "approve"}} {
+	for _, path := range [][]string{{"mcp", "grant", "create"}, {"mcp", "grant-request", "approve"}} {
 		cmd, _, err := newRootCmd().Find(path)
 		require.NoError(t, err)
 		for _, phrase := range []string{"readOnlyHint=true", "future tools", "trusted server declarations", "not side-effect isolation", "Other ALLOW", "DENY still wins"} {

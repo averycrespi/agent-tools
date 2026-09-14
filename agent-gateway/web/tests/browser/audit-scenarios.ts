@@ -597,10 +597,12 @@ export async function runAudit(
         labels.map((label) => label.getAttribute("data-state")),
       ),
   ).toEqual(["neutral", "current", "error", "neutral", "warning"]);
-  for (const route of ["principals", "grants", "requests"])
-    await expect(
-      page.locator(`a[href="#/access/${route}/${id(7)}"]`),
-    ).toBeVisible();
+  for (const route of [
+    "access/principals",
+    "mcp/grants",
+    "mcp/access-requests",
+  ])
+    await expect(page.locator(`a[href="#/${route}/${id(7)}"]`)).toBeVisible();
   await expect(
     page.getByTestId("audit-row").nth(0).locator('[data-label="Target"] a'),
   ).toHaveCount(0);

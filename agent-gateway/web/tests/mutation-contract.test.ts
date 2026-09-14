@@ -21,9 +21,9 @@ const routes: Array<
   [`/api/v2/mcp/servers/${id}/credential-replacements`, "POST", true, "none"],
   ["/api/v2/principals", "POST", false, "none"],
   [`/api/v2/principals/${id}/credential`, "POST", true, "none"],
-  ["/api/v2/grants", "POST", false, "none"],
-  [`/api/v2/grants/${id}`, "PATCH", true, "none"],
-  [`/api/v2/grant-requests/${id}/approve`, "POST", true, "none"],
+  ["/api/v2/mcp/grants", "POST", false, "none"],
+  [`/api/v2/mcp/grants/${id}`, "PATCH", true, "none"],
+  [`/api/v2/mcp/grant-requests/${id}/approve`, "POST", true, "none"],
 ];
 
 for (const [route, method, requiresPrecondition, idempotency] of routes) {

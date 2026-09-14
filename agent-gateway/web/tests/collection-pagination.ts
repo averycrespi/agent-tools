@@ -167,7 +167,7 @@ export async function exerciseCollectionPagination(
     await route.abort();
   };
   await page.route("**/api/v2/principals?*", handler);
-  await page.route("**/api/v2/grants?*", handler);
+  await page.route("**/api/v2/mcp/grants?*", handler);
   await page.route("**/api/v2/mcp/servers?*", serverLookup);
   try {
     for (const selected of ["principals", "grants"] as const) {
@@ -223,7 +223,7 @@ export async function exerciseCollectionPagination(
       );
       const before = requests.length;
       await page.evaluate((selected) => {
-        window.location.hash = `#/access/${selected}?sort=${selected === "principals" ? "name" : "description"}&direction=ascending`;
+        window.location.hash = `#/${selected === "principals" ? "access/principals" : "mcp/grants"}?sort=${selected === "principals" ? "name" : "description"}&direction=ascending`;
       }, selected);
       await settled(50);
       expect(requests.length - before).toBe(1);
@@ -273,7 +273,7 @@ export async function exerciseCollectionPagination(
       );
       // Legacy ID-sort URLs remain usable without a dedicated ID-sort control.
       await page.evaluate((selected) => {
-        location.hash = `#/access/${selected}?sort=id&direction=ascending`;
+        location.hash = `#/${selected === "principals" ? "access/principals" : "mcp/grants"}?sort=id&direction=ascending`;
       }, selected);
       await expect(sortColumn.locator("option:checked")).toHaveText(
         "Custom order (from URL)",
@@ -288,7 +288,7 @@ export async function exerciseCollectionPagination(
       await expect
         .poll(async () => (await links())[0])
         .toBe(
-          `#/access/${selected}/${id(selected === "principals" ? 127 : 327)}`,
+          `#/${selected === "principals" ? "access/principals" : "mcp/grants"}/${id(selected === "principals" ? 127 : 327)}`,
         );
       await settled(50);
       expect(requests.at(-1)?.query.get("direction")).toBe("descending");
@@ -351,7 +351,7 @@ export async function exerciseCollectionPagination(
       expect(requests.at(-1)?.query.get("direction")).toBe("descending");
       const descending = await links();
       expect(descending[0]).toBe(
-        `#/access/${selected}/${id(selected === "principals" ? 127 : 327)}`,
+        `#/${selected === "principals" ? "access/principals" : "mcp/grants"}/${id(selected === "principals" ? 127 : 327)}`,
       );
       expect(descending.slice(1)).toEqual(first.slice(0, 49));
       await next.click();
@@ -388,7 +388,8 @@ export async function exerciseCollectionPagination(
       mode = "error";
       const failedResponse = page.waitForResponse(
         (response) =>
-          new URL(response.url()).pathname === `/api/v2/${selected}` &&
+          new URL(response.url()).pathname ===
+            `/api/v2/${selected === "principals" ? selected : "mcp/grants"}` &&
           response.status() === 503,
       );
       await root.getByRole("button", { name: "Reset", exact: true }).click();
@@ -424,7 +425,8 @@ export async function exerciseCollectionPagination(
         invalidRange = invalid;
         const response = page.waitForResponse(
           (response) =>
-            new URL(response.url()).pathname === `/api/v2/${selected}`,
+            new URL(response.url()).pathname ===
+            `/api/v2/${selected === "principals" ? selected : "mcp/grants"}`,
         );
         await page.locator('[data-testid="manual-refresh"]').click();
         await response;
@@ -473,7 +475,8 @@ export async function exerciseCollectionPagination(
         const response = page.waitForResponse((response) => {
           const url = new URL(response.url());
           return (
-            url.pathname === `/api/v2/${selected}` &&
+            url.pathname ===
+              `/api/v2/${selected === "principals" ? selected : "mcp/grants"}` &&
             url.searchParams.get(parameter) === value
           );
         });
@@ -495,7 +498,7 @@ export async function exerciseCollectionPagination(
           const response = page.waitForResponse((response) => {
             const url = new URL(response.url());
             return (
-              url.pathname === "/api/v2/grants" &&
+              url.pathname === "/api/v2/mcp/grants" &&
               url.searchParams.get(parameter!) === value
             );
           });
@@ -561,7 +564,7 @@ export async function exerciseCollectionPagination(
   } finally {
     releaseLate?.();
     await page.unroute("**/api/v2/principals?*", handler);
-    await page.unroute("**/api/v2/grants?*", handler);
+    await page.unroute("**/api/v2/mcp/grants?*", handler);
     await page.unroute("**/api/v2/mcp/servers?*", serverLookup);
     await page.evaluate((fragment) => {
       window.location.hash = fragment;

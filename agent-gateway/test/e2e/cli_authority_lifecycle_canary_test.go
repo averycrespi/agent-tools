@@ -48,19 +48,19 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 	grantPath := filepath.Join(dir, "grant.json")
 	grantBody := `{"description":"Lifecycle deny","principal_id":"` + principalID + `","effect":"deny","server_id":"` + contract.SyntheticServerID + `","upstream_name":"get_identity","constraint":null,"expires_at":null}`
 	require.NoError(t, os.WriteFile(grantPath, []byte(grantBody), 0o600))
-	grantResult := runOnlineCLI(t, harness, bearerPath, true, "grant", "create", "--file", grantPath, "--output", "json")
+	grantResult := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "create", "--file", grantPath, "--output", "json")
 	results = append(results, grantResult)
 	var grant contract.Grant
 	require.NoError(t, json.Unmarshal(grantResult.Stdout, &grant))
 
-	grants := runOnlineCLI(t, harness, bearerPath, true, "grant", "list", "--principal-id", principalID, "--limit", "10")
-	requests := runOnlineCLI(t, harness, bearerPath, true, "grant-request", "list", "--principal-id", principalID, "--state", "pending", "--output", "json")
+	grants := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "list", "--principal-id", principalID, "--limit", "10")
+	requests := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant-request", "list", "--principal-id", principalID, "--state", "pending", "--output", "json")
 	invocations := runOnlineCLI(t, harness, bearerPath, true, "invocation", "list", "--principal-id", principalID, "--limit", "1", "--output", "json")
 	results = append(results, grants, requests, invocations)
 	assert.Contains(t, string(grants.Stdout), grant.ID)
 	assert.Contains(t, string(requests.Stdout), `"items":[]`)
 
-	grantDeleted := runOnlineCLI(t, harness, bearerPath, true, "grant", "delete", grant.ID, "--yes", "--output", "json")
+	grantDeleted := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "delete", grant.ID, "--yes", "--output", "json")
 	credentialRevoked := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "revoke", principalID, "--etag", principalETag, "--yes", "--output", "json")
 	backupDeleted := runOnlineCLI(t, harness, bearerPath, true, "backup", "delete", backup.ID, "--yes", "--output", "json")
 	results = append(results, grantDeleted, credentialRevoked, backupDeleted)

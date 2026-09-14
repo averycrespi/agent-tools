@@ -76,7 +76,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 	appendSnapshotEvidence(&evidence, currentB)
 	assertDiscoveryNamePage(t, currentB, visibleNames[:100], discoveryCursor(t, currentB))
 	harness.DeleteGrant(grant.ID)
-	deletedGrant := harness.adminSnapshot(http.MethodGet, "/api/v2/grants/"+grant.ID, nil)
+	deletedGrant := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/grants/"+grant.ID, nil)
 	appendSnapshotEvidence(&evidence, deletedGrant)
 	assertNotFoundProblem(t, deletedGrant)
 	for _, name := range []string{"gateway.db", "gateway.db-wal", "gateway.db-shm"} {
@@ -103,7 +103,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 	assertAuthenticationProblem(t, oldInitialAdmin)
 	assertPrincipalVersion(t, harness.GetPrincipal(principal.Resource.ID), contract.PrincipalActive, "3", "2", true)
 	assertModernNames(t, harness, credentialB.Bearer, names, "b-after-admin-reset")
-	stillDeleted := harness.adminSnapshot(http.MethodGet, "/api/v2/grants/"+grant.ID, nil)
+	stillDeleted := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/grants/"+grant.ID, nil)
 	appendSnapshotEvidence(&evidence, stillDeleted)
 	assertNotFoundProblem(t, stillDeleted)
 	preRestore := harness.ModernList(credentialB.Bearer, json.RawMessage(`"pre-restore"`), "")

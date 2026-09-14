@@ -30,7 +30,7 @@ export async function validateMatcherConstraint(
   constraint: string,
 ): Promise<string | null | undefined> {
   return session.runProtected(async (context) => {
-    const response = await fetch("/api/v2/grant-constraints/validate", {
+    const response = await fetch("/api/v2/mcp/grant-constraints/validate", {
       method: "POST",
       credentials: "same-origin",
       redirect: "error",

@@ -54,6 +54,44 @@ func TestV1AdministrationIsRejectedBeforeAuthorityOrWork(t *testing.T) {
 	}
 }
 
+func TestRetiredGrantRoutesRejectBeforeAuthorityOrWork(t *testing.T) {
+	calls := 0
+	boundary, err := httpboundary.New(httpboundary.Options{
+		Authority: contract.DefaultAuthority,
+		Authenticate: func(ctx context.Context, _ *http.Request, _ contract.CredentialAuthority) (context.Context, error) {
+			calls++
+			return ctx, nil
+		},
+		Next: http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }),
+	})
+	require.NoError(t, err)
+	// Frozen retired spellings must not derive from the current route manifest.
+	for _, route := range []struct {
+		path    string
+		methods []string
+	}{
+		{"/api/v2/grants", []string{"GET", "POST"}},
+		{"/api/v2/grants/" + testID, []string{"GET", "PATCH", "DELETE"}},
+		{"/api/v2/grant-constraints/validate", []string{"POST"}},
+		{"/api/v2/grant-requests", []string{"GET"}},
+		{"/api/v2/grant-requests/" + testID, []string{"GET"}},
+		{"/api/v2/grant-requests/" + testID + "/approve", []string{"POST"}},
+		{"/api/v2/grant-requests/" + testID + "/reject", []string{"POST"}},
+	} {
+		for _, method := range route.methods {
+			t.Run(method+" "+route.path, func(t *testing.T) {
+				response := perform(boundary, method, route.path, `{}`, map[string]string{
+					"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON,
+				})
+				require.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+				require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+				require.Empty(t, response.Header().Get("Location"))
+				require.Zero(t, calls, "retired routes must not authenticate, read, or mutate")
+			})
+		}
+	}
+}
+
 func TestV2PreservesPreCutoverIdempotencyRecords(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))

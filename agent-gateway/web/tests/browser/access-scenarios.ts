@@ -101,7 +101,7 @@ export async function runReadOnlyBackendFlow(
 ): Promise<void> {
   // No route fixtures: all domain reads and mutations reach the real Gateway.
   await page.evaluate(() => {
-    window.location.hash = "#/access/requests";
+    window.location.hash = "#/mcp/access-requests";
   });
   await waitForLifecycle(page, "signed_out");
   await page.getByTestId("admin-bearer-input").fill(bearer);
@@ -136,7 +136,7 @@ export async function runReadOnlyBackendFlow(
   await captureRequestState(page, "backend-read-only-approved");
   const createdGrant = page
     .getByTestId("request-detail")
-    .locator('a[href^="#/access/grants/"]')
+    .locator('a[href^="#/mcp/grants/"]')
     .first();
   await createdGrant.click();
   await expect(page.getByTestId("grant-detail")).toContainText(
@@ -144,7 +144,7 @@ export async function runReadOnlyBackendFlow(
   );
   await captureRequestState(page, "backend-read-only-grant");
   await page.evaluate(() => {
-    window.location.hash = "#/access/grants/new";
+    window.location.hash = "#/mcp/grants/new";
   });
   await page.getByTestId("grant-create-view").waitFor();
   await page.getByTestId("grant-description").fill("Browser read-only grant");
@@ -287,7 +287,7 @@ export async function runAccessManagementReadCanary(
       body: JSON.stringify(principal),
     });
   });
-  await page.route("**/api/v2/grants/**", async (route) => {
+  await page.route("**/api/v2/mcp/grants/**", async (route) => {
     if (route.request().method() !== "GET") {
       mutationCount += 1;
       await route.abort();
@@ -299,7 +299,7 @@ export async function runAccessManagementReadCanary(
       body: JSON.stringify(grant),
     });
   });
-  await page.route("**/api/v2/grant-requests/**", async (route) => {
+  await page.route("**/api/v2/mcp/grant-requests/**", async (route) => {
     if (route.request().method() !== "GET") {
       mutationCount += 1;
       await route.abort();
@@ -322,8 +322,8 @@ export async function runAccessManagementReadCanary(
   await waitForLifecycle(page, "authenticated");
   const destinations: Array<[string, string]> = [
     [`#/access/principals/${principalID}`, "principal-detail"],
-    [`#/access/grants/${grantID}`, "grant-detail"],
-    [`#/access/requests/${requestID}`, "request-detail"],
+    [`#/mcp/grants/${grantID}`, "grant-detail"],
+    [`#/mcp/access-requests/${requestID}`, "request-detail"],
   ];
   for (const [hash, testID] of destinations) {
     await page.evaluate((target) => {
@@ -1553,7 +1553,7 @@ export async function runGrantReadsCreate(
     },
   );
 
-  await page.route("**/api/v2/grants?*", async (route) => {
+  await page.route("**/api/v2/mcp/grants?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
@@ -1614,7 +1614,7 @@ export async function runGrantReadsCreate(
       }),
     });
   });
-  await page.route("**/api/v2/grants/*", async (route) => {
+  await page.route("**/api/v2/mcp/grants/*", async (route) => {
     const request = route.request();
     const id = new URL(request.url()).pathname.split("/").pop();
     if (request.method() === "PATCH") {
@@ -1672,7 +1672,7 @@ export async function runGrantReadsCreate(
       body: JSON.stringify(item),
     });
   });
-  await page.route(`${baseURL}/api/v2/grants`, async (route) => {
+  await page.route(`${baseURL}/api/v2/mcp/grants`, async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
       return;
@@ -1739,7 +1739,7 @@ export async function runGrantReadsCreate(
   });
 
   await page.evaluate(() => {
-    window.location.hash = "#/access/grants";
+    window.location.hash = "#/mcp/grants";
   });
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -1821,7 +1821,7 @@ export async function runGrantReadsCreate(
   await captureRequestState(page, "grant-table");
   if (
     (await firstGrantRow
-      .locator(`a[href="#/access/grants/${firstGrantID}"]`)
+      .locator(`a[href="#/mcp/grants/${firstGrantID}"]`)
       .count()) !== 1 ||
     (await firstGrantRow.locator("th .table-primary a").textContent()) !==
       active.description
@@ -1839,7 +1839,7 @@ export async function runGrantReadsCreate(
     fail("dedicated Grants page retained subordinate introductory copy");
   const grantCreate = page.locator('[data-testid="grant-create-link"]');
   if (
-    (await grantCreate.getAttribute("href")) !== "#/access/grants/new" ||
+    (await grantCreate.getAttribute("href")) !== "#/mcp/grants/new" ||
     !(await grantCreate.evaluate((element) =>
       element.classList.contains("create-action"),
     )) ||
@@ -1850,7 +1850,7 @@ export async function runGrantReadsCreate(
   )
     fail("Create grant was not aligned with other create actions");
   await page.evaluate((id) => {
-    window.location.hash = `#/access/grants/${id}`;
+    window.location.hash = `#/mcp/grants/${id}`;
   }, firstGrantID);
   await page.locator('[data-testid="grant-detail"]').waitFor();
   const grantDetail = page.locator('[data-testid="grant-detail"]');
@@ -1892,7 +1892,7 @@ export async function runGrantReadsCreate(
     fail("grant description save and clear did not both reach the API");
 
   await page.evaluate((id) => {
-    window.location.hash = `#/access/grants/${id}`;
+    window.location.hash = `#/mcp/grants/${id}`;
   }, secondGrantID);
   await page
     .locator('[data-testid="grant-detail"]')
@@ -1908,7 +1908,7 @@ export async function runGrantReadsCreate(
 
   await page.evaluate(
     ({ principal, server }) => {
-      window.location.hash = `#/access/grants/new?principal_id=${principal}&server_id=${server}`;
+      window.location.hash = `#/mcp/grants/new?principal_id=${principal}&server_id=${server}`;
     },
     { principal: principalID, server: serverID },
   );
@@ -2023,7 +2023,7 @@ export async function runGrantReadsCreate(
 
   await page.evaluate(
     ({ principal, server }) => {
-      window.location.hash = `#/access/grants/new?principal_id=${principal}&server_id=${server}`;
+      window.location.hash = `#/mcp/grants/new?principal_id=${principal}&server_id=${server}`;
     },
     { principal: principalID, server: serverID },
   );
@@ -2708,7 +2708,7 @@ export async function runGrantCorrection(
       }),
     });
   });
-  await page.route("**/api/v2/grants?*", async (route) => {
+  await page.route("**/api/v2/mcp/grants?*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2727,7 +2727,7 @@ export async function runGrantCorrection(
       }),
     });
   });
-  await page.route("**/api/v2/grants/*", async (route) => {
+  await page.route("**/api/v2/mcp/grants/*", async (route) => {
     const id = new URL(route.request().url()).pathname.split("/").pop()!;
     const request = route.request();
     if (request.method() === "GET") {
@@ -2770,7 +2770,7 @@ export async function runGrantCorrection(
     grants.delete(id);
     await route.fulfill({ status: 204, body: "" });
   });
-  await page.route(`${baseURL}/api/v2/grants`, async (route) => {
+  await page.route(`${baseURL}/api/v2/mcp/grants`, async (route) => {
     if (route.request().method() !== "POST") {
       await route.fallback();
       return;
@@ -2834,7 +2834,7 @@ export async function runGrantCorrection(
   const navigate = async (grantID: string) => {
     if (!grants.has(grantID)) fail(`missing grant fixture ${grantID}`);
     await page.evaluate((id) => {
-      window.location.hash = `#/access/grants/${id}`;
+      window.location.hash = `#/mcp/grants/${id}`;
     }, grantID);
     await page.locator('[data-testid="grant-actions"]').waitFor();
     try {
@@ -2852,7 +2852,7 @@ export async function runGrantCorrection(
   };
 
   await page.evaluate((id) => {
-    window.location.hash = `#/access/grants/${id}`;
+    window.location.hash = `#/mcp/grants/${id}`;
   }, grantIDs[0]);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -3133,7 +3133,7 @@ export async function runRequestReads(
       }),
     { times: 1 },
   );
-  await page.route("**/api/v2/grant-requests?*", async (route) => {
+  await page.route("**/api/v2/mcp/grant-requests?*", async (route) => {
     listReads += 1;
     const query = new URL(route.request().url()).searchParams;
     if (
@@ -3229,7 +3229,7 @@ export async function runRequestReads(
       }),
     });
   });
-  await page.route("**/api/v2/grant-requests/*", async (route) => {
+  await page.route("**/api/v2/mcp/grant-requests/*", async (route) => {
     detailReads += 1;
     const id = new URL(route.request().url()).pathname.split("/").pop()!;
     const item = details.get(id) ?? {
@@ -3247,7 +3247,7 @@ export async function runRequestReads(
   });
 
   await page.evaluate(() => {
-    window.location.hash = "#/access/requests";
+    window.location.hash = "#/mcp/access-requests";
   });
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -3482,7 +3482,7 @@ export async function runRequestReads(
   releaseInvalidation?.();
   await page.waitForResponse(
     (response) =>
-      response.url().includes("/api/v2/grant-requests?") &&
+      response.url().includes("/api/v2/mcp/grant-requests?") &&
       response.status() === 200,
   );
   if (listReads <= beforeRefresh)
@@ -3490,7 +3490,7 @@ export async function runRequestReads(
 
   const navigate = async (id: string) => {
     await page.evaluate((requestID) => {
-      window.location.hash = `#/access/requests/${requestID}`;
+      window.location.hash = `#/mcp/access-requests/${requestID}`;
     }, id);
     await page.locator(`[data-request-id="${id}"]`).waitFor();
     const requestDetail = page.locator('[data-testid="request-detail"]');
@@ -3544,7 +3544,7 @@ export async function runRequestReads(
   });
   await expect(
     approvedDecision.getByRole("link", { name: grantID, exact: true }),
-  ).toHaveAttribute("href", `#/access/grants/${grantID}`);
+  ).toHaveAttribute("href", `#/mcp/grants/${grantID}`);
   await expect(approvedDecision).not.toContainText("ordinary ALLOW");
   await expect(approvedDecision).not.toContainText("This historical link");
   await captureRequestState(page, "approved-deleted");
@@ -3695,7 +3695,7 @@ export async function runRequestAdjudication(
   let rejections = 0;
   const attempts = new Map<string, number>();
 
-  await page.route("**/api/v2/grant-requests?*", async (route) => {
+  await page.route("**/api/v2/mcp/grant-requests?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     const rows = [...states.values()].filter(
       (item) =>
@@ -3799,7 +3799,7 @@ export async function runRequestAdjudication(
     },
   );
 
-  await page.route("**/api/v2/grant-requests/**", async (route) => {
+  await page.route("**/api/v2/mcp/grant-requests/**", async (route) => {
     const parts = new URL(route.request().url()).pathname.split("/");
     const action = parts.at(-1)!;
     const id =
@@ -3958,7 +3958,7 @@ export async function runRequestAdjudication(
 
   const navigate = async (id: string, narrow = true) => {
     await page.evaluate((requestID) => {
-      window.location.hash = `#/access/requests/${requestID}`;
+      window.location.hash = `#/mcp/access-requests/${requestID}`;
     }, id);
     await page.locator(`[data-request-id="${id}"]`).waitFor();
     await page.locator('[data-testid="request-actions"]').waitFor();
@@ -3983,7 +3983,7 @@ export async function runRequestAdjudication(
   };
 
   await page.evaluate((id) => {
-    window.location.hash = `#/access/requests/${id}`;
+    window.location.hash = `#/mcp/access-requests/${id}`;
   }, ids[0]);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);

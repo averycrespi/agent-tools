@@ -86,7 +86,7 @@ func (harness *gatewayHarness) ListGrantRequests(principalID string) []contract.
 	if principalID != "" {
 		query.Set("principal_id", principalID)
 	}
-	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grant-requests?"+query.Encode(), nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/grant-requests?"+query.Encode(), nil)
 	var page contract.QueryCollection[contract.GrantRequestTableItem]
 	decodeSnapshot(harness.t, response, http.StatusOK, &page)
 	require.Nil(harness.t, page.NextCursor)
@@ -100,7 +100,7 @@ func (harness *gatewayHarness) ListGrantRequests(principalID string) []contract.
 
 func (harness *gatewayHarness) GetGrantRequest(requestID string) grantRequestHandle {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grant-requests/"+url.PathEscape(requestID), nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/grant-requests/"+url.PathEscape(requestID), nil)
 	var request contract.GrantRequest
 	decodeSnapshot(harness.t, response, http.StatusOK, &request)
 	return checkedGrantRequest(harness.t, request, response.Header.Get("ETag"))
@@ -110,7 +110,7 @@ func (harness *gatewayHarness) ApproveGrantRequest(current grantRequestHandle, p
 	harness.t.Helper()
 	description := "Approved request access"
 	body := marshalHarnessJSON(harness.t, contract.GrantRequestApproval{Description: &description, ApprovedPolicy: policy})
-	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/grant-requests/"+url.PathEscape(current.Resource.ID)+"/approve", body, map[string]string{"If-Match": current.ETag})
+	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/mcp/grant-requests/"+url.PathEscape(current.Resource.ID)+"/approve", body, map[string]string{"If-Match": current.ETag})
 	var request contract.GrantRequest
 	decodeSnapshot(harness.t, response, http.StatusOK, &request)
 	return checkedGrantRequest(harness.t, request, response.Header.Get("ETag"))
@@ -119,7 +119,7 @@ func (harness *gatewayHarness) ApproveGrantRequest(current grantRequestHandle, p
 func (harness *gatewayHarness) RejectGrantRequest(current grantRequestHandle, reason contract.GrantRequestRejectionReason) grantRequestHandle {
 	harness.t.Helper()
 	body := marshalHarnessJSON(harness.t, contract.GrantRequestRejection{Reason: reason})
-	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/grant-requests/"+url.PathEscape(current.Resource.ID)+"/reject", body, map[string]string{"If-Match": current.ETag})
+	response := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/mcp/grant-requests/"+url.PathEscape(current.Resource.ID)+"/reject", body, map[string]string{"If-Match": current.ETag})
 	var request contract.GrantRequest
 	decodeSnapshot(harness.t, response, http.StatusOK, &request)
 	return checkedGrantRequest(harness.t, request, response.Header.Get("ETag"))

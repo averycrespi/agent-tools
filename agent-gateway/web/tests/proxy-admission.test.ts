@@ -331,6 +331,29 @@ test("proxy admission projects exact target, Origin, headers, and body once", as
   });
 });
 
+test("MCP permission routes are forwarded once without compatibility translation", async () => {
+  await withDevelopmentServer(async (context) => {
+    for (const path of [
+      "/api/v2/mcp/grants",
+      "/api/v2/mcp/grant-requests/01ARZ3NDEKTSV4RRFFQ69G5FAV/approve",
+      "/api/v2/mcp/grant-requests/01ARZ3NDEKTSV4RRFFQ69G5FAV/reject",
+      "/api/v2/mcp/grant-constraints/validate",
+      "/api/v2/grants",
+    ]) {
+      const before = context.observations.length;
+      const response = await exchange(context.frontendPort, path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(response.status, 204);
+      assert.equal(context.observations.length, before + 1);
+      assert.equal(context.observations.at(-1)?.url, path);
+      assert.equal(context.observations.at(-1)?.body.toString(), "{}");
+    }
+  });
+});
+
 test("proxy admission preserves absent Origin and rejects forbidden Origin forms", async () => {
   await withDevelopmentServer(async (context) => {
     assert.equal(

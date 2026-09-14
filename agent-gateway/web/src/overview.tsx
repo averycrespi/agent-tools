@@ -622,7 +622,7 @@ export class OverviewController {
           await responseJSON(
             await get(
               context,
-              "/api/v2/grant-requests?limit=5&state=pending&sort=submitted&direction=ascending",
+              "/api/v2/mcp/grant-requests?limit=5&state=pending&sort=submitted&direction=ascending",
             ),
           ),
         ),
@@ -906,7 +906,7 @@ export function Overview({
                       {principalNames.get(item.principalID) ??
                         `Principal ${item.principalID}`}
                     </div>
-                    <a href={`#/access/requests/${item.id}`}>
+                    <a href={`#/mcp/access-requests/${item.id}`}>
                       Review access to {item.target}
                     </a>
                     <p>

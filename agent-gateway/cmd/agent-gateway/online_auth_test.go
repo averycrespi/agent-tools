@@ -93,17 +93,17 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"status", "admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
 			"mcp server list", "mcp server get ID", "mcp server operation list ID", "mcp server operation get ID OPERATION_ID",
 			"mcp server auth-flow list ID", "mcp server auth-flow get ID FLOW_ID", "mcp server descriptor list ID", "mcp server descriptor get ID TOOL_ID",
-			"mcp catalog list", "principal list", "principal get ID", "grant list", "grant get ID",
-			"grant-request list", "grant-request get REQUEST_ID", "invocation list", "invocation get INVOCATION_ID",
+			"mcp catalog list", "principal list", "principal get ID", "mcp grant list", "mcp grant get ID",
+			"mcp grant-request list", "mcp grant-request get REQUEST_ID", "invocation list", "invocation get INVOCATION_ID",
 		},
 		"mutation": {
 			"backup create", "mcp server create --file PATH", "mcp server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "mcp server delete ID [--etag ETAG]",
 			"mcp server operation start ID --kind KIND [--etag ETAG]", "mcp server credential replace ID --file PATH [--etag ETAG]",
 			"principal create --display-name NAME --visibility VISIBILITY", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE]", "principal credential revoke ID [--etag ETAG]",
-			"grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "grant update ID --description TEXT [--etag ETAG]", "grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
+			"mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "mcp grant update ID --description TEXT [--etag ETAG]", "mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
 		},
 		"no_content": {
-			"admin credential revoke ID", "backup delete BACKUP_ID", "mcp server auth-flow cancel ID FLOW_ID", "grant delete ID",
+			"admin credential revoke ID", "backup delete BACKUP_ID", "mcp server auth-flow cancel ID FLOW_ID", "mcp grant delete ID",
 		},
 		"one_time_secret": {
 			"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH",

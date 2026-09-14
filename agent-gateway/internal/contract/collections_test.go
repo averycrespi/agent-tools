@@ -36,7 +36,7 @@ func TestV2CollectionContractsCoverEveryCursorResource(t *testing.T) {
 		}
 	}
 	require.Len(t, covered, len(collections))
-	require.Equal(t, map[string]bool{"/api/v2/principals": true, "/api/v2/grants": true, "/api/v2/grant-requests": true, "/api/v2/mcp/servers/{id}/operations": true}, counts)
+	require.Equal(t, map[string]bool{"/api/v2/principals": true, "/api/v2/mcp/grants": true, "/api/v2/mcp/grant-requests": true, "/api/v2/mcp/servers/{id}/operations": true}, counts)
 	require.Equal(t, []string{"active"}, byPath["/api/v2/mcp/servers/{id}/operations"].Projections)
 	require.Equal(t, []string{"full", "summary"}, byPath["/api/v2/mcp/servers/{id}/descriptors"].Projections)
 	collections[0].QueryMembers[0] = "mutated"
@@ -50,7 +50,7 @@ func TestV2CollectionContractsCoverEveryCursorResource(t *testing.T) {
 func TestV2AuthorizationCollectionTablesMatchMechanics(t *testing.T) {
 	text := readDesignCorpus(t)
 	for _, collection := range CollectionContracts() {
-		if collection.Pattern != "/api/v2/principals" && collection.Pattern != "/api/v2/grants" {
+		if collection.Pattern != "/api/v2/principals" && collection.Pattern != "/api/v2/mcp/grants" {
 			continue
 		}
 		found := false

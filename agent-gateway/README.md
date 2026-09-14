@@ -12,7 +12,7 @@ Agents get the tools they need. You keep control over what they can do.
 
 Agents can discover available tools, inspect their permissions, and request additional access without leaving MCP. Discovery is configurable per agent, so you can expose only authorized tools or let agents find tools they may need to request.
 
-Access requests change permissions; they do not queue tool calls. After approval, the agent makes a new call.
+Access requests approve MCP permissions, not network traffic; they do not queue tool calls. After approval, the agent makes a new call.
 
 ### Scoped access, not shared authority
 
@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Requests); **MCP** (Servers, Tools); **Activity** (Agents, Administrators); **System**. Agents shows existing bounded, redacted MCP invocation evidence; Administrators shows the separate administrative audit history of control-plane changes, including system and offline maintenance events. Browser locations use domain-grouped hashes; see the [location cutover](docs/operators/administration.md#browser-location-cutover) before updating bookmarks or automation.
+Use the browser or CLI to configure servers, manage identities and permissions, and investigate calls. Navigation groups **Overview**; **Access** (Principals); **MCP** (Servers, Tools, Grants, Access requests); **Activity** (Agents, Administrators); **System**. Agents shows bounded, redacted MCP invocations; Administrators shows administrative audit history, including system and offline maintenance events. See the [location cutover](docs/operators/administration.md#browser-location-cutover) before updating bookmarks or automation.
 
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
@@ -83,7 +83,7 @@ Generated `agent-gateway --help` and subcommand help are the exact command refer
 
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
-- Create principals, issue agent credentials, and manage grants or requests with [Access control](docs/operators/access-control.md). For Pi in a Lima guest, follow [agent provisioning](docs/operators/access-control.md#provision-a-pi-agent-in-a-lima-sandbox).
+- Use `principal`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/administration.md#mcp-permission-namespace-cutover) and [Pi/Lima provisioning](docs/operators/access-control.md#provision-a-pi-agent-in-a-lima-sandbox).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
 - Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrators destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
 - Use `agent-gateway storage verify` or `agent-gateway backup restore BACKUP_ID` for stopped recovery. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.

@@ -1,5 +1,7 @@
 # Access control: principals, grants, and requests
 
+Principals and credentials are shared administration. Grants and **MCP → Access requests** administer MCP permissions, not network traffic or queued calls. Use `mcp grant` and `mcp grant-request`; their API resources also belong to MCP. Upgrade clients and service together and reload browsers using the [exact namespace mappings and rejected-link recovery](administration.md#mcp-permission-namespace-cutover). Old spellings are rejected, never redirected or replayed.
+
 Audience: Gateway administrators managing agent access
 
 Purpose: Manage principals, credentials, grants, and grant requests.
@@ -7,8 +9,8 @@ Purpose: Manage principals, credentials, grants, and grant requests.
 This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). MCP remains the only supported target domain. Generated help owns exact syntax:
 
 - `agent-gateway principal --help`
-- `agent-gateway grant --help`
-- `agent-gateway grant-request --help`
+- `agent-gateway mcp grant --help`
+- `agent-gateway mcp grant-request --help`
 
 See [DESIGN](../../DESIGN.md) for the system design index and [Identity and authorization](../design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [Administrator CLI and local administration](administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `agent-gateway serve` first; a proven refused selected address reports the exact startup command.
 
@@ -183,20 +185,20 @@ This source retirement does not inventory or mutate live profiles, start service
 ## Create and inspect immutable grants
 
 ```bash
-agent-gateway grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID
-agent-gateway grant get GRANT_ID
-agent-gateway grant create --description TEXT --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID
-agent-gateway grant create --file PATH
+agent-gateway mcp grant list --principal-id PRINCIPAL_ID --server-id SERVER_ID
+agent-gateway mcp grant get GRANT_ID
+agent-gateway mcp grant create --description TEXT --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID
+agent-gateway mcp grant create --file PATH
 ```
 
-Every grant has a stable ID and may have a non-unique human-readable description. The description is display metadata: update or clear it with `grant update GRANT_ID --description TEXT` (an empty value clears it) and an automatic or explicit exact ETag. A description-only patch advances the grant's metadata revision without advancing policy revision or cancelling leases. The direct create form creates an ordinary unconstrained grant and may add `--description`, `--upstream-name`, or `--expires-at`. Use the mutually exclusive strict file form for a constraint; it supplies the complete closed shape, including explicit nullable `description`, `upstream_name`, `constraint`, and `expires_at` members. Grants are immutable for identity and policy; each remains an `ALLOW` or `DENY` row even when its optional description changes. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
+Every grant has a stable ID and may have a non-unique human-readable description. The description is display metadata: update or clear it with `mcp grant update GRANT_ID --description TEXT` (an empty value clears it) and an automatic or explicit exact ETag. A description-only patch advances the grant's metadata revision without advancing policy revision or cancelling leases. The direct create form creates an ordinary unconstrained grant and may add `--description`, `--upstream-name`, or `--expires-at`. Use the mutually exclusive strict file form for a constraint; it supplies the complete closed shape, including explicit nullable `description`, `upstream_name`, `constraint`, and `expires_at` members. Grants are immutable for identity and policy; each remains an `ALLOW` or `DENY` row even when its optional description changes. A server-wide grant uses a null upstream name; an exact-tool grant names one upstream tool. Exact names do not require a currently active descriptor.
 
 ### Read-only server access
 
 Add `--read-only` to direct server ALLOW creation, or select **Only tools marked read-only** in the browser's **Allowed tools** dropdown for a server ALLOW:
 
 ```bash
-agent-gateway grant create --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID --read-only
+agent-gateway mcp grant create --principal-id PRINCIPAL_ID --effect allow --server-id SERVER_ID --read-only
 ```
 
 The strict grant file accepts optional Boolean `"read_only":true` alongside the existing required members, with `upstream_name:null` and `constraint:null`. Omission or false preserves unrestricted behavior. True is invalid for DENY, exact-tool, or argument-constrained grants; direct flags (including `--read-only=false`) cannot be combined with `--file`.
@@ -238,7 +240,7 @@ Because grant policy is immutable, choose the replacement order deliberately. Cr
 Delete by stable grant ID:
 
 ```bash
-agent-gateway grant delete GRANT_ID --yes
+agent-gateway mcp grant delete GRANT_ID --yes
 ```
 
 Deletion has no ETag or idempotency surface. An uncertain create or delete requires narrow principal/grant reads rather than replay. Visibility by itself never authorizes calls, and deleting an expired or default grant can still change capacity or self-service behavior.
@@ -265,8 +267,8 @@ An acknowledged rejection includes `data.invocationId` for administrator investi
 Agents create and cancel requests only through the six fixed self-service tools. Administrators inspect the queue through the CLI:
 
 ```bash
-agent-gateway grant-request list --principal-id PRINCIPAL_ID --state pending
-agent-gateway grant-request get REQUEST_ID
+agent-gateway mcp grant-request list --principal-id PRINCIPAL_ID --state pending
+agent-gateway mcp grant-request get REQUEST_ID
 ```
 
 The browser opens **Pending**, oldest first; **All requests** starts newest first. Search by exact request ID, principal, or target, and filter scope or (in All requests) state. Every filter and sort applies before pagination across the complete collection. **Previous** and **Next** replace the bounded page and show its exact matching range. Request rows show the requested server/tool, duration, and conditions even after a narrower approval. The first **Action** column offers **Review** for pending rows or **View decision** for closed rows. The full searchable Request ID is also a link to the same page.
@@ -280,18 +282,18 @@ Requests move once from `pending` to `approved`, `rejected`, or `cancelled`. The
 Approval may only narrow scope, exact constraint tokens, and duration. **Approve as requested** opens final confirmation directly; an optional grant description does not alter authority. **Customize approval** opens Tools, Conditions, and Duration with an **Approval preview** showing requested and proposed values. **Hide customization** preserves edits; a collapsed edited draft is labeled **Custom approval edited**. **Approve as requested** always uses the original request, even with hidden edits. The green **Approve as narrowed** action opens final confirmation for a changed draft; an unchanged draft instead says **Approve as requested**. Submitted conditions are locked, with exact source inspectable; only additive conjunctive conditions, a tool on the same requested server, and shorter duration are permitted. **Reject request** opens its own reason dialog without validating the approval draft. Rejection creates no grant, does not revoke access, and does not create a DENY. For approval, enter a whole-number duration and select minutes, hours, days, or seconds; the selected duration cannot exceed the submitted request, and a temporary request cannot become permanent. Approval always reads the submitted policy before mutation to prevent removing read-only restrictions. Omit `--etag` to use that read's exact ETag, or supply an explicit exact value; a mismatch stops without refreshing the supplied ETag or submitting the approval. Use direct flags for an unconstrained approval or the mutually exclusive strict file form for a constraint:
 
 ```bash
-agent-gateway grant-request approve REQUEST_ID \
+agent-gateway mcp grant-request approve REQUEST_ID \
   --description TEXT \
   --scope tool \
   --target SERVER.TOOL \
   --yes
-agent-gateway grant-request approve REQUEST_ID --etag ETAG --file PATH --yes
+agent-gateway mcp grant-request approve REQUEST_ID --etag ETAG --file PATH --yes
 ```
 
 For read-only server requests, retain server scope, `--read-only`, and future-tool acknowledgement. An unrestricted server request can also narrow to read-only:
 
 ```bash
-agent-gateway grant-request approve REQUEST_ID \
+agent-gateway mcp grant-request approve REQUEST_ID \
   --scope server --target SERVER_NAMESPACE --read-only \
   --acknowledge-future-tools --duration-seconds 600 --yes
 ```
@@ -322,7 +324,7 @@ Copy every submitted atom byte-for-byte into the approval constraint before addi
 Reject with one closed reason—`not_approved`, `existing_access`, `scope_too_broad`, or `policy_conflict`:
 
 ```bash
-agent-gateway grant-request reject REQUEST_ID \
+agent-gateway mcp grant-request reject REQUEST_ID \
   --reason scope_too_broad \
   --yes
 ```

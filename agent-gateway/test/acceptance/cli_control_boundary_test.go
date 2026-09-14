@@ -19,8 +19,8 @@ func TestCLIControlBoundary(t *testing.T) {
 		`onlineSpec([]string{"mcp", "server", "create"}`,
 		`onlineSpec([]string{"mcp", "server", "update"}`,
 		`onlineSpec([]string{"mcp", "server", "credential", "replace"}`,
-		`onlineSpec([]string{"grant", "create"}`,
-		`onlineSpec([]string{"grant-request", "approve"}`,
+		`onlineSpec([]string{"mcp", "grant", "create"}`,
+		`onlineSpec([]string{"mcp", "grant-request", "approve"}`,
 	} {
 		line := sourceLineContaining(source, owner)
 		assert.Contains(t, line, `"file"`, owner)
@@ -30,7 +30,7 @@ func TestCLIControlBoundary(t *testing.T) {
 		`onlineSpec([]string{"principal", "create"}`,
 		`onlineSpec([]string{"principal", "update"}`,
 		`onlineSpec([]string{"mcp", "server", "operation", "start"}`,
-		`onlineSpec([]string{"grant-request", "reject"}`,
+		`onlineSpec([]string{"mcp", "grant-request", "reject"}`,
 	} {
 		line := sourceLineContaining(source, owner)
 		require.NotEmpty(t, line, owner)

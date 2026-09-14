@@ -79,10 +79,10 @@ func TestGrantRequestRoutesProblemsAndLimitsAreExact(t *testing.T) {
 	}
 
 	expectedRoutes := []Route{
-		{Pattern: "/api/v2/grant-requests", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/grant-requests/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/grant-requests/{id}/approve", Methods: []string{"POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/grant-requests/{id}/reject", Methods: []string{"POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/grant-requests", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/grant-requests/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/grant-requests/{id}/approve", Methods: []string{"POST"}, Authority: AuthorityAdmin},
+		{Pattern: "/api/v2/mcp/grant-requests/{id}/reject", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
 	routeStart := -1
@@ -157,10 +157,10 @@ func TestGrantRequestResourceShapesETagsMechanicsAndStatusAreExact(t *testing.T)
 
 	mechanics := ResourceMechanics()
 	expectedMechanics := []ResourceMechanic{
-		{Pattern: "/api/v2/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "QueryPage<GrantRequestTableItem>", SuccessStatuses: []int{200}, Cursor: true},
-		{Pattern: "/api/v2/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
-		{Pattern: "/api/v2/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
-		{Pattern: "/api/v2/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+		{Pattern: "/api/v2/mcp/grant-requests", Method: "GET", RequestSchema: "GrantRequestListQuery", SuccessSchema: "QueryPage<GrantRequestTableItem>", SuccessStatuses: []int{200}, Cursor: true},
+		{Pattern: "/api/v2/mcp/grant-requests/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, ETag: true},
+		{Pattern: "/api/v2/mcp/grant-requests/{id}/approve", Method: "POST", RequestSchema: "GrantRequestApproval", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+		{Pattern: "/api/v2/mcp/grant-requests/{id}/reject", Method: "POST", RequestSchema: "GrantRequestRejection", SuccessSchema: "GrantRequest", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	}
 	start := -1
 	for index, mechanic := range mechanics {

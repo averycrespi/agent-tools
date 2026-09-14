@@ -12,8 +12,8 @@ const collections = [
   "mcp/servers",
   "mcp/tools",
   "access/principals",
-  "access/grants",
-  "access/requests",
+  "mcp/grants",
+  "mcp/access-requests",
   "activity/invocations",
   "activity/audit",
   "system",
@@ -23,15 +23,15 @@ const collections = [
 const details = [
   "mcp/servers",
   "access/principals",
-  "access/grants",
-  "access/requests",
+  "mcp/grants",
+  "mcp/access-requests",
   "activity/invocations",
   "activity/audit",
 ].map((path) => `${path}/${id}`);
 const creates = [
   "mcp/servers/new",
   "access/principals/new",
-  "access/grants/new",
+  "mcp/grants/new",
   "system/backups/new",
   "system/admin-credentials/new",
 ];
@@ -57,6 +57,8 @@ test("old flat paths and undeclared members never resolve as resources", () => {
     "principals",
     "grants",
     "requests",
+    "access/grants",
+    "access/requests",
     "invocations",
     "audit",
   ];
@@ -142,16 +144,16 @@ test("destination queries have deterministic ordering and preserve valid context
       "access/principals?sort=name&filter_visibility=all",
     ],
     [
-      "access/grants?filter_effect=deny&sort=target",
-      "access/grants?sort=target&filter_effect=deny",
+      "mcp/grants?filter_effect=deny&sort=target",
+      "mcp/grants?sort=target&filter_effect=deny",
     ],
     [
-      `access/grants/new?server_id=${other}&principal_id=${id}`,
-      `access/grants/new?principal_id=${id}&server_id=${other}`,
+      `mcp/grants/new?server_id=${other}&principal_id=${id}`,
+      `mcp/grants/new?principal_id=${id}&server_id=${other}`,
     ],
     [
-      "access/requests?filter_state=approved&queue=all",
-      "access/requests?queue=all&filter_state=approved",
+      "mcp/access-requests?filter_state=approved&queue=all",
+      "mcp/access-requests?queue=all&filter_state=approved",
     ],
     [
       `activity/invocations/${id}?filter_tool=echo&filter_decision=allow`,
@@ -173,9 +175,9 @@ test("destination queries have deterministic ordering and preserve valid context
   for (const path of [
     "mcp/servers?filter_status=unknown",
     "mcp/tools?filter_status=retired",
-    "access/requests?filter_state=pending",
+    "mcp/access-requests?filter_state=pending",
     "access/principals?direction=ascending",
-    `access/grants/new?filter_name=x`,
+    `mcp/grants/new?filter_name=x`,
     "system?filter_name=x",
   ]) {
     assert.equal(parseFragment(`#/${path}`), undefined, path);

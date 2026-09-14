@@ -257,7 +257,7 @@ func (harness *gatewayHarness) CreateGrant(spec grantSpec) contract.Grant {
 		ExpiresAt    *string         `json:"expires_at"`
 	}{ReadOnly: spec.ReadOnly, Description: spec.Description, PrincipalID: spec.PrincipalID, Effect: string(spec.Effect), ServerID: spec.ServerID, UpstreamName: spec.UpstreamName, Constraint: spec.Constraint, ExpiresAt: spec.ExpiresAt})
 	require.NoError(harness.t, err)
-	response := harness.adminSnapshot(http.MethodPost, "/api/v2/grants", body)
+	response := harness.adminSnapshot(http.MethodPost, "/api/v2/mcp/grants", body)
 	var grant contract.Grant
 	decodeSnapshot(harness.t, response, http.StatusCreated, &grant)
 	return grant
@@ -265,7 +265,7 @@ func (harness *gatewayHarness) CreateGrant(spec grantSpec) contract.Grant {
 
 func (harness *gatewayHarness) GetGrant(grantID string) contract.Grant {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grants/"+url.PathEscape(grantID), nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/grants/"+url.PathEscape(grantID), nil)
 	var grant contract.Grant
 	decodeSnapshot(harness.t, response, http.StatusOK, &grant)
 	return grant
@@ -280,7 +280,7 @@ func (harness *gatewayHarness) ListGrants(principalID, serverID string) []contra
 	if serverID != "" {
 		query.Set("server_id", serverID)
 	}
-	response := harness.adminSnapshot(http.MethodGet, "/api/v2/grants?"+query.Encode(), nil)
+	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/grants?"+query.Encode(), nil)
 	var page contract.QueryCollection[contract.GrantTableItem]
 	decodeSnapshot(harness.t, response, http.StatusOK, &page)
 	require.Nil(harness.t, page.NextCursor, "harness grant helper requires one bounded page")
@@ -294,7 +294,7 @@ func (harness *gatewayHarness) ListGrants(principalID, serverID string) []contra
 
 func (harness *gatewayHarness) DeleteGrant(grantID string) {
 	harness.t.Helper()
-	response := harness.adminSnapshot(http.MethodDelete, "/api/v2/grants/"+url.PathEscape(grantID), nil)
+	response := harness.adminSnapshot(http.MethodDelete, "/api/v2/mcp/grants/"+url.PathEscape(grantID), nil)
 	decodeSnapshot(harness.t, response, http.StatusNoContent, nil)
 	require.Empty(harness.t, response.Body)
 }
