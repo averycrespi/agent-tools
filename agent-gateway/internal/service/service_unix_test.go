@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -290,12 +291,49 @@ func TestServiceOwnedUtilityBounds(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, code)
 	require.Equal(t, "literal", string(data))
+	data, code, err = runOwned(t.Context(), "/bin/sh", "-c", "printf nonzero; exit 7")
+	require.NoError(t, err)
+	require.Equal(t, 7, code)
+	require.Equal(t, "nonzero", string(data))
+	// The leader exits while a descendant retains the output pipe. Cleanup
+	// must fence the group, not mistake the zombie leader for an empty group.
+	data, code, err = runOwned(t.Context(), "/bin/sh", "-c", "sleep 20 & printf descendant")
+	require.NoError(t, err)
+	require.Zero(t, code)
+	require.Equal(t, "descendant", string(data))
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	_, _, err = runOwned(ctx, "/bin/sh", "-c", "sleep 20 & wait")
 	require.Error(t, err)
 	_, _, err = runOwned(t.Context(), "/bin/sh", "-c", "head -c 1100000 /dev/zero")
 	require.ErrorContains(t, err, "output exceeds bound")
+}
+
+func TestServiceInspectionReportsUtilityErrorWithoutOutputOrReplay(t *testing.T) {
+	f := newFixture(t)
+	f.install(t)
+	calls := 0
+	f.m.run = func(_ context.Context, name string, args ...string) ([]byte, int, error) {
+		calls++
+		require.Equal(t, "/bin/launchctl", name)
+		require.Equal(t, []string{"print", f.m.target()}, args)
+		return []byte("UTILITY-OUTPUT-CANARY"), -1, fmt.Errorf("utility group cleanup failed: %w", syscall.EPERM)
+	}
+	result, err := f.m.execute(t.Context(), "restart", Changes{})
+	require.ErrorIs(t, err, syscall.EPERM)
+	require.ErrorContains(t, err, "launchd inspection unknown; no mutation is safe")
+	require.ErrorContains(t, err, "utility group cleanup failed: operation not permitted")
+	require.NotContains(t, err.Error(), "UTILITY-OUTPUT-CANARY")
+	require.Equal(t, "unknown", result.Launchd)
+	require.Equal(t, 1, calls)
+	require.Empty(t, f.mutations)
+	result, err = f.m.execute(t.Context(), "status", Changes{})
+	require.NoError(t, err)
+	require.Contains(t, result.Message, "utility group cleanup failed: operation not permitted")
+	require.NotContains(t, result.Message, "UTILITY-OUTPUT-CANARY")
+	require.True(t, result.Installed)
+	require.Equal(t, "unknown", result.Launchd)
+	require.Equal(t, 2, calls)
 }
 
 func TestServiceStopTimeoutDoesNotPublishOrStart(t *testing.T) {

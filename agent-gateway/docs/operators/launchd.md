@@ -113,6 +113,7 @@ launchd does not rotate these logs. Arrange owner-controlled retention separatel
 ## Troubleshooting
 
 - **GUI domain unavailable:** use the intended logged-in account, not root or a headless system daemon. Unknown inspection is not absence.
+- **Utility inspection or cleanup failure:** launchd inspection reports the owned utility failure and OS error without copying command output. Preserve that diagnostic when investigating; an installed plist or a separately successful `launchctl print` does not establish that Gateway's utility supervision succeeded. Do not bypass a cleanup refusal with repeated lifecycle mutations or signals to Gateway PIDs.
 - **Bootstrap fails or repeated exits:** inspect the persisted selections, executable availability, private log destinations and safe diagnostics. Keep new settings after a failed updated bootstrap; investigate before a deliberate new attempt.
 - **Ownership conflict:** identify the other process/launcher. Do not delete lock files, change labels or force-kill to bypass the refusal.
 - **Unready, authentication failure or storage latch:** follow [administration](administration.md) and [stopped recovery](backup-and-recovery.md). Restart, reset and initialization are not generic repair operations.

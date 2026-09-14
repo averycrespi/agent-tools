@@ -15,6 +15,7 @@ SUITE_JOBS = {
     "gateway-demo": "gateway",
     "gateway-lint": "gateway",
     "gateway-harness": "gateway",
+    "gateway-macos": "gateway",
     "sandbox-manager-macos": "sandbox",
 }
 
