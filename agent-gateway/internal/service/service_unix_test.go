@@ -274,6 +274,17 @@ func TestServiceDefinitionClosedAndPreserved(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+func TestServiceUtilityAllowlist(t *testing.T) {
+	for _, name := range []string{"/bin/sh", "/usr/bin/true", "launchctl", "/tmp/launchctl", "/bin/../bin/ps"} {
+		t.Run(name, func(t *testing.T) {
+			data, code, err := runCommand(t.Context(), name)
+			require.EqualError(t, err, "unsupported service utility")
+			require.Nil(t, data)
+			require.Equal(t, -1, code)
+		})
+	}
+}
+
 func TestServiceOwnedUtilityBounds(t *testing.T) {
 	data, code, err := runOwned(t.Context(), "/bin/sh", "-c", "printf literal")
 	require.NoError(t, err)
