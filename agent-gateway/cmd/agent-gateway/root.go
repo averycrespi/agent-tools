@@ -62,6 +62,7 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		newAdminAuthorityCmd("initialize", dependencies),
 		newStorageCmd(dependencies),
 		newInstallationCmd(),
+		newServiceCmd(),
 		newServeCmd(dependencies),
 	)
 	for _, online := range newOnlineCommands() {

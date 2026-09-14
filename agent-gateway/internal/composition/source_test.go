@@ -34,9 +34,9 @@ func TestProductionSourceGuards(t *testing.T) {
 
 func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []productionSource) {
 	allowedExec := func(path string) bool {
-		return path == "internal/installation/migrate_unix.go" || path == "cmd/agent-gateway/online_auth_flows.go" || path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
+		return path == "internal/service/runner_unix.go" || path == "internal/installation/migrate_unix.go" || path == "cmd/agent-gateway/online_auth_flows.go" || path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
 	}
-	processConstructors := map[string]string{"internal/installation/migrate_unix.go": "CommandContext", "cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
+	processConstructors := map[string]string{"internal/service/runner_unix.go": "Command", "internal/installation/migrate_unix.go": "CommandContext", "cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
 	allowedHTTP := map[string]bool{"internal/remote/remote.go": true, "internal/controlclient/controlclient.go": true}
 	allowedSDK := map[string]bool{"internal/mcpingress/handler.go": true}
 	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}

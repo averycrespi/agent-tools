@@ -68,6 +68,7 @@ internal/contract/           Canonical routes, problems, limits, states, represe
 internal/strictjson/         Bounded strict JSON and token-preserving value tree
 internal/paths/              Owner-only installation paths, process ownership and atomic relocation
 internal/installation/       Explicit stopped path-migration preflight and host inspection
+internal/service/            Canonical LaunchAgent settings, lifecycle and bounded inspection
 internal/storage/            SQLite identity, migrations, durability, and latch
 internal/servers/            Desired servers, operations, auth-flow lifecycle, and idempotency
 internal/catalog/            Durable descriptors, normalization, active publication, and routes
@@ -131,6 +132,7 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 ### Runtime, transport, and cleanup
 
 - Follow the [migration runbook](docs/operators/installation-migration.md): existing lock only, no recovery/marker clearing, whole-root exchange with tombstone, isolated tests and separate native consent. LaunchAgent commands are bounded to five seconds/1 MiB, retain child identity through cleanup and never replay mutations.
+- `internal/service` owns canonical LaunchAgent management without private database or credential access. Keep strict literal plist parsing, stable nonblocking management locking, installed-value preservation, loaded intent and one-shot bootout/bootstrap. The composition source guard registers only `internal/service/runner_unix.go` as its `exec.Command` owner; production entry allows only absolute `/bin/launchctl` and `/bin/ps`. Utility children remain unreaped until group cleanup; never signal Gateway PIDs or substitute basename scans for installation ownership. Native tests require separate disposable-resource consent; Linux fixtures are not native proof.
 - Runtime state, handles, routes, OAuth transients, sessions, and cursors are process-local. Never serialize or resume them after restart.
 - `internal/remote` is the sole production downstream/OAuth HTTP client and transport factory. The only separate client is `internal/controlclient` for public administration at numeric loopback or an explicitly selected trusted forwarding hostname.
 - Direct stdio uses validated absolute executables, literal arguments, exact working directories, clean environments, fresh process groups, bounded streams, and identity-validated TERM/KILL/reap cleanup. Never signal an unverified PID or treat unconfirmed stop as success.

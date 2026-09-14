@@ -110,7 +110,7 @@ Use the [documentation map](docs/README.md) to choose material by role and task.
 ### Gateway administrators
 
 - [Administrator CLI and local administration](docs/operators/administration.md)
-- [Run as a macOS launchd agent](docs/operators/launchd.md)
+- [macOS LaunchAgent commands](docs/operators/launchd.md): `agent-gateway service` needs no Python, Go toolchain, or checkout.
 - [Upstream server configuration](docs/operators/upstream-servers.md)
 - [Access control](docs/operators/access-control.md)
 - [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)
