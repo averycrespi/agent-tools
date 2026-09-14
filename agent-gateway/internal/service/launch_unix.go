@@ -30,7 +30,7 @@ func (m *manager) target() string { return "gui/" + strconv.Itoa(m.uid) + "/" + 
 func (m *manager) observe(ctx context.Context, d definition) (job, error) {
 	data, code, err := m.run(ctx, "/bin/launchctl", "print", m.target())
 	if err != nil {
-		return job{}, errors.New("launchd inspection unknown; no mutation is safe")
+		return job{}, fmt.Errorf("launchd inspection unknown; no mutation is safe: %w", err)
 	}
 	if code != 0 {
 		expected := "Could not find service \"" + Label + "\" in domain"

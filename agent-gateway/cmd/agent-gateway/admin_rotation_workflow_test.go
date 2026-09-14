@@ -257,10 +257,10 @@ func newRotationWorkflowServer(t *testing.T, scenario rotationWorkflowScenario) 
 
 func shortRotationPath(t *testing.T) string {
 	t.Helper()
-	directory, err := os.MkdirTemp("", "mgw-rotate-")
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(directory)) })
-	return filepath.Join(directory, "replacement")
+	// A relative sink keeps recovery guidance within its production bound even
+	// when the host's temporary-directory prefix is long (as on macOS).
+	t.Chdir(t.TempDir())
+	return "rotation-bearer.fixture"
 }
 
 func executeAdminRotation(t *testing.T, address, secretPath string, defaultBearer bool) ([]byte, []byte, error) {

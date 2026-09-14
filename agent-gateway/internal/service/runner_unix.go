@@ -98,7 +98,9 @@ func runOwned(ctx context.Context, name string, args ...string) ([]byte, int, er
 	// Setpgid succeeded in Start and Wait has never been called: this PID cannot
 	// have been recycled, even if the group leader has already exited.
 	if e := syscall.Kill(-command.Process.Pid, syscall.SIGKILL); e != nil && !errors.Is(e, syscall.ESRCH) {
-		cause = errors.Join(cause, fmt.Errorf("utility group cleanup failed: %w", e))
+		if e = groupCleanupError(command.Process.Pid, e); e != nil {
+			cause = errors.Join(cause, fmt.Errorf("utility group cleanup failed: %w", e))
+		}
 	}
 	reaped := make(chan error, 1)
 	go func() { reaped <- command.Wait() }()

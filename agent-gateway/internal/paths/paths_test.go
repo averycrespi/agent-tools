@@ -62,8 +62,11 @@ func TestPrepareCreatesMissingOwnerControlledAncestors(t *testing.T) {
 
 	layout, err := Prepare(root)
 	require.NoError(t, err)
-	assert.Equal(t, root, layout.Root)
-	assert.Equal(t, filepath.Join(root, AdminBearerName), layout.AdminBearer)
+	canonicalParent, err := filepath.EvalSymlinks(parent)
+	require.NoError(t, err)
+	canonicalRoot := filepath.Join(canonicalParent, "missing", "share", InstallationName)
+	assert.Equal(t, canonicalRoot, layout.Root)
+	assert.Equal(t, filepath.Join(canonicalRoot, AdminBearerName), layout.AdminBearer)
 	assertMode(t, filepath.Join(parent, "missing"), 0o700)
 	assertMode(t, filepath.Join(parent, "missing", "share"), 0o700)
 	assertMode(t, root, 0o700)

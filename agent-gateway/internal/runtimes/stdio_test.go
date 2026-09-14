@@ -165,7 +165,9 @@ func TestStdioSupervisorExecutesExactPathWithCleanRuntimeEnvironment(t *testing.
 	var inspection fixtureInspection
 	require.NoError(t, json.Unmarshal(frame, &inspection))
 	assert.Equal(t, []string{"$(touch " + sentinel + ")"}, inspection.Arguments)
-	assert.Equal(t, directory, inspection.Directory)
+	canonicalDirectory, err := filepath.EvalSymlinks(directory)
+	require.NoError(t, err)
+	assert.Equal(t, canonicalDirectory, inspection.Directory)
 	assert.Equal(t, "declared", inspection.SafeValue)
 	digest := sha256.Sum256([]byte(canary))
 	assert.Equal(t, hex.EncodeToString(digest[:]), inspection.SecretHash)

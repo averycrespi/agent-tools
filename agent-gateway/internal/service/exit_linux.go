@@ -7,3 +7,7 @@ func childExited(pid int) (bool, error) {
 	err := unix.Waitid(unix.P_PID, pid, &info, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT, nil)
 	return info.Signo != 0, err
 }
+
+func groupCleanupError(_ int, signalErr error) error {
+	return signalErr
+}
