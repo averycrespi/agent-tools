@@ -1,6 +1,6 @@
 # Access control: principals, grants, and requests
 
-Principals and credentials are shared administration. Grants and **MCP → Access requests** administer MCP permissions, not network traffic or queued calls. Use `mcp grant` and `mcp grant-request`; their API resources also belong to MCP. Upgrade clients and service together and reload browsers using the [exact namespace mappings and rejected-link recovery](administration.md#mcp-permission-namespace-cutover). Old spellings are rejected, never redirected or replayed.
+Principals and credentials are shared administration. Grants and **MCP → Requests** administer MCP permissions, not network traffic or queued calls. Use `mcp grant` and `mcp grant-request`; their API resources also belong to MCP. Upgrade clients and service together and reload browsers using the [exact namespace mappings and rejected-link recovery](administration.md#mcp-permission-namespace-cutover). Old spellings are rejected, never redirected or replayed.
 
 Audience: Gateway administrators managing agent access
 

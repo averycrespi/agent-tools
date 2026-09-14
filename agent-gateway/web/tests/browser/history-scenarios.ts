@@ -144,7 +144,7 @@ export async function assertAuthoritativeHistory(
     // Audit's predicates already precede LIMIT. Reproduce the older-only report
     // against the unchanged TOOLS-26 UI before adding simulated failure states.
     await page.evaluate(() => {
-      window.location.hash = "#/activity/audit";
+      window.location.hash = "#/audit-log";
     });
     await expect(page.getByTestId("audit-row")).toHaveCount(50);
     let failAuditOlder = true;
@@ -184,7 +184,7 @@ export async function assertAuthoritativeHistory(
         new URL(r.url()).searchParams.get("action") === "create",
     );
     await page.evaluate((id) => {
-      window.location.hash = `#/activity/audit?filter_action=create&filter_category=principal&filter_outcome=succeeded&filter_target_id=${id}`;
+      window.location.hash = `#/audit-log?filter_action=create&filter_category=principal&filter_outcome=succeeded&filter_target_id=${id}`;
     }, principalID);
     const auditData = await (await auditResponse).json();
     if (
@@ -199,7 +199,7 @@ export async function assertAuthoritativeHistory(
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
-    ).toHaveText("Administrative audit");
+    ).toHaveText("Audit Log");
     await expect(page).toHaveURL(/filter_action=create/);
     await page.getByRole("link", { name: "Back to audit history" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
@@ -210,19 +210,19 @@ export async function assertAuthoritativeHistory(
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(
-      page.getByRole("heading", { name: "MCP invocations", exact: true }),
+      page.getByRole("heading", { name: "MCP Invocations", exact: true }),
     ).toBeVisible();
     await expect(
       page
         .getByTestId("invocations-view")
-        .getByRole("region", { name: "MCP invocations", exact: true }),
+        .getByRole("region", { name: "Invocations", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText(
         "Recorded MCP invocations, separate from administrative audit.",
         { exact: true },
       ),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(page.getByTestId("audit-view")).toHaveCount(0);
     const filteredResponse = page.waitForResponse(
       (r) =>
@@ -299,9 +299,12 @@ export async function assertAuthoritativeHistory(
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
-    ).toHaveText("MCP invocations");
+    ).toHaveText("Invocations");
+    await expect(page.locator("#invocation-page-title")).toHaveText(
+      `MCP Invocation ${selected.items[0].id}`,
+    );
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
-    await page.getByRole("link", { name: "Back to MCP invocations" }).click();
+    await page.getByRole("link", { name: "Back to invocations" }).click();
     await expect(live).not.toBeChecked();
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
@@ -339,7 +342,7 @@ export async function assertAuthoritativeHistory(
       await expect(page.getByTestId("invocation-detail")).toBeVisible();
       await expect(principalLink).toHaveAttribute(
         "href",
-        `#/access/principals/${principalID}`,
+        `#/principals/${principalID}`,
       );
       await page.reload();
       await waitForLifecycle(page, "authenticated");
@@ -347,7 +350,7 @@ export async function assertAuthoritativeHistory(
       await expect(principalLink).toBeVisible();
     }
     await capture("detail");
-    await page.getByRole("link", { name: "Back to MCP invocations" }).click();
+    await page.getByRole("link", { name: "Back to invocations" }).click();
     await expect(page).toHaveURL(copiedList);
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await page.getByLabel("Tool", { exact: true }).fill("arrival.lookup");

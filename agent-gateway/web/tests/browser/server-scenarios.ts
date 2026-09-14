@@ -1,4 +1,7 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { assertTableConventions } from "./table-conventions.ts";
 import { exerciseCatalogPagination } from "./catalog-pagination.ts";
 import { exerciseOperationPagination } from "./operation-pagination.ts";
@@ -3299,6 +3302,22 @@ export async function runServerCatalogReads(
     if (!body.includes(phrase)) fail(`server detail omitted ${phrase}`);
   if (body.includes("Authorize server"))
     fail("non-OAuth server offered OAuth authorization");
+  const serverTitle = page.locator('[data-testid="server-context"] h2');
+  await expect(serverTitle).toHaveText(
+    `MCP Server: ${activeServer.display_name}`,
+  );
+  const titleArtifacts = await mkdtemp(join(tmpdir(), "gateway-mcp-titles-"));
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(serverTitle).toBeVisible();
+    const bounds = await serverTitle.boundingBox();
+    if (bounds === null || bounds.x < 0 || bounds.x + bounds.width > width)
+      fail("MCP server title exceeded the viewport");
+    await page.screenshot({
+      path: join(titleArtifacts, `server-${width}.png`),
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   const serverContextText =
     (await page.locator('[data-testid="server-context"]').textContent()) ?? "";
   if (
@@ -3338,6 +3357,12 @@ export async function runServerCatalogReads(
     )
     .click();
   await page.locator('[data-testid="descriptor-detail"]').waitFor();
+  await expect(serverTitle).toHaveText(
+    `MCP Server: ${activeServer.display_name}`,
+  );
+  await expect(page.locator("#descriptor-detail-title")).toHaveText(
+    "MCP Tool: server.retired-tool",
+  );
   if (
     await page.evaluate(
       () => document.activeElement?.getAttribute("id") === "page-title",

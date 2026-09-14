@@ -566,8 +566,8 @@ function Filters({
     setDraft({});
     setSelectedFilters([]);
     applied.current = {};
-    ownNavigation.current = "#/activity/audit";
-    navigate("#/activity/audit");
+    ownNavigation.current = "#/audit-log";
+    navigate("#/audit-log");
   };
   const field = (key: string) => {
     const name = `filter_${key}`;
@@ -847,7 +847,7 @@ export function Audit({
                 <dt>Correlation ID</dt>
                 <dd>
                   <a
-                    href={`#/activity/audit?filter_correlation_id=${snapshot.item.correlation_id}`}
+                    href={`#/audit-log?filter_correlation_id=${snapshot.item.correlation_id}`}
                   >
                     {snapshot.item.correlation_id}
                   </a>
@@ -911,10 +911,7 @@ export function Audit({
               }
             >
               {Object.keys(resolved.location.query).length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => navigate("#/activity/audit")}
-                >
+                <button type="button" onClick={() => navigate("#/audit-log")}>
                   Clear filters
                 </button>
               ) : (

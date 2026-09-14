@@ -473,7 +473,7 @@ function GrantCreate({
         <div class="panel-heading">
           <div>
             <span class="panel-code">IMMUTABLE POLICY</span>
-            <h2 id="grant-create-title">Create grant</h2>
+            <h2 id="grant-create-title">Create MCP Grant</h2>
           </div>
         </div>
         <p class="bounded-note">
@@ -1416,7 +1416,7 @@ export function Grants({
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
             <h1 id="grant-page-title" tabindex={-1}>
-              Grant {detail.id}
+              MCP Grant {detail.id}
             </h1>
           </div>
         </header>
@@ -1445,7 +1445,7 @@ export function Grants({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/access/principals/${detail.principalID}`}>
+                <a href={`#/principals/${detail.principalID}`}>
                   {principal?.displayName ?? `Principal ${detail.principalID}`}
                 </a>
               </dd>
@@ -1664,7 +1664,7 @@ function GrantCollection({
               sortValue: (grant) =>
                 principalNames.get(grant.principalID) ?? grant.principalID,
               render: (grant) => (
-                <a href={`#/access/principals/${grant.principalID}`}>
+                <a href={`#/principals/${grant.principalID}`}>
                   {principalNames.get(grant.principalID) ??
                     `Principal ${grant.principalID}`}
                 </a>

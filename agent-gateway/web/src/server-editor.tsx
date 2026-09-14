@@ -1872,7 +1872,7 @@ export function ServerEditor({
         <div class="panel-heading">
           <div>
             <span class="panel-code">NEW SERVER</span>
-            <h2 id="server-editor-title">Create server</h2>
+            <h2 id="server-editor-title">Create MCP Server</h2>
           </div>
         </div>
         {form}

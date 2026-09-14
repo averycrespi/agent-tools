@@ -384,7 +384,7 @@ function PrincipalEditor({
         notify(
           "Principal created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
         );
-        navigate(`#/access/principals/${saved.id}`, true);
+        navigate(`#/principals/${saved.id}`, true);
       } else {
         setNotice("Principal identity and MCP discovery visibility saved.");
         onRefresh();
@@ -973,7 +973,7 @@ export function Principals({
     return (
       <div class="domain-view" data-testid="principal-detail">
         <nav class="detail-navigation" aria-label="Principal navigation">
-          <a href="#/access/principals">Back to principals</a>
+          <a href="#/principals">Back to principals</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
@@ -1078,7 +1078,7 @@ function PrincipalCollection({
       <div class="collection-toolbar">
         <a
           class="button-link create-action"
-          href="#/access/principals/new"
+          href="#/principals/new"
           data-testid="principal-create-link"
         >
           Create principal
@@ -1141,7 +1141,7 @@ function PrincipalCollection({
               render: (principal) => (
                 <TableIdentity
                   primary={
-                    <a href={`#/access/principals/${principal.id}`}>
+                    <a href={`#/principals/${principal.id}`}>
                       {principal.displayName}
                     </a>
                   }

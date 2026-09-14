@@ -1893,8 +1893,8 @@ export function Requests({
           <div class="detail-context-heading">
             <h1 id="request-page-title" tabindex={-1}>
               {detail.state === "pending"
-                ? "Review request"
-                : `${sentenceCase(detail.state)} request`}
+                ? "Review MCP Access Request"
+                : `${sentenceCase(detail.state)} MCP Access Request`}
             </h1>
           </div>
         </header>
@@ -1917,7 +1917,7 @@ export function Requests({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/access/principals/${detail.principalID}`}>
+                <a href={`#/principals/${detail.principalID}`}>
                   {principalName}
                 </a>
               </dd>
@@ -2273,7 +2273,7 @@ export function Requests({
               label: "Principal",
               role: "relation",
               render: (item) => (
-                <a href={`#/access/principals/${item.principalID}`}>
+                <a href={`#/principals/${item.principalID}`}>
                   {item.principalName}
                 </a>
               ),

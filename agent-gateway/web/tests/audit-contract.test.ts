@@ -11,19 +11,19 @@ import {
 } from "../src/audit-contract.ts";
 test("audit detail carries only a validated filter return query, never traversal state", () => {
   const id = "00000000000000000000000001";
-  const fragment = `#/activity/audit/${id}?filter_outcome=failed`;
+  const fragment = `#/audit-log/${id}?filter_outcome=failed`;
   const location = parseFragment(fragment)!;
   assert.equal(serializeLocation(location), fragment);
   assert.equal(
     serializeLocation({ ...location, segments: ["audit"] }),
-    "#/activity/audit?filter_outcome=failed",
+    "#/audit-log?filter_outcome=failed",
   );
   assert.equal(
     serializeLocation({
-      ...parseFragment(`#/activity/audit/${id}`)!,
+      ...parseFragment(`#/audit-log/${id}`)!,
       segments: ["audit"],
     }),
-    "#/activity/audit",
+    "#/audit-log",
   );
   for (const query of [
     "cursor=opaque",
@@ -31,7 +31,7 @@ test("audit detail carries only a validated filter return query, never traversal
     "filter_target_id=bad",
     "filter_from=2026-01-01T00%3A00%3A00.000000000Z",
   ])
-    assert.equal(parseFragment(`#/activity/audit/${id}?${query}`), undefined);
+    assert.equal(parseFragment(`#/audit-log/${id}?${query}`), undefined);
 });
 test("audit JSON rejects duplicate members, including escaped keys", () => {
   for (const source of [
