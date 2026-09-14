@@ -1917,7 +1917,7 @@ export function Requests({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/access/principals/${detail.principalID}`}>
+                <a href={`#/principals/${detail.principalID}`}>
                   {principalName}
                 </a>
               </dd>
@@ -2273,7 +2273,7 @@ export function Requests({
               label: "Principal",
               role: "relation",
               render: (item) => (
-                <a href={`#/access/principals/${item.principalID}`}>
+                <a href={`#/principals/${item.principalID}`}>
                   {item.principalName}
                 </a>
               ),

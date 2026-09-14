@@ -2129,7 +2129,7 @@ export async function runInvocations(
     ).includes("ID") ||
     (await page
       .locator(
-        `[data-testid="invocation-detail"] a[href="#/access/principals/${invocationIDs.principal}"]`,
+        `[data-testid="invocation-detail"] a[href="#/principals/${invocationIDs.principal}"]`,
       )
       .count()) !== 1 ||
     (await page

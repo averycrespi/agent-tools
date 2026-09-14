@@ -436,21 +436,21 @@ export async function runFragmentStorage(
       `#/mcp/servers/${idA}/descriptors/${idB}`,
     ],
     ["#/mcp/tools", "#/mcp/tools"],
-    ["#/access/principals", "#/access/principals"],
+    ["#/principals", "#/principals"],
     [
-      "#/access/principals?filter_name=Caf%C3%A9&filter_visibility=all&filter_state=disabled&direction=descending&sort=name",
-      "#/access/principals?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
+      "#/principals?filter_name=Caf%C3%A9&filter_visibility=all&filter_state=disabled&direction=descending&sort=name",
+      "#/principals?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
     ],
     [
       "#/mcp/grants?filter_target=Far&filter_state=expired&filter_principal=Agent&filter_identity=Policy&filter_effect=deny&direction=ascending&sort=principal",
       "#/mcp/grants?sort=principal&direction=ascending&filter_effect=deny&filter_identity=Policy&filter_principal=Agent&filter_state=expired&filter_target=Far",
     ],
     ["#/mcp/grants?sort=description", "#/mcp/grants?sort=description"],
-    ["#/access/principals/new", "#/access/principals/new"],
-    [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
-    ["#/access/principals", "#/access/principals"],
-    ["#/access/principals/new", "#/access/principals/new"],
-    [`#/access/principals/${idA}`, `#/access/principals/${idA}`],
+    ["#/principals/new", "#/principals/new"],
+    [`#/principals/${idA}`, `#/principals/${idA}`],
+    ["#/principals", "#/principals"],
+    ["#/principals/new", "#/principals/new"],
+    [`#/principals/${idA}`, `#/principals/${idA}`],
     ["#/mcp/grants", "#/mcp/grants"],
     ["#/mcp/grants/new", "#/mcp/grants/new"],
     [
@@ -513,7 +513,8 @@ export async function runFragmentStorage(
     ...[
       "servers",
       "catalog",
-      "principals",
+      "access/principals",
+      "activity/audit",
       "grants",
       "requests",
       "access/grants",
@@ -544,12 +545,12 @@ export async function runFragmentStorage(
     `#/mcp/grants?principal_id=${idA}`,
     `#/mcp/grants?server_id=${idB}`,
     `#/mcp/grants?principal_id=${idA}`,
-    "#/access/principals?direction=ascending",
-    "#/access/principals?sort=unknown",
-    "#/access/principals?filter_unknown=value",
-    "#/access/principals?filter_state=expired",
-    "#/access/principals?filter_name=%0A",
-    `#/access/principals?filter_name=${encodeURIComponent("é".repeat(129))}`,
+    "#/principals?direction=ascending",
+    "#/principals?sort=unknown",
+    "#/principals?filter_unknown=value",
+    "#/principals?filter_state=expired",
+    "#/principals?filter_name=%0A",
+    `#/principals?filter_name=${encodeURIComponent("é".repeat(129))}`,
     "#/mcp/grants?filter_effect=ALLOW",
     "#/mcp/grants?sort=description&sort=id",
     "#/mcp/grants?cursor=opaque",
@@ -1236,14 +1237,14 @@ export async function runShellPrimitives(
 
   const expectedNavigation = [
     ["Overview", "#/overview"],
-    ["Principals", "#/access/principals"],
+    ["Principals", "#/principals"],
+    ["Audit Log", "#/audit-log"],
+    ["System", "#/system"],
     ["Servers", "#/mcp/servers"],
     ["Tools", "#/mcp/tools"],
     ["Grants", "#/mcp/grants"],
-    ["Access requests", "#/mcp/access-requests"],
-    ["MCP invocations", "#/mcp/invocations"],
-    ["Administrative audit", "#/activity/audit"],
-    ["System", "#/system"],
+    ["Requests", "#/mcp/access-requests"],
+    ["Invocations", "#/mcp/invocations"],
   ] as const;
   const primary = page.getByRole("navigation", {
     name: "Primary",
@@ -1257,12 +1258,7 @@ export async function runShellPrimitives(
   if (JSON.stringify(navigationLinks) !== JSON.stringify(expectedNavigation))
     fail("domain navigation labels, order or legacy destinations changed");
   for (const [name, labels] of [
-    ["Access", ["Principals"]],
-    [
-      "MCP",
-      ["Servers", "Tools", "Grants", "Access requests", "MCP invocations"],
-    ],
-    ["Activity", ["Administrative audit"]],
+    ["MCP", ["Servers", "Tools", "Grants", "Requests", "Invocations"]],
   ] as const) {
     const links = await primary
       .getByRole("group", { name, exact: true })
@@ -1271,13 +1267,16 @@ export async function runShellPrimitives(
     if (JSON.stringify(links) !== JSON.stringify(labels))
       fail(`${name} navigation group lost its accessible membership`);
   }
+  if ((await primary.getByRole("group").count()) !== 1)
+    fail("primary navigation must contain only the MCP named group");
   for (const [label, href] of expectedNavigation) {
     await primary.getByRole("link", { name: label, exact: true }).focus();
     await page.keyboard.press("Enter");
     await page.waitForFunction(
       ({ label, href }) =>
         window.location.hash === href &&
-        document.querySelector("#page-title")?.textContent === label &&
+        document.querySelector("#page-title")?.textContent ===
+          (label === "Requests" ? "Access requests" : label) &&
         document
           .querySelector("#primary-navigation a[aria-current=page]")
           ?.getAttribute("href") === href,

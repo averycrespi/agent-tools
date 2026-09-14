@@ -11,26 +11,26 @@ const other = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const collections = [
   "mcp/servers",
   "mcp/tools",
-  "access/principals",
+  "principals",
   "mcp/grants",
   "mcp/access-requests",
   "mcp/invocations",
-  "activity/audit",
+  "audit-log",
   "system",
   "overview",
   "sign-in",
 ];
 const details = [
   "mcp/servers",
-  "access/principals",
+  "principals",
   "mcp/grants",
   "mcp/access-requests",
   "mcp/invocations",
-  "activity/audit",
+  "audit-log",
 ].map((path) => `${path}/${id}`);
 const creates = [
   "mcp/servers/new",
-  "access/principals/new",
+  "principals/new",
   "mcp/grants/new",
   "system/backups/new",
   "system/admin-credentials/new",
@@ -50,11 +50,12 @@ test("every canonical collection, detail, create and server-owned route round tr
   }
 });
 
-test("old flat paths and undeclared members never resolve as resources", () => {
+test("retired paths and undeclared members never resolve as resources", () => {
   const old = [
     "servers",
     "catalog",
-    "principals",
+    "access/principals",
+    "activity/audit",
     "grants",
     "requests",
     "access/grants",
@@ -141,8 +142,8 @@ test("destination queries have deterministic ordering and preserve valid context
       `mcp/servers/${id}?tab=tools&sort=tool&filter_tool=echo`,
     ],
     [
-      "access/principals?filter_visibility=all&sort=name",
-      "access/principals?sort=name&filter_visibility=all",
+      "principals?filter_visibility=all&sort=name",
+      "principals?sort=name&filter_visibility=all",
     ],
     [
       "mcp/grants?filter_effect=deny&sort=target",
@@ -161,8 +162,8 @@ test("destination queries have deterministic ordering and preserve valid context
       `mcp/invocations/${id}?filter_decision=allow&filter_tool=echo`,
     ],
     [
-      `activity/audit/${id}?filter_outcome=succeeded&filter_category=server`,
-      `activity/audit/${id}?filter_category=server&filter_outcome=succeeded`,
+      `audit-log/${id}?filter_outcome=succeeded&filter_category=server`,
+      `audit-log/${id}?filter_category=server&filter_outcome=succeeded`,
     ],
     ["system?tab=status", "system"],
   ];
@@ -177,7 +178,7 @@ test("destination queries have deterministic ordering and preserve valid context
     "mcp/servers?filter_status=unknown",
     "mcp/tools?filter_status=retired",
     "mcp/access-requests?filter_state=pending",
-    "access/principals?direction=ascending",
+    "principals?direction=ascending",
     `mcp/grants/new?filter_name=x`,
     "system?filter_name=x",
   ]) {

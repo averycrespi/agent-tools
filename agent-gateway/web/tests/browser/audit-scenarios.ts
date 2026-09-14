@@ -24,7 +24,7 @@ export async function runAudit(
       new URL(response.url()).pathname === "/api/v2/audit-events" &&
       response.status() === 200,
   );
-  await page.locator('a[href="#/activity/audit"]').click();
+  await page.locator('a[href="#/audit-log"]').click();
   await expect(page.getByTestId("audit-row").first()).toBeVisible();
   const real = await (await realResponse).json();
   const realPage = decodeAuditPage(real);
@@ -224,12 +224,15 @@ export async function runAudit(
   await expect(
     page.getByText("Older events pruned", { exact: true }),
   ).toBeVisible();
-  const activity = page
-    .getByRole("navigation", { name: "Primary", exact: true })
-    .getByRole("group", { name: "Activity", exact: true });
-  await expect(activity.getByRole("link")).toHaveText(["Administrative audit"]);
+  const primary = page.getByRole("navigation", {
+    name: "Primary",
+    exact: true,
+  });
   await expect(
-    activity.getByRole("link", { name: "Administrative audit", exact: true }),
+    primary.getByRole("group", { name: "Activity", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    primary.getByRole("link", { name: "Audit Log", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   const artifacts = await mkdtemp(join(tmpdir(), "gateway-audit-visual-"));
   const screenshots: string[] = [];
@@ -302,7 +305,7 @@ export async function runAudit(
   await expect.poll(() => queries.at(-1)?.get("outcome")).toBe("unknown");
   mode = "target-delayed";
   await page
-    .locator(`a[href="#/activity/audit/${id(3)}?filter_outcome=unknown"]`)
+    .locator(`a[href="#/audit-log/${id(3)}?filter_outcome=unknown"]`)
     .focus();
   await page.keyboard.press("Enter");
   await expect(
@@ -378,7 +381,7 @@ export async function runAudit(
   mode = "normal";
   await page.getByRole("link", { name: "Back to audit history" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
-  await expect(page).toHaveURL(/#\/activity\/audit\?filter_outcome=unknown$/);
+  await expect(page).toHaveURL(/#\/audit-log\?filter_outcome=unknown$/);
   await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(0);
   await page
     .getByRole("button", { name: "Clear filters", exact: true })
@@ -459,7 +462,7 @@ export async function runAudit(
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => {
     window.location.hash =
-      "#/activity/audit?filter_from=2026-01-01T23%3A00%3A00.123456789Z&filter_until=2026-01-02T23%3A00%3A00.123456789Z";
+      "#/audit-log?filter_from=2026-01-01T23%3A00%3A00.123456789Z&filter_until=2026-01-02T23%3A00%3A00.123456789Z";
   });
   await expect(from).toHaveValue("2026-01-01T18:00");
   await expect(until).toHaveValue("2026-01-02T18:00");
@@ -570,9 +573,7 @@ export async function runAudit(
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       ),
   );
-  await expect(page.locator(`a[href="#/activity/audit/${id(6)}"]`)).toHaveCount(
-    0,
-  );
+  await expect(page.locator(`a[href="#/audit-log/${id(6)}"]`)).toHaveCount(0);
   mode = "failure";
   await refresh();
   await expect(
@@ -594,11 +595,7 @@ export async function runAudit(
         labels.map((label) => label.getAttribute("data-state")),
       ),
   ).toEqual(["neutral", "current", "error", "neutral", "warning"]);
-  for (const route of [
-    "access/principals",
-    "mcp/grants",
-    "mcp/access-requests",
-  ])
+  for (const route of ["principals", "mcp/grants", "mcp/access-requests"])
     await expect(page.locator(`a[href="#/${route}/${id(7)}"]`)).toBeVisible();
   await expect(
     page.getByTestId("audit-row").nth(0).locator('[data-label="Target"] a'),
@@ -644,21 +641,15 @@ export async function runAudit(
   await expect(
     page.getByText(/previous traversal was discarded and restarted/),
   ).toBeVisible();
-  await expect(
-    page.locator(`a[href="#/activity/audit/${id(4)}"]`),
-  ).toBeVisible();
+  await expect(page.locator(`a[href="#/audit-log/${id(4)}"]`)).toBeVisible();
   mode = "replaced";
   await refresh();
   await expect(
     page.getByText(/Newer local events may have been discarded/),
   ).toBeVisible();
   await expect(page.getByTestId("audit-row")).toHaveCount(1);
-  await expect(
-    page.locator(`a[href="#/activity/audit/${id(5)}"]`),
-  ).toBeVisible();
-  await expect(page.locator(`a[href="#/activity/audit/${id(4)}"]`)).toHaveCount(
-    0,
-  );
+  await expect(page.locator(`a[href="#/audit-log/${id(5)}"]`)).toBeVisible();
+  await expect(page.locator(`a[href="#/audit-log/${id(4)}"]`)).toHaveCount(0);
   await capture("continuity-warning", 1440);
   await page.getByText("Retention details", { exact: true }).focus();
   await page.keyboard.press("Enter");
@@ -708,7 +699,7 @@ export async function runAudit(
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
   await page.evaluate((id) => {
-    window.location.hash = `#/activity/audit/${id}?filter_outcome=unknown`;
+    window.location.hash = `#/audit-log/${id}?filter_outcome=unknown`;
   }, id(3));
   await expect(page.getByText("interrupted", { exact: true })).toBeVisible();
   await expect(

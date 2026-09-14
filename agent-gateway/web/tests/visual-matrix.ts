@@ -16,7 +16,7 @@ export const visualDestinations = [
   },
   {
     id: "principals",
-    route: "#/access/principals",
+    route: "#/principals",
     selector: '[data-testid="principals-view"]',
   },
   {

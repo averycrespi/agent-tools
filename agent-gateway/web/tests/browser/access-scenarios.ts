@@ -314,14 +314,14 @@ export async function runAccessManagementReadCanary(
   });
 
   await page.evaluate((id) => {
-    window.location.hash = `#/access/principals/${id}`;
+    window.location.hash = `#/principals/${id}`;
   }, principalID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   const destinations: Array<[string, string]> = [
-    [`#/access/principals/${principalID}`, "principal-detail"],
+    [`#/principals/${principalID}`, "principal-detail"],
     [`#/mcp/grants/${grantID}`, "grant-detail"],
     [`#/mcp/access-requests/${requestID}`, "request-detail"],
   ];
@@ -594,7 +594,7 @@ export async function runPrincipals(
   });
 
   await page.evaluate(() => {
-    window.location.hash = "#/access/principals";
+    window.location.hash = "#/principals";
   });
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -704,7 +704,7 @@ export async function runPrincipals(
     fail("Create principal was not aligned with Create server");
 
   await page.evaluate(() => {
-    window.location.hash = "#/access/principals/new";
+    window.location.hash = "#/principals/new";
   });
   await page.locator('[data-testid="principal-create-view"]').waitFor();
   body = (await page.locator("body").textContent()) ?? "";
@@ -744,8 +744,7 @@ export async function runPrincipals(
     .locator('dialog[aria-labelledby="unsaved-changes-title"]')
     .waitFor({ state: "hidden" });
   if (
-    (await page.evaluate(() => window.location.hash)) !==
-      "#/access/principals/new" ||
+    (await page.evaluate(() => window.location.hash)) !== "#/principals/new" ||
     (await page
       .locator('[data-testid="principal-display-name"]')
       .inputValue()) !== "New automation"
@@ -792,7 +791,7 @@ export async function runPrincipals(
     .waitFor();
 
   await page.evaluate((id) => {
-    window.location.hash = `#/access/principals/${id}`;
+    window.location.hash = `#/principals/${id}`;
   }, firstID);
   await page.locator('[data-testid="principal-detail"]').waitFor();
   await page
@@ -831,7 +830,7 @@ export async function runPrincipals(
     ).principalDetailFlashed = false;
     new MutationObserver(() => {
       if (
-        window.location.hash === `#/access/principals/${id}` &&
+        window.location.hash === `#/principals/${id}` &&
         document
           .querySelector('[data-testid="principal-detail"]')
           ?.textContent?.includes("Build agent")
@@ -840,7 +839,7 @@ export async function runPrincipals(
           window as Window & { principalDetailFlashed?: boolean }
         ).principalDetailFlashed = true;
     }).observe(document.body, { childList: true, subtree: true });
-    window.location.hash = `#/access/principals/${id}`;
+    window.location.hash = `#/principals/${id}`;
   }, secondID);
   await page.getByText("Disabled agent", { exact: true }).waitFor();
   if (
@@ -865,7 +864,7 @@ export async function runPrincipals(
   if (untouchedPrincipalWarned)
     fail("principal route change retained the prior principal dirty baseline");
   await page.evaluate((id) => {
-    window.location.hash = `#/access/principals/${id}`;
+    window.location.hash = `#/principals/${id}`;
   }, firstID);
   await page.getByText("Build agent", { exact: true }).waitFor();
 
@@ -1032,7 +1031,7 @@ export async function runPrincipalCredentials(
   );
 
   await page.evaluate((id) => {
-    window.location.hash = `#/access/principals/${id}`;
+    window.location.hash = `#/principals/${id}`;
   }, principalID);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
@@ -1154,7 +1153,7 @@ export async function runPrincipalCredentials(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.evaluate((id) => {
-    window.location.hash = `#/access/principals/${id}`;
+    window.location.hash = `#/principals/${id}`;
   }, principalID);
   await page.locator('[data-testid="principal-credential-revoke"]').waitFor();
   await page.locator('[data-testid="principal-credential-revoke"]').click();
@@ -1172,7 +1171,7 @@ export async function runPrincipalCredentials(
   });
   await page.locator('[data-testid="overview-grid"]').waitFor();
   await page.evaluate((id) => {
-    window.location.hash = `#/access/principals/${id}`;
+    window.location.hash = `#/principals/${id}`;
   }, principalID);
   await page.locator('[data-testid="principal-credential-revoke"]').waitFor();
   await page.locator('[data-testid="principal-credential-revoke"]').click();
@@ -3547,9 +3546,8 @@ export async function runRequestReads(
   ])
     if (!body.includes(phrase)) fail(`request detail omitted ${phrase}`);
   if (
-    (await page
-      .locator(`a[href="#/access/principals/${principalID}"]`)
-      .count()) === 0 ||
+    (await page.locator(`a[href="#/principals/${principalID}"]`).count()) ===
+      0 ||
     (await page
       .locator(`a[href="#/mcp/servers/${serverID}?tab=tools"]`)
       .count()) === 0 ||

@@ -621,7 +621,7 @@ function InvocationFacts({
       <div>
         <dt>Principal</dt>
         <dd>
-          <a href={`#/access/principals/${item.principalID}`}>
+          <a href={`#/principals/${item.principalID}`}>
             {principalNames.get(item.principalID) ?? item.principalID}
           </a>
         </dd>
@@ -738,7 +738,7 @@ export function Invocations({
     return (
       <>
         <nav class="detail-navigation" aria-label="Invocation navigation">
-          <a href={listLink}>Back to MCP invocations</a>
+          <a href={listLink}>Back to invocations</a>
         </nav>
         <InvocationDetail
           snapshot={current}
@@ -785,8 +785,7 @@ function InvocationList({
   principalNames: ReadonlyMap<string, string>;
 }) {
   return (
-    <section class="panel domain-panel" aria-label="MCP invocations">
-      <p>Recorded MCP invocations, separate from administrative audit.</p>
+    <section class="panel domain-panel" aria-label="Invocations">
       <div class="collection-toolbar live-collection-toolbar">
         <label for="invocation-live-mode">Live mode</label>
         <BinaryToggle
@@ -895,7 +894,7 @@ function InvocationList({
               label: "Principal",
               role: "relation",
               render: (item) => (
-                <a href={`#/access/principals/${item.principalID}`}>
+                <a href={`#/principals/${item.principalID}`}>
                   {principalNames.get(item.principalID) ?? item.principalID}
                 </a>
               ),

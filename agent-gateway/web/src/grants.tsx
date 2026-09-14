@@ -1445,7 +1445,7 @@ export function Grants({
             <div>
               <dt>Principal</dt>
               <dd>
-                <a href={`#/access/principals/${detail.principalID}`}>
+                <a href={`#/principals/${detail.principalID}`}>
                   {principal?.displayName ?? `Principal ${detail.principalID}`}
                 </a>
               </dd>
@@ -1664,7 +1664,7 @@ function GrantCollection({
               sortValue: (grant) =>
                 principalNames.get(grant.principalID) ?? grant.principalID,
               render: (grant) => (
-                <a href={`#/access/principals/${grant.principalID}`}>
+                <a href={`#/principals/${grant.principalID}`}>
                   {principalNames.get(grant.principalID) ??
                     `Principal ${grant.principalID}`}
                 </a>

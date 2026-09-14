@@ -198,7 +198,7 @@ For governed call evidence, `outcome_unknown` means the effect may already have 
 
 ## Control-plane audit history
 
-Use `agent-gateway audit list` and `agent-gateway audit get AUDIT_EVENT_ID`, or choose **Activity → Administrative audit** in the browser navigation. This is the existing administrative audit history, including system and offline maintenance events, not an administrator directory or actor filter. Both consume the authenticated read-only `GET /api/v2/audit-events` and `GET /api/v2/audit-events/{id}` API. Generated `agent-gateway audit --help`, `agent-gateway audit list --help`, and `agent-gateway audit get --help` describe the command grammar. The [coverage matrix](../design/administrative-control-plane.md#control-plane-audit-coverage) identifies audited operator, system and offline actions and their regression evidence. Do not infer that an action never happened from an empty audit collection.
+Use `agent-gateway audit list` and `agent-gateway audit get AUDIT_EVENT_ID`, or choose **Audit Log** in the browser navigation. This is the existing administrative audit history, including system and offline maintenance events, not an administrator directory or actor filter. Both consume the authenticated read-only `GET /api/v2/audit-events` and `GET /api/v2/audit-events/{id}` API. Generated `agent-gateway audit --help`, `agent-gateway audit list --help`, and `agent-gateway audit get --help` describe the command grammar. The [coverage matrix](../design/administrative-control-plane.md#control-plane-audit-coverage) identifies audited operator, system and offline actions and their regression evidence. Do not infer that an action never happened from an empty audit collection.
 
 Collection responses return summaries, a next-page cursor, and `history` with `generation`, `oldest_retained`, and `pruned`. Only the newest 65,536 events are retained. Keep the generation separately from the oldest boundary; pruning advances the boundary within one generation, while a generation mismatch means histories must not be combined. After `stale_cursor`, discard the traversal, fetch a fresh first page, and compare its generation before using earlier records. Restore assigns a fresh generation and records an offline installation attempt in the replacement database; its success outcome is appended only after installation. An interruption may leave the new generation with a pending attempt and no outcome. Pin `generation` on item reads when following a previously displayed event. `audit_history_replaced` is a conflict, not a missing-record response. Never infer rollback or replay safety from an attempt without an outcome.
 
@@ -220,7 +220,7 @@ Lists are descending sequence, not client-sorted timestamps. `--limit` is 1–10
 
 Browser filters query the server automatically and start page one: dropdowns apply immediately, IDs after a short pause, and From/Until only when both dates form a valid ordered range of at most 366 days. **More filters** contains IDs, dates and additional attribution/target selectors; its summary indicates active advanced filters and draft errors. The applied query remains visible, and invalid drafts do not replace results or prevent independent valid dropdown changes. **Clear filters** immediately clears both draft and applied values; filters remain usable with no matches. Back/Forward restores applied filters. Event links retain the applied query, and **Back to audit history** restarts the newest matching page rather than restoring an unverified traversal or losing filters. **Load older audit events** appends only compatible pages. **Refresh** restarts at the newest matching page. Cursors and generation comparisons live only in the authenticated session, not in URLs or browser storage; reload and a new session cannot compare with forgotten prior history. Stale cursors discard the traversal and fetch page one once with a notice. Replacement clears previous-history state and warns even if the fresh read fails. Pinned detail is discarded rather than reopening a potentially reused ID after replacement. A missing event is not proof of nonexecution. List targets link to supported server, principal, grant, or request routes without per-row resource discovery; unknown existence is checked at the destination, not asserted by the historical link. Known deleted/unavailable and unsupported targets remain plain text. Detail links to current resources only after verifying they still exist; failure to verify a link does not hide the audit evidence. Retention context and pruning warnings appear below results/detail; **Retention details** discloses generation and boundary facts. Narrow audit rows show labeled fields with full identities rather than requiring horizontal scrolling. Empty filtered results say **No matching audit events** and offer Clear filters; **No audit events yet** describes only unfiltered retained history.
 
-Performer labels distinguish **Operator**, **System**, and **Offline maintenance**. A system event's optional initiating credential is attribution, not its performer or a named human. Attempts and outcomes are immutable separate events joined by correlation ID; `pending`, `failed`, `rejected`, and `unknown` must not be interpreted as success or rollback. The detail correlation link selects matching retained events. Administrative audit is separate from **MCP → MCP invocations** and **MCP → Access requests**: request submissions and invocation evidence are not copied here.
+Performer labels distinguish **Operator**, **System**, and **Offline maintenance**. A system event's optional initiating credential is attribution, not its performer or a named human. Attempts and outcomes are immutable separate events joined by correlation ID; `pending`, `failed`, `rejected`, and `unknown` must not be interpreted as success or rollback. The detail correlation link selects matching retained events. Administrative audit is separate from **MCP → Invocations** and **MCP → Requests**: request submissions and invocation evidence are not copied here.
 
 See the [public audit contract](../design/public-contract.md#control-plane-audit-reads) for exact response shapes. Audit stores only credential IDs/fingerprints and allowlisted reason/problem codes, never raw secrets, raw error bodies, unrestricted snapshots, or invocation payloads. No export format or permanent-retention guarantee is provided.
 
@@ -261,19 +261,19 @@ Reload and sign-in never replay mutations. If an old tab reports version skew, r
 
 ## Browser location cutover
 
-Old flat browser paths have **no aliases or redirects**. Update bookmarks and browser automation to the canonical locations below. Old or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
+Retired browser paths have **no aliases or redirects**. Principals now uses `#/principals` and Audit Log uses `#/audit-log`; their old grouped paths are invalid. This sidebar cleanup changes no API endpoints. Update bookmarks and browser automation to the canonical locations below. Old or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
 
-| Old collection  | Canonical collection    |
-| --------------- | ----------------------- |
-| `#/servers`     | `#/mcp/servers`         |
-| `#/catalog`     | `#/mcp/tools`           |
-| `#/principals`  | `#/access/principals`   |
-| `#/grants`      | `#/mcp/grants`          |
-| `#/requests`    | `#/mcp/access-requests` |
-| `#/invocations` | `#/mcp/invocations`     |
-| `#/audit`       | `#/activity/audit`      |
+| Old collection                | Canonical collection    |
+| ----------------------------- | ----------------------- |
+| `#/servers`                   | `#/mcp/servers`         |
+| `#/catalog`                   | `#/mcp/tools`           |
+| `#/access/principals`         | `#/principals`          |
+| `#/grants`                    | `#/mcp/grants`          |
+| `#/requests`                  | `#/mcp/access-requests` |
+| `#/invocations`               | `#/mcp/invocations`     |
+| `#/audit`, `#/activity/audit` | `#/audit-log`           |
 
-Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. Existing `#/access/principals` remains canonical; `#/access/grants` and `#/access/requests` are retired by the MCP permission cutover below. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
+Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. `#/principals` is canonical; `#/access/grants` and `#/access/requests` are retired by the MCP permission cutover below. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
 
 The location cutover itself is not an installation or browser-persistence migration. Durable authority, ports, MCP ingress/self-service and OAuth callback identities remain compatible. Current browser persistence follows the cutover above; current root/service and provisioning names follow the separately documented installation and client migrations.
 
@@ -290,7 +290,7 @@ Upgrade the service, standalone CLI, bundled browser, API clients and automation
 | `#/activity/invocations`                     | `#/mcp/invocations`                              |
 | `#/activity/invocations/{id}`                | `#/mcp/invocations/{id}`                         |
 
-Carry supported filters and detail IDs to the new locations; do not copy cursors or live/pause state into URLs. **MCP → MCP invocations** replaces **Activity → Agents**. **Activity → Administrative audit** replaces the **Administrators** label only: `#/activity/audit`, `/api/v2/audit-events`, and `audit list/get` are unchanged and still include administrator, system, and offline-maintenance attribution. This is not an actor restriction or protocol filter. Overview remains shared; its existing MCP tool summaries are not cross-protocol metrics.
+Carry supported filters and detail IDs to the new locations; do not copy cursors or live/pause state into URLs. **MCP → Invocations** replaces **Activity → Agents**. **Audit Log** is the shared history destination at `#/audit-log`, replacing `#/activity/audit`. `/api/v2/audit-events` and `audit list/get` are unchanged and still include administrator, system, and offline-maintenance attribution. This is not an actor restriction or protocol filter. Overview remains shared; its existing MCP tool summaries are not cross-protocol metrics.
 
 Retired API paths return not found; retired CLI commands fail locally before authority acquisition. Old or invalid browser links show the existing safe notice and fixed signed-in Overview or signed-out Sign in fallback, never an inferred resource lookup. Explicitly navigate using the current menu or update the bookmark and reload. After any rejected or uncertain operation, inspect current state before deciding on a new action; changing the route or signing in is never permission to replay an invocation or mutation.
 
@@ -298,7 +298,7 @@ Invocation JSON, CLI machine output, filters, limits, cursor/generation rules, r
 
 ## MCP permission namespace cutover
 
-Upgrade the service, standalone CLI, bundled browser, API consumers, and automation together. Reload open browser tabs after the upgrade and sign in again if the service restarted. This is a coordinated clean cutover within API v2, not a storage or credential migration. **Access** retains Principals; **MCP** contains Servers, Tools, Grants, **Access requests**, and MCP invocations. Access requests approve MCP permissions, not network traffic or queued calls.
+Upgrade the service, standalone CLI, bundled browser, API consumers, and automation together. Reload open browser tabs after the upgrade and sign in again if the service restarted. This is a coordinated clean cutover within API v2, not a storage or credential migration. The sidebar starts with Overview, Principals, Audit Log, and System; **MCP** contains Servers, Tools, Grants, **Requests**, and **Invocations**. Requests retains the page title **Access requests**. Access requests approve MCP permissions, not network traffic or queued calls.
 
 | Retired interface                     | Canonical interface                       |
 | ------------------------------------- | ----------------------------------------- |

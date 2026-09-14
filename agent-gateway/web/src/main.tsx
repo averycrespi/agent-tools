@@ -51,14 +51,11 @@ const navigation: ReadonlyArray<{
   label?: string;
   destinations: ReadonlyArray<Exclude<Destination, "sign-in">>;
 }> = [
-  { destinations: ["overview"] },
-  { label: "Access", destinations: ["principals"] },
+  { destinations: ["overview", "principals", "audit", "system"] },
   {
     label: "MCP",
     destinations: ["servers", "catalog", "grants", "requests", "invocations"],
   },
-  { label: "Activity", destinations: ["audit"] },
-  { destinations: ["system"] },
 ];
 
 const destinationLabels: Readonly<Record<Destination, string>> = {
@@ -68,8 +65,8 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   principals: "Principals",
   grants: "Grants",
   requests: "Access requests",
-  invocations: "MCP invocations",
-  audit: "Administrative audit",
+  invocations: "Invocations",
+  audit: "Audit Log",
   system: "System",
   "sign-in": "Sign in",
 };
@@ -122,7 +119,7 @@ const registerInvalidationTrigger = (
   });
 registerInvalidationTrigger(
   "principal-invalidation",
-  (key) => /^#\/access\/principals(?:[/?]|$)/.test(key),
+  (key) => /^#\/principals(?:[/?]|$)/.test(key),
   ["authorization"],
 );
 registerInvalidationTrigger(
@@ -463,7 +460,7 @@ function App() {
         ? "Create server"
         : "Server details"
       : destination === "principals" &&
-          resolved.canonicalFragment === "#/access/principals/new"
+          resolved.canonicalFragment === "#/principals/new"
         ? "Create principal"
         : destination === "grants" &&
             resolved.canonicalFragment.startsWith("#/mcp/grants/new")
@@ -642,7 +639,9 @@ function App() {
                         aria-current={active ? "page" : undefined}
                         onClick={() => setNavigationOpen(false)}
                       >
-                        {destinationLabels[item]}
+                        {item === "requests"
+                          ? "Requests"
+                          : destinationLabels[item]}
                       </a>
                     );
                   })}
