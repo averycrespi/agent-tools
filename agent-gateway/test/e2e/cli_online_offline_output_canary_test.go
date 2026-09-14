@@ -27,7 +27,7 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(status.Stdout, &snapshot))
 	assert.Equal(t, contract.ProcessReady, snapshot.Process.State)
 
-	invocations := runOnlineCLI(t, harness, bearerPath, true, "invocation", "list", "--limit", "1", "--output", "json")
+	invocations := runOnlineCLI(t, harness, bearerPath, true, "mcp", "invocation", "list", "--limit", "1", "--output", "json")
 	var page contract.InvocationPage
 	require.NoError(t, json.Unmarshal(invocations.Stdout, &page))
 	assert.Empty(t, page.Items)

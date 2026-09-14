@@ -68,6 +68,7 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	for family, leaves := range map[string][]string{
 		"grant":         {"list", "get", "create", "update", "delete"},
 		"grant-request": {"list", "get", "approve", "reject"},
+		"invocation":    {"list", "get"},
 	} {
 		for _, leaf := range leaves {
 			t.Run("retired "+family+" "+leaf, func(t *testing.T) {

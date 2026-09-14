@@ -53,8 +53,11 @@ const navigation: ReadonlyArray<{
 }> = [
   { destinations: ["overview"] },
   { label: "Access", destinations: ["principals"] },
-  { label: "MCP", destinations: ["servers", "catalog", "grants", "requests"] },
-  { label: "Activity", destinations: ["invocations", "audit"] },
+  {
+    label: "MCP",
+    destinations: ["servers", "catalog", "grants", "requests", "invocations"],
+  },
+  { label: "Activity", destinations: ["audit"] },
   { destinations: ["system"] },
 ];
 
@@ -65,8 +68,8 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   principals: "Principals",
   grants: "Grants",
   requests: "Access requests",
-  invocations: "Agents",
-  audit: "Administrators",
+  invocations: "MCP invocations",
+  audit: "Administrative audit",
   system: "System",
   "sign-in": "Sign in",
 };

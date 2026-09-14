@@ -118,7 +118,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	assert.Equal(t, contract.InvocationBasisTerminal, localSummary.Outcome.Basis)
 
 	privateSummary := invocationByID(t, allPage.Items, privateID)
-	itemResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations/"+privateSummary.ID, nil)
+	itemResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+privateSummary.ID, nil)
 	var item contract.Invocation
 	decodeSnapshot(t, itemResponse, http.StatusOK, &item)
 	assert.JSONEq(t, `{"note":"`+inertCapture+`","token":"[REDACTED]"}`, string(item.RedactedArguments))
@@ -140,9 +140,9 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 
 	// T7 owns the sole 65,536-row fixture; advance the retained floor directly to test the real API boundary without repeating it.
 	simulateRetainedInvocationWindow(t, harness, localSummary.ID)
-	staleResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations?limit=1&cursor="+url.QueryEscape(*newestPage.NextCursor), nil)
+	staleResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations?limit=1&cursor="+url.QueryEscape(*newestPage.NextCursor), nil)
 	assertProblem(t, staleResponse, http.StatusConflict, "stale_cursor", "The cursor snapshot is no longer available.", false)
-	evictedResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations/"+admissionID, nil)
+	evictedResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+admissionID, nil)
 	assertProblem(t, evictedResponse, http.StatusNotFound, "not_found", "The resource was not found.", false)
 	retainedResponse, retainedPage := listInvocations(t, harness, url.Values{"limit": {"100"}})
 	require.Len(t, retainedPage.Items, 1)
@@ -182,7 +182,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 
 func listInvocations(t *testing.T, harness *gatewayHarness, query url.Values) (responseSnapshot, contract.InvocationPage) {
 	t.Helper()
-	path := "/api/v2/invocations"
+	path := "/api/v2/mcp/invocations"
 	if len(query) > 0 {
 		path += "?" + query.Encode()
 	}
@@ -229,6 +229,16 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	seedInvocationHistory(t, harness.root, 65536)
 
 	harness.Start()
+	// Existing schema-9 rows remain readable through the new namespace after restart.
+	_, historicalPage := listInvocations(t, harness, url.Values{"limit": {"1"}})
+	require.Len(t, historicalPage.Items, 1)
+	assert.Equal(t, seededInvocationID(65535), historicalPage.Items[0].ID)
+	historicalResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+seededInvocationID(1), nil)
+	var historical contract.Invocation
+	decodeSnapshot(t, historicalResponse, http.StatusOK, &historical)
+	assert.Equal(t, seededInvocationID(1), historical.ID)
+	assert.Equal(t, contract.AdmissionInvalidParams, historical.AdmissionClass)
+	assert.Equal(t, contract.InvocationOutcomeInvalidParams, historical.Outcome.Class)
 	waitForStdioServer(t, harness, catalog.ServerID, activeCatalog)
 	catalog.Fixture.SetCallOutcome(fixtureCallPrivateSuccess)
 	const argumentCanary = "e2e-retention-private-argument-canary"

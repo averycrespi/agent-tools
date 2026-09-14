@@ -81,8 +81,8 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/events", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "EventStream", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/audit-events", Method: "GET", RequestSchema: "AuditListQuery", SuccessSchema: "AuditPage", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v2/audit-events/{id}", Method: "GET", RequestSchema: "AuditItemQuery", SuccessSchema: "AuditItem", SuccessStatuses: []int{200}},
-	{Pattern: "/api/v2/invocations", Method: "GET", RequestSchema: "InvocationListQuery", SuccessSchema: "InvocationPage", SuccessStatuses: []int{200}, Cursor: true},
-	{Pattern: "/api/v2/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}},
+	{Pattern: "/api/v2/mcp/invocations", Method: "GET", RequestSchema: "InvocationListQuery", SuccessSchema: "InvocationPage", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/mcp/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/admin-authority", Method: "GET", RequestSchema: "None", SuccessSchema: "AdminAuthority", SuccessStatuses: []int{200}, ETag: true},
 	{Pattern: "/api/v2/admin-credentials/{id}/rotation-completion", Method: "POST", RequestSchema: "AdminCredentialRotationCompletion", SuccessSchema: "AdminCredentialRotationResult", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 }

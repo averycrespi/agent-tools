@@ -28,11 +28,11 @@ func TestInvocationReadCompositionIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)
 
-	collection, ok := contract.RouteForPath("/api/v2/invocations")
+	collection, ok := contract.RouteForPath("/api/v2/mcp/invocations")
 	require.True(t, ok)
 	assert.Equal(t, []string{"GET"}, collection.Methods)
 	assert.Equal(t, contract.AuthorityAdmin, collection.Authority)
-	item, ok := contract.RouteForPath("/api/v2/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	item, ok := contract.RouteForPath("/api/v2/mcp/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.True(t, ok)
 	assert.Equal(t, []string{"GET"}, item.Methods)
 

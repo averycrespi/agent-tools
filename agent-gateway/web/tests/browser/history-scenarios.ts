@@ -51,10 +51,10 @@ export async function assertAuthoritativeHistory(
       await initialBarrier;
       await route.fallback();
     };
-    await page.route("**/api/v2/invocations?*", holdInitial);
+    await page.route("**/api/v2/mcp/invocations?*", holdInitial);
     try {
       await page.evaluate(() => {
-        window.location.hash = "#/activity/invocations";
+        window.location.hash = "#/mcp/invocations";
       });
       await initialRead;
       await expect(page.getByLabel("Tool", { exact: true })).toBeVisible();
@@ -73,7 +73,7 @@ export async function assertAuthoritativeHistory(
     ).toBeVisible();
     await expect(page.getByLabel("Outcome", { exact: true })).toBeVisible();
     await capture("initial-empty");
-    await page.unroute("**/api/v2/invocations?*", holdInitial);
+    await page.unroute("**/api/v2/mcp/invocations?*", holdInitial);
     await page.evaluate(() => {
       window.location.hash = "#/overview";
     });
@@ -199,21 +199,23 @@ export async function assertAuthoritativeHistory(
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
-    ).toHaveText("Administrators");
+    ).toHaveText("Administrative audit");
     await expect(page).toHaveURL(/filter_action=create/);
     await page.getByRole("link", { name: "Back to audit history" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
     await expect(page).toHaveURL(/filter_action=create/);
 
     await page.evaluate(() => {
-      window.location.hash = "#/activity/invocations";
+      window.location.hash = "#/mcp/invocations";
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(
-      page.getByRole("heading", { name: "Agents", exact: true }),
+      page.getByRole("heading", { name: "MCP invocations", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("region", { name: "MCP invocations", exact: true }),
+      page
+        .getByTestId("invocations-view")
+        .getByRole("region", { name: "MCP invocations", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText(
@@ -224,7 +226,7 @@ export async function assertAuthoritativeHistory(
     await expect(page.getByTestId("audit-view")).toHaveCount(0);
     const filteredResponse = page.waitForResponse(
       (r) =>
-        new URL(r.url()).pathname === "/api/v2/invocations" &&
+        new URL(r.url()).pathname === "/api/v2/mcp/invocations" &&
         new URL(r.url()).searchParams.get("tool") === "historical lokoup",
     );
     await page.getByLabel("Tool", { exact: true }).fill("historical lokoup");
@@ -271,7 +273,7 @@ export async function assertAuthoritativeHistory(
         });
       } else await route.fallback();
     };
-    await page.route("**/api/v2/invocations?*", failures);
+    await page.route("**/api/v2/mcp/invocations?*", failures);
     await rename("Café Investigator two");
     await expect(
       page.getByText("Refresh failed; shown results are stale", {
@@ -297,9 +299,9 @@ export async function assertAuthoritativeHistory(
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
-    ).toHaveText("Agents");
+    ).toHaveText("MCP invocations");
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
-    await page.getByRole("link", { name: "Back to agent activity" }).click();
+    await page.getByRole("link", { name: "Back to MCP invocations" }).click();
     await expect(live).not.toBeChecked();
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
@@ -309,6 +311,45 @@ export async function assertAuthoritativeHistory(
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await expect(live).not.toBeChecked();
     await live.check();
+    const copiedList = page.url();
+    await page.goto(copiedList);
+    await waitForLifecycle(page, "authenticated");
+    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await page.reload();
+    await waitForLifecycle(page, "authenticated");
+    await expect(page).toHaveURL(copiedList);
+    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await page
+      .getByTestId("invocation-row")
+      .getByRole("link", {
+        name: `Invocation ${selected.items[0].id}`,
+        exact: true,
+      })
+      .click();
+    const copiedDetail = page.url();
+    const principalLink = page
+      .getByTestId("invocation-detail")
+      .getByRole("link", {
+        name: "Café Investigator two",
+        exact: true,
+      });
+    for (const detailURL of [copiedDetail.split("?")[0]!, copiedDetail]) {
+      await page.goto(detailURL);
+      await waitForLifecycle(page, "authenticated");
+      await expect(page.getByTestId("invocation-detail")).toBeVisible();
+      await expect(principalLink).toHaveAttribute(
+        "href",
+        `#/access/principals/${principalID}`,
+      );
+      await page.reload();
+      await waitForLifecycle(page, "authenticated");
+      await expect(page).toHaveURL(detailURL);
+      await expect(principalLink).toBeVisible();
+    }
+    await capture("detail");
+    await page.getByRole("link", { name: "Back to MCP invocations" }).click();
+    await expect(page).toHaveURL(copiedList);
+    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await page.getByLabel("Tool", { exact: true }).fill("arrival.lookup");
     await expect(
       page.getByText("No matching invocations", { exact: true }),
@@ -316,7 +357,7 @@ export async function assertAuthoritativeHistory(
     await capture("empty");
     const nonmatchResponse = page.waitForResponse(
       (r) =>
-        new URL(r.url()).pathname === "/api/v2/invocations" &&
+        new URL(r.url()).pathname === "/api/v2/mcp/invocations" &&
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("workshop.echo");
@@ -327,7 +368,7 @@ export async function assertAuthoritativeHistory(
     ).toBeVisible();
     const arrivalResponse = page.waitForResponse(
       (r) =>
-        new URL(r.url()).pathname === "/api/v2/invocations" &&
+        new URL(r.url()).pathname === "/api/v2/mcp/invocations" &&
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("arrival.lookup");
@@ -472,7 +513,7 @@ export async function assertAuthoritativeHistory(
         markSettled();
       }
     };
-    await page.route("**/api/v2/invocations?*", holdLate);
+    await page.route("**/api/v2/mcp/invocations?*", holdLate);
     try {
       await page.getByLabel("Tool", { exact: true }).fill("superseded.lookup");
       await lateStarted;
@@ -487,8 +528,8 @@ export async function assertAuthoritativeHistory(
     await expect(
       page.getByText("No matching invocations", { exact: true }),
     ).toHaveCount(0);
-    await page.unroute("**/api/v2/invocations?*", holdLate);
-    await page.unroute("**/api/v2/invocations?*", failures);
+    await page.unroute("**/api/v2/mcp/invocations?*", holdLate);
+    await page.unroute("**/api/v2/mcp/invocations?*", failures);
     agentBearer = "";
     await page
       .getByRole("button", { name: "Clear filters", exact: true })
@@ -509,7 +550,7 @@ export async function assertAuthoritativeHistory(
     await page.getByTestId("sign-in-submit").click();
     await waitForLifecycle(page, "authenticated");
     await page.evaluate(() => {
-      window.location.hash = "#/activity/invocations";
+      window.location.hash = "#/mcp/invocations";
     });
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(live).toBeChecked();

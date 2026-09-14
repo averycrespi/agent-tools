@@ -11,7 +11,7 @@ type ControlPlaneCapability struct {
 }
 
 var controlPlaneCapabilities = []ControlPlaneCapability{
-	{ID: "audit-read", Operation: "Control-plane audit list/get", WebControl: "Audit", CLIUses: []string{"audit list", "audit get AUDIT_EVENT_ID"}, Mechanics: "authoritative filters/cursor/limit; generation and retention; bodyless"},
+	{ID: "audit-read", Operation: "Administrative audit list/get", WebControl: "Activity / Administrative audit", CLIUses: []string{"audit list", "audit get AUDIT_EVENT_ID"}, Mechanics: "authoritative filters/cursor/limit; generation and retention; bodyless"},
 	{ID: "status", Operation: "Detailed status", WebControl: "Overview/System", CLIUses: []string{"status"}, Mechanics: "GET status"},
 	{ID: "admin-credential-read", Operation: "Admin credential list/get", WebControl: "System / Admin credentials", CLIUses: []string{"admin credential list", "admin credential get ID"}, Mechanics: "cursor/limit; bodyless"},
 	{ID: "admin-credential-create", Operation: "Admin credential create/rotate", WebControl: "System / Admin credentials / Create and revoke", CLIUses: []string{"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH"}, Mechanics: "direct lifetime; one-time sink; rotation durably verifies replacement before conditional targeted revoke; no replay"},
@@ -43,7 +43,7 @@ var controlPlaneCapabilities = []ControlPlaneCapability{
 	{ID: "grant-request-read", Operation: "Grant-request list/get", WebControl: "MCP / Access requests", CLIUses: []string{"mcp grant-request list", "mcp grant-request get REQUEST_ID"}, Mechanics: "filters/cursor/limit; bodyless"},
 	{ID: "grant-request-approve", Operation: "Grant-request approve", WebControl: "request detail / Review", CLIUses: []string{"mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]"}, Mechanics: "optional grant description; exclusive direct/file narrowing; automatic or explicit ETag; confirmation; no replay"},
 	{ID: "grant-request-reject", Operation: "Grant-request reject", WebControl: "request detail / Review", CLIUses: []string{"mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]"}, Mechanics: "direct closed reason; automatic or explicit ETag; confirmation; no replay"},
-	{ID: "invocation-read", Operation: "Invocation list/get", WebControl: "Invocations", CLIUses: []string{"invocation list", "invocation get INVOCATION_ID"}, Mechanics: "filters/cursor/limit; bodyless"},
+	{ID: "invocation-read", Operation: "MCP invocation list/get", WebControl: "MCP / MCP invocations", CLIUses: []string{"mcp invocation list", "mcp invocation get INVOCATION_ID"}, Mechanics: "filters/cursor/limit; bodyless"},
 }
 
 func ControlPlaneCapabilityManifest() []ControlPlaneCapability {

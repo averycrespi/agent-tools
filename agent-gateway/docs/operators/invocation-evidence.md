@@ -4,7 +4,7 @@ Audience: Operators investigating governed tool calls
 
 Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
-This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Use the current `agent-gateway` executable; old standalone binaries are unsupported. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway invocation --help` owns exact syntax.
+This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Use the current `agent-gateway` executable; old standalone binaries are unsupported. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway mcp invocation --help` owns exact syntax.
 
 See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for principals, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
 
@@ -13,14 +13,14 @@ See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](
 Invocation resources are read-only. They do not expose mutation, replay, result retrieval, or an event stream. Administrative audit history remains separate.
 
 ```bash
-agent-gateway invocation list --limit 50
-agent-gateway invocation get INVOCATION_ID
+agent-gateway mcp invocation list --limit 50
+agent-gateway mcp invocation get INVOCATION_ID
 ```
 
 Lists are newest-first and support closed principal, server, requested-name, admission, decision, and outcome filters:
 
 ```bash
-agent-gateway invocation list \
+agent-gateway mcp invocation list \
   --principal-id PRINCIPAL_ID \
   --server-id SERVER_ID \
   --requested-name TOOL_NAME \
@@ -29,11 +29,11 @@ agent-gateway invocation list \
 
 Use `--admission-class`, `--decision`, and `--outcome` only with values shown by generated help. Filters bind the opaque cursor. A malformed cursor returns `invalid_cursor`; a cursor whose retention floor or bound state is no longer coherent returns `stale_cursor`. Start again without the cursor rather than trying to edit or reuse it under different filters.
 
-Collections omit argument captures and return summary evidence only. `agent-gateway invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output remains summary-only. A missing item can mean the ID never existed or that bounded retention evicted it.
+Collections omit argument captures and return summary evidence only. `agent-gateway mcp invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output remains summary-only. A missing item can mean the ID never existed or that bounded retention evicted it.
 
 ## Filter browser history
 
-Open **Activity → Agents** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/activity/invocations` and its detail suffixes with valid filters. Old `#/invocations` bookmarks are invalid and have no redirects; see the [location cutover](administration.md#browser-location-cutover). **Back to agent activity** retains the applied query; **Activity → Administrators** remains the separate administrative audit history.
+Open **MCP → MCP invocations** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/mcp/invocations` and its detail suffixes with valid filters. Old `#/invocations` and `#/activity/invocations` bookmarks are invalid and have no redirects; see the [coordinated API/CLI/browser cutover](administration.md#mcp-invocation-namespace-cutover). **Back to MCP invocations** retains the applied query; **Activity → Administrative audit** remains the separate shared administrative audit history.
 
 Tool, Principal, Authorization and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Principal searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
 

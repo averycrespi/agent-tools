@@ -59,7 +59,7 @@ func TestCLIHelpTree(t *testing.T) {
 	credentialGet, _, err := root.Find([]string{"admin", "credential", "get"})
 	require.NoError(t, err)
 	assert.Contains(t, credentialGet.Short, "by ID")
-	invocationGet, _, err := root.Find([]string{"invocation", "get"})
+	invocationGet, _, err := root.Find([]string{"mcp", "invocation", "get"})
 	require.NoError(t, err)
 	assert.Contains(t, invocationGet.Short, "JSON")
 
@@ -82,7 +82,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:4e75d0c670e64cd1e44a2387e4e2af3f5e362c1957462844e8f7424751e387d9", digest)
+	assert.Equal(t, "sha256:fb24d8302847bb085e26dc1d29edb00eabc8842856b1e3c2e4af754b07cb275f", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {

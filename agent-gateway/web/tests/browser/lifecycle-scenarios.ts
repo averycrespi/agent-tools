@@ -467,8 +467,8 @@ export async function runFragmentStorage(
     [`#/mcp/grants/${idA}`, `#/mcp/grants/${idA}`],
     ["#/mcp/access-requests", "#/mcp/access-requests"],
     [`#/mcp/access-requests/${idA}`, `#/mcp/access-requests/${idA}`],
-    ["#/activity/invocations", "#/activity/invocations"],
-    [`#/activity/invocations/${idA}`, `#/activity/invocations/${idA}`],
+    ["#/mcp/invocations", "#/mcp/invocations"],
+    [`#/mcp/invocations/${idA}`, `#/mcp/invocations/${idA}`],
     ["#/system", "#/system"],
     ...["status", "resource-limits", "admin-credentials", "backups"].map(
       (tab): [string, string] => [
@@ -519,6 +519,7 @@ export async function runFragmentStorage(
       "access/grants",
       "access/requests",
       "invocations",
+      "activity/invocations",
       "audit",
     ].flatMap((path) => [`#/${path}`, `#/${path}/${idA}`, `#/${path}/new`]),
     `#/mcp/servers/${idA}?tab=activity`,
@@ -555,11 +556,11 @@ export async function runFragmentStorage(
     "#/mcp/grants?filter_identity=%E0%A4%A",
     "#/mcp/access-requests?state=pending",
     `#/mcp/access-requests?principal_id=${idA}`,
-    `#/activity/invocations?principal_id=${idA}`,
-    `#/activity/invocations?server_id=${idB}`,
-    "#/activity/invocations?admission_class=evaluated",
-    "#/activity/invocations?decision=allow",
-    "#/activity/invocations?outcome=succeeded",
+    `#/mcp/invocations?principal_id=${idA}`,
+    `#/mcp/invocations?server_id=${idB}`,
+    "#/mcp/invocations?admission_class=evaluated",
+    "#/mcp/invocations?decision=allow",
+    "#/mcp/invocations?outcome=succeeded",
     "#/https://example.com",
     "#/overview/é",
     "#/overview/\n",
@@ -1240,8 +1241,8 @@ export async function runShellPrimitives(
     ["Tools", "#/mcp/tools"],
     ["Grants", "#/mcp/grants"],
     ["Access requests", "#/mcp/access-requests"],
-    ["Agents", "#/activity/invocations"],
-    ["Administrators", "#/activity/audit"],
+    ["MCP invocations", "#/mcp/invocations"],
+    ["Administrative audit", "#/activity/audit"],
     ["System", "#/system"],
   ] as const;
   const primary = page.getByRole("navigation", {
@@ -1257,8 +1258,11 @@ export async function runShellPrimitives(
     fail("domain navigation labels, order or legacy destinations changed");
   for (const [name, labels] of [
     ["Access", ["Principals"]],
-    ["MCP", ["Servers", "Tools", "Grants", "Access requests"]],
-    ["Activity", ["Agents", "Administrators"]],
+    [
+      "MCP",
+      ["Servers", "Tools", "Grants", "Access requests", "MCP invocations"],
+    ],
+    ["Activity", ["Administrative audit"]],
   ] as const) {
     const links = await primary
       .getByRole("group", { name, exact: true })
@@ -1286,6 +1290,7 @@ export async function runShellPrimitives(
   for (const fragment of [
     "#/mcp/grants?sort=target&filter_effect=deny",
     "#/mcp/access-requests?queue=all&filter_state=approved",
+    "#/mcp/invocations?filter_outcome=succeeded",
   ]) {
     await page.evaluate((value) => {
       location.hash = value;
@@ -1305,7 +1310,8 @@ export async function runShellPrimitives(
     const path = new URL(request.url()).pathname;
     if (
       /^\/api\/v2\/(?:mcp\/)?grants(?:\/|$)/.test(path) ||
-      /^\/api\/v2\/(?:mcp\/)?grant-requests\//.test(path)
+      /^\/api\/v2\/(?:mcp\/)?grant-requests\//.test(path) ||
+      /^\/api\/v2\/(?:mcp\/)?invocations(?:\/|$)/.test(path)
     ) {
       retiredResourceReads.push(request.method() + " " + path);
     }
@@ -1315,6 +1321,8 @@ export async function runShellPrimitives(
     for (const fragment of [
       "#/access/grants/new",
       "#/access/requests/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "#/activity/invocations",
+      "#/activity/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV?filter_outcome=succeeded",
     ]) {
       await page.goto(`${baseURL}/${fragment}`);
       await waitForLifecycle(page, "authenticated");
@@ -1419,16 +1427,14 @@ export async function runShellPrimitives(
     fail(`narrow navigation Escape state: ${JSON.stringify(state)}`);
   }
   await page.keyboard.press("Space");
-  const invocationLink = page.locator(
-    'aside nav a[href="#/activity/invocations"]',
-  );
+  const invocationLink = page.locator('aside nav a[href="#/mcp/invocations"]');
   await invocationLink.focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => {
     const toggle = document.querySelector('[data-testid="navigation-toggle"]');
     const navigation = document.querySelector("#primary-navigation");
     return (
-      window.location.hash === "#/activity/invocations" &&
+      window.location.hash === "#/mcp/invocations" &&
       toggle?.getAttribute("aria-expanded") === "false" &&
       navigation !== null &&
       getComputedStyle(navigation).display === "none"
@@ -1437,7 +1443,7 @@ export async function runShellPrimitives(
 
   const longCanary = `LONG_INERT_${"A".repeat(1800)}`;
   await page.evaluate((value) => {
-    window.location.hash = `#/activity/invocations?outcome=${value}`;
+    window.location.hash = `#/mcp/invocations?outcome=${value}`;
   }, longCanary);
   await page.waitForFunction(() => window.location.hash === "#/overview");
   if ((await page.locator("body").textContent())?.includes(longCanary))

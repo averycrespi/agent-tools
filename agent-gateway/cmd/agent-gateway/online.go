@@ -431,8 +431,8 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"mcp", "grant-request", "get"}, "get REQUEST_ID", "mcp grant-request get REQUEST_ID"),
 		onlineSpec([]string{"mcp", "grant-request", "approve"}, "approve REQUEST_ID", "mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "description", "scope", "target", "etag", "duration-seconds", "acknowledge-future-tools", "read-only", "file", "yes"),
 		onlineSpec([]string{"mcp", "grant-request", "reject"}, "reject REQUEST_ID", "mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]", "reason", "etag", "yes"),
-		onlineSpec([]string{"invocation", "list"}, "list", "invocation list", "limit", "cursor", "principal-id", "server-id", "requested-name", "admission-class", "decision", "outcome"),
-		onlineSpec([]string{"invocation", "get"}, "get INVOCATION_ID", "invocation get INVOCATION_ID"),
+		onlineSpec([]string{"mcp", "invocation", "list"}, "list", "mcp invocation list", "limit", "cursor", "principal-id", "server-id", "requested-name", "admission-class", "decision", "outcome"),
+		onlineSpec([]string{"mcp", "invocation", "get"}, "get INVOCATION_ID", "mcp invocation get INVOCATION_ID"),
 	}
 }
 
@@ -448,7 +448,7 @@ var onlineGroupDescriptions = map[string]string{
 	"admin":                 "Manage administrator authority",
 	"admin credential":      "Manage administrator credentials",
 	"backup":                "Create and manage recovery backups",
-	"mcp":                   "Manage MCP servers, tools, and permissions",
+	"mcp":                   "Manage MCP servers, tools, permissions, and invocation history",
 	"mcp server":            "Manage upstream MCP server configurations",
 	"mcp server operation":  "Inspect and request server operations",
 	"mcp server credential": "Replace server credentials",
@@ -459,7 +459,7 @@ var onlineGroupDescriptions = map[string]string{
 	"principal credential":  "Issue, rotate, and revoke agent credentials",
 	"mcp grant":             "Manage MCP authorization grants",
 	"mcp grant-request":     "Review MCP permission approval requests",
-	"invocation":            "Inspect governed tool invocations",
+	"mcp invocation":        "Inspect recorded MCP invocations",
 	"audit":                 "Inspect retained control-plane audit evidence",
 }
 
@@ -509,8 +509,8 @@ var onlineLeafDescriptions = map[string]string{
 	"mcp grant-request get REQUEST_ID": "Show grant-request evidence and the current mutation ETag",
 	"mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]": "Approve an agent grant request",
 	"mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]": "Reject an agent grant request",
-	"invocation list":              "List governed tool invocations",
-	"invocation get INVOCATION_ID": "Show invocation evidence; JSON includes retained redacted arguments",
+	"mcp invocation list":              "List recorded MCP invocations",
+	"mcp invocation get INVOCATION_ID": "Show MCP invocation evidence; JSON includes retained redacted arguments",
 }
 
 var onlineRequiredFlags = map[string][]string{

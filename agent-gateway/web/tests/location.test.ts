@@ -14,7 +14,7 @@ const collections = [
   "access/principals",
   "mcp/grants",
   "mcp/access-requests",
-  "activity/invocations",
+  "mcp/invocations",
   "activity/audit",
   "system",
   "overview",
@@ -25,7 +25,7 @@ const details = [
   "access/principals",
   "mcp/grants",
   "mcp/access-requests",
-  "activity/invocations",
+  "mcp/invocations",
   "activity/audit",
 ].map((path) => `${path}/${id}`);
 const creates = [
@@ -60,6 +60,7 @@ test("old flat paths and undeclared members never resolve as resources", () => {
     "access/grants",
     "access/requests",
     "invocations",
+    "activity/invocations",
     "audit",
   ];
   for (const path of old.flatMap((path) => [
@@ -156,8 +157,8 @@ test("destination queries have deterministic ordering and preserve valid context
       "mcp/access-requests?queue=all&filter_state=approved",
     ],
     [
-      `activity/invocations/${id}?filter_tool=echo&filter_decision=allow`,
-      `activity/invocations/${id}?filter_decision=allow&filter_tool=echo`,
+      `mcp/invocations/${id}?filter_tool=echo&filter_decision=allow`,
+      `mcp/invocations/${id}?filter_decision=allow&filter_tool=echo`,
     ],
     [
       `activity/audit/${id}?filter_outcome=succeeded&filter_category=server`,

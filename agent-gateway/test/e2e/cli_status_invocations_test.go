@@ -53,9 +53,9 @@ func TestCLIStatusInvocations(t *testing.T) {
 	awaitFixtureSignal(t, barrier.entered, "CLI fixture call did not reach the downstream barrier")
 
 	listJSON := runOnlineCLI(t, harness, bearerPath, true,
-		"invocation", "list", "--output", "json", "--limit", "1", "--requested-name", "cli-invocations.allowed",
+		"mcp", "invocation", "list", "--output", "json", "--limit", "1", "--requested-name", "cli-invocations.allowed",
 	)
-	listAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations?limit=1&requested_name=cli-invocations.allowed", nil)
+	listAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations?limit=1&requested_name=cli-invocations.allowed", nil)
 	assert.JSONEq(t, string(listAPI.Body), string(listJSON.Stdout), "JSON list mode must preserve the exact API projection")
 	var page contract.InvocationPage
 	require.NoError(t, json.Unmarshal(listJSON.Stdout, &page))
@@ -67,7 +67,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	assert.NotContains(t, string(listJSON.Stdout), captureCanary)
 
 	listTable := runOnlineCLI(t, harness, bearerPath, true,
-		"invocation", "list", "--limit", "1", "--requested-name", "cli-invocations.allowed",
+		"mcp", "invocation", "list", "--limit", "1", "--requested-name", "cli-invocations.allowed",
 	)
 	assert.Contains(t, string(listTable.Stdout), "outcome_unknown")
 	assert.Contains(t, string(listTable.Stdout), "missing_terminal")
@@ -76,14 +76,14 @@ func TestCLIStatusInvocations(t *testing.T) {
 	assert.NotContains(t, string(listTable.Stdout), captureCanary)
 	assert.NotContains(t, string(listTable.Stdout), "redacted_arguments")
 
-	getJSON := runOnlineCLI(t, harness, bearerPath, true, "invocation", "get", item.ID, "--output", "json")
-	getAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/invocations/"+item.ID, nil)
+	getJSON := runOnlineCLI(t, harness, bearerPath, true, "mcp", "invocation", "get", item.ID, "--output", "json")
+	getAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+item.ID, nil)
 	assert.JSONEq(t, string(getAPI.Body), string(getJSON.Stdout), "JSON item mode must preserve the exact API projection")
 	var invocation contract.Invocation
 	require.NoError(t, json.Unmarshal(getJSON.Stdout, &invocation))
 	assert.Equal(t, item.ID, invocation.ID)
 	assert.Contains(t, string(invocation.RedactedArguments), captureCanary)
-	getTable := runOnlineCLI(t, harness, bearerPath, true, "invocation", "get", item.ID)
+	getTable := runOnlineCLI(t, harness, bearerPath, true, "mcp", "invocation", "get", item.ID)
 	assert.Contains(t, string(getTable.Stdout), item.ID)
 	assert.NotContains(t, string(getTable.Stdout), captureCanary)
 	assert.NotContains(t, string(getTable.Stdout), "redacted_arguments")
@@ -91,7 +91,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	local := harness.ModernSelfServiceCall(issued.Bearer, json.RawMessage(`"local"`), "get_identity", map[string]any{})
 	require.Equal(t, http.StatusOK, local.StatusCode, string(local.Body))
 	localTable := runOnlineCLI(t, harness, bearerPath, true,
-		"invocation", "list", "--limit", "1", "--server-id", contract.SyntheticServerID,
+		"mcp", "invocation", "list", "--limit", "1", "--server-id", contract.SyntheticServerID,
 	)
 	assert.Contains(t, string(localTable.Stdout), "gateway:get_identity")
 	assert.NotContains(t, string(localTable.Stdout), "downstream handoff")
@@ -101,7 +101,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	require.Equal(t, http.StatusOK, completed.StatusCode, string(completed.Body))
 	harness.Stop(syscall.SIGTERM)
 
-	failure := runOnlineCLI(t, harness, bearerPath, false, "invocation", "get", item.ID, "--output", "json")
+	failure := runOnlineCLI(t, harness, bearerPath, false, "mcp", "invocation", "get", item.ID, "--output", "json")
 	assert.Equal(t, 9, failure.ExitCode)
 	assert.Empty(t, failure.Stdout)
 	assert.Contains(t, string(failure.Stderr), `"code":"gateway_not_running"`)

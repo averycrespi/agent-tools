@@ -331,7 +331,7 @@ test("proxy admission projects exact target, Origin, headers, and body once", as
   });
 });
 
-test("MCP permission routes are forwarded once without compatibility translation", async () => {
+test("MCP administrative routes are forwarded once without compatibility translation", async () => {
   await withDevelopmentServer(async (context) => {
     for (const path of [
       "/api/v2/mcp/grants",
@@ -339,6 +339,9 @@ test("MCP permission routes are forwarded once without compatibility translation
       "/api/v2/mcp/grant-requests/01ARZ3NDEKTSV4RRFFQ69G5FAV/reject",
       "/api/v2/mcp/grant-constraints/validate",
       "/api/v2/grants",
+      "/api/v2/mcp/invocations",
+      "/api/v2/mcp/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "/api/v2/invocations",
     ]) {
       const before = context.observations.length;
       const response = await exchange(context.frontendPort, path, {

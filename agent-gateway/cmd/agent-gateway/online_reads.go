@@ -52,7 +52,7 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runBackupCreate(command, options)
 	case "backup delete":
 		return runBackupDelete(command, options, args)
-	case "invocation list":
+	case "mcp invocation list":
 		path, err := invocationListPath(options)
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
@@ -175,11 +175,11 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runGrantRequestApprove(command, options, args)
 	case "mcp grant-request reject":
 		return runGrantRequestReject(command, options, args)
-	case "invocation get":
+	case "mcp invocation get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The invocation ID is invalid."))
 		}
-		return runOnlineRead(command, options, "/api/v2/invocations/"+args[0], invocationItemTable)
+		return runOnlineRead(command, options, "/api/v2/mcp/invocations/"+args[0], invocationItemTable)
 	default:
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("This online command is not implemented yet."))
 	}
@@ -240,7 +240,7 @@ func invocationListPath(options *onlineOptions) (string, error) {
 			filters[apiName] = *value
 		}
 	}
-	return controlclient.BuildListPath("/api/v2/invocations", controlclient.ListOptions{
+	return controlclient.BuildListPath("/api/v2/mcp/invocations", controlclient.ListOptions{
 		Limit: options.limit, Cursor: options.cursor, Filters: filters,
 		AllowedFilters: []string{"principal_id", "server_id", "requested_name", "admission_class", "decision", "outcome"},
 	})

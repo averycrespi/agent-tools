@@ -21,7 +21,7 @@ func TestCLISensitiveSinks(t *testing.T) {
 			assert.Contains(t, []string{"admin credential create", "admin credential rotate", "principal credential issue", "principal credential rotate"}, joined)
 		}
 		if contains(spec.Flags, "yes") {
-			assert.NotContains(t, []string{"status", "mcp server get", "invocation get"}, joined)
+			assert.NotContains(t, []string{"status", "mcp server get", "mcp invocation get"}, joined)
 		}
 	}
 

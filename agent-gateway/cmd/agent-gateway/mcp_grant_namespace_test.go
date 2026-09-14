@@ -30,9 +30,12 @@ func TestMCPGrantNamespaceCompletion(t *testing.T) {
 	require.Contains(t, root, "principal")
 	require.NotContains(t, root, "grant")
 	require.NotContains(t, root, "grant-request")
+	require.NotContains(t, root, "invocation")
 	mcp := complete("mcp", "")
 	require.Contains(t, mcp, "grant")
 	require.Contains(t, mcp, "grant-request")
+	require.Contains(t, mcp, "invocation")
+	require.ElementsMatch(t, []string{"get", "list"}, complete("mcp", "invocation", ""))
 	require.ElementsMatch(t, []string{"create", "delete", "get", "list", "update"}, complete("mcp", "grant", ""))
 	require.ElementsMatch(t, []string{"approve", "get", "list", "reject"}, complete("mcp", "grant-request", ""))
 }
