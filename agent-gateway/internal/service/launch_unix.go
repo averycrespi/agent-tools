@@ -22,8 +22,10 @@ type job struct {
 	State  string
 }
 type processIdentity struct {
-	PID      string
-	Evidence string
+	PID        string
+	Start      string
+	Executable string
+	State      string
 }
 
 func (m *manager) target() string { return "gui/" + strconv.Itoa(m.uid) + "/" + Label }
@@ -94,7 +96,18 @@ func (m *manager) observe(ctx context.Context, d definition) (job, error) {
 	return result, nil
 }
 func (m *manager) process(ctx context.Context, pid, binary string) (processIdentity, error) {
-	data, code, err := m.run(ctx, "/bin/ps", "-ww", "-p", pid, "-o", "uid=,lstart=,comm=")
+	p, err := m.inspectProcess(ctx, pid)
+	if err != nil || p.PID == "" {
+		return p, err
+	}
+	if p.State[0] == 'Z' || p.Executable != binary {
+		return processIdentity{}, errors.New("process executable identity changed")
+	}
+	return p, nil
+}
+
+func (m *manager) inspectProcess(ctx context.Context, pid string) (processIdentity, error) {
+	data, code, err := m.run(ctx, "/bin/ps", "-ww", "-p", pid, "-o", "uid=,lstart=,state=,comm=")
 	if err != nil {
 		return processIdentity{}, errors.New("process inspection unknown")
 	}
@@ -102,21 +115,40 @@ func (m *manager) process(ctx context.Context, pid, binary string) (processIdent
 		return processIdentity{}, nil
 	}
 	fields := strings.Fields(string(data))
-	if code != 0 || len(fields) < 7 || fields[0] != strconv.Itoa(m.uid) {
+	line := strings.TrimRight(string(data), "\r\n")
+	if code != 0 || len(fields) < 7 || fields[0] != strconv.Itoa(m.uid) || strings.ContainsAny(line, "\r\n") {
 		return processIdentity{}, errors.New("process identity unavailable")
 	}
-	prefix := strings.Join(fields[1:6], " ")
-	line := strings.TrimLeft(strings.TrimRight(string(data), "\r\n"), "\t ")
-	start := strings.Index(line, fields[5])
-	if start < 0 || strings.TrimLeft(line[start+len(fields[5]):], "\t ") != binary {
-		return processIdentity{}, errors.New("process executable identity changed")
+	start := strings.Join(fields[1:6], " ")
+	if _, err := time.Parse("Mon Jan 2 15:04:05 2006", start); err != nil {
+		return processIdentity{}, errors.New("process start time unavailable")
 	}
-	return processIdentity{PID: pid, Evidence: prefix + "\x00" + binary}, nil
+	state := fields[6]
+	if !strings.ContainsAny(state[:1], "RSITUZD") || strings.Trim(state[1:], "<NXEVLs+>Wl") != "" {
+		return processIdentity{}, errors.New("process state unavailable")
+	}
+	// Consume columns, not a year substring that could also occur in the UID.
+	// Preserve literal internal and trailing executable whitespace.
+	for range 7 {
+		line = strings.TrimLeft(line, "\t ")
+		end := strings.IndexAny(line, "\t ")
+		if end < 0 {
+			line = ""
+			break
+		}
+		line = line[end:]
+	}
+	return processIdentity{PID: pid, Start: start, State: state, Executable: strings.TrimLeft(line, "\t ")}, nil
 }
 
 // Scoped inspection never scans arbitrary process arguments or native credentials.
 // Exact selected executables are candidates, not basename-wide ownership claims.
 func (m *manager) residual(ctx context.Context, d definition) ([]processIdentity, error) {
+	return m.residualExcept(ctx, d, nil)
+}
+
+// Already observed tracked processes remain blockers, not new ownership candidates.
+func (m *manager) residualExcept(ctx context.Context, d definition, remaining []processIdentity) ([]processIdentity, error) {
 	data, code, err := m.run(ctx, "/bin/ps", "-axwwo", "uid=,pid=,comm=")
 	if err != nil || code != 0 || strings.TrimSpace(string(data)) == "" {
 		return nil, errors.New("process inventory unknown")
@@ -135,7 +167,7 @@ func (m *manager) residual(ctx context.Context, d definition) ([]processIdentity
 		if e != nil || e2 != nil || pid <= 0 {
 			return nil, errors.New("invalid process inventory")
 		}
-		if uid != m.uid || pid == os.Getpid() {
+		if uid != m.uid || pid == os.Getpid() || slices.ContainsFunc(remaining, func(p processIdentity) bool { return p.PID == fields[1] }) {
 			continue
 		}
 		rest := strings.TrimLeft(strings.TrimPrefix(strings.TrimLeft(line, "\t "), fields[0]), "\t ")
@@ -200,23 +232,27 @@ func (m *manager) stopped(ctx context.Context, d definition, initial job) error 
 		if e != nil {
 			return e
 		}
-		remaining, e := m.residual(bounded, d)
-		if e != nil {
-			return e
-		}
+		var remaining []processIdentity
 		for _, old := range tracked {
-			p, e := m.process(bounded, old.PID, d.Binary)
+			p, e := m.inspectProcess(bounded, old.PID)
 			if e != nil {
 				return e
 			}
 			if p.PID != "" {
-				if p != old {
+				// A same-UID/start zombie permits waiting only. It is never
+				// absence or authority to adopt a new installation owner.
+				unavailableZombie := p.State[0] == 'Z' && (p.Executable == "" || p.Executable == "<defunct>" || (strings.HasPrefix(p.Executable, "(") && strings.HasSuffix(p.Executable, ")")))
+				if p.Start != old.Start || (p.Executable != old.Executable && !unavailableZombie) {
 					return errors.New("process identity changed after stop; no replacement permitted")
 				}
 				remaining = append(remaining, p)
 			}
 		}
-		if !current.Loaded && len(remaining) == 0 {
+		residual, e := m.residualExcept(bounded, d, remaining)
+		if e != nil {
+			return e
+		}
+		if !current.Loaded && len(remaining) == 0 && len(residual) == 0 {
 			return existingLockFree(d.DataDir, m.uid)
 		}
 		select {
