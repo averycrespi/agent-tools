@@ -1,22 +1,48 @@
-import { MutationCoordinator, type MutationSpec } from "../../src/mutation.ts";
+import test from "node:test";
+import { MutationCoordinator, type MutationSpec } from "../src/mutation.ts";
 import {
   type OAuthPresenter,
   type OneTimePresenter,
   SensitiveSinkCoordinator,
   copyToClipboard,
   openOAuthWindow,
-} from "../../src/sinks.ts";
+} from "../src/sinks.ts";
 import {
   SessionClient,
   parseProblem,
   parseSessionBootstrap,
-} from "../../src/session.ts";
+} from "../src/session.ts";
 import {
   ViewCoordinator,
   type VisibilitySource,
   parseInvalidation,
-} from "../../src/view.ts";
-import { eventually, fail, sessionFixture } from "./shared.ts";
+} from "../src/view.ts";
+
+function fail(message: string): never {
+  throw new Error(message);
+}
+function sessionFixture(): Record<string, string> {
+  return {
+    csrf_token: "A".repeat(43),
+    idle_expires_at: "2026-08-28T18:30:00Z",
+    absolute_expires_at: "2026-08-29T18:00:00Z",
+  };
+}
+async function eventually(
+  predicate: () => boolean,
+  message: string,
+): Promise<void> {
+  const deadline = performance.now() + 3000;
+  while (!predicate()) {
+    if (performance.now() >= deadline) fail(message);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test("session foundation epochs", assertSessionFoundationEpochs);
+test("view foundation generations", assertViewGenerationFoundation);
+test("mutation foundation", assertMutationFoundation);
+test("sensitive sink foundation", assertSensitiveSinkFoundation);
 
 export async function assertSessionFoundationEpochs(): Promise<void> {
   if (

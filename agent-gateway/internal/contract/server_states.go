@@ -258,18 +258,6 @@ func ParseCredentialReplacementKind(value string) (ServerCredentialKind, error) 
 	return parseClosed(value, CredentialReplacementKinds())
 }
 
-type RetiredFilter string
-
-const (
-	RetiredInclude RetiredFilter = "include"
-	RetiredExclude RetiredFilter = "exclude"
-	RetiredOnly    RetiredFilter = "only"
-)
-
-func ParseRetiredFilter(value string) (RetiredFilter, error) {
-	return parseClosed(value, []RetiredFilter{RetiredInclude, RetiredExclude, RetiredOnly})
-}
-
 type PublicReason string
 
 const (
