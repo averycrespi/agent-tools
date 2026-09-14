@@ -52,7 +52,7 @@ export async function runOverviewInvocationSystemCanary(
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Operational conditions",
-    "active catalog tools",
+    "active MCP catalog tools",
     "configured servers",
     "Waiting for a decision",
   ])
@@ -61,9 +61,7 @@ export async function runOverviewInvocationSystemCanary(
   if (body.includes("redacted_arguments"))
     fail("Overview workflow canary exposed invocation capture");
 
-  await page
-    .locator('#primary-navigation a[href="#/activity/invocations"]')
-    .click();
+  await page.locator('#primary-navigation a[href="#/mcp/invocations"]').click();
   await page.locator('[data-testid="invocations-view"]').waitFor();
   await page.waitForFunction(
     () =>
@@ -1106,7 +1104,7 @@ export async function runOverview(
       }),
     });
   });
-  await page.route("**/api/v2/invocations?*", async (route) => {
+  await page.route("**/api/v2/mcp/invocations?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
     if (
       route.request().method() !== "GET" ||
@@ -1231,7 +1229,7 @@ export async function runOverview(
     "5 shown; more need attention",
     "5 shown; more pending",
     "9 configured servers",
-    "8 active catalog tools",
+    "8 active MCP catalog tools",
   ]) {
     if (!body.includes(text)) fail(`Overview omitted ${text}`);
   }
@@ -1302,7 +1300,7 @@ export async function runOverview(
     "#/mcp/servers",
     "#/mcp/tools",
     "#/mcp/access-requests",
-    "#/activity/invocations",
+    "#/mcp/invocations",
   ])
     if (
       (await page.locator(`#primary-navigation a[href="${href}"]`).count()) !==
@@ -1393,7 +1391,7 @@ export async function runOverview(
     "No servers flagged for attention in the current read",
     "No pending access requests in the current read",
     "1 configured server",
-    "1 active catalog tool",
+    "1 active MCP catalog tool",
   ])
     if (!quiet.includes(text)) fail(`Quiet Overview omitted ${text}`);
   if (
@@ -1443,7 +1441,7 @@ export async function runOverview(
   );
   if (
     !(await sourceText("servers")).includes(
-      "0 configured servers · 0 active catalog tools",
+      "0 configured servers · 0 active MCP catalog tools",
     )
   )
     fail("Empty inventory counts misleading");
@@ -1615,7 +1613,7 @@ export async function runInvocations(
   let staleMode = false;
   let staleRestarted = false;
   let itemMissing = false;
-  await page.route("**/api/v2/invocations**", async (route) => {
+  await page.route("**/api/v2/mcp/invocations**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const headers = await request.allHeaders();
@@ -1625,9 +1623,9 @@ export async function runInvocations(
       headers["x-csrf-token"] === undefined
     )
       fail("invocation view issued an unauthenticated or non-read request");
-    if (url.pathname !== "/api/v2/invocations") {
+    if (url.pathname !== "/api/v2/mcp/invocations") {
       if (
-        url.pathname !== `/api/v2/invocations/${invocationIDs.missing}` ||
+        url.pathname !== `/api/v2/mcp/invocations/${invocationIDs.missing}` ||
         url.search !== ""
       )
         fail("invocation item request changed shape");
@@ -1841,7 +1839,7 @@ export async function runInvocations(
   });
 
   await page.evaluate(() => {
-    window.location.hash = "#/activity/invocations";
+    window.location.hash = "#/mcp/invocations";
   });
   await page.locator('[data-testid="invocations-view"]').waitFor();
   await page.waitForFunction(
@@ -1932,7 +1930,7 @@ export async function runInvocations(
       name: `Invocation ${invocationIDs.policy}`,
       exact: true,
     }),
-  ).toHaveAttribute("href", `#/activity/invocations/${invocationIDs.policy}`);
+  ).toHaveAttribute("href", `#/mcp/invocations/${invocationIDs.policy}`);
 
   const authorizationLabel = (id: string) =>
     page
@@ -2066,14 +2064,14 @@ export async function runInvocations(
   await page.getByRole("button", { name: "Load older invocations" }).click();
   await page.waitForFunction(
     (selector) => document.querySelector(selector) !== null,
-    `a[href="#/activity/invocations/${invocationIDs.missing}"]`,
+    `a[href="#/mcp/invocations/${invocationIDs.missing}"]`,
   );
   body = (await page.locator("body").textContent()) ?? "";
   if (!staleRestarted || body.includes(invocationIDs.stale))
     fail("stale invocation traversal was merged instead of restarted");
 
   await page
-    .locator(`a[href="#/activity/invocations/${invocationIDs.missing}"]`)
+    .locator(`a[href="#/mcp/invocations/${invocationIDs.missing}"]`)
     .click();
   await page.locator('[data-testid="invocation-detail"]').waitFor();
   const detailAuthorization = page

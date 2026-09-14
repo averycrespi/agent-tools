@@ -45,7 +45,7 @@ var documentationCommandFamilies = []DocumentationCommandFamily{
 	{ID: "docs.command.grant", CommandPath: "mcp grant", CanonicalOwner: "docs/operators/access-control.md", HelpInvocation: "agent-gateway mcp grant --help"},
 	{ID: "docs.command.grant.request", CommandPath: "mcp grant-request", CanonicalOwner: "docs/operators/access-control.md", HelpInvocation: "agent-gateway mcp grant-request --help"},
 	{ID: "docs.command.initialize", CommandPath: "initialize", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway initialize --help"},
-	{ID: "docs.command.invocation", CommandPath: "invocation", CanonicalOwner: "docs/operators/invocation-evidence.md", HelpInvocation: "agent-gateway invocation --help"},
+	{ID: "docs.command.invocation", CommandPath: "mcp invocation", CanonicalOwner: "docs/operators/invocation-evidence.md", HelpInvocation: "agent-gateway mcp invocation --help"},
 	{ID: "docs.command.principal", CommandPath: "principal", CanonicalOwner: "docs/operators/access-control.md", HelpInvocation: "agent-gateway principal --help"},
 	{ID: "docs.command.storage", CommandPath: "storage", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway storage --help"},
 	{ID: "docs.command.serve", CommandPath: "serve", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway serve --help"},
@@ -59,7 +59,7 @@ var documentationSecurityContracts = []DocumentationSecurityContract{
 	{ID: "docs.security.one.time.sinks", CanonicalOwner: "docs/operators/administration.md", HelpFamilies: []string{"admin credential", "principal", "mcp server"}},
 	{ID: "docs.security.server.credentials.oauth", CanonicalOwner: "docs/operators/upstream-servers.md", HelpFamilies: []string{"mcp server"}},
 	{ID: "docs.security.principal.policy", CanonicalOwner: "docs/operators/access-control.md", HelpFamilies: []string{"principal", "mcp grant", "mcp grant-request"}},
-	{ID: "docs.security.invocation.uncertainty", CanonicalOwner: "docs/operators/invocation-evidence.md", HelpFamilies: []string{"invocation"}},
+	{ID: "docs.security.invocation.uncertainty", CanonicalOwner: "docs/operators/invocation-evidence.md", HelpFamilies: []string{"mcp invocation"}},
 	{ID: "docs.security.backup.recovery", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpFamilies: []string{"admin reset", "backup", "storage"}},
 	{ID: "docs.security.frontend.trust", CanonicalOwner: "docs/maintainers/frontend-development.md", HelpFamilies: []string{"serve"}},
 }

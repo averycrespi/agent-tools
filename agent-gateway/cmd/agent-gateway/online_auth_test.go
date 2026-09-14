@@ -94,7 +94,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"mcp server list", "mcp server get ID", "mcp server operation list ID", "mcp server operation get ID OPERATION_ID",
 			"mcp server auth-flow list ID", "mcp server auth-flow get ID FLOW_ID", "mcp server descriptor list ID", "mcp server descriptor get ID TOOL_ID",
 			"mcp catalog list", "principal list", "principal get ID", "mcp grant list", "mcp grant get ID",
-			"mcp grant-request list", "mcp grant-request get REQUEST_ID", "invocation list", "invocation get INVOCATION_ID",
+			"mcp grant-request list", "mcp grant-request get REQUEST_ID", "mcp invocation list", "mcp invocation get INVOCATION_ID",
 		},
 		"mutation": {
 			"backup create", "mcp server create --file PATH", "mcp server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "mcp server delete ID [--etag ETAG]",

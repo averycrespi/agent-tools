@@ -370,10 +370,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.auditCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v2/audit-events/") && handler.audit != nil:
 		handler.auditMember(writer, request, strings.TrimPrefix(path, "/api/v2/audit-events/"))
-	case path == "/api/v2/invocations" && handler.invocations != nil:
+	case path == "/api/v2/mcp/invocations" && handler.invocations != nil:
 		handler.invocationsCollection(writer, request)
-	case strings.HasPrefix(path, "/api/v2/invocations/") && handler.invocations != nil:
-		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/invocations/"), "/")
+	case strings.HasPrefix(path, "/api/v2/mcp/invocations/") && handler.invocations != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/mcp/invocations/"), "/")
 		if len(segments) == 1 && segments[0] != "" {
 			handler.invocationMember(writer, request, segments[0])
 		} else {

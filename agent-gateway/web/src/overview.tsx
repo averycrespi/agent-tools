@@ -874,7 +874,7 @@ export function Overview({
             <p class="overview-context">
               {configuredServers} configured{" "}
               {configuredServers === 1 ? "server" : "servers"} · {activeTools}{" "}
-              active catalog {activeTools === 1 ? "tool" : "tools"}
+              active MCP catalog {activeTools === 1 ? "tool" : "tools"}
               {snapshot.servers.complete ? "" : " loaded; counts incomplete"}.
             </p>
           </>

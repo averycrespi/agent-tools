@@ -35,7 +35,7 @@ export const destinationPaths: Readonly<Record<Destination, string>> = {
   principals: "access/principals",
   grants: "mcp/grants",
   requests: "mcp/access-requests",
-  invocations: "activity/invocations",
+  invocations: "mcp/invocations",
   audit: "activity/audit",
   system: "system",
   "sign-in": "sign-in",

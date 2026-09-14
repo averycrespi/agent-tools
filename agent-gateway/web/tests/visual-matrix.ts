@@ -31,7 +31,7 @@ export const visualDestinations = [
   },
   {
     id: "invocations",
-    route: "#/activity/invocations",
+    route: "#/mcp/invocations",
     selector: '[data-testid="invocations-view"]',
   },
   { id: "system", route: "#/system", selector: '[data-testid="system-view"]' },

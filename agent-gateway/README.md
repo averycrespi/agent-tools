@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Use the browser or CLI to configure servers, manage identities and permissions, and investigate calls. Navigation groups **Overview**; **Access** (Principals); **MCP** (Servers, Tools, Grants, Access requests); **Activity** (Agents, Administrators); **System**. Agents shows bounded, redacted MCP invocations; Administrators shows administrative audit history, including system and offline maintenance events. See the [location cutover](docs/operators/administration.md#browser-location-cutover) before updating bookmarks or automation.
+Navigate **Overview**; **Access** (Principals); **MCP** (Servers, Tools, Grants, Access requests, MCP invocations); **Activity** (Administrative audit); **System**. MCP invocations shows redacted call history; Administrative audit includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/administration.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
 
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
@@ -85,7 +85,7 @@ Generated `agent-gateway --help` and subcommand help are the exact command refer
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
 - Use `principal`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/administration.md#mcp-permission-namespace-cutover) and [Pi/Lima provisioning](docs/operators/access-control.md#provision-a-pi-agent-in-a-lima-sandbox).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
-- Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrators destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
+- Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrative audit destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
 - Use `agent-gateway storage verify` or `agent-gateway backup restore BACKUP_ID` for stopped recovery. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.
 
 Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.

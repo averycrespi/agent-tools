@@ -227,12 +227,9 @@ export async function runAudit(
   const activity = page
     .getByRole("navigation", { name: "Primary", exact: true })
     .getByRole("group", { name: "Activity", exact: true });
-  await expect(activity.getByRole("link")).toHaveText([
-    "Agents",
-    "Administrators",
-  ]);
+  await expect(activity.getByRole("link")).toHaveText(["Administrative audit"]);
   await expect(
-    activity.getByRole("link", { name: "Administrators", exact: true }),
+    activity.getByRole("link", { name: "Administrative audit", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   const artifacts = await mkdtemp(join(tmpdir(), "gateway-audit-visual-"));
   const screenshots: string[] = [];

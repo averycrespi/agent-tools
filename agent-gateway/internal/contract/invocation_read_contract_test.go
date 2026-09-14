@@ -11,14 +11,18 @@ import (
 func TestInvocationReadRoutes(t *testing.T) {
 	t.Parallel()
 	for _, path := range []string{"/api/v2/invocations", "/api/v2/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV"} {
+		_, ok := RouteForPath(path)
+		assert.False(t, ok, "retired route must not dispatch: %s", path)
+	}
+	for _, path := range []string{"/api/v2/mcp/invocations", "/api/v2/mcp/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV"} {
 		route, ok := RouteForPath(path)
 		require.True(t, ok, path)
 		assert.Equal(t, []string{"GET"}, route.Methods)
 		assert.Equal(t, AuthorityAdmin, route.Authority)
 	}
 	mechanics := ResourceMechanics()
-	assert.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v2/invocations", Method: "GET", RequestSchema: "InvocationListQuery", SuccessSchema: "InvocationPage", SuccessStatuses: []int{200}, Cursor: true})
-	assert.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v2/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}})
+	assert.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v2/mcp/invocations", Method: "GET", RequestSchema: "InvocationListQuery", SuccessSchema: "InvocationPage", SuccessStatuses: []int{200}, Cursor: true})
+	assert.Contains(t, mechanics, ResourceMechanic{Pattern: "/api/v2/mcp/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}})
 }
 
 func TestInvocationDecisionFilterDoesNotExpandEvidence(t *testing.T) {
@@ -52,13 +56,13 @@ func TestInvocationReadProjectionContract(t *testing.T) {
 		assert.Error(t, err)
 	}
 
-	collection, ok := RouteForPath("/api/v2/invocations")
+	collection, ok := RouteForPath("/api/v2/mcp/invocations")
 	require.True(t, ok)
 	assert.Equal(t, []string{"GET"}, collection.Methods)
 	assert.Equal(t, AuthorityAdmin, collection.Authority)
-	item, ok := RouteForPath("/api/v2/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	item, ok := RouteForPath("/api/v2/mcp/invocations/01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.True(t, ok)
-	assert.Equal(t, "/api/v2/invocations/{id}", item.Pattern)
+	assert.Equal(t, "/api/v2/mcp/invocations/{id}", item.Pattern)
 	assert.Equal(t, AuthorityAdmin, item.Authority)
 
 	mechanics := make(map[string]ResourceMechanic)

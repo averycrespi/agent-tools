@@ -69,8 +69,8 @@ func TestInvocationReadComposition(t *testing.T) {
 		assert.NotContains(t, apiSource, forbidden, "internal/api/invocations.go: prohibited read surface %s", forbidden)
 	}
 	handlerSource := readProductionSource(t, root, "internal/api/handler.go")
-	assert.Equal(t, 1, strings.Count(handlerSource, `path == "/api/v2/invocations"`))
-	assert.Equal(t, 1, strings.Count(handlerSource, `strings.HasPrefix(path, "/api/v2/invocations/")`))
+	assert.Equal(t, 1, strings.Count(handlerSource, `path == "/api/v2/mcp/invocations"`))
+	assert.Equal(t, 1, strings.Count(handlerSource, `strings.HasPrefix(path, "/api/v2/mcp/invocations/")`))
 	rootSource := readProductionSource(t, root, "cmd/agent-gateway/root.go")
 	assert.Contains(t, rootSource, "Invocations:   controlAPI.Invocations")
 	assert.NotContains(t, rootSource, "/internal/invocation")

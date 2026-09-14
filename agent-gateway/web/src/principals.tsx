@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { ResolvedLocation } from "./location";
+import { parseFragment, type ResolvedLocation } from "./location";
 import { useUnsavedChanges } from "./navigation";
 import {
   type MutationController,
@@ -230,9 +230,7 @@ export class PrincipalDirectory {
       id: "principal-directory",
       matches: (key) =>
         key === "#/overview" ||
-        key === "#/activity/invocations" ||
-        key.startsWith("#/activity/invocations?") ||
-        /^#\/activity\/invocations\/[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key),
+        parseFragment(key)?.destination === "invocations",
       invalidations: ["authorization"],
       read: () => readPrincipals(session),
       publish: (principals) => {

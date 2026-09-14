@@ -62,12 +62,14 @@ The main callback remains unchanged. A configured per-flow callback-only numeric
 | `/api/v2/mcp/grant-requests/{id}`                    | `GET`                | admin bearer or session                           |
 | `/api/v2/mcp/grant-requests/{id}/approve`            | `POST`               | admin bearer or session                           |
 | `/api/v2/mcp/grant-requests/{id}/reject`             | `POST`               | admin bearer or session                           |
-| `/api/v2/invocations`                                | `GET`                | admin bearer or session                           |
-| `/api/v2/invocations/{id}`                           | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/invocations`                            | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/invocations/{id}`                       | `GET`                | admin bearer or session                           |
 | `/api/v2/audit-events`                               | `GET`                | admin bearer or session                           |
 | `/api/v2/audit-events/{id}`                          | `GET`                | admin bearer or session                           |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
+
+MCP invocation reads have moved from `/api/v2/invocations` and its item resource to `/api/v2/mcp/invocations`. Retired paths are unowned: no alias, redirect, fallback request or replay. The CLI uses `mcp invocation list/get`; the browser uses `#/mcp/invocations`. This API v2 namespace cutover preserves all public projections, filters, read mechanics and historical evidence without storage migration or rewriting IDs, credentials or backup lineage. Administrative audit remains shared at `/api/v2/audit-events`, `audit` CLI and `#/activity/audit`, labeled **Administrative audit** without changing attribution or filters. See the [operator cutover](../operators/administration.md#mcp-invocation-namespace-cutover) for coordinated upgrade/reload and safe recovery.
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. The invocation read service composes the sole invocation repository with the authorization-owned supplied-transaction principal-name reader; it introduces no mutation, replay, event, or mutable join into retained evidence projections.
 

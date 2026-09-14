@@ -55,7 +55,7 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 
 	grants := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "list", "--principal-id", principalID, "--limit", "10")
 	requests := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant-request", "list", "--principal-id", principalID, "--state", "pending", "--output", "json")
-	invocations := runOnlineCLI(t, harness, bearerPath, true, "invocation", "list", "--principal-id", principalID, "--limit", "1", "--output", "json")
+	invocations := runOnlineCLI(t, harness, bearerPath, true, "mcp", "invocation", "list", "--principal-id", principalID, "--limit", "1", "--output", "json")
 	results = append(results, grants, requests, invocations)
 	assert.Contains(t, string(grants.Stdout), grant.ID)
 	assert.Contains(t, string(requests.Stdout), `"items":[]`)
