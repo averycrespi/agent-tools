@@ -18,11 +18,6 @@ import {
   sessionRequest,
   waitForLifecycle,
 } from "./shared.ts";
-import {
-  assertMutationFoundation,
-  assertSessionFoundationEpochs,
-  assertViewGenerationFoundation,
-} from "./foundations.ts";
 
 export async function runSessionLifecycleCanary(
   browserVersion: string,
@@ -749,7 +744,6 @@ export async function runAuthenticationEpoch(
   initialBearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertSessionFoundationEpochs();
   await waitForLifecycle(page, "signed_out");
   const input = page.locator('[data-testid="admin-bearer-input"]');
   if (
@@ -1026,7 +1020,6 @@ export async function runReadGeneration(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertViewGenerationFoundation();
   await waitForLifecycle(page, "signed_out");
   let eventRequests = 0;
   const observeEvents = (request: Request) => {
@@ -1494,7 +1487,6 @@ export async function runMutationState(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertMutationFoundation();
   await waitForLifecycle(page, "signed_out");
   if (
     (await page

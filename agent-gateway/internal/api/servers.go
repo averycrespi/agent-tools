@@ -399,7 +399,7 @@ func parseServerQuery(query url.Values) (int, *serverdomain.SnapshotCursor, cont
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 	}
-	limit := contract.S2ListPageDefault
+	limit := contract.CollectionPageDefault
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
 		if err != nil || value < 1 || value > limitValue("s2_list_page") || strconv.Itoa(value) != text {

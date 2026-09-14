@@ -6,57 +6,6 @@ Purpose: Run local administration safely through the public CLI.
 
 Agent Gateway's `agent-gateway --help` and subcommand help are the canonical command and flag reference. Only `agent-gateway` is published; see [retirement and operator cleanup](installation-migration.md#retired-executable-and-operator-cleanup) for stale executables. Examples and recovery guidance use `agent-gateway` directly. This guide owns operator procedures for installation roots, administrator authentication, output modes, and safe command execution. See [Administrative control plane](../design/administrative-control-plane.md) for normative defaults and trust boundaries.
 
-## Browser persistence cutover
-
-After upgrading, reload open tabs to load the bundled Agent Gateway client. Old `mcp_gateway_session` browser sessions require fresh sign-in; they are not converted to `agent_gateway_session` authority. Exact-origin sign-in, session bootstrap and logout responses expire the supplied old host-only cookie. When both names exist, only the canonical cookie can select a session. Service restart still invalidates all in-memory sessions; this cutover does not rotate administrator credentials or migrate host state.
-
-The shared theme control preserves valid `system`, `light` and `dark` preferences: `agent_gateway_theme` wins when valid; otherwise a valid `mcp_gateway_theme` preference is copied to it. The old key is removed only after a successful canonical write. If writes fail, the saved old preference remains available for a later load and theme changes remain usable in memory. If storage cannot be read, the page starts with the system theme; malformed values are ignored. Do not clear browser storage as a migration prerequisite.
-
-Reload and sign-in never replay mutations. If an old tab reports version skew, rejection or an uncertain result, retain its input/key/precondition, reload, sign in and inspect current resources before any deliberate follow-up. Browser persistence naming does not change routes, layout, Origin/CSRF policy, session expiry or revocation. Host and client changes remain separate: follow [stopped installation migration](installation-migration.md) and [client provisioning compatibility](access-control.md#existing-sandbox-migration-and-conflicts), including the still-required legacy client exports.
-
-## Browser location cutover
-
-Old flat browser paths have **no aliases or redirects**. Update bookmarks and browser automation to the canonical locations below. Old or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
-
-| Old collection  | Canonical collection     |
-| --------------- | ------------------------ |
-| `#/servers`     | `#/mcp/servers`          |
-| `#/catalog`     | `#/mcp/tools`            |
-| `#/principals`  | `#/access/principals`    |
-| `#/grants`      | `#/access/grants`        |
-| `#/requests`    | `#/access/requests`      |
-| `#/invocations` | `#/activity/invocations` |
-| `#/audit`       | `#/activity/audit`       |
-
-Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. Existing `#/access/principals` and `#/access/grants` paths are already canonical, not aliases. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
-
-The location cutover itself is not an installation or browser-persistence migration. Durable authority, ports, MCP ingress/self-service and OAuth callback identities remain compatible. Current browser persistence follows the cutover above; current root/service and provisioning names follow the separately documented installation and client migrations.
-
-## Operator v2 cutover
-
-Upgrade standalone CLI binaries, API clients, JSON scripts, and the service together. This is an intentional operator breaking change, not an installation migration. The current executable uses only the new grammar; there are no v1 HTTP handlers, top-level server/catalog aliases, redirects, or compatibility completions.
-
-| Previous operator interface                                                                                   | Current interface                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/v1/servers` and every child                                                                             | `/api/v2/mcp/servers` and the corresponding child                                                                                                                                                    |
-| `/api/v1/catalog`                                                                                             | `/api/v2/mcp/catalog`                                                                                                                                                                                |
-| Other administrative `/api/v1/*` resources, including sessions, events, credentials, status, and backups      | Corresponding `/api/v2/*` resources, outside the MCP namespace                                                                                                                                       |
-| `server ...`, `catalog ...`                                                                                   | `mcp server ...`, `mcp catalog ...` under either executable name                                                                                                                                     |
-| Server `auth-flows` API resources                                                                             | `oauth-flows` resources; the CLI subtree is `mcp server auth-flow ...`                                                                                                                               |
-| Operator flow JSON `flow_state`                                                                               | `state`                                                                                                                                                                                              |
-| Operator limits `s2_idempotency_records`                                                                      | `server_idempotency_records`                                                                                                                                                                         |
-| Human-label server-status queries such as `Authorization required`                                            | Stable snake_case tokens such as `authorization_required`; presentation labels are unchanged                                                                                                         |
-| Implicit legacy/table query modes and `representation=table`                                                  | One ordinary collection shape and default policy regardless of filters                                                                                                                               |
-| Descriptor `retired=include/exclude/only` and `representation=summary`                                        | Omit status for all, use `status=available/retired`, and explicit `projection=full/summary` (default full)                                                                                           |
-| Bare operation, principal, grant, and request pages without counts                                            | Their ordinary normalized query pages always include exact `total_count` and `offset`; grants/requests use enriched collection items                                                                 |
-| Insertion-order defaults for servers, catalog, descriptors, principals, grants, and operation/request history | Defaults listed in the [normalized collection contract](../design/public-contract.md#normalized-administrative-collections); default limit 50, MCP inventory/catalog/descriptor/operation maximum 50 |
-
-`projection=active` remains an exclusive operation read with `{items,has_more}`. Other ordinary pages do not acquire invented totals. The CLI's `--retired` descriptor selector translates to the new status query; API clients must use the new grammar. Exact grant/request policy fields and member-resource shapes are unchanged.
-
-After a service upgrade, reload an already-open browser tab to load the bundled client, and sign in again if its session expired or still uses the legacy cookie. Browser fragments follow the [location cutover](#browser-location-cutover) above; layout is unchanged. Discard old page cursors; reload starts a fresh traversal. A failed or uncertain mutation during version skew is **not** permission to retry: retain its input/key/precondition, inspect current resources with the upgraded client, and resolve the outcome before any deliberate same-intent action. Never retry merely because the old tab or CLI cannot decode a response.
-
-Existing same-key server work retains its durable identity across the route rename, including conflicts and interrupted outcomes. Database/backup lineage, stored enums, bearer verifiers/prefixes, keyring identifiers/generations, roots/locks, ports, `/mcp`, OAuth callback identities, `mcp_gateway.*` tools/schemas, and explicit installed selections are not rewritten by the operator v2 cutover. Canonical installation/service naming requires the [stopped migration](installation-migration.md). Current [client provisioning](access-control.md#provision-a-pi-agent-in-a-lima-sandbox) uses canonical markers/token paths and exports both `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and the retained `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` aliases from one authority. No reinitialization, credential rotation, automatic relocation, live installation mutation, or external agent-config change is part of this cutover. Offline recovery now uses `storage verify` and `backup restore BACKUP_ID`; see the [recovery command cutover](backup-and-recovery.md#recovery-command-cutover) for removed spellings and changed CLI JSON. Historical acceptance evidence remains historical, not current release qualification.
-
 ## Installation root
 
 `make install` installs only `agent-gateway` from one implementation. Root and lock selection remain independent of executable basename. Credential prefixes, keyring identifiers, ports, and `mcp_gateway.*` self-service tools are unchanged; administrative API clients use the v2 contract above. Existing explicit-root commands remain supported. New installation defaults are canonical; an existing installation must follow the [explicit stopped migration procedure and selection matrix](installation-migration.md), not reinitialize or rotate credentials. Delivery of that capability does not perform or authorize live host adoption. Client provisioning has its own [migration and consumer qualification gate](access-control.md#existing-sandbox-migration-and-conflicts).
@@ -198,11 +147,11 @@ Finite successes write to stdout. Finite and pre-start failures leave stdout emp
 
 Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. When another page exists, human output ends with `NEXT_CURSOR`; JSON retains the exact `next_cursor` member. Supply that cursor explicitly for the next page. Closed JSON requests reject duplicate, unknown, missing, or trailing values. Command input is intentionally split:
 
-| Input mode                                  | Commands                                                                                                                            |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Direct flags only                           | `admin credential create`, `principal create`, `principal update`, `server operation start`, `grant update`, `grant-request reject` |
-| Strict `--file` only                        | `server create`, `server credential replace`                                                                                        |
-| Direct flags or strict `--file`, never both | `server update`, `grant create`, `grant-request approve`                                                                            |
+| Input mode                                  | Commands                                                                                                                                |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Direct flags only                           | `admin credential create`, `principal create`, `principal update`, `mcp server operation start`, `grant update`, `grant-request reject` |
+| Strict `--file` only                        | `mcp server create`, `mcp server credential replace`                                                                                    |
+| Direct flags or strict `--file`, never both | `mcp server update`, `grant create`, `grant-request approve`                                                                            |
 
 Use `--file PATH` or `--file -` for the strict file form. `--file -` conflicts with `--admin-bearer-stdin`. Constrained grant and approval shapes require the file form; their direct forms cover the ordinary unconstrained case. Strict files accept permanent v1 `{"equals":{...}}` constraints and closed v2 `{"version":2,"equals":{...},"regex":{...}}` constraints, validate them against the matcher compiler's grammar and limits, and preserve lexical number and regex bytes through submission. Table output identifies `v1 equals` or the v2 equality/regex atom counts. Both grant creation and approval forms accept an optional human-readable `description` (`--description` in direct mode). Grant descriptions are display metadata; `grant update` changes or clears only that metadata under an exact ETag. Credential issue, rotate, and revoke commands have no request-document input.
 
@@ -295,3 +244,54 @@ Focused workflow ownership:
 - [Backup, restore, and recovery](backup-and-recovery.md)
 
 Consult [Administrative control plane](../design/administrative-control-plane.md) for normative CLI and administrator trust boundaries, and [Public contract](../design/public-contract.md) for public limits and failure vocabulary. Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for installation and common workflows.
+
+## Browser persistence cutover
+
+After upgrading, reload open tabs to load the bundled Agent Gateway client. Old `mcp_gateway_session` browser sessions require fresh sign-in; they are not converted to `agent_gateway_session` authority. Exact-origin sign-in, session bootstrap and logout responses expire the supplied old host-only cookie. When both names exist, only the canonical cookie can select a session. Service restart still invalidates all in-memory sessions; this cutover does not rotate administrator credentials or migrate host state.
+
+The shared theme control preserves valid `system`, `light` and `dark` preferences: `agent_gateway_theme` wins when valid; otherwise a valid `mcp_gateway_theme` preference is copied to it. The old key is removed only after a successful canonical write. If writes fail, the saved old preference remains available for a later load and theme changes remain usable in memory. If storage cannot be read, the page starts with the system theme; malformed values are ignored. Do not clear browser storage as a migration prerequisite.
+
+Reload and sign-in never replay mutations. If an old tab reports version skew, rejection or an uncertain result, retain its input/key/precondition, reload, sign in and inspect current resources before any deliberate follow-up. Browser persistence naming does not change routes, layout, Origin/CSRF policy, session expiry or revocation. Host and client changes remain separate: follow [stopped installation migration](installation-migration.md) and [client provisioning compatibility](access-control.md#existing-sandbox-migration-and-conflicts), including the still-required legacy client exports.
+
+## Browser location cutover
+
+Old flat browser paths have **no aliases or redirects**. Update bookmarks and browser automation to the canonical locations below. Old or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
+
+| Old collection  | Canonical collection     |
+| --------------- | ------------------------ |
+| `#/servers`     | `#/mcp/servers`          |
+| `#/catalog`     | `#/mcp/tools`            |
+| `#/principals`  | `#/access/principals`    |
+| `#/grants`      | `#/access/grants`        |
+| `#/requests`    | `#/access/requests`      |
+| `#/invocations` | `#/activity/invocations` |
+| `#/audit`       | `#/activity/audit`       |
+
+Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. Existing `#/access/principals` and `#/access/grants` paths are already canonical, not aliases. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
+
+The location cutover itself is not an installation or browser-persistence migration. Durable authority, ports, MCP ingress/self-service and OAuth callback identities remain compatible. Current browser persistence follows the cutover above; current root/service and provisioning names follow the separately documented installation and client migrations.
+
+## Operator v2 cutover
+
+Upgrade standalone CLI binaries, API clients, JSON scripts, and the service together. This is an intentional operator breaking change, not an installation migration. The current executable uses only the new grammar; there are no v1 HTTP handlers, top-level server/catalog aliases, redirects, or compatibility completions.
+
+| Previous operator interface                                                                                   | Current interface                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/v1/servers` and every child                                                                             | `/api/v2/mcp/servers` and the corresponding child                                                                                                                                                    |
+| `/api/v1/catalog`                                                                                             | `/api/v2/mcp/catalog`                                                                                                                                                                                |
+| Other administrative `/api/v1/*` resources, including sessions, events, credentials, status, and backups      | Corresponding `/api/v2/*` resources, outside the MCP namespace                                                                                                                                       |
+| `server ...`, `catalog ...`                                                                                   | `mcp server ...`, `mcp catalog ...` in the current executable, including an explicitly renamed current binary                                                                                        |
+| Server `auth-flows` API resources                                                                             | `oauth-flows` resources; the CLI subtree is `mcp server auth-flow ...`                                                                                                                               |
+| Operator flow JSON `flow_state`                                                                               | `state`                                                                                                                                                                                              |
+| Operator limits `s2_idempotency_records`                                                                      | `server_idempotency_records`                                                                                                                                                                         |
+| Human-label server-status queries such as `Authorization required`                                            | Stable snake_case tokens such as `authorization_required`; presentation labels are unchanged                                                                                                         |
+| Implicit legacy/table query modes and `representation=table`                                                  | One ordinary collection shape and default policy regardless of filters                                                                                                                               |
+| Descriptor `retired=include/exclude/only` and `representation=summary`                                        | Omit status for all, use `status=available/retired`, and explicit `projection=full/summary` (default full)                                                                                           |
+| Bare operation, principal, grant, and request pages without counts                                            | Their ordinary normalized query pages always include exact `total_count` and `offset`; grants/requests use enriched collection items                                                                 |
+| Insertion-order defaults for servers, catalog, descriptors, principals, grants, and operation/request history | Defaults listed in the [normalized collection contract](../design/public-contract.md#normalized-administrative-collections); default limit 50, MCP inventory/catalog/descriptor/operation maximum 50 |
+
+`projection=active` remains an exclusive operation read with `{items,has_more}`. Other ordinary pages do not acquire invented totals. The CLI's `--retired` descriptor selector translates to the new status query; API clients must use the new grammar. Exact grant/request policy fields and member-resource shapes are unchanged.
+
+After a service upgrade, reload an already-open browser tab to load the bundled client, and sign in again if its session expired or still uses the legacy cookie. Browser fragments follow the [location cutover](#browser-location-cutover) above; layout is unchanged. Discard old page cursors; reload starts a fresh traversal. A failed or uncertain mutation during version skew is **not** permission to retry: retain its input/key/precondition, inspect current resources with the upgraded client, and resolve the outcome before any deliberate same-intent action. Never retry merely because the old tab or CLI cannot decode a response.
+
+Existing same-key server work retains its durable identity across the route rename, including conflicts and interrupted outcomes. Database/backup lineage, stored enums, bearer verifiers/prefixes, keyring identifiers/generations, roots/locks, ports, `/mcp`, OAuth callback identities, `mcp_gateway.*` tools/schemas, and explicit installed selections are not rewritten by the operator v2 cutover. Canonical installation/service naming requires the [stopped migration](installation-migration.md). Current [client provisioning](access-control.md#provision-a-pi-agent-in-a-lima-sandbox) uses canonical markers/token paths and exports both `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and the retained `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` aliases from one authority. No reinitialization, credential rotation, automatic relocation, live installation mutation, or external agent-config change is part of this cutover. Offline recovery now uses `storage verify` and `backup restore BACKUP_ID`; see the [recovery command cutover](backup-and-recovery.md#recovery-command-cutover) for removed spellings and changed CLI JSON. Historical acceptance evidence remains historical, not current release qualification.

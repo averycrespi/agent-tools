@@ -228,6 +228,14 @@ class CacheTests(unittest.TestCase):
             (root / "agent-gateway/main.go").write_text("changed source\n")
             self.assertEqual(before, self.identity(root)["prefix"], "build material is not correctness evidence")
 
+    def test_quality_executes_node_foundations_once(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        command = "run: make -C agent-gateway test-frontend-development-node frontend-typecheck"
+        self.assertEqual(jobs["quality"].count(command), 1)
+        self.assertLess(jobs["quality"].index("run: npm ci"), jobs["quality"].index(command))
+        self.assertNotIn("continue-on-error", jobs["quality"])
+
     def test_demo_prepares_exact_gateway_build_before_lifecycle_owner(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))

@@ -49,8 +49,6 @@ func TestDescriptorQueryGlobalPagesAndRevisionFence(t *testing.T) {
 	require.ErrorIs(t, err, servers.ErrStaleCursor)
 	_, err = repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredInclude, first.Next, 50)
 	require.ErrorIs(t, err, servers.ErrStaleCursor)
-	_, err = repository.ListDescriptorSummaries(context.Background(), server.ID, contract.DescriptorRetiredInclude, first.Next, 50)
-	require.ErrorIs(t, err, servers.ErrStaleCursor)
 	// Every last-seen value ties: immutable IDs must still produce one traversal.
 	tied := ToolQuery{Sort: "last-seen", Direction: "descending"}
 	var cursor *DescriptorCursor

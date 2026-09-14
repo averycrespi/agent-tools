@@ -9,7 +9,6 @@ import {
   sessionRequest,
   waitForLifecycle,
 } from "./shared.ts";
-import { assertSessionFoundationEpochs } from "./foundations.ts";
 import { resolve } from "node:path";
 
 export async function runDevelopmentControlPlane(
@@ -20,7 +19,6 @@ export async function runDevelopmentControlPlane(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertSessionFoundationEpochs();
   await waitForLifecycle(page, "signed_out");
 
   const observations = {

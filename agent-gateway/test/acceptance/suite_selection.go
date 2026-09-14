@@ -228,6 +228,7 @@ func DiscoverSuiteInventory(moduleRoot, goos, goarch string) (SuiteInventory, er
 		}
 		if !selected {
 			platformMatch := false
+		platforms:
 			for _, platform := range []string{"linux", "darwin", "windows", "freebsd", "openbsd", "netbsd", "dragonfly", "solaris", "illumos", "aix", "plan9", "android", "ios", "js", "wasip1"} {
 				for _, architecture := range []string{"amd64", "arm64", "386", "arm", "ppc64", "ppc64le", "mips", "mipsle", "mips64", "mips64le", "riscv64", "s390x", "loong64", "wasm"} {
 					candidate := suiteContext(platform, architecture, buildTags)
@@ -235,7 +236,10 @@ func DiscoverSuiteInventory(moduleRoot, goos, goarch string) (SuiteInventory, er
 					if err != nil {
 						return err
 					}
-					platformMatch = platformMatch || matches
+					if matches {
+						platformMatch = true
+						break platforms
+					}
 				}
 			}
 			if !platformMatch {
@@ -361,13 +365,20 @@ func validateSuiteCommand(moduleRoot string, inventory SuiteInventory, command S
 	}
 	ctx := suiteContext(inventory.GOOS, inventory.GOARCH, tags)
 	seen := make(map[string]bool)
+	// This command has one immutable build context; never share matches across commands.
+	matchedFiles := make(map[string]bool)
 	for _, test := range inventory.Tests {
 		if !packages[test.Package] || !pattern.MatchString(test.Name) {
 			continue
 		}
-		selected, err := ctx.MatchFile(filepath.Join(moduleRoot, filepath.Dir(test.File)), filepath.Base(test.File))
-		if err != nil {
-			return err
+		selected, cached := matchedFiles[test.File]
+		if !cached {
+			var err error
+			selected, err = ctx.MatchFile(filepath.Join(moduleRoot, filepath.Dir(test.File)), filepath.Base(test.File))
+			if err != nil {
+				return err
+			}
+			matchedFiles[test.File] = selected
 		}
 		if !selected {
 			continue

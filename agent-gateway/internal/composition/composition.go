@@ -132,15 +132,8 @@ func (built *Composition) GrantRequestOccupancy(ctx context.Context) (contract.L
 }
 func (built *Composition) CatalogRepository() *catalog.Repository { return built.catalogRepository }
 func (built *Composition) ActiveCatalog() *catalog.ActiveRegistry { return built.activeCatalog }
-func (built *Composition) Discovery() *discovery.Service          { return built.discovery }
-func (built *Composition) ListTools() mcpingress.ToolsListService {
-	if built == nil || built.listTools == nil {
-		return nil
-	}
-	return built.listTools
-}
 func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
-	if built == nil || !built.s5Complete() || built.listTools == nil || built.callTools == nil {
+	if built == nil || !built.authorityDependenciesComplete() {
 		return AgentIngressDependencies{}, false
 	}
 	return AgentIngressDependencies{
@@ -151,24 +144,20 @@ func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
 	}, true
 }
 func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
-	if built == nil || !built.s5Complete() || built.auditRepository == nil {
+	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil {
 		return ControlAPIDependencies{}, false
 	}
 	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, Audit: built.auditRepository}, true
 }
-func (built *Composition) s5Complete() bool {
+func (built *Composition) authorityDependenciesComplete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
 		built.discovery != nil && built.listTools != nil && built.invocationRepository != nil && built.invocationReads != nil && built.invocationService != nil && built.callTools != nil
 }
-func (built *Composition) Traverser() *catalog.Traverser               { return built.traverser }
 func (built *Composition) Provider() *keyring.Provider                 { return built.provider }
 func (built *Composition) Keyring() *keyring.Coordinator               { return built.keyring }
-func (built *Composition) RuntimeOwner() *runtimes.RuntimeOwner        { return built.owner }
-func (built *Composition) CatalogCoordinator() *catalog.Coordinator    { return built.catalog }
 func (built *Composition) OAuthFlows() *oauth.FlowService              { return built.flows }
 func (built *Composition) Replacements() *servercredentials.Service    { return built.replacements }
 func (built *Composition) DisconnectService() *oauth.DisconnectService { return built.disconnect }
-func (built *Composition) RefreshService() *oauth.RefreshService       { return built.refresh }
 func (built *Composition) RuntimeStatus(serverID string) runtimes.Status {
 	return built.manager.Status(serverID)
 }

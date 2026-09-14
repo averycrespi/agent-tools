@@ -275,7 +275,7 @@ func parseGrantQuery(rawQuery string) (int, authorization.GrantFilter, *authoriz
 			return 0, authorization.GrantFilter{}, nil, contract.ProblemMalformedRequest
 		}
 	}
-	limit := contract.S3ListPageDefault
+	limit := contract.CollectionPageDefault
 	if values, ok := query["limit"]; ok {
 		value, parseErr := strconv.Atoi(values[0])
 		if parseErr != nil || value < 1 || value > limitValue("admin_list_page") || strconv.Itoa(value) != values[0] {

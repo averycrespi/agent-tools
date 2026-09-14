@@ -46,11 +46,14 @@ test("invocation list/detail share closed applied filters, never live authority 
 
 test("browser invocation choices cover the canonical API vocabularies", () => {
   const outcomes = readFileSync(
-    new URL("../../internal/contract/s6_invocations.go", import.meta.url),
+    new URL(
+      "../../internal/contract/invocation_projections.go",
+      import.meta.url,
+    ),
     "utf8",
   );
   const decisions = readFileSync(
-    new URL("../../internal/contract/s3_states.go", import.meta.url),
+    new URL("../../internal/contract/authorization_states.go", import.meta.url),
     "utf8",
   );
   assert.deepEqual(

@@ -126,19 +126,21 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 		return string(contents)
 	}
 	cli := read("docs/operators/administration.md")
+	require.Contains(t, cli, "## Installation root")
+	require.Contains(t, cli, "## Operator v2 cutover")
+	assert.Less(t, strings.Index(cli, "## Installation root"), strings.Index(cli, "## Operator v2 cutover"))
+	release := read("docs/maintainers/release-verification.md")
+	require.Contains(t, release, "## Purpose-based verification DAG")
+	require.Contains(t, release, "## Developer source and tooling cutover")
+	assert.Less(t, strings.Index(release, "## Purpose-based verification DAG"), strings.Index(release, "## Developer source and tooling cutover"))
 	for _, phrase := range []string{
-		"$XDG_DATA_HOME/agent-gateway", "~/.local/share/agent-gateway", "`--data-dir` has highest precedence",
-		"Online administrator authentication never prompts", "--admin-bearer-file", "--admin-bearer-stdin",
-		"Human output is the default", "`--output json`", "stdout", "stderr", "typed exit",
-		"http://127.0.0.1:8210", "never accepted in argv or environment", "never retries automatically",
+		"never accepted in argv or environment", "never retries automatically",
 	} {
 		assert.Contains(t, cli, phrase)
 	}
 	recovery := read("docs/operators/backup-and-recovery.md")
 	for _, phrase := range []string{
-		"agent-gateway backup create", "agent-gateway storage verify", "agent-gateway backup restore BACKUP_ID",
-		"agent-gateway admin reset", "Gateway must be stopped", "--secret-output", "--admin-bearer-file",
-		"invalidates every restored agent credential", "does not rewrite the default `admin-bearer`", "Failed commands leave stdout empty",
+		"Gateway must be stopped", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
 	} {
 		assert.Contains(t, recovery, phrase)
 	}

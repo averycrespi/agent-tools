@@ -31,14 +31,7 @@ func (handler *Handler) activeCatalogCollection(writer http.ResponseWriter, requ
 		writeProblem(writer, problem)
 		return
 	}
-	service, ok := handler.activeCatalog.(interface {
-		Query(catalog.ToolQuery, *catalog.ActiveCursor, int) (catalog.ActivePage, error)
-	})
-	if !ok {
-		writeProblem(writer, contract.ProblemStorageUnavailable)
-		return
-	}
-	page, err := service.Query(query, cursor, limit)
+	page, err := handler.activeCatalog.Query(query, cursor, limit)
 	if err != nil {
 		writeServerError(writer, err)
 		return
@@ -65,7 +58,7 @@ func parseActiveCatalogQuery(query url.Values) (int, *catalog.ActiveCursor, cont
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 	}
-	limit := contract.S2ListPageDefault
+	limit := contract.CollectionPageDefault
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
 		if err != nil || value < 1 || value > limitValue("s2_list_page") {

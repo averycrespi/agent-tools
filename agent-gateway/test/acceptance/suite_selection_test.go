@@ -39,6 +39,11 @@ func TestSuiteInventoryClosesTaggedHolesAndPreservesBuildIdentity(t *testing.T) 
 	})
 	inventory, err := DiscoverSuiteInventory(root, "linux", "arm64")
 	require.NoError(t, err)
+	assert.True(t, slices.ContainsFunc(inventory.Tests, func(test SuiteTest) bool { return test.Name == "TestPlatform" && !test.Selected }))
+	unitPlan, err := PlanSuite(root, "test-unit", inventory, 1)
+	require.NoError(t, err)
+	require.Len(t, unitPlan, 1)
+	assert.Len(t, unitPlan[0].Tests, 3, "all executable identities in one matched file must remain selected")
 	owners := make(map[string]string)
 	for _, test := range inventory.Tests {
 		if test.Selected {

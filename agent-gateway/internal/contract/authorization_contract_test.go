@@ -118,7 +118,7 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 		require.True(t, limit.Allows(limit.Maximum), limit.Name)
 		require.False(t, limit.Allows(limit.Maximum+1), limit.Name)
 	}
-	require.Equal(t, 50, S3ListPageDefault)
+	require.Equal(t, 50, CollectionPageDefault)
 	require.Equal(t, 5*time.Minute, AuthorizationCursorLifetime)
 	require.Equal(t, time.Second, AuthorityWaitDeadline)
 	require.Equal(t, []AgentAuthMode{AgentAuthDenyAll, AgentAuthPrincipalCredentials}, AgentAuthModes())

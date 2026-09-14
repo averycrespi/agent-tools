@@ -18,11 +18,14 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const testInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+var repositoryTemplate = storagefixture.New(testInstallationID)
 
 var testTime = time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 
@@ -900,7 +903,7 @@ func newRepositoryWithClock(t *testing.T, clock Clock, entropy io.Reader) (*Repo
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
-	store, err := storage.Initialize(context.Background(), ownership, testInstallationID)
+	store, err := repositoryTemplate.Open(context.Background(), ownership)
 	require.NoError(t, err)
 	repository, err := New(store, clock, entropy)
 	require.NoError(t, err)

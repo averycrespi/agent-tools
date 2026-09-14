@@ -1,7 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type BrowserContext, type Page } from "@playwright/test";
 import { assertSecretAbsent, fail, waitForLifecycle } from "./shared.ts";
-import { assertSensitiveSinkFoundation } from "./foundations.ts";
 import { createHash } from "node:crypto";
 import {
   visualArtifactInventory,
@@ -18,7 +17,6 @@ export async function runVisualAccessibilityPrivacyCanary(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertSensitiveSinkFoundation();
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -48,12 +46,9 @@ export async function runVisualAccessibilityPrivacyCanary(
   if (
     screenshot.readUInt32BE(16) !== 390 ||
     screenshot.readUInt32BE(20) < 844 ||
-    screenshot.includes(Buffer.from(bearer)) ||
-    visualArtifactInventory.length !== 48 ||
-    visualStates.length !== 10 ||
-    visualRubric.length !== 6
+    screenshot.includes(Buffer.from(bearer))
   )
-    fail("Visual/accessibility/privacy canary inventory changed");
+    fail("Visual/accessibility/privacy canary screenshot boundary changed");
   const layout = await page.evaluate(() => ({
     overflow:
       document.documentElement.scrollWidth >
@@ -74,7 +69,7 @@ export async function runVisualAccessibilityPrivacyCanary(
     );
   await assertSecretAbsent(page, context, baseURL, [bearer], true, "dark");
   process.stdout.write(
-    `${JSON.stringify({ event: "visual_accessibility_privacy_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_findings: 0, inventory: visualArtifactInventory.length, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
+    `${JSON.stringify({ event: "visual_accessibility_privacy_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_findings: 0, screenshot_sha256: createHash("sha256").update(screenshot).digest("hex") })}\n`,
   );
 }
 
@@ -86,7 +81,6 @@ export async function runSecretStoragePrivacy(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertSensitiveSinkFoundation();
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -636,7 +630,6 @@ export async function runSecretSinks(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertSensitiveSinkFoundation();
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();

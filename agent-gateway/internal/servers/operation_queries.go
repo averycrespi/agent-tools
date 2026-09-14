@@ -95,7 +95,7 @@ func (repository *Repository) QueryOperations(ctx context.Context, serverID stri
 	if !validID(serverID) {
 		return OperationQueryPage{}, ErrNotFound
 	}
-	if !q.Validate() || limit < 1 || limit > contract.S2ListPageDefault {
+	if !q.Validate() || limit < 1 || limit > contract.OperationPageMaximum {
 		return OperationQueryPage{}, ErrInvalidInput
 	}
 	var page OperationQueryPage

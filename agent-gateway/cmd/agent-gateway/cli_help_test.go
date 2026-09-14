@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -16,6 +18,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAdministrationInputModeCommands(t *testing.T) {
+	contents, err := os.ReadFile("../../docs/operators/administration.md")
+	require.NoError(t, err)
+	root := newRootCmd()
+	commands := 0
+	for _, line := range strings.Split(string(contents), "\n") {
+		if !strings.HasPrefix(line, "| Direct flags") && !strings.HasPrefix(line, "| Strict") {
+			continue
+		}
+		cells := strings.Split(line, "|")
+		require.GreaterOrEqual(t, len(cells), 4)
+		for _, match := range regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(cells[2], -1) {
+			command, remaining, err := root.Find(strings.Fields(match[1]))
+			require.NoError(t, err, match[1])
+			assert.Empty(t, remaining, match[1])
+			assert.Equal(t, "agent-gateway "+match[1], command.CommandPath())
+			commands++
+		}
+	}
+	require.Positive(t, commands, "input-mode table must contain executable command paths")
+	command, remaining, err := root.Find([]string{"server", "create"})
+	require.True(t, err != nil || len(remaining) != 0 || command.CommandPath() != "agent-gateway server create", "retired top-level command must not become an alias")
+}
 
 func TestCLIHelpTree(t *testing.T) {
 	root := newRootCmd()

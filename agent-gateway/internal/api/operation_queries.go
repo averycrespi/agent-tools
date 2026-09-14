@@ -68,10 +68,10 @@ func (handler *Handler) operationQuery(writer http.ResponseWriter, request *http
 	} else if query.Direction == "" {
 		query.Direction = "ascending"
 	}
-	limit := contract.S2ListPageDefault
+	limit := contract.CollectionPageDefault
 	if text := values.Get("limit"); text != "" {
 		parsed, err := strconv.Atoi(text)
-		if err != nil || parsed < 1 || parsed > contract.S2ListPageDefault || strconv.Itoa(parsed) != text {
+		if err != nil || parsed < 1 || parsed > contract.OperationPageMaximum || strconv.Itoa(parsed) != text {
 			writeProblem(writer, contract.ProblemMalformedRequest)
 			return
 		}

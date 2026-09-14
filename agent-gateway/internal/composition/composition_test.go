@@ -77,7 +77,6 @@ func TestInvocationReadComposition(t *testing.T) {
 }
 
 func TestCompositionBuildsOneAtomicProductionGraph(t *testing.T) {
-	assert.Nil(t, (*Composition)(nil).ListTools())
 	_, available := (*Composition)(nil).AgentIngress()
 	assert.False(t, available)
 	_, available = (*Composition)(nil).ControlAPI()
@@ -114,11 +113,9 @@ func TestCompositionBuildsOneAtomicProductionGraph(t *testing.T) {
 	_, available = partial.AgentIngress()
 	assert.False(t, available)
 	require.NotNil(t, built.discovery)
-	assert.Same(t, built.discovery, built.Discovery())
 	require.NotNil(t, built.discoveryCursors)
 	require.NotNil(t, built.discoveryPager)
 	require.NotNil(t, built.listTools)
-	assert.Same(t, built.listTools, built.ListTools())
 	require.NotNil(t, built.invocationRepository)
 	require.NotNil(t, built.invocationPipelines)
 	require.NotNil(t, built.invocationService)
@@ -127,6 +124,25 @@ func TestCompositionBuildsOneAtomicProductionGraph(t *testing.T) {
 	assert.Same(t, built.invocationPipelines, built.callTools.pipelines)
 	agentIngress, ok := built.AgentIngress()
 	require.True(t, ok)
+	for _, omit := range []func() func(){
+		func() func() {
+			saved := built.listTools
+			built.listTools = nil
+			return func() { built.listTools = saved }
+		},
+		func() func() {
+			saved := built.callTools
+			built.callTools = nil
+			return func() { built.callTools = saved }
+		},
+	} {
+		restore := omit()
+		_, available := built.AgentIngress()
+		assert.False(t, available, "incomplete ingress must fail closed")
+		_, available = built.ControlAPI()
+		assert.False(t, available, "incomplete authority bundle must fail closed")
+		restore()
+	}
 	assert.Same(t, built.authorization, agentIngress.Authenticator)
 	assert.Same(t, built.listTools, agentIngress.ListTools)
 	assert.Same(t, built.callTools, agentIngress.CallTools)
@@ -213,7 +229,9 @@ func TestAuthorityOwnerExposesOccupancyAndDrainsBeforeCompositionCompletes(t *te
 	}
 	_, err = authority.Authenticate(context.Background(), issued.Bearer)
 	assert.ErrorIs(t, err, authorization.ErrShuttingDown)
-	_, err = built.ListTools().ListTools(t.Context(), lease, "", func(context.Context, any, string) ([]byte, error) { return nil, nil })
+	ingress, complete := built.AgentIngress()
+	require.True(t, complete)
+	_, err = ingress.ListTools.ListTools(t.Context(), lease, "", func(context.Context, any, string) ([]byte, error) { return nil, nil })
 	assert.ErrorIs(t, err, mcpingress.ErrToolsListAuthorizationUnavailable)
 }
 
@@ -428,7 +446,7 @@ func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t
 	require.NoError(t, err)
 	lease, err := built.Authorization().Authenticate(t.Context(), issued.Bearer)
 	require.NoError(t, err)
-	projection, err := built.Discovery().Project(t.Context(), discovery.Request{Lease: lease})
+	projection, err := built.discovery.Project(t.Context(), discovery.Request{Lease: lease})
 	require.NoError(t, err)
 	cursor, err := built.discoveryCursors.Encode(discovery.CursorState{
 		Snapshot: projection.Snapshot,
@@ -475,7 +493,9 @@ func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t
 	}
 	assert.False(t, built.ActiveCatalog().IsCurrentGeneration(projection.Snapshot.Generation))
 	encoded := false
-	_, err = built.ListTools().ListTools(t.Context(), lease, cursor, func(context.Context, any, string) ([]byte, error) {
+	ingress, complete := built.AgentIngress()
+	require.True(t, complete)
+	_, err = ingress.ListTools.ListTools(t.Context(), lease, cursor, func(context.Context, any, string) ([]byte, error) {
 		encoded = true
 		return []byte(`{"tools":[]}`), nil
 	})

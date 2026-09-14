@@ -4,7 +4,7 @@ Audience: Gateway administrators managing agent access
 
 Purpose: Manage principals, credentials, grants, and grant requests.
 
-This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. The shared internal access-target boundary also requires no database migration, grant/request rewrite, credential replacement, or MCP agent-client changes. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). MCP remains the only supported target domain. Generated help owns exact syntax:
+This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). MCP remains the only supported target domain. Generated help owns exact syntax:
 
 - `agent-gateway principal --help`
 - `agent-gateway grant --help`
@@ -178,7 +178,7 @@ For **each known sandbox profile and each client launch environment** (interacti
 - Public-safe results of configuration validation, administrator-token rejection, project-versus-global authority and redaction tests; separately authorized MCP connectivity/admission evidence, if obtained.
 - Outcome, outstanding conflicts, operator, rollback choice and next action. Missing profiles/launchers stay explicitly unqualified; do not infer adoption from this repository's tests or CI.
 
-This source retirement does not inventory or mutate live profiles, start services, transfer real credentials, or claim deployment. The rollout owner attested that migrated clients cover their supported scope and explicitly authorized proceeding without a separately enumerated fleet inventory. That is an operator decision, not independently verified live-adoption evidence. Canonical-consumer qualification remains unrun; retaining the legacy exports keeps it outside this delivery's prerequisite.
+This source retirement does not inventory or mutate live profiles, start services, transfer real credentials, or claim deployment. The [installation migration guide](installation-migration.md#retired-executable-and-operator-cleanup) records the historical supported-scope attestation; it is not independently verified live-adoption evidence. Canonical-consumer qualification remains unrun; retaining the legacy exports keeps it outside this delivery's prerequisite.
 
 ## Create and inspect immutable grants
 

@@ -24,10 +24,6 @@ type fakeActiveCatalog struct {
 }
 
 func (service *fakeActiveCatalog) Status(string) catalog.ActiveStatus { return service.status }
-func (service *fakeActiveCatalog) List(cursor *catalog.ActiveCursor, limit int) (catalog.ActivePage, error) {
-	service.cursor, service.limit = cursor, limit
-	return service.page, service.err
-}
 func (service *fakeActiveCatalog) Query(query catalog.ToolQuery, cursor *catalog.ActiveCursor, limit int) (catalog.ActivePage, error) {
 	service.query, service.cursor, service.limit = query, cursor, limit
 	return service.page, service.err
