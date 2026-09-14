@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Use the browser or CLI to configure servers, manage identities and permissions, and investigate calls. Navigation groups **Overview**; **Access** (Principals); **MCP** (Servers, Tools, Grants, Access requests, MCP invocations); **Activity** (Administrative audit); **System**. MCP invocations shows bounded, redacted MCP history; Administrative audit shows shared administrative history, including system and offline maintenance events. Inspect calls with `agent-gateway mcp invocation list` or `mcp invocation get INVOCATION_ID`. See the [MCP invocation cutover](docs/operators/administration.md#mcp-invocation-namespace-cutover) for exact API/CLI/browser mappings and coordinated upgrade/reload guidance; old locations are rejected without replay.
+Navigate **Overview**; **Access** (Principals); **MCP** (Servers, Tools, Grants, Access requests, MCP invocations); **Activity** (Administrative audit); **System**. MCP invocations shows redacted call history; Administrative audit includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/administration.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
 
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
