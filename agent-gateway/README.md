@@ -110,7 +110,7 @@ Use the [documentation map](docs/README.md) to choose material by role and task.
 ### Gateway administrators
 
 - [Administrator CLI and local administration](docs/operators/administration.md)
-- [Run as a macOS launchd agent](docs/operators/launchd.md)
+- [Run as a macOS launchd agent](docs/operators/launchd.md): `agent-gateway service install`, then `service start`; use `service update --log-level debug`, unchanged `service restart`, `service status`, or `service uninstall`. Installed management needs no Python, Go toolchain, or checkout.
 - [Upstream server configuration](docs/operators/upstream-servers.md)
 - [Access control](docs/operators/access-control.md)
 - [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)

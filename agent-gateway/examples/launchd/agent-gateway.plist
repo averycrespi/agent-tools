@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Run ./scripts/install-launchd-agent.sh from agent-gateway/ to install this
-     template with account-specific defaults; no manual editing is needed.
+<!-- Run agent-gateway service install to create the Go-owned definition
+     with account-specific defaults; this example is not a runtime dependency.
      See docs/operators/launchd.md for initialization, loading, and management.
      launchd does not expand shell variables or source shell profiles. -->
 <plist version="1.0">
