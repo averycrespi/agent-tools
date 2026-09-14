@@ -18,11 +18,14 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const catalogInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+
+var repositoryTemplate = storagefixture.New(catalogInstallationID)
 
 var catalogTime = time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 
@@ -152,8 +155,6 @@ func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.
 	} {
 		_, err = repository.ListDescriptors(context.Background(), server.ID, contract.DescriptorRetiredInclude, &invalid, 2)
 		assert.ErrorIs(t, err, servers.ErrStaleCursor)
-		_, err = repository.ListDescriptorSummaries(context.Background(), server.ID, contract.DescriptorRetiredInclude, &invalid, 2)
-		assert.ErrorIs(t, err, servers.ErrStaleCursor)
 	}
 
 	clock.now = clock.now.Add(time.Minute)
@@ -175,10 +176,6 @@ func TestRepositoryDescriptorFiltersPaginationAndRevisionCursorFence(t *testing.
 		_, err := transaction.Exec(`UPDATE tool_descriptors SET descriptor_json = 'not-json' WHERE tool_id = ?`, active.Items[0].Resource.ID)
 		return err
 	}))
-	summaries, err := repository.ListDescriptorSummaries(context.Background(), server.ID, contract.DescriptorRetiredExclude, nil, 10)
-	require.NoError(t, err)
-	require.Len(t, summaries.Items, 1)
-	assert.Equal(t, "two", summaries.Items[0].Resource.UpstreamName)
 	querySummaries, err := repository.QueryDescriptors(context.Background(), server.ID, ToolQuery{Status: "available", Projection: "summary"}, nil, 10)
 	require.NoError(t, err)
 	require.Len(t, querySummaries.Items, 1)
@@ -397,7 +394,7 @@ func newCatalogRepository(t *testing.T) (*Repository, *servers.Repository, *cata
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
-	store, err := storage.Initialize(context.Background(), ownership, catalogInstallationID)
+	store, err := repositoryTemplate.Open(context.Background(), ownership)
 	require.NoError(t, err)
 	clock := &catalogClock{now: catalogTime}
 	entropy := new(catalogEntropy)

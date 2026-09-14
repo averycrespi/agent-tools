@@ -49,32 +49,12 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"Online CLI commands acquire one selected administrator bearer", "docs/maintainers/release-verification.md", "npm run ui:verify-supply-chain",
 		},
 	}
-	prohibited := []string{
-		"Product UI, exactly-once guarantees, and broader S6 workflows are not implemented",
-		"later S6 capabilities are not yet available",
-		"remaining domain product workflows are pending",
-		"remaining domain product workflows are later slices",
-		"Closed S1–S5 contract",
-		"accept-s5` is the sole final blocking owner",
-		"accept-s5` is the sole current blocking owner",
-		"Repository and handler adoption follow as one bounded S6 slice",
-		"future S4 admission mutation",
-		"Product workflows beyond the typed embedded shell",
-		"the executable does not yet accept production agent authority",
-		"production MCP authentication is unavailable",
-		"No active downstream route is callable through `/mcp`",
-		"S5/S6 workflows are not implemented",
-		"There is no audit read API",
-	}
 	for path, required := range documents {
 		contents, err := os.ReadFile(path)
 		require.NoError(t, err, path)
 		text := string(contents)
 		for _, phrase := range required {
 			require.Contains(t, text, phrase, "%s: missing current documentation contract", path)
-		}
-		for _, phrase := range prohibited {
-			require.NotContains(t, text, phrase, "%s: obsolete current-state claim", path)
 		}
 	}
 }

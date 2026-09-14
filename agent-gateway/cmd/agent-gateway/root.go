@@ -299,7 +299,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 				status.Limits.Servers = activeServers
 			}
 			if idempotency, idempotencyErr := serverRepository.IdempotencyStatus(context.Background()); idempotencyErr == nil {
-				status.Limits.S2IdempotencyRecords = idempotency
+				status.Limits.ServerIdempotencyRecords = idempotency
 			}
 			if identities, identityErr := catalogRepository.IdentityStatus(context.Background()); identityErr == nil {
 				status.Limits.DurableToolIdentities = identities
@@ -480,7 +480,7 @@ func baseSystemStatus(
 		KeyringCandidates: fixedStatus("keyring_candidates", 0), KeyringWork: keyringWork, DatabaseBytes: fixedStatus("database_bytes", 0),
 		ServerIdentities: fixedStatus("server_identities", 0), Servers: fixedStatus("servers", 0), DownstreamRuntimes: fixedStatus("downstream_runtimes", 0),
 		ServerReconciliations: fixedStatus("server_reconciliations", 0), CatalogTraversals: fixedStatus("catalog_traversals", 0), OAuthFlows: fixedStatus("oauth_flows", 0),
-		OAuthCallbackWork: fixedStatus("oauth_callback_work", 0), S2IdempotencyRecords: fixedStatus("server_idempotency_records", 0), ActiveTools: fixedStatus("active_tools", 0),
+		OAuthCallbackWork: fixedStatus("oauth_callback_work", 0), ServerIdempotencyRecords: fixedStatus("server_idempotency_records", 0), ActiveTools: fixedStatus("active_tools", 0),
 		DurableToolIdentities: fixedStatus("durable_tool_identities", 0), DownstreamDispatch: fixedStatus("downstream_dispatch", 0),
 		Principals: fixedStatus("principals", 0), Grants: fixedStatus("grants", 0),
 		GrantRequests: fixedStatus("grant_requests", 0), GrantRequestEvidenceBytes: fixedStatus("grant_request_evidence_bytes", 0),

@@ -16,7 +16,7 @@ Gateway must be stopped for `backup restore`, `storage verify`, and `admin reset
 
 ## Recovery command cutover
 
-| Retired command                              | Replacement under either executable name            |
+| Retired command                              | Replacement in the current executable               |
 | -------------------------------------------- | --------------------------------------------------- |
 | `restore --verify-current`                   | `storage verify`                                    |
 | `restore BACKUP_ID --secret-output NEW_PATH` | `backup restore BACKUP_ID --secret-output NEW_PATH` |

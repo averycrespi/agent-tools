@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -9,10 +8,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
-
-type DescriptorQueryService interface {
-	QueryDescriptors(context.Context, string, catalog.ToolQuery, *catalog.DescriptorCursor, int) (catalog.DescriptorPage, error)
-}
 
 func parseToolQuery(raw string, aggregate bool) (catalog.ToolQuery, url.Values, contract.ProblemCode) {
 	query := catalog.ToolQuery{}
@@ -47,7 +42,7 @@ func parseToolQuery(raw string, aggregate bool) (catalog.ToolQuery, url.Values, 
 	}
 	if text, exists := values["limit"]; exists {
 		limit, err := strconv.Atoi(text[0])
-		if err != nil || limit < 1 || limit > contract.S2ListPageDefault || strconv.Itoa(limit) != text[0] {
+		if err != nil || limit < 1 || limit > contract.CatalogPageMaximum || strconv.Itoa(limit) != text[0] {
 			return query, nil, contract.ProblemMalformedRequest
 		}
 	}
@@ -75,12 +70,7 @@ func (handler *Handler) queryDescriptors(writer http.ResponseWriter, request *ht
 		writeProblem(writer, contract.ProblemStaleCursor)
 		return
 	}
-	service, ok := handler.catalog.(DescriptorQueryService)
-	if !ok {
-		writeProblem(writer, contract.ProblemStorageUnavailable)
-		return
-	}
-	page, err := service.QueryDescriptors(request.Context(), serverID, query, cursor, limit)
+	page, err := handler.catalog.QueryDescriptors(request.Context(), serverID, query, cursor, limit)
 	if err != nil {
 		writeServerError(writer, err)
 		return

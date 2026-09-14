@@ -24,16 +24,23 @@ type productionSource struct {
 	imports  map[string]string
 }
 
-func TestProductionSourceOwnershipGuards(t *testing.T) {
+func TestProductionSourceGuards(t *testing.T) {
 	root := gatewayModuleRoot(t)
+	sources := productionSources(t, root)
+	t.Run("production", func(t *testing.T) { testProductionSourceOwnershipGuards(t, root, sources) })
+	t.Run("persistence_and_capabilities", func(t *testing.T) { testProductionPersistenceAndCapabilitySliceGuards(t, root, sources) })
+	t.Run("slices", func(t *testing.T) { testSourceOwnershipGuards(t, root, sources) })
+}
+
+func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []productionSource) {
 	allowedExec := func(path string) bool {
 		return path == "internal/installation/migrate_unix.go" || path == "cmd/agent-gateway/online_auth_flows.go" || path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
 	}
 	processConstructors := map[string]string{"internal/installation/migrate_unix.go": "CommandContext", "cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
 	allowedHTTP := map[string]bool{"internal/remote/remote.go": true, "internal/controlclient/controlclient.go": true}
-	allowedSDK := map[string]bool{"internal/dependencies/dependencies.go": true, "internal/mcpingress/handler.go": true}
+	allowedSDK := map[string]bool{"internal/mcpingress/handler.go": true}
 	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}
-	for _, source := range productionSources(t, root) {
+	for _, source := range sources {
 		if strings.HasPrefix(source.path, "internal/controlclient/bearer") {
 			for _, prohibited := range []string{"ReadPassword", "/dev/tty", "os.Getenv", "keyring", "database/sql", "net/http"} {
 				if strings.Contains(source.contents, prohibited) {
@@ -183,8 +190,7 @@ func TestDrainRootKeepsEventsAndStorageUntilCompositionSettles(t *testing.T) {
 	assert.Contains(t, compositionSource, "ctx := context.Background()")
 }
 
-func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
-	root := gatewayModuleRoot(t)
+func testProductionPersistenceAndCapabilitySliceGuards(t *testing.T, root string, sources []productionSource) {
 	prohibitedColumn := regexp.MustCompile(`(?i)\b(runtime_id|process_id|pid|session_id|access_token|refresh_token|client_secret)\b`)
 	migrations, err := filepath.Glob(filepath.Join(root, "internal/storage/migrations/*.sql"))
 	require.NoError(t, err)
@@ -198,7 +204,7 @@ func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 			t.Errorf("%s: prohibited persisted column %s", filepath.ToSlash(relative), match)
 		}
 	}
-	for _, source := range productionSources(t, root) {
+	for _, source := range sources {
 		for _, symbol := range []string{"Routes().Resolve(", ".Acquire(ctx"} {
 			allowedInvocationAcquire := source.path == "internal/invocation/service.go" && symbol == ".Acquire(ctx"
 			if strings.Contains(source.contents, symbol) && !allowedInvocationAcquire {
@@ -208,9 +214,8 @@ func TestProductionPersistenceAndCapabilitySliceGuards(t *testing.T) {
 	}
 }
 
-func TestSourceOwnershipGuards(t *testing.T) {
-	root := gatewayModuleRoot(t)
-	for _, source := range productionSources(t, root) {
+func testSourceOwnershipGuards(t *testing.T, root string, sources []productionSource) {
+	for _, source := range sources {
 		for _, violation := range productionSliceViolations(source) {
 			t.Error(violation)
 		}
@@ -388,9 +393,9 @@ var _ http.Client
 			want:     "internal/api/bad.go: prohibited capability consumer .Acquire(",
 		},
 		{
-			name: "call method in contract message owner", path: "internal/contract/s4_states.go",
+			name: "call method in contract message owner", path: "internal/contract/invocation_states.go",
 			contents: "package contract\nconst method = `tools/call`\n",
-			want:     "internal/contract/s4_states.go: prohibited S4/S5 consumer tools/call",
+			want:     "internal/contract/invocation_states.go: prohibited S4/S5 consumer tools/call",
 		},
 		{
 			name: "call slice", path: "internal/api/bad.go",
@@ -421,7 +426,7 @@ var (
 
 func productionSliceViolations(source productionSource) []string {
 	violations := make([]string, 0)
-	allowedSDK := source.path == "internal/mcpingress/handler.go" || source.path == "internal/dependencies/dependencies.go"
+	allowedSDK := source.path == "internal/mcpingress/handler.go"
 	for _, imported := range source.imports {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
@@ -522,7 +527,7 @@ func productionSliceViolations(source productionSource) []string {
 	allowedCallWireOwner := source.path == "internal/downstream/call.go" || source.path == "internal/mcpingress/handler.go" ||
 		source.path == "internal/mcpingress/tools_list.go" || source.path == "internal/mcpingress/tools_call.go"
 	callWireSource := source.contents
-	if source.path == "internal/contract/s4_states.go" {
+	if source.path == "internal/contract/invocation_states.go" {
 		callWireSource = strings.ReplaceAll(callWireSource, `"Request rejected: invalid tools/call parameters. Check the request shape."`, "")
 	}
 	if !allowedCallWireOwner && strings.Contains(callWireSource, "tools/call") {

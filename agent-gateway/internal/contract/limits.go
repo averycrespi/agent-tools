@@ -5,9 +5,9 @@ import "time"
 const (
 	AdminListPageDefault       = 50
 	BackupListPageDefault      = 50
-	S2ListPageDefault          = 50
-	S3ListPageDefault          = 50
-	S5ListPageDefault          = 50
+	CollectionPageDefault      = 50
+	CatalogPageMaximum         = 50
+	OperationPageMaximum       = 50
 	IdempotencyKeyMinimumBytes = 1
 	InvocationMutationWaiters  = 31
 )

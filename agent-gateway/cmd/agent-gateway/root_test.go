@@ -192,7 +192,7 @@ func TestStatusBaseIncludesGlobalRequestLimitsAndPositiveAgentAuth(t *testing.T)
 		"catalog_traversals":           status.Limits.CatalogTraversals,
 		"oauth_flows":                  status.Limits.OAuthFlows,
 		"oauth_callback_work":          status.Limits.OAuthCallbackWork,
-		"server_idempotency_records":   status.Limits.S2IdempotencyRecords,
+		"server_idempotency_records":   status.Limits.ServerIdempotencyRecords,
 		"active_tools":                 status.Limits.ActiveTools,
 		"durable_tool_identities":      status.Limits.DurableToolIdentities,
 		"downstream_dispatch":          status.Limits.DownstreamDispatch,

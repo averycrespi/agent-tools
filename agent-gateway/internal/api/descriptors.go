@@ -60,10 +60,10 @@ func parseDescriptorQuery(query url.Values) (int, *catalog.DescriptorCursor, con
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 	}
-	limit := contract.S2ListPageDefault
+	limit := contract.CollectionPageDefault
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
-		if err != nil || value < 1 || value > contract.S2ListPageDefault || strconv.Itoa(value) != text {
+		if err != nil || value < 1 || value > contract.CatalogPageMaximum || strconv.Itoa(value) != text {
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 		limit = value

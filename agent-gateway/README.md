@@ -36,8 +36,6 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 Use the embedded Agent Gateway browser application or CLI to configure servers, manage agent identities and grants, review access requests, and investigate calls. Browser navigation groups **Overview**; **Access** (Principals, Grants, Requests); **MCP** (Servers, Tools); **Activity** (Agents, Administrators); **System**. Agents shows existing bounded, redacted MCP invocation evidence; Administrators shows the separate administrative audit history of control-plane changes, including system and offline maintenance events. Browser locations use domain-grouped hashes; see the [location cutover](docs/operators/administration.md#browser-location-cutover) before updating bookmarks or automation.
 
-The Grants table shows expiry and numeric constraint counts; Requests shows requested duration and constraint counts in separate columns. Both use **No expiry** for non-expiring access and **0** for no argument constraints. Cancelled requests use a neutral grey state label.
-
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
 ### Explicit about uncertain outcomes
@@ -97,7 +95,7 @@ If an online command proves that the selected loopback Gateway is stopped, its e
 ## Security
 
 - Loopback limits network reachability but does not isolate untrusted processes running as the same operating-system user.
-- Raw administrator, agent, server, and OAuth secrets must not be placed in arguments, environment variables, configuration, URLs, logs, SQLite, backups, browser storage, or read APIs.
+- Raw secrets must not be placed in arguments, configuration, URLs, logs, SQLite, backups, browser storage, or read APIs. Environment delivery is limited to the [supported client token exports](docs/operators/access-control.md#existing-sandbox-migration-and-conflicts) and [runtime-resolved stdio secret slots](docs/design/downstream-servers.md#direct-stdio-supervision); neither permits ambient or administrator environment-secret fallback.
 - Gateway is deny by default: only a current credential for an active principal can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
 - One-time secrets and OAuth URLs use prepared terminal, owner-only file, browser display, clipboard, or opener sinks. Lost one-time values cannot be recovered from metadata.
 - An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.

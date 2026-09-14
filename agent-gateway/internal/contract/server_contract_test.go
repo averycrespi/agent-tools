@@ -117,7 +117,7 @@ func TestServerClosedVocabulariesRejectUnknownValues(t *testing.T) {
 		{"flow state", []string{"preparing", "awaiting_callback", "exchanging", "succeeded", "failed", "expired", "cancelled", "superseded", "interrupted"}, func(value string) error { _, err := ParseAuthFlowState(value); return err }},
 		{"OAuth diagnostic stage", []string{"metadata_discovery", "client_registration", "authorization_request", "callback_validation", "token_exchange", "credential_installation"}, func(value string) error { _, err := ParseOAuthDiagnosticStage(value); return err }},
 		{"credential kind", []string{"static_credential", "oauth_client", "oauth_tokens"}, func(value string) error { _, err := ParseServerCredentialKind(value); return err }},
-		{"descriptor retired filter", []string{"include", "exclude", "only"}, func(value string) error { _, err := ParseRetiredFilter(value); return err }},
+		{"descriptor retired filter", []string{"include", "exclude", "only"}, func(value string) error { _, err := ParseDescriptorRetiredFilter(value); return err }},
 		{"reason", []string{"configuration_invalid", "resource_limit", "connectivity", "tls_failed", "protocol_unsupported", "protocol_invalid", "authentication_rejected", "credential_absent", "keyring_absent", "keyring_locked", "keyring_interaction_required", "keyring_unavailable", "keyring_unsupported", "oauth_rejected", "oauth_expired", "registration_expired", "process_exited", "output_limit", "stop_unconfirmed", "catalog_invalid", "catalog_limit", "catalog_stale", "superseded", "cancelled", "interrupted", "revocation_failed", "revocation_unsupported", "cleanup_pending"}, func(value string) error { _, err := ParsePublicReason(value); return err }},
 	}
 	require.Equal(t, []ServerOperationKind{OperationReload, OperationRetry, OperationRefreshCatalog, OperationDisconnectCredentials}, ExplicitServerOperationKinds())
@@ -188,7 +188,7 @@ func TestServerLimitsAndDeadlinesAreExact(t *testing.T) {
 		require.False(t, limit.Allows(maximum+1), name)
 	}
 
-	require.Equal(t, 50, S2ListPageDefault)
+	require.Equal(t, 50, CollectionPageDefault)
 	require.Equal(t, 5*time.Minute, OAuthFlowLifetime)
 	require.Equal(t, 4, ReconciliationCompletionAttempts)
 	require.Equal(t, 25*time.Millisecond, ReconciliationCompletionDelay)

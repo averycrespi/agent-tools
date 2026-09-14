@@ -67,7 +67,7 @@ type toolCandidate struct {
 }
 
 func (repository *Repository) QueryDescriptors(ctx context.Context, serverID string, query ToolQuery, cursor *DescriptorCursor, limit int) (DescriptorPage, error) {
-	if !query.Validate(false) || limit < 1 || limit > contract.S2ListPageDefault {
+	if !query.Validate(false) || limit < 1 || limit > contract.CatalogPageMaximum {
 		return DescriptorPage{}, servers.ErrInvalidInput
 	}
 	var page DescriptorPage
@@ -171,7 +171,7 @@ func (repository *Repository) QueryDescriptors(ctx context.Context, serverID str
 }
 
 func (registry *ActiveRegistry) Query(query ToolQuery, cursor *ActiveCursor, limit int) (ActivePage, error) {
-	if !query.Validate(true) || limit < 1 || limit > contract.S2ListPageDefault {
+	if !query.Validate(true) || limit < 1 || limit > contract.CatalogPageMaximum {
 		return ActivePage{}, servers.ErrInvalidInput
 	}
 	registry.mu.RLock()

@@ -401,7 +401,7 @@ func statusLimits(limits contract.LimitsStatus) []namedLimit {
 		{"event_streams", limits.EventStreams}, {"backup_work", limits.BackupWork}, {"backup_records", limits.BackupRecords}, {"admin_credentials", limits.AdminCredentials},
 		{"idempotency_records", limits.IdempotencyRecords}, {"keyring_candidates", limits.KeyringCandidates}, {"keyring_work", limits.KeyringWork}, {"database_bytes", limits.DatabaseBytes},
 		{"server_identities", limits.ServerIdentities}, {"servers", limits.Servers}, {"downstream_runtimes", limits.DownstreamRuntimes}, {"server_reconciliations", limits.ServerReconciliations},
-		{"catalog_traversals", limits.CatalogTraversals}, {"oauth_flows", limits.OAuthFlows}, {"oauth_callback_work", limits.OAuthCallbackWork}, {"server_idempotency_records", limits.S2IdempotencyRecords},
+		{"catalog_traversals", limits.CatalogTraversals}, {"oauth_flows", limits.OAuthFlows}, {"oauth_callback_work", limits.OAuthCallbackWork}, {"server_idempotency_records", limits.ServerIdempotencyRecords},
 		{"active_tools", limits.ActiveTools}, {"durable_tool_identities", limits.DurableToolIdentities}, {"downstream_dispatch", limits.DownstreamDispatch}, {"principals", limits.Principals},
 		{"grants", limits.Grants}, {"grant_requests", limits.GrantRequests}, {"grant_request_evidence_bytes", limits.GrantRequestEvidenceBytes},
 	}

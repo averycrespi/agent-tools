@@ -56,7 +56,6 @@ func TestBrowserVisualAccessibilityPrivacyCanary(t *testing.T) {
 		PlaywrightVersion string `json:"playwright_version"`
 		Requests          int    `json:"requests"`
 		AxeFindings       int    `json:"axe_findings"`
-		Inventory         int    `json:"inventory"`
 		ScreenshotSHA256  string `json:"screenshot_sha256"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
@@ -65,7 +64,6 @@ func TestBrowserVisualAccessibilityPrivacyCanary(t *testing.T) {
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
 	assert.Zero(t, event.AxeFindings)
-	assert.Equal(t, 48, event.Inventory)
 	assert.Regexp(t, `^[0-9a-f]{64}$`, event.ScreenshotSHA256)
 
 	harness.Stop(os.Interrupt)

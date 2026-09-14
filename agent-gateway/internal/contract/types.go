@@ -254,7 +254,7 @@ type LimitsStatus struct {
 	CatalogTraversals         LimitStatus `json:"catalog_traversals"`
 	OAuthFlows                LimitStatus `json:"oauth_flows"`
 	OAuthCallbackWork         LimitStatus `json:"oauth_callback_work"`
-	S2IdempotencyRecords      LimitStatus `json:"server_idempotency_records"`
+	ServerIdempotencyRecords  LimitStatus `json:"server_idempotency_records"`
 	ActiveTools               LimitStatus `json:"active_tools"`
 	DurableToolIdentities     LimitStatus `json:"durable_tool_identities"`
 	DownstreamDispatch        LimitStatus `json:"downstream_dispatch"`

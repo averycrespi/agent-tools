@@ -210,7 +210,7 @@ func parsePrincipalQuery(rawQuery string) (int, *authorization.SnapshotCursor, c
 			return 0, nil, contract.ProblemMalformedRequest
 		}
 	}
-	limit := contract.S3ListPageDefault
+	limit := contract.CollectionPageDefault
 	if values, ok := query["limit"]; ok {
 		value, parseErr := strconv.Atoi(values[0])
 		if parseErr != nil || value < 1 || value > limitValue("admin_list_page") || strconv.Itoa(value) != values[0] {

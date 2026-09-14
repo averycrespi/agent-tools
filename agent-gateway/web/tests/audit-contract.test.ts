@@ -61,7 +61,7 @@ test("browser audit vocabulary stays aligned with authoritative Go contract", ()
   );
   assert.deepEqual(auditActions, actions);
   for (const [file, type, member] of [
-    ["s2_states.go", "PublicReason", "reason"],
+    ["server_states.go", "PublicReason", "reason"],
     ["problems.go", "ProblemCode", "problem"],
   ]) {
     const code = readFileSync(

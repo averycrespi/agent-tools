@@ -4,13 +4,13 @@ Audience: Operators investigating governed tool calls
 
 Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
-This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Use the current `agent-gateway` executable; old standalone binaries are unsupported. Naming does not change invocation evidence or MCP behavior. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway invocation --help` owns exact syntax.
+This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Use the current `agent-gateway` executable; old standalone binaries are unsupported. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway invocation --help` owns exact syntax.
 
 See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for principals, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
 
 ## List and inspect evidence
 
-Invocation resources are read-only. They do not expose mutation, replay, result retrieval, or an event stream. The internal separation of common activity evidence from MCP details changes neither these commands and representations nor existing retained history; no migration or operator action is required. Administrative audit history remains separate.
+Invocation resources are read-only. They do not expose mutation, replay, result retrieval, or an event stream. Administrative audit history remains separate.
 
 ```bash
 agent-gateway invocation list --limit 50

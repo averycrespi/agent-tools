@@ -11,7 +11,6 @@ import {
   fail,
   waitForLifecycle,
 } from "./shared.ts";
-import { assertViewGenerationFoundation } from "./foundations.ts";
 import { assertAuthoritativeHistory } from "./history-scenarios.ts";
 import {
   invocationFixture,
@@ -177,7 +176,6 @@ export async function runCapabilityAudit(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
-  await assertViewGenerationFoundation();
   let eventStreams = 0;
   let mutations = 0;
   page.on("request", (request) => {

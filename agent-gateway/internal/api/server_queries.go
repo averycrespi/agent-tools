@@ -112,7 +112,7 @@ func inventoryStatus(server contract.Server) string {
 }
 
 func (handler *Handler) queryServers(writer http.ResponseWriter, request *http.Request, query inventoryQuery, values url.Values) {
-	limit := contract.S2ListPageDefault
+	limit := contract.CollectionPageDefault
 	if text := values.Get("limit"); text != "" {
 		parsed, err := strconv.Atoi(text)
 		if err != nil || parsed < 1 || parsed > 50 || strconv.Itoa(parsed) != text {

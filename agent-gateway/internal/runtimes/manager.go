@@ -376,7 +376,7 @@ func (manager *Manager) Start(ctx context.Context) error {
 	var cursor *servers.SnapshotCursor
 	all := make([]servers.Server, 0)
 	for {
-		page, err := manager.repository.ListServers(ctx, cursor, contract.S2ListPageDefault)
+		page, err := manager.repository.ListServers(ctx, cursor, contract.CollectionPageDefault)
 		if err != nil {
 			return err
 		}

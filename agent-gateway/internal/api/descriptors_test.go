@@ -15,19 +15,16 @@ import (
 )
 
 type fakeCatalogService struct {
-	status       catalog.DurableStatus
-	page         catalog.DescriptorPage
-	item         contract.ToolDescriptor
-	err          error
-	filter       contract.DescriptorRetiredFilter
-	cursor       *catalog.DescriptorCursor
-	limit        int
-	server       string
-	toolID       string
-	fullCalls    int
-	summaryCalls int
-	queryCalls   int
-	query        catalog.ToolQuery
+	status     catalog.DurableStatus
+	page       catalog.DescriptorPage
+	item       contract.ToolDescriptor
+	err        error
+	cursor     *catalog.DescriptorCursor
+	limit      int
+	server     string
+	toolID     string
+	queryCalls int
+	query      catalog.ToolQuery
 }
 
 func (service *fakeCatalogService) Status(context.Context, string) (catalog.DurableStatus, error) {
@@ -37,29 +34,6 @@ func (service *fakeCatalogService) GetDescriptor(_ context.Context, serverID, to
 	service.server, service.toolID = serverID, toolID
 	return service.item, service.err
 }
-func (service *fakeCatalogService) ListDescriptors(_ context.Context, serverID string, filter contract.DescriptorRetiredFilter, cursor *catalog.DescriptorCursor, limit int) (catalog.DescriptorPage, error) {
-	service.server, service.filter, service.cursor, service.limit = serverID, filter, cursor, limit
-	service.fullCalls++
-	return service.page, service.err
-}
-func (service *fakeCatalogService) ListDescriptorSummaries(_ context.Context, serverID string, filter contract.DescriptorRetiredFilter, cursor *catalog.DescriptorCursor, limit int) (catalog.DescriptorSummaryPage, error) {
-	service.server, service.filter, service.cursor, service.limit = serverID, filter, cursor, limit
-	service.summaryCalls++
-	page := catalog.DescriptorSummaryPage{Next: service.page.Next}
-	for _, item := range service.page.Items {
-		resource := item.Resource
-		page.Items = append(page.Items, catalog.DescriptorSummaryRecord{
-			InsertionSequence: item.InsertionSequence,
-			Resource: contract.ToolDescriptorSummary{
-				ID: resource.ID, ServerID: resource.ServerID,
-				UpstreamName: resource.UpstreamName, ExternalName: resource.ExternalName,
-				CatalogRevision: resource.CatalogRevision,
-			},
-		})
-	}
-	return page, service.err
-}
-
 func (service *fakeCatalogService) QueryDescriptors(_ context.Context, serverID string, query catalog.ToolQuery, cursor *catalog.DescriptorCursor, limit int) (catalog.DescriptorPage, error) {
 	service.server, service.query, service.cursor, service.limit = serverID, query, cursor, limit
 	service.queryCalls++
@@ -78,7 +52,6 @@ func TestDescriptorCollectionQueriesHaveOneStrictDefault(t *testing.T) {
 	assert.Equal(t, 50, service.limit)
 	assert.Equal(t, testID, service.server)
 	assert.Equal(t, 1, service.queryCalls)
-	assert.Zero(t, service.fullCalls)
 	assert.NotContains(t, response.Body.String(), "total_count")
 	assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	for _, query := range []string{
@@ -121,8 +94,6 @@ func TestDescriptorListAndMemberResources(t *testing.T) {
 	assert.NotContains(t, summary.Body.String(), `"descriptor"`)
 	assert.NotContains(t, summary.Body.String(), `"fingerprint"`)
 	assert.Equal(t, "summary", service.query.Projection)
-	assert.Zero(t, service.fullCalls)
-	assert.Zero(t, service.summaryCalls)
 
 	cursor := encodeDescriptorCursor(next)
 	second := perform(handler, http.MethodGet, "/api/v2/mcp/servers/"+testID+"/descriptors?limit=2&status=retired&cursor="+cursor, "", map[string]string{"Authorization": "Bearer " + testBearer})

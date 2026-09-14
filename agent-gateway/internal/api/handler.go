@@ -65,13 +65,12 @@ type EventService interface {
 type CatalogService interface {
 	Status(context.Context, string) (catalog.DurableStatus, error)
 	GetDescriptor(context.Context, string, string) (contract.ToolDescriptor, error)
-	ListDescriptors(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorPage, error)
-	ListDescriptorSummaries(context.Context, string, contract.DescriptorRetiredFilter, *catalog.DescriptorCursor, int) (catalog.DescriptorSummaryPage, error)
+	QueryDescriptors(context.Context, string, catalog.ToolQuery, *catalog.DescriptorCursor, int) (catalog.DescriptorPage, error)
 }
 
 type ActiveCatalogService interface {
 	Status(string) catalog.ActiveStatus
-	List(*catalog.ActiveCursor, int) (catalog.ActivePage, error)
+	Query(catalog.ToolQuery, *catalog.ActiveCursor, int) (catalog.ActivePage, error)
 	Occupancy() contract.LimitStatus
 }
 

@@ -51,6 +51,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: make fmt-check
+      - run: make -C agent-gateway test-frontend-development-node frontend-typecheck
 
   unit-tests:
     name: Go checks (${{ matrix.tool }}, Linux)

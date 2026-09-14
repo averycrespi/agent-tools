@@ -14,7 +14,7 @@ For a **new** LaunchAgent, the recommended name is selected by default (an expli
 ./scripts/install-launchd-agent.sh --binary "$(go env GOPATH)/bin/agent-gateway"
 ```
 
-Follow the prerequisites and stop/verification procedures below before installation. Either name accepts the same CLI grammar and explicit installation root. Custom build/install destinations require an explicit absolute `--binary` path. Native keyring permission prompts can depend on the selected executable; attend and verify expected prompts rather than changing credential identifiers or granting blanket access.
+Follow the prerequisites and stop/verification procedures below before installation. An explicitly renamed current binary accepts the same canonical CLI grammar and explicit installation root; a retired standalone executable is not supported. Custom build/install destinations require an explicit absolute `--binary` path. Native keyring permission prompts can depend on the selected executable; attend and verify expected prompts rather than changing credential identifiers or granting blanket access.
 
 ## GUI session and credentials
 
@@ -119,7 +119,7 @@ curl --noproxy '*' --fail --silent --show-error \
 tail -n 50 "$LOG_DIR/stdout.log" "$LOG_DIR/stderr.log"
 ```
 
-Check launchd's state, program arguments, PID, and last exit status. `plutil -p "$PLIST"` should show exactly six `ProgramArguments` entries in this order: the selected executable, `serve`, `--data-dir`, the selected data root, `--listen`, and `127.0.0.1:8210` (or your deliberately selected listener). No `/ABSOLUTE/PATH/TO/` template placeholders should remain. `plutil -lint` checks syntax, not argument correctness. Both HTTP probes are unauthenticated, use the same exact numeric loopback authority as `--listen`, bypass shell proxies, and have finite deadlines. `/livez` proves process liveness only; `/readyz` reports Gateway readiness, not that every upstream is usable. During startup or drain the service may not be ready. Inspect status and logs before deliberately repeating a read.
+Check launchd's state, program arguments, PID, and last exit status. `plutil -p "$PLIST"` must begin with this six-element `ProgramArguments` prefix: the selected executable, `serve`, `--data-dir`, the selected data root, `--listen`, and `127.0.0.1:8210` (or your deliberately selected listener). Supported trailing arguments are `--allowed-host HOST` (repeatable), `--log-level warn|info|debug`, `--output human|json`, and `--json`, with output selectors nonconflicting. No `/ABSOLUTE/PATH/TO/` template placeholders should remain. `plutil -lint` checks syntax, not argument correctness. Both HTTP probes are unauthenticated, use the same exact numeric loopback authority as `--listen`, bypass shell proxies, and have finite deadlines. `/livez` proves process liveness only; `/readyz` reports Gateway readiness, not that every upstream is usable. During startup or drain the service may not be ready. Inspect status and logs before deliberately repeating a read.
 
 `status` authenticates through the public loopback API using `$DATA_DIR/admin-bearer` without displaying its value. If rotation, reset, or restore gave you a replacement file, add `--admin-bearer-file /absolute/path/to/replacement` as described in [administration](administration.md#administrator-authentication); never `cat` the bearer into a header argument. Check keyring capability and storage posture separately from readiness. Native capability status is not proof of successful credential access across restarts.
 
@@ -161,7 +161,7 @@ For a restart without an upgrade, bootstrap the unchanged plist after the same s
 
 bootout and confirm stop first. Edit the installed plist's literal values using a plist-aware editor, preserving owner-only permissions and never including secrets. Update the matching shell selections too (`DATA_DIR`, `GATEWAY_BIN`, log paths, listen/address, and label/service as applicable). Validate with `plutil -lint "$PLIST"`, then `launchctl bootstrap "$DOMAIN" "$PLIST"` and verify. A kickstart alone does not reread plist changes. If changing the label, unload the old service before selecting the new label and plist filename. Gateway has no Broker-style signal reload procedure; use its online administration commands for supported runtime changes.
 
-If an older installer generated extra arguments or retained template placeholders, do not load that plist. If already loaded, bootout and confirm stop using the procedure above. Preserve the incorrect plist outside `LaunchAgents`, then rerun the corrected installer from `agent-gateway/` (with the same explicit path overrides, if any):
+If an older installer generated unsupported trailing arguments, an invalid prefix, or retained template placeholders, do not load that plist. Supported forwarding and logging flags are valid and must not be discarded during repair. If already loaded, bootout and confirm stop using the procedure above. Preserve the incorrect plist outside `LaunchAgents`, then rerun the corrected installer from `agent-gateway/` (with the same explicit path overrides, if any):
 
 ```bash
 mv -i "$PLIST" "$LOG_DIR/launch-agent.before-fix.plist" &&

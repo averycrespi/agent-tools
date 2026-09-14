@@ -235,7 +235,7 @@ func TestEnabledServerFailureDoesNotRedefineReadiness(t *testing.T) {
 	_ = statusResponse.Body.Close()
 	assert.Equal(t, int64(1), status.Limits.ServerIdentities.InUse)
 	assert.Equal(t, int64(1), status.Limits.Servers.InUse)
-	assert.Equal(t, int64(1), status.Limits.S2IdempotencyRecords.InUse)
+	assert.Equal(t, int64(1), status.Limits.ServerIdempotencyRecords.InUse)
 	assert.Zero(t, status.Limits.DownstreamRuntimes.InUse)
 }
 

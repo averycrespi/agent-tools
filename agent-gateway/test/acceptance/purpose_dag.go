@@ -51,6 +51,11 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		generatedScript = "agent-gateway/web/scripts/verify-generated.mjs"
 		supplyScript    = "agent-gateway/web/scripts/verify-supply-chain.mjs"
 	)
+	nodeFoundationDefinitions := []string{
+		"agent-gateway/web/tests/foundations.test.ts", "agent-gateway/web/tests/invocation-query.test.ts", "agent-gateway/web/tests/location.test.ts", "agent-gateway/web/tests/mutation-contract.test.ts",
+		"agent-gateway/web/src/session.ts", "agent-gateway/web/src/view.ts", "agent-gateway/web/src/mutation.ts", "agent-gateway/web/src/sinks.ts", "agent-gateway/web/src/location.ts", "agent-gateway/web/src/invocation-query.ts",
+		"agent-gateway/internal/contract/server_states.go", "agent-gateway/internal/contract/authorization_states.go", "agent-gateway/internal/contract/invocation_projections.go",
+	}
 	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go"}
 	commonDefinitions := []string{makefile, manifest, dagDefinition, "agent-gateway/test/acceptance/suite_selection.go", "agent-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
@@ -94,9 +99,14 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"frontend-audit":                    leaf("frontend-audit", []string{"tier.supply_chain.frontend"}, 60*time.Second, 60*time.Second, 1, 0, 0, []string{"unsuppressed npm vulnerability findings"}, packageManifest, "package-lock.json"),
 	}
 
+	nodeLeaf := leaves["test-frontend-development-node"]
+	nodeLeaf.DefinitionFiles = append(nodeLeaf.DefinitionFiles, nodeFoundationDefinitions...)
+	nodeLeaf.Artifacts = append(nodeLeaf.Artifacts, "session, view, mutation and sensitive-sink foundation results")
+	leaves[nodeLeaf.ID] = nodeLeaf
+
 	browserDefinitions := []string{
 		"agent-gateway/web/tests/browser-coordinator.ts", "agent-gateway/web/tests/collection-pagination.ts", "agent-gateway/web/tests/visual-matrix.ts",
-		"agent-gateway/web/tests/browser/shared.ts", "agent-gateway/web/tests/browser/foundations.ts", "agent-gateway/web/tests/browser/fixtures.ts",
+		"agent-gateway/web/tests/browser/shared.ts", "agent-gateway/web/tests/browser/fixtures.ts",
 		"agent-gateway/web/tests/browser/lifecycle-scenarios.ts", "agent-gateway/web/tests/browser/privacy-presentation-scenarios.ts",
 		"agent-gateway/web/tests/browser/system-scenarios.ts", "agent-gateway/web/tests/browser/access-scenarios.ts",
 		"agent-gateway/web/tests/browser/audit-scenarios.ts", "agent-gateway/web/src/audit-contract.ts",
@@ -150,6 +160,10 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addMake("test-frontend-development-node", "npm.ui.test-dev")
 	addCommand("npm.ui.test-dev", []string{"npm", "--prefix", "..", "run", "ui:test-dev"}, []string{makefile, packageManifest}, []string{"node.test-dev"})
 	addCommand("node.test-dev", []string{"node", "--test", "--test-concurrency=1", "--test-timeout=30000"}, []string{packageManifest, "agent-gateway/web/tests/dev-server.test.ts", "agent-gateway/web/tests/proxy-admission.test.ts", "agent-gateway/web/tests/audit-contract.test.ts", "agent-gateway/web/src/audit-contract.ts", "agent-gateway/web/tests/theme.test.ts", "agent-gateway/web/src/theme.ts"}, nil)
+
+	nodeCommand := commands["node.test-dev"]
+	nodeCommand.DefinitionFiles = append(nodeCommand.DefinitionFiles, nodeFoundationDefinitions...)
+	commands[nodeCommand.ID] = nodeCommand
 
 	addMake("frontend-typecheck", "npm.ui.typecheck")
 	addCommand("npm.ui.typecheck", []string{"npm", "--prefix", "..", "run", "ui:typecheck"}, []string{makefile, packageManifest}, []string{"tsc.frontend"})

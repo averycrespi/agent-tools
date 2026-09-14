@@ -153,7 +153,7 @@ func parseGrantRequestQuery(rawQuery string) (int, grantrequests.AdminFilter, *g
 			return 0, grantrequests.AdminFilter{}, nil, contract.ProblemMalformedRequest
 		}
 	}
-	limit := contract.S5ListPageDefault
+	limit := contract.CollectionPageDefault
 	if values, ok := query["limit"]; ok {
 		value, err := strconv.Atoi(values[0])
 		if err != nil || value < 1 || value > limitValue("admin_list_page") || strconv.Itoa(value) != values[0] {

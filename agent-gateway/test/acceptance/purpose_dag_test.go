@@ -16,6 +16,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNodeFoundationDefinitionOwnership(t *testing.T) {
+	root := frontendDevelopmentModuleRoot(t)
+	dag := purposeEvidenceDAG()
+	files, err := filepath.Glob(filepath.Join(root, "web/tests/*.test.ts"))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	for _, file := range files {
+		relative, err := filepath.Rel(root, file)
+		require.NoError(t, err)
+		definition := "agent-gateway/" + filepath.ToSlash(relative)
+		assert.Contains(t, dag.Leaves["test-frontend-development-node"].DefinitionFiles, definition)
+		assert.Contains(t, dag.Commands["node.test-dev"].DefinitionFiles, definition)
+	}
+	for id, leaf := range dag.Leaves {
+		if strings.HasPrefix(id, "test-browser-") {
+			assert.NotContains(t, leaf.DefinitionFiles, "agent-gateway/web/tests/foundations.test.ts")
+		}
+	}
+}
+
 func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	dag := purposeEvidenceDAG()
 	require.NoError(t, validatePurposeEvidenceDAG(dag))
