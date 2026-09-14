@@ -68,6 +68,7 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 	assert.Equal(t, http.MethodPost, created.method)
 	assert.Equal(t, "/api/v2/principals", created.path)
 	assert.Empty(t, created.etag)
+	assert.JSONEq(t, `{"principal":`+principalBody+`,"default_grant":{"principal_id":"`+principalID+`"}}`, string(output))
 	assert.JSONEq(t, `{"display_name":"Direct agent","visibility":"requestable"}`, string(created.body))
 
 	etag := contract.PrincipalETag(principalID, "1")
@@ -82,6 +83,7 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 	output, err = execute("principal", "update", principalID, "--etag", etag, "--visibility", "allowed-only")
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"visibility":"allowed-only"}`, string((<-requests).body))
+	assert.JSONEq(t, principalBody, string(output))
 
 	output, err = execute("principal", "update", principalID, "--etag", etag, "--state", "disabled", "--yes")
 	require.NoError(t, err, "%s", output)

@@ -316,10 +316,12 @@ function PrincipalEditor({
   mutations,
   detail,
   onRefresh,
+  notify,
 }: {
   mutations: MutationCoordinator;
   detail?: PrincipalDetail;
   onRefresh: () => void;
+  notify: (message: string) => void;
 }) {
   const create = detail === undefined;
   const principal = detail?.principal;
@@ -381,9 +383,12 @@ function PrincipalEditor({
       setState(saved.state);
       setVisibility(saved.visibility);
       if (create) {
+        notify(
+          "Principal created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
+        );
         navigate(`#/access/principals/${saved.id}`, true);
       } else {
-        setNotice("Principal record saved.");
+        setNotice("Principal identity and MCP discovery visibility saved.");
         onRefresh();
       }
     }
@@ -467,12 +472,13 @@ function PrincipalEditor({
       {create && (
         <>
           <p>
-            Creating a principal also adds Default Gateway access for Gateway
-            self-service tools.
+            Creating a principal also adds the ordinary Default Gateway access
+            grant for Gateway's six fixed MCP self-service tools, not downstream
+            tools or future protocols.
           </p>
           <p class="bounded-note">
             Gateway generates the principal ID as a permanent identity. The
-            display name and discovery visibility can be changed later.
+            display name and MCP discovery visibility can be changed later.
           </p>
         </>
       )}
@@ -516,8 +522,8 @@ function PrincipalEditor({
         )}
         <FormField
           id="principal-visibility"
-          label="Discovery visibility"
-          hint="Visibility controls discovery only; grants remain authoritative."
+          label="MCP discovery visibility"
+          hint="Discovery visibility grants no access; MCP grants remain authoritative."
         >
           {(attributes) => (
             <select
@@ -587,8 +593,9 @@ function PrincipalEditor({
           create ? (
             <div class="review-stack">
               <p>
-                Review this permanent identity and its initial access before
-                creating it.
+                Review this permanent identity and its initial MCP self-service
+                access before creating it. Discovery visibility grants no
+                access; MCP grants remain authoritative.
               </p>
               <dl class="fact-grid">
                 <div>
@@ -596,12 +603,16 @@ function PrincipalEditor({
                   <dd>{displayName}</dd>
                 </div>
                 <div>
-                  <dt>Discovery visibility</dt>
+                  <dt>MCP discovery visibility</dt>
                   <dd>{visibilityText(visibility)}</dd>
                 </div>
                 <div>
-                  <dt>Initial access</dt>
-                  <dd>Default Gateway access</dd>
+                  <dt>Initial MCP self-service access</dt>
+                  <dd>
+                    Default Gateway access — an ordinary grant for Gateway's six
+                    fixed MCP self-service tools, not downstream tools or future
+                    protocols.
+                  </dd>
                 </div>
               </dl>
             </div>
@@ -612,8 +623,8 @@ function PrincipalEditor({
             </p>
           ) : (
             <p>
-              Re-enabling does not restore revoked credentials or removed
-              default access.
+              Re-enabling does not restore revoked credentials or removed MCP
+              self-service access.
             </p>
           )
         }
@@ -895,6 +906,7 @@ export function Principals({
   resolved,
   view,
   onRefresh,
+  notify,
 }: {
   session: SessionClient;
   mutations: MutationCoordinator;
@@ -902,6 +914,7 @@ export function Principals({
   resolved: ResolvedLocation;
   view: ViewSnapshot;
   onRefresh: () => void;
+  notify: (message: string) => void;
 }) {
   const segments = resolved.location.segments;
   const newPrincipal = segments[1] === "new";
@@ -942,7 +955,11 @@ export function Principals({
   if (newPrincipal)
     return (
       <div class="domain-view" data-testid="principal-create-view">
-        <PrincipalEditor mutations={mutations} onRefresh={onRefresh} />
+        <PrincipalEditor
+          mutations={mutations}
+          onRefresh={onRefresh}
+          notify={notify}
+        />
       </div>
     );
   if (principalID !== undefined && error !== undefined)
@@ -988,7 +1005,7 @@ export function Principals({
               <dd class="technical-value">{principal.id}</dd>
             </div>
             <div>
-              <dt>Discovery visibility</dt>
+              <dt>MCP discovery visibility</dt>
               <dd>{visibilityText(principal.visibility)}</dd>
             </div>
             <div>
@@ -1013,6 +1030,7 @@ export function Principals({
           mutations={mutations}
           detail={detail}
           onRefresh={onRefresh}
+          notify={notify}
         />
       </div>
     );
@@ -1106,7 +1124,7 @@ function PrincipalCollection({
             },
             {
               key: "visibility",
-              label: "Visibility",
+              label: "MCP discovery visibility",
               type: "select",
               value: (principal) => principal.visibility,
               options: [
@@ -1148,7 +1166,7 @@ function PrincipalCollection({
             },
             {
               key: "visibility",
-              label: "Visibility",
+              label: "MCP discovery visibility",
               role: "status",
               sortValue: (principal) => principal.visibility,
               render: (principal) => visibilityText(principal.visibility),

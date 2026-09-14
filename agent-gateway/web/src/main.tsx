@@ -749,6 +749,7 @@ function App() {
               resolved={resolved}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
+              notify={(message) => toastCoordinator.show(message)}
             />
           ) : destination === "grants" ? (
             <Grants

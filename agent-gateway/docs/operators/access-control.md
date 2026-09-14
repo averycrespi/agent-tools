@@ -30,15 +30,17 @@ agent-gateway principal get PRINCIPAL_ID
 agent-gateway principal create --display-name NAME --visibility VISIBILITY
 ```
 
-Creation requires a display name and one visibility mode:
+Creation requires a display name and one MCP discovery visibility mode. The browser labels the create/edit control, detail, column, and filter **MCP discovery visibility**; the API and CLI retain `visibility` and `--visibility`:
 
-- `all` discovers every current tool;
+- `all` discovers every current MCP tool;
 - `requestable` hides tools covered by an applicable unconstrained `DENY`;
 - `allowed-only` requires an applicable `ALLOW` and no applicable unconstrained `DENY`.
 
-Visibility controls discovery, not call authorization. A constrained `ALLOW` may make a tool discoverable even when a particular argument object will not match, while a constrained `DENY` does not hide it.
+Discovery visibility grants no access; MCP grants remain authoritative for calls. A constrained `ALLOW` may make a tool discoverable even when a particular argument object will not match, while a constrained `DENY` does not hide it.
 
-Principal creation also creates an ordinary permanent grant described as **Default Gateway access** for the six fixed `mcp_gateway` self-service tools. This is the design's synthetic default grant. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Principals are permanent and cannot be deleted.
+Principal creation also creates an ordinary permanent grant described as **Default Gateway access** for the six fixed `mcp_gateway` self-service tools. It grants no downstream access or authority for future protocols. This is the design's synthetic default grant: the description stays unchanged for existing and new records. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Creation is atomic: capacity or required audit failure leaves neither a new principal nor its grant. Human creation output is principal metadata; JSON retains `{principal,default_grant}`. Issue the credential separately and configure downstream MCP grants separately. Principals are permanent and cannot be deleted.
+
+The principal ID/state and single credential slot remain shared identity, not per-protocol settings. Generic compatibility names such as `visibility`, `default_grant`, and `AgentCredential` do not make MCP grants protocol-general. Existing credentials and backups remain usable without reinitialization, conversion, or rotation for this clarification. Whether a future HTTP ingress shares a bearer is undecided.
 
 ## Update principal state or visibility
 
