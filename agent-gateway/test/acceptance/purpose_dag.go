@@ -52,6 +52,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		supplyScript    = "agent-gateway/web/scripts/verify-supply-chain.mjs"
 	)
 	nodeFoundationDefinitions := []string{
+		"agent-gateway/web/tests/pending-requests.test.ts", "agent-gateway/web/src/pending-requests.ts",
 		"agent-gateway/web/tests/foundations.test.ts", "agent-gateway/web/tests/invocation-query.test.ts", "agent-gateway/web/tests/location.test.ts", "agent-gateway/web/tests/mutation-contract.test.ts",
 		"agent-gateway/web/src/session.ts", "agent-gateway/web/src/view.ts", "agent-gateway/web/src/mutation.ts", "agent-gateway/web/src/sinks.ts", "agent-gateway/web/src/location.ts", "agent-gateway/web/src/invocation-query.ts",
 		"agent-gateway/internal/contract/server_states.go", "agent-gateway/internal/contract/authorization_states.go", "agent-gateway/internal/contract/invocation_projections.go",
@@ -105,6 +106,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	leaves[nodeLeaf.ID] = nodeLeaf
 
 	browserDefinitions := []string{
+		"agent-gateway/web/tests/browser/pending-requests.ts", "agent-gateway/web/src/pending-requests.ts",
 		"agent-gateway/web/tests/browser-coordinator.ts", "agent-gateway/web/tests/collection-pagination.ts", "agent-gateway/web/tests/visual-matrix.ts",
 		"agent-gateway/web/tests/browser/shared.ts", "agent-gateway/web/tests/browser/fixtures.ts",
 		"agent-gateway/web/tests/browser/lifecycle-scenarios.ts", "agent-gateway/web/tests/browser/privacy-presentation-scenarios.ts",
