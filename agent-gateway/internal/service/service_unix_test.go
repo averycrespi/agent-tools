@@ -270,7 +270,7 @@ func TestServiceDefinitionClosedAndPreserved(t *testing.T) {
 	decoded, err := decode(data)
 	require.NoError(t, err)
 	require.Equal(t, d.Settings, decoded.Settings)
-	for _, bad := range [][]byte{append(append([]byte(nil), data...), data...), bytes.Replace(data, []byte("<key>Label</key>"), []byte("<key>Unknown</key>"), 1), bytes.Replace(data, []byte("<true></true>"), []byte("<false></false>"), 1)} {
+	for _, bad := range [][]byte{append(append([]byte(nil), data...), data...), bytes.Replace(data, []byte("<key>Label</key>"), []byte("<key>Unknown</key>"), 1), bytes.Replace(data, []byte("<true/>"), []byte("<false/>"), 1)} {
 		_, err = decode(bad)
 		require.Error(t, err)
 	}
