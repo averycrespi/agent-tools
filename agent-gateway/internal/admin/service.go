@@ -66,6 +66,12 @@ func NewService(store *storage.Store, clock Clock, entropy io.Reader) *Service {
 	}
 }
 
+// Initialized includes retired credentials: an existing installation must not
+// be mistaken for interrupted first-run setup merely because authority is revoked.
+func (service *Service) Initialized(ctx context.Context) (bool, error) {
+	return service.hasCredentials(ctx)
+}
+
 func (service *Service) Initialize(ctx context.Context, sink SecretSink) (contract.AdminCredential, error) {
 	ctx = audit.WithOffline(ctx)
 	service.secretOps.Lock()

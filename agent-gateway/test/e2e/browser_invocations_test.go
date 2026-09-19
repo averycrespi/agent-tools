@@ -18,6 +18,11 @@ import (
 func TestBrowserInvocations(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
+	// The history screenshot matrix must retain its Gateway for the same bounded
+	// lifetime as the browser owner, rather than the short ordinary E2E lifetime.
+	gatewayRunner, err := testutil.NewBinaryRunner(75*time.Second, 128*1024)
+	require.NoError(t, err)
+	harness.runner = gatewayRunner
 	harness.Start()
 
 	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)

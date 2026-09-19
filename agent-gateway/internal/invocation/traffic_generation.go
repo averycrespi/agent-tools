@@ -37,6 +37,10 @@ func OpenTraffic(ctx context.Context, ownership *gatewaypaths.Ownership, install
 }
 
 func openTraffic(ctx context.Context, ownership *gatewaypaths.Ownership, installation, generation string, config TrafficConfig, create bool, fault func(string) error) (*TrafficStore, error) {
+	return openTrafficStage(ctx, ownership, installation, generation, config, create, fault, nil)
+}
+
+func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, installation, generation string, config TrafficConfig, create bool, fault func(string) error, populate func(context.Context, *sql.DB) error) (*TrafficStore, error) {
 	if ownership == nil || !validOpaqueInvocationID(installation) || !validOpaqueInvocationID(generation) || !config.valid() {
 		return nil, ErrInvalidInput
 	}
@@ -85,10 +89,22 @@ func openTraffic(ctx context.Context, ownership *gatewaypaths.Ownership, install
 		if err == nil {
 			_, err = db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id=%d; PRAGMA user_version=1`, trafficApplicationID))
 		}
+		if err == nil && populate != nil {
+			err = populate(ctx, db)
+		}
 		if err == nil {
 			err = trafficCheckpoint(ctx, db)
 		}
 		err = errors.Join(err, db.Close())
+		if err != nil {
+			return nil, err
+		}
+		db, err = trafficDatabase(ctx, stage, config, false, false)
+		if err != nil {
+			return nil, err
+		}
+		stageStore := &TrafficStore{db: db, path: stage, config: config}
+		err = errors.Join(stageStore.validateTraffic(ctx, installation, generation), db.Close())
 		if err != nil {
 			return nil, err
 		}
@@ -266,9 +282,11 @@ func (s *TrafficStore) reserveTraffic(ctx context.Context) error {
 	if wal+trafficReservation(s.config) <= maximum {
 		return nil
 	}
-	// No new reader can pin a snapshot once checkpoint pressure is observed.
-	// Existing readers own finite contexts and return materialized values only.
-	s.readGate.Lock()
+	// A pinned backup may outlive the write deadline. Refuse before mutation
+	// rather than waiting for its snapshot or faulting otherwise healthy traffic.
+	if !s.readGate.TryLock() {
+		return ErrTrafficCapacity
+	}
 	defer s.readGate.Unlock()
 	if ctx.Err() != nil {
 		return ErrTrafficDeadline
@@ -309,6 +327,10 @@ func (s *TrafficStore) validateTraffic(ctx context.Context, installation, genera
 	if integrity != "ok" {
 		return ErrInvalidState
 	}
+	return s.validateTrafficEvidence(ctx, installation, generation)
+}
+
+func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation, generation string) error {
 	expected := map[string]bool{}
 	for _, ddl := range strings.Split(strings.TrimSpace(storage.TrafficSchema()), "\n\n") {
 		expected[strings.Join(strings.Fields(strings.TrimSuffix(strings.TrimSpace(ddl), ";")), " ")] = true

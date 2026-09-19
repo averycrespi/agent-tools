@@ -11,9 +11,11 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
-const invocationCursorVersion = 2
+const invocationCursorVersion = 3
 
 type invocationCursor struct {
+	Generation    string `json:"g"`
+	Pruning       int64  `json:"d"`
 	Version       int    `json:"v"`
 	Epoch         string `json:"e"`
 	MAC           string `json:"m,omitempty"`
@@ -33,7 +35,7 @@ func (repository *Repository) encodeInvocationCursor(binding contract.Invocation
 	}
 	value := invocationCursor{
 		Version: invocationCursorVersion, Epoch: repository.cursorEpoch(), QueryDigest: searchDigest(binding.Filters), NamesDigest: namesDigest,
-		UpperSequence: binding.UpperSequence, NextSequence: binding.NextSequence,
+		UpperSequence: binding.UpperSequence, NextSequence: binding.NextSequence, Generation: binding.Generation, Pruning: binding.Pruning,
 	}
 	value.MAC = repository.cursorMAC(value)
 	contents, err := json.Marshal(value)
@@ -66,7 +68,7 @@ func (repository *Repository) decodeInvocationCursor(value string) (contract.Inv
 	if !validSearchDigest(decoded.QueryDigest) || !validSearchDigest(decoded.NamesDigest) || !hmac.Equal([]byte(decoded.MAC), []byte(repository.cursorMAC(decoded))) {
 		return contract.InvocationCursorBinding{}, ErrInvalidCursor
 	}
-	return contract.InvocationCursorBinding{QueryDigest: decoded.QueryDigest, NamesDigest: decoded.NamesDigest, UpperSequence: decoded.UpperSequence, NextSequence: decoded.NextSequence}, nil
+	return contract.InvocationCursorBinding{Generation: decoded.Generation, Pruning: decoded.Pruning, QueryDigest: decoded.QueryDigest, NamesDigest: decoded.NamesDigest, UpperSequence: decoded.UpperSequence, NextSequence: decoded.NextSequence}, nil
 }
 func (repository *Repository) cursorEpoch() string {
 	digest := sha256.Sum256(repository.cursorKey[:])

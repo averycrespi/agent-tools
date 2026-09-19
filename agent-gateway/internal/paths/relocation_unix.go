@@ -11,10 +11,84 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
+
+var stagingSpace = struct {
+	sync.Mutex
+	reserved map[string]int64
+}{reserved: make(map[string]int64)}
+
+// ReserveHeadroom owns a cooperative filesystem staging allowance through
+// settlement. Installation locks exclude other Gateway processes for the same
+// root; this ledger also accounts for distinct roots sharing a filesystem.
+// It is not a physical allocation or protection from external disk consumers.
+func ReserveHeadroom(root string, bytes int64) (func(), error) {
+	if bytes <= 0 || bytes > 64<<30 {
+		return nil, ErrUnsafePath
+	}
+	var identity syscall.Stat_t
+	if err := syscall.Stat(root, &identity); err != nil {
+		return nil, err
+	}
+	device := fmt.Sprint(identity.Dev)
+	stagingSpace.Lock()
+	defer stagingSpace.Unlock()
+	var stat unix.Statfs_t
+	if err := unix.Statfs(root, &stat); err != nil {
+		return nil, err
+	}
+	reserved := stagingSpace.reserved[device]
+	if reserved < 0 || reserved > (1<<62)-bytes {
+		return nil, fmt.Errorf("invalid staging allowance")
+	}
+	required := bytes + reserved
+	if required <= 0 || stat.Bsize <= 0 {
+		return nil, fmt.Errorf("invalid filesystem capacity")
+	}
+	if uint64(required)/uint64(stat.Bsize)+1 > stat.Bavail {
+		return nil, fmt.Errorf("insufficient space for bounded storage staging")
+	}
+	stagingSpace.reserved[device] += bytes
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			stagingSpace.Lock()
+			defer stagingSpace.Unlock()
+			stagingSpace.reserved[device] -= bytes
+			if stagingSpace.reserved[device] == 0 {
+				delete(stagingSpace.reserved, device)
+			}
+		})
+	}, nil
+}
+
+// AcquireStoppedExisting never creates a directory, lock, or run marker. The
+// existing installation lock serializes explicit stopped storage migration.
+func AcquireStoppedExisting(root string) (*Ownership, error) {
+	layout, err := Resolve(root)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(layout.Root)
+	if err != nil {
+		return nil, err
+	}
+	if err = validateOwnerOnlyDirectory(info, layout.Root); err != nil {
+		return nil, err
+	}
+	if err = inspectRelocationTree(layout.Root, info); err != nil {
+		return nil, err
+	}
+	lock, err := openRelocationLock(layout.Lock)
+	if err != nil {
+		return nil, err
+	}
+	return &Ownership{layout: layout, lock: lock}, nil
+}
 
 const relocationMagic = "agent-gateway relocation v1"
 

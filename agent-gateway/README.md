@@ -71,7 +71,13 @@ agent-gateway status
 
 `initialize` creates a new administrator bearer file and prints safe next steps, never the bearer value. `status` reads that default bearer and uses the public loopback control API. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
 
-For an interactive checkout-only sandbox, use `make -C agent-gateway serve-demo` from the repository root. It provides local echo/arithmetic/document tools, sample agents and grants, a pending request, and real invocation history without the normal installation or native keyring. `AGENT_GATEWAY_DEMO_DATASET=empty` selects a fresh empty environment; `AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:PORT` overrides its default port 8211. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for protected credentials, separate Vite, requirements, and Ctrl-C cleanup. This is not an installed CLI command.
+For a checkout-only sandbox with tools, agents, grants and invocation history,
+use `make -C agent-gateway serve-demo`. It avoids the normal installation and native
+keyring. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway)
+for dataset/listener selection, protected credentials, Vite and cleanup.
+
+Traffic storage defaults to 4 GiB (`--traffic-budget-bytes`). Existing installations
+require [stopped migration](docs/operators/backup-and-recovery.md#migrate-existing-invocation-storage).
 
 Use `agent-gateway serve --log-level debug` for bounded, payload-free lifecycle and contention diagnostics on stderr. The default `warn` level includes warnings/errors; `info` adds lifecycle summaries. See [safe serve diagnostics](docs/operators/administration.md#safe-serve-diagnostics) for JSON filtering, correlation, and loss semantics.
 

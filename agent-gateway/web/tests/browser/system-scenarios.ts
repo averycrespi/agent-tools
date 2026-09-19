@@ -2201,7 +2201,25 @@ export async function runSystemStatus(
   await waitForLifecycle(page, "signed_out");
   let statusReads = 0;
   let eventStreams = 0;
-  let currentStatus = overviewStatusFixture();
+  let currentStatus = {
+    ...overviewStatusFixture(),
+    traffic: {
+      ready: true,
+      faulted: false,
+      pressure: false,
+      budget_bytes: 4294967296,
+      database_bytes: 1048576,
+      wal_bytes: 65536,
+      quota_refusals: 0,
+      pruned_records: 3,
+      generation: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      rolling_history: true,
+      unknown_completion_possible: true,
+    },
+  };
+  const trafficScreenshots = await mkdtemp(
+    join(tmpdir(), "gateway-traffic-status-"),
+  );
   let holdStatus = false;
   let releaseStatus: (() => void) | undefined;
   page.on("request", (request) => {
@@ -2359,6 +2377,70 @@ export async function runSystemStatus(
   )
     fail("System healthy status repeated its conclusion");
 
+  for (const faulted of [false, true]) {
+    currentStatus = {
+      ...currentStatus,
+      traffic: {
+        ...currentStatus.traffic,
+        ready: !faulted,
+        faulted,
+        pressure: faulted,
+      },
+    };
+    await page.locator('[data-testid="manual-refresh"]').click();
+    await page
+      .getByText(
+        faulted
+          ? "MCP traffic persistence needs attention"
+          : "No current issues require operator action.",
+        { exact: true },
+      )
+      .waitFor();
+    if (
+      (await page
+        .locator('[data-testid="gateway-shell"]')
+        .getAttribute("data-mutation-availability")) !== "enabled"
+    )
+      fail("Traffic-only failure disabled healthy administration");
+    await expect(
+      page.getByText("MCP traffic storage", { exact: true }),
+    ).toBeVisible();
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (
+        await page.evaluate(
+          () => document.documentElement.scrollWidth > window.innerWidth,
+        )
+      )
+        fail("Traffic status overflowed the viewport");
+      const violations = (
+        await new AxeBuilder({ page }).analyze()
+      ).violations.filter(
+        (item) => item.impact === "serious" || item.impact === "critical",
+      );
+      if (violations.length) fail("Traffic status accessibility regression");
+      await page.screenshot({
+        path: join(
+          trafficScreenshots,
+          `${faulted ? "fault" : "ready"}-${width}.png`,
+        ),
+        fullPage: true,
+      });
+    }
+  }
+  currentStatus = {
+    ...currentStatus,
+    traffic: {
+      ...currentStatus.traffic,
+      ready: true,
+      faulted: false,
+      pressure: false,
+    },
+  };
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await page.getByText("Healthy", { exact: true }).waitFor();
+
   holdStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();
   await eventually(
@@ -2414,6 +2496,6 @@ export async function runSystemStatus(
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "system_status_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), status_reads: statusReads, event_streams: eventStreams, limit_rows: limitRows })}\n`,
+    `${JSON.stringify({ event: "system_status_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), status_reads: statusReads, event_streams: eventStreams, limit_rows: limitRows, traffic_screenshots: trafficScreenshots })}\n`,
   );
 }

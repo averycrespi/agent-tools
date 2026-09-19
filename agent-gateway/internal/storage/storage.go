@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,7 +25,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 16
+	CurrentSchema           = 17
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -40,12 +41,13 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql", "017_traffic_selection.sql"}
 
 type Identity struct {
-	InstallationID string
-	SchemaVersion  int
-	Revision       uint64
+	TrafficGeneration string
+	InstallationID    string
+	SchemaVersion     int
+	Revision          uint64
 }
 
 type Settings struct {
@@ -67,6 +69,7 @@ type Store struct {
 	fault         func(FaultPoint) error
 	databaseLimit int64
 	latched       atomic.Bool
+	faultFence    sync.Mutex
 }
 
 type testOptions struct {
@@ -393,6 +396,12 @@ func (store *Store) verify(ctx context.Context) error {
 	}
 	if err := store.verifyMigrationStructure(ctx, "016_read_only_grants.sql"); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
+	if err := store.verifyMigrationStructure(ctx, "017_traffic_selection.sql"); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
+	if _, err := store.SelectedTraffic(ctx); err != nil {
+		return err
 	}
 	if err := store.verifyControlAuditStructure(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)

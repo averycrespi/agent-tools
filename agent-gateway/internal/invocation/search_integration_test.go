@@ -23,7 +23,7 @@ type readNames struct {
 	err   error
 }
 
-func (source *readNames) PrincipalDisplayNamesTx(context.Context, *sql.Tx) (map[string]string, error) {
+func (source *readNames) PrincipalDisplayNames(context.Context) (map[string]string, error) {
 	return source.names, source.err
 }
 

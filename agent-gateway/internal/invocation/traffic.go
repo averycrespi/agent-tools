@@ -20,8 +20,8 @@ var (
 	ErrTrafficFault    = errors.New("traffic storage fault; restart validation required")
 )
 
-// TrafficConfig is an internal, unselected foundation configuration, not an
-// operator setting. Active pins bound concurrent live invocations independently
+// TrafficConfig owns validated persistence bounds; production exposes only the
+// combined byte budget. Active pins bound concurrent live invocations independently
 // of retained history. Timeouts bound cooperative work, never abandon settlement.
 type TrafficConfig struct {
 	BudgetBytes     int64
@@ -79,7 +79,7 @@ type trafficRequest struct {
 	result     chan trafficResult
 }
 
-// TrafficStore is not constructed by production composition. Its worker owns
+// TrafficStore is the composition-owned MCP evidence store. Its worker owns
 // evidence only; there are deliberately no execution callbacks or retry paths.
 type TrafficStore struct {
 	db              *sql.DB
@@ -88,9 +88,11 @@ type TrafficStore struct {
 	config          TrafficConfig
 	mu              sync.Mutex
 	closed, faulted bool
+	draining        bool
 	queued          int
 	queuedBytes     int64
 	terminalQueued  int
+	quotaRefusals   int64
 	pins            map[*TrafficReceipt]*trafficPin
 	pendingPins     int
 	admissions      chan *trafficRequest
@@ -99,16 +101,26 @@ type TrafficStore struct {
 	done            chan struct{}
 	readSlots       chan struct{}
 	readGate        sync.RWMutex
+	admissionGate   sync.RWMutex
+	writerGate      sync.Mutex
 	closeOnce       sync.Once
 	closeErr        error
 	// Tests inject failures/barriers only at the actual owning boundary.
 	fault func(string) error
 }
 
+func (s *TrafficStore) BudgetBytes() int64 { return s.config.BudgetBytes }
+
 func (s *TrafficStore) Healthy() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return !s.closed && !s.faulted
+	return !s.closed && !s.faulted && !s.draining
+}
+
+func (s *TrafficStore) BeginDrain() {
+	s.mu.Lock()
+	s.draining = true
+	s.mu.Unlock()
 }
 
 func (s *TrafficStore) Admit(ctx context.Context, prepared PreparedAdmission) (*TrafficReceipt, error) {
@@ -119,7 +131,7 @@ func (s *TrafficStore) Admit(ctx context.Context, prepared PreparedAdmission) (*
 	r := &trafficRequest{ctx: ctx, prepared: prepared, bytes: trafficCharge(prepared),
 		expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}
 	s.mu.Lock()
-	if s.closed || s.faulted {
+	if s.closed || s.faulted || s.draining {
 		s.mu.Unlock()
 		return nil, ErrTrafficFault
 	}
@@ -129,6 +141,7 @@ func (s *TrafficStore) Admit(ctx context.Context, prepared PreparedAdmission) (*
 	}
 	if s.queued >= s.config.QueueRecords || s.queuedBytes+r.bytes > s.config.QueueBytes ||
 		r.bytes > s.config.BatchBytes || r.bytes > maxTrafficRecordBytes || len(s.pins)+s.pendingPins >= s.config.ActiveRecords {
+		s.quotaRefusals++
 		s.mu.Unlock()
 		return nil, ErrTrafficCapacity
 	}
@@ -145,14 +158,21 @@ func (s *TrafficStore) Admit(ctx context.Context, prepared PreparedAdmission) (*
 // Confirm consumes the receipt's one dispatch disposition. Callers must hold
 // current authority and use the live request context. It never executes work.
 func (s *TrafficStore) Confirm(ctx context.Context, receipt *TrafficReceipt) bool {
+	return s.confirmCandidate(ctx, receipt, "", func() bool { return true })
+}
+
+func (s *TrafficStore) confirmCandidate(ctx context.Context, receipt *TrafficReceipt, invocationID string, detach func() bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pin, ok := s.pins[receipt]
-	if !ok || receipt.owner != s || pin.dispatched || pin.completing || s.closed || s.faulted || ctx.Err() != nil || receipt.request.Err() != nil {
+	if !ok || receipt.owner != s || pin.dispatched || pin.completing || s.closed || s.faulted || s.draining || ctx.Err() != nil || receipt.request.Err() != nil {
 		return false
 	}
 	evidence := receipt.evidence.admission.Authorization
 	if evidence == nil || evidence.Decision != contract.DecisionAllow {
+		return false
+	}
+	if invocationID != "" && receipt.evidence.InvocationID != invocationID || detach == nil || !detach() {
 		return false
 	}
 	pin.dispatched = true
@@ -165,6 +185,17 @@ func (s *TrafficStore) Release(receipt *TrafficReceipt) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if pin, ok := s.pins[receipt]; ok && !pin.dispatched && !pin.completing {
+		delete(s.pins, receipt)
+	}
+}
+
+// finishWithoutTerminal settles an execution whose local result deliberately
+// has no terminal claim (for example control commit uncertainty). It is called
+// only after execution returns, never as a timeout or cancellation shortcut.
+func (s *TrafficStore) finishWithoutTerminal(receipt *TrafficReceipt) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if pin, ok := s.pins[receipt]; ok && pin.dispatched && !pin.completing {
 		delete(s.pins, receipt)
 	}
 }
@@ -184,7 +215,7 @@ func (s *TrafficStore) Complete(ctx context.Context, receipt *TrafficReceipt, co
 	if !validTrafficCompletion(receipt.evidence, completion) {
 		return refuse(ErrInvalidInput)
 	}
-	if s.closed || s.faulted {
+	if s.closed || s.faulted || s.draining {
 		return refuse(ErrTrafficFault)
 	}
 	if ctx.Err() != nil {

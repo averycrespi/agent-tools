@@ -52,13 +52,14 @@ func TestBrowserSystemStatus(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
-		Event             string `json:"event"`
-		ChromiumVersion   string `json:"chromium_version"`
-		PlaywrightVersion string `json:"playwright_version"`
-		Requests          int    `json:"requests"`
-		StatusReads       int    `json:"status_reads"`
-		EventStreams      int    `json:"event_streams"`
-		LimitRows         int    `json:"limit_rows"`
+		Event              string `json:"event"`
+		ChromiumVersion    string `json:"chromium_version"`
+		PlaywrightVersion  string `json:"playwright_version"`
+		Requests           int    `json:"requests"`
+		StatusReads        int    `json:"status_reads"`
+		EventStreams       int    `json:"event_streams"`
+		LimitRows          int    `json:"limit_rows"`
+		TrafficScreenshots string `json:"traffic_screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "system_status_complete", event.Event)
@@ -68,6 +69,8 @@ func TestBrowserSystemStatus(t *testing.T) {
 	assert.GreaterOrEqual(t, event.StatusReads, 2)
 	assert.GreaterOrEqual(t, event.EventStreams, 2)
 	assert.Equal(t, 31, event.LimitRows)
+	require.NotEmpty(t, event.TrafficScreenshots)
+	t.Logf("Traffic visual artifacts: %s", event.TrafficScreenshots)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "T22 must own one Gateway lifecycle")

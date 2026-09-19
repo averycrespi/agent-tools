@@ -92,6 +92,38 @@ func TestTrafficBatchAtomicityCollisionAndRollback(t *testing.T) {
 	}
 }
 
+func TestTrafficRefusalRollbackUncertaintyFencesReceipts(t *testing.T) {
+	for _, refusal := range []string{"collision", "capacity"} {
+		t.Run(refusal, func(t *testing.T) {
+			s, _ := trafficFixture(t, func(c *TrafficConfig) {
+				c.RetainedRecords = 1
+				c.BatchRecords = 1
+			}, nil)
+			receipt, err := s.Admit(context.Background(), trafficPrepared(1))
+			require.NoError(t, err)
+			s.fault = func(point string) error {
+				if point == "rollback" {
+					return errors.New("rollback settlement uncertain")
+				}
+				return nil
+			}
+			id := 1
+			if refusal == "capacity" {
+				id = 2
+			}
+			rejected, err := s.Admit(context.Background(), trafficPrepared(id))
+			require.ErrorIs(t, err, ErrTrafficFault)
+			assert.Nil(t, rejected)
+			assert.False(t, s.Healthy())
+			assert.False(t, s.Confirm(context.Background(), receipt))
+			s.Release(receipt)
+			rejected, err = s.Admit(context.Background(), trafficPrepared(3))
+			assert.ErrorIs(t, err, ErrTrafficFault)
+			assert.Nil(t, rejected)
+		})
+	}
+}
+
 func TestTrafficQueueBoundsAndProtectedCompletion(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once

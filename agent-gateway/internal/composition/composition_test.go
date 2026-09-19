@@ -338,14 +338,13 @@ func TestCompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testi
 		assert.NotContains(t, response.Body.String(), private)
 	}
 
-	assert.Equal(t, runtimes.DrainResult{}, <-built.Drain(context.Background()))
 	countBefore, err := built.invocationRepository.Count(t.Context())
 	require.NoError(t, err)
+	assert.Equal(t, runtimes.DrainResult{}, <-built.Drain(context.Background()))
 	rejected := agentIngress.CallTools.Call(t.Context(), nil, mcpingress.ToolsCallRequest{})
 	assert.Equal(t, contract.AuditUnavailable, rejected.ErrorCode)
-	countAfter, err := built.invocationRepository.Count(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, countBefore, countAfter, "drained invocation adapter wrote a new audit row")
+	history := trafficAfterDrain(t, options)
+	assert.Equal(t, countBefore, int64(len(history.Records)), "drained invocation adapter wrote a new audit row")
 	drained := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"drained","method":"tools/list"}`)
 	_, err = ingress.Authenticate(drained.Context(), drained, contract.AuthorityAgent)
 	assert.Error(t, err)
@@ -419,14 +418,9 @@ func TestDrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
 	call := <-response
 	require.NotNil(t, call.Result)
 	assert.Equal(t, runtimes.DrainResult{}, <-joined)
-	count, err := built.invocationRepository.Count(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), count)
-	var terminal sql.NullString
-	require.NoError(t, options.Store.View(t.Context(), func(transaction *sql.Tx) error {
-		return transaction.QueryRowContext(t.Context(), `SELECT terminal_class FROM invocations`).Scan(&terminal)
-	}))
-	assert.False(t, terminal.Valid, "drain fences new best-effort annotation, not the known live result")
+	history := trafficAfterDrain(t, options)
+	require.Len(t, history.Records, 1)
+	assert.Nil(t, history.Records[0].TerminalClass, "drain fences new best-effort annotation, not the known live result")
 }
 
 func TestDrainSynchronouslyFencesAuthorizationAndDiscoveryBeforeGateQuiescence(t *testing.T) {
@@ -678,7 +672,7 @@ func TestConstructionRejectsInvalidInvocationStateBeforeStartup(t *testing.T) {
 	built, err := New(options)
 	require.Error(t, err)
 	assert.Nil(t, built)
-	assert.ErrorIs(t, err, invocation.ErrInvalidState)
+	assert.ErrorIs(t, err, storage.ErrInvalidDatabase)
 }
 
 func TestConstructionRejectsLatchedAuthorizationBeforeStartup(t *testing.T) {
@@ -719,6 +713,18 @@ func newAgentRequest(bearer, body string) *http.Request {
 	return request
 }
 
+func trafficAfterDrain(t *testing.T, options Options) invocation.TrafficHistory {
+	t.Helper()
+	generation, err := options.Store.SelectedTraffic(t.Context())
+	require.NoError(t, err)
+	traffic, err := invocation.OpenTraffic(t.Context(), options.Ownership, options.InstallationID, generation, invocation.DefaultTrafficConfig())
+	require.NoError(t, err)
+	history, err := traffic.History(t.Context(), 0, 256)
+	require.NoError(t, err)
+	require.NoError(t, traffic.Close())
+	return history
+}
+
 func newCompositionOptions(t *testing.T) (Options, func()) {
 	t.Helper()
 	return newCompositionOptionsWithFault(t, nil)
@@ -736,15 +742,24 @@ func newCompositionOptionsWithRecoveryRoot(t *testing.T, fault func(storage.Faul
 	require.NoError(t, os.Chmod(dataDir, 0o700))
 	ownership, err := gatewaypaths.Acquire(dataDir)
 	require.NoError(t, err)
-	store, err := storage.InitializeWithFaultInjection(context.Background(), ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV", fault)
+	initializing := true
+	store, err := storage.InitializeWithFaultInjection(context.Background(), ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV", func(point storage.FaultPoint) error {
+		if initializing || fault == nil {
+			return nil
+		}
+		return fault(point)
+	})
 	require.NoError(t, err)
 	identity, err := store.Identity(context.Background())
 	require.NoError(t, err)
+	require.NoError(t, InitializeTraffic(context.Background(), ownership, store, identity.InstallationID))
+	initializing = false
 	entropy := make([]byte, 8192)
 	for index := range entropy {
 		entropy[index] = byte(index%251 + 1)
 	}
 	return Options{
+			Ownership:      ownership,
 			Store:          store,
 			InstallationID: identity.InstallationID,
 			CallbackURL:    "http://127.0.0.1:47100/oauth/callback",

@@ -33,6 +33,15 @@ type CollectionQuery struct {
 	Representation string
 }
 
+func (repository *Repository) PrincipalDisplayNames(ctx context.Context) (names map[string]string, err error) {
+	err = repository.view(ctx, func(tx *sql.Tx) error {
+		var e error
+		names, e = repository.PrincipalDisplayNamesTx(ctx, tx)
+		return e
+	})
+	return names, err
+}
+
 func (repository *Repository) PrincipalDisplayNamesTx(ctx context.Context, tx *sql.Tx) (map[string]string, error) {
 	if tx == nil {
 		return nil, ErrInvalidInput

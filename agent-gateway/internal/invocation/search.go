@@ -64,7 +64,7 @@ func hydrateInvocationSelection(ctx context.Context, tx *sql.Tx, selected []cont
 
 // PrincipalDisplayNames keeps current-name SQL with its authorization owner.
 type PrincipalDisplayNames interface {
-	PrincipalDisplayNamesTx(context.Context, *sql.Tx) (map[string]string, error)
+	PrincipalDisplayNames(context.Context) (map[string]string, error)
 }
 
 type ReadService struct {

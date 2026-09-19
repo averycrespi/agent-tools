@@ -92,6 +92,8 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, receipt *TrafficReceipt,
 }
 
 func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
+	s.writerGate.Lock()
+	defer s.writerGate.Unlock()
 	active := make([]*trafficRequest, 0, len(batch))
 	for _, r := range batch {
 		s.mu.Lock()
@@ -115,11 +117,19 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	if err == nil {
 		err = s.writeTraffic(ctx, active)
 	}
-	if err != nil && !errors.Is(err, ErrTrafficCapacity) && !errors.Is(err, ErrTrafficDeadline) && !errors.Is(err, ErrIdentityUnavailable) {
+	// Uncertain settlement takes precedence over an otherwise safe refusal.
+	// Joined rollback errors retain the original capacity/collision sentinel.
+	if err != nil && (errors.Is(err, ErrTrafficFault) ||
+		!errors.Is(err, ErrTrafficCapacity) && !errors.Is(err, ErrTrafficDeadline) && !errors.Is(err, ErrIdentityUnavailable)) {
 		s.mu.Lock()
 		s.faulted = true
 		s.mu.Unlock()
 		err = errors.Join(ErrTrafficFault, err)
+	}
+	if errors.Is(err, ErrTrafficCapacity) {
+		s.mu.Lock()
+		s.quotaRefusals += int64(len(active))
+		s.mu.Unlock()
 	}
 	for _, r := range active {
 		var receipt *TrafficReceipt

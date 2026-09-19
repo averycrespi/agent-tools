@@ -24,6 +24,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/mcpingress"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/oauth"
+	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/selfservice"
@@ -37,6 +38,8 @@ type Clock interface {
 }
 
 type Options struct {
+	Ownership      *gatewaypaths.Ownership
+	TrafficBudget  int64
 	Diagnostics    diagnostics.Observer
 	Store          *storage.Store
 	InstallationID string
@@ -69,6 +72,7 @@ type ControlAPIDependencies struct {
 }
 
 type Composition struct {
+	traffic              *invocation.TrafficStore
 	servers              *servers.Repository
 	authorization        *authorization.Repository
 	selfProjections      *authorization.SelfProjectionService
@@ -430,7 +434,7 @@ func New(options Options) (*Composition, error) {
 }
 
 func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resultErr error) {
-	if options.Store == nil || options.InstallationID == "" || options.CallbackURL == "" || options.Clock == nil || options.Entropy == nil || options.Invalidate == nil || options.Ready == nil {
+	if options.Ownership == nil || options.Store == nil || options.InstallationID == "" || options.CallbackURL == "" || options.Clock == nil || options.Entropy == nil || options.Invalidate == nil || options.Ready == nil {
 		return nil, errors.New("production composition dependencies are incomplete")
 	}
 	check := func(stage string) error {
@@ -552,7 +556,18 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, err
 	}
 	built.invocationPipelines = invocation.NewPipelineFence()
-	built.invocationRepository, err = invocation.NewRepositoryWithWaitStop(options.Store, options.Clock, options.Entropy, built.invocationPipelines.WaitStop(), options.Invalidate)
+	generation, err := options.Store.SelectedTraffic(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if generation == "" {
+		return nil, storage.ErrTrafficUnselected
+	}
+	built.traffic, err = invocation.OpenTraffic(context.Background(), options.Ownership, options.InstallationID, generation, trafficConfiguration(options.TrafficBudget))
+	if err != nil {
+		return nil, fmt.Errorf("open selected traffic generation: %w", err)
+	}
+	built.invocationRepository, err = invocation.NewTrafficRepository(built.traffic, options.Clock, options.Entropy, options.Invalidate)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_repository: %w", err)
 	}
@@ -842,6 +857,9 @@ func (built *Composition) beginDrain() {
 	if built.authorization != nil {
 		built.authorization.BeginDrain()
 	}
+	if built.traffic != nil {
+		built.traffic.BeginDrain()
+	}
 	ownedBefore := int64(0)
 	if built.owner != nil {
 		ownedBefore = built.owner.Status().InUse
@@ -913,6 +931,9 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 			result.Verified = int(ownedBefore - ownedAfter)
 			result.Unconfirmed = int(ownedAfter)
 		}
+	}
+	if built.traffic != nil && built.traffic.Close() != nil {
+		clean = false
 	}
 	if !clean && result.Unconfirmed == 0 {
 		result.Unconfirmed = 1

@@ -63,18 +63,29 @@ func (repository *Repository) list(ctx context.Context, query contract.Invocatio
 		binding = decoded
 	}
 
+	names := map[string]string{}
+	if query.Filters.Principal != "" {
+		if nameSource == nil {
+			return contract.InvocationPage{}, ErrStorageUnavailable
+		}
+		var err error
+		names, err = nameSource.PrincipalDisplayNames(ctx)
+		if err != nil {
+			return contract.InvocationPage{}, fmt.Errorf("read invocation principal names: %w: %w", ErrStorageUnavailable, err)
+		}
+	}
 	page := contract.InvocationPage{Items: make([]contract.InvocationSummary, 0, query.Limit)}
 	err := repository.view(ctx, func(transaction *sql.Tx) error {
-		names := map[string]string{}
-		if query.Filters.Principal != "" {
-			if nameSource == nil {
-				return ErrStorageUnavailable
+		if repository.traffic != nil {
+			var generation string
+			var pruning int64
+			if err := transaction.QueryRowContext(ctx, `SELECT generation,pruning FROM traffic_meta WHERE singleton=1`).Scan(&generation, &pruning); err != nil {
+				return err
 			}
-			var err error
-			names, err = nameSource.PrincipalDisplayNamesTx(ctx, transaction)
-			if err != nil {
-				return fmt.Errorf("read invocation principal names: %w", err)
+			if query.Cursor != nil && (generation != binding.Generation || pruning != binding.Pruning) {
+				return ErrStaleCursor
 			}
+			binding.Generation, binding.Pruning = generation, pruning
 		}
 		namesDigest := searchDigest(names)
 		if query.Cursor != nil && binding.NamesDigest != namesDigest {
@@ -109,7 +120,7 @@ func (repository *Repository) list(ctx context.Context, query contract.Invocatio
 		selectionLimit := query.Limit + 1
 		searching := query.Filters.Tool != "" || query.Filters.Principal != ""
 		if searching {
-			selectionLimit = int(invocationLimit()) + 1
+			selectionLimit = int(repository.limit) + 1
 		}
 		statement, arguments := invocationListStatement(binding.NextSequence, query.Filters, selectionLimit)
 		if searching {
@@ -124,7 +135,7 @@ func (repository *Repository) list(ctx context.Context, query contract.Invocatio
 		scanned := int64(0)
 		for rows.Next() {
 			scanned++
-			if scanned > invocationLimit() {
+			if scanned > repository.limit {
 				return invalidInvocationState("invocation history exceeds capacity")
 			}
 			var record contract.InvocationAuditRecord
@@ -167,7 +178,7 @@ func (repository *Repository) list(ctx context.Context, query contract.Invocatio
 			visible = query.Limit
 			next := records[query.Limit].Sequence
 			cursor, encodeErr := repository.encodeInvocationCursor(contract.InvocationCursorBinding{
-				Filters: query.Filters, NamesDigest: namesDigest, UpperSequence: binding.UpperSequence, NextSequence: next,
+				Filters: query.Filters, NamesDigest: namesDigest, UpperSequence: binding.UpperSequence, NextSequence: next, Generation: binding.Generation, Pruning: binding.Pruning,
 			})
 			if encodeErr != nil {
 				return invalidInvocationState("invocation cursor cannot be encoded")

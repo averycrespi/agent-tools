@@ -54,7 +54,19 @@ export interface LimitView {
   limit: number;
   saturated: boolean;
 }
+export interface TrafficView {
+  ready: boolean;
+  faulted: boolean;
+  pressure: boolean;
+  budgetBytes: number;
+  databaseBytes: number;
+  walBytes: number;
+  quotaRefusals: number;
+  prunedRecords: number;
+  generation: string;
+}
 export interface StatusView {
+  traffic?: TrafficView;
   processState: string;
   ready: boolean;
   startedAt: string;
@@ -161,7 +173,10 @@ function limit(value: unknown, name: LimitName): LimitView {
   };
 }
 export function decodeStatus(value: unknown): StatusView {
+  const hasTraffic =
+    value !== null && typeof value === "object" && "traffic" in value;
   const root = record(value, [
+    ...(hasTraffic ? ["traffic"] : []),
     "process",
     "sqlite",
     "keyring",
@@ -169,6 +184,38 @@ export function decodeStatus(value: unknown): StatusView {
     "backup",
     "protocols",
   ]);
+  let traffic: TrafficView | undefined;
+  if (hasTraffic) {
+    const item = record(root.traffic, [
+      "ready",
+      "faulted",
+      "pressure",
+      "budget_bytes",
+      "database_bytes",
+      "wal_bytes",
+      "quota_refusals",
+      "pruned_records",
+      "generation",
+      "rolling_history",
+      "unknown_completion_possible",
+    ]);
+    if (
+      !booleanValue(item.rolling_history) ||
+      !booleanValue(item.unknown_completion_possible)
+    )
+      throw new Error("invalid traffic history semantics");
+    traffic = {
+      ready: booleanValue(item.ready),
+      faulted: booleanValue(item.faulted),
+      pressure: booleanValue(item.pressure),
+      budgetBytes: integer(item.budget_bytes),
+      databaseBytes: integer(item.database_bytes),
+      walBytes: integer(item.wal_bytes),
+      quotaRefusals: integer(item.quota_refusals),
+      prunedRecords: integer(item.pruned_records),
+      generation: stringValue(item.generation),
+    };
+  }
   const process = record(root.process, ["state", "ready", "started_at"]);
   const sqlite = record(root.sqlite, [
     "state",
@@ -181,6 +228,7 @@ export function decodeStatus(value: unknown): StatusView {
   const backup = record(root.backup, ["state", "last_completed_at"]);
   const protocols = record(root.protocols, ["modern", "legacy", "agent_auth"]);
   return {
+    ...(traffic ? { traffic } : {}),
     processState: closed(process.state, [
       "uninitialized",
       "starting",

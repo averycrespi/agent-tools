@@ -13,6 +13,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -118,6 +119,29 @@ func TestServeUsesResolvedDefaultAndLeavesPreStartStdoutEmpty(t *testing.T) {
 	assert.Equal(t, "storage_unavailable", problem.Code)
 	_, statErr := os.Lstat(filepath.Join(xdg, gatewaypaths.InstallationName))
 	require.NoError(t, statErr)
+}
+
+func TestInitializeResumesInterruptedControlCreation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "gateway")
+	secret := filepath.Join(t.TempDir(), "secret")
+	first := newRootCmdWithDependencies(offlineDependencies{clock: systemClock{}, entropy: bytes.NewReader(make([]byte, 10)), newComposition: composition.New})
+	first.SetOut(new(bytes.Buffer))
+	first.SetErr(new(bytes.Buffer))
+	first.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", secret})
+	require.Error(t, first.ExecuteContext(t.Context()), "entropy ends after control creation, before traffic generation")
+	_, err := os.Stat(filepath.Join(root, gatewaypaths.DatabaseName))
+	require.NoError(t, err)
+	_, err = os.Stat(secret)
+	require.ErrorIs(t, err, os.ErrNotExist, "no administrator authority published for incomplete pair")
+	retry := newRootCmd()
+	retry.SetOut(new(bytes.Buffer))
+	retry.SetErr(new(bytes.Buffer))
+	retry.SetArgs([]string{"initialize", "--data-dir", root, "--secret-output", secret})
+	require.NoError(t, retry.ExecuteContext(t.Context()))
+	_, err = composition.VerifyStorage(t.Context(), root)
+	require.NoError(t, err, "retry publishes authority only with a fully verified selected pair")
+	_, err = os.Stat(secret)
+	require.NoError(t, err)
 }
 
 func TestInitializePersistentDataDirRendersMatchingServeCommand(t *testing.T) {
@@ -349,6 +373,7 @@ func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
 	require.NoError(t, err)
 	store, err := storage.Initialize(ctx, ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.NoError(t, err)
+	require.NoError(t, composition.InitializeTraffic(ctx, ownership, store, "01ARZ3NDEKTSV4RRFFQ69G5FAV"))
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 
@@ -383,10 +408,17 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	require.NoError(t, err)
 	store, err := storage.Open(ctx, ownership)
 	require.NoError(t, err)
-	manager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
+	generation, err := store.SelectedTraffic(ctx)
+	require.NoError(t, err)
+	identity, err := store.Identity(ctx)
+	require.NoError(t, err)
+	traffic, err := invocation.OpenTraffic(ctx, ownership, identity.InstallationID, generation, invocation.DefaultTrafficConfig())
+	require.NoError(t, err)
+	manager, err := backup.New(backup.Options{Traffic: traffic, Store: store, Layout: ownership.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
 	require.NoError(t, err)
 	artifact, _, err := manager.Create(ctx, "authority", "restore-command")
 	require.NoError(t, err)
+	require.NoError(t, traffic.Close())
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 

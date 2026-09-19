@@ -209,13 +209,16 @@ func TestCredentialAdmissionOrderingIntegration(t *testing.T) {
 	_, err = built.authorization.Authenticate(context.Background(), credential.Bearer)
 	assert.Error(t, err)
 
-	var fingerprint, redacted, terminal string
-	require.NoError(t, options.Store.View(context.Background(), func(transaction *sql.Tx) error {
-		return transaction.QueryRow(`SELECT descriptor_fingerprint, redacted_arguments, terminal_class FROM invocations`).Scan(&fingerprint, &redacted, &terminal)
-	}))
-	assert.NotEmpty(t, fingerprint)
-	assert.JSONEq(t, `{}`, redacted)
-	assert.Equal(t, string(contract.TerminalSucceeded), terminal)
+	history, err := built.traffic.History(t.Context(), 0, 10)
+	require.NoError(t, err)
+	require.Len(t, history.Records, 1)
+	record := history.Records[0]
+	require.NotNil(t, record.DescriptorFingerprint)
+	assert.NotEmpty(t, *record.DescriptorFingerprint)
+	require.NotNil(t, record.RedactedArguments)
+	assert.JSONEq(t, `{}`, *record.RedactedArguments)
+	require.NotNil(t, record.TerminalClass)
+	assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
 }
 
 func TestCatalogEvidenceReplacementIntegration(t *testing.T) {

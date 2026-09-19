@@ -26,16 +26,17 @@ Storage owns only this DDL, seeding, and structural migration boundary. Authoriz
 
 Every connection installs a two-second busy policy, enables foreign keys, verifies WAL and `synchronous=FULL`, and derives `max_page_count` from the compiled 1 GiB database limit and that connection's actual page size. Foreign, newer, partial, corrupt, unsafe-permission, and over-limit generations fail closed.
 
-## Unselected traffic store
+## Isolated traffic store
 
-`invocation.TrafficStore` is **not selected in production**. It is not a production
-migration or alternate runtime mode. Production still uses the control store and
-its existing invocation mutation-intent boundary. Storage owns the traffic DDL;
-invocation owns its evidence, SQL, validation, writer, and reads. There is no
-operator flag, second authenticator, dispatch queue, HTTP registry, or dual write.
-The future cutover must supply the verified control installation identity, retain
-one installation ownership handle through traffic close, select the generation,
-and switch the entire invocation/lifecycle/read/paired-backup graph together.
+Schema 17 adds the control-owned `traffic_selection` singleton. Production selects
+exactly one independently bound `invocation.TrafficStore` for all MCP evidence,
+completion and history. Control retains identities, credentials, policy, requests,
+configuration and administrative audit. Storage owns traffic DDL; invocation owns
+its evidence, SQL, validation, writer and reads. There is one composition graph,
+installation lock and authenticator, with no dual writes, HTTP registry, execution
+queue or replay. Composition retains installation ownership through traffic close.
+A missing, foreign or invalid selected generation fails closed; an unselected
+legacy installation requires explicit stopped migration, never live backfill.
 
 An explicitly created `traffic-<generation>.db` uses application ID `MGT1`, schema
 1, and exact installation/generation bindings. Creation checkpoints and closes an
@@ -52,11 +53,12 @@ page ceiling. Every physical connection receives its settings; read connections
 are read-only/query-only. At most two readers (configurable 1–4) return at most 256
 materialized records per call, with a one-second maximum lifetime and immediate
 capacity refusal. No live SQL rows or snapshots escape. Checkpoint pressure fences
-new readers, drains current readers, and makes one bounded TRUNCATE attempt; a
+new readers and makes one bounded TRUNCATE attempt when no snapshot is pinned; a
 busy checkpoint refuses admission rather than growing the WAL indefinitely.
 
 The default combined database-plus-WAL budget is **4,294,967,296 bytes**; the
-internal configuration accepts 1 MiB–16 GiB. File lengths, not allocated filesystem
+`serve` and persisted service configuration accept 1 MiB–16 GiB through
+`--traffic-budget-bytes`, validated before storage mutation. File lengths, not allocated filesystem
 blocks or logical SQLite page counts alone, are measured. For 4096-byte pages,
 64 KiB is safety headroom; at most one third of the remainder is database pages.
 Before each transaction the writer reserves `32 + (maximum_pages + 2) * 4120`
@@ -86,10 +88,12 @@ prior history snapshot even for non-prefix holes around pinned rows.
 
 The database/WAL budget excludes control storage's existing 1 GiB limit, the
 bounded SHM coordination file (16 MiB maximum), memory, and creation/backup/restore
-staging. A traffic creation stage needs a separate full traffic budget allowance;
-future paired backup/migration must preflight and reserve its own complete stage,
-backup and rollback costs before selection. The unselected store adds no backup or
-migration execution and makes no disk-free-space or power-loss qualification claim.
+staging. Creation, paired backup and migration must preflight and reserve their
+complete stage, backup and rollback costs before selection. A process-owned cooperative filesystem allowance is retained through settlement;
+headroom checks account for full bounded stages, retained originals and concurrent
+Gateway staging on the same filesystem. This is not physical preallocation or protection
+against concurrent noncooperating filesystem consumers. Any later I/O uncertainty
+fails closed. Deterministic tests are not power-loss qualification.
 
 Commit acknowledgment—not row readability or marker cleanup—is the new traffic
 evidence boundary. Statement/storage failures, commit errors, lost acknowledgment,
@@ -118,7 +122,7 @@ Migration preserves installation ULID, SQLite application/schema identity, datab
 
 ### Mutation intent and latch
 
-Security mutations share one actual storage owner. Ordinary and recovery-bearing mutation APIs attempt immediate acquisition and never queue. Invocation admission and synchronous best-effort terminal annotation alone may retain at most 31 FIFO waiters, for at most 250 ms per acquisition, shortened by caller cancellation/deadline or invocation drain. Full capacity rejects immediately. Handoff reserves the same owner for the oldest eligible waiter, so neither later invocation arrivals nor nonqueueing foreign writers can barge. Canceled, expired, drained, or latched waiters leave occupancy exactly once; active ownership includes reserved handoff and lasts through transaction and marker settlement. Foreign writers may therefore reject during a reservation and have no starvation-freedom guarantee.
+Security mutations share one actual control-storage owner. Ordinary and recovery-bearing mutation APIs attempt immediate acquisition and never queue. The following invocation FIFO seam is retained for legacy migration/test owners only, not production traffic persistence. Invocation admission and synchronous best-effort terminal annotation alone may retain at most 31 FIFO waiters, for at most 250 ms per acquisition, shortened by caller cancellation/deadline or invocation drain. Full capacity rejects immediately. Handoff reserves the same owner for the oldest eligible waiter, so neither later invocation arrivals nor nonqueueing foreign writers can barge. Canceled, expired, drained, or latched waiters leave occupancy exactly once; active ownership includes reserved handoff and lasts through transaction and marker settlement. Foreign writers may therefore reject during a reservation and have no starvation-freedom guarantee.
 
 Waiting runs in the caller before any intent, transaction, or callback. After acquisition, cancellation, invocation drain, and latch are rechecked before mutation work. Pre-mutation rejection creates no intent or row and never latches storage. Closed internal sentinel errors distinguish wait capacity, wait expiry, invocation stop, caller cancellation/deadline, and storage latch; public MCP vocabulary is unchanged. The acquisition timer never supplies an active transaction deadline. Composition stops only invocation waiting, leaving producer cleanup's ordinary writes available. No worker pool, deferred terminal backlog, callback retry, recursive audit diagnostic, or global storage fence is introduced.
 
@@ -136,7 +140,7 @@ Durability failure and latch events classify size check, identity check, intent 
 
 ### Restore credential invalidation
 
-Authorization separately owns general stopped-stage credential surgery on a supplied verified current-schema replacement store. One marker-armed transaction validates all synthetic, principal, grant, target, capacity, and revision semantics before writing; clears every complete current slot while advancing only each affected principal and credential revision once; then revalidates the complete authority and absence of current slots before commit. Zero credentials is an exact no-op. Principal metadata and timestamps, grants, synthetic identity, authorization revision, Gateway revision, server facts, and admin authority remain unchanged. Backup owns no principal, credential, or grant DML. For every accepted schema-3-through-current (currently 16) restore lineage, orchestration migrates and initially verifies the stage, invokes this authorization seam, rekeys admin authority, checkpoints and closes, then reruns closed SQLite verification plus complete authorization and grant-request semantics through the server-target and request supplied-transaction inspectors before installation. Every pre-install fault leaves the original generation authoritative.
+Authorization separately owns general stopped-stage credential surgery on a supplied verified current-schema replacement store. One marker-armed transaction validates all synthetic, principal, grant, target, capacity, and revision semantics before writing; clears every complete current slot while advancing only each affected principal and credential revision once; then revalidates the complete authority and absence of current slots before commit. Zero credentials is an exact no-op. Principal metadata and timestamps, grants, synthetic identity, authorization revision, Gateway revision, server facts, and admin authority remain unchanged. Backup owns no principal, credential, or grant DML. For every accepted schema-3-through-current (currently 17) restore lineage, orchestration migrates and initially verifies the stage, invokes this authorization seam, rekeys admin authority, checkpoints and closes, then reruns closed SQLite verification plus complete authorization and grant-request semantics through the server-target and request supplied-transaction inspectors before installation. Every pre-install fault leaves the original generation authoritative.
 
 ### Operator command boundary
 
@@ -148,8 +152,30 @@ CLI success projections use `operation:"storage_verify"` or `operation:"backup_r
 
 ### Backup publication
 
+Format 2 binds the control selector and installation to a verified traffic
+generation, with independent sizes, SHA-256 digests and traffic budget metadata.
+Under a one-second maximum admission/writer pause, Gateway pins exact coherent
+SQLite read connections for both stores. Actual acquisition overruns fail even
+when SQL succeeds; refusal never latches otherwise healthy traffic. Locks release
+only after acquisition settles. Copying uses those stable snapshots outside the
+pause, with a 30-second lifetime; checkpoint pressure refuses traffic work rather
+than waiting for the backup. Already admitted work may complete later, leaving
+unknown terminal evidence in the snapshot. Pins and execution are never backed up.
+
 Stopped-process and backup procedures are canonical in [backup and recovery](../operators/backup-and-recovery.md). On-demand backup uses SQLite's online backup API under one nonblocking global work slot. Gateway stages an owner-only closed generation, verifies identity/schema/revision/full integrity and the 1 GiB bound, computes SHA-256, writes safe internal metadata, and atomically publishes it under a 26-character ID. The artifact-bound authority/key digest provides durable retry identity without storing a bearer or replaying a secret; 64 retained artifacts are the fixed record bound. Verification of a closed artifact reads its digest-bound database immutably: it neither creates sidecars under ambient permissions nor consults an unrelated WAL. Existing sidecars are not deleted by verification or naming migration.
 
 ### Generation replacement
 
-Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete generation. Accepted schema-3-through-current (currently 16) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events, raw secrets, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.
+Stopped migration stages the control copy without upgrading the original, validates
+and publishes a generation-addressed traffic file first, then installs its matching
+control selector by one atomic rename. The original control inode is checkpointed
+and retained under a unique `.previous-*` name before replacement; old traffic and
+interrupted stages remain. Two fixed-file renames are never described as atomic.
+Initial setup creates the matching pair before publishing authority. Restore uses
+a fresh traffic generation, invalidating history cursors while preserving IDs,
+high-water, pruning and unknown outcomes. Legacy single-store backups receive
+bounded semantic evidence validation and stopped extraction; accepted schemas
+before invocation history legitimately extract an empty store. No path restores
+execution pins or falls back to empty history.
+
+Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete generation. Accepted schema-3-through-current (currently 17) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events, raw secrets, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.

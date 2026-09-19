@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -91,6 +92,7 @@ func TestStorageVerifyExactCandidateRealBinary(t *testing.T) {
 	const credentialID = "01J60000000000000000000012"
 	store, err := storage.Initialize(ctx, ownership, installationID)
 	require.NoError(t, err)
+	require.NoError(t, composition.InitializeTraffic(ctx, ownership, store, "01ARZ3NDEKTSV4RRFFQ69G5FAW"))
 	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
 		_, insertErr := tx.ExecContext(ctx, `INSERT INTO principals (
 			id, display_name, state, visibility, revision, credential_revision,

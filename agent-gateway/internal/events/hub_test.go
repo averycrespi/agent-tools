@@ -44,6 +44,36 @@ func TestHubIsBoundedBestEffortAndHasNoReplay(t *testing.T) {
 	assert.Equal(t, authorization, <-reconnected.Events())
 }
 
+func TestHubCoalescesTrafficWithoutReplayingToNewSubscribers(t *testing.T) {
+	hub := New()
+	defer hub.Shutdown()
+	current, err := hub.Subscribe("current", nil)
+	require.NoError(t, err)
+	for range 10000 {
+		hub.Publish(contract.Invalidation{Kind: contract.InvalidationInvocations})
+	}
+	late, err := hub.Subscribe("late", nil)
+	require.NoError(t, err)
+	select {
+	case event := <-current.Events():
+		assert.Equal(t, contract.InvalidationInvocations, event.Kind)
+	case <-time.After(time.Second):
+		t.Fatal("coalesced event missing")
+	}
+	select {
+	case <-current.Events():
+		t.Fatal("fetch storm was not coalesced")
+	default:
+	}
+	select {
+	case <-late.Events():
+		t.Fatal("new subscriber received old invalidation")
+	default:
+	}
+	assertChannelOpen(t, current.Done())
+	assertChannelOpen(t, late.Done())
+}
+
 func TestHubClosesOnlyBoundAuthorityAndTerminalSession(t *testing.T) {
 	hub := New()
 	t.Cleanup(hub.Shutdown)

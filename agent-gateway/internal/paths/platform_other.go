@@ -9,6 +9,14 @@ import (
 
 func RelocationCompleted(string, string) bool { return false }
 
+func ReserveHeadroom(string, int64) (func(), error) {
+	return nil, fmt.Errorf("storage headroom validation is unsupported on this platform")
+}
+
+func AcquireStoppedExisting(string) (*Ownership, error) {
+	return nil, fmt.Errorf("stopped storage migration is unsupported on this platform")
+}
+
 func validateOwner(os.FileInfo) error {
 	return fmt.Errorf("installation ownership validation is unsupported on this platform")
 }

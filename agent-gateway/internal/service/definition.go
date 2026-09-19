@@ -23,13 +23,14 @@ const definitionLimit = 1 << 20
 
 // Settings are literal installed selections; Output and JSON preserve old installer argv.
 type Settings struct {
-	Binary       string   `json:"binary"`
-	DataDir      string   `json:"data_dir"`
-	Listen       string   `json:"listen"`
-	AllowedHosts []string `json:"allowed_hosts"`
-	LogLevel     string   `json:"log_level,omitempty"`
-	Output       string   `json:"output,omitempty"`
-	JSON         bool     `json:"json,omitempty"`
+	TrafficBudgetBytes int64    `json:"traffic_budget_bytes,omitempty"`
+	Binary             string   `json:"binary"`
+	DataDir            string   `json:"data_dir"`
+	Listen             string   `json:"listen"`
+	AllowedHosts       []string `json:"allowed_hosts"`
+	LogLevel           string   `json:"log_level,omitempty"`
+	Output             string   `json:"output,omitempty"`
+	JSON               bool     `json:"json,omitempty"`
 }
 
 type definition struct {
@@ -46,6 +47,9 @@ func validLiteral(s string) bool {
 func absolute(s string) bool { return validLiteral(s) && filepath.IsAbs(s) && filepath.Clean(s) == s }
 
 func (s Settings) validate() error {
+	if s.TrafficBudgetBytes != 0 && (s.TrafficBudgetBytes < 1<<20 || s.TrafficBudgetBytes > 16<<30) {
+		return errors.New("traffic-budget-bytes must be between 1048576 and 17179869184")
+	}
 	if !absolute(s.Binary) || !absolute(s.DataDir) {
 		return errors.New("binary and data-dir must be clean absolute paths without control characters")
 	}
@@ -77,6 +81,9 @@ func (s Settings) arguments() []string {
 	}
 	if s.LogLevel != "" {
 		args = append(args, "--log-level", s.LogLevel)
+	}
+	if s.TrafficBudgetBytes != 0 {
+		args = append(args, "--traffic-budget-bytes", strconv.FormatInt(s.TrafficBudgetBytes, 10))
 	}
 	if s.Output != "" {
 		args = append(args, "--output", s.Output)
@@ -113,6 +120,12 @@ func parseArguments(args []string) (Settings, error) {
 			s.AllowedHosts = append(s.AllowedHosts, args[i])
 		case "--log-level":
 			s.LogLevel = args[i]
+		case "--traffic-budget-bytes":
+			value, err := strconv.ParseInt(args[i], 10, 64)
+			if err != nil || value == 0 || strconv.FormatInt(value, 10) != args[i] {
+				return s, errors.New("invalid traffic budget")
+			}
+			s.TrafficBudgetBytes = value
 		case "--output":
 			s.Output = args[i]
 		default:

@@ -146,6 +146,8 @@ type InvocationPage struct {
 }
 
 type InvocationCursorBinding struct {
+	Generation    string
+	Pruning       int64
 	Filters       InvocationFilters
 	QueryDigest   string
 	NamesDigest   string
