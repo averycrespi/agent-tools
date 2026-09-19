@@ -66,6 +66,43 @@ Argument capture uses one fixed recursive key redactor owned by Gateway before c
 
 The invocation repository is the sole online owner of schema-9 SQL. It serializes entropy while preparing one canonical admitted time and opaque ID before mutation, accepts final binding/policy evidence later, and validates all identifiers, revisions, fingerprints, names, compact redacted arguments, nullable groups, decisions, grants, and timestamp chronology again at insertion. The caller-owned admission transaction checks identity collision before deleting anything, evicts the lowest insertion sequences needed for a post-insert maximum of 65,536, and inserts the immutable row; any failure rolls both eviction and insertion back. Startup reads at most 65,537 rows through the latch-aware storage view and rejects malformed or over-capacity history before service. One synchronous best-effort terminal mutation writes only a canonical time/class pair when an unterminated ALLOW row still exists and completion is not before evaluation; eviction or a prior annotation is a benign miss. Acknowledged admission and effective terminal commits publish an ID-only `invocations` refresh hint after commit; rollback, uncertainty, and benign no-op annotation emit nothing.
 
+### Unselected receipt-based traffic seam
+
+The [traffic foundation](storage-and-recovery.md#unselected-traffic-store-foundation)
+reuses `PreparedAdmission`, common activity values, exact MCP details, the existing
+SQL shape, capture limits and complete semantic validators. It is not selected by
+production composition; all production admission/authority behavior below remains
+unchanged until the complete cutover.
+
+The foundation queues evidence only. Defaults bound admission occupancy, including
+active settlement, to 128 records and 2 MiB charged bytes; each transaction contains
+at most 32 records/512 KiB, with 2 ms dwell, 250 ms queue lifetime and a two-second
+cooperative write lifetime. Configuration validates positive finite limits (at most
+1024 queued records/16 MiB, 10 ms dwell, one-second acquisition and five-second
+write lifetime). A separate completion queue reserves the same record capacity at
+128 bytes per completion. One completion transaction precedes each admission batch,
+so neither class can starve the other under sustained arrivals. No queued member
+contains an executable callback. No acquisition expiry extends into transaction
+settlement, and accepted callers wait for settlement even after cancellation.
+
+Successful atomic commit creates individual opaque process-local receipts containing
+immutable evidence and the original request cancellation context. Canceled callers
+receive no receipt; later cancellation prevents confirmation even with a fresh
+context. IDs and history reads cannot create receipts. `Confirm` consumes one live
+ALLOW receipt's dispatch disposition, but is only the **evidence half** of admission:
+the future caller must still hold and confirm current authority before execution.
+The store never executes or reauthorizes a call.
+
+`Release` settles a no-dispatch disposition. Confirmed calls remain pinned until
+`Complete` settles exactly one synchronous best-effort paired completion attempt,
+including refusal/failure. Completion never accepts or rewrites the live upstream
+result. Capacity/deadline refusals do not fault healthy storage; storage/commit/
+rollback uncertainty does. Missing terminal evidence remains unknown. Pins have a
+separate bounded process-local cardinality (1024 by default, at most 4096); forgotten
+live dispositions fail closed at that capacity rather than expiring a potentially
+executing row. Closing/restarting never reconstructs pins, receipts, completion or
+execution. There is no background completion backlog or retry.
+
 ### Admission and execution
 
 Admission holds one authority gate around bounded acquisition and exactly one invocation-owned storage mutation. Admission and synchronous terminal annotation use the invocation-only FIFO exception described in [storage and recovery](storage-and-recovery.md#mutation-intent-and-latch): one active owner, at most 31 waiters, and a 250 ms acquisition-only bound. Completion never reacquires authority. A queued admission holds authority but no transaction or intent; this can delay authentication and policy changes, which retain their separate one-second authority bound. Queue-full, expiry, cancellation, or invocation drain before mutation produces no callback, row, or dispatch. Durable acknowledgment includes marker cleanup; a readable committed row alone cannot authorize dispatch. Binding-only branches prove the current credential but persist no policy fields. Only evaluated branches pass the pinned route's `accesstarget.MCP` to resolved authorization verification; malformed and unresolved calls do not need an exact access target, and invalid-argument calls remain binding-only even though their MCP details retain a resolved route. Invocation SQL and public audit representations remain invocation-owned and unchanged. Resolved verification exposes a closed phase: a semantic evaluator failure may commit `authorization_unavailable` only after binding was explicitly verified, while binding, context, SQL, latch, or transaction failure rolls back without a row. A successful evaluation inserts exactly its current revision, time, decision, and smallest grant evidence. Only after the mutation returns acknowledged success, and while the gate remains active, may an ALLOW token detach the lease; rollback, uncertain commit, late drain, DENY, and BLOCK remain non-dispatchable.

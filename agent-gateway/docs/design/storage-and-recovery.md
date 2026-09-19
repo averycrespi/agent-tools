@@ -26,6 +26,82 @@ Storage owns only this DDL, seeding, and structural migration boundary. Authoriz
 
 Every connection installs a two-second busy policy, enables foreign keys, verifies WAL and `synchronous=FULL`, and derives `max_page_count` from the compiled 1 GiB database limit and that connection's actual page size. Foreign, newer, partial, corrupt, unsafe-permission, and over-limit generations fail closed.
 
+## Unselected traffic-store foundation
+
+`invocation.TrafficStore` is an **unselected foundation**, not a production
+migration or alternate runtime mode. Production still uses the control store and
+its existing invocation mutation-intent boundary. Storage owns the traffic DDL;
+invocation owns its evidence, SQL, validation, writer, and reads. There is no
+operator flag, second authenticator, dispatch queue, HTTP registry, or dual write.
+The future cutover must supply the verified control installation identity, retain
+one installation ownership handle through traffic close, select the generation,
+and switch the entire invocation/lifecycle/read/paired-backup graph together.
+
+An explicitly created `traffic-<generation>.db` uses application ID `MGT1`, schema
+1, and exact installation/generation bindings. Creation checkpoints and closes an
+owner-only stage, syncs its file, publishes without replacing an existing name,
+and syncs the directory before and after removing the staging name. Failed
+publication retains evidence; opening a missing generation never creates it.
+Only one traffic store per installation can be open in the process. The existing
+installation process lock remains the interprocess owner; control marker and
+keyring recovery are unchanged.
+
+The writer has one connection, WAL, `synchronous=FULL`, a 50 ms busy bound,
+foreign keys, disabled cache spilling and automatic checkpointing, and a verified
+page ceiling. Every physical connection receives its settings; read connections
+are read-only/query-only. At most two readers (configurable 1–4) return at most 256
+materialized records per call, with a one-second maximum lifetime and immediate
+capacity refusal. No live SQL rows or snapshots escape. Checkpoint pressure fences
+new readers, drains current readers, and makes one bounded TRUNCATE attempt; a
+busy checkpoint refuses admission rather than growing the WAL indefinitely.
+
+The default combined database-plus-WAL budget is **4,294,967,296 bytes**; the
+internal configuration accepts 1 MiB–16 GiB. File lengths, not allocated filesystem
+blocks or logical SQLite page counts alone, are measured. For 4096-byte pages,
+64 KiB is safety headroom; at most one third of the remainder is database pages.
+Before each transaction the writer reserves `32 + (maximum_pages + 2) * 4120`
+additional WAL bytes against the remaining WAL partition, checkpointing only when
+that reservation cannot fit. With cache spilling disabled, fixed-schema DML can
+write each dirty page once at commit; the reservation covers the entire possible
+database plus commit padding for the pinned default VFS. No arbitrary SQL,
+attachments, online VACUUM, cache flush, or alternate VFS is exposed. Eviction
+never subtracts from physical occupancy. A post-settlement size check detects
+violations; I/O uncertainty faults the writer. This conservative policy may refuse
+work well below the combined limit; it is not a throughput guarantee or a hard
+bound on uninterruptible filesystem I/O. Ownership remains held until settlement.
+
+Logical retention charges include encoded evidence plus 1024 bytes per admission,
+including reserved completion space. The logical allowance is one quarter of the
+database partition, leaving index/fragmentation headroom. A separately configurable
+1–1,000,000 retained-row ceiling bounds full semantic validation work; it is not a
+promised history window. Each pruning scan is bounded by active capacity plus
+batch capacity plus 256; insufficient eligible space refuses the whole batch.
+The oldest eligible records are removed transactionally, after checking every
+incoming identity for collision. Process-local pins protect active admissions,
+including earlier members of a group commit, through disposition and the sole
+completion attempt. Historical incomplete rows are unknown and unpinned after
+restart. Sequence high-water and a cumulative deleted-record count commit with
+rows and byte/count accounting. Generation plus pruning metadata invalidates a
+prior history snapshot even for non-prefix holes around pinned rows.
+
+The database/WAL budget excludes control storage's existing 1 GiB limit, the
+bounded SHM coordination file (16 MiB maximum), memory, and creation/backup/restore
+staging. A traffic creation stage needs a separate full traffic budget allowance;
+future paired backup/migration must preflight and reserve its own complete stage,
+backup and rollback costs before selection. This foundation adds no backup or
+migration execution and makes no disk-free-space or power-loss qualification claim.
+
+Commit acknowledgment—not row readability or marker cleanup—is the new traffic
+evidence boundary. Statement/storage failures, commit errors, lost acknowledgment,
+and uncertain rollback issue no affected receipt and fault future admission.
+There is no split, retry, replay, or traffic-only persistent manual-verification
+latch. Restart restores write authority only after exact schema/application/binding,
+physical-budget, complete structural and every-row semantic validation, including
+nullable groups, chronology, accounting and sequence/pruning consistency. Validation
+is streaming and has a 30-second cooperative deadline; incomplete validation is
+failure, never partial readiness. Reads may remain available while write authority
+is faulted; readable history alone cannot acknowledge or resume execution.
+
 ## Installation path migration
 
 `internal/paths` owns canonical root selection, existing process locks and the stopped whole-directory exchange. New defaults use `agent-gateway`; legacy entries cause implicit selection to fail unless they are an exact completed tombstone bound to the moved directory inode. The current executable uses this selection and `gateway.lock` regardless of an accidental basename change. Explicit roots remain authoritative, including legacy/custom roots; there is no filesystem search, automatic relocation, merge or second owner.
