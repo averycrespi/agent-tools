@@ -39,7 +39,7 @@ Install creates the private plist and log destinations, but **does not load the 
 
 Install refuses an existing plist, loaded canonical job, unsafe permissions/ownership, symlinks and unsupported selections rather than overwriting or fixing them. It creates a synced `0600` plist, `0700` log directory and `0600` log files. Newly created directories/logs can remain after a later failure; existing files are not truncated. A retained private management-lock file serializes cooperating commands and is not a second configuration file.
 
-The [example plist](../../examples/launchd/agent-gateway.plist) illustrates the Go-owned definition, not a runtime template dependency. XML-aware serialization preserves literal arguments, including spaces and XML characters. launchd runs the selected executable directly: no shell expansion, profile sourcing, or wrapper. `RunAtLoad` and `KeepAlive` retain launchd supervision; `ExitTimeOut=30` leaves room for Gateway's ten-second drain plus best-effort diagnostic flush. The utility PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, not a shell/version-manager environment. Managed stdio servers have their own clean configured environments.
+The [example plist](../../examples/launchd/agent-gateway.plist) illustrates the Go-owned definition, not a runtime template dependency. XML-aware serialization preserves literal arguments, including spaces and XML characters. Generated XML includes the standard plist declaration and self-closing boolean elements for launchd compatibility; passing `plutil -lint` alone does not prove launchd will accept a definition. launchd runs the selected executable directly: no shell expansion, profile sourcing, or wrapper. `RunAtLoad` and `KeepAlive` retain launchd supervision; `ExitTimeOut=30` leaves room for Gateway's ten-second drain plus best-effort diagnostic flush. The utility PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, not a shell/version-manager environment. Managed stdio servers have their own clean configured environments.
 
 ### Custom paths
 
@@ -87,6 +87,10 @@ Each utility invocation has a five-second deadline and 1 MiB combined output cap
 Invalid proposals leave the old plist/service unchanged. Publication failure retains the old definition; failure after confirmed stop leaves the service stopped. Publication/sync uncertainty is reported explicitly. If publication succeeds but bootstrap fails, **new settings remain installed** and launch state is unknown until inspected; there is no automatic rollback or restart retry. Launchd can enforce its termination deadline, so confirmed exit is not proof of clean storage shutdown.
 
 Restart discards browser sessions, runtime handles, streams, OAuth transients and other process-local state. In-flight effects can remain unknown: never automatically replay them. See [invocation evidence](invocation-evidence.md).
+
+### Older generated plist rejected by launchd
+
+Older installers emitted noncanonical plist XML that could pass `plutil -lint` but fail bootstrap with launchd error `109: Invalid property list`. If service status confirms the job is unloaded and launchd logs show this error, preserve a backup outside automatic-load paths, then normalize the installed plist with `plutil -convert xml1 /absolute/path/to/dev.agent-tools.agent-gateway.plist` before starting it. This preserves the settings and does not initialize data or credentials. Upgrade the executable before subsequent install/update operations regenerate the definition. An unchanged update does not rewrite an existing plist.
 
 ## Verify
 

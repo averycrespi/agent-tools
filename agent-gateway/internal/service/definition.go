@@ -162,7 +162,15 @@ func (d definition) encode() ([]byte, error) {
 	root := node("plist", "", node("dict", "", children...))
 	root.Attrs = []xml.Attr{{Name: xml.Name{Local: "version"}, Value: "1.0"}}
 	data, err := xml.MarshalIndent(root, "", "  ")
-	return append([]byte(xml.Header), append(data, '\n')...), err
+	if err != nil {
+		return nil, err
+	}
+	// launchd's plist reader is stricter than a general XML parser. Emit the
+	// standard plist declaration and empty boolean elements, as plutil does.
+	// Literal string values are already XML-escaped, so cannot match this tag.
+	data = bytes.ReplaceAll(data, []byte("<true></true>"), []byte("<true/>"))
+	const doctype = "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+	return append([]byte(xml.Header+doctype), append(data, '\n')...), nil
 }
 
 func dictionary(n plistNode) (map[string]plistNode, error) {
