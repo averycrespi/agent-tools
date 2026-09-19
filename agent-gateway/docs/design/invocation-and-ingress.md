@@ -68,13 +68,13 @@ The invocation repository is the sole online owner of schema-9 SQL. It serialize
 
 ### Unselected receipt-based traffic seam
 
-The [traffic foundation](storage-and-recovery.md#unselected-traffic-store-foundation)
+The [unselected traffic store](storage-and-recovery.md#unselected-traffic-store)
 reuses `PreparedAdmission`, common activity values, exact MCP details, the existing
 SQL shape, capture limits and complete semantic validators. It is not selected by
 production composition; all production admission/authority behavior below remains
 unchanged until the complete cutover.
 
-The foundation queues evidence only. Defaults bound admission occupancy, including
+The unselected store queues evidence only. Defaults bound admission occupancy, including
 active settlement, to 128 records and 2 MiB charged bytes; each transaction contains
 at most 32 records/512 KiB, with 2 ms dwell, 250 ms queue lifetime and a two-second
 cooperative write lifetime. Configuration validates positive finite limits (at most

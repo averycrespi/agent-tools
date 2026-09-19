@@ -327,6 +327,26 @@ var _ invocation.Service
 			want:     "internal/api/bad.go: prohibited S4 SQL table invocations",
 		},
 		{
+			name: "traffic selected in composition", path: "internal/composition/composition.go",
+			contents: "package composition\nfunc build() { _ = evidence.OpenTraffic(ctx, owner, installation, generation, config) }\n",
+			want:     "internal/composition/composition.go: prohibited unselected traffic constructor OpenTraffic",
+		},
+		{
+			name: "traffic generation cannot mutate evidence", path: "internal/invocation/traffic_generation.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/traffic_generation.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "traffic DDL owner cannot mutate evidence", path: "internal/storage/traffic_schema.go",
+			contents: "package storage\nfunc mutate() { _ = `UPDATE invocations SET terminal_class = NULL` }\n",
+			want:     "internal/storage/traffic_schema.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "traffic API cannot duplicate writer SQL", path: "internal/invocation/traffic.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/traffic.go: prohibited S4 SQL table invocations",
+		},
+		{
 			name: "S4 mutation in read owner", path: "internal/invocation/reads.go",
 			contents: "package invocation\nfunc mutate() { _ = `UPDATE invocations SET terminal_class = NULL` }\n",
 			want:     "internal/invocation/reads.go: prohibited S4 SQL table invocations",
@@ -626,6 +646,12 @@ func s3SQLViolations(source productionSource) []string {
 func s4SQLViolations(source productionSource) []string {
 	violations := make([]string, 0)
 	ast.Inspect(source.file, func(node ast.Node) bool {
+		if identifier, ok := node.(*ast.Ident); ok && source.path != "internal/invocation/traffic_generation.go" {
+			switch identifier.Name {
+			case "CreateTraffic", "OpenTraffic", "openTraffic":
+				violations = append(violations, fmt.Sprintf("%s: prohibited unselected traffic constructor %s", source.path, identifier.Name))
+			}
+		}
 		literal, ok := node.(*ast.BasicLit)
 		if !ok || literal.Kind != token.STRING {
 			return true
@@ -635,13 +661,14 @@ func s4SQLViolations(source productionSource) []string {
 			return true
 		}
 		switch source.path {
-		case "internal/invocation/repository.go":
+		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go":
 			return true
 		case "internal/invocation/reads.go", "internal/invocation/search.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}
-		case "internal/invocation/validation.go", "internal/storage/storage.go":
+		case "internal/invocation/validation.go", "internal/storage/storage.go",
+			"internal/invocation/traffic_generation.go", "internal/storage/traffic_schema.go":
 			if !s4SQLDML.MatchString(value) {
 				return true
 			}

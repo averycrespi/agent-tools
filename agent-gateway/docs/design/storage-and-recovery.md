@@ -26,9 +26,9 @@ Storage owns only this DDL, seeding, and structural migration boundary. Authoriz
 
 Every connection installs a two-second busy policy, enables foreign keys, verifies WAL and `synchronous=FULL`, and derives `max_page_count` from the compiled 1 GiB database limit and that connection's actual page size. Foreign, newer, partial, corrupt, unsafe-permission, and over-limit generations fail closed.
 
-## Unselected traffic-store foundation
+## Unselected traffic store
 
-`invocation.TrafficStore` is an **unselected foundation**, not a production
+`invocation.TrafficStore` is **not selected in production**. It is not a production
 migration or alternate runtime mode. Production still uses the control store and
 its existing invocation mutation-intent boundary. Storage owns the traffic DDL;
 invocation owns its evidence, SQL, validation, writer, and reads. There is no
@@ -88,7 +88,7 @@ The database/WAL budget excludes control storage's existing 1 GiB limit, the
 bounded SHM coordination file (16 MiB maximum), memory, and creation/backup/restore
 staging. A traffic creation stage needs a separate full traffic budget allowance;
 future paired backup/migration must preflight and reserve its own complete stage,
-backup and rollback costs before selection. This foundation adds no backup or
+backup and rollback costs before selection. The unselected store adds no backup or
 migration execution and makes no disk-free-space or power-loss qualification claim.
 
 Commit acknowledgment—not row readability or marker cleanup—is the new traffic

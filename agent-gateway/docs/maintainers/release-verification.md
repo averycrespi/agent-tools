@@ -106,6 +106,24 @@ The retention E2E owner seeds the real 65,536-row boundary with one set-based tr
 
 `TestServeFirstSignalDeadlineRetainsUncleanMarker` owns the real compiled graceful-shutdown deadline, exit 7, listener closure, verified process cleanup, unclean marker, and recovery. `TestCLIServePostStartFailureOutput` in the CLI package owns human/JSON terminal-problem formatting and singular acknowledgement without waiting through that deadline again. `TestCLIServeOutputLifecycle` retains real-binary human/JSON startup and pre-start failure output; separate E2E owners retain second-signal forcing, active transport cancellation, and late-completion fencing.
 
+### Unselected traffic-store checks
+
+`invocation.TrafficStore` is not selected by production composition. Its isolated
+`TestTraffic*` fixtures belong to the existing invocation integration owner and
+exercise real SQLite without changing control recovery markers. For focused work,
+run `go test -race -tags=integration ./internal/invocation ./internal/storage -count=1 -timeout=5m`
+from `agent-gateway/`, followed by `make verify`. Changes to normative or maintainer
+docs also require the contract/documentation checks in `test-unit` and
+`test-harness`; product tests alone do not cover these source guards.
+
+Keep caller cancellation distinct from cooperative commit settlement. Changes to
+the SQLite driver, default VFS, cache spilling, page size, or write shape must
+requalify the [combined database/WAL reservation](../design/storage-and-recovery.md#unselected-traffic-store).
+The store's receipts, pins and full restart validation are correctness evidence,
+not throughput, native filesystem, or power-loss qualification. Do not add runtime
+selection, migration, dual writing, or partial production readers before the
+complete lifecycle/read/paired-backup cutover.
+
 ## Freeze the candidate
 
 Before producing release evidence:
