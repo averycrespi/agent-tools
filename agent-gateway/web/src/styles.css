@@ -310,6 +310,18 @@ button.danger-action:hover,
   text-decoration: none;
 }
 
+.request-count {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
 .rail a:hover,
 .rail a:focus-visible {
   background: var(--surface-subtle);

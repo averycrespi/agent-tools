@@ -1025,6 +1025,10 @@ export async function runOverview(
   });
   await page.route("**/api/v2/mcp/grant-requests?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
+    if (query.get("limit") === "1") {
+      await route.fallback();
+      return;
+    }
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "5" ||

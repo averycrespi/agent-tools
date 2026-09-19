@@ -2866,7 +2866,7 @@ export async function runGrantCorrection(
     await page.locator('[data-testid="grant-actions"]').waitFor();
     try {
       await page
-        .getByRole("heading", { name: `Grant ${grantID}`, exact: true })
+        .getByRole("heading", { name: `MCP Grant ${grantID}`, exact: true })
         .waitFor({ timeout: 3000 });
     } catch {
       fail(
@@ -3161,11 +3161,12 @@ export async function runRequestReads(
     { times: 1 },
   );
   await page.route("**/api/v2/mcp/grant-requests?*", async (route) => {
-    listReads += 1;
     const query = new URL(route.request().url()).searchParams;
+    const sidebar = query.get("limit") === "1";
+    if (!sidebar) listReads += 1;
     if (
       route.request().method() !== "GET" ||
-      query.get("limit") !== "50" ||
+      (!sidebar && query.get("limit") !== "50") ||
       query.has("representation")
     )
       fail("request queue filters changed shape");
@@ -3210,7 +3211,7 @@ export async function runRequestReads(
     );
     if (query.get("direction") === "descending") rows.reverse();
     const offset = Number(cursor ?? 0);
-    const selected = rows.slice(offset, offset + 50);
+    const selected = rows.slice(offset, offset + (sidebar ? 1 : 50));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -3284,6 +3285,13 @@ export async function runRequestReads(
     .getByText("Showing 1–32 of 32 requests", { exact: true })
     .first()
     .waitFor();
+  const pendingLink = page.locator(
+    '#primary-navigation a[href="#/mcp/access-requests"]',
+  );
+  // The deliberately held reconnect below leaves the last read explicitly stale.
+  await expect(pendingLink).toHaveAccessibleName(
+    /(?:Requests, |last known )32 pending/,
+  );
   await captureRequestState(page, "pending-queue");
   if (
     (await page.locator('[data-testid="request-row"]').count()) !== 32 ||
@@ -3312,6 +3320,9 @@ export async function runRequestReads(
     .getByText("Showing 51–100 of 128 requests", { exact: true })
     .first()
     .waitFor();
+  await expect(pendingLink).toHaveAccessibleName(
+    /(?:Requests, |last known )32 pending/,
+  );
   await captureRequestState(page, "all-queue-page-two");
   const decisionLink = page
     .getByRole("link", { name: "View decision", exact: true })
