@@ -58,6 +58,8 @@ Binary and data paths must be clean absolute paths. Explicit `--data-dir` overri
 
 Use `agent-gateway service --help` for the command inventory and each verb's `--help` for its flags.
 
+Service commands default to human-readable output. Status groups installed settings and paths separately from launchd state and readiness; mutations show a short outcome without repeating configuration. Use `--json` or `--output json` for machine-readable success and error output (scripts consuming the former default JSON must now select it explicitly). These flags control only the management command's output, not the installed `serve` diagnostics. Launch acceptance is not readiness; run `agent-gateway service status` after starting or restarting.
+
 ### Plist changes
 
 ```bash
@@ -90,6 +92,8 @@ Restart discards browser sessions, runtime handles, streams, OAuth transients an
 
 ### Older generated plist rejected by launchd
 
+Read-only `service status` warns when a supported definition lacks the standard plist declaration or contains the older paired boolean encoding. JSON includes an optional `warnings` array. This is an encoding hint, not proof of native rejection or acceptance; status does not rewrite the plist. Unsupported contents still refuse management rather than merely warning.
+
 Older installers emitted noncanonical plist XML that could pass `plutil -lint` but fail bootstrap with launchd error `109: Invalid property list`. If service status confirms the job is unloaded and launchd logs show this error, preserve a backup outside automatic-load paths, then normalize the installed plist with `plutil -convert xml1 /absolute/path/to/dev.agent-tools.agent-gateway.plist` before starting it. This preserves the settings and does not initialize data or credentials. Upgrade the executable before subsequent install/update operations regenerate the definition. An unchanged update does not rewrite an existing plist.
 
 ## Verify
@@ -98,7 +102,7 @@ Older installers emitted noncanonical plist XML that could pass `plutil -lint` b
 agent-gateway service status
 ```
 
-Read-only status emits a finite JSON object containing installed selections, plist/log paths, launchd state, and a **separate** readiness observation. The unauthenticated numeric-loopback `/readyz` probe bypasses proxies and redirects, is bounded to two seconds and sends no credential. It reports `ready`, `not-ready`, `unavailable` or `unknown`; an unrelated listener can answer that address, so the probe is neither process-identity proof nor upstream credential health. Launchd inspection errors never become “unloaded.” A job loaded without an installed definition is reported separately.
+Read-only status shows installed selections, plist/log paths, launchd state, and a **separate** readiness observation. With `--json`, it emits these as a finite JSON object. The unauthenticated numeric-loopback `/readyz` probe bypasses proxies and redirects, is bounded to two seconds and sends no credential. It reports `ready`, `not-ready`, `unavailable` or `unknown`; an unrelated listener can answer that address, so the probe is neither process-identity proof nor upstream credential health. Launchd inspection errors never become “unloaded.” A job loaded without an installed definition is reported separately.
 
 For authenticated storage/keyring posture, deliberately run the ordinary `agent-gateway --data-dir /installed/data/path status --address http://127.0.0.1:8210` command using the installed selections. That separate command reads an administrator bearer; service status does not. Never copy a bearer into a curl header argument. Inspect the reported stdout/stderr paths locally, retaining only necessary nonsecret evidence. See [safe serve diagnostics](administration.md#safe-serve-diagnostics) for levels, correlation and loss limits. Logs are not durable audit evidence and missing lines do not prove nonexecution.
 
