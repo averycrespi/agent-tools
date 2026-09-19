@@ -6,13 +6,14 @@ My tools for working with AI coding agents: sandboxed execution and controlled e
 
 ## Tools at a Glance
 
-| Tool                                          | Purpose                                              | Runs on         |
-| --------------------------------------------- | ---------------------------------------------------- | --------------- |
-| [Sandbox Manager (`sb`)](#sandbox-manager-sb) | Manage a Lima VM for agent execution                 | macOS host      |
-| [MCP Broker](#mcp-broker)                     | Apply rules and per-call human approval to MCP tools | Host            |
-| [Agent Gateway](#agent-gateway)               | Give agents scoped access to MCP tools               | Host            |
-| [HTTP Broker](#http-broker)                   | Inject credentials into proxied HTTP/HTTPS requests  | Host            |
-| [Local Git MCP](#local-git-mcp)               | Perform authenticated Git remote operations over MCP | Host subprocess |
+| Tool                                          | Purpose                                               | Runs on         |
+| --------------------------------------------- | ----------------------------------------------------- | --------------- |
+| [Sandbox Manager (`sb`)](#sandbox-manager-sb) | Manage a Lima VM for agent execution                  | macOS host      |
+| [MCP Broker](#mcp-broker)                     | Apply rules and per-call human approval to MCP tools  | Host            |
+| [Agent Gateway](#agent-gateway)               | Give agents scoped access to MCP tools                | Host            |
+| [HTTP Broker](#http-broker)                   | Inject credentials into proxied HTTP/HTTPS requests   | Host            |
+| [Local Git MCP](#local-git-mcp)               | Perform authenticated Git remote operations over MCP  | Host subprocess |
+| [TypeSafe MCP](#typesafe-mcp)                 | Evaluate agent-defined questions with TypeSafe models | Host subprocess |
 
 ## Choosing and Combining Tools
 
@@ -21,6 +22,7 @@ These tools are independent, not a mandatory stack:
 - **Execution:** Sandbox Manager provides an optional Lima VM. The access tools do not require the Pi coding agent, and Agent Gateway does not depend on Lima or a particular agent harness.
 - **MCP access:** Choose MCP Broker or Agent Gateway based on the permission model below. Both connect agents to backend MCP servers.
 - **Git access:** Run Local Git MCP as a stdio backend behind either Broker or Gateway, using that service's access controls and invocation history.
+- **Model evaluation:** Run TypeSafe MCP behind Gateway for agent-defined Choice, Score, and Noul questions, with explicit paid-inference authorization.
 - **Non-MCP traffic:** HTTP Broker handles ordinary HTTP/HTTPS clients. It complements MCP access rather than routing through it.
 
 ### MCP Broker or Agent Gateway?
@@ -95,6 +97,16 @@ See the [HTTP Broker README](http-broker/README.md) for setup and usage.
 
 See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
 
+### TypeSafe MCP
+
+`typesafe-mcp` is a stateless stdio backend for TypeSafe inference.
+
+- Exposes exactly `evaluate` and `list_models`, with strict input and response contracts.
+- Sends mixed agent-defined questions in one bounded, authenticated HTTPS request, without retries or action policy.
+- Reads only `TYPESAFE_API_KEY`, compatible with Gateway's secret environment slots.
+
+Inference discloses submitted data to TypeSafe and consumes quota. See the [TypeSafe MCP README](typesafe-mcp/README.md) for limits, privacy considerations, and secret-free Gateway configuration.
+
 ## Installation
 
 Requirements:
@@ -111,6 +123,7 @@ make -C mcp-broker install
 make -C agent-gateway install
 make -C http-broker install
 make -C local-git-mcp install
+make -C typesafe-mcp install
 ```
 
 Or install all tools:

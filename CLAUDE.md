@@ -10,6 +10,7 @@ agent-gateway/         Locally secure MCP gateway — see agent-gateway/CLAUDE.m
 sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 http-broker/         MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents — see http-broker/CLAUDE.md
+typesafe-mcp/        Stateless TypeSafe inference over stdio MCP — see typesafe-mcp/CLAUDE.md
 ```
 
 Each Go tool has its own `CLAUDE.md` with tool-specific instructions.
@@ -47,7 +48,7 @@ Gateway's `test` includes integration, harness, material, and demo-runner covera
 
 GitHub Actions selects affected tools on PRs and runs the full tool set on `main`, manual runs, and a weekly schedule. Go lint/unit, integration, E2E, and blocking vulnerability checks are tool-scoped. Gateway lint runs independently of its unit, integration, harness/material, E2E, and demo-runner leaves; both lint and correctness remain mandatory in Required. Gateway's source-derived suite planner keeps component, harness, and material coverage out of its dependency-light unit path without omitting it from CI. Gateway's integration and harness owners also execute on macOS, covering disposable service utilities, platform filesystem operations, and harness process supervision; its Go demo runner remains checked on Linux and macOS. These fixtures do not qualify native launchd or Keychain resources. Sandbox Manager retains its macOS unit tests. Formatting and CI classifier/gate tests always run. Scheduled vulnerability scans can catch new advisories without code changes.
 
-Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames.
+Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Gateway selection also selects TypeSafe MCP, whose integration owner executes Gateway's catalog schema contract. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames.
 
 Configure branch protection to require the stable **Required** check from the **CI** workflow rather than individual matrix jobs. When migrating from the old workflow, replace the old Unit tests (Linux), Integration tests, End-to-end tests, and Vulnerability scan requirements; conditional Sandbox Manager checks should also be covered by Required. The gate rejects failed, cancelled, missing, or unexpectedly skipped checks. Repository commits do not update GitHub branch-protection settings.
 

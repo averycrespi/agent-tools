@@ -13,7 +13,7 @@ from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = [
     "mcp-broker", "agent-gateway", "sandbox-manager", "local-git-mcp",
-    "http-broker",
+    "http-broker", "typesafe-mcp",
 ]
 
 
@@ -34,9 +34,10 @@ class SelectionTests(unittest.TestCase):
             for suffix in ("internal/main.go", "README.md", "test/fixture.json", "examples/config.yaml"):
                 with self.subTest(tool=tool, suffix=suffix):
                     result = self.select([f"{tool}/{suffix}"])
-                    self.assertEqual(result["tools"], [tool])
+                    expected = [tool, "typesafe-mcp"] if tool == "agent-gateway" else [tool]
+                    self.assertEqual(result["tools"], expected)
                     for suite in ("integration", "e2e"):
-                        self.assertEqual(result[suite], [tool] if tool in self.inventory[suite] else [])
+                        self.assertEqual(result[suite], [item for item in expected if item in self.inventory[suite]])
                     self.assertEqual(result["gateway"], tool == "agent-gateway")
                     self.assertEqual(result["sandbox"], tool == "sandbox-manager")
 
@@ -61,7 +62,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_tool_build_metadata_also_invalidates_gateway_contracts(self):
         for suffix in ("Makefile", "go.mod", "go.sum", ".golangci.yml"):
-            self.assertEqual(self.select([f"http-broker/{suffix}"])["tools"], ["agent-gateway", "http-broker"])
+            self.assertEqual(self.select([f"http-broker/{suffix}"])["tools"], ["agent-gateway", "http-broker", "typesafe-mcp"])
 
     def test_multiple_tools_are_unique_and_stably_ordered(self):
         self.assertEqual(self.select(["http-broker/a.go", "mcp-broker/b.go", "http-broker/c.go"])["tools"],
