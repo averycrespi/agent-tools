@@ -182,7 +182,7 @@ For **each known sandbox profile and each client launch environment** (interacti
 - Public-safe results of configuration validation, administrator-token rejection, project-versus-global authority and redaction tests; separately authorized MCP connectivity/admission evidence, if obtained.
 - Outcome, outstanding conflicts, operator, rollback choice and next action. Missing profiles/launchers stay explicitly unqualified; do not infer adoption from this repository's tests or CI.
 
-This source retirement does not inventory or mutate live profiles, start services, transfer real credentials, or claim deployment. The [installation migration guide](installation-migration.md#retired-executable-and-operator-cleanup) records the historical supported-scope attestation; it is not independently verified live-adoption evidence. Canonical-consumer qualification remains unrun; retaining the legacy exports keeps it outside this delivery's prerequisite.
+This source retirement does not inventory or mutate live profiles, start services, transfer real credentials, or claim deployment. The [installation safety guide](installation-safety.md#retired-executable-and-operator-cleanup) records the historical supported-scope attestation; it is not independently verified live-adoption evidence. Canonical-consumer qualification remains unrun; retaining the legacy exports keeps it outside this delivery's prerequisite.
 
 ## Create and inspect immutable grants
 

@@ -10,7 +10,7 @@ Run as the intended logged-in macOS user, without `sudo`. Management targets onl
 
 No service command initializes or opens the private database, reads a bearer, or accesses the native keyring. Lifecycle commands may inspect the existing installation lock without creating it or changing recovery markers. Readiness is not credential health: GUI login and the secret-free startup capability probe do not guarantee later Keychain access will avoid an attended prompt. Investigate unexpected prompts; never grant blanket access or place passwords in environment variables. See [native-keyring capability](../design/downstream-servers.md#keyring-capability-and-generation-cutover).
 
-Never put secrets in plist values, argv, environment variables or logs. Service management assumes completed canonical naming adoption; it does not inspect dual labels or import archived legacy plists. Existing migration and recovery remain separate [operator procedures](installation-migration.md).
+Never put secrets in plist values, argv, environment variables or logs. Service management assumes completed canonical naming adoption; it does not inspect dual labels or import archived legacy plists. The migrator is retired; follow [installation safety](installation-safety.md) for retained artifacts and [backup and recovery](backup-and-recovery.md) for actual recovery.
 
 ## Quick start
 

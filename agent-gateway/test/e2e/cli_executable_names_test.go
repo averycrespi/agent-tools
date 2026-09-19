@@ -80,12 +80,13 @@ func TestCLIExecutableNames(t *testing.T) {
 			assert.NotContains(t, string(rootCompletions.Stdout), "\ncatalog\t")
 			assert.Contains(t, string(rootCompletions.Stdout), "storage\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "\nrestore\t")
+			assert.NotContains(t, string(rootCompletions.Stdout), "installation\t")
 			for _, family := range []struct{ name, leaf string }{{"storage", "verify"}, {"backup", "restore"}} {
 				leaves, leafErr := runner.Run(t.Context(), filepath.Join(directory, name), "__complete", family.name, "")
 				require.NoError(t, leafErr)
 				assert.Contains(t, string(leaves.Stdout), family.leaf+"\t")
 			}
-			for _, retired := range []string{"server", "catalog", "restore"} {
+			for _, retired := range []string{"server", "catalog", "restore", "installation"} {
 				rejected, rejectedErr := runner.Run(t.Context(), filepath.Join(directory, name), retired, "list", "--json")
 				require.Error(t, rejectedErr)
 				assert.Empty(t, rejected.Stdout)
@@ -116,7 +117,9 @@ func TestCLIExecutableNames(t *testing.T) {
 				refused, runErr := runner.Run(t.Context(), binary, "initialize", "--json")
 				require.Error(t, runErr)
 				assert.Empty(t, refused.Stdout)
-				assert.Contains(t, string(refused.Stderr), "installation-migration.md")
+				assert.Contains(t, string(refused.Stderr), "installation-safety.md")
+				assert.Contains(t, string(refused.Stderr), "--data-dir")
+				assert.NotContains(t, string(refused.Stderr), "installation migrate")
 				_, statErr := os.Lstat(filepath.Join(base, "agent-gateway", "gateway.db"))
 				assert.ErrorIs(t, statErr, os.ErrNotExist)
 			}
