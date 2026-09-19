@@ -67,17 +67,6 @@ func TestRestoreAcceptedSchemaLineages(t *testing.T) {
 				backupID := fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5F%02d", schema)
 				installRestoreArtifact(t, layout, fixturePath, backupID)
 
-				// Relocation preserves historical artifact bytes and installation binding;
-				// the existing count-one lineage owner still performs the actual restore.
-				root = layout.Root
-				require.NoError(t, os.Chmod(filepath.Dir(root), 0o700))
-				destination := filepath.Join(filepath.Dir(root), "agent-gateway")
-				relocation, err := gatewaypaths.InspectRelocation(root, destination)
-				require.NoError(t, err)
-				require.NoError(t, relocation.Commit())
-				require.NoError(t, relocation.Close())
-				root = destination
-
 				_, err = Restore(ctx, RestoreOptions{
 					Root: root, BackupID: backupID, Sink: new(captureSink), Clock: clock,
 					Entropy: bytes.NewReader(restoreTestEntropy(0xA2, 4096)),

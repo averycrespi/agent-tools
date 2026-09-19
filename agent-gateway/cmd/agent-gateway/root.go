@@ -61,7 +61,6 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),
 		newStorageCmd(dependencies),
-		newInstallationCmd(),
 		newServiceCmd(),
 		newServeCmd(dependencies),
 	)
@@ -76,6 +75,13 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	}
 	command.Long = command.Short + ".\n\nOnly agent-gateway is published. Renaming a current binary does not change\nits commands, installation, credentials, or process lock. Operator clients\nmust upgrade with the service for the API v2 and mcp command namespaces."
 	return command
+}
+
+func installationSelectionProblem(err error) *controlclient.OnlineError {
+	if errors.Is(err, gatewaypaths.ErrExplicitSelectionRequired) {
+		return controlclient.NewInputError("Legacy installation selection is ambiguous. Select the existing --data-dir explicitly and consult docs/operators/installation-safety.md; retain tombstones and recovery artifacts, and do not initialize another root.")
+	}
+	return controlclient.NewInputError("The selected data directory is invalid.")
 }
 
 func newServeCmd(dependencies offlineDependencies) *cobra.Command {

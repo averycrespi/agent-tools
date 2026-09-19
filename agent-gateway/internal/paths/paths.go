@@ -21,10 +21,10 @@ const (
 )
 
 var (
-	ErrUnsafePath        = errors.New("unsafe installation path")
-	ErrInUse             = errors.New("installation is already in use")
-	ErrClosed            = errors.New("installation ownership is closed")
-	ErrMigrationRequired = errors.New("installation selection requires explicit migration or --data-dir; see docs/operators/installation-migration.md")
+	ErrUnsafePath                = errors.New("unsafe installation path")
+	ErrInUse                     = errors.New("installation is already in use")
+	ErrClosed                    = errors.New("installation ownership is closed")
+	ErrExplicitSelectionRequired = errors.New("installation selection requires explicit --data-dir; retain legacy artifacts and see docs/operators/installation-safety.md")
 )
 
 type Layout struct {
@@ -79,11 +79,11 @@ func resolveInstallation(explicitRoot, xdgDataHome string, home func() (string, 
 	if explicitRoot == "" {
 		legacy := filepath.Join(filepath.Dir(root), LegacyInstallationName)
 		if _, err := os.Lstat(legacy); err == nil {
-			if !RelocationCompleted(legacy, root) {
-				return Layout{}, ErrMigrationRequired
+			if !relocationCompleted(legacy, root) {
+				return Layout{}, ErrExplicitSelectionRequired
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return Layout{}, ErrMigrationRequired
+			return Layout{}, ErrExplicitSelectionRequired
 		}
 	}
 	return layoutForRoot(root), nil
