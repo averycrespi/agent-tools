@@ -42,11 +42,11 @@ func newClient(key string, transport http.RoundTripper) *Client {
 // Call never logs payloads or returns provider error text. Every dispatch is one attempt.
 func (c *Client) Call(ctx context.Context, name string, arguments any) (any, error) {
 	if name != "evaluate" && name != "list_models" {
-		return nil, errors.New("validation: unknown tool")
+		return nil, safeFailure("validation: unknown tool", "validation", "admission")
 	}
 	data, err := json.Marshal(arguments)
 	if err != nil || len(data) > MaxRequestBytes || !BoundedJSON(data, MaxDepth) || !valid(name, arguments) {
-		return nil, errors.New("validation: arguments violate schema or request byte/depth limit")
+		return nil, safeFailure("validation: arguments violate schema or request byte/depth limit", "validation", "admission")
 	}
 	if ctx.Err() != nil {
 		return nil, contextError(ctx.Err())
@@ -55,7 +55,7 @@ func (c *Client) Call(ctx context.Context, name string, arguments any) (any, err
 	case c.slots <- struct{}{}:
 		defer func() { <-c.slots }()
 	default:
-		return nil, errors.New("capacity: four upstream requests already in flight; no dispatch")
+		return nil, safeFailure("capacity: four upstream requests already in flight; no dispatch", "capacity", "admission")
 	}
 	ctx, cancel := context.WithTimeout(ctx, DefaultDeadline)
 	defer cancel()
@@ -64,14 +64,14 @@ func (c *Client) Call(ctx context.Context, name string, arguments any) (any, err
 	if name == "evaluate" {
 		var args object
 		if json.Unmarshal(data, &args) != nil {
-			return nil, errors.New("validation: invalid arguments")
+			return nil, safeFailure("validation: invalid arguments", "validation", "admission")
 		}
 		if _, ok := args["model"]; !ok {
 			args["model"] = "jev-latest"
 		}
 		data, _ = json.Marshal(args)
 		if len(data) > MaxRequestBytes {
-			return nil, errors.New("validation: request exceeds byte limit including default model")
+			return nil, safeFailure("validation: request exceeds byte limit including default model", "validation", "admission")
 		}
 		arguments = args
 		path, method = "/v1/systemone", http.MethodPost
@@ -79,7 +79,7 @@ func (c *Client) Call(ctx context.Context, name string, arguments any) (any, err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, origin+path, body)
 	if err != nil {
-		return nil, errors.New("validation: cannot construct request")
+		return nil, safeFailure("validation: cannot construct request", "validation", "admission")
 	}
 	// Disallow replay even if a future transport change enables connection reuse.
 	req.GetBody = nil
@@ -101,26 +101,26 @@ func (c *Client) Call(ctx context.Context, name string, arguments any) (any, err
 		return nil, contextError(err)
 	}
 	if len(data) > MaxResponseBytes {
-		return nil, errors.New("response_limit: provider response exceeds 512 KiB; no retry")
+		return nil, safeFailure("response_limit: provider response exceeds 512 KiB; no retry", "response_limit", "response_decode")
 	}
 	var value any
 	if !BoundedJSON(data, MaxDepth) || json.Unmarshal(data, &value) != nil {
-		return nil, errors.New("malformed_response: invalid JSON or nesting; no retry")
+		return nil, safeFailure("malformed_response: invalid JSON or nesting; no retry", "json_decode", "response_decode")
 	}
 	schema := "models_result"
 	if name == "evaluate" {
 		schema = "evaluate_result"
 	}
 	if !valid(schema, value) {
-		return nil, errors.New("malformed_response: provider result violates response contract; no retry")
+		return nil, safeFailure("malformed_response: provider result violates response contract; no retry", "response_contract", "response_validation")
 	}
 	if name == "evaluate" && !corresponds(arguments.(object), value.(object)) {
-		return nil, errors.New("malformed_response: answers do not correspond to questions; no retry")
+		return nil, safeFailure("malformed_response: answers do not correspond to questions; no retry", "response_contract", "response_validation")
 	}
 	if name == "list_models" {
 		for _, v := range value.(object)["models"].([]any) {
 			if _, err := time.Parse("2006-01-02", v.(object)["release_date"].(string)); err != nil {
-				return nil, errors.New("malformed_response: invalid release date; no retry")
+				return nil, safeFailure("malformed_response: invalid release date; no retry", "response_contract", "response_validation")
 			}
 		}
 	}
@@ -129,13 +129,13 @@ func (c *Client) Call(ctx context.Context, name string, arguments any) (any, err
 
 func contextError(err error) error {
 	if errors.Is(err, context.Canceled) {
-		return errors.New("canceled: request canceled; upstream effect may have occurred; no retry")
+		return safeFailure("canceled: request canceled; upstream effect may have occurred; no retry", "canceled", "exchange")
 	}
 	var network net.Error
 	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &network) && network.Timeout()) {
-		return errors.New("deadline: request timed out; upstream effect may have occurred; no retry")
+		return safeFailure("deadline: request timed out; upstream effect may have occurred; no retry", "timeout", "exchange")
 	}
-	return errors.New("transport: exchange failed; upstream effect may have occurred; no retry")
+	return safeFailure("transport: exchange failed; upstream effect may have occurred; no retry", "transport", "exchange")
 }
 func statusError(response *http.Response) error {
 	category := "upstream"
@@ -162,7 +162,25 @@ func statusError(response *http.Response) error {
 			guidance = "; retry-after " + date.UTC().Format(http.TimeFormat)
 		}
 	}
-	return fmt.Errorf("%s: provider HTTP %d%s; no automatic retry", category, response.StatusCode, guidance)
+	diagnostic := FailureDiagnostic{Version: 1, Category: category, Phase: "response_status"}
+	if response.StatusCode >= 100 && response.StatusCode <= 599 {
+		status := response.StatusCode
+		diagnostic.HTTPStatus = &status
+	}
+	if values := response.Header.Values("Retry-After"); len(values) == 1 {
+		seconds, err := strconv.ParseUint(values[0], 10, 32)
+		if err == nil && seconds <= 86400 {
+			delta := int(seconds)
+			diagnostic.RetryAfterSeconds = &delta
+		} else if date, err := http.ParseTime(values[0]); err == nil {
+			delta := math.Ceil(time.Until(date).Seconds())
+			if delta >= 0 && delta <= 86400 {
+				seconds := int(delta)
+				diagnostic.RetryAfterSeconds = &seconds
+			}
+		}
+	}
+	return &failure{message: fmt.Sprintf("%s: provider HTTP %d%s; no automatic retry", category, response.StatusCode, guidance), diagnostic: diagnostic}
 }
 
 func corresponds(request, response object) bool {

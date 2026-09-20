@@ -23,6 +23,7 @@ type CallOutcome struct {
 	Result        *ProjectedCallResult
 	ErrorCode     contract.AgentCallErrorCode
 	TerminalClass contract.InvocationTerminalClass
+	Diagnostics   *contract.FailureDiagnostics
 }
 
 type LocalFailure uint8
@@ -100,24 +101,46 @@ func SanitizeCallResult(result downstream.CallResult) CallOutcome {
 	if result.Err != nil {
 		switch result.Failure {
 		case downstream.FailurePreStart:
-			return failedOutcome(contract.ToolUnavailable, contract.TerminalPrestartFailure)
+			return diagnosedOutcome(contract.ToolUnavailable, contract.TerminalPrestartFailure, "transport", "prestart")
 		case downstream.FailureResponseInvalid:
-			return failedOutcome(contract.DownstreamFailure, contract.TerminalDownstreamFailure)
+			return diagnosedOutcome(contract.DownstreamFailure, contract.TerminalDownstreamFailure, "protocol", "invalid_response")
 		default:
-			return failedOutcome(contract.OutcomeUnknown, contract.TerminalOutcomeUnknown)
+			return diagnosedOutcome(contract.OutcomeUnknown, contract.TerminalOutcomeUnknown, "transport", "handoff_uncertain")
 		}
 	}
 	if result.Failure != "" {
-		return failedOutcome(contract.OutcomeUnknown, contract.TerminalOutcomeUnknown)
+		return diagnosedOutcome(contract.OutcomeUnknown, contract.TerminalOutcomeUnknown, "transport", "handoff_uncertain")
 	}
 	if result.Response.Error != nil {
-		return failedOutcome(contract.DownstreamFailure, contract.TerminalDownstreamFailure)
+		return diagnosedOutcome(contract.DownstreamFailure, contract.TerminalDownstreamFailure, "protocol", "rpc_error")
 	}
 	projected, toolError, ok := projectCallResult(result.Response.Result)
-	if !ok || toolError {
-		return failedOutcome(contract.DownstreamFailure, contract.TerminalDownstreamFailure)
+	if !ok {
+		return diagnosedOutcome(contract.DownstreamFailure, contract.TerminalDownstreamFailure, "result_validation", "result_shape")
+	}
+	if toolError {
+		outcome := diagnosedOutcome(contract.DownstreamFailure, contract.TerminalDownstreamFailure, "tool", "reported_error")
+		outcome.Diagnostics.ServerReported = serverDiagnostic(result.Response.Result)
+		return outcome
 	}
 	return CallOutcome{Result: projected, TerminalClass: contract.TerminalSucceeded}
+}
+
+func diagnosedOutcome(code contract.AgentCallErrorCode, terminal contract.InvocationTerminalClass, source, reason string) CallOutcome {
+	outcome := failedOutcome(code, terminal)
+	outcome.Diagnostics = &contract.FailureDiagnostics{GatewayObserved: contract.FailureObservation{Source: source, Reason: reason}}
+	return outcome
+}
+
+func serverDiagnostic(raw json.RawMessage) *contract.ServerFailureDiagnostic {
+	// The complete result already passed strict shape validation; metadata never determines its outcome.
+	var result struct {
+		Meta map[string]json.RawMessage `json:"_meta"`
+	}
+	if json.Unmarshal(raw, &result) != nil {
+		return nil
+	}
+	return contract.ParseServerFailureDiagnostic(result.Meta[contract.FailureDiagnosticMetaKey])
 }
 
 func failedOutcome(code contract.AgentCallErrorCode, terminal contract.InvocationTerminalClass) CallOutcome {

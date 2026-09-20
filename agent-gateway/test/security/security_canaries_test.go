@@ -240,7 +240,7 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 	for _, forbidden := range []string{`"stdout"`, `"stderr"`, `"error"`, `"output"`} {
 		assert.NotContains(t, string(reportSchema), forbidden)
 	}
-	assert.Equal(t, []string{"AdmissionClass", "AdmittedAt", "AuthorizationDecision", "AuthorizationRevision", "CompletedAt", "CredentialFingerprint", "CredentialID", "CredentialRevision", "DescriptorFingerprint", "DescriptorRevision", "EvaluatedAt", "GrantID", "InvocationID", "PrincipalID", "RedactedArguments", "RequestedName", "Sequence", "ServerID", "TerminalClass", "ToolID", "UpstreamName"}, exportedFields(reflect.TypeOf(contract.InvocationAuditRecord{})))
+	assert.Equal(t, []string{"AdmissionClass", "AdmittedAt", "AuthorizationDecision", "AuthorizationRevision", "CompletedAt", "CredentialFingerprint", "CredentialID", "CredentialRevision", "DescriptorFingerprint", "DescriptorRevision", "Diagnostics", "EvaluatedAt", "GrantID", "InvocationID", "PrincipalID", "RedactedArguments", "RequestedName", "Sequence", "ServerID", "TerminalClass", "ToolID", "UpstreamName"}, exportedFields(reflect.TypeOf(contract.InvocationAuditRecord{})))
 
 	assert.Equal(t, []string{"Action", "Actor", "Category", "CorrelationID", "ID", "Initiator", "Outcome", "Phase", "Sequence", "Target", "Timestamp"}, exportedFields(reflect.TypeOf(contract.AuditSummary{})))
 	assert.Equal(t, []string{"AuditSummary", "Detail"}, exportedFields(reflect.TypeOf(contract.AuditEvent{})))

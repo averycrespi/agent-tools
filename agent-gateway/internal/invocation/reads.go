@@ -14,7 +14,7 @@ const invocationSummarySelect = `SELECT insertion_sequence, id, principal_id, cr
 	credential_revision, admitted_at, admission_class, requested_name,
 	CASE WHEN redacted_arguments IS NULL THEN NULL ELSE '{}' END,
 	server_id, tool_id, upstream_name, descriptor_revision, descriptor_fingerprint,
-	decision, authorization_revision, evaluated_at, grant_id, completed_at, terminal_class
+	decision, authorization_revision, evaluated_at, grant_id, completed_at, terminal_class, NULL
 	FROM invocations`
 
 func (repository *Repository) Get(ctx context.Context, invocationID string) (contract.Invocation, error) {

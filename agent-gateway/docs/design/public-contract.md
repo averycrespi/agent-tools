@@ -269,6 +269,7 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `constraint_regex_work_bytes`                 |    1048576 |
 | `invocation_audit_rows`                       |      65536 |
 | `invocation_argument_capture_bytes`           |       8192 |
+| `invocation_failure_diagnostic_bytes`         |        512 |
 | `discoverable_tools`                          |       2054 |
 | `grant_requests`                              |       4096 |
 | `pending_grant_requests_per_principal`        |        128 |

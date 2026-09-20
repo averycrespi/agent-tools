@@ -22,6 +22,7 @@ const (
 	fixtureCallSuccess        fixtureCallOutcome = "success"
 	fixtureCallPrivateSuccess fixtureCallOutcome = "private_success"
 	fixtureCallToolError      fixtureCallOutcome = "tool_error"
+	fixtureCallDiagnostic     fixtureCallOutcome = "diagnostic"
 	fixtureCallMalformed      fixtureCallOutcome = "malformed_response"
 	fixtureCallUncertain      fixtureCallOutcome = "uncertain_handoff"
 	fixtureSuccessText                           = "fixture success"
@@ -164,7 +165,7 @@ func (fixture *rawHTTPFixture) LoseSession() {
 
 func (fixture *rawHTTPFixture) SetCallOutcome(outcome fixtureCallOutcome) {
 	fixture.t.Helper()
-	require.Contains(fixture.t, []fixtureCallOutcome{fixtureCallSuccess, fixtureCallPrivateSuccess, fixtureCallToolError, fixtureCallMalformed, fixtureCallUncertain}, outcome)
+	require.Contains(fixture.t, []fixtureCallOutcome{fixtureCallSuccess, fixtureCallPrivateSuccess, fixtureCallToolError, fixtureCallDiagnostic, fixtureCallMalformed, fixtureCallUncertain}, outcome)
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
 	fixture.callOutcome = outcome
@@ -289,6 +290,9 @@ func (fixture *rawHTTPFixture) serveHTTP(writer http.ResponseWriter, request *ht
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":[{"type":"text","text":"`+fixturePrivateSuccessText+`"}]}`))
 		case fixtureCallToolError:
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":[{"type":"text","text":"`+fixtureToolErrorText+`"}],"isError":true}`))
+		case fixtureCallDiagnostic:
+			writer.Header().Set("X-Secret", fixtureToolErrorText)
+			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":[{"type":"text","text":"`+fixtureToolErrorText+`"}],"isError":true,"_meta":{"raw":"`+fixtureToolErrorText+`","io.github.averycrespi.agent-tools/failure":{"version":1,"category":"rate_limit","phase":"response_status","http_status":429,"retry_after_seconds":12}}}`))
 		case fixtureCallMalformed:
 			_, _ = io.WriteString(writer, rpcResult(envelope.ID, `{"content":"malformed"}`))
 		case fixtureCallUncertain:
