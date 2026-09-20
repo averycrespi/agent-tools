@@ -44,6 +44,12 @@ func TestValidationDetailsClosedContract(t *testing.T) {
 	}
 }
 
+func TestReleaseDateExplanation(t *testing.T) {
+	v := ValidationViolation{Code: "invalid_date", Path: "$.models.[].release_date", Rule: "date"}
+	require.True(t, v.valid())
+	require.Equal(t, "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp", v.Explanation())
+}
+
 func TestValidationDetailsBounds(t *testing.T) {
 	d := ParseServerFailureDiagnostic([]byte(validationFixture))
 	require.NotNil(t, d)

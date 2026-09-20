@@ -2237,9 +2237,9 @@ export async function runInvocations(
   argumentCapture = {};
   await page.getByTestId("manual-refresh").click();
   for (const text of [
-    "Invalid calendar date; expected YYYY-MM-DD",
     "$.models.[].release_date",
     "Response validation failed",
+    "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp",
     "Required field is missing",
     "Wrong value type",
     "models_result",

@@ -140,7 +140,13 @@ func semanticResponseViolations(name string, request object, value any) []Valida
 		if !ok {
 			continue
 		}
-		if _, err := time.Parse("2006-01-02", date); err != nil {
+		layout := time.DateOnly
+		if strings.ContainsAny(date, "Tt") {
+			layout = time.RFC3339Nano
+		}
+		// The schema enforces lexical/timezone bounds; parsing checks calendar validity.
+		// Validate only: return the original string, including its precision and offset.
+		if _, err := time.Parse(layout, strings.ToUpper(date)); err != nil {
 			return []ValidationViolation{{Code: "invalid_date", Path: "$.models.[].release_date", Rule: "date"}}
 		}
 	}

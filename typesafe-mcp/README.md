@@ -82,7 +82,7 @@ The default `jev-latest` alias can change behavior. Set an explicit version such
 
 ### `list_models`
 
-Arguments: `{}`. Makes one authenticated `GET https://api.typesafe.ai/v1/models`. Structured output is `{"models":[{"name":"...","description":"...","release_date":"YYYY-MM-DD"}]}`. Listing is informational, not a model allowlist. Annotated read-only, idempotent, non-destructive, open-world.
+Arguments: `{}`. Makes one authenticated `GET https://api.typesafe.ai/v1/models`. Structured output is `{"models":[{"name":"...","description":"...","release_date":"YYYY-MM-DD"}]}`. `release_date` accepts a valid `YYYY-MM-DD` calendar date or RFC 3339 timestamp (case-insensitive `T`/`Z`, optional fractional seconds, and `Z` or a numeric UTC offset), for example `2026-09-10T18:38:01.391457+00:00`. Values are preserved verbatim, without dropping time, precision, or offset. Invalid calendar dates and malformed timestamps are rejected. Listing is informational, not a model allowlist. Annotated read-only, idempotent, non-destructive, open-world.
 
 ## Fixed resource limits and failures
 
