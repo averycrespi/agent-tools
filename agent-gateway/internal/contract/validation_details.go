@@ -80,7 +80,7 @@ func (v ValidationViolation) Explanation() string {
 	case "type":
 		return "Wrong value type"
 	case "invalid_date":
-		return "Invalid calendar date; expected YYYY-MM-DD"
+		return "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp"
 	case "correspondence":
 		return "Answers do not correspond to the submitted questions"
 	default:

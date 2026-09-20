@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const modelReleaseFixture = `{"models":[{"name":"jev-latest","description":"fixture current","release_date":"2026-09-10T18:38:01.391457+00:00"},{"name":"jev-preview","description":"fixture preview","release_date":"2026-09-10T18:39:06.057655+00:00"},{"name":"date-only","description":"fixture compatibility","release_date":"2026-09-15"},{"name":"lowercase","description":"fixture lowercase separators","release_date":"2026-09-10t18:38:01z"}]}`
+
 func TestIntegrationStdioAndGatewayCatalog(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
@@ -53,7 +55,7 @@ func TestIntegrationStdioAndGatewayCatalog(t *testing.T) {
 		switch r.URL.Path {
 		case "/v1/models":
 			require.Equal(t, http.MethodGet, r.Method)
-			_, _ = io.WriteString(w, `{"models":[{"name":"jev-latest","description":"fixture","release_date":"2026-09-15"}]}`)
+			_, _ = io.WriteString(w, modelReleaseFixture)
 		case "/v1/systemone":
 			require.Equal(t, http.MethodPost, r.Method)
 			_, _ = io.WriteString(w, `{"model":"jev-1.13.0","answers":{"q":{"type":"noul","noul":0.75}},"usage":{"input_tokens":1,"output_tokens":2}}`)
@@ -140,6 +142,13 @@ func TestIntegrationStdioAndGatewayCatalog(t *testing.T) {
 		require.Nil(t, response["error"])
 		require.Contains(t, string(response["result"]), `"structuredContent"`)
 		require.NotContains(t, string(response["result"]), `"isError":true`)
+		if name == "list_models" {
+			var result struct {
+				StructuredContent json.RawMessage `json:"structuredContent"`
+			}
+			require.NoError(t, json.Unmarshal(response["result"], &result))
+			require.JSONEq(t, modelReleaseFixture, string(result.StructuredContent))
+		}
 	}
 	response = call("tools/call", map[string]any{"name": "list_models", "arguments": map[string]any{"secret": "never dispatch"}})
 	require.Contains(t, string(response["result"]), `"isError":true`)

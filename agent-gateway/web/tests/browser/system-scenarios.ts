@@ -2222,6 +2222,11 @@ export async function runInvocations(
         schema: "models_result",
         version: 1,
         violations: [
+          {
+            code: "invalid_date",
+            path: "$.models.[].release_date",
+            rule: "date",
+          },
           { code: "missing", path: "$.models.[].name", rule: "required" },
           {
             code: "type",
@@ -2238,6 +2243,7 @@ export async function runInvocations(
   await page.getByTestId("manual-refresh").click();
   for (const text of [
     "Response validation failed",
+    "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp",
     "Required field is missing",
     "Wrong value type",
     "models_result",
