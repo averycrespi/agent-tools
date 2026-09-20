@@ -94,12 +94,20 @@ type CredentialRevisions struct {
 	OAuthTokens      string `json:"oauth_tokens"`
 }
 
+// DiagnosticCorrelation is an optional current-process observation, not authority.
+// Decimal text preserves the full uint64 reference in browser clients.
+type DiagnosticCorrelation struct {
+	ProcessID   string `json:"process_id"`
+	UpstreamRef string `json:"upstream_ref"`
+}
+
 type ServerRuntime struct {
-	State          RuntimeState  `json:"state"`
-	Reason         *PublicReason `json:"reason"`
-	RuntimeID      *string       `json:"runtime_id"`
-	Reconciliation LimitStatus   `json:"reconciliation"`
-	Dispatch       LimitStatus   `json:"dispatch"`
+	DiagnosticCorrelation *DiagnosticCorrelation `json:"diagnostic_correlation,omitempty"`
+	State                 RuntimeState           `json:"state"`
+	Reason                *PublicReason          `json:"reason"`
+	RuntimeID             *string                `json:"runtime_id"`
+	Reconciliation        LimitStatus            `json:"reconciliation"`
+	Dispatch              LimitStatus            `json:"dispatch"`
 }
 
 type ServerCatalog struct {

@@ -98,7 +98,7 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 
 func newGatewayHarnessContext(t *testing.T, ctx context.Context) *gatewayHarness {
 	t.Helper()
-	runner, err := testutil.NewBinaryRunner(gatewayProcessDeadline, 128*1024)
+	runner, err := testutil.NewBinaryRunner(gatewayHarnessProcessDeadline, 128*1024)
 	require.NoError(t, err)
 	harness := &gatewayHarness{
 		t: t, ctx: ctx, binary: gatewayBinary(t), root: filepath.Join(t.TempDir(), "gateway"),

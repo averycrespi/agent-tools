@@ -625,6 +625,9 @@ export async function runFragmentStorage(
     assertClosedStorage(await browserStorage(page), preference);
   }
   await page.reload({ waitUntil: "domcontentloaded" });
+  // Theme rendering precedes bootstrap settlement; do not unload the request
+  // while the protocol owner is still collecting its complete Origin headers.
+  await waitForLifecycle(page, "signed_out");
   if (
     (await page.locator('[data-testid="theme-preference"]').inputValue()) !==
     "system"
@@ -638,6 +641,7 @@ export async function runFragmentStorage(
     localStorage.setItem("agent_gateway_theme", canary);
   }, storageCanary);
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForLifecycle(page, "signed_out");
   assertClosedStorage(await browserStorage(page));
 
   for (const [legacy, canonical, expected] of [

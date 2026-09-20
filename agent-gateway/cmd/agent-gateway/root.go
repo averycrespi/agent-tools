@@ -196,7 +196,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	runtime, err := newComposition(composition.Options{
 		Store: store, InstallationID: identity.InstallationID, CallbackURL: "http://" + authority + "/oauth/callback",
 		Clock: dependencies.clock, Entropy: dependencies.entropy, Invalidate: eventHub.Publish, Ready: ready.Load,
-		Diagnostics: dependencies.diagnostics,
+		Diagnostics:         dependencies.diagnostics,
+		DiagnosticProcessID: dependencies.diagnostics.ProcessID(),
 	})
 	if err != nil {
 		return false, err
@@ -277,7 +278,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		OperationState: runtime.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
 			status := runtime.RuntimeStatus(serverID)
-			return api.RuntimeStatus{State: status.State, Reason: status.Reason, RuntimeID: status.RuntimeID, CredentialState: status.CredentialState, CatalogState: status.CatalogState, Reconciliation: status.Reconciliation}
+			return api.RuntimeStatus{DiagnosticCorrelation: runtime.DiagnosticCorrelation(serverID), State: status.State, Reason: status.Reason, RuntimeID: status.RuntimeID, CredentialState: status.CredentialState, CatalogState: status.CatalogState, Reconciliation: status.Reconciliation}
 		},
 		TriggerServer:    runtime.TriggerServer,
 		CatalogTraversal: runtime.CatalogServerStatus,

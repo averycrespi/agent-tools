@@ -52,6 +52,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		supplyScript    = "agent-gateway/web/scripts/verify-supply-chain.mjs"
 	)
 	nodeFoundationDefinitions := []string{
+		"agent-gateway/web/tests/diagnostic-correlation.test.ts", "agent-gateway/web/src/diagnostic-correlation.ts",
 		"agent-gateway/web/tests/pending-requests.test.ts", "agent-gateway/web/src/pending-requests.ts",
 		"agent-gateway/web/tests/foundations.test.ts", "agent-gateway/web/tests/invocation-query.test.ts", "agent-gateway/web/tests/location.test.ts", "agent-gateway/web/tests/mutation-contract.test.ts",
 		"agent-gateway/web/src/session.ts", "agent-gateway/web/src/view.ts", "agent-gateway/web/src/mutation.ts", "agent-gateway/web/src/sinks.ts", "agent-gateway/web/src/location.ts", "agent-gateway/web/src/invocation-query.ts",
@@ -85,7 +86,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		}, 2*time.Minute, 5*time.Minute, 20, 0, 0, []string{"five targeted race scenario results"}),
 		"test-keyring-native": leaf("test-keyring-native", []string{"tier.native.keyring"}, 10*time.Second, 30*time.Second, 1, 0, 0, []string{"typed native keyring classification"}, "agent-gateway/test/keyring-native.sh"),
 
-		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 3*time.Minute, 210*time.Second, 1, 35, 35, []string{"browser workflow output", "browser cleanup records"}, "agent-gateway/test/e2e/harness_test.go"),
+		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 5*time.Minute, 6*time.Minute, 1, 36, 35, []string{"browser workflow output", "browser cleanup records"}, "agent-gateway/test/e2e/harness_test.go"),
 		"test-browser-privacy":       leaf("test-browser-privacy", []string{"security.browser.storage", "frontend.privacy"}, 30*time.Second, 45*time.Second, 1, 1, 1, []string{"secret canary scan", "browser cleanup records"}, "agent-gateway/test/e2e/browser_secret_storage_privacy_test.go"),
 		"test-browser-visual":        leaf("test-browser-visual", []string{"tier.browser.visual", "product.interface.developer_first"}, 60*time.Second, 75*time.Second, 1, 1, 1, []string{"deterministic visual matrix output"}, "agent-gateway/test/e2e/browser_visual_responsive_test.go"),
 		"test-browser-accessibility": leaf("test-browser-accessibility", []string{"tier.browser.accessibility", "product.browser.accessibility_responsive"}, 45*time.Second, 60*time.Second, 1, 1, 1, []string{"automated accessibility output"}, "agent-gateway/test/e2e/browser_accessibility_test.go"),
@@ -106,6 +107,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	leaves[nodeLeaf.ID] = nodeLeaf
 
 	browserDefinitions := []string{
+		"agent-gateway/test/e2e/harness_deadline_browser_test.go",
 		"agent-gateway/web/tests/browser/pending-requests.ts", "agent-gateway/web/src/pending-requests.ts",
 		"agent-gateway/web/tests/browser-coordinator.ts", "agent-gateway/web/tests/collection-pagination.ts", "agent-gateway/web/tests/visual-matrix.ts",
 		"agent-gateway/web/tests/browser/shared.ts", "agent-gateway/web/tests/browser/fixtures.ts",

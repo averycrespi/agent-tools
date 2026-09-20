@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -18,6 +21,8 @@ import (
 )
 
 type upstreamDiagnosticRecord struct {
+	ProcessID   string `json:"process_id"`
+	Action      string `json:"action"`
 	Event       string `json:"event"`
 	Level       string `json:"level"`
 	Upstream    uint64 `json:"upstream_ref"`
@@ -77,7 +82,6 @@ func TestUpstreamDiagnosticsRealBinaryRetryAndRecovery(t *testing.T) {
 	}))
 	t.Cleanup(endpoint.Close)
 	harness := newGatewayHarness(t)
-	harness.serveArgs = append(harness.serveArgs, "--log-level", "debug")
 	harness.Start()
 	request, err := json.Marshal(map[string]any{"namespace": "private-diagnostic-namespace", "display_name": "Private diagnostic display", "enabled": true, "transport": map[string]any{"kind": "streamable_http", "url": endpoint.URL + "/mcp", "protocol_mode": "modern", "authentication": map[string]string{"mode": "none"}}})
 	require.NoError(t, err)
@@ -89,32 +93,76 @@ func TestUpstreamDiagnosticsRealBinaryRetryAndRecovery(t *testing.T) {
 	waitForStdioServer(t, harness, created.Server.ID, func(server stdioServerView) bool {
 		return server.Runtime.State == contract.RuntimeActive && server.Catalog.ActiveState == contract.ActiveCatalogCurrent
 	})
+	var current struct {
+		Runtime contract.ServerRuntime `json:"runtime"`
+	}
+	decodeSnapshot(t, harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+created.Server.ID, nil), http.StatusOK, &current)
+	require.NotNil(t, current.Runtime.DiagnosticCorrelation)
+	correlation := current.Runtime.DiagnosticCorrelation
+	secondRequest := bytes.Replace(request, []byte("private-diagnostic-namespace"), []byte("private-concurrent-namespace"), 1)
+	var second stdioCreation
+	decodeSnapshot(t, harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/mcp/servers", secondRequest, map[string]string{"Idempotency-Key": "concurrent-diagnostic-server"}), http.StatusCreated, &second)
+	waitForStdioServer(t, harness, second.Server.ID, func(server stdioServerView) bool { return server.Runtime.State == contract.RuntimeActive })
+	var concurrent struct {
+		Runtime contract.ServerRuntime `json:"runtime"`
+	}
+	decodeSnapshot(t, harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+second.Server.ID, nil), http.StatusOK, &concurrent)
+	require.NotNil(t, concurrent.Runtime.DiagnosticCorrelation)
+	require.Equal(t, correlation.ProcessID, concurrent.Runtime.DiagnosticCorrelation.ProcessID)
+	require.NotEqual(t, correlation.UpstreamRef, concurrent.Runtime.DiagnosticCorrelation.UpstreamRef)
+	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
+	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
+	for _, mode := range []string{"human", "json"} {
+		cli, cliErr := harness.runner.Run(t.Context(), harness.binary, "mcp", "server", "get", created.Server.ID, "--address", "http://"+harness.authority, "--admin-bearer-file", bearerPath, "--output", mode)
+		require.NoError(t, cliErr)
+		require.Empty(t, cli.Stderr)
+		require.Contains(t, string(cli.Stdout), correlation.ProcessID)
+		if mode == "json" {
+			var read struct {
+				Runtime contract.ServerRuntime `json:"runtime"`
+			}
+			require.NoError(t, json.Unmarshal(cli.Stdout, &read))
+			require.Equal(t, correlation, read.Runtime.DiagnosticCorrelation)
+		} else {
+			require.Contains(t, string(cli.Stdout), "UPSTREAM_REF")
+		}
+	}
 	result := harness.Stop(syscall.SIGTERM)
 	var ref uint64
-	var failed, retry, recovered bool
-	attempts := map[uint64]bool{}
+	var failed, recovered bool
 	for _, record := range upstreamDiagnosticRecords(t, result.Stderr) {
 		switch record.Event {
-		case "upstream_attempt_start":
-			attempts[record.Attempt] = true
 		case "upstream_unhealthy":
 			require.Equal(t, "WARN", record.Level)
 			require.Equal(t, "mcp_initialization", record.Phase)
 			require.Equal(t, "retry_scheduled", record.Disposition)
+			require.Equal(t, "wait_scheduled_retry", record.Action)
+			require.Equal(t, correlation.ProcessID, record.ProcessID)
+			require.Equal(t, correlation.UpstreamRef, strconv.FormatUint(record.Upstream, 10))
 			ref, failed = record.Upstream, true
-		case "upstream_retry_scheduled":
-			retry = true
 		case "upstream_recovered":
 			require.True(t, failed)
 			require.Equal(t, ref, record.Upstream)
+			require.Equal(t, "WARN", record.Level)
+			require.Equal(t, "no_action", record.Action)
+			require.False(t, recovered, "one retained incident produces one recovery")
 			recovered = true
 		}
 	}
 	require.NotZero(t, ref)
-	require.True(t, retry)
 	require.True(t, recovered)
-	require.GreaterOrEqual(t, len(attempts), 2)
-	for _, canary := range []string{endpoint.URL, created.Server.ID, "private-downstream-failure-canary", "private-diagnostic-tool", "private-diagnostic-namespace", "Private diagnostic display"} {
+	harness.Start()
+	waitForStdioServer(t, harness, created.Server.ID, func(server stdioServerView) bool {
+		return server.Runtime.State == contract.RuntimeActive
+	})
+	var restarted struct {
+		Runtime contract.ServerRuntime `json:"runtime"`
+	}
+	decodeSnapshot(t, harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/servers/"+created.Server.ID, nil), http.StatusOK, &restarted)
+	require.NotNil(t, restarted.Runtime.DiagnosticCorrelation)
+	require.NotEqual(t, correlation.ProcessID, restarted.Runtime.DiagnosticCorrelation.ProcessID, "the old reference must be scoped to the old process")
+	harness.Stop(syscall.SIGTERM)
+	for _, canary := range []string{endpoint.URL, created.Server.ID, second.Server.ID, "private-concurrent-namespace", "private-downstream-failure-canary", "private-diagnostic-tool", "private-diagnostic-namespace", "Private diagnostic display"} {
 		require.NotContains(t, string(result.Stderr), canary)
 	}
 }
