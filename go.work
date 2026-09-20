@@ -6,4 +6,5 @@ use (
 	./mcp-broker
 	./agent-gateway
 	./sandbox-manager
+	./typesafe-mcp
 )

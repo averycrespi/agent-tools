@@ -52,7 +52,7 @@ From the `agent-gateway` directory:
 make install
 ```
 
-This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-migration.md#retired-executable-and-operator-cleanup). New installations use canonical paths; legacy defaults refuse. Existing explicit roots remain supported. Use [stopped installation migration](docs/operators/installation-migration.md), never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/administration.md#browser-persistence-cutover) for preferences and fresh sign-in.
+This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-safety.md#retired-executable-and-operator-cleanup). New installations use canonical paths; ambiguous legacy defaults refuse. Existing explicit roots remain supported. The migration capability is retired; follow [installation safety](docs/operators/installation-safety.md), retain tombstones, and never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/administration.md#browser-persistence-cutover) for preferences and fresh sign-in.
 
 ## Quick start
 

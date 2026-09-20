@@ -66,8 +66,7 @@ internal/composition/        Sole production graph construction, binding, start,
 internal/controlclient/      Strict public-control CLI transport, I/O, sinks, problems, and exits
 internal/contract/           Canonical routes, problems, limits, states, representations, and manifests
 internal/strictjson/         Bounded strict JSON and token-preserving value tree
-internal/paths/              Owner-only installation paths, process ownership and atomic relocation
-internal/installation/       Explicit stopped path-migration preflight and host inspection
+internal/paths/              Owner-only installation paths, process ownership and retained tombstone recognition
 internal/service/            Canonical LaunchAgent settings, lifecycle and bounded inspection
 internal/storage/            SQLite identity, migrations, durability, and latch
 internal/servers/            Desired servers, operations, auth-flow lifecycle, and idempotency
@@ -131,7 +130,7 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 
 ### Runtime, transport, and cleanup
 
-- Follow the [migration runbook](docs/operators/installation-migration.md): existing lock only, no recovery/marker clearing, whole-root exchange with tombstone, isolated tests and separate native consent. LaunchAgent commands are bounded to five seconds/1 MiB, retain child identity through cleanup and never replay mutations.
+- Follow [installation safety](docs/operators/installation-safety.md): preserve legacy-path refusal, exact completed-tombstone recognition and explicit existing/custom roots. The migrator is retired; never clear tombstones, reservations or recovery markers as naming cleanup. LaunchAgent commands remain bounded to five seconds/1 MiB, retain child identity through cleanup and never replay mutations.
 - `internal/service` owns canonical LaunchAgent management without private database or credential access. Keep strict literal plist parsing, stable nonblocking management locking, installed-value preservation, loaded intent and one-shot bootout/bootstrap. The composition source guard registers only `internal/service/runner_unix.go` as its `exec.Command` owner; production entry allows only absolute `/bin/launchctl` and `/bin/ps`. Utility children remain unreaped until group cleanup; never signal Gateway PIDs or substitute basename scans for installation ownership. Darwin cleanup may accept `EPERM` only with fixed-size singleton-group proof of the matching owned zombie; additional members, incomplete evidence or inspection failure retain the error, without retrying the signal. Keep the bounded one-record query, not the unbounded-retry slice helper. Native tests require separate disposable-resource consent; Linux fixtures are not native proof.
 - Runtime state, handles, routes, OAuth transients, sessions, and cursors are process-local. Never serialize or resume them after restart.
 - `internal/remote` is the sole production downstream/OAuth HTTP client and transport factory. The only separate client is `internal/controlclient` for public administration at numeric loopback or an explicitly selected trusted forwarding hostname.
@@ -142,13 +141,15 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 
 ### Browser and CLI
 
-- Authored web source builds deterministically to the exact `internal/api/static` allowlist. Development Node/Vite code is build/test-only and must not enter the production import graph or write production assets.
-- Before completing a change that can affect rendered UI or browser interaction, exercise the affected states in a real browser and visually inspect screenshots at representative desktop and narrow viewports. Browser tests, DOM snapshots, screenshot creation, and screenshot hashes do not substitute for inspecting the rendered result. Follow [frontend development](docs/maintainers/frontend-development.md#visual-verification).
+- Every sentence earns its place: default to labels, values, actionable errors. Helper text only clarifies non-obvious choices or prevents concrete mistakes. Put implementation details/general caveats in docs, secondary diagnostics in accessible disclosures, warnings at the risk. Scope trust distinctions once; don't repeat headings/statuses or just shorten redundant prose.
+
+- Build web source deterministically to the exact `internal/api/static` allowlist. Build/test-only Node/Vite code must neither enter production imports nor write production assets.
+- Before completing UI/interaction changes, exercise affected states in a real browser and inspect desktop/narrow screenshots per [visual verification](docs/maintainers/frontend-development.md#visual-verification). Tests, DOM snapshots, screenshot generation/hashes are not visual inspection.
 - Follow the [table conventions](docs/design/administrative-control-plane.md#table-conventions) and shared [implementation contract](docs/maintainers/frontend-development.md#table-implementation).
-- Preserve the single owners under `web/src/`: location grammar, theme persistence, session epochs, visible refresh, mutation state, accessible primitives, and one-time sinks. Domain pages compose these owners; they do not add independent storage, timers, streams, fetch mutation/retry, clipboard, opener, or active-content paths.
-- The development proxy remains a trusted loopback-only process with a closed selector grammar and segment-bounded control API proxy. It never owns Gateway startup, MCP ingress, OAuth callback, or production behavior.
-- Online CLI commands acquire one selected administrator bearer and then use `internal/controlclient` only. There is no prompt, argv, or environment fallback. `--data-dir` selects credential location; it never opens private storage, keyring, or domain packages. Preserve separate stdout/stderr, typed exits, strict input, exact ETags, prepared one-time sinks, confirmation, and no automatic replay.
-- Preserve the final CLI grammar and intent boundaries: administrator commands are only `admin credential ...` and stopped `admin reset`; direct flags and `--file` remain mutually exclusive where both are offered; omitted mutation ETags perform one validated preflight while explicit ETags are never refreshed; request approval always reads submitted restrictions and stops on an explicit ETag mismatch; agent issue/rotate still preflight empty/occupied slot intent. Administrator rotation must durably publish, securely reopen, authenticate, and verify the replacement before one conditional old-credential revoke; never compensate or replay it.
+- Compose `web/src/` owners for location grammar, theme persistence, session epochs, visible refresh, mutation state, accessible primitives, and one-time sinks. No independent storage, timers, streams, fetch mutation/retry, clipboard, opener, or active-content paths.
+- Keep the development proxy trusted and loopback-only, with closed selectors and segment-bounded control API routes; never add Gateway startup, MCP ingress, OAuth callback, or production ownership.
+- Online CLI commands acquire one selected administrator bearer and use only `internal/controlclient`. There is no prompt, argv, or environment fallback. `--data-dir` selects credential location, never private storage/keyring/domain access. Keep separate stdout/stderr, typed exits, strict input, exact ETags, prepared one-time sinks, confirmation, and no automatic replay.
+- Administrator commands are only `admin credential ...` and stopped `admin reset`; direct flags and `--file` are mutually exclusive. Omitted mutation ETags get one validated preflight; explicit ETags are never refreshed. Request approval reads submitted restrictions and stops on explicit ETag mismatch; agent issue/rotate preflight empty/occupied slot intent. Administrator rotation must durably publish, securely reopen, authenticate, and verify the replacement before one conditional old-credential revoke; never compensate or replay.
 
 ### Tests, docs, and release evidence
 

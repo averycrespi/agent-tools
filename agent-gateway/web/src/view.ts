@@ -59,6 +59,8 @@ export interface ViewSnapshot {
 
 export interface ViewPanel<T> {
   id: string;
+  // Session-wide projections remain compatible across destination changes.
+  scope?: "session";
   matches: (viewKey: string) => boolean;
   invalidations: readonly InvalidationKind[];
   onInvalidation?: (invalidation: Invalidation) => boolean;
@@ -870,8 +872,10 @@ export class ViewCoordinator {
   }
 
   private markVisiblePanelsLoading(): void {
-    for (const panel of this.visiblePanels())
+    for (const panel of this.visiblePanels()) {
+      if (panel.scope === "session") continue;
       this.panelState.set(panel.id, { status: "loading", hasValue: false });
+    }
   }
 
   private abortRead(panelID: string): void {

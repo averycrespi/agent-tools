@@ -23,7 +23,7 @@ var invocationOpaqueIDPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}
 const invocationSelect = `SELECT insertion_sequence, id, principal_id, credential_id, credential_fingerprint,
 	credential_revision, admitted_at, admission_class, requested_name, redacted_arguments,
 	server_id, tool_id, upstream_name, descriptor_revision, descriptor_fingerprint,
-	decision, authorization_revision, evaluated_at, grant_id, completed_at, terminal_class
+	decision, authorization_revision, evaluated_at, grant_id, completed_at, terminal_class, failure_diagnostics
 	FROM invocations`
 
 type invocationScanner interface {
@@ -118,6 +118,9 @@ func validAuthorizationEvidence(evidence *activity.Authorization, admitted time.
 }
 
 func validStoredInvocation(record contract.InvocationAuditRecord) bool {
+	if record.Diagnostics != nil && (record.TerminalClass == nil || !record.Diagnostics.ValidFor(*record.TerminalClass)) {
+		return false
+	}
 	envelope, details, ok := storedEvidence(record)
 	if !ok || !validOpaqueInvocationID(envelope.InvocationID) ||
 		!validAdmission(Admission{Admission: envelope.Admission, MCP: details}, envelope.AdmittedAt) {
@@ -183,13 +186,13 @@ func scanInvocation(scanner invocationScanner) (contract.InvocationAuditRecord, 
 		descriptorRevision, authorizationRevision                        sql.NullInt64
 		requestedName, redactedArguments, serverID, toolID, upstreamName sql.NullString
 		descriptorFingerprint, decision, evaluatedAt, grantID            sql.NullString
-		completedAt, terminal                                            sql.NullString
+		completedAt, terminal, diagnostic                                sql.NullString
 	)
 	if err := scanner.Scan(
 		&record.Sequence, &record.InvocationID, &record.PrincipalID, &record.CredentialID, &record.CredentialFingerprint,
 		&credentialRevision, &record.AdmittedAt, &record.AdmissionClass, &requestedName, &redactedArguments,
 		&serverID, &toolID, &upstreamName, &descriptorRevision, &descriptorFingerprint,
-		&decision, &authorizationRevision, &evaluatedAt, &grantID, &completedAt, &terminal,
+		&decision, &authorizationRevision, &evaluatedAt, &grantID, &completedAt, &terminal, &diagnostic,
 	); err != nil {
 		return contract.InvocationAuditRecord{}, err
 	}
@@ -218,6 +221,16 @@ func scanInvocation(scanner invocationScanner) (contract.InvocationAuditRecord, 
 	if terminal.Valid {
 		value := contract.InvocationTerminalClass(terminal.String)
 		record.TerminalClass = &value
+	}
+	if diagnostic.Valid {
+		if record.TerminalClass == nil {
+			return contract.InvocationAuditRecord{}, invalidInvocationState("diagnostic without completion")
+		}
+		var err error
+		record.Diagnostics, err = contract.ParseFailureDiagnostics([]byte(diagnostic.String), *record.TerminalClass)
+		if err != nil {
+			return contract.InvocationAuditRecord{}, invalidInvocationState("invalid failure diagnostics")
+		}
 	}
 	return record, nil
 }

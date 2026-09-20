@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -178,6 +179,28 @@ func (repository *Repository) InsertTx(ctx context.Context, transaction *sql.Tx,
 }
 
 func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID string, terminal contract.InvocationTerminalClass) error {
+	return repository.annotateTerminal(ctx, invocationID, terminal, nil)
+}
+
+func encodeFailureDiagnostics(terminal contract.InvocationTerminalClass, diagnostic *contract.FailureDiagnostics) (any, error) {
+	if !diagnostic.ValidFor(terminal) {
+		return nil, ErrInvalidInput
+	}
+	if diagnostic == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(diagnostic)
+	if err != nil || len(encoded) > contract.FailureDiagnosticMaxBytes {
+		return nil, ErrInvalidInput
+	}
+	return string(encoded), nil
+}
+
+func (repository *Repository) annotateTerminal(ctx context.Context, invocationID string, terminal contract.InvocationTerminalClass, diagnostic *contract.FailureDiagnostics) error {
+	diagnosticJSON, err := encodeFailureDiagnostics(terminal, diagnostic)
+	if err != nil {
+		return err
+	}
 	if !validOpaqueInvocationID(invocationID) {
 		return ErrInvalidInput
 	}
@@ -190,7 +213,7 @@ func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID
 	}
 	completion := activity.Completion{CompletedAt: completedAt, Class: terminal}
 	changed := false
-	err := repository.mutate(ctx, func(transaction *sql.Tx) error {
+	err = repository.mutate(ctx, func(transaction *sql.Tx) error {
 		var admittedAt, evaluatedAt string
 		err := transaction.QueryRowContext(ctx, `SELECT admitted_at, evaluated_at FROM invocations
 			WHERE id = ? AND admission_class = 'evaluated' AND decision = 'allow'
@@ -208,8 +231,8 @@ func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID
 			return ErrInvalidInput
 		}
 		result, err := transaction.ExecContext(ctx, `UPDATE invocations
-			SET completed_at = ?, terminal_class = ?
-			WHERE id = ? AND completed_at IS NULL AND terminal_class IS NULL`, completion.CompletedAt, string(completion.Class), invocationID)
+			SET completed_at = ?, terminal_class = ?, failure_diagnostics = ?
+			WHERE id = ? AND completed_at IS NULL AND terminal_class IS NULL`, completion.CompletedAt, string(completion.Class), diagnosticJSON, invocationID)
 		if err != nil {
 			return fmt.Errorf("annotate invocation terminal result: %w", err)
 		}

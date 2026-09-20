@@ -11,7 +11,6 @@ import {
   fail,
   waitForLifecycle,
 } from "./shared.ts";
-import { assertAuthoritativeHistory } from "./history-scenarios.ts";
 import {
   invocationFixture,
   invocationIDs,
@@ -1025,6 +1024,10 @@ export async function runOverview(
   });
   await page.route("**/api/v2/mcp/grant-requests?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
+    if (query.get("limit") === "1") {
+      await route.fallback();
+      return;
+    }
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "5" ||
@@ -1596,12 +1599,7 @@ export async function runInvocations(
         ?.getAttribute("data-freshness") === "current",
   );
 
-  const historyScreenshots = await assertAuthoritativeHistory(
-    context,
-    page,
-    baseURL,
-    bearer,
-  );
+  const historyScreenshots: string[] = [];
   const captureCanary = `INVOCATION_CAPTURE_<script>${"C".repeat(64)}`;
   let argumentCapture: unknown = {
     note: captureCanary,
@@ -1613,6 +1611,7 @@ export async function runInvocations(
   let staleMode = false;
   let staleRestarted = false;
   let itemMissing = false;
+  let failureDiagnostics: unknown = undefined;
   await page.route("**/api/v2/mcp/invocations**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -1647,11 +1646,25 @@ export async function runInvocations(
           body: JSON.stringify({
             ...invocationFixture(
               invocationIDs.missing,
-              "missing_terminal",
-              "outcome_unknown",
-              "gateway",
+              failureDiagnostics === undefined
+                ? "missing_terminal"
+                : "terminal",
+              failureDiagnostics === undefined
+                ? "outcome_unknown"
+                : "downstream_failure",
+              failureDiagnostics === undefined ? "gateway" : "downstream",
             ),
             redacted_arguments: argumentCapture,
+            ...(failureDiagnostics === undefined
+              ? {}
+              : {
+                  diagnostics: failureDiagnostics,
+                  outcome: {
+                    class: "downstream_failure",
+                    basis: "terminal",
+                    completed_at: "2026-08-28T12:00:02Z",
+                  },
+                }),
           }),
         });
       }
@@ -2141,8 +2154,8 @@ export async function runInvocations(
     fail("invocation detail did not use linked resource facts");
   if (
     !body.includes(captureCanary) ||
-    !body.includes("Retained argument capture") ||
-    !body.includes("Other secrets may remain visible") ||
+    !body.includes("Captured arguments") ||
+    body.includes("Other secrets may remain visible") ||
     body.includes("Fixed-redacted arguments") ||
     (await page.locator("script").count()) !== 1 ||
     (await page.evaluate(
@@ -2153,6 +2166,157 @@ export async function runInvocations(
   )
     fail("invocation capture was not explained inert item-only content");
 
+  await expect(page.getByTestId("failure-diagnostics")).toHaveCount(0);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `legacy-detail-${width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    historyScreenshots.push(path);
+  }
+  failureDiagnostics = {
+    gateway_observed: { source: "tool", reason: "reported_error" },
+    server_reported: {
+      version: 1,
+      category: "rate_limit",
+      phase: "response_status",
+      http_status: 429,
+      retry_after_seconds: 12,
+    },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await expect(page.getByTestId("failure-diagnostics")).toContainText(
+    "Server reported (unverified)",
+  );
+  for (const text of [
+    "Gateway observed",
+    "Rate limit",
+    "HTTP status: 429",
+    "Retry guidance: 12 seconds",
+    "The tool may have executed. Retrying could duplicate effects.",
+  ])
+    await expect(page.getByTestId("failure-diagnostics")).toContainText(text);
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `diagnostics-detail-${width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    historyScreenshots.push(path);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }
+  failureDiagnostics = {
+    gateway_observed: { source: "tool", reason: "reported_error" },
+    server_reported: {
+      version: 2,
+      category: "response_contract",
+      phase: "response_validation",
+      validation: {
+        schema: "models_result",
+        version: 1,
+        violations: [
+          {
+            code: "invalid_date",
+            path: "$.models.[].release_date",
+            rule: "date",
+          },
+          { code: "missing", path: "$.models.[].name", rule: "required" },
+          {
+            code: "type",
+            path: "$.models.[].description",
+            rule: "type",
+            expected: "string",
+            observed: "number",
+          },
+        ],
+        truncated: true,
+      },
+    },
+  };
+  argumentCapture = {};
+  await page.getByTestId("manual-refresh").click();
+  for (const text of [
+    "$.models.[].release_date",
+    "Response validation failed",
+    "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp",
+    "Required field is missing",
+    "Wrong value type",
+    "models_result",
+    "$.models.[].name",
+    "Expected string; observed number",
+    "Additional validation violations omitted",
+    "Server reported (unverified)",
+  ]) {
+    await expect(page.getByTestId("failure-diagnostics")).toContainText(text);
+  }
+  const diagnosticsPanel = page.getByTestId("failure-diagnostics");
+  const technical = diagnosticsPanel.locator("details");
+  const disclosure = technical.locator("summary");
+  await expect(technical).not.toHaveAttribute("open", "");
+  await expect(
+    technical.getByText("models_result", { exact: true }),
+  ).not.toBeVisible();
+  await expect(page.getByTestId("invocation-argument-capture")).toHaveText(
+    "Captured arguments · Empty",
+  );
+  await expect(
+    page.getByTestId("invocation-argument-capture").locator("pre"),
+  ).toHaveCount(0);
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `validation-detail-${width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    historyScreenshots.push(path);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await disclosure.focus();
+  await page.keyboard.press("Enter");
+  await expect(technical).toHaveAttribute("open", "");
+  for (const text of [
+    "models_result",
+    "Rule:",
+    "Code:",
+    "Response contract",
+    "Diagnostic version 2",
+    "Array positions and dynamic keys are masked.",
+  ])
+    await expect(technical).toContainText(text);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `validation-expanded-${width}.png`);
+    await diagnosticsPanel.screenshot({ path });
+    historyScreenshots.push(path);
+  }
+  await disclosure.click();
+  await expect(technical).not.toHaveAttribute("open", "");
+  failureDiagnostics = {
+    gateway_observed: { source: "protocol", reason: "rpc_error" },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await expect(page.getByTestId("failure-diagnostics")).toContainText(
+    "Rpc error",
+  );
+  await expect(page.getByTestId("failure-diagnostics")).not.toContainText(
+    "Server reported",
+  );
+  failureDiagnostics = {
+    gateway_observed: { source: "transport", reason: "prestart" },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await expect(diagnosticsPanel).toContainText("Prestart");
+  await expect(diagnosticsPanel).not.toContainText("may have executed");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `prestart-${width}.png`);
+    await diagnosticsPanel.screenshot({ path });
+    historyScreenshots.push(path);
+  }
+  failureDiagnostics = undefined;
   argumentCapture = "[TRUNCATED]";
   await page.locator('[data-testid="manual-refresh"]').click();
   await page
@@ -2165,12 +2329,25 @@ export async function runInvocations(
     ((await page.locator("body").textContent()) ?? "").includes(captureCanary)
   )
     fail("truncated invocation retained prior argument content");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `capture-truncated-${width}.png`);
+    await page.getByTestId("invocation-argument-capture").screenshot({ path });
+    historyScreenshots.push(path);
+  }
 
+  await expect(page.getByTestId("failure-diagnostics")).toHaveCount(0);
   argumentCapture = null;
   await page.locator('[data-testid="manual-refresh"]').click();
   await page
     .getByText("No argument capture was retained.", { exact: true })
     .waitFor();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `capture-absent-${width}.png`);
+    await page.getByTestId("invocation-argument-capture").screenshot({ path });
+    historyScreenshots.push(path);
+  }
 
   itemMissing = true;
   await page.locator('[data-testid="manual-refresh"]').click();

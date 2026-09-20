@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -26,7 +27,11 @@ func VerifyLegacyEvidence(ctx context.Context, path string, schema int) (result 
 	if err = db.QueryRowContext(ctx, `SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='invocations'),0)`).Scan(&high); err != nil {
 		return err
 	}
-	rows, err := db.QueryContext(ctx, invocationSelect+` ORDER BY insertion_sequence LIMIT ?`, invocationLimit()+1)
+	query := invocationSelect
+	if schema < 17 {
+		query = strings.Replace(query, "failure_diagnostics", "NULL AS failure_diagnostics", 1)
+	}
+	rows, err := db.QueryContext(ctx, query+` ORDER BY insertion_sequence LIMIT ?`, invocationLimit()+1)
 	if err != nil {
 		return err
 	}

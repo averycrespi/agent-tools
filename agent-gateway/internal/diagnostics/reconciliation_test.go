@@ -29,7 +29,8 @@ func TestReconciliationDiagnosticLevelsAndPrivacy(t *testing.T) {
 			require.Equal(t, "reconciliation_settlement_failure", last["event"])
 			require.Equal(t, "WARN", last["level"])
 			require.Equal(t, "capacity", last["cause"])
-			require.Len(t, last, 6)
+			require.Equal(t, "inspect_settlement_no_replay", last["action"])
+			require.Len(t, last, 7)
 		})
 	}
 	for _, event := range []Event{ReconciliationDisplaced, ReconciliationSettlementFailure} {

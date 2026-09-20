@@ -116,7 +116,7 @@ agent-gateway backup restore BACKUP_ID \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 17, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
+Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 18, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
 
 Format-2 restore verifies both stores before selecting a fresh traffic generation.
 Accepted legacy single-database backups receive staged extraction; pre-invocation

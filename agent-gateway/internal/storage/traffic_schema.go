@@ -6,14 +6,27 @@ import "strings"
 // the evidence/SQL owner; storage owns schema definitions. This is not a control
 // migration and must not be applied to gateway.db.
 func TrafficSchema() string {
-	migration, err := migrationFiles.ReadFile("migrations/009_invocations.sql")
-	if err != nil {
-		panic(err)
+	definition := func(name string) string {
+		migration, err := migrationFiles.ReadFile("migrations/" + name)
+		if err != nil {
+			panic(err)
+		}
+		ddl, _, ok := strings.Cut(string(migration), "INSERT INTO schema_migrations")
+		if !ok {
+			panic("invocation schema boundary missing")
+		}
+		return ddl
 	}
-	ddl, _, ok := strings.Cut(string(migration), "INSERT INTO schema_migrations")
+	ddl := definition("009_invocations.sql")
+	diagnostic, ok := strings.CutPrefix(definition("017_failure_diagnostics.sql"), "ALTER TABLE invocations ADD COLUMN ")
 	if !ok {
-		panic("invocation schema boundary missing")
+		panic("invocation diagnostic column boundary missing")
 	}
+	// Inline the current evidence column before table constraints: this is a
+	// fresh generation, and exact startup validation compares CREATE objects,
+	// not the ALTER statements used by control migrations.
+	diagnostic = strings.TrimSuffix(strings.TrimSpace(diagnostic), ";")
+	ddl = strings.Replace(ddl, "\n    CHECK (", "\n    "+diagnostic+",\n    CHECK (", 1)
 	return ddl + `CREATE TABLE traffic_meta (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     installation TEXT NOT NULL,

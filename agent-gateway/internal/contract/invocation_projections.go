@@ -110,7 +110,8 @@ type InvocationSummary struct {
 
 type Invocation struct {
 	InvocationSummary
-	RedactedArguments json.RawMessage `json:"redacted_arguments"`
+	RedactedArguments json.RawMessage     `json:"redacted_arguments"`
+	Diagnostics       *FailureDiagnostics `json:"diagnostics,omitempty"`
 }
 
 // ParseInvocationDecisionFilter includes absence of evaluation without expanding
@@ -164,7 +165,10 @@ func ProjectInvocationAudit(record InvocationAuditRecord) (Invocation, error) {
 	if err != nil {
 		return Invocation{}, err
 	}
-	return Invocation{InvocationSummary: summary, RedactedArguments: arguments}, nil
+	if record.Diagnostics != nil && (record.TerminalClass == nil || !record.Diagnostics.ValidFor(*record.TerminalClass)) {
+		return Invocation{}, fmt.Errorf("invalid invocation diagnostics")
+	}
+	return Invocation{InvocationSummary: summary, RedactedArguments: arguments, Diagnostics: record.Diagnostics}, nil
 }
 
 func ProjectInvocationSummary(record InvocationAuditRecord) (InvocationSummary, error) {

@@ -54,9 +54,21 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	assert.Contains(t, string(privateSuccess.Body), fixturePrivateSuccessText)
 	clear(privateSuccess.Body)
 
-	catalog.Fixture.SetCallOutcome(fixtureCallToolError)
+	catalog.Fixture.SetCallOutcome(fixtureCallDiagnostic)
 	toolError := harness.ModernCall(issued.Bearer, json.RawMessage(`"tool-error"`), "invocation-read.allowed", json.RawMessage(`{"note":"safe"}`))
-	assertCallError(t, toolError, json.RawMessage(`"tool-error"`), contract.DownstreamFailure, false)
+	failureID := assertCallError(t, toolError, json.RawMessage(`"tool-error"`), contract.DownstreamFailure, false)
+	failureItemResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+failureID, nil)
+	var failureItem contract.Invocation
+	decodeSnapshot(t, failureItemResponse, http.StatusOK, &failureItem)
+	require.NotNil(t, failureItem.Diagnostics)
+	require.Equal(t, contract.FailureObservation{Source: "tool", Reason: "reported_error"}, failureItem.Diagnostics.GatewayObserved)
+	require.NotNil(t, failureItem.Diagnostics.ServerReported)
+	require.Equal(t, "rate_limit", failureItem.Diagnostics.ServerReported.Category)
+	require.Equal(t, 429, *failureItem.Diagnostics.ServerReported.HTTPStatus)
+	require.Equal(t, 12, *failureItem.Diagnostics.ServerReported.RetryAfterSeconds)
+	diagnosticJSON, err := json.Marshal(failureItem.Diagnostics)
+	require.NoError(t, err)
+	require.Contains(t, string(toolError.Body), `"diagnostics":`+string(diagnosticJSON))
 	catalog.Fixture.SetCallOutcome(fixtureCallSuccess)
 
 	barrier := catalog.Fixture.Arm("tools/call")
@@ -162,7 +174,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	fixtureEvidence, err := json.Marshal(catalog.Fixture.Events())
 	require.NoError(t, err)
 	evidence := [][]byte{
-		missingResponse.Body, toolError.Body, completed.Body, local.Body, keepalive, allResponse.Body, itemResponse.Body,
+		missingResponse.Body, toolError.Body, failureItemResponse.Body, completed.Body, local.Body, keepalive, allResponse.Body, itemResponse.Body,
 		unknownAfterCompletion.Body, newestResponse.Body, staleResponse.Body, evictedResponse.Body, retainedResponse.Body,
 		backupResponse.Body, backupEvent, statusEvent, fixtureEvidence,
 	}

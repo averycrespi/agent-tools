@@ -156,6 +156,7 @@ var fixedLimits = []FixedLimit{
 	{Name: "constraint_regex_work_bytes", Maximum: 1024 * 1024},
 	{Name: "invocation_audit_rows", Maximum: 65536},
 	{Name: "invocation_argument_capture_bytes", Maximum: 8192},
+	{Name: "invocation_failure_diagnostic_bytes", Maximum: FailureDiagnosticMaxBytes},
 	{Name: "discoverable_tools", Maximum: 2054},
 	{Name: "grant_requests", Maximum: 4096},
 	{Name: "pending_grant_requests_per_principal", Maximum: 128},

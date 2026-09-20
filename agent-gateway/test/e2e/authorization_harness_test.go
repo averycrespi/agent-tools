@@ -316,6 +316,7 @@ func (harness *gatewayHarness) SetupCurrentCatalog(namespace string, tools []fix
 	waitForStdioServer(harness.t, harness, creation.Server.ID, func(server stdioServerView) bool {
 		return server.Runtime.State == contract.RuntimeActive && server.Catalog.ActiveState == contract.ActiveCatalogCurrent && server.Catalog.ActiveToolCount == int64(len(tools))
 	})
+	harness.WaitSettledOperation(creation.Server.ID, creation.Operation.ID)
 	return currentCatalogHandle{ServerID: creation.Server.ID, ETag: etag, Namespace: namespace, Fixture: fixture}
 }
 

@@ -2,6 +2,7 @@ package composition
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -10,9 +11,14 @@ import (
 )
 
 func TestUpstreamDiagnosticReferenceLifetimeAndConcurrency(t *testing.T) {
-	references := &diagnosticReferences{}
+	references := &diagnosticReferences{process: "0123456789abcdef0123456789abcdef"}
+	require.Nil(t, references.lookup("private-server-identity-canary"))
+	require.Empty(t, references.values, "reads must not allocate")
 	first := references.reference("private-server-identity-canary")
 	require.NotZero(t, first)
+	correlation := references.lookup("private-server-identity-canary")
+	require.Equal(t, references.process, correlation.ProcessID)
+	require.Equal(t, strconv.FormatUint(first, 10), correlation.UpstreamRef)
 	values := make(chan uint64, 64)
 	var workers sync.WaitGroup
 	for range 64 {
@@ -30,6 +36,7 @@ func TestUpstreamDiagnosticReferenceLifetimeAndConcurrency(t *testing.T) {
 	require.NotZero(t, other)
 	require.NotEqual(t, first, other)
 	references.mu.Lock()
+	require.Nil(t, references.lookup("private-server-identity-canary"))
 	require.Zero(t, references.reference("private-server-identity-canary"), "projection contention omits correlation without waiting")
 	references.mu.Unlock()
 	require.Equal(t, first, references.reference("private-server-identity-canary"))
@@ -42,6 +49,7 @@ func TestUpstreamDiagnosticReferenceLifetimeAndConcurrency(t *testing.T) {
 	bound, ok := contract.FixedLimitByName("server_identities")
 	require.True(t, ok)
 	require.EqualValues(t, bound.Maximum, contract.DiagnosticReferenceOwners)
-	nextGraph := &diagnosticReferences{}
+	nextGraph := &diagnosticReferences{process: "abcdef0123456789abcdef0123456789"}
+	require.Nil(t, nextGraph.lookup("private-server-identity-canary"))
 	require.NotEqual(t, first, nextGraph.reference("private-server-identity-canary"), "new owners never reuse process counters")
 }

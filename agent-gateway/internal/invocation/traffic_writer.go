@@ -180,7 +180,7 @@ func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest
 func (s *TrafficStore) applyTraffic(ctx context.Context, tx *sql.Tx, batch []*trafficRequest) error {
 	if batch[0].completion != nil {
 		r := batch[0]
-		result, err := tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.receipt.evidence.InvocationID)
+		result, err := tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=?,failure_diagnostics=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.diagnosticJSON, r.receipt.evidence.InvocationID)
 		if err != nil {
 			return err
 		}

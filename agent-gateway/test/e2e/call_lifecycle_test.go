@@ -251,7 +251,21 @@ func assertCallError(t *testing.T, response responseSnapshot, expectedID json.Ra
 	if outcomeUnknown {
 		expectedUnknown = `,"outcomeUnknown":true`
 	}
-	expected := `{"jsonrpc":"2.0","id":` + string(expectedID) + `,"error":{"code":-32000,"message":` + strconv.Quote(callError.Message) + `,"data":{"code":` + strconv.Quote(string(code)) + `,"invocationId":` + strconv.Quote(invocationID) + expectedUnknown + `}}}`
+	diagnostic := ""
+	if envelope.Error.Data.Diagnostics != nil {
+		terminal := contract.TerminalDownstreamFailure
+		if code == contract.OutcomeUnknown {
+			terminal = contract.TerminalOutcomeUnknown
+		}
+		if code == contract.ToolUnavailable {
+			terminal = contract.TerminalPrestartFailure
+		}
+		require.True(t, envelope.Error.Data.Diagnostics.ValidFor(terminal))
+		raw, err := json.Marshal(envelope.Error.Data.Diagnostics)
+		require.NoError(t, err)
+		diagnostic = `,"diagnostics":` + string(raw)
+	}
+	expected := `{"jsonrpc":"2.0","id":` + string(expectedID) + `,"error":{"code":-32000,"message":` + strconv.Quote(callError.Message) + `,"data":{"code":` + strconv.Quote(string(code)) + `,"invocationId":` + strconv.Quote(invocationID) + expectedUnknown + diagnostic + `}}}`
 	assert.Equal(t, expected, string(response.Body))
 	assert.JSONEq(t, string(expectedID), string(envelope.ID))
 	assert.Equal(t, contract.AgentCallJSONRPCErrorCode, envelope.Error.Code)
