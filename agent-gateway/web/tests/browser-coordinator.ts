@@ -1,5 +1,6 @@
 import { type Browser, chromium, firefox, webkit } from "@playwright/test";
 import { runAudit } from "./browser/audit-scenarios.ts";
+import { runInvocationHistory } from "./browser/history-scenarios.ts";
 import { createInterface } from "node:readline";
 import { fail, loadShell } from "./browser/shared.ts";
 import { isAbsolute } from "node:path";
@@ -87,6 +88,7 @@ interface BridgeInput {
     | "read-only-backend"
     | "overview"
     | "invocations"
+    | "invocation-history"
     | "audit"
     | "system-status"
     | "server-catalog-reads"
@@ -165,6 +167,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "read-only-backend" &&
       value.scenario !== "overview" &&
       value.scenario !== "invocations" &&
+      value.scenario !== "invocation-history" &&
       value.scenario !== "audit" &&
       value.scenario !== "system-status" &&
       value.scenario !== "server-catalog-reads" &&
@@ -268,7 +271,8 @@ try {
           )
         ) &&
         !(
-          input.scenario === "invocations" &&
+          (input.scenario === "invocations" ||
+            input.scenario === "invocation-history") &&
           [404, 409, 503].some((status) =>
             message
               .text()
@@ -609,6 +613,15 @@ try {
       );
     } else if (input.scenario === "audit") {
       await runAudit(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "invocation-history") {
+      await runInvocationHistory(
         browser.version(),
         context,
         page,

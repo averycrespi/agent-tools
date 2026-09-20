@@ -141,6 +141,8 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 
 ### Browser and CLI
 
+- Every sentence earns its place: default to concise labels, values, and actionable errors, not explanatory paragraphs. Use helper text only for non-obvious choices or concrete mistake prevention. Put implementation details and general caveats in documentation, secondary diagnostics in accessible disclosures, and warnings where the risk arises. Retain necessary trust distinctions once with clear scope; do not restate visible headings or statuses. Shortening a redundant paragraph is not a substitute for removing it.
+
 - Authored web source builds deterministically to the exact `internal/api/static` allowlist. Development Node/Vite code is build/test-only and must not enter the production import graph or write production assets.
 - Before completing a change that can affect rendered UI or browser interaction, exercise the affected states in a real browser and visually inspect screenshots at representative desktop and narrow viewports. Browser tests, DOM snapshots, screenshot creation, and screenshot hashes do not substitute for inspecting the rendered result. Follow [frontend development](docs/maintainers/frontend-development.md#visual-verification).
 - Follow the [table conventions](docs/design/administrative-control-plane.md#table-conventions) and shared [implementation contract](docs/maintainers/frontend-development.md#table-implementation).
