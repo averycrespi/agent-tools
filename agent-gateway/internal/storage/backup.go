@@ -75,23 +75,11 @@ func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 	}
 	identity := Identity{InstallationID: installationID, SchemaVersion: schema, Revision: uint64(revision)}
 	if schema >= 18 {
-		var generation sql.NullString
-		if err := database.QueryRowContext(ctx, `SELECT generation FROM traffic_selection WHERE singleton=1`).Scan(&generation); err != nil {
+		generation, err := selectedTraffic(ctx, database)
+		if err != nil {
 			return Identity{}, err
 		}
-		if generation.Valid && !installationIDPattern.MatchString(generation.String) {
-			return Identity{}, ErrInvalidDatabase
-		}
-		if generation.Valid {
-			var count int
-			if err := database.QueryRowContext(ctx, `SELECT count(*) FROM invocations`).Scan(&count); err != nil {
-				return Identity{}, err
-			}
-			if count != 0 {
-				return Identity{}, ErrInvalidDatabase
-			}
-		}
-		identity.TrafficGeneration = generation.String
+		identity.TrafficGeneration = generation
 	}
 	return identity, nil
 }

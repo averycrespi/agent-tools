@@ -11,10 +11,21 @@ var ErrTrafficUnselected = errors.New("traffic generation is not selected; stopp
 // SelectedTraffic reads only control-owned selection metadata. An empty selection
 // is a legitimate migrated legacy control store, but is never ready to serve.
 func (store *Store) SelectedTraffic(ctx context.Context) (string, error) {
-	var generation sql.NullString
+	var generation string
 	err := store.View(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT generation FROM traffic_selection WHERE singleton=1`).Scan(&generation)
+		var err error
+		generation, err = selectedTraffic(ctx, tx)
+		return err
 	})
+	return generation, err
+}
+
+// Both online snapshots and immutable backup reads enforce the same pair invariant.
+func selectedTraffic(ctx context.Context, reader interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (string, error) {
+	var generation sql.NullString
+	err := reader.QueryRowContext(ctx, `SELECT generation FROM traffic_selection WHERE singleton=1`).Scan(&generation)
 	if err != nil {
 		return "", err
 	}
@@ -23,9 +34,7 @@ func (store *Store) SelectedTraffic(ctx context.Context) (string, error) {
 			return "", ErrInvalidDatabase
 		}
 		var count int
-		if err := store.View(ctx, func(tx *sql.Tx) error {
-			return tx.QueryRowContext(ctx, `SELECT count(*) FROM invocations`).Scan(&count)
-		}); err != nil {
+		if err := reader.QueryRowContext(ctx, `SELECT count(*) FROM invocations`).Scan(&count); err != nil {
 			return "", err
 		}
 		if count != 0 {
