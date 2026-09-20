@@ -90,7 +90,10 @@ cooperative write lifetime. Configuration validates positive finite limits (at m
 1024 queued records/16 MiB, 10 ms dwell, one-second acquisition and five-second
 write lifetime). A separate completion queue reserves the same record capacity at
 128 bytes per completion. One completion transaction precedes each admission batch,
-so neither class can starve the other under sustained arrivals. No queued member
+so neither class can starve the other under sustained arrivals. Completion transactions
+batch only already-queued records under the same record/byte bounds, without added
+dwell. An invalid member rolls back the entire active completion batch; no member is
+split out or replayed. No queued member
 contains an executable callback. No acquisition expiry extends into transaction
 settlement, and accepted callers wait for settlement even after cancellation.
 

@@ -15,7 +15,7 @@ func (s *TrafficStore) runTraffic() {
 		// in both directions. Completion queue bytes are fixed and separately bounded.
 		select {
 		case r := <-s.terminals:
-			s.processTraffic([]*trafficRequest{r})
+			s.processTraffic(s.gatherTerminals(r))
 		default:
 		}
 		var first *trafficRequest
@@ -25,7 +25,7 @@ func (s *TrafficStore) runTraffic() {
 			select {
 			case first = <-s.admissions:
 			case r := <-s.terminals:
-				s.processTraffic([]*trafficRequest{r})
+				s.processTraffic(s.gatherTerminals(r))
 				continue
 			case <-s.stop:
 				s.drainTraffic()
@@ -55,6 +55,23 @@ func (s *TrafficStore) runTraffic() {
 		timer.Stop()
 		s.processTraffic(batch)
 	}
+}
+
+// Drain only already-queued completions: no extra dwell or unbounded preference
+// over admissions. Terminal records have a fixed conservative 128-byte charge.
+func (s *TrafficStore) gatherTerminals(first *trafficRequest) []*trafficRequest {
+	batch := []*trafficRequest{first}
+	bytes := first.bytes
+	for len(batch) < s.config.BatchRecords && bytes+128 <= s.config.BatchBytes {
+		select {
+		case r := <-s.terminals:
+			batch = append(batch, r)
+			bytes += r.bytes
+		default:
+			return batch
+		}
+	}
+	return batch
 }
 
 func (s *TrafficStore) drainTraffic() {
@@ -179,17 +196,18 @@ func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest
 
 func (s *TrafficStore) applyTraffic(ctx context.Context, tx *sql.Tx, batch []*trafficRequest) error {
 	if batch[0].completion != nil {
-		r := batch[0]
-		result, err := tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.receipt.evidence.InvocationID)
-		if err != nil {
-			return err
-		}
-		changed, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if changed != 1 {
-			return ErrInvalidState
+		for _, r := range batch {
+			result, err := tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.receipt.evidence.InvocationID)
+			if err != nil {
+				return err
+			}
+			changed, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if changed != 1 {
+				return ErrInvalidState
+			}
 		}
 		return nil
 	}

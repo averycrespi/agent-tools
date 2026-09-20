@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -365,10 +366,11 @@ func seedInvocationHistory(t *testing.T, root string, count int) {
 			SELECT 0 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence + 1 < ?
 		) INSERT INTO invocations (
 			id, principal_id, credential_id, credential_fingerprint, credential_revision,
-			admitted_at, admission_class
-		) SELECT printf('01M10E%020d', sequence), ?, ?, ?, 1, ?, ? FROM fixtures`,
+			admitted_at, admission_class, redacted_arguments
+		) SELECT printf('01M10E%020d', sequence), ?, ?, ?, 1, ?, ?, ? FROM fixtures`,
 			count, "01M10F00000000000000000000", "01M10G00000000000000000000", "0123456789abcdef",
-			"2026-08-26T00:00:00.000000000Z", string(contract.AdmissionInvalidParams))
+			"2026-08-26T00:00:00.000000000Z", string(contract.AdmissionInvalidParams),
+			`{"record":{"value":"`+strings.Repeat("record-", 72)+`"},"token":"[REDACTED]"}`)
 		if err != nil {
 			return err
 		}

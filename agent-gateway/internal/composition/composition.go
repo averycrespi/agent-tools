@@ -578,9 +578,9 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation reads: %w", err)
 	}
-	if err := built.invocationRepository.ValidateStartup(context.Background()); err != nil {
-		return nil, fmt.Errorf("validate invocation startup: %w", err)
-	}
+	// OpenTraffic already validated every row, accounting and generation under
+	// its startup deadline. Repeating the legacy scan through an online reader
+	// would incorrectly subject populated startup to the one-second read limit.
 	if err := check("invocation_pipeline"); err != nil {
 		return nil, err
 	}

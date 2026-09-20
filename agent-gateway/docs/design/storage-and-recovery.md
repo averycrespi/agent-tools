@@ -103,7 +103,9 @@ latch. Restart restores write authority only after exact schema/application/bind
 physical-budget, complete structural and every-row semantic validation, including
 nullable groups, chronology, accounting and sequence/pruning consistency. Validation
 is streaming and has a 30-second cooperative deadline; incomplete validation is
-failure, never partial readiness. Reads may remain available while write authority
+failure, never partial readiness. Composition relies on this complete `OpenTraffic`
+validation rather than repeating the legacy invocation scan through an online reader
+with its one-second deadline. Reads may remain available while write authority
 is faulted; readable history alone cannot acknowledge or resume execution.
 
 ## Installation path migration
