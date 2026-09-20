@@ -7,11 +7,12 @@ const FailureDiagnosticMetaKey = "io.github.averycrespi.agent-tools/failure"
 // FailureDiagnostic contains only closed categories and bounded numeric claims.
 // It is reporting evidence, never retry permission or execution certainty.
 type FailureDiagnostic struct {
-	Version           int    `json:"version"`
-	Category          string `json:"category"`
-	Phase             string `json:"phase"`
-	HTTPStatus        *int   `json:"http_status,omitempty"`
-	RetryAfterSeconds *int   `json:"retry_after_seconds,omitempty"`
+	Version           int                `json:"version"`
+	Category          string             `json:"category"`
+	Phase             string             `json:"phase"`
+	HTTPStatus        *int               `json:"http_status,omitempty"`
+	RetryAfterSeconds *int               `json:"retry_after_seconds,omitempty"`
+	Validation        *ValidationDetails `json:"validation,omitempty"`
 }
 
 type failure struct {

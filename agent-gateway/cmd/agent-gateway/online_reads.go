@@ -444,6 +444,18 @@ func invocationItemTable(body []byte) (controlclient.Table, error) {
 				retry = fmt.Sprintf("retry guidance %ds (not permission)", *s.RetryAfterSeconds)
 			}
 			rows = append(rows, []string{"Server reported (unverified)", "", "", "", status, retry, s.Category, s.Phase})
+			if v := s.Validation; v != nil {
+				for _, violation := range v.Violations {
+					types := ""
+					if violation.Expected != "" {
+						types = "expected " + violation.Expected + "; observed " + violation.Observed
+					}
+					rows = append(rows, []string{"Response validation (unverified)", fmt.Sprintf("%s v%d", v.Schema, v.Version), violation.Path, violation.Code, violation.Rule, types, violation.Explanation(), ""})
+				}
+				if v.Truncated {
+					rows = append(rows, []string{"Additional validation violations omitted", "", "", "", "", "", "", ""})
+				}
+			}
 		}
 	}
 	if item.Outcome.Class == contract.InvocationOutcomeUnknown {

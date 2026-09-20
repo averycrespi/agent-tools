@@ -22,16 +22,29 @@ type FailureObservation struct {
 }
 
 type ServerFailureDiagnostic struct {
-	Version           int    `json:"version"`
-	Category          string `json:"category"`
-	Phase             string `json:"phase"`
-	HTTPStatus        *int   `json:"http_status,omitempty"`
-	RetryAfterSeconds *int   `json:"retry_after_seconds,omitempty"`
+	Version           int                `json:"version"`
+	Category          string             `json:"category"`
+	Phase             string             `json:"phase"`
+	HTTPStatus        *int               `json:"http_status,omitempty"`
+	RetryAfterSeconds *int               `json:"retry_after_seconds,omitempty"`
+	Validation        *ValidationDetails `json:"validation,omitempty"`
 }
 
 func (d *ServerFailureDiagnostic) Valid() bool {
-	if d == nil || d.Version != 1 {
+	if d == nil || (d.Version != 1 && d.Version != 2) {
 		return false
+	}
+	if d.Version == 1 && d.Validation != nil {
+		return false
+	}
+	if d.Version == 2 {
+		if d.Category != "response_contract" || d.Phase != "response_validation" || d.HTTPStatus != nil || d.RetryAfterSeconds != nil || !d.Validation.valid() {
+			return false
+		}
+		encoded, err := json.Marshal(d)
+		if err != nil || len(encoded) > ValidationDiagnosticMaxBytes {
+			return false
+		}
 	}
 	switch d.Category {
 	case "authentication", "rate_limit", "timeout", "canceled", "transport", "json_decode", "response_contract", "response_limit", "validation", "capacity", "overload", "redirect_rejected", "upstream":
@@ -66,7 +79,14 @@ func (d *FailureDiagnostics) ValidFor(terminal InvocationTerminalClass) bool {
 }
 
 func ParseServerFailureDiagnostic(raw []byte) *ServerFailureDiagnostic {
-	if !diagnosticObject(raw, "version", "category", "phase", "http_status", "retry_after_seconds") {
+	if !diagnosticObject(raw, "version", "category", "phase", "http_status", "retry_after_seconds", "validation") {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	if validation, ok := fields["validation"]; ok && !validationObject(validation) {
 		return nil
 	}
 	var d ServerFailureDiagnostic
@@ -102,7 +122,7 @@ func ParseFailureDiagnostics(raw []byte, terminal InvocationTerminalClass) (*Fai
 }
 
 func diagnosticOptions() strictjson.Options {
-	return strictjson.Options{MaxBytes: FailureDiagnosticMaxBytes, MaxDepth: 3, RejectUnknownMembers: true}
+	return strictjson.Options{MaxBytes: FailureDiagnosticMaxBytes, MaxDepth: 6, RejectUnknownMembers: true}
 }
 
 // Exact member names and non-null values avoid encoding/json's permissive field matching.

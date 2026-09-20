@@ -37,6 +37,7 @@ func TestSafeFailureDiagnosticsPersistWithoutPayloads(t *testing.T) {
 	const canary = "RAW-HEADER-BODY-CREDENTIAL-ARGUMENT-CANARY"
 	for index, metadata := range []string{
 		`{"version":1,"category":"authentication","phase":"response_status","http_status":401}`,
+		`{"version":2,"category":"response_contract","phase":"response_validation","validation":{"schema":"models_result","version":1,"violations":[{"code":"missing","path":"$.models.[].name","rule":"required"}],"truncated":false}}`,
 		`{"version":99,"category":"authentication","phase":"response_status"}`,
 		`{"version":1,"category":"` + canary + `","phase":"response_status"}`,
 		`{"version":1,"category":"authentication","phase":"response_status","raw":"` + canary + `"}`,
@@ -62,7 +63,7 @@ func TestSafeFailureDiagnosticsPersistWithoutPayloads(t *testing.T) {
 			require.Equal(t, 1, executions)
 			require.Equal(t, contract.DownstreamFailure, response.ErrorCode)
 			require.Equal(t, "tool", response.Diagnostics.GatewayObserved.Source)
-			require.Equal(t, index == 0, response.Diagnostics.ServerReported != nil)
+			require.Equal(t, index <= 1, response.Diagnostics.ServerReported != nil)
 			item, err := audits.Get(t.Context(), response.InvocationID)
 			require.NoError(t, err)
 			require.Equal(t, response.Diagnostics, item.Diagnostics)
