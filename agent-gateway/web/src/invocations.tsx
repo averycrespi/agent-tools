@@ -114,8 +114,90 @@ export interface InvocationPageView {
   items: InvocationSummaryView[];
   nextCursor: string | null;
 }
+interface FailureDiagnosticsView {
+  gateway_observed: { source: string; reason: string };
+  server_reported?: {
+    version: number;
+    category: string;
+    phase: string;
+    http_status?: number;
+    retry_after_seconds?: number;
+  };
+}
 interface InvocationItemView extends InvocationSummaryView {
   redactedArguments: unknown;
+  diagnostics?: FailureDiagnosticsView;
+}
+function decodeDiagnostics(value: unknown): FailureDiagnosticsView {
+  const optional = (v: unknown, required: string[], extras: string[]) => {
+    const keys = [...required];
+    if (typeof v === "object" && v !== null)
+      for (const key of extras) if (key in v) keys.push(key);
+    return record(v, keys);
+  };
+  const d = optional(value, ["gateway_observed"], ["server_reported"]);
+  const g = record(d.gateway_observed, ["source", "reason"]);
+  const result: FailureDiagnosticsView = {
+    gateway_observed: {
+      source: closed(g.source, [
+        "transport",
+        "protocol",
+        "tool",
+        "result_validation",
+      ]),
+      reason: closed(g.reason, [
+        "prestart",
+        "handoff_uncertain",
+        "invalid_response",
+        "rpc_error",
+        "reported_error",
+        "result_shape",
+      ]),
+    },
+  };
+  if ("server_reported" in d) {
+    const s = optional(
+      d.server_reported,
+      ["version", "category", "phase"],
+      ["http_status", "retry_after_seconds"],
+    );
+    if (s.version !== 1) throw new Error("invalid response");
+    result.server_reported = {
+      version: 1,
+      category: closed(s.category, [
+        "authentication",
+        "rate_limit",
+        "timeout",
+        "canceled",
+        "transport",
+        "json_decode",
+        "response_contract",
+        "response_limit",
+        "validation",
+        "capacity",
+        "overload",
+        "redirect_rejected",
+        "upstream",
+      ]),
+      phase: closed(s.phase, [
+        "admission",
+        "exchange",
+        "response_status",
+        "response_decode",
+        "response_validation",
+      ]),
+    };
+    for (const key of ["http_status", "retry_after_seconds"] as const) {
+      if (!(key in s)) continue;
+      const n = s[key];
+      const min = key === "http_status" ? 100 : 0;
+      const max = key === "http_status" ? 599 : 86400;
+      if (typeof n !== "number" || !Number.isInteger(n) || n < min || n > max)
+        throw new Error("invalid response");
+      result.server_reported[key] = n;
+    }
+  }
+  return result;
 }
 
 function decodeTarget(value: unknown): InvocationTargetView | null {
@@ -166,7 +248,10 @@ function decodeAuthorization(
 function decodeSummary(
   value: unknown,
   item = false,
-): InvocationSummaryView & { redactedArguments?: unknown } {
+): InvocationSummaryView & {
+  redactedArguments?: unknown;
+  diagnostics?: FailureDiagnosticsView;
+} {
   const keys = [
     "id",
     "principal_id",
@@ -180,10 +265,17 @@ function decodeSummary(
     "authorization",
     "outcome",
   ];
-  if (item) keys.push("redacted_arguments");
+  if (item) {
+    keys.push("redacted_arguments");
+    if (typeof value === "object" && value !== null && "diagnostics" in value)
+      keys.push("diagnostics");
+  }
   const summary = record(value, keys);
   const outcome = record(summary.outcome, ["class", "basis", "completed_at"]);
-  const result: InvocationSummaryView & { redactedArguments?: unknown } = {
+  const result: InvocationSummaryView & {
+    redactedArguments?: unknown;
+    diagnostics?: FailureDiagnosticsView;
+  } = {
     id: id(summary.id),
     principalID: id(summary.principal_id),
     credentialID: id(summary.credential_id),
@@ -220,7 +312,11 @@ function decodeSummary(
     ]),
     completedAt: nullableText(outcome.completed_at),
   };
-  if (item) result.redactedArguments = summary.redacted_arguments;
+  if (item) {
+    result.redactedArguments = summary.redacted_arguments;
+    if ("diagnostics" in summary)
+      result.diagnostics = decodeDiagnostics(summary.diagnostics);
+  }
   return result;
 }
 export function decodeInvocationPage(value: unknown): InvocationPageView {
@@ -1141,6 +1237,45 @@ function InvocationDetail({
           </StateNotice>
         )}
       </section>
+      {item.diagnostics && (
+        <section
+          class="panel domain-panel"
+          aria-labelledby="failure-diagnostics-title"
+          data-testid="failure-diagnostics"
+        >
+          <h2 id="failure-diagnostics-title">Failure diagnostics</h2>
+          <h3>Gateway observed</h3>
+          <p>
+            {sentenceCase(item.diagnostics.gateway_observed.source)}:{" "}
+            {sentenceCase(item.diagnostics.gateway_observed.reason)}
+          </p>
+          {item.diagnostics.server_reported && (
+            <>
+              <h3>Server reported (unverified)</h3>
+              <p>
+                {sentenceCase(item.diagnostics.server_reported.category)} ·{" "}
+                {sentenceCase(item.diagnostics.server_reported.phase)}
+              </p>
+              {item.diagnostics.server_reported.http_status !== undefined && (
+                <p>
+                  HTTP status: {item.diagnostics.server_reported.http_status}
+                </p>
+              )}
+              {item.diagnostics.server_reported.retry_after_seconds !==
+                undefined && (
+                <p>
+                  Retry guidance:{" "}
+                  {item.diagnostics.server_reported.retry_after_seconds} seconds
+                </p>
+              )}
+            </>
+          )}
+          <p>
+            Diagnostics do not prove nonexecution or authorize a retry. An
+            explicit retry may duplicate an effect.
+          </p>
+        </section>
+      )}
       <RetainedArgumentCapture value={item.redactedArguments} />
     </div>
   );

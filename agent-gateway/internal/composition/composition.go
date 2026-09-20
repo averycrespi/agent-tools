@@ -387,7 +387,7 @@ func (adapter *invocationCallAdapter) Call(
 	response := adapter.service.Call(ctx, lease, invocation.CallRequest{Params: request.Params, WireValid: request.WireValid})
 	result := mcpingress.ToolsCallResponse{
 		ErrorCode: response.ErrorCode, InvocationID: response.InvocationID,
-		RejectionReason: response.RejectionReason, BlockedSelfService: response.BlockedSelfService,
+		RejectionReason: response.RejectionReason, BlockedSelfService: response.BlockedSelfService, Diagnostics: response.Diagnostics,
 	}
 	if response.Result != nil {
 		projected := &mcpingress.ToolsCallResult{

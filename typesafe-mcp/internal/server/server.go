@@ -31,7 +31,11 @@ func New(client *provider.Client) *mcpserver.MCPServer {
 			}
 			result, err := client.Call(ctx, req.Params.Name, args)
 			if err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
+				result := mcp.NewToolResultError(err.Error())
+				if diagnostic, ok := provider.Diagnostic(err); ok {
+					result.Meta = &mcp.Meta{AdditionalFields: map[string]any{provider.FailureDiagnosticMetaKey: diagnostic}}
+				}
+				return result, nil
 			}
 			// Fixed fallback avoids a second escaped copy of the provider response.
 			return mcp.NewToolResultStructured(result, "TypeSafe result is available in structuredContent."), nil

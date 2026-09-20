@@ -22,6 +22,7 @@ func TestInvocationDiagnosticPrivacyAndUnknownOutcome(t *testing.T) {
 	}{
 		{"success", downstream.CallResult{Response: downstream.Response{Result: json.RawMessage(`{"content":[{"type":"text","text":"` + canary + `"}]}`)}}, contract.TerminalSucceeded},
 		{"tool error", downstream.CallResult{Response: downstream.Response{Error: &downstream.RPCError{Code: -32000, Message: canary, Data: json.RawMessage(`{"` + canary + `":"` + canary + `"}`)}}}, contract.TerminalDownstreamFailure},
+		{"metadata error", downstream.CallResult{Response: downstream.Response{Result: json.RawMessage(`{"content":[{"type":"text","text":"` + canary + `"}],"isError":true,"_meta":{"io.github.averycrespi.agent-tools/failure":{"version":1,"category":"` + canary + `","phase":"exchange"}}}`)}}, contract.TerminalDownstreamFailure},
 		{"unknown", downstream.CallResult{Failure: downstream.FailureStartUncertain, Err: errors.New(canary + "\n{\"event\":\"forged\"}")}, contract.TerminalOutcomeUnknown},
 	} {
 		t.Run(test.name, func(t *testing.T) {
