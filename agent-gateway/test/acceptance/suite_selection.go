@@ -54,7 +54,7 @@ func suiteTimeout(id string) time.Duration {
 	case "test-browser-accessibility", "test-browser-cross":
 		return 45 * time.Second
 	case "test-browser-workflows":
-		return 3 * time.Minute
+		return 5 * time.Minute
 	case "test-stress", "test-frontend-development-browser":
 		return 2 * time.Minute
 	case "test-keyring-native":

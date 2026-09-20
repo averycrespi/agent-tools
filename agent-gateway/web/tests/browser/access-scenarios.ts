@@ -2335,58 +2335,70 @@ export async function runGrantReadsCreate(
   const otherResponse = new Promise<void>((resolve) => {
     releaseOther = resolve;
   });
-  let finishOther = () => {};
-  const otherFinished = new Promise<void>((resolve) => {
-    finishOther = resolve;
-  });
+  let otherStarted = false;
+  let otherFinished = false;
+  let otherFailure: unknown;
   await page.route(
     `**/api/v2/mcp/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
     async (route) => {
+      otherStarted = true;
       await otherResponse;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
-          server_id: serverID,
-          upstream_name: "other.tool",
-          external_name: "Other tool",
-          descriptor: {
-            name: "other.tool",
-            inputSchema: {
-              type: "object",
-              additionalProperties: false,
-              properties: { late: { type: "boolean" } },
+      try {
+        if (route.request().failure()?.errorText === "net::ERR_ABORTED") return;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+            server_id: serverID,
+            upstream_name: "other.tool",
+            external_name: "Other tool",
+            descriptor: {
+              name: "other.tool",
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: { late: { type: "boolean" } },
+              },
+              annotations: {
+                title: null,
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+              },
             },
-            annotations: {
-              title: null,
-              readOnlyHint: false,
-              destructiveHint: false,
-              idempotentHint: false,
-              openWorldHint: false,
-            },
-          },
-          fingerprint: "other",
-          catalog_revision: "1",
-          first_seen_at: "2026-08-28T12:00:00Z",
-          last_seen_at: "2026-08-28T12:00:00Z",
-          retired_at: null,
-        }),
-      });
-      finishOther();
+            fingerprint: "other",
+            catalog_revision: "1",
+            first_seen_at: "2026-08-28T12:00:00Z",
+            last_seen_at: "2026-08-28T12:00:00Z",
+            retired_at: null,
+          }),
+        });
+      } catch (error) {
+        if (route.request().failure()?.errorText !== "net::ERR_ABORTED")
+          otherFailure = error;
+      } finally {
+        otherFinished = true;
+      }
     },
   );
-  await Promise.all([
-    page.waitForRequest(`**/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`),
-    page.locator('[data-testid="grant-upstream"]').fill("other.tool"),
-  ]);
+  await page.locator('[data-testid="grant-upstream"]').fill("other.tool");
+  // A request event can precede interception. Wait for the actual route owner
+  // before superseding it, then settle even when fetch cancellation wins.
+  await expect
+    .poll(() => otherStarted, { message: "delayed descriptor route started" })
+    .toBe(true);
   await page.getByText("Loading schema…", { exact: true }).waitFor();
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
   await page
     .getByText(/Schema suggests string; your number type is retained/)
     .waitFor();
   releaseOther();
-  await otherFinished;
+  await expect
+    .poll(() => otherFinished, { message: "delayed descriptor route settled" })
+    .toBe(true);
+  if (otherFailure) throw otherFailure;
   await pointer.fill("");
   if (
     (await page

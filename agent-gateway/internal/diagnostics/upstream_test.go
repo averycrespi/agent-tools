@@ -100,14 +100,19 @@ func TestUpstreamSuppressionAndRecoveryAtWarn(t *testing.T) {
 	adapter.Reconciliation(other)
 	now = now.Add(contract.DiagnosticSummaryInterval)
 	adapter.Reconciliation(failure)
-	adapter.Reconciliation(upstreamExample(UpstreamRecovered)) // Filtered at warn, but must reset suppression.
+	adapter.Reconciliation(upstreamExample(UpstreamRecovered))
+	adapter.Reconciliation(upstreamExample(UpstreamRecovered)) // Healthy polls remain silent.
 	adapter.Reconciliation(failure)
 	require.True(t, adapter.Finish(nil))
 	got := records(t, output.Bytes())
-	require.Len(t, got, 4)
+	require.Len(t, got, 5)
 	require.EqualValues(t, 2, got[1]["upstream_ref"])
 	require.EqualValues(t, 3, got[2]["suppressed"])
-	require.NotContains(t, got[3], "suppressed")
+	require.Equal(t, "upstream_recovered", got[3]["event"])
+	require.Equal(t, "WARN", got[3]["level"])
+	require.EqualValues(t, 60000, got[3]["duration_ms"])
+	require.EqualValues(t, 3, got[3]["suppressed"])
+	require.NotContains(t, got[4], "suppressed")
 	require.Empty(t, adapter.suppression)
 }
 

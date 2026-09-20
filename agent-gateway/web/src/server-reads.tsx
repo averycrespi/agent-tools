@@ -1,4 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
+import {
+  decodeDiagnosticCorrelation,
+  type DiagnosticCorrelation,
+} from "./diagnostic-correlation";
 import { parseFragment, type ResolvedLocation } from "./location";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -154,6 +158,7 @@ export interface ServerView {
   runtimeState: string;
   runtimeReason: string | null;
   runtimeID: string | null;
+  diagnosticCorrelation: DiagnosticCorrelation | null;
   reconciliation: LimitView;
   dispatch: LimitView;
   durableState: string;
@@ -347,13 +352,11 @@ export function decodeServer(value: unknown): ServerView {
     "oauth_client",
     "oauth_tokens",
   ]);
-  const runtime = record(server.runtime, [
-    "state",
-    "reason",
-    "runtime_id",
-    "reconciliation",
-    "dispatch",
-  ]);
+  const runtime = optionalRecord(
+    server.runtime,
+    ["state", "reason", "runtime_id", "reconciliation", "dispatch"],
+    ["diagnostic_correlation"],
+  );
   const runtimeReason = nullableText(runtime.reason);
   if (runtimeReason !== null) closed(runtimeReason, reasons);
   const catalog = record(server.catalog, [
@@ -405,6 +408,9 @@ export function decodeServer(value: unknown): ServerView {
     ] as const),
     runtimeReason,
     runtimeID: nullableText(runtime.runtime_id),
+    diagnosticCorrelation: decodeDiagnosticCorrelation(
+      runtime.diagnostic_correlation,
+    ),
     reconciliation: decodeLimit(runtime.reconciliation),
     dispatch: decodeLimit(runtime.dispatch),
     durableState: closed(catalog.durable_state, [
@@ -2559,6 +2565,30 @@ export function ServerReads({
                         <div>
                           <dt>Namespace</dt>
                           <dd>{server.namespace}</dd>
+                        </div>
+                        <div class="technical-details-wide">
+                          <dt>Diagnostic correlation</dt>
+                          <dd data-testid="server-diagnostic-correlation">
+                            {server.diagnosticCorrelation ? (
+                              <>
+                                <span>
+                                  Process:{" "}
+                                  {server.diagnosticCorrelation.processID}
+                                </span>
+                                <br />
+                                <span>
+                                  Upstream reference:{" "}
+                                  {server.diagnosticCorrelation.upstreamRef}
+                                </span>
+                                <p class="muted">
+                                  Match both values to stderr from this Gateway
+                                  process. References do not survive restart.
+                                </p>
+                              </>
+                            ) : (
+                              "Unavailable — no current diagnostic reference"
+                            )}
+                          </dd>
                         </div>
                         <div>
                           <dt>Runtime ID</dt>

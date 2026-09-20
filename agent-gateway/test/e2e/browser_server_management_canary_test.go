@@ -52,11 +52,12 @@ func TestBrowserServerManagementCanary(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
-		Event             string `json:"event"`
-		ChromiumVersion   string `json:"chromium_version"`
-		PlaywrightVersion string `json:"playwright_version"`
-		Requests          int    `json:"requests"`
-		Destinations      int    `json:"destinations"`
+		Screenshots       []string `json:"screenshots"`
+		Event             string   `json:"event"`
+		ChromiumVersion   string   `json:"chromium_version"`
+		PlaywrightVersion string   `json:"playwright_version"`
+		Requests          int      `json:"requests"`
+		Destinations      int      `json:"destinations"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "server_management_complete", event.Event)
@@ -64,6 +65,8 @@ func TestBrowserServerManagementCanary(t *testing.T) {
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
 	assert.Equal(t, 7, event.Destinations)
+	require.Len(t, event.Screenshots, 4)
+	t.Logf("diagnostic correlation screenshots: %v", event.Screenshots)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "browser server management canary must own one Gateway lifecycle")
