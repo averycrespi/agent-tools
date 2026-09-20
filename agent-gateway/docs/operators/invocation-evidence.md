@@ -72,6 +72,10 @@ New failed invocation details can include **Gateway observed** source/reason fac
 
 Gateway distinguishes transport, protocol, tool-reported, and result-shape failures. A cooperating server can report authentication rejection, rate limiting, timeout, JSON decoding or response-contract failure, a bounded HTTP status, and parsed retry guidance. These claims are not independently verified. Retry guidance is not permission to retry and does not prove that no effect occurred. Follow the outcome class and unknown-outcome procedure below.
 
+TypeSafe response-validation reports can explain missing fields, wrong types, invalid calendar dates, or answers that do not match the submitted questions. Details identify the response schema/version, safe field path, rule and expected/observed types when meaningful. Paths mask array positions as `.[]` and dynamic keys as `.*`; they cannot identify a particular submitted answer or model index. **Additional validation violations omitted** means the bounded report is incomplete. Repeated failures at the same masked path can collapse into one entry. These remain unverified server claims, not Gateway inspection of a retained response.
+
+New readers support diagnostic versions 1 and 2 without increasing the 512-byte retained bound or migrating storage. Upgrade the bundled Gateway/UI/CLI together; v1-only Gateway readers do not support rollback against newly retained v2 rows. No raw response or discarded historical error is available to recover.
+
 Absent diagnostics are normal for older records, local failures, or failed terminal persistence. Unsupported or malformed server metadata is discarded without changing the original outcome. There is no raw-error debug mode and no recovery of discarded historical errors.
 
 ## Handle unknown outcomes

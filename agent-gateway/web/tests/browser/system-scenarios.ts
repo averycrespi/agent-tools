@@ -2213,6 +2213,53 @@ export async function runInvocations(
     ).toBe(true);
   }
   failureDiagnostics = {
+    gateway_observed: { source: "tool", reason: "reported_error" },
+    server_reported: {
+      version: 2,
+      category: "response_contract",
+      phase: "response_validation",
+      validation: {
+        schema: "models_result",
+        version: 1,
+        violations: [
+          { code: "missing", path: "$.models.[].name", rule: "required" },
+          {
+            code: "type",
+            path: "$.models.[].description",
+            rule: "type",
+            expected: "string",
+            observed: "number",
+          },
+        ],
+        truncated: true,
+      },
+    },
+  };
+  await page.getByTestId("manual-refresh").click();
+  for (const text of [
+    "Response validation failed",
+    "Required field is missing",
+    "Wrong value type",
+    "models_result",
+    "$.models.[].name",
+    "Expected string; observed number",
+    "Additional validation violations omitted",
+    "unverified server claims",
+  ]) {
+    await expect(page.getByTestId("failure-diagnostics")).toContainText(text);
+  }
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `validation-detail-${width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    historyScreenshots.push(path);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }
+  failureDiagnostics = {
     gateway_observed: { source: "protocol", reason: "rpc_error" },
   };
   await page.getByTestId("manual-refresh").click();

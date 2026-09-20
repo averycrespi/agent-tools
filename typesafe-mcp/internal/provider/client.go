@@ -111,20 +111,40 @@ func (c *Client) Call(ctx context.Context, name string, arguments any) (any, err
 	if name == "evaluate" {
 		schema = "evaluate_result"
 	}
-	if !valid(schema, value) {
-		return nil, safeFailure("malformed_response: provider result violates response contract; no retry", "response_contract", "response_validation")
-	}
-	if name == "evaluate" && !corresponds(arguments.(object), value.(object)) {
-		return nil, safeFailure("malformed_response: answers do not correspond to questions; no retry", "response_contract", "response_validation")
-	}
-	if name == "list_models" {
-		for _, v := range value.(object)["models"].([]any) {
-			if _, err := time.Parse("2006-01-02", v.(object)["release_date"].(string)); err != nil {
-				return nil, safeFailure("malformed_response: invalid release date; no retry", "response_contract", "response_validation")
-			}
-		}
+	violations := responseViolations(schema, value)
+	requestArguments, _ := arguments.(object)
+	violations = append(violations, semanticResponseViolations(name, requestArguments, value)...)
+	if len(violations) != 0 {
+		return nil, validationFailure(schema, violations)
 	}
 	return value, nil
+}
+
+// Semantic checks inspect only available typed fields; structural failures must
+// not hide an independently observable invalid date or answer mismatch.
+func semanticResponseViolations(name string, request object, value any) []ValidationViolation {
+	response, ok := value.(object)
+	if !ok {
+		return nil
+	}
+	if name == "evaluate" {
+		if _, ok := response["answers"].(object); ok && !corresponds(request, response) {
+			return []ValidationViolation{{Code: "correspondence", Path: "$.answers", Rule: "correspondence"}}
+		}
+		return nil
+	}
+	cards, _ := response["models"].([]any)
+	for _, value := range cards {
+		card, _ := value.(object)
+		date, ok := card["release_date"].(string)
+		if !ok {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			return []ValidationViolation{{Code: "invalid_date", Path: "$.models.[].release_date", Rule: "date"}}
+		}
+	}
+	return nil
 }
 
 func contextError(err error) error {
@@ -198,11 +218,18 @@ func corresponds(request, response object) bool {
 		if question["type"] == "noul" {
 			continue
 		}
-		probabilities := answer["probabilities"].(object)
+		probabilities, ok := answer["probabilities"].(object)
+		if !ok {
+			return false
+		}
 		var expected object
 		if question["type"] == "choice" {
 			expected = question["criteria"].(object)
-			if _, ok := expected[answer["choice"].(string)]; !ok {
+			choice, ok := answer["choice"].(string)
+			if !ok {
+				return false
+			}
+			if _, ok := expected[choice]; !ok {
 				return false
 			}
 		} else {
@@ -211,7 +238,11 @@ func corresponds(request, response object) bool {
 			for index, description := range criteria {
 				expected[strconv.Itoa(index)] = description
 			}
-			if !reflect.DeepEqual(expected, answer["legend"]) || answer["score"].(float64) > float64(len(criteria)-1) {
+			score, ok := answer["score"].(float64)
+			if !ok {
+				return false
+			}
+			if !reflect.DeepEqual(expected, answer["legend"]) || score > float64(len(criteria)-1) {
 				return false
 			}
 		}
