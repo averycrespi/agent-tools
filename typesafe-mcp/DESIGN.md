@@ -12,6 +12,8 @@ Give agents behind Agent Gateway a minimal stateless inference adapter: exactly 
 
 One evaluation contains every named Choice/Score/Noul question. The default model is `jev-latest`; explicit version IDs are passed through without discovery or allowlisting. Responses preserve provider model, answer IDs, distributions, legends, optional confidence and token counts. Unknown contract fields and malformed/mismatched responses fail closed. Structured descriptions and null criteria remain valid; state/instructions must be non-null string/object/array values. Schema validation is applied both by MCP and by the provider boundary.
 
+Model `release_date` accepts valid `YYYY-MM-DD` calendar dates and RFC 3339 timestamps with case-insensitive `T`/`Z`, optional fractional seconds, and UTC (`Z`) or numeric offsets. The schema enforces lexical and time/offset ranges; semantic parsing rejects impossible calendar dates. Leap seconds are not supported. Successful results preserve the original string, including fractional precision and offset, rather than normalizing or truncating it. Both malformed dates and timestamps retain the closed `invalid_date` / `date` diagnostic.
+
 ## Trust boundaries
 
 Only startup `TYPESAFE_API_KEY` provides credentials. Production destinations are fixed HTTPS TypeSafe endpoints; tool arguments cannot alter destination, headers, credential source, limits or transport. A private HTTP/1 transport disables proxies, cookies, compression and connection reuse; request replay bodies are unset. No redirects or retries occur. Internal tests can inject transports, and binary fixtures substitute only the destination constant through an isolated build overlay.
