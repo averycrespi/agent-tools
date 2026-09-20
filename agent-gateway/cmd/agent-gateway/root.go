@@ -61,7 +61,6 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	command.AddCommand(
 		newAdminAuthorityCmd("initialize", dependencies),
 		newStorageCmd(dependencies),
-		newInstallationCmd(),
 		newServiceCmd(),
 		newServeCmd(dependencies),
 	)
@@ -76,6 +75,13 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 	}
 	command.Long = command.Short + ".\n\nOnly agent-gateway is published. Renaming a current binary does not change\nits commands, installation, credentials, or process lock. Operator clients\nmust upgrade with the service for the API v2 and mcp command namespaces."
 	return command
+}
+
+func installationSelectionProblem(err error) *controlclient.OnlineError {
+	if errors.Is(err, gatewaypaths.ErrExplicitSelectionRequired) {
+		return controlclient.NewInputError("Legacy installation selection is ambiguous. Select the existing --data-dir explicitly and consult docs/operators/installation-safety.md; retain tombstones and recovery artifacts, and do not initialize another root.")
+	}
+	return controlclient.NewInputError("The selected data directory is invalid.")
 }
 
 func newServeCmd(dependencies offlineDependencies) *cobra.Command {
@@ -190,7 +196,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	runtime, err := newComposition(composition.Options{
 		Store: store, InstallationID: identity.InstallationID, CallbackURL: "http://" + authority + "/oauth/callback",
 		Clock: dependencies.clock, Entropy: dependencies.entropy, Invalidate: eventHub.Publish, Ready: ready.Load,
-		Diagnostics: dependencies.diagnostics,
+		Diagnostics:         dependencies.diagnostics,
+		DiagnosticProcessID: dependencies.diagnostics.ProcessID(),
 	})
 	if err != nil {
 		return false, err
@@ -271,7 +278,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		OperationState: runtime.OperationState,
 		RuntimeStatus: func(serverID string) api.RuntimeStatus {
 			status := runtime.RuntimeStatus(serverID)
-			return api.RuntimeStatus{State: status.State, Reason: status.Reason, RuntimeID: status.RuntimeID, CredentialState: status.CredentialState, CatalogState: status.CatalogState, Reconciliation: status.Reconciliation}
+			return api.RuntimeStatus{DiagnosticCorrelation: runtime.DiagnosticCorrelation(serverID), State: status.State, Reason: status.Reason, RuntimeID: status.RuntimeID, CredentialState: status.CredentialState, CatalogState: status.CatalogState, Reconciliation: status.Reconciliation}
 		},
 		TriggerServer:    runtime.TriggerServer,
 		CatalogTraversal: runtime.CatalogServerStatus,

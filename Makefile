@@ -1,6 +1,6 @@
-TOOLS := mcp-broker agent-gateway sandbox-manager local-git-mcp http-broker
+TOOLS := mcp-broker agent-gateway sandbox-manager local-git-mcp http-broker typesafe-mcp
 OTHER_TOOLS := $(filter-out agent-gateway,$(TOOLS))
-INTEGRATION_TOOLS := mcp-broker agent-gateway local-git-mcp
+INTEGRATION_TOOLS := mcp-broker agent-gateway local-git-mcp typesafe-mcp
 E2E_TOOLS := mcp-broker agent-gateway http-broker
 UNAME_S := $(shell uname -s)
 LOCAL_TEST_JOBS ?= 2

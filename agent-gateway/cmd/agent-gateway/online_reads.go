@@ -300,7 +300,12 @@ func serverItemTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &server); err != nil {
 		return controlclient.Table{}, err
 	}
-	return controlclient.Table{Headers: serverHeaders(), Rows: [][]string{serverRow(server)}}, nil
+	headers := append(serverHeaders(), "PROCESS_ID", "UPSTREAM_REF")
+	process, ref := "unavailable", "unavailable"
+	if correlation := server.Runtime.DiagnosticCorrelation; correlation != nil {
+		process, ref = correlation.ProcessID, correlation.UpstreamRef
+	}
+	return controlclient.Table{Headers: headers, Rows: [][]string{append(serverRow(server), process, ref)}}, nil
 }
 
 func serverHeaders() []string {
@@ -430,6 +435,34 @@ func invocationItemTable(body []byte) (controlclient.Table, error) {
 		return controlclient.Table{}, err
 	}
 	rows := [][]string{invocationSummaryRow(item.InvocationSummary)}
+	if d := item.Diagnostics; d != nil {
+		if !d.ValidFor(contract.InvocationTerminalClass(item.Outcome.Class)) {
+			return controlclient.Table{}, fmt.Errorf("invalid failure diagnostics")
+		}
+		rows = append(rows, []string{"Gateway observed", "", "", "", "", "", d.GatewayObserved.Source, d.GatewayObserved.Reason})
+		if s := d.ServerReported; s != nil {
+			status, retry := "-", "-"
+			if s.HTTPStatus != nil {
+				status = fmt.Sprintf("HTTP %d", *s.HTTPStatus)
+			}
+			if s.RetryAfterSeconds != nil {
+				retry = fmt.Sprintf("retry guidance %ds (not permission)", *s.RetryAfterSeconds)
+			}
+			rows = append(rows, []string{"Server reported (unverified)", "", "", "", status, retry, s.Category, s.Phase})
+			if v := s.Validation; v != nil {
+				for _, violation := range v.Violations {
+					types := ""
+					if violation.Expected != "" {
+						types = "expected " + violation.Expected + "; observed " + violation.Observed
+					}
+					rows = append(rows, []string{"Response validation (unverified)", fmt.Sprintf("%s v%d", v.Schema, v.Version), violation.Path, violation.Code, violation.Rule, types, violation.Explanation(), ""})
+				}
+				if v.Truncated {
+					rows = append(rows, []string{"Additional validation violations omitted", "", "", "", "", "", "", ""})
+				}
+			}
+		}
+	}
 	if item.Outcome.Class == contract.InvocationOutcomeUnknown {
 		rows = append(rows, invocationGuidanceRow())
 	}

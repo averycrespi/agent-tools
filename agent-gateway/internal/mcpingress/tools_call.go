@@ -34,6 +34,7 @@ type ToolsCallResponse struct {
 	RejectionReason    contract.CallRejectionReason
 	BlockedSelfService bool
 	InvocationID       string
+	Diagnostics        *contract.FailureDiagnostics
 }
 
 type ToolsCallService interface {
@@ -169,6 +170,18 @@ func encodeToolsCallResponse(ctx context.Context, id json.RawMessage, response T
 	data := contract.AgentCallErrorData{
 		Code: response.ErrorCode, Reason: response.RejectionReason, InvocationID: invocationID,
 		OutcomeUnknown: response.ErrorCode == contract.OutcomeUnknown,
+	}
+	terminal := contract.InvocationTerminalClass("")
+	switch response.ErrorCode {
+	case contract.ToolUnavailable:
+		terminal = contract.TerminalPrestartFailure
+	case contract.OutcomeUnknown:
+		terminal = contract.TerminalOutcomeUnknown
+	case contract.DownstreamFailure:
+		terminal = contract.TerminalDownstreamFailure
+	}
+	if response.Diagnostics != nil && response.Diagnostics.ValidFor(terminal) {
+		data.Diagnostics = response.Diagnostics
 	}
 	encoded, err := json.Marshal(toolsCallErrorEnvelope{
 		JSONRPC: "2.0", ID: copyRequestID(id),

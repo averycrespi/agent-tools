@@ -29,7 +29,7 @@ agent-gateway mcp invocation list \
 
 Use `--admission-class`, `--decision`, and `--outcome` only with values shown by generated help. Filters bind the opaque cursor. A malformed cursor returns `invalid_cursor`; a cursor whose retention floor or bound state is no longer coherent returns `stale_cursor`. Start again without the cursor rather than trying to edit or reuse it under different filters.
 
-Collections omit argument captures and return summary evidence only. `agent-gateway mcp invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output remains summary-only. A missing item can mean the ID never existed or that bounded retention evicted it.
+Collections omit argument captures and return summary evidence only. `agent-gateway mcp invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output omits captures but includes safe failure diagnostics when available. A missing item can mean the ID never existed or that bounded retention evicted it.
 
 ## Filter browser history
 
@@ -66,6 +66,18 @@ The closed projection distinguishes:
 
 The accompanying basis is `admission`, `policy`, `terminal`, or `missing_terminal`. Missing terminal evidence always projects as unknown rather than being treated as failure-before-start or success.
 
+## Read safe failure diagnostics
+
+New failed invocation details can include **Gateway observed** source/reason facts and separately labeled **Server reported (unverified)** claims. The same `diagnostics` object appears in agent error data, item API JSON, and `mcp invocation get --output json`; human CLI and browser details render its closed values. Lists omit diagnostics. Browser details lead with the error and masked field path, with server claims scoped under **Server reported (unverified)**. Collapsed **Technical details** holds schema/version, rule, code, secondary classification, and path-masking context.
+
+Gateway distinguishes transport, protocol, tool-reported, and result-shape failures. A cooperating server can report authentication rejection, rate limiting, timeout, JSON decoding or response-contract failure, a bounded HTTP status, and parsed retry guidance. These claims are not independently verified. Retry guidance is not permission to retry and does not prove that no effect occurred. Follow the outcome class and unknown-outcome procedure below.
+
+TypeSafe response-validation reports can explain missing fields, wrong types, invalid calendar dates, or answers that do not match the submitted questions. Details identify the response schema/version, safe field path, rule and expected/observed types when meaningful. Paths mask array positions as `.[]` and dynamic keys as `.*`; they cannot identify a particular submitted answer or model index. **Additional validation violations omitted** means the bounded report is incomplete. Repeated failures at the same masked path can collapse into one entry. These remain unverified server claims, not Gateway inspection of a retained response.
+
+New readers support diagnostic versions 1 and 2 without increasing the 512-byte retained bound or migrating storage. Upgrade the bundled Gateway/UI/CLI together; v1-only Gateway readers do not support rollback against newly retained v2 rows. No raw response or discarded historical error is available to recover.
+
+Absent diagnostics are normal for older records, local failures, or failed terminal persistence. Unsupported or malformed server metadata is discarded without changing the original outcome. There is no raw-error debug mode and no recovery of discarded historical errors.
+
 ## Handle unknown outcomes
 
 Missing terminal evidence is not proof that no effect occurred. Gateway provides at most one automatic attempt and never replays after uncertainty, cancellation, restart, route withdrawal, or terminal-write failure.
@@ -85,9 +97,9 @@ Gateway-local tools use a narrower result boundary. Known and post-commit-uncert
 
 Gateway retains at most 65,536 invocation rows and evicts the oldest row in the same transaction as a new admission. Evidence is ordered by durable insertion sequence rather than client timestamps.
 
-The browser labels this evidence **Retained argument capture**. A JSON value is the compact historical capture after fixed recursive sensitive-key redaction. `[REDACTED]` replaces a value whose field name matched the recognized key set; other secrets may remain visible, so inspect the capture only when operationally necessary. `[TRUNCATED]` means the redacted capture exceeded the 8 KiB compact bound and argument content was not retained. An absent capture means redaction or encoding did not produce evidence; Gateway retained no raw fallback. This is defense in depth, not guaranteed secret detection, and the capture is not necessarily the exact original request. Callers must not submit secrets where the tool contract does not require them.
+The browser labels this evidence **Captured arguments**; an empty object appears as **Captured arguments · Empty**, distinct from an absent capture. A JSON value is the compact historical capture after fixed recursive sensitive-key redaction. `[REDACTED]` replaces a value whose field name matched the recognized key set; other secrets may remain visible, so inspect the capture only when operationally necessary. `[TRUNCATED]` means the redacted capture exceeded the 8 KiB compact bound and argument content was not retained. An absent capture means redaction or encoding did not produce evidence; Gateway retained no raw fallback. This is defense in depth, not guaranteed secret detection, and the capture is not necessarily the exact original request. Callers must not submit secrets where the tool contract does not require them.
 
-Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Backups contain only the same bounded safe evidence. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
+Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Only the closed, validated failure diagnostic subset (at most 512 bytes) is additionally retained with a failed terminal annotation; it contains no free-text errors or payloads. Backups contain only the same bounded safe evidence. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
 
 ## Follow live updates safely
 

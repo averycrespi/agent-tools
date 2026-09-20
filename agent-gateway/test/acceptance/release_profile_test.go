@@ -100,8 +100,8 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}
-	assert.Equal(t, 118, gatewayStarts)
-	assert.Equal(t, 41, browserStarts)
+	assert.Equal(t, 120, gatewayStarts)
+	assert.Equal(t, 42, browserStarts)
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "test-e2e"))
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "verify-supply-chain"))
 	for _, aggregate := range []string{"test", "test-browser", "test-frontend-development", "frontend-build", "frontend-verify-generated"} {

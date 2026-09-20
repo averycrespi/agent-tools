@@ -60,7 +60,7 @@ func DiagnosticEvents() []DiagnosticEvent {
 	for _, definition := range []struct{ name, level string }{
 		{"upstream_attempt_start", "debug"}, {"upstream_attempt_complete", "debug"},
 		{"upstream_retry_scheduled", "debug"}, {"upstream_retry_reset", "debug"},
-		{"upstream_unhealthy", "warn"}, {"upstream_recovered", "info"},
+		{"upstream_unhealthy", "warn"}, {"upstream_recovered", "warn"},
 		{"oauth_required", "info"}, {"oauth_completed", "info"},
 		{"oauth_expired", "warn"}, {"oauth_failed", "warn"},
 		{"oauth_refresh_complete", "debug"}, {"oauth_refresh_failed", "warn"}, {"oauth_stage", "debug"}, {"catalog_poll_scheduled", "debug"},
@@ -85,9 +85,22 @@ func DiagnosticEvents() []DiagnosticEvent {
 		if definition.name == "upstream_unhealthy" || definition.name == "oauth_refresh_failed" {
 			item.OptionalFields = append(item.OptionalFields, "suppressed")
 		}
+		if definition.name == "upstream_recovered" {
+			item.RequiredFields = append(item.RequiredFields, "duration_ms", "suppressed")
+		}
 		events = append(events, item)
 	}
-	return append(events, DiagnosticEvent{Name: "diagnostic_loss", Level: "warn", RequiredFields: []string{"dropped", "invalid"}, Causes: []string{""}})
+	events = append(events, DiagnosticEvent{Name: "diagnostic_loss", Level: "warn", RequiredFields: []string{"dropped", "invalid"}, Causes: []string{""}})
+	for index := range events {
+		if events[index].Level == "warn" || events[index].Level == "error" {
+			events[index].RequiredFields = append(events[index].RequiredFields, "action")
+		}
+	}
+	return events
+}
+
+func DiagnosticActions() []string {
+	return []string{"inspect_status", "authorize_upstream", "inspect_credentials", "inspect_connection", "inspect_configuration", "inspect_settlement_no_replay", "storage_recovery", "wait_scheduled_retry", "inspect_diagnostic_sink", "no_action"}
 }
 
 func DiagnosticLevels() []string { return []string{"warn", "info", "debug"} }

@@ -5,6 +5,7 @@ import {
   type Request,
 } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
+import { exercisePendingRequests } from "./pending-requests.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -624,6 +625,9 @@ export async function runFragmentStorage(
     assertClosedStorage(await browserStorage(page), preference);
   }
   await page.reload({ waitUntil: "domcontentloaded" });
+  // Theme rendering precedes bootstrap settlement; do not unload the request
+  // while the protocol owner is still collecting its complete Origin headers.
+  await waitForLifecycle(page, "signed_out");
   if (
     (await page.locator('[data-testid="theme-preference"]').inputValue()) !==
     "system"
@@ -637,6 +641,7 @@ export async function runFragmentStorage(
     localStorage.setItem("agent_gateway_theme", canary);
   }, storageCanary);
   await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForLifecycle(page, "signed_out");
   assertClosedStorage(await browserStorage(page));
 
   for (const [legacy, canonical, expected] of [
@@ -1253,7 +1258,10 @@ export async function runShellPrimitives(
   const navigationLinks = await primary
     .getByRole("link")
     .evaluateAll((links) =>
-      links.map((link) => [link.textContent, link.getAttribute("href")]),
+      links.map((link) => [
+        link.firstChild?.textContent,
+        link.getAttribute("href"),
+      ]),
     );
   if (JSON.stringify(navigationLinks) !== JSON.stringify(expectedNavigation))
     fail("domain navigation labels, order or legacy destinations changed");
@@ -1263,14 +1271,16 @@ export async function runShellPrimitives(
     const links = await primary
       .getByRole("group", { name, exact: true })
       .getByRole("link")
-      .allTextContents();
+      .evaluateAll((links) =>
+        links.map((link) => link.firstChild?.textContent),
+      );
     if (JSON.stringify(links) !== JSON.stringify(labels))
       fail(`${name} navigation group lost its accessible membership`);
   }
   if ((await primary.getByRole("group").count()) !== 1)
     fail("primary navigation must contain only the MCP named group");
   for (const [label, href] of expectedNavigation) {
-    await primary.getByRole("link", { name: label, exact: true }).focus();
+    await primary.locator(`a[href="${href}"]`).focus();
     await page.keyboard.press("Enter");
     await page.waitForFunction(
       ({ label, href }) =>
@@ -1287,6 +1297,8 @@ export async function runShellPrimitives(
     if ((await primary.locator('[aria-current="page"]').count()) !== 1)
       fail("navigation must have exactly one current destination");
   }
+
+  await exercisePendingRequests(page);
 
   for (const fragment of [
     "#/mcp/grants?sort=target&filter_effect=deny",
@@ -1379,8 +1391,8 @@ export async function runShellPrimitives(
   ) {
     fail("narrow navigation disclosure did not open from the keyboard");
   }
-  for (const [label] of expectedNavigation) {
-    const link = primary.getByRole("link", { name: label, exact: true });
+  for (const [label, href] of expectedNavigation) {
+    const link = primary.locator(`a[href="${href}"]`);
     await link.focus();
     const reachable = await link.evaluate((element) => {
       const rect = element.getBoundingClientRect();

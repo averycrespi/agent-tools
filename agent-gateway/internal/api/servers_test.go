@@ -192,7 +192,7 @@ func TestServerResourceUsesSafeProcessLocalRuntimeStatus(t *testing.T) {
 	handler := New(Options{
 		Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Servers: service,
 		RuntimeStatus: func(string) RuntimeStatus {
-			return RuntimeStatus{State: contract.RuntimeRetryWait, Reason: &reason, RuntimeID: &runtimeID, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogStale, Reconciliation: contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true}}
+			return RuntimeStatus{DiagnosticCorrelation: &contract.DiagnosticCorrelation{ProcessID: "0123456789abcdef0123456789abcdef", UpstreamRef: "18446744073709551615"}, State: contract.RuntimeRetryWait, Reason: &reason, RuntimeID: &runtimeID, CredentialState: contract.ServerCredentialUnavailable, CatalogState: contract.ActiveCatalogStale, Reconciliation: contract.LimitStatus{InUse: 1, Limit: 1, Saturated: true}}
 		},
 	})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
@@ -200,9 +200,19 @@ func TestServerResourceUsesSafeProcessLocalRuntimeStatus(t *testing.T) {
 	response := perform(boundary, http.MethodGet, "/api/v2/mcp/servers/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	assert.Contains(t, response.Body.String(), `"state":"retry_wait","reason":"connectivity","runtime_id":"runtime-safe-id"`)
+	assert.Contains(t, response.Body.String(), `"diagnostic_correlation":{"process_id":"0123456789abcdef0123456789abcdef","upstream_ref":"18446744073709551615"}`)
+	for _, bearer := range []string{"", "agent-credential-not-admin"} {
+		denied := perform(boundary, http.MethodGet, "/api/v2/mcp/servers/"+testID, "", map[string]string{"Authorization": "Bearer " + bearer})
+		require.Equal(t, http.StatusUnauthorized, denied.Code)
+		require.NotContains(t, denied.Body.String(), "diagnostic_correlation")
+	}
 	assert.Contains(t, response.Body.String(), `"reconciliation":{"in_use":1,"limit":1,"saturated":true}`)
 	assert.Contains(t, response.Body.String(), `"credential_state":"unavailable"`)
 	assert.Contains(t, response.Body.String(), `"active_state":"stale"`)
+	service.server.DesiredState = contract.DesiredServerDeleted
+	deleted := perform(boundary, http.MethodGet, "/api/v2/mcp/servers/"+testID, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	require.Equal(t, http.StatusOK, deleted.Code)
+	require.NotContains(t, deleted.Body.String(), "diagnostic_correlation")
 }
 
 func TestServerMutationsTriggerReconciliationOnlyForBehavioralWork(t *testing.T) {

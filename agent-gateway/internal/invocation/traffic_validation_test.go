@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,6 +88,50 @@ func TestTrafficRestartValidatesEveryRowNotOnlyStructure(t *testing.T) {
 	reopened, err := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
 	assert.ErrorIs(t, err, ErrInvalidState)
 	assert.Nil(t, reopened)
+}
+
+func TestTrafficFailureDiagnosticsReadAndRestartValidation(t *testing.T) {
+	for _, test := range []struct {
+		name, diagnostic string
+		valid            bool
+	}{
+		{"valid", `{"gateway_observed":{"source":"protocol","reason":"rpc_error"}}`, true},
+		{"terminal mismatch", `{"gateway_observed":{"source":"transport","reason":"prestart"}}`, false},
+		{"unknown member", `{"gateway_observed":{"source":"protocol","reason":"rpc_error"},"raw":"untrusted"}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, owner := trafficFixture(t, nil, nil)
+			r, err := s.Admit(t.Context(), trafficPrepared(1))
+			require.NoError(t, err)
+			s.Release(r)
+			// Seed retained evidence, not a second production terminal writer. The
+			// unselected completion API still accepts only the common time/class.
+			_, err = s.db.ExecContext(t.Context(), `UPDATE invocations SET completed_at=?,terminal_class=?,failure_diagnostics=? WHERE id=?`, trafficCompletion().CompletedAt, string(contract.TerminalDownstreamFailure), test.diagnostic, invocationID(1))
+			require.NoError(t, err)
+			history, err := s.History(t.Context(), 0, 10)
+			if test.valid {
+				require.NoError(t, err)
+				require.Len(t, history.Records, 1)
+				require.NotNil(t, history.Records[0].Diagnostics)
+				assert.Equal(t, contract.FailureObservation{Source: "protocol", Reason: "rpc_error"}, history.Records[0].Diagnostics.GatewayObserved)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidState)
+				require.Empty(t, history.Records)
+			}
+			require.NoError(t, s.Close())
+			reopened, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), s.config)
+			if test.valid {
+				require.NoError(t, err)
+				defer func() { require.NoError(t, reopened.Close()) }()
+				retained, readErr := reopened.History(t.Context(), 0, 10)
+				require.NoError(t, readErr)
+				assert.Equal(t, history, retained)
+			} else {
+				require.ErrorIs(t, err, ErrInvalidState)
+				require.Nil(t, reopened)
+			}
+		})
+	}
 }
 
 func TestTrafficGenerationOwnershipBoundsAndPrivacy(t *testing.T) {

@@ -24,7 +24,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 16
+	CurrentSchema           = 17
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -40,7 +40,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql", "017_failure_diagnostics.sql"}
 
 type Identity struct {
 	InstallationID string
@@ -408,7 +408,7 @@ func (store *Store) verifyInvocationStructure(ctx context.Context) error {
 		"insertion_sequence", "id", "principal_id", "credential_id", "credential_fingerprint", "credential_revision",
 		"admitted_at", "admission_class", "requested_name", "redacted_arguments", "server_id", "tool_id", "upstream_name",
 		"descriptor_revision", "descriptor_fingerprint", "decision", "authorization_revision", "evaluated_at", "grant_id",
-		"completed_at", "terminal_class",
+		"completed_at", "terminal_class", "failure_diagnostics",
 	}
 	rows, err := store.database.QueryContext(ctx, `SELECT name FROM pragma_table_info('invocations') ORDER BY cid`)
 	if err != nil {
@@ -448,6 +448,7 @@ func (store *Store) verifyInvocationStructure(ctx context.Context) error {
 		"primary key autoincrement", "json_valid(redacted_arguments)", "length(cast(redacted_arguments as blob)) <= 8192",
 		"server_id is null and tool_id is null", "admission_class = 'evaluated' and decision is not null",
 		"completed_at is not null and terminal_class is not null", ") strict",
+		"length(cast(failure_diagnostics as blob)) <= 512", "json_valid(failure_diagnostics)", "json_type(failure_diagnostics) = 'object'", "terminal_class is not null and terminal_class <> 'succeeded'",
 		"'invalid_params'", "'unknown_tool'", "'invalid_arguments'", "'authorization_unavailable'", "'evaluated'",
 		"'prestart_failure'", "'succeeded'", "'downstream_failure'", "'outcome_unknown'",
 	} {
@@ -475,7 +476,7 @@ func (store *Store) verifyInvocationStructure(ctx context.Context) error {
 			return fmt.Errorf("invocation terminal trigger is missing %q", fragment)
 		}
 	}
-	for _, column := range expectedColumns[:len(expectedColumns)-2] {
+	for _, column := range expectedColumns[:len(expectedColumns)-3] {
 		if !strings.Contains(normalizedTrigger, "new."+column+" is old."+column) {
 			return fmt.Errorf("invocation terminal trigger does not preserve %s", column)
 		}

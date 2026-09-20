@@ -97,6 +97,49 @@ func TestGatewayHarnessWaitsForPostCommitReconciliationSettlement(t *testing.T) 
 	}
 }
 
+func TestGatewayHarnessCatalogSetupWaitsForWriter(t *testing.T) {
+	var serverReads, principalWrites atomic.Int64
+	var writerReleased atomic.Bool
+	fixture := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", contract.MediaTypeJSON)
+		switch request.Method + " " + request.URL.Path {
+		case "POST /api/v2/mcp/servers":
+			writer.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(writer, `{"server":{"id":"server"},"operation":{"id":"operation"}}`)
+		case "GET /api/v2/mcp/servers/server/operations/operation":
+			assert.NoError(t, json.NewEncoder(writer).Encode(contract.ServerOperation{State: contract.OperationSucceeded}))
+		case "GET /api/v2/mcp/servers/server":
+			// Model a published catalog whose post-commit writer is still held.
+			inUse := int64(1)
+			if serverReads.Add(1) >= 3 {
+				writerReleased.Store(true)
+				inUse = 0
+			}
+			assert.NoError(t, json.NewEncoder(writer).Encode(stdioServerView{
+				Runtime: contract.ServerRuntime{State: contract.RuntimeActive, Reconciliation: contract.LimitStatus{InUse: inUse, Limit: 1}},
+				Catalog: contract.ServerCatalog{ActiveState: contract.ActiveCatalogCurrent, ActiveToolCount: 1},
+			}))
+		case "POST /api/v2/principals":
+			principalWrites.Add(1)
+			if !writerReleased.Load() {
+				writer.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			writer.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected catalog setup request: %s %s", request.Method, request.URL.Path)
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer fixture.Close()
+	harness := &gatewayHarness{t: t, ctx: t.Context(), authority: strings.TrimPrefix(fixture.URL, "http://"), client: fixture.Client()}
+	harness.client.Timeout = 3 * time.Second
+	harness.SetupCurrentCatalog("harness", []fixtureTool{{Name: "alpha", InputSchema: json.RawMessage(`{"type":"object"}`)}})
+	response := harness.adminSnapshot(http.MethodPost, "/api/v2/principals", []byte(`{"display_name":"Next mutation","visibility":"all"}`))
+	assert.Equal(t, http.StatusCreated, response.StatusCode, "catalog setup must settle before the next one-shot mutation")
+	assert.EqualValues(t, 1, principalWrites.Load(), "the mutation must not be retried")
+}
+
 func TestGatewayHarnessReusesOneBuiltBinary(t *testing.T) {
 	first := newGatewayHarness(t)
 	second := newGatewayHarness(t)

@@ -293,6 +293,7 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 		durableCatalog.LastSuccessAt = status.LastSuccessAt
 	}
 	if stored.DesiredState == contract.DesiredServerDeleted {
+		runtime.DiagnosticCorrelation = nil
 		runtime.State = contract.RuntimeDeleted
 		runtime.Reason = nil
 		runtime.RuntimeID = nil
@@ -307,7 +308,7 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 		ID: stored.ID, Namespace: stored.Namespace, DisplayName: stored.DisplayName, DesiredState: stored.DesiredState,
 		DesiredRevision: stored.DesiredRevision, Transport: transport, CredentialRevisions: authority.CredentialRevisions,
 		CredentialState: credentialState,
-		Runtime:         contract.ServerRuntime{State: runtime.State, Reason: runtime.Reason, RuntimeID: runtime.RuntimeID, Reconciliation: runtime.Reconciliation, Dispatch: handler.dispatchStatus(stored.ID)},
+		Runtime:         contract.ServerRuntime{DiagnosticCorrelation: runtime.DiagnosticCorrelation, State: runtime.State, Reason: runtime.Reason, RuntimeID: runtime.RuntimeID, Reconciliation: runtime.Reconciliation, Dispatch: handler.dispatchStatus(stored.ID)},
 		Catalog:         durableCatalog,
 		CreatedAt:       stored.CreatedAt, UpdatedAt: stored.UpdatedAt, DeletedAt: stored.DeletedAt,
 	}, nil

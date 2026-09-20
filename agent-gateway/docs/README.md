@@ -7,14 +7,14 @@ Choose documentation by the work you are doing. The same product and security co
 Start with the [Gateway README](../README.md) for installation and the quick start, then use the focused procedure for the task:
 
 - [Administrator CLI and local administration](operators/administration.md) — installation roots, browser preference/session migration, startup, authentication, output, confirmation, and retry discipline.
-- [Stopped installation migration](operators/installation-migration.md) — root/service selection, atomic handover, interruption recovery and separate host-adoption evidence.
+- [Installation safety](operators/installation-safety.md) — existing-root selection, retained tombstones and recovery artifacts, and operator cleanup after migration retirement.
 - [Run as a macOS launchd agent](operators/launchd.md) — per-user startup, verification, graceful maintenance, and native-keyring caveats.
 - [Upstream server configuration](operators/upstream-servers.md) — servers, credentials, OAuth, operations, and catalogs.
 - [Access control](operators/access-control.md) — principals, agent credentials, grants, and grant requests.
 - [Invocation evidence](operators/invocation-evidence.md) — retained evidence, redaction, and unknown outcomes.
 - [Backup and recovery](operators/backup-and-recovery.md) — backups, verification, restore, and administrator reset.
 
-Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. Only `agent-gateway` is published; old standalone binaries and retired API/CLI grammar are unsupported. See [executable retirement and cleanup](operators/installation-migration.md#retired-executable-and-operator-cleanup) before reconciling installed artifacts. New installations use canonical naming; existing hosts use explicit roots or the separately authorized stopped migration procedure, never automatic relocation. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
+Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. Only `agent-gateway` is published; old standalone binaries and retired API/CLI grammar are unsupported. See [executable retirement and cleanup](operators/installation-safety.md#retired-executable-and-operator-cleanup) before reconciling installed artifacts. New installations use canonical naming; existing custom roots remain explicit selections. The migration capability is retired; retained tombstones still protect default selection, with no automatic relocation or cleanup. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
 
 ## Change Gateway
 

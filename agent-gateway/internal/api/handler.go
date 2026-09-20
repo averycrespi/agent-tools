@@ -79,12 +79,13 @@ type OAuthCallbackService interface {
 }
 
 type RuntimeStatus struct {
-	State           contract.RuntimeState
-	Reason          *contract.PublicReason
-	RuntimeID       *string
-	CredentialState contract.ServerCredentialState
-	CatalogState    contract.ActiveCatalogState
-	Reconciliation  contract.LimitStatus
+	DiagnosticCorrelation *contract.DiagnosticCorrelation
+	State                 contract.RuntimeState
+	Reason                *contract.PublicReason
+	RuntimeID             *string
+	CredentialState       contract.ServerCredentialState
+	CatalogState          contract.ActiveCatalogState
+	Reconciliation        contract.LimitStatus
 }
 
 type Options struct {

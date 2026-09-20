@@ -37,14 +37,15 @@ type Clock interface {
 }
 
 type Options struct {
-	Diagnostics    diagnostics.Observer
-	Store          *storage.Store
-	InstallationID string
-	CallbackURL    string
-	Clock          Clock
-	Entropy        io.Reader
-	Invalidate     func(contract.Invalidation)
-	Ready          func() bool
+	DiagnosticProcessID string
+	Diagnostics         diagnostics.Observer
+	Store               *storage.Store
+	InstallationID      string
+	CallbackURL         string
+	Clock               Clock
+	Entropy             io.Reader
+	Invalidate          func(contract.Invalidation)
+	Ready               func() bool
 }
 
 var (
@@ -69,6 +70,7 @@ type ControlAPIDependencies struct {
 }
 
 type Composition struct {
+	diagnosticReferences *diagnosticReferences
 	servers              *servers.Repository
 	authorization        *authorization.Repository
 	selfProjections      *authorization.SelfProjectionService
@@ -387,7 +389,7 @@ func (adapter *invocationCallAdapter) Call(
 	response := adapter.service.Call(ctx, lease, invocation.CallRequest{Params: request.Params, WireValid: request.WireValid})
 	result := mcpingress.ToolsCallResponse{
 		ErrorCode: response.ErrorCode, InvocationID: response.InvocationID,
-		RejectionReason: response.RejectionReason, BlockedSelfService: response.BlockedSelfService,
+		RejectionReason: response.RejectionReason, BlockedSelfService: response.BlockedSelfService, Diagnostics: response.Diagnostics,
 	}
 	if response.Result != nil {
 		projected := &mcpingress.ToolsCallResult{
@@ -442,8 +444,8 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		}
 		return nil
 	}
-	references := &diagnosticReferences{}
-	built := &Composition{callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready}
+	references := &diagnosticReferences{process: options.DiagnosticProcessID}
+	built := &Composition{diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready}
 	cleanup := true
 	defer func() {
 		if cleanup {

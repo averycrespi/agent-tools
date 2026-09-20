@@ -114,8 +114,241 @@ export interface InvocationPageView {
   items: InvocationSummaryView[];
   nextCursor: string | null;
 }
+interface ValidationViolation {
+  code: string;
+  path: string;
+  rule: string;
+  expected?: string;
+  observed?: string;
+}
+interface ValidationDetails {
+  schema: string;
+  version: number;
+  violations: ValidationViolation[];
+  truncated: boolean;
+}
+const validationPaths: Record<string, string[]> = {
+  models_result: [
+    "$",
+    "$.models",
+    "$.models.[]",
+    "$.models.[].name",
+    "$.models.[].description",
+    "$.models.[].release_date",
+  ],
+  evaluate_result: [
+    "$",
+    "$.model",
+    "$.answers",
+    "$.answers.*",
+    "$.answers.*.type",
+    "$.answers.*.choice",
+    "$.answers.*.confidence",
+    "$.answers.*.probabilities",
+    "$.answers.*.probabilities.*",
+    "$.answers.*.score",
+    "$.answers.*.legend",
+    "$.answers.*.legend.*",
+    "$.answers.*.noul",
+    "$.usage",
+    "$.usage.input_tokens",
+    "$.usage.output_tokens",
+  ],
+};
+function decodeValidation(value: unknown): ValidationDetails {
+  const d = record(value, ["schema", "version", "violations", "truncated"]);
+  const schema = closed(d.schema, ["models_result", "evaluate_result"]);
+  if (
+    d.version !== 1 ||
+    typeof d.truncated !== "boolean" ||
+    !Array.isArray(d.violations) ||
+    d.violations.length < 1 ||
+    d.violations.length > 3
+  )
+    throw new Error("invalid response");
+  const violations = d.violations.map((value: unknown): ValidationViolation => {
+    const isType =
+      typeof value === "object" &&
+      value !== null &&
+      "code" in value &&
+      value.code === "type";
+    const v = record(value, [
+      "code",
+      "path",
+      "rule",
+      ...(isType ? ["expected", "observed"] : []),
+    ]);
+    const code = closed(v.code, [
+      "missing",
+      "type",
+      "invalid_date",
+      "correspondence",
+      "constraint",
+    ]);
+    const path = closed(v.path, validationPaths[schema]!);
+    const rules: Record<string, string[]> = {
+      missing: ["required"],
+      type: ["type"],
+      invalid_date: ["date"],
+      correspondence: ["correspondence"],
+      constraint: [
+        "schema",
+        "oneOf",
+        "additionalProperties",
+        "minLength",
+        "minItems",
+        "maxItems",
+        "minProperties",
+        "minimum",
+        "maximum",
+        "const",
+        "pattern",
+      ],
+    };
+    const result: ValidationViolation = {
+      code,
+      path,
+      rule: closed(v.rule, rules[code]!),
+    };
+    if (
+      (code === "invalid_date" && path !== "$.models.[].release_date") ||
+      (code === "correspondence" && path !== "$.answers")
+    )
+      throw new Error("invalid response");
+    if (isType) {
+      const types = [
+        "null",
+        "boolean",
+        "object",
+        "array",
+        "number",
+        "string",
+        "integer",
+      ];
+      result.expected = closed(v.expected, [
+        ...types,
+        "null|string|array|object",
+      ]);
+      result.observed = closed(v.observed, types);
+    }
+    return result;
+  });
+  const keys = violations.map((v) => JSON.stringify(v));
+  if (keys.some((key, i) => i > 0 && key <= keys[i - 1]!))
+    throw new Error("invalid response");
+  return { schema, version: 1, violations, truncated: d.truncated };
+}
+function validationExplanation(code: string): string {
+  switch (code) {
+    case "missing":
+      return "Required field is missing";
+    case "type":
+      return "Wrong value type";
+    case "invalid_date":
+      return "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp";
+    case "correspondence":
+      return "Answers do not correspond to the submitted questions";
+    default:
+      return "Response does not satisfy the schema rule";
+  }
+}
+interface FailureDiagnosticsView {
+  gateway_observed: { source: string; reason: string };
+  server_reported?: {
+    version: number;
+    category: string;
+    phase: string;
+    http_status?: number;
+    retry_after_seconds?: number;
+    validation?: ValidationDetails;
+  };
+}
 interface InvocationItemView extends InvocationSummaryView {
   redactedArguments: unknown;
+  diagnostics?: FailureDiagnosticsView;
+}
+function decodeDiagnostics(value: unknown): FailureDiagnosticsView {
+  const optional = (v: unknown, required: string[], extras: string[]) => {
+    const keys = [...required];
+    if (typeof v === "object" && v !== null)
+      for (const key of extras) if (key in v) keys.push(key);
+    return record(v, keys);
+  };
+  const d = optional(value, ["gateway_observed"], ["server_reported"]);
+  const g = record(d.gateway_observed, ["source", "reason"]);
+  const result: FailureDiagnosticsView = {
+    gateway_observed: {
+      source: closed(g.source, [
+        "transport",
+        "protocol",
+        "tool",
+        "result_validation",
+      ]),
+      reason: closed(g.reason, [
+        "prestart",
+        "handoff_uncertain",
+        "invalid_response",
+        "rpc_error",
+        "reported_error",
+        "result_shape",
+      ]),
+    },
+  };
+  if ("server_reported" in d) {
+    const s = optional(
+      d.server_reported,
+      ["version", "category", "phase"],
+      ["http_status", "retry_after_seconds", "validation"],
+    );
+    if (s.version !== 1 && s.version !== 2) throw new Error("invalid response");
+    result.server_reported = {
+      version: s.version,
+      category: closed(s.category, [
+        "authentication",
+        "rate_limit",
+        "timeout",
+        "canceled",
+        "transport",
+        "json_decode",
+        "response_contract",
+        "response_limit",
+        "validation",
+        "capacity",
+        "overload",
+        "redirect_rejected",
+        "upstream",
+      ]),
+      phase: closed(s.phase, [
+        "admission",
+        "exchange",
+        "response_status",
+        "response_decode",
+        "response_validation",
+      ]),
+    };
+    for (const key of ["http_status", "retry_after_seconds"] as const) {
+      if (!(key in s)) continue;
+      const n = s[key];
+      const min = key === "http_status" ? 100 : 0;
+      const max = key === "http_status" ? 599 : 86400;
+      if (typeof n !== "number" || !Number.isInteger(n) || n < min || n > max)
+        throw new Error("invalid response");
+      result.server_reported[key] = n;
+    }
+    if (s.version === 2) {
+      if (
+        s.category !== "response_contract" ||
+        s.phase !== "response_validation" ||
+        "http_status" in s ||
+        "retry_after_seconds" in s
+      )
+        throw new Error("invalid response");
+      result.server_reported.validation = decodeValidation(s.validation);
+      if (JSON.stringify(result.server_reported).length > 400)
+        throw new Error("invalid response");
+    } else if ("validation" in s) throw new Error("invalid response");
+  }
+  return result;
 }
 
 function decodeTarget(value: unknown): InvocationTargetView | null {
@@ -166,7 +399,10 @@ function decodeAuthorization(
 function decodeSummary(
   value: unknown,
   item = false,
-): InvocationSummaryView & { redactedArguments?: unknown } {
+): InvocationSummaryView & {
+  redactedArguments?: unknown;
+  diagnostics?: FailureDiagnosticsView;
+} {
   const keys = [
     "id",
     "principal_id",
@@ -180,10 +416,17 @@ function decodeSummary(
     "authorization",
     "outcome",
   ];
-  if (item) keys.push("redacted_arguments");
+  if (item) {
+    keys.push("redacted_arguments");
+    if (typeof value === "object" && value !== null && "diagnostics" in value)
+      keys.push("diagnostics");
+  }
   const summary = record(value, keys);
   const outcome = record(summary.outcome, ["class", "basis", "completed_at"]);
-  const result: InvocationSummaryView & { redactedArguments?: unknown } = {
+  const result: InvocationSummaryView & {
+    redactedArguments?: unknown;
+    diagnostics?: FailureDiagnosticsView;
+  } = {
     id: id(summary.id),
     principalID: id(summary.principal_id),
     credentialID: id(summary.credential_id),
@@ -220,7 +463,11 @@ function decodeSummary(
     ]),
     completedAt: nullableText(outcome.completed_at),
   };
-  if (item) result.redactedArguments = summary.redacted_arguments;
+  if (item) {
+    result.redactedArguments = summary.redacted_arguments;
+    if ("diagnostics" in summary)
+      result.diagnostics = decodeDiagnostics(summary.diagnostics);
+  }
   return result;
 }
 export function decodeInvocationPage(value: unknown): InvocationPageView {
@@ -1048,23 +1295,23 @@ function InvocationFilters({
   );
 }
 function RetainedArgumentCapture({ value }: { value: unknown }) {
+  const empty =
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0;
   return (
     <section
-      class="panel domain-panel"
+      class="panel domain-panel argument-capture"
       aria-labelledby="invocation-argument-capture-title"
       data-testid="invocation-argument-capture"
     >
       <div class="panel-heading">
         <h2 id="invocation-argument-capture-title">
-          Retained argument capture
+          Captured arguments{empty && " · Empty"}
         </h2>
       </div>
-      <p>
-        Gateway redacts values only for recognized sensitive field names. Other
-        secrets may remain visible; inspect this capture only when operationally
-        necessary.
-      </p>
-      {value === null ? (
+      {empty ? null : value === null ? (
         <p>No argument capture was retained.</p>
       ) : value === "[TRUNCATED]" ? (
         <p>
@@ -1073,6 +1320,99 @@ function RetainedArgumentCapture({ value }: { value: unknown }) {
         </p>
       ) : (
         <InertJSON value={value} label="Retained invocation argument capture" />
+      )}
+    </section>
+  );
+}
+function FailureDiagnostics({
+  diagnostics,
+}: {
+  diagnostics: FailureDiagnosticsView;
+}) {
+  const observed = diagnostics.gateway_observed;
+  const reported = diagnostics.server_reported;
+  const validation = reported?.validation;
+  return (
+    <section
+      class="panel domain-panel failure-diagnostics"
+      aria-labelledby="failure-diagnostics-title"
+      data-testid="failure-diagnostics"
+    >
+      <div class="panel-heading">
+        <h2 id="failure-diagnostics-title">Failure diagnostics</h2>
+        <span class="diagnostic-source">
+          Gateway observed · {sentenceCase(observed.source)}:{" "}
+          {sentenceCase(observed.reason)}
+        </span>
+      </div>
+      {reported && (
+        <div
+          class="diagnostic-report"
+          aria-label="Server reported (unverified)"
+        >
+          <div class="diagnostic-report-heading">
+            <h3>
+              {validation
+                ? "Response validation failed"
+                : sentenceCase(reported.category)}
+            </h3>
+            <span class="diagnostic-source">Server reported (unverified)</span>
+          </div>
+          {validation && (
+            <>
+              <ul class="diagnostic-violations">
+                {validation.violations.map((v) => (
+                  <li key={`${v.code}:${v.path}:${v.rule}`}>
+                    <strong>{validationExplanation(v.code)}</strong>
+                    <code>{v.path}</code>
+                    {v.expected && (
+                      <span>
+                        Expected {v.expected}; observed {v.observed}.
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {validation.truncated && (
+                <p>Additional validation violations omitted.</p>
+              )}
+            </>
+          )}
+          {reported.http_status !== undefined && (
+            <p>HTTP status: {reported.http_status}</p>
+          )}
+          {reported.retry_after_seconds !== undefined && (
+            <p>Retry guidance: {reported.retry_after_seconds} seconds</p>
+          )}
+          <details>
+            <summary>Technical details</summary>
+            <p>
+              {sentenceCase(reported.category)} · {sentenceCase(reported.phase)}{" "}
+              · Diagnostic version {reported.version}
+            </p>
+            {validation && (
+              <>
+                <p>
+                  Schema: <code>{validation.schema}</code> v{validation.version}
+                </p>
+                <ul>
+                  {validation.violations.map((v) => (
+                    <li key={`${v.code}:${v.path}:${v.rule}`}>
+                      <code>{v.path}</code> · Rule: <code>{v.rule}</code> ·
+                      Code: <code>{v.code}</code>
+                    </li>
+                  ))}
+                </ul>
+                <p>Array positions and dynamic keys are masked.</p>
+              </>
+            )}
+          </details>
+        </div>
+      )}
+      {observed.reason !== "prestart" && (
+        <p class="diagnostic-retry">
+          The tool may have executed. Retrying could duplicate effects.
+        </p>
       )}
     </section>
   );
@@ -1141,6 +1481,9 @@ function InvocationDetail({
           </StateNotice>
         )}
       </section>
+      {item.diagnostics && (
+        <FailureDiagnostics diagnostics={item.diagnostics} />
+      )}
       <RetainedArgumentCapture value={item.redactedArguments} />
     </div>
   );
