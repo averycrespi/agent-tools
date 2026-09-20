@@ -300,7 +300,12 @@ func serverItemTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &server); err != nil {
 		return controlclient.Table{}, err
 	}
-	return controlclient.Table{Headers: serverHeaders(), Rows: [][]string{serverRow(server)}}, nil
+	headers := append(serverHeaders(), "PROCESS_ID", "UPSTREAM_REF")
+	process, ref := "unavailable", "unavailable"
+	if correlation := server.Runtime.DiagnosticCorrelation; correlation != nil {
+		process, ref = correlation.ProcessID, correlation.UpstreamRef
+	}
+	return controlclient.Table{Headers: headers, Rows: [][]string{append(serverRow(server), process, ref)}}, nil
 }
 
 func serverHeaders() []string {
