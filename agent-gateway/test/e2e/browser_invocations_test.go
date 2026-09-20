@@ -68,7 +68,7 @@ func TestBrowserInvocations(t *testing.T) {
 	assert.Positive(t, event.Requests)
 	assert.GreaterOrEqual(t, event.ListReads, 4)
 	assert.Positive(t, event.ContinuationReads)
-	assert.Equal(t, 6, event.ItemReads)
+	assert.Equal(t, 7, event.ItemReads)
 	assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 21)
 	t.Logf("History visual artifacts: %v", event.HistoryScreenshots)
 

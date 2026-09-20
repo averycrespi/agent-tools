@@ -83,6 +83,49 @@ func TestModels(t *testing.T) {
 	require.Equal(t, decode(t, models), value)
 	require.EqualValues(t, 1, count.Load())
 }
+func TestModelReleaseDates(t *testing.T) {
+	for _, date := range []string{
+		"2026-09-10T18:38:01.391457+00:00",
+		"2026-09-10T18:39:06.057655+00:00",
+		"2026-09-15", "2024-02-29",
+		"2026-09-10T18:38:01Z",
+		"2026-09-10t18:38:01z", "2026-09-10T18:38:01z",
+		"2026-09-10t18:38:01.391457+00:00",
+		"2026-09-10T18:38:01.123456789123+05:30",
+		"2026-09-10T18:38:01-07:00",
+	} {
+		t.Run(date, func(t *testing.T) {
+			body := strings.Replace(models, "2026-09-15", date, 1)
+			client, attempts := fixture(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, body) })
+			value, err := client.Call(t.Context(), "list_models", object{})
+			require.NoError(t, err)
+			require.Equal(t, decode(t, body), value)
+			require.EqualValues(t, 1, attempts.Load())
+		})
+	}
+	for _, date := range []string{
+		"not-a-date", "", "2026-2-01", "2026-02-30", "2025-02-29",
+		"2026-02-30T18:38:01Z", "2026-09-10T24:00:00Z",
+		"2026-09-10T18:60:00Z", "2026-09-10T18:38:60Z",
+		"2026-09-10T18:38:01+24:00", "2026-09-10T18:38:01+00:60",
+		"2026-09-10T18:38:01", "2026-09-10 18:38:01Z",
+		"2026-09-10T8:38:01Z", "2026-09-10T18:38:01,123Z",
+		"2026-09-10T18:38:01.Z", "2026-09-15junk",
+	} {
+		t.Run(date, func(t *testing.T) {
+			body := strings.Replace(models, "2026-09-15", date, 1)
+			client, attempts := fixture(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, body) })
+			value, err := client.Call(t.Context(), "list_models", object{})
+			require.Error(t, err)
+			require.Nil(t, value)
+			diagnostic, ok := Diagnostic(err)
+			require.True(t, ok)
+			require.Equal(t, []ValidationViolation{{Code: "invalid_date", Path: "$.models.[].release_date", Rule: "date"}}, diagnostic.Validation.Violations)
+			require.EqualValues(t, 1, attempts.Load())
+		})
+	}
+}
+
 func TestInvalidInputsNeverDispatch(t *testing.T) {
 	inputs := []string{`{}`, `{"state":null,"questions":{}}`, strings.Replace(mixed, `"choice"`, `"other"`, 1), strings.Replace(mixed, `"state":`, `"url":"https://evil.test","state":`, 1), strings.Replace(mixed, `"instructions":"urgent?"`, `"instructions":null`, 1), strings.Replace(mixed, `"true":[]`, `"extra":[]`, 1), strings.Replace(mixed, `[null,{"rubric":["good"]}]`, `[null]`, 1), strings.Replace(mixed, `"b":null`, `"b":false`, 1), strings.Replace(mixed, `"state":`, `"model":" ","state":`, 1), strings.Replace(mixed, `"type":"noul"`, `"type":"noul","headers":{}`, 1)}
 	client, count := fixture(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected dispatch") })

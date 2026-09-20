@@ -114,6 +114,144 @@ export interface InvocationPageView {
   items: InvocationSummaryView[];
   nextCursor: string | null;
 }
+interface ValidationViolation {
+  code: string;
+  path: string;
+  rule: string;
+  expected?: string;
+  observed?: string;
+}
+interface ValidationDetails {
+  schema: string;
+  version: number;
+  violations: ValidationViolation[];
+  truncated: boolean;
+}
+const validationPaths: Record<string, string[]> = {
+  models_result: [
+    "$",
+    "$.models",
+    "$.models.[]",
+    "$.models.[].name",
+    "$.models.[].description",
+    "$.models.[].release_date",
+  ],
+  evaluate_result: [
+    "$",
+    "$.model",
+    "$.answers",
+    "$.answers.*",
+    "$.answers.*.type",
+    "$.answers.*.choice",
+    "$.answers.*.confidence",
+    "$.answers.*.probabilities",
+    "$.answers.*.probabilities.*",
+    "$.answers.*.score",
+    "$.answers.*.legend",
+    "$.answers.*.legend.*",
+    "$.answers.*.noul",
+    "$.usage",
+    "$.usage.input_tokens",
+    "$.usage.output_tokens",
+  ],
+};
+function decodeValidation(value: unknown): ValidationDetails {
+  const d = record(value, ["schema", "version", "violations", "truncated"]);
+  const schema = closed(d.schema, ["models_result", "evaluate_result"]);
+  if (
+    d.version !== 1 ||
+    typeof d.truncated !== "boolean" ||
+    !Array.isArray(d.violations) ||
+    d.violations.length < 1 ||
+    d.violations.length > 3
+  )
+    throw new Error("invalid response");
+  const violations = d.violations.map((value: unknown): ValidationViolation => {
+    const isType =
+      typeof value === "object" &&
+      value !== null &&
+      "code" in value &&
+      value.code === "type";
+    const v = record(value, [
+      "code",
+      "path",
+      "rule",
+      ...(isType ? ["expected", "observed"] : []),
+    ]);
+    const code = closed(v.code, [
+      "missing",
+      "type",
+      "invalid_date",
+      "correspondence",
+      "constraint",
+    ]);
+    const path = closed(v.path, validationPaths[schema]!);
+    const rules: Record<string, string[]> = {
+      missing: ["required"],
+      type: ["type"],
+      invalid_date: ["date"],
+      correspondence: ["correspondence"],
+      constraint: [
+        "schema",
+        "oneOf",
+        "additionalProperties",
+        "minLength",
+        "minItems",
+        "maxItems",
+        "minProperties",
+        "minimum",
+        "maximum",
+        "const",
+        "pattern",
+      ],
+    };
+    const result: ValidationViolation = {
+      code,
+      path,
+      rule: closed(v.rule, rules[code]!),
+    };
+    if (
+      (code === "invalid_date" && path !== "$.models.[].release_date") ||
+      (code === "correspondence" && path !== "$.answers")
+    )
+      throw new Error("invalid response");
+    if (isType) {
+      const types = [
+        "null",
+        "boolean",
+        "object",
+        "array",
+        "number",
+        "string",
+        "integer",
+      ];
+      result.expected = closed(v.expected, [
+        ...types,
+        "null|string|array|object",
+      ]);
+      result.observed = closed(v.observed, types);
+    }
+    return result;
+  });
+  const keys = violations.map((v) => JSON.stringify(v));
+  if (keys.some((key, i) => i > 0 && key <= keys[i - 1]!))
+    throw new Error("invalid response");
+  return { schema, version: 1, violations, truncated: d.truncated };
+}
+function validationExplanation(code: string): string {
+  switch (code) {
+    case "missing":
+      return "Required field is missing";
+    case "type":
+      return "Wrong value type";
+    case "invalid_date":
+      return "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp";
+    case "correspondence":
+      return "Answers do not correspond to the submitted questions";
+    default:
+      return "Response does not satisfy the schema rule";
+  }
+}
 interface FailureDiagnosticsView {
   gateway_observed: { source: string; reason: string };
   server_reported?: {
@@ -122,6 +260,7 @@ interface FailureDiagnosticsView {
     phase: string;
     http_status?: number;
     retry_after_seconds?: number;
+    validation?: ValidationDetails;
   };
 }
 interface InvocationItemView extends InvocationSummaryView {
@@ -159,11 +298,11 @@ function decodeDiagnostics(value: unknown): FailureDiagnosticsView {
     const s = optional(
       d.server_reported,
       ["version", "category", "phase"],
-      ["http_status", "retry_after_seconds"],
+      ["http_status", "retry_after_seconds", "validation"],
     );
-    if (s.version !== 1) throw new Error("invalid response");
+    if (s.version !== 1 && s.version !== 2) throw new Error("invalid response");
     result.server_reported = {
-      version: 1,
+      version: s.version,
       category: closed(s.category, [
         "authentication",
         "rate_limit",
@@ -196,6 +335,18 @@ function decodeDiagnostics(value: unknown): FailureDiagnosticsView {
         throw new Error("invalid response");
       result.server_reported[key] = n;
     }
+    if (s.version === 2) {
+      if (
+        s.category !== "response_contract" ||
+        s.phase !== "response_validation" ||
+        "http_status" in s ||
+        "retry_after_seconds" in s
+      )
+        throw new Error("invalid response");
+      result.server_reported.validation = decodeValidation(s.validation);
+      if (JSON.stringify(result.server_reported).length > 400)
+        throw new Error("invalid response");
+    } else if ("validation" in s) throw new Error("invalid response");
   }
   return result;
 }
@@ -1252,6 +1403,45 @@ function InvocationDetail({
           {item.diagnostics.server_reported && (
             <>
               <h3>Server reported (unverified)</h3>
+              {item.diagnostics.server_reported.validation && (
+                <StateNotice state="error" title="Response validation failed">
+                  <p>
+                    Schema:{" "}
+                    <code>
+                      {item.diagnostics.server_reported.validation.schema}
+                    </code>{" "}
+                    v{item.diagnostics.server_reported.validation.version}
+                  </p>
+                  <ul>
+                    {item.diagnostics.server_reported.validation.violations.map(
+                      (v) => (
+                        <li key={`${v.code}:${v.path}:${v.rule}`}>
+                          <strong>{validationExplanation(v.code)}</strong>
+                          <p>
+                            <code>{v.path}</code> · Rule: <code>{v.rule}</code>{" "}
+                            · Code: <code>{v.code}</code>
+                          </p>
+                          {v.expected && (
+                            <p>
+                              Expected {v.expected}; observed {v.observed}.
+                            </p>
+                          )}
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                  {item.diagnostics.server_reported.validation.truncated && (
+                    <p>
+                      Additional validation violations omitted to keep
+                      diagnostics bounded.
+                    </p>
+                  )}
+                  <p>
+                    Array positions and dynamic keys are masked. These details
+                    are unverified server claims.
+                  </p>
+                </StateNotice>
+              )}
               <p>
                 {sentenceCase(item.diagnostics.server_reported.category)} ·{" "}
                 {sentenceCase(item.diagnostics.server_reported.phase)}
