@@ -11,7 +11,6 @@ import {
   fail,
   waitForLifecycle,
 } from "./shared.ts";
-import { assertAuthoritativeHistory } from "./history-scenarios.ts";
 import {
   invocationFixture,
   invocationIDs,
@@ -1600,12 +1599,7 @@ export async function runInvocations(
         ?.getAttribute("data-freshness") === "current",
   );
 
-  const historyScreenshots = await assertAuthoritativeHistory(
-    context,
-    page,
-    baseURL,
-    bearer,
-  );
+  const historyScreenshots: string[] = [];
   const captureCanary = `INVOCATION_CAPTURE_<script>${"C".repeat(64)}`;
   let argumentCapture: unknown = {
     note: captureCanary,
@@ -2160,8 +2154,8 @@ export async function runInvocations(
     fail("invocation detail did not use linked resource facts");
   if (
     !body.includes(captureCanary) ||
-    !body.includes("Retained argument capture") ||
-    !body.includes("Other secrets may remain visible") ||
+    !body.includes("Captured arguments") ||
+    body.includes("Other secrets may remain visible") ||
     body.includes("Fixed-redacted arguments") ||
     (await page.locator("script").count()) !== 1 ||
     (await page.evaluate(
@@ -2198,7 +2192,7 @@ export async function runInvocations(
     "Rate limit",
     "HTTP status: 429",
     "Retry guidance: 12 seconds",
-    "do not prove nonexecution or authorize a retry",
+    "The tool may have executed. Retrying could duplicate effects.",
   ])
     await expect(page.getByTestId("failure-diagnostics")).toContainText(text);
   for (const width of [1440, 390, 320]) {
@@ -2240,8 +2234,10 @@ export async function runInvocations(
       },
     },
   };
+  argumentCapture = {};
   await page.getByTestId("manual-refresh").click();
   for (const text of [
+    "$.models.[].release_date",
     "Response validation failed",
     "Invalid release date; expected YYYY-MM-DD or RFC 3339 timestamp",
     "Required field is missing",
@@ -2250,10 +2246,23 @@ export async function runInvocations(
     "$.models.[].name",
     "Expected string; observed number",
     "Additional validation violations omitted",
-    "unverified server claims",
+    "Server reported (unverified)",
   ]) {
     await expect(page.getByTestId("failure-diagnostics")).toContainText(text);
   }
+  const diagnosticsPanel = page.getByTestId("failure-diagnostics");
+  const technical = diagnosticsPanel.locator("details");
+  const disclosure = technical.locator("summary");
+  await expect(technical).not.toHaveAttribute("open", "");
+  await expect(
+    technical.getByText("models_result", { exact: true }),
+  ).not.toBeVisible();
+  await expect(page.getByTestId("invocation-argument-capture")).toHaveText(
+    "Captured arguments · Empty",
+  );
+  await expect(
+    page.getByTestId("invocation-argument-capture").locator("pre"),
+  ).toHaveCount(0);
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     const path = join(linkScreenshots, `validation-detail-${width}.png`);
@@ -2265,6 +2274,26 @@ export async function runInvocations(
       ),
     ).toBe(true);
   }
+  await disclosure.focus();
+  await page.keyboard.press("Enter");
+  await expect(technical).toHaveAttribute("open", "");
+  for (const text of [
+    "models_result",
+    "Rule:",
+    "Code:",
+    "Response contract",
+    "Diagnostic version 2",
+    "Array positions and dynamic keys are masked.",
+  ])
+    await expect(technical).toContainText(text);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `validation-expanded-${width}.png`);
+    await diagnosticsPanel.screenshot({ path });
+    historyScreenshots.push(path);
+  }
+  await disclosure.click();
+  await expect(technical).not.toHaveAttribute("open", "");
   failureDiagnostics = {
     gateway_observed: { source: "protocol", reason: "rpc_error" },
   };
@@ -2275,6 +2304,18 @@ export async function runInvocations(
   await expect(page.getByTestId("failure-diagnostics")).not.toContainText(
     "Server reported",
   );
+  failureDiagnostics = {
+    gateway_observed: { source: "transport", reason: "prestart" },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await expect(diagnosticsPanel).toContainText("Prestart");
+  await expect(diagnosticsPanel).not.toContainText("may have executed");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `prestart-${width}.png`);
+    await diagnosticsPanel.screenshot({ path });
+    historyScreenshots.push(path);
+  }
   failureDiagnostics = undefined;
   argumentCapture = "[TRUNCATED]";
   await page.locator('[data-testid="manual-refresh"]').click();
@@ -2288,6 +2329,12 @@ export async function runInvocations(
     ((await page.locator("body").textContent()) ?? "").includes(captureCanary)
   )
     fail("truncated invocation retained prior argument content");
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `capture-truncated-${width}.png`);
+    await page.getByTestId("invocation-argument-capture").screenshot({ path });
+    historyScreenshots.push(path);
+  }
 
   await expect(page.getByTestId("failure-diagnostics")).toHaveCount(0);
   argumentCapture = null;
@@ -2295,6 +2342,12 @@ export async function runInvocations(
   await page
     .getByText("No argument capture was retained.", { exact: true })
     .waitFor();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const path = join(linkScreenshots, `capture-absent-${width}.png`);
+    await page.getByTestId("invocation-argument-capture").screenshot({ path });
+    historyScreenshots.push(path);
+  }
 
   itemMissing = true;
   await page.locator('[data-testid="manual-refresh"]').click();

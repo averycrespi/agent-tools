@@ -1295,23 +1295,23 @@ function InvocationFilters({
   );
 }
 function RetainedArgumentCapture({ value }: { value: unknown }) {
+  const empty =
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0;
   return (
     <section
-      class="panel domain-panel"
+      class="panel domain-panel argument-capture"
       aria-labelledby="invocation-argument-capture-title"
       data-testid="invocation-argument-capture"
     >
       <div class="panel-heading">
         <h2 id="invocation-argument-capture-title">
-          Retained argument capture
+          Captured arguments{empty && " · Empty"}
         </h2>
       </div>
-      <p>
-        Gateway redacts values only for recognized sensitive field names. Other
-        secrets may remain visible; inspect this capture only when operationally
-        necessary.
-      </p>
-      {value === null ? (
+      {empty ? null : value === null ? (
         <p>No argument capture was retained.</p>
       ) : value === "[TRUNCATED]" ? (
         <p>
@@ -1320,6 +1320,99 @@ function RetainedArgumentCapture({ value }: { value: unknown }) {
         </p>
       ) : (
         <InertJSON value={value} label="Retained invocation argument capture" />
+      )}
+    </section>
+  );
+}
+function FailureDiagnostics({
+  diagnostics,
+}: {
+  diagnostics: FailureDiagnosticsView;
+}) {
+  const observed = diagnostics.gateway_observed;
+  const reported = diagnostics.server_reported;
+  const validation = reported?.validation;
+  return (
+    <section
+      class="panel domain-panel failure-diagnostics"
+      aria-labelledby="failure-diagnostics-title"
+      data-testid="failure-diagnostics"
+    >
+      <div class="panel-heading">
+        <h2 id="failure-diagnostics-title">Failure diagnostics</h2>
+        <span class="diagnostic-source">
+          Gateway observed · {sentenceCase(observed.source)}:{" "}
+          {sentenceCase(observed.reason)}
+        </span>
+      </div>
+      {reported && (
+        <div
+          class="diagnostic-report"
+          aria-label="Server reported (unverified)"
+        >
+          <div class="diagnostic-report-heading">
+            <h3>
+              {validation
+                ? "Response validation failed"
+                : sentenceCase(reported.category)}
+            </h3>
+            <span class="diagnostic-source">Server reported (unverified)</span>
+          </div>
+          {validation && (
+            <>
+              <ul class="diagnostic-violations">
+                {validation.violations.map((v) => (
+                  <li key={`${v.code}:${v.path}:${v.rule}`}>
+                    <strong>{validationExplanation(v.code)}</strong>
+                    <code>{v.path}</code>
+                    {v.expected && (
+                      <span>
+                        Expected {v.expected}; observed {v.observed}.
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {validation.truncated && (
+                <p>Additional validation violations omitted.</p>
+              )}
+            </>
+          )}
+          {reported.http_status !== undefined && (
+            <p>HTTP status: {reported.http_status}</p>
+          )}
+          {reported.retry_after_seconds !== undefined && (
+            <p>Retry guidance: {reported.retry_after_seconds} seconds</p>
+          )}
+          <details>
+            <summary>Technical details</summary>
+            <p>
+              {sentenceCase(reported.category)} · {sentenceCase(reported.phase)}{" "}
+              · Diagnostic version {reported.version}
+            </p>
+            {validation && (
+              <>
+                <p>
+                  Schema: <code>{validation.schema}</code> v{validation.version}
+                </p>
+                <ul>
+                  {validation.violations.map((v) => (
+                    <li key={`${v.code}:${v.path}:${v.rule}`}>
+                      <code>{v.path}</code> · Rule: <code>{v.rule}</code> ·
+                      Code: <code>{v.code}</code>
+                    </li>
+                  ))}
+                </ul>
+                <p>Array positions and dynamic keys are masked.</p>
+              </>
+            )}
+          </details>
+        </div>
+      )}
+      {observed.reason !== "prestart" && (
+        <p class="diagnostic-retry">
+          The tool may have executed. Retrying could duplicate effects.
+        </p>
       )}
     </section>
   );
@@ -1389,82 +1482,7 @@ function InvocationDetail({
         )}
       </section>
       {item.diagnostics && (
-        <section
-          class="panel domain-panel"
-          aria-labelledby="failure-diagnostics-title"
-          data-testid="failure-diagnostics"
-        >
-          <h2 id="failure-diagnostics-title">Failure diagnostics</h2>
-          <h3>Gateway observed</h3>
-          <p>
-            {sentenceCase(item.diagnostics.gateway_observed.source)}:{" "}
-            {sentenceCase(item.diagnostics.gateway_observed.reason)}
-          </p>
-          {item.diagnostics.server_reported && (
-            <>
-              <h3>Server reported (unverified)</h3>
-              {item.diagnostics.server_reported.validation && (
-                <StateNotice state="error" title="Response validation failed">
-                  <p>
-                    Schema:{" "}
-                    <code>
-                      {item.diagnostics.server_reported.validation.schema}
-                    </code>{" "}
-                    v{item.diagnostics.server_reported.validation.version}
-                  </p>
-                  <ul>
-                    {item.diagnostics.server_reported.validation.violations.map(
-                      (v) => (
-                        <li key={`${v.code}:${v.path}:${v.rule}`}>
-                          <strong>{validationExplanation(v.code)}</strong>
-                          <p>
-                            <code>{v.path}</code> · Rule: <code>{v.rule}</code>{" "}
-                            · Code: <code>{v.code}</code>
-                          </p>
-                          {v.expected && (
-                            <p>
-                              Expected {v.expected}; observed {v.observed}.
-                            </p>
-                          )}
-                        </li>
-                      ),
-                    )}
-                  </ul>
-                  {item.diagnostics.server_reported.validation.truncated && (
-                    <p>
-                      Additional validation violations omitted to keep
-                      diagnostics bounded.
-                    </p>
-                  )}
-                  <p>
-                    Array positions and dynamic keys are masked. These details
-                    are unverified server claims.
-                  </p>
-                </StateNotice>
-              )}
-              <p>
-                {sentenceCase(item.diagnostics.server_reported.category)} ·{" "}
-                {sentenceCase(item.diagnostics.server_reported.phase)}
-              </p>
-              {item.diagnostics.server_reported.http_status !== undefined && (
-                <p>
-                  HTTP status: {item.diagnostics.server_reported.http_status}
-                </p>
-              )}
-              {item.diagnostics.server_reported.retry_after_seconds !==
-                undefined && (
-                <p>
-                  Retry guidance:{" "}
-                  {item.diagnostics.server_reported.retry_after_seconds} seconds
-                </p>
-              )}
-            </>
-          )}
-          <p>
-            Diagnostics do not prove nonexecution or authorize a retry. An
-            explicit retry may duplicate an effect.
-          </p>
-        </section>
+        <FailureDiagnostics diagnostics={item.diagnostics} />
       )}
       <RetainedArgumentCapture value={item.redactedArguments} />
     </div>

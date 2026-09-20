@@ -1310,6 +1310,54 @@ p {
   margin-top: 16px;
 }
 
+.diagnostic-source {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostic-report {
+  border-left: 2px solid var(--danger);
+  padding-left: 12px;
+  margin-top: 12px;
+}
+
+.diagnostic-report-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.diagnostic-report-heading h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.diagnostic-violations {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0;
+  display: grid;
+  gap: 12px;
+}
+
+.diagnostic-violations li {
+  display: grid;
+  gap: 4px;
+}
+
+.failure-diagnostics code {
+  overflow-wrap: anywhere;
+}
+
+.failure-diagnostics .diagnostic-retry {
+  margin: 12px 0 0;
+}
+
+.argument-capture .panel-heading {
+  margin-bottom: 0;
+}
+
 .audit-record-heading {
   display: flex;
   align-items: flex-start;

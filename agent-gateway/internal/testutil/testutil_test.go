@@ -117,7 +117,7 @@ func TestBinaryRunnerCapturesSeparateRealProcessResults(t *testing.T) {
 
 	result, runErr := runner.Run(context.Background(), "sh", "-c", "printf stdout; printf stderr >&2; exit 7")
 	require.Error(t, runErr)
-	require.Equal(t, 7, result.ExitCode)
+	require.Equal(t, 7, result.ExitCode, "runner error: %v", runErr)
 	require.Equal(t, []byte("stdout"), result.Stdout)
 	require.Equal(t, []byte("stderr"), result.Stderr)
 	require.False(t, result.StdoutTruncated)
