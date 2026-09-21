@@ -159,9 +159,9 @@ func upstreamEvent(event Event) bool {
 
 func upstreamLevel(event Event) Level {
 	switch event {
-	case UpstreamUnhealthy, OAuthExpired, OAuthFailed, OAuthRefreshFailed:
+	case UpstreamUnhealthy, UpstreamRecovered, OAuthExpired, OAuthFailed, OAuthRefreshFailed:
 		return Warn
-	case UpstreamRecovered, OAuthRequired, OAuthCompleted:
+	case OAuthRequired, OAuthCompleted:
 		return Info
 	default:
 		return Debug
@@ -232,20 +232,41 @@ type suppressionState struct {
 	disposition Disposition
 	last        time.Time
 	count       uint64
+	started     time.Time
+	total       uint64
+	reset       bool
 }
 
 // Called only under the adapter's nonblocking producer lock. This owner never
 // schedules lifecycle work or starts a timer; summaries occur on the next failure.
 func (adapter *Adapter) suppress(f *Facts) bool {
 	if f.Event == UpstreamRecovered {
-		_, unhealthy := adapter.suppression[suppressionKey{f.Upstream, UpstreamUnhealthy}]
-		_, refreshFailed := adapter.suppression[suppressionKey{f.Upstream, OAuthRefreshFailed}]
-		delete(adapter.suppression, suppressionKey{f.Upstream, UpstreamUnhealthy})
-		delete(adapter.suppression, suppressionKey{f.Upstream, OAuthRefreshFailed})
-		return !unhealthy && !refreshFailed
+		var started time.Time
+		retained := false
+		for _, event := range []Event{UpstreamUnhealthy, OAuthRefreshFailed} {
+			key := suppressionKey{f.Upstream, event}
+			if prior, ok := adapter.suppression[key]; ok {
+				if !retained || prior.started.Before(started) {
+					started = prior.started
+				}
+				retained = true
+				f.Suppressed += min(prior.total, ^uint64(0)-f.Suppressed)
+				delete(adapter.suppression, key)
+			}
+		}
+		if retained {
+			f.Duration = Elapsed(started, adapter.now())
+		}
+		return !retained
 	}
 	if f.Event == OAuthRefreshComplete {
-		delete(adapter.suppression, suppressionKey{f.Upstream, OAuthRefreshFailed})
+		key := suppressionKey{f.Upstream, OAuthRefreshFailed}
+		if prior, ok := adapter.suppression[key]; ok {
+			// Refresh success resets repeat noise, not the incident: only active
+			// healthy publication proves upstream recovery.
+			prior.reset, prior.count = true, 0
+			adapter.suppression[key] = prior
+		}
 		return false
 	}
 	if f.Event != UpstreamUnhealthy && f.Event != OAuthRefreshFailed {
@@ -258,10 +279,13 @@ func (adapter *Adapter) suppress(f *Facts) bool {
 	key := suppressionKey{f.Upstream, f.Event}
 	now := adapter.now()
 	prior, exists := adapter.suppression[key]
-	if exists && prior.phase == f.Phase && prior.reason == f.Reason && prior.disposition == f.Disposition {
+	if exists && !prior.reset && prior.phase == f.Phase && prior.reason == f.Reason && prior.disposition == f.Disposition {
 		if now.Sub(prior.last) < contract.DiagnosticSummaryInterval {
 			if prior.count != ^uint64(0) {
 				prior.count++
+			}
+			if prior.total != ^uint64(0) {
+				prior.total++
 			}
 			adapter.suppression[key] = prior
 			return true
@@ -279,6 +303,10 @@ func (adapter *Adapter) suppress(f *Facts) bool {
 		}
 		delete(adapter.suppression, oldest)
 	}
-	adapter.suppression[key] = suppressionState{phase: f.Phase, reason: f.Reason, disposition: f.Disposition, last: now}
+	started := now
+	if exists {
+		started = prior.started
+	}
+	adapter.suppression[key] = suppressionState{phase: f.Phase, reason: f.Reason, disposition: f.Disposition, last: now, started: started, total: prior.total}
 	return false
 }

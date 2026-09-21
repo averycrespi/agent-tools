@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { decodeDiagnosticCorrelation } from "./diagnostic-correlation";
 import { decodeReadOnly, readOnlyKeys } from "./read-only";
 import { useEffect, useState } from "preact/hooks";
 import { type PrincipalDirectory } from "./principals";
@@ -398,13 +399,19 @@ function decodeServer(value: unknown): ServerView {
     "disconnecting",
     "cleanup_pending",
   ]);
+  const hasCorrelation =
+    typeof item.runtime === "object" &&
+    item.runtime !== null &&
+    "diagnostic_correlation" in item.runtime;
   const runtime = record(item.runtime, [
     "state",
     "reason",
     "runtime_id",
     "reconciliation",
     "dispatch",
+    ...(hasCorrelation ? ["diagnostic_correlation"] : []),
   ]);
+  decodeDiagnosticCorrelation(runtime.diagnostic_correlation);
   const runtimeState = closed(runtime.state, [
     "inactive",
     "activating",

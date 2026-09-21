@@ -58,11 +58,11 @@ func (s *TrafficStore) runTraffic() {
 }
 
 // Drain only already-queued completions: no extra dwell or unbounded preference
-// over admissions. Terminal records have a fixed conservative 128-byte charge.
+// over admissions. Reserve the full bounded diagnostic allowance for each member.
 func (s *TrafficStore) gatherTerminals(first *trafficRequest) []*trafficRequest {
 	batch := []*trafficRequest{first}
 	bytes := first.bytes
-	for len(batch) < s.config.BatchRecords && bytes+128 <= s.config.BatchBytes {
+	for len(batch) < s.config.BatchRecords && bytes+maxTrafficCompletionBytes <= s.config.BatchBytes {
 		select {
 		case r := <-s.terminals:
 			batch = append(batch, r)
@@ -197,7 +197,7 @@ func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest
 func (s *TrafficStore) applyTraffic(ctx context.Context, tx *sql.Tx, batch []*trafficRequest) error {
 	if batch[0].completion != nil {
 		for _, r := range batch {
-			result, err := tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.receipt.evidence.InvocationID)
+			result, err := tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=?,failure_diagnostics=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.diagnosticJSON, r.receipt.evidence.InvocationID)
 			if err != nil {
 				return err
 			}

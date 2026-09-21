@@ -37,6 +37,7 @@ type Result struct {
 	Launchd   string    `json:"launchd"`
 	Readiness string    `json:"readiness"`
 	Message   string    `json:"message"`
+	Warnings  []string  `json:"warnings,omitempty"`
 }
 
 type manager struct {
@@ -120,6 +121,9 @@ func (m *manager) execute(ctx context.Context, operation string, changes Changes
 	}
 	if err != nil {
 		return result, err
+	}
+	if operation == "status" && legacyPlistEncoding(data) {
+		result.Warnings = []string{"Installed plist uses legacy XML encoding that launchd may reject even when plutil -lint passes. No repair was performed. If unloaded and launchd reports error 109, back up the plist outside LaunchAgents, then normalize it with plutil -convert xml1 using the displayed plist path before starting. An unchanged service update does not rewrite it."}
 	}
 	result.Installed = true
 	result.Settings = &d.Settings

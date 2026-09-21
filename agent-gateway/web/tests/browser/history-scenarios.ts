@@ -7,7 +7,37 @@ import {
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fail, waitForLifecycle } from "./shared.ts";
+import { assertSecretAbsent, fail, waitForLifecycle } from "./shared.ts";
+
+export async function runInvocationHistory(
+  browserVersion: string,
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await waitForLifecycle(page, "signed_out");
+  await page.getByTestId("admin-bearer-input").fill(bearer);
+  await page.getByTestId("sign-in-submit").click();
+  await waitForLifecycle(page, "authenticated");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+  const screenshots = await assertAuthoritativeHistory(
+    context,
+    page,
+    baseURL,
+    bearer,
+  );
+  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  process.stdout.write(
+    `${JSON.stringify({ event: "invocation-history_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), history_screenshots: screenshots })}\n`,
+  );
+}
 
 // Real public requests seed history; no interception implements selection.
 export async function assertAuthoritativeHistory(

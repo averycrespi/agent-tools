@@ -12,7 +12,10 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
-const maxTrafficRecordBytes int64 = 16384
+const (
+	maxTrafficRecordBytes     int64 = 16384
+	maxTrafficCompletionBytes int64 = 128 + contract.FailureDiagnosticMaxBytes
+)
 
 var (
 	ErrTrafficCapacity = errors.New("traffic capacity refused before mutation")
@@ -70,13 +73,14 @@ type trafficResult struct {
 	err     error
 }
 type trafficRequest struct {
-	ctx        context.Context
-	expires    time.Time
-	prepared   PreparedAdmission
-	completion *activity.Completion
-	receipt    *TrafficReceipt
-	bytes      int64
-	result     chan trafficResult
+	ctx            context.Context
+	expires        time.Time
+	prepared       PreparedAdmission
+	completion     *activity.Completion
+	diagnosticJSON any
+	receipt        *TrafficReceipt
+	bytes          int64
+	result         chan trafficResult
 }
 
 // TrafficStore is the composition-owned MCP evidence store. Its worker owns
@@ -203,6 +207,12 @@ func (s *TrafficStore) finishWithoutTerminal(receipt *TrafficReceipt) {
 // Complete makes exactly one synchronous best-effort attempt. Its return value
 // is evidence persistence, never a replacement for the caller's known result.
 func (s *TrafficStore) Complete(ctx context.Context, receipt *TrafficReceipt, completion activity.Completion) error {
+	return s.complete(ctx, receipt, completion, nil)
+}
+
+func (s *TrafficStore) complete(ctx context.Context, receipt *TrafficReceipt, completion activity.Completion, diagnostic *contract.FailureDiagnostics) error {
+	// Encode before queueing so the writer owns bounded immutable evidence.
+	diagnosticJSON, diagnosticErr := encodeFailureDiagnostics(completion.Class, diagnostic)
 	s.mu.Lock()
 	pin, ok := s.pins[receipt]
 	if !ok || receipt.owner != s || !pin.dispatched || pin.completing {
@@ -212,7 +222,7 @@ func (s *TrafficStore) Complete(ctx context.Context, receipt *TrafficReceipt, co
 	pin.completing = true
 	// Every refusal settles this sole attempt and releases the pin.
 	refuse := func(err error) error { delete(s.pins, receipt); s.mu.Unlock(); return err }
-	if !validTrafficCompletion(receipt.evidence, completion) {
+	if diagnosticErr != nil || !validTrafficCompletion(receipt.evidence, completion) {
 		return refuse(ErrInvalidInput)
 	}
 	if s.closed || s.faulted || s.draining {
@@ -224,7 +234,7 @@ func (s *TrafficStore) Complete(ctx context.Context, receipt *TrafficReceipt, co
 	if s.terminalQueued >= s.config.QueueRecords {
 		return refuse(ErrTrafficCapacity)
 	}
-	r := &trafficRequest{ctx: ctx, receipt: receipt, completion: &completion, bytes: 128,
+	r := &trafficRequest{ctx: ctx, receipt: receipt, completion: &completion, diagnosticJSON: diagnosticJSON, bytes: maxTrafficCompletionBytes,
 		expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}
 	s.terminalQueued++
 	s.terminals <- r
@@ -248,7 +258,7 @@ func trafficCharge(p PreparedAdmission) int64 {
 	// Includes fixed row/index/terminal allowance; this is a conservative logical
 	// retention charge, separate from the hard physical DB+WAL reservation.
 	values, _ := admissionSQLValues(p)
-	total := int64(1024)
+	total := int64(1024 + contract.FailureDiagnosticMaxBytes)
 	for _, v := range values {
 		if text, ok := v.(string); ok {
 			total += int64(len(text))

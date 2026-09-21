@@ -5,4 +5,4 @@ CREATE TABLE traffic_selection (
 
 INSERT INTO traffic_selection VALUES (1, NULL);
 
-INSERT INTO schema_migrations (version, name) VALUES (17, 'traffic_selection');
+INSERT INTO schema_migrations (version, name) VALUES (18, 'traffic_selection');

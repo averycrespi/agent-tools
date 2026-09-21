@@ -16,13 +16,17 @@ import (
 )
 
 func TestBrowserInvocations(t *testing.T) {
+	testInvocationBrowser(t, "invocations")
+}
+
+func TestBrowserInvocationHistory(t *testing.T) {
+	testInvocationBrowser(t, "invocation-history")
+}
+
+func testInvocationBrowser(t *testing.T, scenario string) {
+	t.Helper()
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
-	// The history screenshot matrix must retain its Gateway for the same bounded
-	// lifetime as the browser owner, rather than the short ordinary E2E lifetime.
-	gatewayRunner, err := testutil.NewBinaryRunner(75*time.Second, 128*1024)
-	require.NoError(t, err)
-	harness.runner = gatewayRunner
 	harness.Start()
 
 	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
@@ -40,7 +44,7 @@ func TestBrowserInvocations(t *testing.T) {
 		require.False(t, result.Cleanup.Survived)
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
-		"version": 1, "scenario": "invocations", "base_url": "http://" + harness.authority,
+		"version": 1, "scenario": scenario, "base_url": "http://" + harness.authority,
 		"admin_bearer": harness.bearer,
 	}))
 	require.NoError(t, input.Close())
@@ -67,16 +71,20 @@ func TestBrowserInvocations(t *testing.T) {
 		HistoryScreenshots []string `json:"history_screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	assert.Equal(t, "invocations_complete", event.Event)
+	assert.Equal(t, scenario+"_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.ListReads, 4)
-	assert.Positive(t, event.ContinuationReads)
-	assert.Equal(t, 4, event.ItemReads)
-	assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 21)
+	if scenario == "invocations" {
+		assert.GreaterOrEqual(t, event.ListReads, 4)
+		assert.Positive(t, event.ContinuationReads)
+		assert.Equal(t, 8, event.ItemReads)
+		assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 20)
+	} else {
+		assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 30)
+	}
 	t.Logf("History visual artifacts: %v", event.HistoryScreenshots)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "T21 must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "each invocation scenario must own one Gateway lifecycle")
 }

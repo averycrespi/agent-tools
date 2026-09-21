@@ -137,7 +137,7 @@ func assertSchemaNineInvocationFoundation(t *testing.T, ctx context.Context, dat
 		"insertion_sequence", "id", "principal_id", "credential_id", "credential_fingerprint", "credential_revision",
 		"admitted_at", "admission_class", "requested_name", "redacted_arguments", "server_id", "tool_id", "upstream_name",
 		"descriptor_revision", "descriptor_fingerprint", "decision", "authorization_revision", "evaluated_at", "grant_id",
-		"completed_at", "terminal_class",
+		"completed_at", "terminal_class", "failure_diagnostics",
 	}
 	assert.Equal(t, expected, tableColumns(t, ctx, database, "invocations"))
 	var migrationName string

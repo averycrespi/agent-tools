@@ -23,7 +23,7 @@ type DocumentationSecurityContract struct {
 }
 
 var documentationGuides = []DocumentationGuide{
-	{ID: "docs.guide.installation.migration", Path: "docs/operators/installation-migration.md", Audience: "Operators responsible for Gateway installation handover", Purpose: "Move one existing installation without replacing its authority or recovery state."},
+	{ID: "docs.guide.installation.safety", Path: "docs/operators/installation-safety.md", Audience: "Operators maintaining existing Gateway installations", Purpose: "Select the existing installation and retain post-migration safety and recovery artifacts."},
 	{ID: "docs.guide.launchd", Path: "docs/operators/launchd.md", Audience: "Gateway operators using a logged-in macOS desktop", Purpose: "Install, verify, and manage a per-user LaunchAgent"},
 	{ID: "docs.guide.cli.local.administration", Path: "docs/operators/administration.md", Audience: "Gateway operators and automation authors", Purpose: "Run local administration safely through the public CLI."},
 	{ID: "docs.guide.server.configuration", Path: "docs/operators/upstream-servers.md", Audience: "Gateway operators configuring upstream MCP servers", Purpose: "Configure servers, credentials, and OAuth without broadening trust."},
@@ -36,7 +36,6 @@ var documentationGuides = []DocumentationGuide{
 
 var documentationCommandFamilies = []DocumentationCommandFamily{
 	{ID: "docs.command.service", CommandPath: "service", CanonicalOwner: "docs/operators/launchd.md", HelpInvocation: "agent-gateway service --help"},
-	{ID: "docs.command.installation", CommandPath: "installation", CanonicalOwner: "docs/operators/installation-migration.md", HelpInvocation: "agent-gateway installation --help"},
 	{ID: "docs.command.audit", CommandPath: "audit", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway audit --help"},
 	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway admin credential --help"},
 	{ID: "docs.command.admin.reset", CommandPath: "admin reset", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway admin reset --help"},

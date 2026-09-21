@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-func RelocationCompleted(string, string) bool { return false }
+func relocationCompleted(string, string) bool { return false }
 
 func ReserveHeadroom(string, int64) (func(), error) {
 	return nil, fmt.Errorf("storage headroom validation is unsupported on this platform")

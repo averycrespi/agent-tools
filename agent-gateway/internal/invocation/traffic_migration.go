@@ -109,13 +109,20 @@ func extractTraffic(ctx context.Context, source *sql.Tx, destination *sql.DB, co
 			return err
 		}
 		values = append([]any{record.Sequence}, values...)
-		values = append(values, record.CompletedAt, record.TerminalClass)
+		var diagnosticJSON any
+		if record.TerminalClass != nil {
+			diagnosticJSON, err = encodeFailureDiagnostics(*record.TerminalClass, record.Diagnostics)
+			if err != nil {
+				return err
+			}
+		}
+		values = append(values, record.CompletedAt, record.TerminalClass, diagnosticJSON)
 		if _, err = tx.ExecContext(ctx, `INSERT INTO invocations
 		(insertion_sequence,id,principal_id,credential_id,credential_fingerprint,
 		credential_revision,admitted_at,admission_class,requested_name,redacted_arguments,
 		server_id,tool_id,upstream_name,descriptor_revision,descriptor_fingerprint,
-		decision,authorization_revision,evaluated_at,grant_id,completed_at,terminal_class)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, values...); err != nil {
+		decision,authorization_revision,evaluated_at,grant_id,completed_at,terminal_class,failure_diagnostics)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, values...); err != nil {
 			return err
 		}
 		charge := trafficCharge(prepared)

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,12 +28,22 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 				return nil
 			})
 			defer unblock()
+			completion := trafficCompletion()
+			completion.Class = contract.TerminalDownstreamFailure
+			expected := []contract.FailureObservation{
+				{Source: "protocol", Reason: "rpc_error"},
+				{Source: "protocol", Reason: "invalid_response"},
+				{Source: "tool", Reason: "reported_error"},
+				{Source: "result_validation", Reason: "result_shape"},
+			}
+			diagnostics := make([]*contract.FailureDiagnostics, 4)
 			receipts := make([]*TrafficReceipt, 4)
 			for i := range receipts {
 				receipt, err := s.Admit(t.Context(), trafficPrepared(i+1))
 				require.NoError(t, err)
 				require.True(t, s.Confirm(t.Context(), receipt))
 				receipts[i] = receipt
+				diagnostics[i] = &contract.FailureDiagnostics{GatewayObserved: expected[i]}
 			}
 			if mode == "invalid-member" {
 				receipts[2].evidence.InvocationID = invocationID(50)
@@ -42,7 +53,7 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 			for i := range results {
 				results[i] = make(chan error, 1)
 			}
-			go func() { results[0] <- s.Complete(t.Context(), receipts[0], trafficCompletion()) }()
+			go func() { results[0] <- s.complete(t.Context(), receipts[0], completion, diagnostics[0]) }()
 			select {
 			case <-entered:
 			case <-time.After(5 * time.Second):
@@ -52,8 +63,12 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 			defer cancel()
 			// Queue in a known order behind the owned transaction, not via timing luck.
 			for i := 1; i < 4; i++ {
-				go func(i int) { results[i] <- s.Complete(ctx, receipts[i], trafficCompletion()) }(i)
+				go func(i int) { results[i] <- s.complete(ctx, receipts[i], completion, diagnostics[i]) }(i)
 				require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.terminalQueued == i+1 }, time.Second, time.Millisecond)
+			}
+			// Encoding has completed before enqueue; caller mutation cannot alter the batch.
+			for _, diagnostic := range diagnostics {
+				diagnostic.GatewayObserved.Reason = "caller-mutation"
 			}
 			if mode == "cancelled-member" {
 				cancel()
@@ -96,6 +111,14 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 				for _, row := range rows.Records {
 					if row.CompletedAt != nil {
 						completed++
+						require.NotNil(t, row.Diagnostics)
+						for i := range expected {
+							if row.InvocationID == invocationID(i+1) {
+								assert.Equal(t, expected[i], row.Diagnostics.GatewayObserved)
+							}
+						}
+					} else {
+						assert.Nil(t, row.Diagnostics, "rollback/cancellation must not annotate diagnostics")
 					}
 				}
 				want := 1
@@ -115,16 +138,16 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 
 func TestTrafficTerminalGatherDoesNotDwellOrExceedBounds(t *testing.T) {
 	s := &TrafficStore{config: DefaultTrafficConfig(), terminals: make(chan *trafficRequest, 4)}
-	first := &trafficRequest{bytes: 128}
+	first := &trafficRequest{bytes: maxTrafficCompletionBytes}
 	require.Len(t, s.gatherTerminals(first), 1, "empty queue returns without a timer or wait")
 	for range 4 {
-		s.terminals <- &trafficRequest{bytes: 128}
+		s.terminals <- &trafficRequest{bytes: maxTrafficCompletionBytes}
 	}
 	s.config.BatchRecords = 2
 	require.Len(t, s.gatherTerminals(first), 2)
 	require.Len(t, s.terminals, 3)
 	s.config.BatchRecords = 4
-	s.config.BatchBytes = 256
+	s.config.BatchBytes = 2*maxTrafficCompletionBytes + 128
 	require.Len(t, s.gatherTerminals(first), 2)
 	require.Len(t, s.terminals, 2)
 }

@@ -61,6 +61,12 @@ export async function runServerManagementCanary(
     },
   };
   server.runtime.dispatch = { in_use: 4, limit: 4, saturated: true };
+  Object.assign(server.runtime, {
+    diagnostic_correlation: {
+      process_id: "0123456789abcdef0123456789abcdef",
+      upstream_ref: "18446744073709551615",
+    },
+  });
   await page.route(`${baseURL}/api/v2/mcp/servers/${serverID}`, async (route) =>
     route.fulfill({
       status: 200,
@@ -184,6 +190,34 @@ export async function runServerManagementCanary(
     )
   )
     fail("server status did not use the shared operator hierarchy");
+  const correlation = serverStatus.getByTestId("server-diagnostic-correlation");
+  await expect(correlation).toContainText("0123456789abcdef0123456789abcdef");
+  await expect(correlation).toContainText("18446744073709551615");
+  const diagnosticScreenshots: string[] = [];
+  const screenshotRoot = await mkdtemp(
+    join(tmpdir(), "agent-gateway-diagnostic-correlation-"),
+  );
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await correlation.scrollIntoViewIfNeeded();
+    await expect(correlation).toBeVisible();
+    const path = join(screenshotRoot, `correlation-${width}.png`);
+    await page.screenshot({ path });
+    diagnosticScreenshots.push(path);
+  }
+  Object.assign(server.runtime, { diagnostic_correlation: undefined });
+  await page.reload();
+  await expect(correlation).toContainText(
+    "Unavailable — no current diagnostic reference",
+  );
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await correlation.scrollIntoViewIfNeeded();
+    const path = join(screenshotRoot, `unavailable-${width}.png`);
+    await page.screenshot({ path });
+    diagnosticScreenshots.push(path);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await serverStatus.getByRole("button", { name: "Copy server ID" }).click();
   await page.waitForFunction(() => {
     const status = document.querySelector(
@@ -212,7 +246,14 @@ export async function runServerManagementCanary(
   await page.locator('[data-testid="server-delete-confirm-cancel"]').click();
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "server_management_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), destinations: destinations.length })}\n`,
+    `${JSON.stringify({
+      event: "server_management_complete",
+      screenshots: diagnosticScreenshots,
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      destinations: destinations.length,
+    })}\n`,
   );
 }
 
@@ -2182,11 +2223,18 @@ export async function runAuthFlows(
   await awaitingDialog.evaluate((dialog) =>
     (dialog as HTMLDialogElement).close(),
   );
+  const logoutResponse = page.waitForResponse(
+    (response) =>
+      response.url() === `${baseURL}/api/v2/admin-sessions/current` &&
+      response.request().method() === "DELETE",
+  );
   await page.locator('[data-testid="logout"]').click();
   await page.locator('[data-testid="logout-confirmation-submit"]').click();
   await waitForLifecycle(page, "signed_out");
   releaseThirdStart?.();
-  await page.waitForTimeout(100);
+  // Local sign-out precedes HTTP settlement. A new sign-in must not race the
+  // previous response's cookie deletion; an arbitrary pause is not evidence.
+  if ((await logoutResponse).status() !== 204) fail("logout was not confirmed");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");

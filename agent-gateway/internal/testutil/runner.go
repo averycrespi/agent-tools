@@ -13,8 +13,9 @@ import (
 )
 
 type BinaryRunner struct {
-	timeout        time.Duration
-	maxOutputBytes int
+	timeout            time.Duration
+	maxOutputBytes     int
+	beforeGroupCapture func(*os.Process)
 }
 
 type ProcessResult struct {
@@ -104,13 +105,13 @@ func (runner *BinaryRunner) startWithStdin(ctx context.Context, directory string
 		cancel()
 		return nil, err
 	}
-	groupID, owned := captureTestProcessGroup(command.Process)
-	if !owned {
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		cancel()
-		return nil, fmt.Errorf("capture owned process group: process %d is not its group leader", command.Process.Pid)
+	if runner.beforeGroupCapture != nil {
+		runner.beforeGroupCapture(command.Process)
 	}
+	// Start completed Setpgid and Wait has not run, so this unreaped child's PID
+	// still identifies our group. Darwin Getpgid can reject an exited leader.
+	// Later cleanup must continue to revalidate ownership before signaling.
+	groupID := command.Process.Pid
 	ledger, err := cleanupLedgerFromEnvironment()
 	if err != nil {
 		_ = signalTestProcessGroup(groupID, syscall.SIGKILL)

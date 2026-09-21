@@ -33,6 +33,18 @@ The retained outcome vocabulary is closed:
 
 The accompanying basis is `admission`, `policy`, `terminal`, or `missing_terminal`. Missing terminal evidence always projects as unknown.
 
+### Safe failure diagnostics
+
+Failed downstream attempts additionally expose optional `diagnostics` in agent error data and invocation item API/CLI/browser reads (not collections). `gateway_observed` contains only closed `source`/`reason` pairs: `transport` with `prestart` or `handoff_uncertain`, `protocol` with `invalid_response` or `rpc_error`, `tool` with `reported_error`, and `result_validation` with `result_shape`. Validation names a rule, never an offending value. Existing error codes and terminal certainty remain authoritative.
+
+Only a valid complete tool-error result can supply `server_reported`, from the MCP result `_meta["io.github.averycrespi.agent-tools/failure"]`. This is an unverified server claim, never a Gateway observation. The version-1 closed object requires integer `version: 1`, `category`, and `phase`; optional integer `http_status` is 100–599 and `retry_after_seconds` is 0–86400. Categories are `authentication`, `rate_limit`, `timeout`, `canceled`, `transport`, `json_decode`, `response_contract`, `response_limit`, `validation`, `capacity`, `overload`, `redirect_rejected`, and `upstream`. Phases are `admission`, `exchange`, `response_status`, `response_decode`, and `response_validation`. Unknown members, nulls, wrong types, unsupported versions, and oversized metadata are discarded, leaving Gateway-owned diagnostics and the original outcome unchanged. Each diagnostic object is bounded to 512 encoded bytes. All other metadata remains stripped, including on successes.
+
+Version 2 is restricted to `response_contract` / `response_validation`, without status/retry fields, and requires a closed `validation` object: `schema` (`models_result` or `evaluate_result`), integer schema `version: 1`, `violations`, and Boolean `truncated`. Each violation has `code`, `path`, `rule`, and, only for type mismatches, `expected`/`observed`. Codes distinguish `missing`/`required`, `type`/`type`, `invalid_date`/`date`, `correspondence`/`correspondence`, and `constraint` with a closed schema-rule vocabulary. The executable contract owns the finite schema-specific path inventory: `$` is the root, `.[]` masks array positions, and `.*` masks dynamic map keys. Gateway rejects arbitrary paths, types, rules, schema identities and free text, even if the server calls them schema-derived. The `invalid_date` / `date` diagnostic covers malformed or impossible model release dates, accepting `YYYY-MM-DD` or RFC 3339 timestamps. Release-date failures and answer correspondence never expose the offending date, answer ID, question or value.
+
+Version-2 canonical server metadata is at most 400 encoded bytes, reserving space within the unchanged 512-byte complete provenance envelope. Parsing allows at most six nesting levels. There are one to three violations, deduplicated after masking and sorted lexicographically by their canonical JSON encoding (field order: code, path, rule, expected, observed). TypeSafe selects the longest prefix fitting both the count and encoded-byte bounds; `truncated: true` means additional distinct masked violations were omitted, not their number. Repeated identical masked violations collapse without implying truncation. Readers enforce strict order, uniqueness, shape, vocabulary and bounds. The byte bound can yield fewer than three entries. Unknown answer variants report a safe union-rule failure rather than invented requirements from another variant.
+
+Version-1 metadata and historical rows with absent diagnostics remain readable. No storage migration or bound increase is required; older readers discard unsupported v2 live metadata and cannot qualify reading newly stored v2 rows. Upgrade the bundled readers together; rollback to a v1-only Gateway against new history is not supported. Schema 17 retains only this validated subset atomically with the best-effort terminal annotation. Missing diagnostics remain valid for historical records, local failures, and lost terminal annotations; discarded historical errors cannot be recovered. The live caller can receive diagnostics even if terminal persistence fails. Server claims never prove nonexecution, change authorization, trigger retries, or override uncertain handoff. No raw bodies, headers, transport errors, free-text messages, provider identifiers, or submitted values enter this diagnostic contract. Logging retains its existing independent closed inventory and does not log server metadata.
+
 ### Live call rejection contract
 
 Both modern and legacy governed `tools/call` errors retain JSON-RPC code `-32000` and the five existing `data.code` values. Only `call_rejected` carries a required closed `data.reason`. The reason comes from the acknowledged admission class or its evaluated decision, never a second policy evaluation. Messages are bounded Gateway-owned text; no grant IDs, matching constraints, argument values, or raw internal/downstream errors are interpolated.
@@ -58,7 +70,7 @@ Without an acknowledged admission, the error is `audit_unavailable` with no invo
 
 `internal/invocation.MCPDetails` owns the requested tool name, fixed-redacted argument capture, and optional resolved route. A resolved route follows the [access-target boundary](identity-and-authorization.md#internal-access-target-boundary): it carries the canonical `accesstarget.MCP` exact target plus invocation-owned tool ID and pinned descriptor revision/fingerprint. Synthetic local and downstream targets are distinctions within MCP, not separate protocols. An absent route means unresolved evidence, never server-wide scope. Malformed calls may retain their existing independently available name/capture fields; resolved classes still require complete exact-target and descriptor evidence.
 
-Invocation prepares identity before binding/policy evidence, snapshots all mutable evidence (including the exact-target name pointer) before insertion, and adapts the common envelope and MCP details to the unchanged schema-9 columns and public invocation projections. Stored nullable groups must be checked for completeness before constructing typed values; normalization cannot turn incomplete evidence into absence. A missing completion remains unknown for admitted ALLOWs. Administrative audit stays a distinct evidence domain owned by `internal/audit`; the common values introduce no additional writer, store, runtime, or audit path.
+Invocation prepares identity before binding/policy evidence, snapshots all mutable evidence (including the exact-target name pointer) before insertion, and adapts the common envelope and MCP details to the schema-9 admission columns and public invocation projections, with schema-17 optional safe failure diagnostics. Stored nullable groups must be checked for completeness before constructing typed values; normalization cannot turn incomplete evidence into absence. A missing completion remains unknown for admitted ALLOWs. Administrative audit stays a distinct evidence domain owned by `internal/audit`; the common values introduce no additional writer, store, runtime, or audit path.
 
 ### Audit evidence and retention
 
@@ -74,7 +86,11 @@ pruning changes invalidate cursors rather than silently omitting records. Separa
 bounded control snapshots resolve current principal names; their digest is cursor
 state, never authorization. There is no cross-store SQL or name lookup during a
 traffic write. Acknowledged changes emit coalesced invocation/System invalidations;
-uncertain or failed writes do not invent durable evidence.
+uncertain or failed writes do not invent durable evidence. One synchronous
+receipt-bound completion attempt writes the canonical time/class pair and optional
+validated, bounded failure diagnostics atomically. The queued representation is
+owned encoded data, never raw tool errors or mutable caller metadata. Migration,
+paired backup and restore preserve this same validated diagnostic evidence.
 
 ### Receipt-based traffic persistence
 
@@ -89,10 +105,12 @@ at most 32 records/512 KiB, with 2 ms dwell, 250 ms queue lifetime and a two-sec
 cooperative write lifetime. Configuration validates positive finite limits (at most
 1024 queued records/16 MiB, 10 ms dwell, one-second acquisition and five-second
 write lifetime). A separate completion queue reserves the same record capacity at
-128 bytes per completion. One completion transaction precedes each admission batch,
+a fixed 640-byte charge per completion (128 bytes plus the bounded 512-byte failure
+diagnostic allowance). One completion transaction precedes each admission batch,
 so neither class can starve the other under sustained arrivals. Completion transactions
 batch only already-queued records under the same record/byte bounds, without added
-dwell. An invalid member rolls back the entire active completion batch; no member is
+dwell. Each member persists its validated, pre-encoded immutable diagnostics with
+its terminal fields. An invalid member rolls back the entire active completion batch; no member is
 split out or replayed. No queued member
 contains an executable callback. No acquisition expiry extends into transaction
 settlement, and accepted callers wait for settlement even after cancellation.

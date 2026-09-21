@@ -2335,58 +2335,70 @@ export async function runGrantReadsCreate(
   const otherResponse = new Promise<void>((resolve) => {
     releaseOther = resolve;
   });
-  let finishOther = () => {};
-  const otherFinished = new Promise<void>((resolve) => {
-    finishOther = resolve;
-  });
+  let otherStarted = false;
+  let otherFinished = false;
+  let otherFailure: unknown;
   await page.route(
     `**/api/v2/mcp/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`,
     async (route) => {
+      otherStarted = true;
       await otherResponse;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
-          server_id: serverID,
-          upstream_name: "other.tool",
-          external_name: "Other tool",
-          descriptor: {
-            name: "other.tool",
-            inputSchema: {
-              type: "object",
-              additionalProperties: false,
-              properties: { late: { type: "boolean" } },
+      try {
+        if (route.request().failure()?.errorText === "net::ERR_ABORTED") return;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+            server_id: serverID,
+            upstream_name: "other.tool",
+            external_name: "Other tool",
+            descriptor: {
+              name: "other.tool",
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+                properties: { late: { type: "boolean" } },
+              },
+              annotations: {
+                title: null,
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+              },
             },
-            annotations: {
-              title: null,
-              readOnlyHint: false,
-              destructiveHint: false,
-              idempotentHint: false,
-              openWorldHint: false,
-            },
-          },
-          fingerprint: "other",
-          catalog_revision: "1",
-          first_seen_at: "2026-08-28T12:00:00Z",
-          last_seen_at: "2026-08-28T12:00:00Z",
-          retired_at: null,
-        }),
-      });
-      finishOther();
+            fingerprint: "other",
+            catalog_revision: "1",
+            first_seen_at: "2026-08-28T12:00:00Z",
+            last_seen_at: "2026-08-28T12:00:00Z",
+            retired_at: null,
+          }),
+        });
+      } catch (error) {
+        if (route.request().failure()?.errorText !== "net::ERR_ABORTED")
+          otherFailure = error;
+      } finally {
+        otherFinished = true;
+      }
     },
   );
-  await Promise.all([
-    page.waitForRequest(`**/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FC0`),
-    page.locator('[data-testid="grant-upstream"]').fill("other.tool"),
-  ]);
+  await page.locator('[data-testid="grant-upstream"]').fill("other.tool");
+  // A request event can precede interception. Wait for the actual route owner
+  // before superseding it, then settle even when fetch cancellation wins.
+  await expect
+    .poll(() => otherStarted, { message: "delayed descriptor route started" })
+    .toBe(true);
   await page.getByText("Loading schema…", { exact: true }).waitFor();
   await page.locator('[data-testid="grant-upstream"]').fill("literal.tool");
   await page
     .getByText(/Schema suggests string; your number type is retained/)
     .waitFor();
   releaseOther();
-  await otherFinished;
+  await expect
+    .poll(() => otherFinished, { message: "delayed descriptor route settled" })
+    .toBe(true);
+  if (otherFailure) throw otherFailure;
   await pointer.fill("");
   if (
     (await page
@@ -2866,7 +2878,7 @@ export async function runGrantCorrection(
     await page.locator('[data-testid="grant-actions"]').waitFor();
     try {
       await page
-        .getByRole("heading", { name: `Grant ${grantID}`, exact: true })
+        .getByRole("heading", { name: `MCP Grant ${grantID}`, exact: true })
         .waitFor({ timeout: 3000 });
     } catch {
       fail(
@@ -3161,11 +3173,12 @@ export async function runRequestReads(
     { times: 1 },
   );
   await page.route("**/api/v2/mcp/grant-requests?*", async (route) => {
-    listReads += 1;
     const query = new URL(route.request().url()).searchParams;
+    const sidebar = query.get("limit") === "1";
+    if (!sidebar) listReads += 1;
     if (
       route.request().method() !== "GET" ||
-      query.get("limit") !== "50" ||
+      (!sidebar && query.get("limit") !== "50") ||
       query.has("representation")
     )
       fail("request queue filters changed shape");
@@ -3210,7 +3223,7 @@ export async function runRequestReads(
     );
     if (query.get("direction") === "descending") rows.reverse();
     const offset = Number(cursor ?? 0);
-    const selected = rows.slice(offset, offset + 50);
+    const selected = rows.slice(offset, offset + (sidebar ? 1 : 50));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -3284,6 +3297,13 @@ export async function runRequestReads(
     .getByText("Showing 1–32 of 32 requests", { exact: true })
     .first()
     .waitFor();
+  const pendingLink = page.locator(
+    '#primary-navigation a[href="#/mcp/access-requests"]',
+  );
+  // The deliberately held reconnect below leaves the last read explicitly stale.
+  await expect(pendingLink).toHaveAccessibleName(
+    /(?:Requests, |last known )32 pending/,
+  );
   await captureRequestState(page, "pending-queue");
   if (
     (await page.locator('[data-testid="request-row"]').count()) !== 32 ||
@@ -3312,6 +3332,9 @@ export async function runRequestReads(
     .getByText("Showing 51–100 of 128 requests", { exact: true })
     .first()
     .waitFor();
+  await expect(pendingLink).toHaveAccessibleName(
+    /(?:Requests, |last known )32 pending/,
+  );
   await captureRequestState(page, "all-queue-page-two");
   const decisionLink = page
     .getByRole("link", { name: "View decision", exact: true })

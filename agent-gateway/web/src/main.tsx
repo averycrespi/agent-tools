@@ -21,6 +21,7 @@ import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
 import { Requests } from "./requests";
+import { PendingRequestsController } from "./pending-requests";
 import {
   ConfirmationDialog,
   FormField,
@@ -86,6 +87,10 @@ const sessionClient = new SessionClient();
 const sensitiveSinkCoordinator = new SensitiveSinkCoordinator(sessionClient);
 const toastCoordinator = new ToastCoordinator();
 const viewCoordinator = new ViewCoordinator(sessionClient);
+const pendingRequestsController = new PendingRequestsController(
+  sessionClient,
+  viewCoordinator,
+);
 const mutationCoordinator = new MutationCoordinator(sessionClient, {
   refreshCurrent: () => viewCoordinator.manualRefresh(),
 });
@@ -480,6 +485,7 @@ function App() {
               ? "Create admin credential"
               : pageLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
+  const pendingRequests = pendingRequestsController.presentation(view);
 
   return (
     <div
@@ -646,11 +652,31 @@ function App() {
                         class={active ? "active" : undefined}
                         href={`#/${destinationPaths[item]}`}
                         aria-current={active ? "page" : undefined}
+                        aria-label={
+                          item === "requests"
+                            ? pendingRequests.label
+                            : undefined
+                        }
+                        title={
+                          item === "requests"
+                            ? pendingRequests.label
+                            : undefined
+                        }
                         onClick={() => setNavigationOpen(false)}
                       >
                         {item === "requests"
                           ? "Requests"
                           : destinationLabels[item]}
+                        {item === "requests" &&
+                          pendingRequests.badge !== null && (
+                            <span
+                              class="request-count"
+                              aria-hidden="true"
+                              data-testid="pending-request-count"
+                            >
+                              {pendingRequests.badge}
+                            </span>
+                          )}
                       </a>
                     );
                   })}

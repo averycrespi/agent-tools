@@ -115,6 +115,11 @@ func TestRepositorySuitesHaveCompleteUniqueExecutableOwnership(t *testing.T) {
 		require.NoError(t, err, owner)
 		for _, command := range plan {
 			require.NoError(t, validateSuiteCommand(root, inventory, command))
+			if owner == "test-browser-workflows" {
+				leaf := purposeEvidenceDAG().Leaves[owner]
+				assert.Contains(t, command.Argv, "-timeout="+leaf.Timeout.String())
+				assert.Greater(t, leaf.Budget, leaf.Timeout)
+			}
 			for _, test := range command.Tests {
 				key := test.Package + "/" + test.Name
 				assert.NotContains(t, selected, key, "duplicate across owners")

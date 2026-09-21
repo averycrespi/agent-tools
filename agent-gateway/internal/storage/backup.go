@@ -74,15 +74,12 @@ func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 		return Identity{}, fmt.Errorf("%w: backup identity or integrity mismatch", ErrInvalidDatabase)
 	}
 	identity := Identity{InstallationID: installationID, SchemaVersion: schema, Revision: uint64(revision)}
-	if schema >= 17 {
-		var generation sql.NullString
-		if err := database.QueryRowContext(ctx, `SELECT generation FROM traffic_selection WHERE singleton=1`).Scan(&generation); err != nil {
+	if schema >= 18 {
+		generation, err := selectedTraffic(ctx, database)
+		if err != nil {
 			return Identity{}, err
 		}
-		if generation.Valid && !installationIDPattern.MatchString(generation.String) {
-			return Identity{}, ErrInvalidDatabase
-		}
-		identity.TrafficGeneration = generation.String
+		identity.TrafficGeneration = generation
 	}
 	return identity, nil
 }

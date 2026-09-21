@@ -29,7 +29,8 @@ func TestTrafficStoppedMigrationPreservesEvidenceAndSelection(t *testing.T) {
 			for _, id := range []int{1, 2, 3} {
 				require.NoError(t, repository.Insert(ctx, trafficPrepared(id)))
 			}
-			require.NoError(t, repository.AnnotateTerminal(ctx, invocationID(2), contract.TerminalSucceeded))
+			diagnostic := &contract.FailureDiagnostics{GatewayObserved: contract.FailureObservation{Source: "protocol", Reason: "rpc_error"}}
+			require.NoError(t, repository.annotateTerminal(ctx, invocationID(2), contract.TerminalDownstreamFailure, diagnostic))
 			require.NoError(t, control.Mutate(ctx, func(tx *sql.Tx) error {
 				_, e := tx.ExecContext(ctx, `DELETE FROM invocations WHERE insertion_sequence IN (1,3)`)
 				return e
@@ -64,7 +65,8 @@ func TestTrafficStoppedMigrationPreservesEvidenceAndSelection(t *testing.T) {
 			assert.Equal(t, int64(2), history.Pruning)
 			assert.Equal(t, invocationID(2), history.Records[0].InvocationID)
 			require.NotNil(t, history.Records[0].TerminalClass)
-			assert.Equal(t, contract.TerminalSucceeded, *history.Records[0].TerminalClass)
+			assert.Equal(t, contract.TerminalDownstreamFailure, *history.Records[0].TerminalClass)
+			assert.Equal(t, diagnostic, history.Records[0].Diagnostics)
 			assert.Empty(t, traffic.pins)
 		})
 	}

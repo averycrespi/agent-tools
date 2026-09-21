@@ -51,6 +51,9 @@ func TestCLIHelpTree(t *testing.T) {
 	assert.Contains(t, root.Example, "agent-gateway initialize")
 	assert.Contains(t, root.Example, "agent-gateway serve")
 	assert.Contains(t, root.Example, "agent-gateway status")
+	for _, command := range root.Commands() {
+		assert.NotEqual(t, "installation", command.Name())
+	}
 	initialize, _, err := root.Find([]string{"initialize"})
 	require.NoError(t, err)
 	reset, _, err := root.Find([]string{"admin", "reset"})
@@ -82,7 +85,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:8048df78bb0524ea40bc4c16e1110604f3b950a496b22ca425b7fb5c296e74a6", digest)
+	assert.Equal(t, "sha256:370915ca7ddbfe4b06f75c5aaf1b7609afad382e2be44593966b8c39db4c5488", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -178,6 +181,8 @@ func testDocumentationCommandHelpProjection(t *testing.T) {
 func TestCLIUnknownCommandsAreInputErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"definitely-unknown"},
+		{"installation"},
+		{"installation", "migrate"},
 		{"--definitely-invalid"},
 		{"admin", "definitely-unknown"},
 		{"admin", "--definitely-invalid"},

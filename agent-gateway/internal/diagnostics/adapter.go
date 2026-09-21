@@ -2,6 +2,8 @@ package diagnostics
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"io"
 	"log"
 	"log/slog"
@@ -32,10 +34,28 @@ type Adapter struct {
 }
 
 func New(sink io.Writer, level Level) *Adapter {
-	adapter := &Adapter{now: time.Now, suppression: make(map[suppressionKey]suppressionState), level: level, sink: sink, queue: make(chan Facts, QueueRecords-1), done: make(chan struct{}), abort: make(chan struct{}), process: time.Now().UTC().Format("20060102T150405.000000000")}
+	return newAdapter(sink, level, rand.Reader, time.Now)
+}
+
+func newAdapter(sink io.Writer, level Level, entropy io.Reader, now func() time.Time) *Adapter {
+	// Correlation must not alias after clock rollback or process restart. This
+	// entropy is independent of audit identities; failure omits correlation.
+	var identity [16]byte
+	process := ""
+	if _, err := io.ReadFull(entropy, identity[:]); err == nil {
+		process = hex.EncodeToString(identity[:])
+	}
+	adapter := &Adapter{now: now, suppression: make(map[suppressionKey]suppressionState), level: level, sink: sink, queue: make(chan Facts, QueueRecords-1), done: make(chan struct{}), abort: make(chan struct{}), process: process}
 	go adapter.run()
 	return adapter
 }
+func (adapter *Adapter) ProcessID() string {
+	if adapter == nil {
+		return ""
+	}
+	return adapter.process
+}
+
 func (adapter *Adapter) DebugEnabled() bool { return adapter != nil && adapter.level == Debug }
 func (adapter *Adapter) CallID() uint64 {
 	if adapter == nil {
@@ -353,6 +373,9 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 	}
 	record := slog.NewRecord(time.Now().UTC(), level, eventNames[f.Event], 0)
 	record.AddAttrs(slog.Int("schema_version", 1), slog.String("process_id", adapter.process))
+	if level >= slog.LevelWarn {
+		record.AddAttrs(slog.String("action", guidance(f)))
+	}
 	if f.Upstream != 0 {
 		record.AddAttrs(slog.Uint64("upstream_ref", f.Upstream))
 	}
@@ -367,7 +390,7 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 		if f.Event == UpstreamRetryScheduled || f.Event == CatalogPollScheduled {
 			record.AddAttrs(slog.Int64("delay_ms", f.Delay.Milliseconds()))
 		}
-		if f.Suppressed != 0 {
+		if f.Suppressed != 0 || f.Event == UpstreamRecovered {
 			record.AddAttrs(slog.Uint64("suppressed", f.Suppressed))
 		}
 	}
@@ -386,7 +409,7 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 	if f.InvocationID != "" {
 		record.AddAttrs(slog.String("invocation_id", f.InvocationID))
 	}
-	if f.Duration != 0 {
+	if f.Duration != 0 || f.Event == UpstreamRecovered {
 		record.AddAttrs(slog.Int64("duration_ms", f.Duration.Milliseconds()))
 	}
 	if f.Event >= AuthorityWait && f.Event <= StorageReject {

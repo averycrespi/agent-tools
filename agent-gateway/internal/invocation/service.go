@@ -29,6 +29,7 @@ type CallResponse struct {
 	RejectionReason    contract.CallRejectionReason
 	BlockedSelfService bool
 	InvocationID       string
+	Diagnostics        *contract.FailureDiagnostics
 }
 
 type executionLease interface {
@@ -293,13 +294,13 @@ func (service *Service) finish(ctx context.Context, invocationID string, receipt
 		var err error
 		if service.audits.traffic != nil {
 			at, _ := canonicalInvocationTimestamp(service.audits.clock.Now())
-			err = service.audits.traffic.Complete(terminalContext, receipt, activity.Completion{CompletedAt: at, Class: outcome.TerminalClass})
+			err = service.audits.traffic.complete(terminalContext, receipt, activity.Completion{CompletedAt: at, Class: outcome.TerminalClass}, outcome.Diagnostics)
 			service.audits.publishTrafficStatus()
 			if err == nil {
 				service.audits.publish(invocationID)
 			}
 		} else {
-			err = service.audits.AnnotateTerminal(terminalContext, invocationID, outcome.TerminalClass)
+			err = service.audits.annotateTerminal(terminalContext, invocationID, outcome.TerminalClass, outcome.Diagnostics)
 		}
 		cause := diagnostics.Success
 		if err != nil {
@@ -314,7 +315,7 @@ func (service *Service) finish(ctx context.Context, invocationID string, receipt
 	if outcome.Result != nil {
 		return CallResponse{Result: outcome.Result}
 	}
-	return CallResponse{ErrorCode: outcome.ErrorCode, InvocationID: invocationID}
+	return CallResponse{ErrorCode: outcome.ErrorCode, InvocationID: invocationID, Diagnostics: outcome.Diagnostics}
 }
 
 func (service *Service) callEvent(ctx context.Context, event diagnostics.Event, cause diagnostics.Cause, id string, duration time.Duration) {

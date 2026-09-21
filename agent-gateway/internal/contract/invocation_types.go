@@ -5,6 +5,7 @@ type AgentCallErrorData struct {
 	Reason         CallRejectionReason `json:"reason,omitempty"`
 	InvocationID   *string             `json:"invocationId,omitempty"`
 	OutcomeUnknown bool                `json:"outcomeUnknown,omitempty"`
+	Diagnostics    *FailureDiagnostics `json:"diagnostics,omitempty"`
 }
 
 type InvocationAuditRecord struct {
@@ -29,4 +30,5 @@ type InvocationAuditRecord struct {
 	GrantID               *string
 	CompletedAt           *string
 	TerminalClass         *InvocationTerminalClass
+	Diagnostics           *FailureDiagnostics
 }
