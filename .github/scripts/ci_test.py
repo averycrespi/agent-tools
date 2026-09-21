@@ -249,6 +249,23 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(demo.count("run: make -C agent-gateway test-serve-demo"), 1)
         self.assertNotIn("continue-on-error", demo)
 
+    def test_macos_harness_prepares_build_without_relaxing_runtime(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        job = jobs["gateway-macos"]
+        prepare = ("if: matrix.suite == 'harness'\n"
+                   "        timeout-minutes: 5\n"
+                   "        run: go -C agent-gateway build -mod=readonly -tags=e2e -o /dev/null ./cmd/agent-gateway")
+        owner = 'run: make -C agent-gateway "test-$SUITE"'
+        self.assertIn(prepare, job)
+        self.assertLess(job.index("uses: ./.github/actions/go-cache"), job.index(prepare))
+        self.assertLess(job.index(prepare), job.index(owner))
+        self.assertEqual(job.count(prepare), 1)
+        self.assertEqual(job.count(owner), 1)
+        self.assertNotIn("continue-on-error", job)
+        harness = (ROOT / "agent-gateway/test/e2e/harness_test.go").read_text()
+        self.assertIn("testutil.NewBinaryRunner(30*time.Second, 64*1024)", harness)
+
     def test_gateway_macos_executes_disjoint_platform_owners(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
