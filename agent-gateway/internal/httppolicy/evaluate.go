@@ -84,6 +84,16 @@ func (e *Evaluator) destinationBlock(d Destination) *contract.HTTPRevisionRef {
 // upstream allow: evaluate each decrypted request before connecting/forwarding.
 // Request grants and credentials never compete with a matching tunnel grant.
 func (e *Evaluator) Connect(d Destination, facts AddressFacts) (contract.HTTPDecision, error) {
+	result, err := e.ConnectPolicy(d)
+	if err != nil || !result.Allowed {
+		return result, err
+	}
+	result.Allowed = false
+	return finishAddress(result, d, facts)
+}
+
+// ConnectPolicy selects policy only; it confers no network/admission authority.
+func (e *Evaluator) ConnectPolicy(d Destination) (contract.HTTPDecision, error) {
 	if e == nil || d.host == "" || d.port == 0 {
 		return contract.HTTPDecision{}, ErrInvalid
 	}
@@ -113,10 +123,22 @@ func (e *Evaluator) Connect(d Destination, facts AddressFacts) (contract.HTTPDec
 	}
 	result.Transport = contract.HTTPTransportTunnel
 	result.Reason = contract.HTTPReasonTunnelAllow
-	return finishAddress(result, d, facts)
+	result.Allowed = true
+	return result, nil
 }
 
 func (e *Evaluator) Request(r Request, facts AddressFacts) (contract.HTTPDecision, error) {
+	result, err := e.RequestPolicy(r)
+	if err != nil || !result.Allowed {
+		return result, err
+	}
+	result.Allowed = false
+	return finishAddress(result, r.destination, facts)
+}
+
+// RequestPolicy shares selection with Request without DNS or secret resolution.
+// Its allowed bit is policy eligibility only, never dispatch authority.
+func (e *Evaluator) RequestPolicy(r Request) (contract.HTTPDecision, error) {
 	if e == nil || r.destination.host == "" || r.path == "" {
 		return contract.HTTPDecision{}, ErrInvalid
 	}
@@ -166,7 +188,8 @@ func (e *Evaluator) Request(r Request, facts AddressFacts) (contract.HTTPDecisio
 			return result, nil
 		}
 	}
-	return finishAddress(result, r.destination, facts)
+	result.Allowed = true
+	return result, nil
 }
 func (e *Evaluator) selectCredential(result *contract.HTTPDecision, g Grant) {
 	ref := e.credentials[g.Policy.credential].ref

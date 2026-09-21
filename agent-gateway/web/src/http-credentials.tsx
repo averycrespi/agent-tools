@@ -208,7 +208,7 @@ export function HTTPCredentials(props: Props) {
           <ul>
             {detail.referencing_grants.map((ref) => (
               <li key={ref.id} class="technical-value">
-                {ref.id}
+                <a href={`#/http/grants/${ref.id}`}>{ref.id}</a>
               </li>
             ))}
           </ul>

@@ -1,5 +1,6 @@
 import { type Browser, chromium, firefox, webkit } from "@playwright/test";
 import { runHTTPCredentials } from "./browser/http-credential-scenarios.ts";
+import { runHTTPGrants } from "./browser/http-grant-scenarios.ts";
 import { runAudit } from "./browser/audit-scenarios.ts";
 import { runInvocationHistory } from "./browser/history-scenarios.ts";
 import { createInterface } from "node:readline";
@@ -78,6 +79,7 @@ interface BridgeInput {
     | "system-administration-canary"
     | "visual-accessibility-privacy-canary"
     | "http-credentials"
+    | "http-grants"
     | "admin-credentials"
     | "backups"
     | "capability-audit"
@@ -158,6 +160,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "system-administration-canary" &&
       value.scenario !== "visual-accessibility-privacy-canary" &&
       value.scenario !== "http-credentials" &&
+      value.scenario !== "http-grants" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
       value.scenario !== "capability-audit" &&
@@ -661,6 +664,14 @@ try {
     } else if (input.scenario === "auth-flows") {
       await runAuthFlows(
         browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "http-grants") {
+      await runHTTPGrants(
         context,
         page,
         baseURL,

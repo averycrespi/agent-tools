@@ -228,6 +228,9 @@ func (r *Repository) update(ctx context.Context, id, revision string, def Defini
 		if err := r.readReferences(ctx, tx, &rec); err != nil {
 			return err
 		}
+		if len(rec.References) != 0 && def.Recipe != rec.Recipe {
+			return ErrReferenced
+		}
 		ref, err := revisionRef(rec)
 		if err != nil {
 			return err
@@ -270,25 +273,7 @@ func revisionRef(rec record) (contract.HTTPRevisionRef, error) {
 // CheckReferenceTx is the grant owner's transactional insertion/update seam.
 // Holding the same control writer excludes incompatible edits and deletion.
 func (r *Repository) CheckReferenceTx(ctx context.Context, tx *sql.Tx, id string, policy httppolicy.Policy) error {
-	if policy.CredentialID() != id {
-		return ErrReferenced
-	}
-	rec, err := readTx(ctx, tx, id)
-	if err != nil {
-		return err
-	}
-	if rec.deleted {
-		return ErrNotFound
-	}
-	ref, err := revisionRef(rec)
-	if err != nil {
-		return err
-	}
-	contained, err := httppolicy.CredentialContains(rec.PolicyCredential(ref, true), policy)
-	if err != nil || !contained {
-		return ErrReferenced
-	}
-	return nil
+	return CheckPolicyReferenceTx(ctx, tx, id, policy)
 }
 
 func (r *Repository) auditTx(ctx context.Context, tx *sql.Tx, id, action string) error {

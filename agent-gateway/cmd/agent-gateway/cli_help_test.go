@@ -85,7 +85,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:bddb5bc7f71c5f0189c56a327db9b0a92f30d9e9833c2d229600fc358a5324b3", digest)
+	assert.Equal(t, "sha256:21db57046a8ba23236e9c3f9c77fb3922e14fe7b82025d51b1c4c9bbbf208aa5", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -209,6 +209,10 @@ func TestCLIUnknownCommandsAreInputErrors(t *testing.T) {
 
 func testCLICommandErrors(t *testing.T) {
 	requiredFlags := map[string][]string{
+		"http grant create --file PATH":                                      {"file"},
+		"http grant update ID --file PATH [--etag ETAG]":                     {"file"},
+		"http default update ID --file PATH [--etag ETAG]":                   {"file"},
+		"http test-access --file PATH":                                       {"file"},
 		"http credential create --file PATH":                                 {"file"},
 		"http credential update ID --file PATH [--etag ETAG]":                {"file"},
 		"http credential rotate ID --file PATH [--etag ETAG]":                {"file"},

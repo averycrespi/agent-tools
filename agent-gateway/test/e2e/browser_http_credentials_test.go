@@ -15,6 +15,15 @@ import (
 )
 
 func TestBrowserHTTPCredentials(t *testing.T) {
+	runHTTPBrowserScenario(t, "http-credentials", "http_credentials_complete")
+}
+
+func TestBrowserHTTPGrants(t *testing.T) {
+	runHTTPBrowserScenario(t, "http-grants", "http_grants_complete")
+}
+
+func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
+	t.Helper()
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -31,7 +40,7 @@ func TestBrowserHTTPCredentials(t *testing.T) {
 			require.False(t, result.Cleanup.Survived)
 		}
 	})
-	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{"version": 1, "scenario": "http-credentials", "base_url": "http://" + harness.authority, "admin_bearer": harness.bearer}))
+	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{"version": 1, "scenario": scenario, "base_url": "http://" + harness.authority, "admin_bearer": harness.bearer}))
 	require.NoError(t, input.Close())
 	result, err := process.Wait()
 	finished = true
@@ -47,7 +56,7 @@ func TestBrowserHTTPCredentials(t *testing.T) {
 		Screenshots string `json:"screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
-	require.Equal(t, "http_credentials_complete", event.Event)
+	require.Equal(t, eventName, event.Event)
 	require.Positive(t, event.Requests)
 	require.NotEmpty(t, event.Screenshots)
 	t.Logf("HTTP credential screenshots: %s", event.Screenshots)

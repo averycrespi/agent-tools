@@ -271,6 +271,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Audit:         controlAPI.Audit,
 
 		HTTPCredentials: controlAPI.HTTPCredentials,
+		HTTPPolicies:    controlAPI.HTTPPolicies,
 
 		AuthorizationCollections: controlAPI.AuthorizationCollections,
 

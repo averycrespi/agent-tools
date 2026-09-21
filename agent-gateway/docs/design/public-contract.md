@@ -1,5 +1,22 @@
 # Public Contract
 
+## HTTP grant resources
+
+| Route                         | Allow                |
+| ----------------------------- | -------------------- |
+| `/api/v2/http/grants`         | `GET, POST`          |
+| `/api/v2/http/grants/{id}`    | `DELETE, GET, PATCH` |
+| `/api/v2/http/defaults/{id}`  | `GET, PATCH`         |
+| `/api/v2/http/access-preview` | `POST`               |
+
+All use administrator bearer/session authority, closed bounded JSON, no-store responses and no replay/idempotency. `HTTPGrantWrite` requires exactly `principal_id`, nullable `description`, `policy` and nullable `expires_at`. POST returns `HTTPGrant` / 201; PATCH atomically replaces that complete configuration / 200, retaining ID and principal. GET returns the same resource / 200. DELETE is bodyless and returns `Empty` / 204. PATCH and DELETE require exact `"http-grant-ID-REVISION"` ETags; GET/create/update return them. Missing and stale preconditions use `grant_precondition_required` and `stale_grant_revision`; invalid policy uses `invalid_grant`, incompatible references use `conflict`.
+
+`HTTPGrant` is exactly `{id,principal_id,description,revision,policy,expires_at,state,created_at,updated_at}`. Revisions are positive decimal strings; policy version remains immutable integer 1. State is active/expired; response timestamps use fixed UTC nanoseconds (`2026-09-21T00:00:00.000000000Z`), with updated time no earlier than creation and non-null expiry later than creation. `HTTPGrantListQuery` accepts singleton nonempty `cursor`, canonical `limit` (default 50, maximum 100), `principal_id`, `identity`, `principal`, `target`, `type`, `state`, `sort`, `direction`. Text filters and ordering reuse MCP grant recognition rules; target means destination hostname. Type uses the four HTTP types. Sort is id/description/principal/target/effect/state, where effect sorts the explicit HTTP type. Default is description ascending, ID ascending ties. Direction requires sort. `QueryPage<HTTPGrantTableItem>` has the existing count/offset envelope; items are exactly `{grant,principal_display_name}`. HMAC snapshot cursors bind HTTP representation, query, metadata, principal labels and expiry state for five minutes, never policy bodies.
+
+Default GET returns `PrincipalHTTPDefault`, exactly `{principal_id,default,revision}` with `"http-default-ID-REVISION"` ETag. PATCH requires that ETag and `HTTPDefaultWrite`, exactly `{default:"block"|"allow"}`, returning the updated resource. This does not change public Principal fields or MCP authority.
+
+`HTTPAccessInput` is exactly `{principal_id,url,method}` or `{principal_id,connect:{host,port}}`; members of the other branch, including null, reject. POST returns `HTTPAccessPreview`, exactly `{decision,default,policy_only,network_verified,tls_verified,material_verified,admission_authority}`. Only policy_only is true among the Boolean qualification fields. It shares production policy selection, uses known literal address classification without DNS, and returns only safe revision/reference/reason evidence. Request paths/query values are neither echoed nor retained in audit, events or diagnostics. No dispatch, secret resolution, permission lease or future admission authority is created.
+
 ## HTTP credential resources
 
 | Route                                  | Allow                |
@@ -31,9 +48,7 @@ The `internal/contract` package is the single executable source consumed by API,
 constants in `internal/contract/http_policy.go` define the immutable HTTP v1
 contract. The [identity chapter](identity-and-authorization.md#http-policy-version-1)
 owns its closed shapes, bounds, canonicalization, precedence and safe evidence.
-This introduces no public route, System limit occupancy, persisted resource or
-second authentication domain. Policy dialect version is distinct from resource
-revision. Existing principal, MCP and administrative HTTP contracts are unchanged.
+HTTP grant/default resources above persist this dialect without adding System limit occupancy or a second authentication domain. Policy dialect version is distinct from resource revision. Existing principal and MCP contracts are unchanged.
 
 ### Diagnostic event contract
 

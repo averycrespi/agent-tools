@@ -78,6 +78,7 @@ var productClauseGroups = []struct {
 }
 
 var productCapabilityIDs = []string{
+	"http-grant-read", "http-grant-create", "http-grant-update", "http-grant-delete", "http-default", "http-preview",
 	"http-credential-read", "http-credential-create", "http-credential-update", "http-credential-rotate", "http-credential-delete",
 	"audit-read",
 	"status", "admin-credential-read", "admin-credential-create", "admin-credential-revoke", "backup-read", "backup-create", "backup-delete", "server-read", "server-create", "server-update", "server-delete", "operation-read", "operation-start", "server-credential", "auth-flow-read", "auth-flow-start", "auth-flow-cancel", "descriptor-read", "catalog-list", "principal-read", "principal-create", "principal-update", "principal-credential-issue", "principal-credential-revoke", "grant-read", "grant-create", "grant-update", "grant-delete", "grant-request-read", "grant-request-approve", "grant-request-reject", "invocation-read",

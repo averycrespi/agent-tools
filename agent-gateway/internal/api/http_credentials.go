@@ -225,7 +225,7 @@ func writeHTTPCredentialError(w http.ResponseWriter, err error) {
 		problem = contract.ProblemStaleRevision
 	case errors.Is(err, httpcredentials.ErrReferenced):
 		problem = contract.ProblemConflict
-	case errors.Is(err, httpcredentials.ErrLimit):
+	case errors.Is(err, httpcredentials.ErrLimit), errors.Is(err, storage.ErrMutationBusy):
 		problem = contract.ProblemResourceLimit
 	case errors.Is(err, storage.ErrStorageLatched):
 		problem = contract.ProblemStorageUnavailable

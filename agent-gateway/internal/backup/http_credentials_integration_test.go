@@ -5,6 +5,8 @@ package backup
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
@@ -63,15 +66,21 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			backend := &retainedHTTPKeyring{values: map[string]string{}}
 			provider, err := keyring.NewProviderWithBackend(backupTestInstallationID, backend)
 			require.NoError(t, err)
-			serviceFor := func(store *storage.Store) *httpcredentials.Service {
-				repo, err := httpcredentials.NewRepository(store, clock, rand.Reader, httpcredentials.NoHTTPGrants{})
+			serviceFor := func(store *storage.Store) (*httpcredentials.Service, *authorization.Repository) {
+				policies, err := authorization.New(store, clock, rand.Reader)
+				require.NoError(t, err)
+				repo, err := httpcredentials.NewRepository(store, clock, rand.Reader, policies)
 				require.NoError(t, err)
 				service, err := httpcredentials.NewService(repo, keyring.NewCoordinator(provider, store, clock, rand.Reader), backupTestInstallationID)
 				require.NoError(t, err)
-				return service
+				return service, policies
 			}
-			service := serviceFor(store)
+			service, policies := serviceFor(store)
 			created, err := service.Create(ctx, httpcredentials.Definition{Name: "Backup scope", Boundary: httpcredentials.Boundary{Host: "api.example.com", Port: 443}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, []byte("backup-http-private-canary"))
+			require.NoError(t, err)
+			principal, err := policies.CreatePrincipal(ctx, authorization.CreatePrincipalRequest{DisplayName: "HTTP restore", Visibility: contract.VisibilityAll})
+			require.NoError(t, err)
+			grant, err := policies.PutHTTPGrant(ctx, "", "", authorization.HTTPGrantInput{PrincipalID: principal.Principal.ID, Policy: json.RawMessage(fmt.Sprintf(`{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"any":true},"path":{"kind":"any"}},"credential_id":%q}`, created.ID))})
 			require.NoError(t, err)
 			manager, err := New(Options{Store: store, Layout: owner.Layout(), Clock: clock, Entropy: rand.Reader})
 			require.NoError(t, err)
@@ -85,6 +94,7 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			if action == "rotate" {
 				_, err = service.Rotate(ctx, created.ID, created.Revision, []byte("new-http-private-canary"))
 			} else {
+				require.NoError(t, policies.DeleteHTTPGrant(ctx, grant.ID, grant.Revision))
 				err = service.Delete(ctx, created.ID, created.Revision)
 			}
 			require.NoError(t, err)
@@ -98,7 +108,14 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			store, err = storage.Open(ctx, owner)
 			require.NoError(t, err)
 			require.NoError(t, httpcredentials.ValidateStartup(ctx, store))
-			restoredService := serviceFor(store)
+			restoredService, restoredPolicies := serviceFor(store)
+			restoredGrant, err := restoredPolicies.GetHTTPGrant(ctx, grant.ID)
+			require.NoError(t, err)
+			require.Equal(t, grant, restoredGrant)
+			preview, err := restoredPolicies.PreviewHTTPAccess(ctx, authorization.HTTPAccessInput{PrincipalID: principal.Principal.ID, URL: "https://api.example.com/", Method: "GET"})
+			require.NoError(t, err)
+			require.Equal(t, contract.HTTPReasonCredentialUnavailable, preview.Decision.Reason)
+			require.False(t, preview.Decision.Allowed)
 			restored, err := restoredService.Get(ctx, created.ID)
 			require.NoError(t, err)
 			require.False(t, restored.Available)

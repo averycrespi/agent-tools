@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
@@ -87,12 +88,19 @@ func newHTTPCredentialIntegrationHandlerWithBackend(t *testing.T, backend *httpC
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	provider, err := keyring.NewProviderWithBackend(testID, backend)
 	require.NoError(t, err)
-	repo, err := httpcredentials.NewRepository(store, httpCredentialClock{}, rand.Reader, httpcredentials.NoHTTPGrants{})
+	policies, err := authorization.New(store, httpCredentialClock{}, rand.Reader)
+	require.NoError(t, err)
+	repo, err := httpcredentials.NewRepository(store, httpCredentialClock{}, rand.Reader, policies)
 	require.NoError(t, err)
 	service, err := httpcredentials.NewService(repo, keyring.NewCoordinator(provider, store, httpCredentialClock{}, rand.Reader), testID)
 	require.NoError(t, err)
 	invalidations := []contract.Invalidation{}
-	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, HTTPCredentials: service, Invalidate: func(event contract.Invalidation) { invalidations = append(invalidations, event) }})
+	var invalidationMu sync.Mutex
+	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Principals: policies, HTTPPolicies: policies, HTTPCredentials: service, Invalidate: func(event contract.Invalidation) {
+		invalidationMu.Lock()
+		defer invalidationMu.Unlock()
+		invalidations = append(invalidations, event)
+	}})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	require.NoError(t, err)
 	return boundary, &invalidations

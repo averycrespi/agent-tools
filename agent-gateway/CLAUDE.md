@@ -118,7 +118,7 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation channels separate. Raw secrets never enter configuration, arguments, URLs, logs, metrics, events, SQLite, backups, browser storage, or read APIs. Only supported client token exports and runtime-resolved clean stdio secret slots permit environment delivery; never add ambient or administrator environment-secret fallback.
 - The official MCP SDK remains behind Gateway-owned authentication, classification, limits, and lifecycle. Only the ingress handler boundary may import it; never add a second SDK list cache, subscription, transport owner, or active-capability consumer.
 
-- Keep `httppolicy` pure. HTTP credential references use supplied transactions: [cutover](docs/design/downstream-servers.md#scoped-http-credentials).
+- Keep `httppolicy` pure; authorization owns HTTP policy and transactional references: [contract](docs/design/identity-and-authorization.md#persisted-http-authority).
 
 ### Ownership and composition
 

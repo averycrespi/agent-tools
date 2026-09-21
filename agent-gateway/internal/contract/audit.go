@@ -124,6 +124,8 @@ var (
 		"server":            {"create", "update", "delete", "reconcile"},
 		"server_credential": {"replace", "disconnect", "invalidate"},
 		"http_credential":   {"create", "update", "rotate", "delete", "invalidate"},
+		"http_grant":        {"create", "update", "delete"},
+		"http_default":      {"update"},
 		"operation":         {"request", "activate", "reload", "retry", "refresh_catalog", "credential_replace", "disable", "delete", "disconnect_credentials", "schedule", "start", "finish", "recover"},
 		"oauth":             {"create", "prepare", "authorize", "register", "publish_registration", "invalidate_registration", "await_callback", "begin_exchange", "exchange", "refresh", "install", "finish", "cancel", "expire", "supersede", "recover", "revoke"},
 		"catalog":           {"refresh", "commit", "publish", "retire", "invalidate", "fence", "withdraw"},
@@ -154,7 +156,7 @@ func AuditCategories() []string {
 }
 
 func AuditTargetTypes() []string {
-	return []string{"installation", "admin_credential", "backup", "server", "operation", "auth_flow", "principal", "agent_credential", "grant", "grant_request", "descriptor", "http_credential"}
+	return []string{"installation", "admin_credential", "backup", "server", "operation", "auth_flow", "principal", "agent_credential", "grant", "grant_request", "descriptor", "http_credential", "http_grant", "http_default"}
 }
 
 func AuditOutcomes() []string {

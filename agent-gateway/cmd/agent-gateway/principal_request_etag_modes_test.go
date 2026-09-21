@@ -81,6 +81,10 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 func TestCLIRetainedFileSecurity(t *testing.T) {
 	root := newRootCmd()
 	fileOwners := map[string]bool{
+		"http grant create":             true,
+		"http grant update":             true,
+		"http default update":           true,
+		"http test-access":              true,
 		"http credential create":        true,
 		"http credential update":        true,
 		"http credential rotate":        true,

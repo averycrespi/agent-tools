@@ -4,6 +4,9 @@ import "fmt"
 
 const OAuthCorrelationHeader = "MCP-Gateway-Correlation-ID"
 
+func HTTPGrantETag(id, revision string) string   { return `"http-grant-` + id + `-` + revision + `"` }
+func HTTPDefaultETag(id, revision string) string { return `"http-default-` + id + `-` + revision + `"` }
+
 func HTTPCredentialETag(id, revision string) string {
 	return `"http-credential-` + id + `-` + revision + `"`
 }

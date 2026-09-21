@@ -10,7 +10,7 @@ This chapter owns the behavior and invariants described below. Operational proce
 
 Principal IDs, display names, active/disabled state, the singular agent credential slot, authentication, and authority admission are shared identity/state. MCP targets and grants, tool-discovery visibility, access requests, and the six fixed synthetic self-service tools are currently MCP-only policy. Shared identity does not imply protocol-general grants or access.
 
-`internal/composition` constructs and owns one authorization repository/authenticator and its authority gate/admission verifier. The distinction is semantic, not a split into identity and protocol authority owners. Sealed admitted subjects retain their existing identity/revision evidence; MCP policy uses the target boundary below. No generic protocol framework, protocol discriminator, second credential slot, or MCP-settings endpoint is introduced. HTTP ingress will use this same singular agent credential, with separate HTTP permissions and default block for existing principals. The pure HTTP evaluator below does not yet add ingress or persistence.
+`internal/composition` constructs and owns one authorization repository/authenticator and its authority gate/admission verifier. The distinction is semantic, not a split into identity and protocol authority owners. Sealed admitted subjects retain their existing identity/revision evidence; MCP policy uses the target boundary below. No generic protocol framework, protocol discriminator, second credential slot, or MCP-settings endpoint is introduced. HTTP policy uses this same singular agent credential, with separate HTTP permissions and default block for existing and new principals. Its control resources add no production HTTP ingress listener.
 
 The public names `visibility` and `default_grant` and the `Principal`, `PrincipalCreation`, and `AgentCredential` representations remain compatibility contracts. `visibility` means MCP discovery visibility; it grants no access, and MCP grants remain authoritative for calls. `default_grant` identifies the ordinary MCP self-service grant created with a principal, not protocol-general or downstream authority. These clarifications require no reinitialization, migration, backup conversion, credential replacement, or data rewrite. Bearer/verifier/fingerprint framing, keyring identities, revisions, audit vocabulary, and self-service names/schemas remain unchanged.
 
@@ -41,14 +41,9 @@ Validation remains purpose-specific: ordinary grants may be server-wide or name 
 
 `internal/httppolicy` owns pure HTTP policy compilation, canonical coordinates,
 origin-set containment and deterministic evaluation. `internal/contract/http_policy.go`
-owns the closed dialect and explanation shapes. This component introduces no
-listener, API/CLI/UI surface, SQL migration, authenticator, keyring operation,
-network access, dispatch or durable execution queue. The sole authorization owner
-will supply coherent principal/policy/credential revisions and active grants;
-principal admission, credential validity and expiry filtering remain its work.
+owns the closed dialect and explanation shapes. This pure component introduces no listener, authenticator, keyring operation, network access, dispatch or durable execution queue. The sole authorization owner supplies coherent principal/policy/credential revisions and active grants through schema-20 control resources; principal admission, credential validity and expiry filtering remain its work.
 HTTP uses the existing agent credential and control database and the shared
-bounded traffic store, not another identity or per-protocol store. Existing MCP
-behavior and schema 18 remain unchanged. Capacity remains unqualified.
+bounded traffic store, not another identity or per-protocol store. Existing MCP behavior remains unchanged. Capacity remains unqualified.
 
 ### Closed policy shapes and precedence
 
@@ -175,6 +170,16 @@ The proxy remains cooperative, not network-enforced egress containment. Broker
 migration/retirement, HTTP self-service, intercepted WebSockets, HTTP/3,
 query/header/body matching, traffic-to-grant shortcuts, retries/replay and
 multiple-secret injection are outside this component.
+
+## Persisted HTTP authority
+
+Schema 20 adds one revisioned HTTP default per principal, backfilled to block and atomically seeded to block for every new principal. A dedicated resource preserves Principal/PrincipalCreation, MCP visibility/default_grant and the singular credential slot unchanged. HTTP defaults never supply credential, tunnel or private-network permission.
+
+The sole authorization repository owns up to 4,096 retained HTTP grants, including expired rows. Create and complete in-place edits compile and persist canonical v1 selectors; stable IDs/principals, optional bounded descriptions, canonical expiry and creation/update timestamps are validated on reads and startup. Edits and deletion require exact current resource revisions. All mutations run under the existing authority-before-storage ordering, advance the shared authorization revision and commit required audit atomically. Consequently a pending confirmation at an older global revision fails without reevaluation. HTTP policy evidence represents the zero-based shared sequence plus one; it is not a second authority or policy dialect version. There is no evaluated-decision cache.
+
+Grant writes validate whole-scope credential containment on the same SQL writer used by credential edits/deletion. The authorization-owned ReferenceInspector includes every retained reference, even expired grants. Referenced credentials reject deletion, recipe changes and scope edits that no longer contain every grant. The credential owner supplies safe metadata/availability facts on caller-owned snapshots, never nested views, DNS or secret resolution. Startup and staged backup validation check complete defaults, canonical policy, principal existence, capacity and credential references. Restore retains policy while invalidating material authority; unavailable material is valid retained configuration, not permission to fall back uninjected.
+
+Preview and the ingress-facing authenticated-lease seam load the same coherent policy snapshot and call the same pure selector. Preview is never admission authority; the ingress-facing result is also evidence only, and this delivery exposes no HTTP execution/detachment path. A future proxy must seal and confirm its traffic receipt and exact credential material generation before dispatch. Pure policy eligibility is followed by complete address checks for ingress evaluation. Preview classifies literal addresses without lookup and explicitly leaves network/TLS/material unverified. No submitted target/path/query is retained in audit, diagnostics or events; persisted grant selectors are administrator configuration, not observed traffic.
 
 ## Principal and grant contract
 

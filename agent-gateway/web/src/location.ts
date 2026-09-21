@@ -9,6 +9,7 @@ export type Destination =
   | "catalog"
   | "principals"
   | "http-credentials"
+  | "http-grants"
   | "grants"
   | "requests"
   | "invocations"
@@ -35,6 +36,7 @@ export const destinationPaths: Readonly<Record<Destination, string>> = {
   catalog: "mcp/tools",
   principals: "principals",
   "http-credentials": "http/credentials",
+  "http-grants": "http/grants",
   grants: "mcp/grants",
   requests: "mcp/access-requests",
   invocations: "mcp/invocations",
@@ -312,6 +314,46 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     ) {
       return location("servers", segments, query);
     }
+  }
+  if (first === "http-grants") {
+    if (
+      segments.length === 1 &&
+      (query.direction === undefined || query.sort !== undefined) &&
+      exactQuery(query, {
+        principal_id: isGatewayID,
+        filter_identity: (value) =>
+          isCollectionFilter("filter_identity", value),
+        filter_principal: (value) =>
+          isCollectionFilter("filter_principal", value),
+        filter_target: (value) => isCollectionFilter("filter_target", value),
+        filter_type: (value) =>
+          [
+            "block_destination",
+            "allow_tunnel",
+            "block_requests",
+            "allow_requests",
+          ].includes(value),
+        filter_state: (value) => ["active", "expired"].includes(value),
+        sort: (value) =>
+          [
+            "id",
+            "description",
+            "principal",
+            "target",
+            "effect",
+            "state",
+          ].includes(value),
+        direction: (value) => ["ascending", "descending"].includes(value),
+      })
+    )
+      return location("http-grants", segments, query);
+    if (
+      segments.length === 2 &&
+      second !== undefined &&
+      (second === "new" || second === "test-access" || isGatewayID(second)) &&
+      noQuery
+    )
+      return location("http-grants", segments, query);
   }
   if (
     first === "http-credentials" &&

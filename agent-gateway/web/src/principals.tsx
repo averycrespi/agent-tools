@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { PrincipalHTTPDefault } from "./http-grants";
 import { parseFragment, type ResolvedLocation } from "./location";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -1018,6 +1019,14 @@ export function Principals({
             </div>
           </dl>
         </section>
+        <PrincipalHTTPDefault
+          key={principal.id}
+          session={session}
+          mutations={mutations}
+          view={view}
+          onRefresh={onRefresh}
+          principalID={principal.id}
+        />
         <PrincipalCredentialActions
           mutations={mutations}
           sinks={sinks}

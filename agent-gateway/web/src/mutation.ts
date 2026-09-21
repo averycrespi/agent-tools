@@ -75,6 +75,8 @@ const idempotencyRoutes: Readonly<
   operation_start: new RegExp(`^/api/v2/mcp/servers/${gatewayID}/operations$`),
 };
 const preconditionRoutes = [
+  new RegExp(`^(?:PATCH|DELETE) /api/v2/http/grants/${gatewayID}$`),
+  new RegExp(`^PATCH /api/v2/http/defaults/${gatewayID}$`),
   new RegExp(`^(?:PATCH|DELETE) /api/v2/http/credentials/${gatewayID}$`),
   new RegExp(`^POST /api/v2/http/credentials/${gatewayID}/rotate$`),
   new RegExp(`^PATCH /api/v2/mcp/servers/${gatewayID}$`),

@@ -72,6 +72,7 @@ type ControlAPIDependencies struct {
 	Invocations   *invocation.ReadService
 	Audit         *audit.Repository
 
+	HTTPPolicies    *authorization.Repository
 	HTTPCredentials *httpcredentials.Service
 }
 
@@ -157,7 +158,7 @@ func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
 	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil || built.httpCredentials == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials}, true
+	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization}, true
 }
 func (built *Composition) authorityDependenciesComplete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
@@ -747,7 +748,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := httpcredentials.ValidateStartup(context.Background(), options.Store); err != nil {
 		return nil, fmt.Errorf("validate HTTP credentials: %w", err)
 	}
-	httpRepository, err := httpcredentials.NewRepository(options.Store, options.Clock, options.Entropy, httpcredentials.NoHTTPGrants{})
+	httpRepository, err := httpcredentials.NewRepository(options.Store, options.Clock, options.Entropy, built.authorization)
 	if err != nil {
 		return nil, fmt.Errorf("construct HTTP credentials: %w", err)
 	}

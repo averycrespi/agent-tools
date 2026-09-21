@@ -388,6 +388,14 @@ func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.Onl
 
 func onlineCommandSpecs() []onlineCommandSpec {
 	return []onlineCommandSpec{
+		onlineSpec([]string{"http", "grant", "list"}, "list", "http grant list", "limit", "cursor"),
+		onlineSpec([]string{"http", "grant", "get"}, "get ID", "http grant get ID"),
+		onlineSpec([]string{"http", "grant", "create"}, "create", "http grant create --file PATH", "file", "yes"),
+		onlineSpec([]string{"http", "grant", "update"}, "update ID", "http grant update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "grant", "delete"}, "delete ID", "http grant delete ID [--etag ETAG]", "etag", "yes"),
+		onlineSpec([]string{"http", "default", "get"}, "get ID", "http default get ID"),
+		onlineSpec([]string{"http", "default", "update"}, "update ID", "http default update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "test-access"}, "test-access", "http test-access --file PATH", "file"),
 		onlineSpec([]string{"http", "credential", "list"}, "list", "http credential list", "limit", "cursor"),
 		onlineSpec([]string{"http", "credential", "get"}, "get ID", "http credential get ID"),
 		onlineSpec([]string{"http", "credential", "create"}, "create", "http credential create --file PATH", "file", "yes"),
@@ -453,6 +461,8 @@ func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineC
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineGroupDescriptions = map[string]string{
 	"http":                  "Manage HTTP access",
+	"http grant":            "Manage HTTP access grants",
+	"http default":          "Manage principal HTTP defaults",
 	"http credential":       "Manage scoped HTTP credentials",
 	"admin":                 "Manage administrator authority",
 	"admin credential":      "Manage administrator credentials",
@@ -474,6 +484,14 @@ var onlineGroupDescriptions = map[string]string{
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineLeafDescriptions = map[string]string{
+	"http grant list":                                     "List HTTP access grants",
+	"http grant get ID":                                   "Inspect an HTTP grant",
+	"http grant create --file PATH":                       "Create an HTTP grant",
+	"http grant update ID --file PATH [--etag ETAG]":      "Replace HTTP policy atomically",
+	"http grant delete ID [--etag ETAG]":                  "Delete an HTTP grant",
+	"http default get ID":                                 "Inspect a principal HTTP default",
+	"http default update ID --file PATH [--etag ETAG]":    "Change a principal HTTP default",
+	"http test-access --file PATH":                        "Preview policy only without DNS, dispatch or secret resolution",
 	"http credential list":                                "List scoped HTTP credentials without secrets",
 	"http credential get ID":                              "Show HTTP credential boundaries, recipe and references",
 	"http credential create --file PATH":                  "Create a scoped HTTP credential from a write-only file",
@@ -529,6 +547,10 @@ var onlineLeafDescriptions = map[string]string{
 }
 
 var onlineRequiredFlags = map[string][]string{
+	"http grant create --file PATH":                                      {"file"},
+	"http grant update ID --file PATH [--etag ETAG]":                     {"file"},
+	"http default update ID --file PATH [--etag ETAG]":                   {"file"},
+	"http test-access --file PATH":                                       {"file"},
 	"http credential create --file PATH":                                 {"file"},
 	"http credential update ID --file PATH [--etag ETAG]":                {"file"},
 	"http credential rotate ID --file PATH [--etag ETAG]":                {"file"},

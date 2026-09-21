@@ -35,7 +35,7 @@ var documentationGuides = []DocumentationGuide{
 }
 
 var documentationCommandFamilies = []DocumentationCommandFamily{
-	{ID: "docs.command.http", CommandPath: "http credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway http credential --help"},
+	{ID: "docs.command.http", CommandPath: "http", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway http --help"},
 	{ID: "docs.command.service", CommandPath: "service", CanonicalOwner: "docs/operators/launchd.md", HelpInvocation: "agent-gateway service --help"},
 	{ID: "docs.command.audit", CommandPath: "audit", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway audit --help"},
 	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway admin credential --help"},

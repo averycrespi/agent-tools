@@ -116,6 +116,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"agent-gateway/web/tests/browser/audit-scenarios.ts", "agent-gateway/web/src/audit-contract.ts",
 		"agent-gateway/web/tests/browser/history-scenarios.ts",
 		"agent-gateway/web/tests/browser/http-credential-scenarios.ts", "agent-gateway/web/src/http-credentials.tsx",
+		"agent-gateway/web/tests/browser/http-grant-scenarios.ts", "agent-gateway/web/src/http-grants.tsx",
 		"agent-gateway/web/tests/browser/server-scenarios.ts", "agent-gateway/web/tests/browser/development-scenarios.ts",
 		"agent-gateway/web/tests/browser/catalog-pagination.ts", "agent-gateway/web/tests/browser/upstream-headers.ts",
 		"agent-gateway/web/tests/browser/operation-pagination.ts", "agent-gateway/web/tests/browser/table-conventions.ts",
