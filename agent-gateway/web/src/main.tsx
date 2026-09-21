@@ -22,6 +22,7 @@ import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
 import { HTTPCredentials } from "./http-credentials";
 import { HTTPGrants } from "./http-grants";
+import { HTTPTraffic, HTTPTrafficController } from "./http-traffic";
 import { Requests } from "./requests";
 import { PendingRequestsController } from "./pending-requests";
 import {
@@ -55,7 +56,10 @@ const navigation: ReadonlyArray<{
   destinations: ReadonlyArray<Exclude<Destination, "sign-in">>;
 }> = [
   { destinations: ["overview", "principals", "audit", "system"] },
-  { label: "HTTP", destinations: ["http-credentials", "http-grants"] },
+  {
+    label: "HTTP",
+    destinations: ["http-credentials", "http-grants", "http-traffic"],
+  },
   {
     label: "MCP",
     destinations: ["servers", "catalog", "grants", "requests", "invocations"],
@@ -69,6 +73,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   principals: "Principals",
   "http-credentials": "Credentials",
   "http-grants": "Grants",
+  "http-traffic": "Traffic",
   grants: "Grants",
   requests: "Access requests",
   invocations: "Invocations",
@@ -81,6 +86,7 @@ const pageLabels: Readonly<Record<Destination, string>> = {
   ...destinationLabels,
   "http-credentials": "HTTP Credentials",
   "http-grants": "HTTP Grants",
+  "http-traffic": "HTTP Traffic",
   servers: "MCP Servers",
   catalog: "MCP Tools",
   grants: "MCP Grants",
@@ -108,6 +114,10 @@ const overviewController = new OverviewController(
 );
 const auditController = new AuditController(sessionClient, viewCoordinator);
 const invocationsController = new InvocationsController(
+  sessionClient,
+  viewCoordinator,
+);
+const httpTrafficController = new HTTPTrafficController(
   sessionClient,
   viewCoordinator,
 );
@@ -398,7 +408,8 @@ function App() {
         ? resolved.location.segments[1]
         : undefined;
     const invocationID =
-      resolved.location.destination === "invocations"
+      resolved.location.destination === "invocations" ||
+      resolved.location.destination === "http-traffic"
         ? resolved.location.segments[1]
         : undefined;
     const grantID =
@@ -484,7 +495,9 @@ function App() {
   const isRequestDetail =
     destination === "requests" && resolved.location.segments[1] !== undefined;
   const isResourceDetail =
-    ((destination === "http-credentials" || destination === "http-grants") &&
+    ((destination === "http-credentials" ||
+      destination === "http-grants" ||
+      destination === "http-traffic") &&
       resolved.location.segments[1] !== undefined &&
       resolved.location.segments[1] !== "new" &&
       resolved.location.segments[1] !== "test-access") ||
@@ -788,6 +801,13 @@ function App() {
             <Audit
               controller={auditController}
               resolved={resolved}
+              view={view}
+              navigate={navigate}
+            />
+          ) : destination === "http-traffic" ? (
+            <HTTPTraffic
+              controller={httpTrafficController}
+              principals={principalDirectory}
               view={view}
               navigate={navigate}
             />

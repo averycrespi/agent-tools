@@ -65,9 +65,31 @@ Read/store regression evidence is concrete but narrower than producer coverage: 
 
 ## HTTP credential administration
 
-HTTP > Credentials is a distinct navigation group and operator surface at `#/http/credentials`, with `new` and credential-ID suffixes. It uses the shared session, collection, invalidation, mutation, dirty-form and write-only-sink owners. List/detail show identity, HTTPS boundary, safe header recipe, material availability and referencing grant IDs; no stored-secret reveal exists. Create/edit review the proposed scope and recipe; the service canonicalizes and validates them. Rotate/delete require consequence confirmation. Secret fields clear on submission, cancellation, navigation and session loss. Errors remain local; uncertain outcomes block replay and require inspection. A referenced credential cannot be deleted. Grant references link to the HTTP grant detail; no traffic/proxy surface is implied.
+HTTP > Credentials is a distinct navigation group and operator surface at `#/http/credentials`, with `new` and credential-ID suffixes. It uses the shared session, collection, invalidation, mutation, dirty-form and write-only-sink owners. List/detail show identity, HTTPS boundary, safe header recipe, material availability and referencing grant IDs; no stored-secret reveal exists. Create/edit review the proposed scope and recipe; the service canonicalizes and validates them. Rotate/delete require consequence confirmation. Secret fields clear on submission, cancellation, navigation and session loss. Errors remain local; uncertain outcomes block replay and require inspection. A referenced credential cannot be deleted. Grant references link to the HTTP grant detail. Traffic history is a separate read-only surface, not a proxy listener.
 
 `http credential list|get|create|update|rotate|delete` uses only the public control API. Create, update and rotate require strict `--file PATH`; secret argv/environment inputs are not supported. Update, rotate and delete accept an exact explicit `--etag` or one validated metadata preflight; they never refresh stale preconditions. Mutations require `--yes` consequence confirmation. Keyring/storage uncertainty remains an unknown outcome, with no retry. `http_credentials` events contain only invalidation hints. Audit category/target `http_credential` records create/update/rotate/delete/invalidate, and typed keyring effects retain their independent attempt/outcome evidence.
+
+## HTTP traffic history
+
+HTTP > Traffic (`#/http/traffic` and record-ID detail) is separate from MCP
+Invocations, HTTP Grants and administrative audit. Lists use exact principal-ID,
+destination hostname, type, decision and outcome filters. The shared table shows
+only admission time, safe destination/method, principal, type, decision and outcome;
+principal labels come from the existing batched directory. Detail shows immutable
+admission-time references, default, selected material generation and expandable
+matched selectors, never a reconstruction from current authority. Opaque tunnels
+promise no inner-request visibility. Missing terminal evidence does not prove
+nonexecution or safe retry. There is no traffic-to-grant shortcut.
+
+The shared protected view/session owner fences navigation, refresh, and logout.
+Live starts on; Load older pauses automatic replacement and retains up to 500
+records in 50-record pages, with explicit Resume live/Return to newest. Turning
+Live off persists only in memory until session loss. Manual refresh replaces the
+loaded window without enabling Live. Expired shared cursors restart at newest
+with an explicit notice; other read failures preserve prior evidence with a stale
+warning. HTTP uses existing coalesced System traffic invalidations rather than a
+per-record stream. Exact filters and detail links survive Back navigation but no
+cursor or evidence is placed in the URL or browser persistence.
 
 ## HTTP grant administration
 
@@ -89,7 +111,7 @@ The frontend development path is build/test-only and uses a second independently
 
 The developer control application is built from strict TypeScript and Preact with Vite into a fixed embedded HTML, stylesheet, and module allowlist. The checked-in bundle contains no external or inline active content, source maps, chunks, or runtime Node dependency and uses the fixed restrictive CSP.
 
-The application is branded **Agent Gateway**. Primary navigation separates shared administration from the MCP domain: **Overview**, **Principals**, **Audit Log**, **System** in one unlabeled group; then **HTTP** (Credentials, Grants) and **MCP** (Servers, Tools, Grants, Requests, Invocations). Groups are not new destinations or domain editors. MCP collection page titles include their protocol: **MCP Servers**, **MCP Tools**, **MCP Grants**, **MCP Access Requests**, and **MCP Invocations**. Creation titles are **Create MCP Server** and **Create MCP Grant**. Sidebar and tab labels remain short; **Audit Log** matches its navigation label. Invocations needs no explanatory subtitle and presents only existing MCP invocation evidence, separately from Audit Log; no additional protocol coverage or placeholder is implied. These are history destinations, not identity directories. Audit Log retains all existing audit attribution, including system and offline maintenance events; its label is not an actor filter. Overview remains shared, with existing tool/traffic summaries explicitly labeled MCP where applicable, not new metrics or protocol placeholders. Desktop and narrow disclosure navigation share the same ordered links, current-destination semantics, keyboard handling, and state owners.
+The application is branded **Agent Gateway**. Primary navigation separates shared administration from the MCP domain: **Overview**, **Principals**, **Audit Log**, **System** in one unlabeled group; then **HTTP** (Credentials, Grants, Traffic) and **MCP** (Servers, Tools, Grants, Requests, Invocations). Groups are not new destinations or domain editors. MCP collection page titles include their protocol: **MCP Servers**, **MCP Tools**, **MCP Grants**, **MCP Access Requests**, and **MCP Invocations**. Creation titles are **Create MCP Server** and **Create MCP Grant**. Sidebar and tab labels remain short; **Audit Log** matches its navigation label. Invocations needs no explanatory subtitle and presents only existing MCP invocation evidence, separately from Audit Log; no additional protocol coverage or placeholder is implied. These are history destinations, not identity directories. Audit Log retains all existing audit attribution, including system and offline maintenance events; its label is not an actor filter. Overview remains shared, with protocol-specific summaries labeled MCP. System traffic storage reports the shared MCP/HTTP budget, fault and pruning boundary, not new per-protocol metrics. Desktop and narrow disclosure navigation share the same ordered links, current-destination semantics, keyboard handling, and state owners.
 
 One closed domain-grouped hash grammar owns browser locations: `#/mcp/servers`, `#/mcp/tools`, `#/principals`, `#/mcp/grants`, `#/mcp/access-requests`, `#/mcp/invocations`, `#/audit-log`, `#/http/credentials`, `#/http/grants`, and `#/system`. Overview and sign-in remain `#/overview` and `#/sign-in`. Detail and create suffixes remain beneath their owning collection; server-owned `operations/{id}`, `auth-flows/{id}`, and `descriptors/{id}` remain beneath `#/mcp/servers/{id}`. System create destinations remain unchanged. Retired `#/access/principals`, `#/activity/audit`, `#/access/grants`, `#/access/requests`, `#/activity/invocations`, and other undeclared paths are invalid, with no aliases or redirects. Principal detail/create and audit detail suffixes follow their canonical collection; this browser location cleanup changes no API endpoints. Invalid locations retain the safe fixed fallback and navigation notice, never a resource lookup or mutation inferred from the rejected path. No pathname fallback serving is introduced. See the [operator location mapping](../operators/administration.md#browser-location-cutover). Location naming does not change the shared theme owner, session epochs, refresh/pagination, mutation coordination, or one-time-secret sinks.
 

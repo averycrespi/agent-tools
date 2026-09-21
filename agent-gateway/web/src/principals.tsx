@@ -231,7 +231,9 @@ export class PrincipalDirectory {
       id: "principal-directory",
       matches: (key) =>
         key === "#/overview" ||
-        parseFragment(key)?.destination === "invocations",
+        ["invocations", "http-traffic"].includes(
+          parseFragment(key)?.destination ?? "",
+        ),
       invalidations: ["authorization"],
       read: () => readPrincipals(session),
       publish: (principals) => {

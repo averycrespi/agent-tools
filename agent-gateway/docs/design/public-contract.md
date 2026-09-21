@@ -1,5 +1,36 @@
 # Public Contract
 
+## HTTP traffic history
+
+Administrator bearer/session bodyless GET reads use `/api/v2/http/traffic` and
+`/api/v2/http/traffic/{id}`, independently of MCP invocations. Responses are
+no-store; there is no mutation, replay or traffic-to-grant operation. Collection
+`HTTPTrafficQuery` accepts singleton nonempty `limit` (default 50, canonical 1–100), `cursor`,
+`principal_id` (exact), `destination` (exact canonical hostname/IP), `type`
+(`request`, `connect`, `invalid`), `decision` (`allow`, `block`, `intercept`,
+`invalid`), and `outcome` (`not_dispatched`, `outcome_unknown`, `succeeded`,
+`prestart_failure`, `upstream_failure`). Unknown, duplicate or malformed values
+fail. All filters combine before descending shared sequence pagination; indexed
+stored query facts avoid loading policy evidence to select a page.
+
+`HTTPTrafficPage` is exactly `{items,next_cursor}`. Each summary is
+`{id,admitted_at,principal_id,target,type,decision,outcome}`; target is null for
+unparseable requests, `{host,port}` for CONNECT, or `{host,port,scheme,method}`
+for a request. No observed path exists. Item `HTTPTrafficRecord` is exactly
+`{admission,completion}` using the executable bounded evidence contract; only
+items include historical matched selectors and material-generation references.
+No current-resource lookup reconstructs their meaning. Missing completion is
+unknown for an allow, including confirmation failure, not permission to replay.
+
+HTTP cursors use a distinct authenticated version with the shared process-local
+key, binding complete filters, generation, shared pruning, upper and next sequence.
+They are at most 512 bytes. Later insertions are excluded; any shared pruning or
+generation replacement invalidates continuation. Like MCP, completion predicates
+are coherent per page, not a frozen terminal snapshot; counts describe loaded
+matches, not totals. Traffic reader capacity/deadline and complete startup
+validation remain shared. HTTP UI refresh uses the existing bounded/coalesced
+System traffic invalidation, not per-record fetches or a new stream owner.
+
 ## HTTP grant resources
 
 | Route                         | Allow                |

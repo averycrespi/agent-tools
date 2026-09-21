@@ -79,6 +79,7 @@ type Material struct {
 	ref        contract.HTTPRevisionRef
 	definition Definition
 	value      []byte
+	generation string
 }
 
 func newMaterial(ref contract.HTTPRevisionRef, def Definition, secret []byte) (*Material, error) {

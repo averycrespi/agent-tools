@@ -151,6 +151,9 @@ func (s *Service) Acquire(ctx context.Context, ref contract.HTTPRevisionRef) (*M
 				return ErrUnavailable
 			}
 			result, err = newMaterial(ref, rec.Definition, []byte(decoded.Secret))
+			if err == nil {
+				result.generation = selected.Revision
+			}
 			return err
 		})
 	})

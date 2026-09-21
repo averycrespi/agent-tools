@@ -2568,7 +2568,7 @@ export async function runSystemStatus(
     await page
       .getByText(
         faulted
-          ? "MCP traffic persistence needs attention"
+          ? "Shared traffic persistence needs attention"
           : "No current issues require operator action.",
         { exact: true },
       )
@@ -2580,7 +2580,7 @@ export async function runSystemStatus(
     )
       fail("Traffic-only failure disabled healthy administration");
     await expect(
-      page.getByText("MCP traffic storage", { exact: true }),
+      page.getByText("Shared traffic storage", { exact: true }),
     ).toBeVisible();
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });

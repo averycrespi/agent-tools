@@ -1247,6 +1247,7 @@ export async function runShellPrimitives(
     ["System", "#/system"],
     ["Credentials", "#/http/credentials"],
     ["Grants", "#/http/grants"],
+    ["Traffic", "#/http/traffic"],
     ["Servers", "#/mcp/servers"],
     ["Tools", "#/mcp/tools"],
     ["Grants", "#/mcp/grants"],
@@ -1268,7 +1269,7 @@ export async function runShellPrimitives(
   if (JSON.stringify(navigationLinks) !== JSON.stringify(expectedNavigation))
     fail("domain navigation labels, order or legacy destinations changed");
   for (const [name, labels] of [
-    ["HTTP", ["Credentials", "Grants"]],
+    ["HTTP", ["Credentials", "Grants", "Traffic"]],
     ["MCP", ["Servers", "Tools", "Grants", "Requests", "Invocations"]],
   ] as const) {
     const links = await primary

@@ -1,5 +1,6 @@
 import { validAuditQuery } from "./audit-contract.ts";
 import { validInvocationQuery } from "./invocation-query.ts";
+import { validHTTPTrafficQuery } from "./http-traffic-contract.ts";
 
 export const MAX_FRAGMENT_BYTES = 2048;
 
@@ -10,6 +11,7 @@ export type Destination =
   | "principals"
   | "http-credentials"
   | "http-grants"
+  | "http-traffic"
   | "grants"
   | "requests"
   | "invocations"
@@ -37,6 +39,7 @@ export const destinationPaths: Readonly<Record<Destination, string>> = {
   principals: "principals",
   "http-credentials": "http/credentials",
   "http-grants": "http/grants",
+  "http-traffic": "http/traffic",
   grants: "mcp/grants",
   requests: "mcp/access-requests",
   invocations: "mcp/invocations",
@@ -315,6 +318,13 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("servers", segments, query);
     }
   }
+  if (
+    first === "http-traffic" &&
+    validHTTPTrafficQuery(query) &&
+    (segments.length === 1 ||
+      (segments.length === 2 && second !== undefined && isGatewayID(second)))
+  )
+    return location("http-traffic", segments, query);
   if (first === "http-grants") {
     if (
       segments.length === 1 &&

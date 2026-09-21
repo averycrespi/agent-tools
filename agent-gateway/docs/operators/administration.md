@@ -16,6 +16,36 @@ Existing `--visibility`, API `visibility`, and creation `default_grant` names re
 
 `agent-gateway http --help` groups scoped credentials, grants, principal HTTP defaults and policy-only Test access. Use **HTTP → Grants** or `http grant list|get|create|update|delete`; `http default get|update` operates on a principal ID without changing MCP defaults. `http test-access --file PATH` previews policy without DNS, dispatch or secret resolution. The [HTTP access-control guide](access-control.md#http-grants-and-test-access) owns complete file shapes, examples, precedence and limitations. All writes retain the same strict file, exact ETag, confirmation and no-replay mechanics below; this surface starts no production proxy.
 
+## HTTP traffic history
+
+Use **HTTP → Traffic** or the separate read-only commands:
+
+```bash
+agent-gateway http traffic list --destination example.com --type request --outcome succeeded
+agent-gateway http traffic get TRAFFIC_ID
+```
+
+Optional exact filters are `--principal-id`, `--destination` (canonical hostname,
+not a URL), `--type`, `--decision`, and `--outcome`. Lists accept the usual
+`--limit`, `--cursor`, and `--output json` controls. Detail preserves historical
+policy selectors and credential-generation references even after grants change;
+they are not current authority. Request paths, queries, headers, bodies and secrets
+are never traffic evidence. CONNECT tunnels expose no inner requests. An allowed
+record without completion means unknown outcome, not proof of nonexecution or
+permission to retry. No grant-creation or replay action is available.
+
+The browser starts Live, pauses it when loading older records, and retains at most
+500 records before requiring narrower filters or a return to newest. Manual refresh
+replaces the loaded window. Shared retention can expire a cursor; the browser then
+restarts at newest with a notice. MCP Invocations remains separate and unchanged.
+
+On ordinary startup, existing selected traffic-schema-1 stores are fully validated
+and transactionally receive empty HTTP tables in the same file before readiness.
+MCP history and generation bindings are preserved; no upgrade command or replacement
+pair is needed. Backups remain paired and restore both evidence domains. The stopped
+`storage migrate-traffic` command still rejects an already selected pair.
+This delivery does not start a production HTTP proxy.
+
 ## Scoped HTTP credentials
 
 Use **HTTP → Credentials** to create, inspect, edit, rotate or delete a reusable HTTPS credential. It has one host/port boundary, one header, an optional fixed prefix, and one write-only secret. `Authorization` with `Bearer ` and custom API-key headers are supported. Wildcard hosts require both `*.example.com` spelling and explicit opt-in; they do not cover the apex. Transport-control headers cannot be overwritten. Credentials alone grant no HTTP access and do not start a proxy.

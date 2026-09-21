@@ -508,7 +508,7 @@ function StatusPanel({
                 status.traffic.pressure) && (
                 <StateNotice
                   state="warning"
-                  title="MCP traffic persistence needs attention"
+                  title="Shared traffic persistence needs attention"
                 >
                   <p>
                     {status.traffic.faulted
@@ -565,7 +565,7 @@ function StatusPanel({
               </div>
               {status.traffic && (
                 <div>
-                  <dt>MCP traffic storage</dt>
+                  <dt>Shared traffic storage</dt>
                   <dd>
                     <strong>
                       {status.traffic.faulted

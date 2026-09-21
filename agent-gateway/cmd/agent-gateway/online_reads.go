@@ -16,6 +16,8 @@ var gatewayIDPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) error {
 	switch strings.Join(spec.Path, " ") {
+	case "http traffic list", "http traffic get":
+		return runHTTPTrafficRead(command, options, args, spec.Path[2])
 	case "http grant list", "http grant get", "http grant create", "http grant update", "http grant delete", "http default get", "http default update":
 		return runHTTPPolicy(command, options, args, spec.Path[1], spec.Path[2])
 	case "http test-access":

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/netip"
 	"strings"
 	"time"
@@ -35,8 +36,12 @@ func validHTTPGrant(g contract.HTTPGrant) bool {
 			return false
 		}
 	}
+	return validHTTPPolicyResponse(g.Policy)
+}
+
+func validHTTPPolicyResponse(raw json.RawMessage) bool {
 	var p contract.HTTPPolicy
-	if len(g.Policy) > contract.HTTPPolicyBytes || controlclient.DecodeExactResponse(g.Policy, &p) != nil || p.Version != contract.HTTPPolicyVersion {
+	if len(raw) > contract.HTTPPolicyBytes || controlclient.DecodeExactResponse(raw, &p) != nil || p.Version != contract.HTTPPolicyVersion {
 		return false
 	}
 	allow := p.Type == contract.HTTPAllowRequests || p.Type == contract.HTTPAllowTunnel
@@ -135,11 +140,14 @@ func validHTTPResponsePath(value string) bool {
 	return true
 }
 func validHTTPPreview(p contract.HTTPAccessPreview) bool {
-	d := p.Decision
+	return p.PolicyOnly && !p.NetworkVerified && !p.TLSVerified && !p.MaterialVerified && !p.AdmissionAuthority && validHTTPDecisionResponse(p.Decision, p.Default)
+}
+
+func validHTTPDecisionResponse(d contract.HTTPDecision, defaultPolicy contract.HTTPDefault) bool {
 	validRef := func(r *contract.HTTPRevisionRef) bool {
 		return r != nil && contract.ValidAuditID(r.ID) && r.Revision > 0
 	}
-	if !p.PolicyOnly || p.NetworkVerified || p.TLSVerified || p.MaterialVerified || p.AdmissionAuthority || p.Default != contract.HTTPDefaultAllow && p.Default != contract.HTTPDefaultBlock || d.Version != contract.HTTPPolicyVersion || !validRef(&d.Principal) || d.PolicyRevision == 0 || d.DefaultRevision == 0 {
+	if defaultPolicy != contract.HTTPDefaultAllow && defaultPolicy != contract.HTTPDefaultBlock || d.Version != contract.HTTPPolicyVersion || !validRef(&d.Principal) || d.PolicyRevision == 0 || d.DefaultRevision == 0 {
 		return false
 	}
 	for _, ref := range []*contract.HTTPRevisionRef{d.Grant, d.PrivateGrant, d.Credential, d.CredentialGrant, d.ConflictCredential, d.ConflictGrant} {
@@ -169,7 +177,7 @@ func validHTTPPreview(p contract.HTTPAccessPreview) bool {
 	case contract.HTTPReasonRequestAllow:
 		return d.Allowed && d.Grant != nil && d.ConflictCredential == nil && d.Transport == contract.HTTPTransportRequest
 	case contract.HTTPReasonDefault:
-		return d.Allowed == (p.Default == contract.HTTPDefaultAllow) && d.Grant == nil && noExtras && d.Transport == contract.HTTPTransportRequest
+		return d.Allowed == (defaultPolicy == contract.HTTPDefaultAllow) && d.Grant == nil && noExtras && d.Transport == contract.HTTPTransportRequest
 	case contract.HTTPReasonCredentialConflict:
 		return !d.Allowed && d.Grant != nil && d.ConflictCredential != nil && d.Transport == contract.HTTPTransportRequest
 	case contract.HTTPReasonCredentialUnavailable:
@@ -181,7 +189,7 @@ func validHTTPPreview(p contract.HTTPAccessPreview) bool {
 		if d.Transport == contract.HTTPTransportTunnel {
 			return d.Grant != nil && d.Credential == nil
 		}
-		return d.Transport == contract.HTTPTransportRequest && (d.Grant != nil || p.Default == contract.HTTPDefaultAllow && noExtras)
+		return d.Transport == contract.HTTPTransportRequest && (d.Grant != nil || defaultPolicy == contract.HTTPDefaultAllow && noExtras)
 	default:
 		return false
 	}

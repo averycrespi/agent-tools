@@ -388,6 +388,8 @@ func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.Onl
 
 func onlineCommandSpecs() []onlineCommandSpec {
 	return []onlineCommandSpec{
+		onlineSpec([]string{"http", "traffic", "list"}, "list", "http traffic list", "limit", "cursor", "principal-id", "destination", "type", "decision", "outcome"),
+		onlineSpec([]string{"http", "traffic", "get"}, "get ID", "http traffic get ID"),
 		onlineSpec([]string{"http", "grant", "list"}, "list", "http grant list", "limit", "cursor"),
 		onlineSpec([]string{"http", "grant", "get"}, "get ID", "http grant get ID"),
 		onlineSpec([]string{"http", "grant", "create"}, "create", "http grant create --file PATH", "file", "yes"),
@@ -461,6 +463,7 @@ func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineC
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineGroupDescriptions = map[string]string{
 	"http":                  "Manage HTTP access",
+	"http traffic":          "Inspect recorded HTTP traffic",
 	"http grant":            "Manage HTTP access grants",
 	"http default":          "Manage principal HTTP defaults",
 	"http credential":       "Manage scoped HTTP credentials",
@@ -484,6 +487,8 @@ var onlineGroupDescriptions = map[string]string{
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineLeafDescriptions = map[string]string{
+	"http traffic list":                                   "List recorded HTTP traffic",
+	"http traffic get ID":                                 "Inspect admission-time HTTP evidence and terminal uncertainty",
 	"http grant list":                                     "List HTTP access grants",
 	"http grant get ID":                                   "Inspect an HTTP grant",
 	"http grant create --file PATH":                       "Create an HTTP grant",

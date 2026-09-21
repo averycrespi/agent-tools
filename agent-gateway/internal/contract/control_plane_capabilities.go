@@ -54,6 +54,7 @@ var controlPlaneCapabilities = []ControlPlaneCapability{
 	{ID: "grant-request-read", Operation: "Grant-request list/get", WebControl: "MCP / Access requests", CLIUses: []string{"mcp grant-request list", "mcp grant-request get REQUEST_ID"}, Mechanics: "filters/cursor/limit; bodyless"},
 	{ID: "grant-request-approve", Operation: "Grant-request approve", WebControl: "request detail / Review", CLIUses: []string{"mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]"}, Mechanics: "optional grant description; exclusive direct/file narrowing; automatic or explicit ETag; confirmation; no replay"},
 	{ID: "grant-request-reject", Operation: "Grant-request reject", WebControl: "request detail / Review", CLIUses: []string{"mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]"}, Mechanics: "direct closed reason; automatic or explicit ETag; confirmation; no replay"},
+	{ID: "http-traffic-read", Operation: "HTTP traffic list/get", WebControl: "HTTP / Traffic", CLIUses: []string{"http traffic list", "http traffic get ID"}, Mechanics: "exact filters/cursor/limit; bodyless; historical bounded evidence; separate from MCP"},
 	{ID: "invocation-read", Operation: "MCP invocation list/get", WebControl: "MCP / MCP invocations", CLIUses: []string{"mcp invocation list", "mcp invocation get INVOCATION_ID"}, Mechanics: "filters/cursor/limit; bodyless"},
 }
 

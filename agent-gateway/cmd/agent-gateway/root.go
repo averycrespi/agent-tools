@@ -268,6 +268,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
 		Invocations:   controlAPI.Invocations,
+		HTTPTraffic:   controlAPI.HTTPTraffic,
 		Audit:         controlAPI.Audit,
 
 		HTTPCredentials: controlAPI.HTTPCredentials,

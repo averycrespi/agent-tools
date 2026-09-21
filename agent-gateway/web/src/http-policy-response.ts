@@ -60,7 +60,7 @@ function revision(value: unknown): boolean {
   );
 }
 // Retain nanoseconds for ordering; Date alone silently truncates them.
-function canonicalTime(value: unknown): string | undefined {
+export function canonicalTime(value: unknown): string | undefined {
   if (typeof value !== "string") return;
   const match = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(\d{9})Z$/.exec(value);
   if (match === null) return;
@@ -136,7 +136,7 @@ function canonicalALabel(label: string): boolean {
     return false;
   }
 }
-function canonicalHost(value: unknown): boolean {
+export function canonicalHost(value: unknown): boolean {
   if (typeof value !== "string") return false;
   const wildcard = value.startsWith("*.");
   const host = wildcard ? value.slice(2) : value;
@@ -169,7 +169,7 @@ function canonicalHost(value: unknown): boolean {
     return false;
   }
 }
-function validatePolicy(value: unknown): void {
+export function validatePolicy(value: unknown): void {
   const p = object(value);
   const kind = String(p.type);
   const requests = kind === "allow_requests" || kind === "block_requests";
@@ -335,7 +335,17 @@ export function decodePreview(
     !["allow", "block"].includes(String(r.default))
   )
     throw new Error("Invalid preview.");
-  const d = object(r.decision);
+  validateHTTPDecision(r.decision, principalID, connect, r.default);
+  return r;
+}
+
+export function validateHTTPDecision(
+  value: unknown,
+  principalID: string,
+  connect: boolean,
+  defaultPolicy: unknown,
+): Record<string, unknown> {
+  const d = object(value);
   const refs = [
     "grant",
     "private_grant",
@@ -424,7 +434,7 @@ export function decodePreview(
       break;
     case "principal_default":
       valid =
-        d.allowed === (r.default === "allow") &&
+        d.allowed === (defaultPolicy === "allow") &&
         !has("grant") &&
         noExtras &&
         d.transport === "request";
@@ -454,9 +464,9 @@ export function decodePreview(
         (d.transport === "tunnel"
           ? has("grant") && !has("credential")
           : d.transport === "request" &&
-            (has("grant") || (r.default === "allow" && noExtras)));
+            (has("grant") || (defaultPolicy === "allow" && noExtras)));
       break;
   }
-  if (!valid) throw new Error("Invalid policy-only decision.");
-  return r;
+  if (!valid) throw new Error("Invalid HTTP decision.");
+  return d;
 }

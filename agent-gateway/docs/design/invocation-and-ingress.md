@@ -6,6 +6,44 @@ Authority: Normative product design
 
 This chapter owns the behavior and invariants described below. Operational procedures remain in the linked guides; exact executable contract values remain owned by `internal/contract` and must agree with this chapter.
 
+## HTTP traffic evidence
+
+HTTP admission uses the same registered agent lease, short authority gate and
+selected traffic writer as MCP. Under one coherent control snapshot it captures
+one decision time, principal and singular agent-credential revisions, default and
+policy revisions, at most four deduplicated deciding grant references with their
+canonical configured selectors, transport, and the selected injection credential
+metadata/material generation. These facts never join current grants on reads.
+Only canonical origin/method or CONNECT host/port is observed evidence: no observed
+path, query, header, body, address list, bearer, secret, upstream error or response
+content enters storage or public projections. Configured matched selectors are
+historical policy, not observed request paths. An opaque tunnel exposes no inner
+HTTP requests.
+
+The gate and control read end before material acquisition and traffic persistence.
+Acknowledged allow receipts are confirmed once against the exact active binding,
+shared policy revision and selected material generation. HTTP credential edits,
+rotation, fence activation and deletion share a nonqueueing material guard held
+only for metadata revalidation and final detachment, never keyring I/O. Registry
+drain, control health, original cancellation and traffic health fence detachment.
+Failed admission or confirmation never dispatches, reevaluates, retries or falls
+back to uninjected access. Unparseable authenticated requests retain only binding,
+identity/time and `invalid_request`, with no target or policy. Unauthenticated or
+unverifiable authority produces no durable HTTP row. Denials and interception
+settle the receipt without upstream dispatch; interception is not permission for
+an inner request. An acknowledged allow that loses confirmation remains unknown,
+not evidence of execution or a fabricated denial.
+
+HTTP shares the admission/completion queues, fairness, atomic batches, fault
+boundary, active pins and budget with MCP. One synchronous best-effort completion
+attempt records only completion time, closed outcome, optional 100–599 request
+status, nonnegative byte counts and elapsed milliseconds. Outcomes are `succeeded`,
+`prestart_failure`, `upstream_failure`, or `outcome_unknown`. Missing terminal
+remains unknown for an allow and never overrides a known live result. Both kinds
+of queued completion reserve 640 bytes, including the full 512-byte payload;
+existing immutable per-member MCP diagnostics and no-added-dwell batching remain.
+No production proxy listener, background terminal retry or replay is introduced.
+
 ## Governed invocation and audit evidence
 
 Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/administration.md#mcp-invocation-namespace-cutover).
@@ -66,7 +104,7 @@ Without an acknowledged admission, the error is `audit_unavailable` with no invo
 
 ### Internal evidence boundary
 
-`internal/activity` owns only common evidence values: the prepared identity and admission time, principal and credential identity/revision/fingerprint, admission class and authorization evidence, and optional paired completion time/class. Its envelope composes these lifecycle facts without owning validation, authority, SQL, execution, or public representations. The existing closed contract vocabulary remains unchanged; MCP is the only supported domain.
+`internal/activity` owns only common evidence values: the prepared identity and admission time, principal and credential identity/revision/fingerprint, admission class and authorization evidence, and optional paired completion time/class. Its envelope composes these lifecycle facts without owning validation, authority, SQL, execution, or public representations. MCP common values retain their existing vocabulary; HTTP uses the separate closed `HTTPTrafficAdmission` and completion projection in `internal/contract`.
 
 `internal/invocation.MCPDetails` owns the requested tool name, fixed-redacted argument capture, and optional resolved route. A resolved route follows the [access-target boundary](identity-and-authorization.md#internal-access-target-boundary): it carries the canonical `accesstarget.MCP` exact target plus invocation-owned tool ID and pinned descriptor revision/fingerprint. Synthetic local and downstream targets are distinctions within MCP, not separate protocols. An absent route means unresolved evidence, never server-wide scope. Malformed calls may retain their existing independently available name/capture fields; resolved classes still require complete exact-target and descriptor evidence.
 

@@ -90,7 +90,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 	categories := map[string][]string{
 		"read": {
 			"http grant list", "http grant get ID", "http default get ID", "http test-access --file PATH",
-			"http credential list", "http credential get ID",
+			"http credential list", "http credential get ID", "http traffic list", "http traffic get ID",
 			"audit list", "audit get AUDIT_EVENT_ID",
 			"status", "admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
 			"mcp server list", "mcp server get ID", "mcp server operation list ID", "mcp server operation get ID OPERATION_ID",

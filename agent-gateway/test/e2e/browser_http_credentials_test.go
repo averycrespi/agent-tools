@@ -18,6 +18,10 @@ func TestBrowserHTTPCredentials(t *testing.T) {
 	runHTTPBrowserScenario(t, "http-credentials", "http_credentials_complete")
 }
 
+func TestBrowserHTTPTraffic(t *testing.T) {
+	runHTTPBrowserScenario(t, "http-traffic", "http_traffic_complete")
+}
+
 func TestBrowserHTTPGrants(t *testing.T) {
 	runHTTPBrowserScenario(t, "http-grants", "http_grants_complete")
 }

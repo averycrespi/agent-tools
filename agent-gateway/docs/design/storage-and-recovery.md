@@ -34,18 +34,40 @@ Every connection installs a two-second busy policy, enables foreign keys, verifi
 
 ## Isolated traffic store
 
-Schema 17 adds the control-owned `traffic_selection` singleton. Production selects
-exactly one independently bound `invocation.TrafficStore` for all MCP evidence,
+Schema 18 adds the control-owned `traffic_selection` singleton. Production selects
+exactly one independently bound `invocation.TrafficStore` for MCP and HTTP evidence,
 completion and history. Control retains identities, credentials, policy, requests,
 configuration and administrative audit. Storage owns traffic DDL; invocation owns
 its evidence, SQL, validation, writer and reads. There is one composition graph,
-installation lock and authenticator, with no dual writes, HTTP registry, execution
+installation lock and authenticator, with no dual writes, protocol registry, execution
 queue or replay. Composition retains installation ownership through traffic close.
 A missing, foreign or invalid selected generation fails closed; an unselected
 legacy installation requires explicit stopped migration, never live backfill.
 
 An explicitly created `traffic-<generation>.db` uses application ID `MGT1`, schema
-1, and exact installation/generation bindings. Creation checkpoints and closes an
+2, and exact installation/generation bindings. Control schema 20 retains the
+existing installation/generation selector: its binding format does not change.
+Traffic schema 2 adds a distinct `http_traffic` table, stored indexed query facts,
+and immutable-admission/one-terminal triggers in the same database. MCP tables,
+rows, diagnostics and public representations are unchanged. Both domains share
+traffic metadata, monotonic sequence allocation, retention and physical budget.
+The MCP sequence high-water includes HTTP insertions without inventing MCP rows.
+
+Before readiness, under existing installation ownership and before constructing
+readers or starting the writer, a schema-1 selected generation receives exactly
+one complete schema/binding/evidence/accounting validation. A bounded transaction
+then adds only empty HTTP tables/indexes/triggers and advances user_version to 2.
+This uses the existing writer connection, physical reservation and FULL durability;
+after commit, exact new DDL and file bounds are verified without rescanning
+unchanged evidence. Current schema-2 startup performs one complete validation of
+both domains. A failed or uncertain migration never produces a ready store;
+a fresh startup validates the atomic version that actually settled. No online
+backfill, new operator command, file replacement or implicit empty initialization
+is involved. Existing selected pairs still reject `migrate-traffic`; schema-17
+single-store extraction remains the explicit stopped operation. Older readers
+reject traffic schema 2. Immutable paired backup verification accepts exact
+schema-1 and schema-2 definitions, and restore copies both domains into a fresh
+generation while preserving missing completions. Creation checkpoints and closes an
 owner-only stage, syncs its file, publishes without replacing an existing name,
 and syncs the directory before and after removing the staging name. Failed
 publication retains evidence; opening a missing generation never creates it.
@@ -58,8 +80,7 @@ common time/class pair; production completion additionally persists validated,
 immutable encoded diagnostics in the same terminal update. The fixed retention
 charge reserves the maximum diagnostic size before admission. Control schema 18
 adds traffic selection after schema 17 diagnostics; stopped migration and restore
-preserve diagnostics, while older schema-9-through-16 history has none. Earlier experimental traffic schemas are rejected,
-not silently migrated or recreated.
+preserve diagnostics, while older schema-9-through-16 history has none. Unsupported experimental traffic schemas are rejected, not silently recreated.
 
 The writer has one connection, WAL, `synchronous=FULL`, a 50 ms busy bound,
 foreign keys, disabled cache spilling and automatic checkpointing, and a verified
@@ -86,8 +107,11 @@ violations; I/O uncertainty faults the writer. This conservative policy may refu
 work well below the combined limit; it is not a throughput guarantee or a hard
 bound on uninterruptible filesystem I/O. Ownership remains held until settlement.
 
-Logical retention charges include encoded evidence plus 1024 bytes per admission,
-including reserved completion space. The logical allowance is one quarter of the
+Logical retention charges include encoded evidence plus 1024 bytes and the
+protocol's reserved completion payload: 512 bytes for MCP diagnostics or HTTP
+terminal facts. HTTP admission JSON is at most 65,536 bytes; its charge includes
+that entire immutable payload. MCP retains its existing 16,384-byte charged-record
+ceiling. Shared batching reserves for the largest accepted domain member. The logical allowance is one quarter of the
 database partition, leaving index/fragmentation headroom. A separately configurable
 1–1,000,000 retained-row ceiling bounds full semantic validation work; it is not a
 promised history window. Each pruning scan is bounded by active capacity plus

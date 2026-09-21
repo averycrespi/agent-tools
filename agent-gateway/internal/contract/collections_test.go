@@ -9,7 +9,7 @@ import (
 
 func TestV2CollectionContractsCoverEveryCursorResource(t *testing.T) {
 	collections := CollectionContracts()
-	require.Len(t, collections, 14)
+	require.Len(t, collections, 15)
 	byPath := make(map[string]CollectionContract)
 	for _, collection := range collections {
 		require.NotContains(t, byPath, collection.Pattern)

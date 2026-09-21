@@ -1,6 +1,7 @@
 import { type Browser, chromium, firefox, webkit } from "@playwright/test";
 import { runHTTPCredentials } from "./browser/http-credential-scenarios.ts";
 import { runHTTPGrants } from "./browser/http-grant-scenarios.ts";
+import { runHTTPTraffic } from "./browser/http-traffic-scenarios.ts";
 import { runAudit } from "./browser/audit-scenarios.ts";
 import { runInvocationHistory } from "./browser/history-scenarios.ts";
 import { createInterface } from "node:readline";
@@ -80,6 +81,7 @@ interface BridgeInput {
     | "visual-accessibility-privacy-canary"
     | "http-credentials"
     | "http-grants"
+    | "http-traffic"
     | "admin-credentials"
     | "backups"
     | "capability-audit"
@@ -161,6 +163,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "visual-accessibility-privacy-canary" &&
       value.scenario !== "http-credentials" &&
       value.scenario !== "http-grants" &&
+      value.scenario !== "http-traffic" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
       value.scenario !== "capability-audit" &&
@@ -253,6 +256,14 @@ try {
           .startsWith(
             "Failed to load resource: the server responded with a status of 401",
           ) &&
+        !(
+          input.scenario === "http-traffic" &&
+          message
+            .text()
+            .startsWith(
+              "Failed to load resource: the server responded with a status of 409",
+            )
+        ) &&
         !(
           input.scenario === "overview" &&
           (message
@@ -664,6 +675,14 @@ try {
     } else if (input.scenario === "auth-flows") {
       await runAuthFlows(
         browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
+    } else if (input.scenario === "http-traffic") {
+      await runHTTPTraffic(
         context,
         page,
         baseURL,
