@@ -14,6 +14,29 @@ This guide owns Agent Gateway operator workflows for principal lifecycle, one-ti
 
 See [DESIGN](../../DESIGN.md) for the system design index and [Identity and authorization](../design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [Administrator CLI and local administration](administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `agent-gateway serve` first; a proven refused selected address reports the exact startup command.
 
+## HTTP policy foundation
+
+HTTP policy v1 is currently an internal, independently tested foundation, not an
+available proxy or administrative command. No installation change is needed and
+existing principals, MCP grants and credentials behave as before. Later HTTP
+persistence will default existing principals to block.
+
+The vocabulary is **Block destination**, **Allow tunnel**, **Block requests** and
+**Allow requests**. A destination block wins; a matching tunnel allow makes
+CONNECT opaque and bypasses request restrictions and injection. Otherwise each
+request is intercepted and checked: request block wins, then request allow, then
+the principal's HTTP default. A plain/default allow does not override a matching
+credential requirement or permit private/loopback access. Only an applicable
+allow grant can permit private/loopback access; metadata and Gateway listeners
+remain forbidden. Do not treat GET as read-only or the cooperative proxy as
+network-enforced containment.
+
+See the [normative HTTP v1 contract](../design/identity-and-authorization.md#http-policy-version-1)
+for the deliberately restricted path grammar, explicit wildcard hosts, exact
+ports, credential containment and bounded explanations. This foundation does
+not migrate Broker rules or qualify capacity, native credentials or a production
+HTTP transport.
+
 ## Browse principal and grant tables
 
 The browser shows up to 50 records per page. Use **Previous** and **Next** above the table to replace the displayed page. Filters and Reset sit above navigation, with the displayed range and exact total on the right, for example **Showing 51–100 of 128 grants**. Column filters and sorting search the whole collection, not only the displayed rows; with filters active, the total counts only matching records. Zero results say **No grants/principals** or **No matching grants/principals**. Loading and failure do not present an old count as current. Grant rows include principal and target names without loading every reference record.
@@ -40,7 +63,7 @@ Discovery visibility grants no access; MCP grants remain authoritative for calls
 
 Principal creation also creates an ordinary permanent grant described as **Default Gateway access** for the six fixed `mcp_gateway` self-service tools. It grants no downstream access or authority for future protocols. This is the design's synthetic default grant: the description stays unchanged for existing and new records. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Creation is atomic: capacity or required audit failure leaves neither a new principal nor its grant. Human creation output is principal metadata; JSON retains `{principal,default_grant}`. Issue the credential separately and configure downstream MCP grants separately. Principals are permanent and cannot be deleted.
 
-The principal ID/state and single credential slot remain shared identity, not per-protocol settings. Generic compatibility names such as `visibility`, `default_grant`, and `AgentCredential` do not make MCP grants protocol-general. Existing credentials and backups remain usable without reinitialization, conversion, or rotation for this clarification. Whether a future HTTP ingress shares a bearer is undecided.
+The principal ID/state and single credential slot remain shared identity, not per-protocol settings. Generic compatibility names such as `visibility`, `default_grant`, and `AgentCredential` do not make MCP grants protocol-general. Existing credentials and backups remain usable without reinitialization, conversion, or rotation for this clarification. The HTTP MVP will share this same agent credential, with separate HTTP permissions; MCP grants do not authorize HTTP.
 
 ## Update principal state or visibility
 

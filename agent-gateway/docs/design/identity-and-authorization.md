@@ -10,7 +10,7 @@ This chapter owns the behavior and invariants described below. Operational proce
 
 Principal IDs, display names, active/disabled state, the singular agent credential slot, authentication, and authority admission are shared identity/state. MCP targets and grants, tool-discovery visibility, access requests, and the six fixed synthetic self-service tools are currently MCP-only policy. Shared identity does not imply protocol-general grants or access.
 
-`internal/composition` constructs and owns one authorization repository/authenticator and its authority gate/admission verifier. The distinction is semantic, not a split into identity and protocol authority owners. Sealed admitted subjects retain their existing identity/revision evidence; MCP policy uses the target boundary below. No generic protocol framework, protocol discriminator, second credential slot, or MCP-settings endpoint is introduced. Whether a future HTTP ingress shares a bearer is deferred, not promised by this boundary.
+`internal/composition` constructs and owns one authorization repository/authenticator and its authority gate/admission verifier. The distinction is semantic, not a split into identity and protocol authority owners. Sealed admitted subjects retain their existing identity/revision evidence; MCP policy uses the target boundary below. No generic protocol framework, protocol discriminator, second credential slot, or MCP-settings endpoint is introduced. HTTP ingress will use this same singular agent credential, with separate HTTP permissions and default block for existing principals. The pure HTTP evaluator below does not yet add ingress or persistence.
 
 The public names `visibility` and `default_grant` and the `Principal`, `PrincipalCreation`, and `AgentCredential` representations remain compatibility contracts. `visibility` means MCP discovery visibility; it grants no access, and MCP grants remain authoritative for calls. `default_grant` identifies the ordinary MCP self-service grant created with a principal, not protocol-general or downstream authority. These clarifications require no reinitialization, migration, backup conversion, credential replacement, or data rewrite. Bearer/verifier/fingerprint framing, keyring identities, revisions, audit vocabulary, and self-service names/schemas remain unchanged.
 
@@ -36,6 +36,145 @@ the complete evaluation/receipt/confirmation and outcome protocol.
 Public administrator resources retain `server_id` and nullable `upstream_name`; self-service policy retains namespace-based `scope` and `target`. Package-owned SQL adapters retain the existing columns, nullability, schema, and exact versioned dedupe framing. Namespace and catalog resolution stay with the MCP owners through the existing supplied-transaction seams, outside shared identity ownership. Authorization remains the sole principal/credential/grant repository, authenticator, authority gate, and admission verifier.
 
 Validation remains purpose-specific: ordinary grants may be server-wide or name an uncatalogued tool, and synthetic grants and calls remain valid. Exact-call verification rejects server scope and malformed coordinates. Grant-request creation and approval still reject reserved synthetic targets; neither a target value nor a catalog hint makes them requestable. Pinned descriptor read-only facts remain separate from target coordinates. No protocol registry, additional target domain, migration, or credential-slot change is introduced.
+
+## HTTP policy version 1
+
+`internal/httppolicy` owns pure HTTP policy compilation, canonical coordinates,
+origin-set containment and deterministic evaluation. `internal/contract/http_policy.go`
+owns the closed dialect and explanation shapes. This component introduces no
+listener, API/CLI/UI surface, SQL migration, authenticator, keyring operation,
+network access, dispatch or durable execution queue. The sole authorization owner
+will supply coherent principal/policy/credential revisions and active grants;
+principal admission, credential validity and expiry filtering remain its work.
+HTTP uses the existing agent credential and control database and the shared
+bounded traffic store, not another identity or per-protocol store. Existing MCP
+behavior and schema 18 remain unchanged. Capacity remains unqualified.
+
+### Closed policy shapes and precedence
+
+Every policy requires `version:1` and one explicit `type`:
+
+- `block_destination`: `destination:{host,port}` only.
+- `allow_tunnel`: the same destination, optionally Boolean `allow_private`.
+- `block_requests`: `request:{origin:{scheme,host,port},methods,path}` only.
+- `allow_requests`: the same request, optionally `allow_private` and one
+  `credential_id` (an opaque resource ID, never secret material).
+
+These are not effect/scope combinations. Inapplicable options, even false,
+unknown or case-aliased fields, nulls, duplicates, trailing data, unknown versions
+and malformed combinations reject. A version is immutable semantics, not a
+mutable resource revision. Future dialects need explicit dispatch; they cannot
+reinterpret version 1 or silently add multiple credentials.
+
+Destination block wins for every access. Otherwise CONNECT selects an opaque
+tunnel if any tunnel allow matches; it bypasses **all** request grants and
+credential injection. Without a tunnel allow, CONNECT selects local interception,
+not upstream permission: each decrypted request must be evaluated before any
+upstream connection. Requests use destination block, then request block, then
+request allows, then the principal's separate HTTP default (`allow` or `block`).
+Absolute-form HTTP always uses request policy. Default allow implies neither
+tunnel access nor private/loopback permission. There is no specificity, priority,
+creation-order or GET-as-read-only inference.
+
+### Canonical selectors and forwarding
+
+Destination/tunnel selectors contain only host and an explicit effective port
+1–65535, never scheme/method/path. Request origins add exact `http` or `https`.
+Ports never mean any port; URI omission resolves to 80/443. Textual ports must
+use canonical decimal spelling (no leading zero, sign or empty port).
+
+Hosts are exact by default. Only explicit `*.example.com` means any depth of
+subdomains excluding the apex; no other glob or regex syntax exists. Wildcards
+require a multi-label DNS suffix, not an IP. Host inputs and resulting ASCII
+names are bounded to 253 bytes (excluding the wildcard operator). IDNA lookup
+mapping produces lowercase A-labels, followed by strict ASCII DNS-label checks
+(1–63 bytes, no edge hyphen); trailing dots, zones, numeric final DNS labels,
+hexadecimal final labels and alternate IP forms reject. Standard IP literals use
+`netip` normalization and IPv4-mapped addresses are unmapped. Host selectors,
+credential boundaries and concrete targets use the same normalization.
+
+Methods are either `{any:true}` or `{values:[...]}` with 1–32 unique methods.
+Method tokens contain 1–32 uppercase ASCII letters, digits or HTTP token
+punctuation; lowercase is rejected rather than case-folded. CONNECT is a
+transport operation, never a request-method selector. Path is `{kind:"any"}`,
+`{kind:"exact",value:"/path"}` or `{kind:"segment_prefix",value:"/path"}`.
+Segment prefix includes the named path and slash-delimited descendants, not
+lexical siblings; a trailing prefix slash is normalized away except at root.
+
+The v1 path grammar deliberately admits only slash and ASCII unreserved bytes.
+Unreserved percent escapes decode once; empty URI path becomes `/`. Encoded
+separators, percent/double escaping, reserved delimiters, controls, non-ASCII
+paths, repeated separators and literal/encoded dot segments reject rather than
+being matched one way and forwarded another. This conservative subset is not a
+claim to accept every legal URI. Fragments, userinfo and opaque URLs reject.
+Query remains bounded, syntactically valid opaque forwarding data, never policy
+or decision evidence; headers and bodies are not selectors.
+
+`ParseConnect` requires explicit authority and matching Host. `ParseRequest`
+requires an absolute HTTP/HTTPS URI and matching Host with effective ports; an
+intercepted request also supplies the CONNECT destination, must be HTTPS and
+must agree with that destination. SNI, when supplied, must normalize to the same
+host. The ingress adapter must reject duplicate Host fields and construct an
+absolute URI from origin-form only using its bound CONNECT coordinates, never
+client forwarding headers. Canonical values have private fields and fresh URL
+projections. Eventual forwarding must use their authority, method and path, not
+reparse the original input; round-trip tests pin the intended Go HTTP coordinates.
+
+### Credential and address authority
+
+Only request allows may select one credential and only for HTTPS. Snapshot
+construction proves the grant's **entire** origin scope is contained in the
+credential's bounded union of HTTPS origins, including effective port and
+wildcard/apex distinctions. Intersection is insufficient; a finite collection of
+exact hosts cannot cover a wildcard subtree. Missing credentials or failed
+containment invalidate the snapshot. Plain/default allows do not compete with
+injection. Matching requirements for the same credential are compatible;
+different credentials reject. Unavailable selected material rejects with no
+uninjected fallback; later acquisition failure must do the same without retry.
+
+`allow_private` permits RFC1918, IPv6 ULA and host loopback only within a matching
+allow grant for the current principal. Request permission cannot come from a
+tunnel grant or a different path; tunnel permission cannot come from a request
+grant. The global default does not confer it. Link-local, metadata (including
+`fd00:ec2::254`), unspecified, multicast, unsafe IPv4 reserved ranges and
+Gateway-owned listener endpoints always reject. IPv6 transition/translation and
+unallocated space are conservatively refused: outside ULA/loopback, only global
+`2000::/3` excluding `2001::/23`, documentation and 6to4 ranges qualifies.
+
+The trusted proxy owner supplies complete `AddressFacts`: all DNS answers and
+all composition-owned listener IP/port pairs. Every candidate must pass; a mixed
+public/forbidden answer rejects rather than falling back to a passing subset.
+Literal targets must agree with supplied IPs. Missing/oversized facts reject an
+otherwise allowed access. The evaluator does no DNS or connection work. The
+proxy must pin checked IPs, prohibit rebinding, recheck every request on pooled
+connections, and prevent redirects/retries from inheriting authority. Listener
+facts must include aliases/resolved endpoints; their completeness is an adapter
+obligation, not something this pure function can discover.
+
+### Bounds and explanation evidence
+
+V1 bounds are 16,384 policy JSON bytes, depth 8, 4,096 grants per snapshot, 256
+credential facts with at most 64 origins each, 8,192 URI bytes, 4,096 path bytes,
+32 methods of 32 bytes, 253 host bytes, and 64 resolved addresses/listener
+endpoints each. Compilation validates all supplied grants, even nonmatching or
+foreign-principal entries, then copies an immutable principal-specific snapshot.
+Matching uses bounded linear scans and suffix/segment comparisons, no regex or
+network-dependent work. Sorting grant IDs chooses stable evidence only, never
+policy priority.
+
+Typed decisions include fixed dialect version, principal ID/revision, coherent
+policy revision, default revision, transport, allowed bit and a closed reason.
+They retain at most four grant ID/revision references (decisive, private and two
+credential sources) and two credential references, including conflicts. They
+never include raw targets, query, headers, bodies, addresses, secrets or error
+strings. Interception carries `allowed:false` because it is not upstream
+permission. These are safe admission-time facts, not a lease or proof of durable
+admission, current credential material or successful execution.
+
+The proxy remains cooperative, not network-enforced egress containment. Broker
+migration/retirement, HTTP self-service, intercepted WebSockets, HTTP/3,
+query/header/body matching, traffic-to-grant shortcuts, retries/replay and
+multiple-secret injection are outside this component.
 
 ## Principal and grant contract
 

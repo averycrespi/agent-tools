@@ -78,6 +78,7 @@ internal/remote/             Hardened destination validation and HTTP transport 
 internal/oauth/              Resource/issuer trust, registration, flows, callback, and refresh
 internal/downstream/         Raw bounded JSON-RPC and stdio/Streamable HTTP connections
 internal/accesstarget/       MCP target values and scope comparisons
+internal/httppolicy/         Pure HTTP v1 canonical targets, grants, containment and evaluation
 internal/authorization/      Principals, credentials, grants, policy SQL, and admission leases
 internal/discovery/          Principal-specific current-tool projection and cursors
 internal/grantrequests/      Durable request workflow, evidence, dedupe, and adjudication
@@ -115,6 +116,8 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 - Keep exact numeric-loopback listener validation and explicit hostname Host matching separate from port-sensitive Origin trust. Keep early Host validation, route classification, and admission ahead of authentication or body work. Every API response remains `no-store`; never add CORS authority.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation channels separate. Raw secrets never enter configuration, arguments, URLs, logs, metrics, events, SQLite, backups, browser storage, or read APIs. Only supported client token exports and runtime-resolved clean stdio secret slots permit environment delivery; never add ambient or administrator environment-secret fallback.
 - The official MCP SDK remains behind Gateway-owned authentication, classification, limits, and lifecycle. Only the ingress handler boundary may import it; never add a second SDK list cache, subscription, transport owner, or active-capability consumer.
+
+- HTTP policy v1 is a pure foundation in `internal/httppolicy`, with closed shapes/bounds in `internal/contract/http_policy.go`. Keep immutable canonical targets as the only matching/forwarding coordinates; never reuse Broker precedence or `remote.Policy.AllowRestricted` as HTTP grant authority. Snapshot/admission, DNS pinning, complete Gateway-listener facts, per-request pooled-connection checks and credential acquisition belong to their later owners. Do not wire a second authenticator, SQL store or transport here. These dependency-light tests belong to the source-derived unit suite.
 
 ### Ownership and composition
 
