@@ -24,6 +24,7 @@ export const auditActions: Readonly<Record<string, readonly string[]>> = {
   backup: ["create", "delete", "restore"],
   server: ["create", "update", "delete", "reconcile"],
   server_credential: ["replace", "disconnect", "invalidate"],
+  http_credential: ["create", "update", "rotate", "delete", "invalidate"],
   operation: [
     "request",
     "activate",
@@ -91,6 +92,7 @@ export const auditOutcomes = [
   "unknown",
 ];
 export const auditTargets = [
+  "http_credential",
   "installation",
   "admin_credential",
   "backup",

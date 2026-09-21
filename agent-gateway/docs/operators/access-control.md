@@ -17,8 +17,7 @@ See [DESIGN](../../DESIGN.md) for the system design index and [Identity and auth
 ## HTTP policy foundation
 
 HTTP policy v1 is currently an internal, independently tested foundation, not an
-available proxy or administrative command. No installation change is needed and
-existing principals, MCP grants and credentials behave as before. Later HTTP
+available proxy or grant-administration command. [Scoped HTTP credentials](administration.md#scoped-http-credentials) have their own operator surface; they do not grant access. Existing principals, MCP grants and credentials behave as before. Later HTTP
 persistence will default existing principals to block.
 
 The vocabulary is **Block destination**, **Allow tunnel**, **Block requests** and

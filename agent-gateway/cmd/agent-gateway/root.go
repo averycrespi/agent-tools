@@ -270,6 +270,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Invocations:   controlAPI.Invocations,
 		Audit:         controlAPI.Audit,
 
+		HTTPCredentials: controlAPI.HTTPCredentials,
+
 		AuthorizationCollections: controlAPI.AuthorizationCollections,
 
 		GrantTarget: func(ctx context.Context, transaction *sql.Tx, serverID string) (bool, error) {

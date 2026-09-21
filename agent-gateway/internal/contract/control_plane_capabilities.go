@@ -11,6 +11,11 @@ type ControlPlaneCapability struct {
 }
 
 var controlPlaneCapabilities = []ControlPlaneCapability{
+	{ID: "http-credential-read", Operation: "HTTP credential list/get", WebControl: "HTTP / Credentials", CLIUses: []string{"http credential list", "http credential get ID"}, Mechanics: "cursor/limit; bodyless; safe metadata only"},
+	{ID: "http-credential-create", Operation: "HTTP credential create", WebControl: "HTTP / Credentials / Create", CLIUses: []string{"http credential create --file PATH"}, Mechanics: "strict write-only file; confirmation; no replay"},
+	{ID: "http-credential-update", Operation: "HTTP credential update", WebControl: "HTTP credential / Edit", CLIUses: []string{"http credential update ID --file PATH [--etag ETAG]"}, Mechanics: "complete safe metadata; transactional references; automatic or explicit ETag"},
+	{ID: "http-credential-rotate", Operation: "HTTP credential rotate", WebControl: "HTTP credential / Rotate", CLIUses: []string{"http credential rotate ID --file PATH [--etag ETAG]"}, Mechanics: "strict write-only file; automatic or explicit ETag; confirmation; no replay"},
+	{ID: "http-credential-delete", Operation: "HTTP credential delete", WebControl: "HTTP credential / Delete", CLIUses: []string{"http credential delete ID [--etag ETAG]"}, Mechanics: "exact {}; reject references; automatic or explicit ETag; confirmation"},
 	{ID: "audit-read", Operation: "Administrative audit list/get", WebControl: "Activity / Administrative audit", CLIUses: []string{"audit list", "audit get AUDIT_EVENT_ID"}, Mechanics: "authoritative filters/cursor/limit; generation and retention; bodyless"},
 	{ID: "status", Operation: "Detailed status", WebControl: "Overview/System", CLIUses: []string{"status"}, Mechanics: "GET status"},
 	{ID: "admin-credential-read", Operation: "Admin credential list/get", WebControl: "System / Admin credentials", CLIUses: []string{"admin credential list", "admin credential get ID"}, Mechanics: "cursor/limit; bodyless"},

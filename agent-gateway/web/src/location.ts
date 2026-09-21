@@ -8,6 +8,7 @@ export type Destination =
   | "servers"
   | "catalog"
   | "principals"
+  | "http-credentials"
   | "grants"
   | "requests"
   | "invocations"
@@ -33,6 +34,7 @@ export const destinationPaths: Readonly<Record<Destination, string>> = {
   servers: "mcp/servers",
   catalog: "mcp/tools",
   principals: "principals",
+  "http-credentials": "http/credentials",
   grants: "mcp/grants",
   requests: "mcp/access-requests",
   invocations: "mcp/invocations",
@@ -311,6 +313,15 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("servers", segments, query);
     }
   }
+  if (
+    first === "http-credentials" &&
+    noQuery &&
+    (segments.length === 1 ||
+      (segments.length === 2 &&
+        second !== undefined &&
+        (second === "new" || isGatewayID(second))))
+  )
+    return location("http-credentials", segments, query);
   if (first === "principals") {
     if (
       segments.length === 1 &&

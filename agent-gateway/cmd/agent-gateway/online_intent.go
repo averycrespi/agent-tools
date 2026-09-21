@@ -173,6 +173,8 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	path := strings.Join(spec.Path, " ")
 	var parts []string
 	switch {
+	case strings.HasPrefix(path, "http credential "):
+		parts = httpCredentialETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "mcp server "):
 		parts = serverETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "principal "):
@@ -281,6 +283,9 @@ func marshalIntent(value any) ([]byte, error) {
 }
 
 var onlineIntentSpecs = map[string]onlineIntentSpec{
+	"http credential create": {fileMembers: []string{"name", "boundary", "recipe", "secret"}},
+	"http credential update": {fileMembers: []string{"name", "boundary", "recipe"}},
+	"http credential rotate": {fileMembers: []string{"secret"}},
 	"admin credential create": {
 		direct:        []onlineDirectFlag{{name: "expires-at"}},
 		defaultDirect: true,

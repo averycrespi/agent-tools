@@ -778,13 +778,21 @@ func (coordinator *Coordinator) removeCandidate(
 	})
 }
 
+func authorityAuditTarget(namespace Namespace) contract.AuditTarget {
+	kind := "server"
+	if namespace.kind == RecordHTTPCredential {
+		kind = "http_credential"
+	}
+	return contract.AuditTarget{Type: kind, ID: namespace.owner}
+}
+
 func (coordinator *Coordinator) auditMutationTx(ctx context.Context, tx *sql.Tx, namespace Namespace, action string) error {
-	return audit.MutationTx(audit.WithSystem(ctx), tx, coordinator.clock.Now(), "keyring", action, contract.AuditTarget{Type: "server", ID: namespace.owner})
+	return audit.MutationTx(audit.WithSystem(ctx), tx, coordinator.clock.Now(), "keyring", action, authorityAuditTarget(namespace))
 }
 
 func (coordinator *Coordinator) auditGenerationEffect(ctx context.Context, namespace Namespace, action string, effect func() error) error {
 	ctx = audit.WithSystem(ctx)
-	attempt, err := audit.NewAttempt(ctx, coordinator.clock.Now(), "keyring", action, contract.AuditTarget{Type: "server", ID: namespace.owner})
+	attempt, err := audit.NewAttempt(ctx, coordinator.clock.Now(), "keyring", action, authorityAuditTarget(namespace))
 	if err != nil {
 		return err
 	}

@@ -57,6 +57,7 @@ func (failure *CapabilityError) Error() string {
 type RecordKind string
 
 const (
+	RecordHTTPCredential   RecordKind = "http_credential"   //nolint:gosec // Public record kind, not secret material.
 	RecordStaticCredential RecordKind = "static_credential" //nolint:gosec // Public record kind, not secret material.
 	RecordOAuthClient      RecordKind = "oauth_client"      //nolint:gosec // Public record kind, not secret material.
 	RecordOAuthTokens      RecordKind = "oauth_tokens"      //nolint:gosec // Public record kind, not secret material.
@@ -292,7 +293,7 @@ func validInstallationID(value string) bool {
 }
 
 func validRecordKind(kind RecordKind) bool {
-	return kind == RecordStaticCredential || kind == RecordOAuthClient || kind == RecordOAuthTokens
+	return kind == RecordHTTPCredential || kind == RecordStaticCredential || kind == RecordOAuthClient || kind == RecordOAuthTokens
 }
 
 func validItem(value string) bool {

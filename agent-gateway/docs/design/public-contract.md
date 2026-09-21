@@ -1,5 +1,17 @@
 # Public Contract
 
+## HTTP credential resources
+
+| Route                                  | Allow                |
+| -------------------------------------- | -------------------- |
+| `/api/v2/http/credentials`             | `GET, POST`          |
+| `/api/v2/http/credentials/{id}`        | `DELETE, GET, PATCH` |
+| `/api/v2/http/credentials/{id}/rotate` | `POST`               |
+
+All use existing administrator bearer/session authority, strict bounded JSON, no-store responses, and no idempotency or automatic replay. GET collection uses `HTTPCredentialListQuery`, accepting only `cursor` and `limit` (default 50, maximum 100), in creation-descending order, returning `QueryPage<HTTPCredential>` (including `total_count` and `offset`). Item GET is bodyless and queryless. `HTTPCredential` contains `id`, `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, decimal-string `revision`, `available`, `referencing_grants:[{id}]`, `created_at`, and `updated_at`. Availability is coherent selected-generation metadata, not a guarantee of later keyring access. No secret or keyring handle is returned.
+
+`HTTPCredentialCreate` requires `name`, `boundary`, `recipe`, and write-only `secret`; POST returns 201 plus the safe resource. PATCH `HTTPCredentialUpdate` is a complete secret-free metadata replacement requiring `name`, `boundary`, and `recipe`; it returns 200. POST rotate accepts only `HTTPCredentialRotate` with `{secret}` and returns 200. DELETE accepts `EmptyObject` and returns 204. Every mutation except create requires exact strong `If-Match: "http-credential-ID-REVISION"`; missing/stale preconditions use `precondition_required`/`stale_revision`. Resource reads and successful create/update/rotate return that ETag. Incompatible references use `conflict`; invalid recipes use `invalid_operation`, never reflected input. Secret ingress is bounded by the recipe and standard JSON body bounds; the browser validates those bounds before confirmation and clears rejected write-only input. Keyring capability/material failures use `keyring_unavailable`, not a storage latch; a joined actual storage latch retains `storage_unavailable` precedence. The [credential owner](downstream-servers.md#scoped-http-credentials) defines validation, lifecycle, containment, and failure behavior.
+
 Audience: Maintainers and contributors changing the public HTTP and data contract
 
 Authority: Normative product design

@@ -15,6 +15,7 @@ const (
 	onlineItemPrincipal
 	onlineItemGrant
 	onlineItemGrantRequest
+	onlineItemHTTPCredential
 )
 
 type validatedOnlineItem struct {
@@ -42,6 +43,8 @@ func resolveMutationETag(command *cobra.Command, options *onlineOptions, kind on
 func validItemETag(kind onlineItemKind, id, etag string) bool {
 	var parts []string
 	switch kind {
+	case onlineItemHTTPCredential:
+		parts = httpCredentialETagPattern.FindStringSubmatch(etag)
 	case onlineItemServer:
 		parts = serverETagPattern.FindStringSubmatch(etag)
 	case onlineItemPrincipal:
@@ -84,6 +87,8 @@ func loadValidatedItem(command *cobra.Command, options *onlineOptions, kind onli
 
 func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 	switch kind {
+	case onlineItemHTTPCredential:
+		return "/api/v2/http/credentials/" + id, true
 	case onlineItemServer:
 		return "/api/v2/mcp/servers/" + id, true
 	case onlineItemPrincipal:
@@ -99,6 +104,9 @@ func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 
 func validateOnlineItem(kind onlineItemKind, id, etag string, body []byte) bool {
 	switch kind {
+	case onlineItemHTTPCredential:
+		var resource contract.HTTPCredential
+		return controlclient.DecodeResponse(body, &resource) == nil && validHTTPCredential(resource) && resource.ID == id && etag == contract.HTTPCredentialETag(id, resource.Revision)
 	case onlineItemServer:
 		var server serverWire
 		return controlclient.DecodeResponse(body, &server) == nil && server.ID == id && validCanonicalRevision(server.DesiredRevision) && contract.MatchesServerETag(etag, server.ID, server.DesiredRevision)

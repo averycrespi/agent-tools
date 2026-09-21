@@ -29,7 +29,7 @@ func TestTrafficSelectionFollowsFailureDiagnosticsLineage(t *testing.T) {
 	defer func() { require.NoError(t, current.Close()) }()
 	identity, err = current.Identity(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, 18, identity.SchemaVersion)
+	require.Equal(t, CurrentSchema, identity.SchemaVersion)
 	selected, err := current.SelectedTraffic(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, selected)

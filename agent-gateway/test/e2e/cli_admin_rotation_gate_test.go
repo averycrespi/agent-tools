@@ -265,6 +265,9 @@ func stoppedMatrixValue(value, root, command string) string {
 	case "ID", "BACKUP_ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
 		return stoppedMatrixID
 	case "PATH":
+		if strings.HasPrefix(command, "http credential ") {
+			return writeStoppedMatrixHTTPFile(root, command)
+		}
 		if command == "mcp server credential replace" {
 			return writeStoppedMatrixCredentialFile(root)
 		}
@@ -288,6 +291,19 @@ func stoppedMatrixValue(value, root, command string) string {
 	default:
 		return value
 	}
+}
+
+func writeStoppedMatrixHTTPFile(root, command string) string {
+	path := filepath.Join(root, "http-credential.json")
+	body := `{"name":"HTTP matrix","boundary":{"host":"api.example.com","port":443,"allow_wildcard":false},"recipe":{"header":"Authorization","prefix":"Bearer "}}`
+	switch command {
+	case "http credential rotate":
+		body = `{"secret":"matrix-secret"}`
+	case "http credential create":
+		body = strings.TrimSuffix(body, "}") + `,"secret":"matrix-secret"}`
+	}
+	_ = os.WriteFile(path, []byte(body), 0o600)
+	return path
 }
 
 func writeStoppedMatrixServerFile(root string) string {

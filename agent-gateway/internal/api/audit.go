@@ -66,6 +66,10 @@ func auditMutationTarget(request *http.Request, installationID string) (string, 
 	}
 	type mutation struct{ category, action, targetType, parameter string }
 	selected, ok := map[string]mutation{
+		"POST /api/v2/http/credentials":                           {"http_credential", "create", "installation", ""},
+		"PATCH /api/v2/http/credentials/{id}":                     {"http_credential", "update", "http_credential", "{id}"},
+		"DELETE /api/v2/http/credentials/{id}":                    {"http_credential", "delete", "http_credential", "{id}"},
+		"POST /api/v2/http/credentials/{id}/rotate":               {"http_credential", "rotate", "http_credential", "{id}"},
 		"POST /api/v2/admin-sessions":                             {"admin_session", "sign_in", "admin_credential", ""},
 		"DELETE /api/v2/admin-sessions/current":                   {"admin_session", "logout", "admin_credential", ""},
 		"POST /api/v2/admin-credentials":                          {"admin_credential", "create", "installation", ""},

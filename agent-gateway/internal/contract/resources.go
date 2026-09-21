@@ -85,6 +85,12 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/mcp/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/admin-authority", Method: "GET", RequestSchema: "None", SuccessSchema: "AdminAuthority", SuccessStatuses: []int{200}, ETag: true},
 	{Pattern: "/api/v2/admin-credentials/{id}/rotation-completion", Method: "POST", RequestSchema: "AdminCredentialRotationCompletion", SuccessSchema: "AdminCredentialRotationResult", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/http/credentials", Method: "GET", RequestSchema: "HTTPCredentialListQuery", SuccessSchema: "QueryPage<HTTPCredential>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/http/credentials", Method: "POST", RequestSchema: "HTTPCredentialCreate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{201}, ETag: true},
+	{Pattern: "/api/v2/http/credentials/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/http/credentials/{id}", Method: "PATCH", RequestSchema: "HTTPCredentialUpdate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/http/credentials/{id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
+	{Pattern: "/api/v2/http/credentials/{id}/rotate", Method: "POST", RequestSchema: "HTTPCredentialRotate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 }
 
 func ResourceMechanics() []ResourceMechanic {

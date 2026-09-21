@@ -139,6 +139,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 				return writeOnlineFailure(command, options.output, failure)
 			}
 			options.intent = intent
+			defer clear(options.intent.body)
 			for _, required := range spec.RequiredFlags {
 				if !command.Flags().Changed(required) {
 					return writeOnlineFailure(command, options.output, onlineUsageProblem(spec, "The --"+required+" flag is required."))
@@ -387,6 +388,12 @@ func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.Onl
 
 func onlineCommandSpecs() []onlineCommandSpec {
 	return []onlineCommandSpec{
+		onlineSpec([]string{"http", "credential", "list"}, "list", "http credential list", "limit", "cursor"),
+		onlineSpec([]string{"http", "credential", "get"}, "get ID", "http credential get ID"),
+		onlineSpec([]string{"http", "credential", "create"}, "create", "http credential create --file PATH", "file", "yes"),
+		onlineSpec([]string{"http", "credential", "update"}, "update ID", "http credential update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "credential", "rotate"}, "rotate ID", "http credential rotate ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "credential", "delete"}, "delete ID", "http credential delete ID [--etag ETAG]", "etag", "yes"),
 		onlineSpec([]string{"status"}, "status", "status"),
 		onlineSpec([]string{"audit", "list"}, "list", "audit list", "limit", "cursor", "generation", "actor-type", "credential-id", "category", "action", "target-type", "target-id", "outcome", "correlation-id", "from", "until"),
 		onlineSpec([]string{"audit", "get"}, "get AUDIT_EVENT_ID", "audit get AUDIT_EVENT_ID", "generation"),
@@ -445,6 +452,8 @@ func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineC
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineGroupDescriptions = map[string]string{
+	"http":                  "Manage HTTP access",
+	"http credential":       "Manage scoped HTTP credentials",
 	"admin":                 "Manage administrator authority",
 	"admin credential":      "Manage administrator credentials",
 	"backup":                "Create and manage recovery backups",
@@ -465,6 +474,12 @@ var onlineGroupDescriptions = map[string]string{
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineLeafDescriptions = map[string]string{
+	"http credential list":                                "List scoped HTTP credentials without secrets",
+	"http credential get ID":                              "Show HTTP credential boundaries, recipe and references",
+	"http credential create --file PATH":                  "Create a scoped HTTP credential from a write-only file",
+	"http credential update ID --file PATH [--etag ETAG]": "Update HTTP credential metadata and scope",
+	"http credential rotate ID --file PATH [--etag ETAG]": "Replace HTTP credential material without revealing stored secrets",
+	"http credential delete ID [--etag ETAG]":             "Delete an unreferenced HTTP credential",
 	"status":                   "Show Gateway status",
 	"audit list":               "List newest-first retained control-plane audit events",
 	"audit get AUDIT_EVENT_ID": "Show bounded audit event detail and retention history",
@@ -514,6 +529,9 @@ var onlineLeafDescriptions = map[string]string{
 }
 
 var onlineRequiredFlags = map[string][]string{
+	"http credential create --file PATH":                                 {"file"},
+	"http credential update ID --file PATH [--etag ETAG]":                {"file"},
+	"http credential rotate ID --file PATH [--etag ETAG]":                {"file"},
 	"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH": {"secret-output"},
 	"mcp server create --file PATH":                                      {"file"},
 	"mcp server credential replace ID --file PATH [--etag ETAG]":         {"file"},

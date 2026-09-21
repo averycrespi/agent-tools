@@ -72,7 +72,8 @@ internal/storage/            SQLite identity, migrations, durability, and latch
 internal/servers/            Desired servers, operations, auth-flow lifecycle, and idempotency
 internal/catalog/            Durable descriptors, normalization, active publication, and routes
 internal/credentialauthority/ Current server credential resolution
-internal/servercredentials/  Static and OAuth-client replacement cutover
+internal/servercredentials/  MCP credential cutover
+internal/httpcredentials/    Scoped HTTP credentials
 internal/runtimes/           Process-local reconciliation and stdio supervision
 internal/remote/             Hardened destination validation and HTTP transport construction
 internal/oauth/              Resource/issuer trust, registration, flows, callback, and refresh
@@ -117,7 +118,7 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation channels separate. Raw secrets never enter configuration, arguments, URLs, logs, metrics, events, SQLite, backups, browser storage, or read APIs. Only supported client token exports and runtime-resolved clean stdio secret slots permit environment delivery; never add ambient or administrator environment-secret fallback.
 - The official MCP SDK remains behind Gateway-owned authentication, classification, limits, and lifecycle. Only the ingress handler boundary may import it; never add a second SDK list cache, subscription, transport owner, or active-capability consumer.
 
-- Follow [HTTP v1](docs/design/identity-and-authorization.md#http-policy-version-1): keep `httppolicy` pure and canonical, never reuse Broker precedence or remote private authority. Tests: `test-unit`.
+- Keep `httppolicy` pure. HTTP credential references use supplied transactions: [cutover](docs/design/downstream-servers.md#scoped-http-credentials).
 
 ### Ownership and composition
 

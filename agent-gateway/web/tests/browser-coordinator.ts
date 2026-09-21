@@ -1,4 +1,5 @@
 import { type Browser, chromium, firefox, webkit } from "@playwright/test";
+import { runHTTPCredentials } from "./browser/http-credential-scenarios.ts";
 import { runAudit } from "./browser/audit-scenarios.ts";
 import { runInvocationHistory } from "./browser/history-scenarios.ts";
 import { createInterface } from "node:readline";
@@ -76,6 +77,7 @@ interface BridgeInput {
     | "access-management-read-canary"
     | "system-administration-canary"
     | "visual-accessibility-privacy-canary"
+    | "http-credentials"
     | "admin-credentials"
     | "backups"
     | "capability-audit"
@@ -155,6 +157,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "access-management-read-canary" &&
       value.scenario !== "system-administration-canary" &&
       value.scenario !== "visual-accessibility-privacy-canary" &&
+      value.scenario !== "http-credentials" &&
       value.scenario !== "admin-credentials" &&
       value.scenario !== "backups" &&
       value.scenario !== "capability-audit" &&
@@ -664,6 +667,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "http-credentials") {
+      await runHTTPCredentials(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "server-credentials") {
       await runServerCredentials(
         browser.version(),
@@ -717,6 +729,11 @@ try {
           externalRequests[0] !== expectedOAuthOpen
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
+      (input.scenario === "http-credentials" &&
+        consoleFailures.length === 2 &&
+        consoleFailures.every((value) =>
+          value.includes("server responded with a status of 400"),
+        )) ||
       (input.scenario === "server-create-update" &&
         consoleFailures.length === 4 &&
         consoleFailures.every((value) =>

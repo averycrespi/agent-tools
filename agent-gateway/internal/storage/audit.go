@@ -21,6 +21,11 @@ func (store *Store) verifyMigrationStructure(ctx context.Context, name string) e
 		statement = strings.TrimSpace(statement)
 		fields := strings.Fields(statement)
 		if len(fields) >= 3 && fields[0] == "ALTER" {
+			// Schema 19 rebuilds the closed keyring-kind check; its replacement
+			// CREATE TABLE below remains subject to exact structural verification.
+			if name == "019_http_credentials.sql" && statement == "ALTER TABLE keyring_authority_fences RENAME TO keyring_authority_fences_previous" {
+				continue
+			}
 			_, column, ok := strings.Cut(statement, " ADD COLUMN ")
 			if !ok {
 				return fmt.Errorf("invalid control audit column definition")

@@ -20,6 +20,7 @@ import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
+import { HTTPCredentials } from "./http-credentials";
 import { Requests } from "./requests";
 import { PendingRequestsController } from "./pending-requests";
 import {
@@ -53,6 +54,7 @@ const navigation: ReadonlyArray<{
   destinations: ReadonlyArray<Exclude<Destination, "sign-in">>;
 }> = [
   { destinations: ["overview", "principals", "audit", "system"] },
+  { label: "HTTP", destinations: ["http-credentials"] },
   {
     label: "MCP",
     destinations: ["servers", "catalog", "grants", "requests", "invocations"],
@@ -64,6 +66,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   servers: "Servers",
   catalog: "Tools",
   principals: "Principals",
+  "http-credentials": "Credentials",
   grants: "Grants",
   requests: "Access requests",
   invocations: "Invocations",
@@ -74,6 +77,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
 
 const pageLabels: Readonly<Record<Destination, string>> = {
   ...destinationLabels,
+  "http-credentials": "HTTP Credentials",
   servers: "MCP Servers",
   catalog: "MCP Tools",
   grants: "MCP Grants",
@@ -121,7 +125,11 @@ const registerInvalidationTrigger = (
   id: string,
   matches: (viewKey: string) => boolean,
   invalidations: ReadonlyArray<
-    "authorization" | "grant_requests" | "servers" | "catalog"
+    | "authorization"
+    | "grant_requests"
+    | "servers"
+    | "catalog"
+    | "http_credentials"
   >,
 ) =>
   viewCoordinator.registerPanel({
@@ -131,6 +139,11 @@ const registerInvalidationTrigger = (
     read: async () => null,
     publish: () => undefined,
   });
+registerInvalidationTrigger(
+  "http-credential-invalidation",
+  (key) => /^#\/http\/credentials(?:[/?]|$)/.test(key),
+  ["http_credentials"],
+);
 registerInvalidationTrigger(
   "principal-invalidation",
   (key) => /^#\/principals(?:[/?]|$)/.test(key),
@@ -463,27 +476,33 @@ function App() {
   const isRequestDetail =
     destination === "requests" && resolved.location.segments[1] !== undefined;
   const isResourceDetail =
+    (destination === "http-credentials" &&
+      resolved.location.segments[1] !== undefined &&
+      resolved.location.segments[1] !== "new") ||
     isPrincipalDetail ||
     isInvocationDetail ||
     isGrantDetail ||
     isRequestDetail ||
     (destination === "audit" && resolved.location.segments[1] !== undefined);
   const destinationLabel =
-    destination === "servers" && resolved.location.segments[1] !== undefined
-      ? resolved.canonicalFragment === "#/mcp/servers/new"
-        ? "Create MCP Server"
-        : "MCP Server details"
-      : destination === "principals" &&
-          resolved.canonicalFragment === "#/principals/new"
-        ? "Create principal"
-        : destination === "grants" &&
-            resolved.canonicalFragment.startsWith("#/mcp/grants/new")
-          ? "Create MCP Grant"
-          : resolved.canonicalFragment === "#/system/backups/new"
-            ? "Create backup"
-            : resolved.canonicalFragment === "#/system/admin-credentials/new"
-              ? "Create admin credential"
-              : pageLabels[destination];
+    destination === "http-credentials" &&
+    resolved.location.segments[1] === "new"
+      ? "Create HTTP credential"
+      : destination === "servers" && resolved.location.segments[1] !== undefined
+        ? resolved.canonicalFragment === "#/mcp/servers/new"
+          ? "Create MCP Server"
+          : "MCP Server details"
+        : destination === "principals" &&
+            resolved.canonicalFragment === "#/principals/new"
+          ? "Create principal"
+          : destination === "grants" &&
+              resolved.canonicalFragment.startsWith("#/mcp/grants/new")
+            ? "Create MCP Grant"
+            : resolved.canonicalFragment === "#/system/backups/new"
+              ? "Create backup"
+              : resolved.canonicalFragment === "#/system/admin-credentials/new"
+                ? "Create admin credential"
+                : pageLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
   const pendingRequests = pendingRequestsController.presentation(view);
 
@@ -776,6 +795,16 @@ function App() {
             <Requests
               session={sessionClient}
               mutations={mutationCoordinator}
+              resolved={resolved}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "http-credentials" ? (
+            <HTTPCredentials
+              key={resolved.canonicalFragment}
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
               resolved={resolved}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}

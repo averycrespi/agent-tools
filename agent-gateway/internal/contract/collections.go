@@ -13,6 +13,7 @@ type CollectionContract struct {
 }
 
 var collectionContracts = []CollectionContract{
+	{Pattern: "/api/v2/http/credentials", DefaultOrder: "created descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<HTTPCredential>", QueryMembers: []string{"cursor", "limit"}},
 	{Pattern: "/api/v2/admin-credentials", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "Page<AdminCredential>", QueryMembers: []string{"cursor", "limit"}},
 	{Pattern: "/api/v2/backups", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "Page<Backup>", QueryMembers: []string{"cursor", "limit"}},
 	{Pattern: "/api/v2/mcp/servers", DefaultOrder: "name ascending", DefaultLimit: 50, MaximumLimit: 50, SuccessSchema: "Page<Server>", QueryMembers: []string{"cursor", "limit", "name", "namespace", "status", "sort", "direction"}},

@@ -217,6 +217,10 @@ func Compile(p contract.HTTPPolicy) (Policy, error) {
 	}
 	return c, nil
 }
+
+// CredentialID returns the single credential requirement of this compiled policy.
+func (p Policy) CredentialID() string { return p.credential }
+
 func (p Policy) matchesDestination(d Destination) bool {
 	return d.port == p.port && p.host.matches(d.host)
 }
@@ -283,5 +287,23 @@ func CredentialContains(c Credential, p Policy) (bool, error) {
 	}
 	return boundary.covers(p), nil
 }
+
+// CredentialAllowsRequest checks one canonical forwarding target against the
+// same boundary owner used for full grant containment. It grants no permission
+// to execute: the caller must separately hold an admitted request decision.
+func CredentialAllowsRequest(c Credential, r Request) (bool, error) {
+	boundary, err := compileCredential(c)
+	if err != nil || r.Scheme() != "https" || r.Path() == "" {
+		return false, ErrInvalid
+	}
+	origin := originScope{host: hostScope{host: r.Destination().Host()}, scheme: r.Scheme(), port: r.Destination().Port()}
+	for _, scope := range boundary.origins {
+		if scope.covers(origin) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func validID(s string) bool                    { return contract.ValidAuditID(s) }
 func validRef(r contract.HTTPRevisionRef) bool { return validID(r.ID) && r.Revision > 0 }

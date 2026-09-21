@@ -106,6 +106,7 @@ type Options struct {
 	GrantRequests    GrantRequestService
 	Invocations      InvocationReader
 	Audit            AuditReader
+	HTTPCredentials  HTTPCredentialService
 	GrantTarget      authorization.CurrentGrantTargetValidator
 	AuthFlows        AuthFlowService
 	Replacements     CredentialReplacementService
@@ -136,6 +137,7 @@ type Handler struct {
 	grantRequests    GrantRequestService
 	invocations      InvocationReader
 	audit            AuditReader
+	httpCredentials  HTTPCredentialService
 	grantTarget      authorization.CurrentGrantTargetValidator
 	authFlows        AuthFlowService
 	replacements     CredentialReplacementService
@@ -192,7 +194,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{inventoryEpoch: rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, audit: options.Audit, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{inventoryEpoch: rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, audit: options.Audit, httpCredentials: options.HTTPCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -401,6 +403,18 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		if len(segments) == 1 && segments[0] != "" {
 			handler.grantMember(writer, request, segments[0])
 		} else {
+			writeProblem(writer, contract.ProblemNotFound)
+		}
+	case path == "/api/v2/http/credentials" && handler.httpCredentials != nil:
+		handler.httpCredentialCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v2/http/credentials/") && handler.httpCredentials != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/http/credentials/"), "/")
+		switch {
+		case len(segments) == 1:
+			handler.httpCredentialMember(writer, request, segments[0], false)
+		case len(segments) == 2 && segments[1] == "rotate":
+			handler.httpCredentialMember(writer, request, segments[0], true)
+		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
 	case path == "/api/v2/principals" && handler.principals != nil:

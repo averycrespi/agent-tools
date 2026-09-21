@@ -12,6 +12,23 @@ Keep identity and credential work under `agent-gateway principal` and **Access â
 
 Existing `--visibility`, API `visibility`, and creation `default_grant` names remain unchanged compatibility fields, not protocol-general grants. Principal JSON and credential representations, CLI output, defaults, and one-time sinks are unchanged; no protocol selector or MCP-settings endpoint is added. See [principal creation and credential procedures](access-control.md#create-and-inspect-principals) and the [normative identity boundary](../design/identity-and-authorization.md#shared-identity-and-mcp-policy-ownership). Do not rotate credentials, reinitialize, or convert backups for this wording clarification.
 
+## Scoped HTTP credentials
+
+Use **HTTP â†’ Credentials** to create, inspect, edit, rotate or delete a reusable HTTPS credential. It has one host/port boundary, one header, an optional fixed prefix, and one write-only secret. `Authorization` with `Bearer ` and custom API-key headers are supported. Wildcard hosts require both `*.example.com` spelling and explicit opt-in; they do not cover the apex. Transport-control headers cannot be overwritten. Credentials alone grant no HTTP access and do not start a proxy.
+
+```bash
+agent-gateway http credential list
+agent-gateway http credential get ID
+agent-gateway http credential create --file /private/create.json --yes
+agent-gateway http credential update ID --file /private/metadata.json --yes
+agent-gateway http credential rotate ID --file /private/rotation.json --yes
+agent-gateway http credential delete ID --yes
+```
+
+Create files contain `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, and `secret`. Update files contain the same complete metadata without `secret`; rotation files contain only `secret`. Treat input files as secrets and manage their permissions and removal yourself; Gateway neither persists nor deletes your source file. Never put a secret in argv, an environment variable or a browser URL. Browser input clears after submission, cancellation, navigation and sign-out; stored values cannot be revealed.
+
+Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Restoring a backup invalidates HTTP credential material even if old keyring entries survive; deliberately rotate to supply fresh authority. Existing MCP server credentials are separate and unchanged.
+
 ## Installation root
 
 `make install` installs only `agent-gateway` from one implementation. Root and lock selection remain independent of executable basename. Credential prefixes, keyring identifiers, ports, and `mcp_gateway.*` self-service tools are unchanged; administrative API clients use the v2 contract above. Existing explicit-root commands remain supported. New installation defaults are canonical; preserve existing roots and follow the [post-migration selection and safety guidance](installation-safety.md), never reinitialize or rotate credentials for naming. The migration capability is retired; tombstones and explicit custom-root support remain. Client provisioning has its own [migration and consumer qualification gate](access-control.md#existing-sandbox-migration-and-conflicts).
@@ -36,6 +53,7 @@ Exact syntax and defaults:
 - `agent-gateway admin --help`
 - `agent-gateway admin credential --help`
 - `agent-gateway admin reset --help`
+- `agent-gateway http credential --help`
 
 ## Start and inspect Gateway
 
