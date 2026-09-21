@@ -265,7 +265,7 @@ func stoppedMatrixValue(value, root, command string) string {
 	case "ID", "BACKUP_ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
 		return stoppedMatrixID
 	case "PATH":
-		if strings.HasPrefix(command, "http credential ") {
+		if strings.HasPrefix(command, "http ") {
 			return writeStoppedMatrixHTTPFile(root, command)
 		}
 		if command == "mcp server credential replace" {
@@ -301,6 +301,12 @@ func writeStoppedMatrixHTTPFile(root, command string) string {
 		body = `{"secret":"matrix-secret"}`
 	case "http credential create":
 		body = strings.TrimSuffix(body, "}") + `,"secret":"matrix-secret"}`
+	case "http default update":
+		body = `{"default":"block"}`
+	case "http grant create", "http grant update":
+		body = `{"principal_id":"` + stoppedMatrixID + `","policy":{"version":1,"type":"block_destination","destination":{"host":"api.example.com","port":443}},"expires_at":null}`
+	case "http test-access":
+		body = `{"principal_id":"` + stoppedMatrixID + `","url":"https://api.example.com/","method":"GET"}`
 	}
 	_ = os.WriteFile(path, []byte(body), 0o600)
 	return path
