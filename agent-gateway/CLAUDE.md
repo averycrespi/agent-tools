@@ -111,7 +111,7 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 
 ### Contracts and boundaries
 
-- `internal/contract` owns executable vocabulary, bounds, mechanics, sinks and manifests. Change its tests and the [owning design chapter](DESIGN.md#documentation-authority) together.
+- `internal/contract` is the executable source for vocabulary, bounds, mechanics, sinks and manifests. Update its tests and [owning design](DESIGN.md#documentation-authority) together.
 - Use dependency-neutral `internal/strictjson` for API/downstream/OAuth/catalog input: positive byte/depth bounds, closed fields, no duplicates/trailing values, and policy/evidence-preserving lexical numbers.
 - Keep exact numeric-loopback listener validation and explicit hostname Host matching separate from port-sensitive Origin trust. Keep early Host validation, route classification, and admission ahead of authentication or body work. Every API response remains `no-store`; never add CORS authority.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation channels separate. Raw secrets never enter configuration, arguments, URLs, logs, metrics, events, SQLite, backups, browser storage, or read APIs. Only supported client token exports and runtime-resolved clean stdio secret slots permit environment delivery; never add ambient or administrator environment-secret fallback.
