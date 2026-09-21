@@ -43,6 +43,7 @@ type PreparedAdmission struct {
 }
 
 type Repository struct {
+	traffic    *TrafficStore
 	store      *storage.Store
 	clock      Clock
 	entropy    io.Reader
@@ -68,6 +69,17 @@ func NewRepositoryWithWaitStop(store *storage.Store, clock Clock, entropy io.Rea
 	repository := &Repository{store: store, clock: clock, entropy: entropy, invalidate: invalidate, limit: invocationLimit(), waitStop: waitStop}
 	if _, err := rand.Read(repository.cursorKey[:]); err != nil {
 		return nil, fmt.Errorf("initialize invocation cursor key: %w", err)
+	}
+	return repository, nil
+}
+
+func NewTrafficRepository(traffic *TrafficStore, clock Clock, entropy io.Reader, invalidate func(contract.Invalidation)) (*Repository, error) {
+	if traffic == nil || clock == nil || entropy == nil || invalidate == nil {
+		return nil, ErrInvalidInput
+	}
+	repository := &Repository{traffic: traffic, clock: clock, entropy: entropy, invalidate: invalidate, limit: traffic.config.RetainedRecords}
+	if _, err := rand.Read(repository.cursorKey[:]); err != nil {
+		return nil, err
 	}
 	return repository, nil
 }
@@ -170,17 +182,24 @@ func (repository *Repository) AnnotateTerminal(ctx context.Context, invocationID
 	return repository.annotateTerminal(ctx, invocationID, terminal, nil)
 }
 
-func (repository *Repository) annotateTerminal(ctx context.Context, invocationID string, terminal contract.InvocationTerminalClass, diagnostic *contract.FailureDiagnostics) error {
+func encodeFailureDiagnostics(terminal contract.InvocationTerminalClass, diagnostic *contract.FailureDiagnostics) (any, error) {
 	if !diagnostic.ValidFor(terminal) {
-		return ErrInvalidInput
+		return nil, ErrInvalidInput
 	}
-	var diagnosticJSON any
-	if diagnostic != nil {
-		encoded, err := json.Marshal(diagnostic)
-		if err != nil || len(encoded) > contract.FailureDiagnosticMaxBytes {
-			return ErrInvalidInput
-		}
-		diagnosticJSON = string(encoded)
+	if diagnostic == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(diagnostic)
+	if err != nil || len(encoded) > contract.FailureDiagnosticMaxBytes {
+		return nil, ErrInvalidInput
+	}
+	return string(encoded), nil
+}
+
+func (repository *Repository) annotateTerminal(ctx context.Context, invocationID string, terminal contract.InvocationTerminalClass, diagnostic *contract.FailureDiagnostics) error {
+	diagnosticJSON, err := encodeFailureDiagnostics(terminal, diagnostic)
+	if err != nil {
+		return err
 	}
 	if !validOpaqueInvocationID(invocationID) {
 		return ErrInvalidInput
@@ -194,7 +213,7 @@ func (repository *Repository) annotateTerminal(ctx context.Context, invocationID
 	}
 	completion := activity.Completion{CompletedAt: completedAt, Class: terminal}
 	changed := false
-	err := repository.mutate(ctx, func(transaction *sql.Tx) error {
+	err = repository.mutate(ctx, func(transaction *sql.Tx) error {
 		var admittedAt, evaluatedAt string
 		err := transaction.QueryRowContext(ctx, `SELECT admitted_at, evaluated_at FROM invocations
 			WHERE id = ? AND admission_class = 'evaluated' AND decision = 'allow'
@@ -231,6 +250,12 @@ func (repository *Repository) annotateTerminal(ctx context.Context, invocationID
 		repository.publish(invocationID)
 	}
 	return nil
+}
+
+func (repository *Repository) publishTrafficStatus() {
+	if repository.traffic != nil && repository.invalidate != nil {
+		repository.invalidate(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
+	}
 }
 
 func (repository *Repository) publish(invocationID string) {
@@ -275,6 +300,9 @@ func (repository *Repository) mutate(ctx context.Context, callback func(*sql.Tx)
 }
 
 func (repository *Repository) view(ctx context.Context, callback func(*sql.Tx) error) error {
+	if repository.traffic != nil {
+		return repository.traffic.view(ctx, callback)
+	}
 	if repository.store.Latched() {
 		return ErrStorageUnavailable
 	}

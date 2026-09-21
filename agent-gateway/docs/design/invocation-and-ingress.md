@@ -76,11 +76,86 @@ Invocation prepares identity before binding/policy evidence, snapshots all mutab
 
 Argument capture uses one fixed recursive key redactor owned by Gateway before compact encoding. Matching is case-insensitive over the normalized sensitive-key set; a matching value is replaced wholesale, including nested structures. Capture overflow falls back to the fixed `[TRUNCATED]` placeholder; redaction or encoding failure produces no capture, and neither path falls back to the original bytes. This is a least-disclosure control over recognized keys, not a claim that arbitrary secret material is detected. Operator-facing projections distinguish a retained capture, truncation, and absence without describing any capture as sanitized or safe. SQLite, backups, events, logs, process output, and test evidence must contain neither raw bearer values nor successful results, raw tool errors, or unredacted canaries.
 
-The invocation repository is the sole online owner of schema-9 SQL. It serializes entropy while preparing one canonical admitted time and opaque ID before mutation, accepts final binding/policy evidence later, and validates all identifiers, revisions, fingerprints, names, compact redacted arguments, nullable groups, decisions, grants, and timestamp chronology again at insertion. The caller-owned admission transaction checks identity collision before deleting anything, evicts the lowest insertion sequences needed for a post-insert maximum of 65,536, and inserts the immutable row; any failure rolls both eviction and insertion back. Startup reads at most 65,537 rows through the latch-aware storage view and rejects malformed or over-capacity history before service. One synchronous best-effort terminal mutation writes a canonical time/class pair and optional validated failure diagnostics when an unterminated ALLOW row still exists and completion is not before evaluation; eviction or a prior annotation is a benign miss. Acknowledged admission and effective terminal commits publish an ID-only `invocations` refresh hint after commit; rollback, uncertainty, and benign no-op annotation emit nothing.
+Invocation owns all traffic SQL and validates identifiers, revisions, fingerprints,
+names, compact redacted arguments, nullable groups, decisions, grants and chronology.
+Traffic checks collisions before transactional retention and insertion. Its production
+65,536-row ceiling and physical/logical budgets define rolling bounded history,
+not a guaranteed retention window. Pins protect live dispositions and completion;
+oldest eligible rows may be pruned around pinned holes. Generation and cumulative
+pruning changes invalidate cursors rather than silently omitting records. Separate
+bounded control snapshots resolve current principal names; their digest is cursor
+state, never authorization. There is no cross-store SQL or name lookup during a
+traffic write. Acknowledged changes emit coalesced invocation/System invalidations;
+uncertain or failed writes do not invent durable evidence. One synchronous
+receipt-bound completion attempt writes the canonical time/class pair and optional
+validated, bounded failure diagnostics atomically. The queued representation is
+owned encoded data, never raw tool errors or mutable caller metadata. Migration,
+paired backup and restore preserve this same validated diagnostic evidence.
+
+### Receipt-based traffic persistence
+
+The [isolated traffic store](storage-and-recovery.md#isolated-traffic-store)
+reuses `PreparedAdmission`, common activity values, exact MCP details, the existing
+SQL shape, capture limits and complete semantic validators. Production selects it
+for MCP persistence; the legacy repository remains only a migration/test seam.
+
+The store queues evidence only. Defaults bound admission occupancy, including
+active settlement, to 128 records and 2 MiB charged bytes; each transaction contains
+at most 32 records/512 KiB, with 2 ms dwell, 250 ms queue lifetime and a two-second
+cooperative write lifetime. Configuration validates positive finite limits (at most
+1024 queued records/16 MiB, 10 ms dwell, one-second acquisition and five-second
+write lifetime). A separate completion queue reserves the same record capacity at
+a fixed 640-byte charge per completion (128 bytes plus the bounded 512-byte failure
+diagnostic allowance). One completion transaction precedes each admission batch,
+so neither class can starve the other under sustained arrivals. Completion transactions
+batch only already-queued records under the same record/byte bounds, without added
+dwell. Each member persists its validated, pre-encoded immutable diagnostics with
+its terminal fields. An invalid member rolls back the entire active completion batch; no member is
+split out or replayed. No queued member
+contains an executable callback. No acquisition expiry extends into transaction
+settlement, and accepted callers wait for settlement even after cancellation.
+
+Successful atomic commit creates individual opaque process-local receipts containing
+immutable evidence and the original request cancellation context. Canceled callers
+receive no receipt; later cancellation prevents confirmation even with a fresh
+context. IDs and history reads cannot create receipts. `Confirm` consumes one live
+ALLOW receipt's dispatch disposition, but is only the **evidence half** of admission:
+production reacquires and confirms current authority before execution.
+The store never executes or reauthorizes a call.
+
+`Release` settles a no-dispatch disposition. Confirmed calls remain pinned until
+`Complete` settles exactly one synchronous best-effort paired completion attempt,
+including refusal/failure. Completion never accepts or rewrites the live upstream
+result. Capacity/deadline refusals do not fault healthy storage; storage/commit/
+rollback uncertainty does. Missing terminal evidence remains unknown. Pins have a
+separate bounded process-local cardinality (1024 by default, at most 4096); forgotten
+live dispositions fail closed at that capacity rather than expiring a potentially
+executing row. Closing/restarting never reconstructs pins, receipts, completion or
+execution. There is no background completion backlog or retry.
 
 ### Admission and execution
 
-Admission holds one authority gate around bounded acquisition and exactly one invocation-owned storage mutation. Admission and synchronous terminal annotation use the invocation-only FIFO exception described in [storage and recovery](storage-and-recovery.md#mutation-intent-and-latch): one active owner, at most 31 waiters, and a 250 ms acquisition-only bound. Completion never reacquires authority. A queued admission holds authority but no transaction or intent; this can delay authentication and policy changes, which retain their separate one-second authority bound. Queue-full, expiry, cancellation, or invocation drain before mutation produces no callback, row, or dispatch. Durable acknowledgment includes marker cleanup; a readable committed row alone cannot authorize dispatch. Binding-only branches prove the current credential but persist no policy fields. Only evaluated branches pass the pinned route's `accesstarget.MCP` to resolved authorization verification; malformed and unresolved calls do not need an exact access target, and invalid-argument calls remain binding-only even though their MCP details retain a resolved route. Invocation SQL and public audit representations remain invocation-owned and unchanged. Resolved verification exposes a closed phase: a semantic evaluator failure may commit `authorization_unavailable` only after binding was explicitly verified, while binding, context, SQL, latch, or transaction failure rolls back without a row. A successful evaluation inserts exactly its current revision, time, decision, and smallest grant evidence. Only after the mutation returns acknowledged success, and while the gate remains active, may an ALLOW token detach the lease; rollback, uncertain commit, late drain, DENY, and BLOCK remain non-dispatchable.
+Admission has three phases. Under a short authority gate and one coherent control
+read snapshot, evaluate the authenticated immutable binding and pinned target once,
+sealing the decision, revision and evaluation time. Release the gate and read
+transaction before submitting immutable evidence to traffic persistence; no control
+writer, marker or authority gate spans traffic commit. After an exact acknowledged
+receipt, reacquire authority and confirm the same active binding and unchanged
+global authorization revision. Under shared drain, control-health and traffic-fault
+fences, consume that receipt once and detach the pending lease atomically. Never
+wait for authority while holding the traffic writer. A sealed evaluation replaces
+the old gate-scoped pending-detachment object across phases.
+
+Revocation, replacement, principal/policy revision, cancellation, control latch,
+traffic fault or drain winning before confirmation blocks dispatch without another
+evaluation, alternate decision, retry or reroute. Grant expiry is evaluated at the
+captured evaluation time, not reinterpreted during confirmation. Acknowledged
+ALLOW losing confirmation returns `authorization_unavailable` with its invocation
+ID and leaves unknown terminal evidence. Binding-only, DENY and BLOCK branches
+return their acknowledged original evidence without dispatch confirmation and
+settle their pins. A readable row alone is never acknowledgment. Completion is one
+synchronous best-effort receipt-based traffic write, never a control mutation or
+authority reacquisition; its failure cannot replace a known live result.
 
 The internal invocation service classifies the strict call params, defaults absent arguments to an empty object, resolves an external name once to a closed downstream/local target, and pins either the downstream validator/capability or one fixed local validator/handler. It pins the published descriptor's normalized `readOnlyHint` alongside that target for read-only ALLOW evaluation, never accepting client-supplied annotations. It validates and redacts the same token-preserving argument tree, performs the admission above, then releases authority and storage admission before one execution. Catalog replacement fences the pinned capability before a later acquisition/dispatch, so old read-only authority cannot authorize a replacement descriptor. Fixed local tools use their compiled hints; admitted-call detachment, no retry, and no reroute remain unchanged.
 
@@ -92,9 +167,14 @@ Gateway supplies at most one automatic attempt, not exactly-once effects: an exp
 
 ### Contention qualification
 
-The deterministic disposable Linux/arm64 race-enabled fixture `TestIngressConcurrencyFourAuditWaitWorkload` exercises 32 calls at concurrency four, each preceded by real ingress `tools/list`, with an HTTP downstream barrier proving four overlapping executions. The initial bounded-wait run retained all 32 admissions and terminals; maximum measured authentication time was 17.35 ms. Its 64 foreign-write probes intentionally run during owned post-commit cleanup windows and all reject immediately: this is conditional occupancy evidence, not a production rejection-rate estimate. That initial observation is not a guarantee that every best-effort terminal acquisition meets its deadline on every host. The fixture now accounts for each unique terminal attempt using lossless test-only storage observations: every acquired mutation must persist, and every missing terminal must correspond to an explicit acquisition expiry. A held-owner variant forces three terminal waiters to expire while retaining all successful live responses and admissions. Foreign-write probes must reject once per actual committed admission or terminal; the later fault wave and stopped recovery must neither fill missing terminals nor replay calls. The fixture places its frozen clock beyond the catalog jitter window to keep background polling outside its bounded lifetime.
-
-`TestInvocationOverloadBehindCatalogDelaysAuthorityButNotForeignRejection` holds real catalog commit cleanup beyond the 250 ms bound. Invocation admission expires without a row; an authentication caller with a 40 ms deadline observed cancellation after 41.13 ms, and two nonqueueing catalog/control-plane mutation attempts rejected in a combined 0.29 ms. Policy mutation also respects its caller deadline behind authority; after invocation expiry authentication can proceed while an authority mutation still rejects the occupied storage owner. These local measurements validate the proposed bounds and expose their costs, not latency guarantees, live incident correlation, or starvation freedom. Under heavier contention the separate one-second authority bound can reject authentication; enlarging either bound requires deliberate contract revision, not retries.
+The disposable race-enabled composition workload exercises 32 real ingress calls
+at concurrency four in warn, debug and stalled-diagnostic modes. A downstream HTTP
+barrier proves overlapping executions; assertions inspect retained admissions and
+terminals and the absence of control-store dual writes. A separate held-control-
+writer scenario proves traffic persistence does not join its wait queue or retain
+authority. Deterministic receipt interleavings prove revocation completes while the
+traffic writer is held and prevents later confirmation. These are correctness and
+isolation checks, not the dependent throughput qualification or latency promises.
 
 ### Capability acquisition
 
@@ -120,15 +200,23 @@ Authority observations distinguish wait, acquisition, release and rejection, wit
 
 The internal agent authenticator accepts only the canonical `mgw_agent_` encoding, derives one agent-domain verifier, and scans every complete active current slot in one bounded coherent transaction with constant-time comparison and no verifier predicate or early match return. Success exposes only principal ID/revision/visibility and credential ID/revision/fingerprint. Admin-domain bearers are a domain mismatch; missing, malformed, unknown, replaced, revoked, disabled, or cleared authority is one non-enumerating authentication failure. Invalid loaded candidate state, capacity overflow, or a latch before, during, or after a match fails unavailable with no partial binding.
 
-One repository-owned exclusive authority gate encloses authentication/lease registration and every principal, credential, grant, authorization-revision, or invocation admission mutation. Its process-wide `authority_work` bound admits 32 outstanding operations: one executing and up to 31 waiting. Excess arrivals reject immediately. Admitted callers wait at most one second for the gate, shortened by their context cancellation or deadline; capacity exhaustion and gate-wait expiry return `resource_limit`, including HTTP 429 during agent authentication rather than HTTP 401. The wait deadline does not bound work after gate acquisition. The fixed order remains authority admission, exclusive gate, storage mutation, transaction checks/write, targeted post-commit invalidation or detachment, then gate and admission release. Authority waiting never holds a storage transaction or mutation slot. Invocation admission may then wait boundedly for storage while holding authority; all other storage mutation admission remains nonqueueing. Gate exclusivity still orders credential reads and lease registration against revocation and targeted invalidation.
+One repository-owned exclusive authority gate encloses authentication/lease registration and every principal, credential, grant, authorization-revision, or invocation admission mutation. Its process-wide `authority_work` bound admits 32 outstanding operations: one executing and up to 31 waiting. Excess arrivals reject immediately. Admitted callers wait at most one second for the gate, shortened by their context cancellation or deadline; capacity exhaustion and gate-wait expiry return `resource_limit`, including HTTP 429 during agent authentication rather than HTTP 401. The wait deadline does not bound work after gate acquisition. The fixed order remains authority admission, exclusive gate, storage mutation, transaction checks/write, targeted post-commit invalidation or detachment, then gate and admission release. Authority waiting never holds a storage transaction or mutation slot. Invocation evaluation and confirmation use separate short coherent control reads; traffic persistence waits outside authority. Control mutation admission remains nonqueueing. Gate exclusivity still orders credential reads and lease registration against revocation and targeted invalidation.
 
-Principal PATCH and credential replace/revoke cancel only that principal's pending leases after an acknowledged commit and conservatively whenever their mutation latches storage. Principal creation cannot have an existing target lease, and grant create/delete never close credential channels: admission re-evaluates policy while holding the same gate.
+Principal PATCH and credential replace/revoke cancel only that principal's pending leases after an acknowledged commit and conservatively whenever their mutation latches storage. Principal creation cannot have an existing target lease, and grant create/delete never close credential channels: admission evaluates policy once and confirmation requires the exact captured global revision while holding the same gate.
 
 Success returns an already-registered pending lease with immutable safe binding, latch/drain-aware currentness, cancellation completion, and idempotent release. Drain first atomically fences new authority admission and registration, wakes queued callers, detaches all pending leases under the registry lock, cancels them after unlocking, and only then boundedly waits for all outstanding gate holders and waiters to release their occupancy; a deadline can make quiescence unclean but cannot leave a pending lease open.
 
 Waiting runs in the caller's goroutine with a bounded wait context; the registry creates no worker goroutines or alternate owner. Cancellation, wait expiry, drain, and every completed operation release their actual outstanding occupancy.
 
-The admission scope acquires only that gate and never opens `Store.Mutate`; its caller owns the existing security transaction. Both supplied-transaction verifiers require the exact current active credential binding and capture one authority-clock UTC evaluation timestamp inside the transaction. Resolved verification ignores advisory revision mismatch, evaluates the current transaction's complete policy against the unchanged token-preserving argument tree, and returns current bounded evidence plus a pending detachment only for ALLOW. Binding-only verification returns only current authorization revision and timestamp. The caller may mark detachment successful only after its mutation returns an acknowledged commit while the scope still holds the gate; rollback, uncertainty, cancellation, late confirmation, or released authority leaves the lease pending or unavailable. Confirmation atomically changes pending to admitted and removes it from credential invalidation, so later credential or policy changes neither cancel nor reauthorize the admitted invocation.
+Evaluation and confirmation each acquire only the authority gate and a bounded
+control read, never `Store.Mutate`. Evaluation requires the exact active binding,
+captures one authority-clock UTC time and current revision, and seals the single
+policy result against unchanged token-preserving arguments. The advisory discovery
+revision does not substitute for the captured revision. Confirmation requires
+exact captured-revision equality and the same process-local candidate, pending
+lease and acknowledged traffic evidence. It atomically changes pending to admitted
+under the registry drain fence and removes credential invalidation; subsequent
+credential/policy changes neither cancel nor reauthorize admitted execution.
 
 Drain fences all new gate entrants before waiting boundedly, then removes and cancels every pending lease outside the registry lock. A timed-out drain leaves the fence set for a later completion. Stopped candidate recovery runs under exclusive process ownership, where no live registry exists.
 

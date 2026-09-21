@@ -68,6 +68,13 @@ agent-gateway service update --allowed-host first.example --allowed-host second.
 agent-gateway service update --clear-allowed-hosts
 ```
 
+`--traffic-budget-bytes` is a persisted serve setting for install/update (default
+4294967296; supported range 1048576–17179869184). Omitted values retain the installed
+selection, including legacy definitions that omit the flag and imply the default.
+Use the same selected value for stopped storage verification. Reducing a budget
+below existing traffic requirements refuses readiness rather than discarding
+history. Backups/staging and control storage need separate disk headroom.
+
 Update preserves omitted values. Explicit `--allowed-host` values **replace the whole list**; `--clear-allowed-hosts` clears it and cannot be combined with replacement values. There is no separate configure verb. An unchanged update avoids restart. A changed running or loaded-but-exited/restarting job is gracefully unloaded, its stop confirmed, the private plist atomically replaced, and then loaded once. An unloaded job stays unloaded. Settings persist across restarts and GUI logins.
 
 Canonical installer-produced definitions retain supported literal selections, including trailing `--log-level`, `--output human|json`, or `--json`. Conflicting/duplicate singleton flags, unknown keys/arguments, custom environments/log destinations, shell wrappers and ambiguous loaded-versus-installed definitions refuse with reconciliation guidance; nothing is silently discarded. There is no generic argument passthrough or archived `--from-plist` handover. For unsupported custom definitions, separately authorize a manual stopped reconciliation, preserve the original outside LaunchAgents, and retain every intended nonsecret selection. Do not repair by reinitializing or deleting installation state.

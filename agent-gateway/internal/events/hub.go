@@ -3,6 +3,7 @@ package events
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
@@ -13,12 +14,15 @@ var (
 )
 
 type Hub struct {
-	mu       sync.Mutex
-	streams  map[uint64]*Subscription
-	nextID   uint64
-	limit    int64
-	buffer   int
-	shutting bool
+	mu        sync.Mutex
+	streams   map[uint64]*Subscription
+	nextID    uint64
+	limit     int64
+	buffer    int
+	shutting  bool
+	coalesced map[contract.InvalidationKind]uint64
+	timer     *time.Timer
+	timerWork sync.WaitGroup
 }
 
 type Subscription struct {
@@ -39,9 +43,10 @@ func New() *Hub {
 		panic("event_buffered_invalidations contract limit is missing")
 	}
 	return &Hub{
-		streams: make(map[uint64]*Subscription),
-		limit:   streamLimit.Maximum,
-		buffer:  int(bufferLimit.Maximum),
+		streams:   make(map[uint64]*Subscription),
+		coalesced: make(map[contract.InvalidationKind]uint64),
+		limit:     streamLimit.Maximum,
+		buffer:    int(bufferLimit.Maximum),
 	}
 }
 
@@ -81,6 +86,44 @@ func (hub *Hub) Publish(event contract.Invalidation) {
 	if hub.shutting {
 		return
 	}
+	if event.Kind == contract.InvalidationInvocations || event.Kind == contract.InvalidationSystemStatus {
+		if len(hub.streams) == 0 {
+			return
+		}
+		hub.coalesced[event.Kind] = hub.nextID - 1
+		if hub.timer == nil {
+			hub.timerWork.Add(1)
+			hub.timer = time.AfterFunc(250*time.Millisecond, hub.flushCoalesced)
+		}
+		return
+	}
+	hub.publishLocked(event)
+}
+
+func (hub *Hub) flushCoalesced() {
+	defer hub.timerWork.Done()
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	hub.timer = nil
+	if hub.shutting {
+		return
+	}
+	for kind, through := range hub.coalesced {
+		for id, subscription := range hub.streams {
+			if id > through {
+				continue
+			}
+			select {
+			case subscription.events <- contract.Invalidation{Kind: kind}:
+			default:
+				hub.closeLocked(id)
+			}
+		}
+		delete(hub.coalesced, kind)
+	}
+}
+
+func (hub *Hub) publishLocked(event contract.Invalidation) {
 	for id, subscription := range hub.streams {
 		select {
 		case subscription.events <- event:
@@ -109,14 +152,17 @@ func (hub *Hub) Status() contract.LimitStatus {
 
 func (hub *Hub) Shutdown() {
 	hub.mu.Lock()
-	defer hub.mu.Unlock()
-	if hub.shutting {
-		return
+	if !hub.shutting {
+		hub.shutting = true
+		if hub.timer != nil && hub.timer.Stop() {
+			hub.timerWork.Done()
+		}
+		for id := range hub.streams {
+			hub.closeLocked(id)
+		}
 	}
-	hub.shutting = true
-	for id := range hub.streams {
-		hub.closeLocked(id)
-	}
+	hub.mu.Unlock()
+	hub.timerWork.Wait()
 }
 
 func (subscription *Subscription) Events() <-chan contract.Invalidation { return subscription.events }

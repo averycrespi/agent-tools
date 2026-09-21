@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
@@ -207,6 +208,9 @@ func observationFlag(flag, value string) bool {
 	case "--allowed-host":
 		_, ok := contract.NormalizeHostname(value)
 		return ok
+	case "--traffic-budget-bytes":
+		budget, err := strconv.ParseInt(value, 10, 64)
+		return err == nil && budget >= 1<<20 && budget <= 16<<30
 	case "--log-level":
 		return value == "warn" || value == "info" || value == "debug"
 	case "--output":

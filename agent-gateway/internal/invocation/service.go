@@ -10,6 +10,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/accesstarget"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
@@ -246,25 +247,25 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 	}
 	service.callEvent(ctx, diagnostics.ExecutionStart, diagnostics.None, identity.InvocationID, 0)
 	if target.local != nil {
-		return service.finish(ctx, identity.InvocationID, SanitizeLocalCallResult(target.local(ctx, *admission.Subject, *classified.arguments)))
+		return service.finish(ctx, identity.InvocationID, admission.receipt, SanitizeLocalCallResult(target.local(ctx, *admission.Subject, *classified.arguments)))
 	}
 	arguments, err := strictjson.EncodeCompact(*classified.arguments)
 	if err != nil {
-		return service.finish(ctx, identity.InvocationID, failedOutcome(contract.ToolUnavailable, contract.TerminalPrestartFailure))
+		return service.finish(ctx, identity.InvocationID, admission.receipt, failedOutcome(contract.ToolUnavailable, contract.TerminalPrestartFailure))
 	}
 	dispatch, err := target.acquire(ctx)
 	if err != nil || dispatch == nil {
 		if err == nil {
 			err = errors.New("downstream capability returned no lease")
 		}
-		return service.finish(ctx, identity.InvocationID, SanitizeCallResult(downstream.CallResult{Failure: downstream.FailurePreStart, Err: err}))
+		return service.finish(ctx, identity.InvocationID, admission.receipt, SanitizeCallResult(downstream.CallResult{Failure: downstream.FailurePreStart, Err: err}))
 	}
-	return service.finish(ctx, identity.InvocationID, SanitizeCallResult(dispatch.Execute(ctx, json.RawMessage(arguments))))
+	return service.finish(ctx, identity.InvocationID, admission.receipt, SanitizeCallResult(dispatch.Execute(ctx, json.RawMessage(arguments))))
 }
 
 type executionDiagnosticKey struct{}
 
-func (service *Service) finish(ctx context.Context, invocationID string, outcome CallOutcome) CallResponse {
+func (service *Service) finish(ctx context.Context, invocationID string, receipt *TrafficReceipt, outcome CallOutcome) CallResponse {
 	cause := diagnostics.Rejected
 	if outcome.TerminalClass == contract.TerminalSucceeded {
 		cause = diagnostics.Success
@@ -277,6 +278,10 @@ func (service *Service) finish(ctx context.Context, invocationID string, outcome
 		duration = time.Since(started)
 	}
 	service.callEvent(ctx, diagnostics.ExecutionResult, cause, invocationID, duration)
+	if outcome.TerminalClass == "" && service.audits.traffic != nil {
+		service.audits.traffic.finishWithoutTerminal(receipt)
+		service.audits.publishTrafficStatus()
+	}
 	if outcome.TerminalClass != "" {
 		var started time.Time
 		if service.diagnostics != nil && service.diagnostics.DebugEnabled() {
@@ -286,7 +291,17 @@ func (service *Service) finish(ctx context.Context, invocationID string, outcome
 		if service.diagnostics != nil {
 			terminalContext = diagnostics.WithTerminal(ctx)
 		}
-		err := service.audits.annotateTerminal(terminalContext, invocationID, outcome.TerminalClass, outcome.Diagnostics)
+		var err error
+		if service.audits.traffic != nil {
+			at, _ := canonicalInvocationTimestamp(service.audits.clock.Now())
+			err = service.audits.traffic.complete(terminalContext, receipt, activity.Completion{CompletedAt: at, Class: outcome.TerminalClass}, outcome.Diagnostics)
+			service.audits.publishTrafficStatus()
+			if err == nil {
+				service.audits.publish(invocationID)
+			}
+		} else {
+			err = service.audits.annotateTerminal(terminalContext, invocationID, outcome.TerminalClass, outcome.Diagnostics)
+		}
 		cause := diagnostics.Success
 		if err != nil {
 			cause = diagnostics.Unavailable

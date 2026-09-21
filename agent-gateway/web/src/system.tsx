@@ -444,6 +444,10 @@ function StatusPanel({
     status.ready &&
     !status.latched &&
     status.keyring === "ready" &&
+    (!status.traffic ||
+      (status.traffic.ready &&
+        !status.traffic.faulted &&
+        !status.traffic.pressure)) &&
     saturatedLimits.length === 0;
   return (
     <section
@@ -498,6 +502,21 @@ function StatusPanel({
                 </p>
               </StateNotice>
             )}
+            {status.traffic &&
+              (!status.traffic.ready ||
+                status.traffic.faulted ||
+                status.traffic.pressure) && (
+                <StateNotice
+                  state="warning"
+                  title="MCP traffic persistence needs attention"
+                >
+                  <p>
+                    {status.traffic.faulted
+                      ? "New tool dispatch is blocked. Healthy control storage remains available for inspection and revocation; restart requires full traffic validation."
+                      : "Traffic capacity is pressured or temporarily unavailable. Missing completion remains unknown; never automatically replay calls."}
+                  </p>
+                </StateNotice>
+              )}
             {status.keyring !== "ready" && (
               <StateNotice
                 state="warning"
@@ -536,7 +555,7 @@ function StatusPanel({
                 </dd>
               </div>
               <div>
-                <dt>Storage</dt>
+                <dt>Control storage</dt>
                 <dd>
                   <strong>{sentenceCase(status.sqliteState)}</strong>
                   <span>
@@ -544,6 +563,44 @@ function StatusPanel({
                   </span>
                 </dd>
               </div>
+              {status.traffic && (
+                <div>
+                  <dt>MCP traffic storage</dt>
+                  <dd>
+                    <strong>
+                      {status.traffic.faulted
+                        ? "Persistence fault"
+                        : status.traffic.ready
+                          ? "Ready"
+                          : "Unavailable"}
+                    </strong>
+                    <span>
+                      {status.traffic.pressure
+                        ? "Capacity pressure"
+                        : "Within capacity"}
+                    </span>
+                    <span>
+                      {status.traffic.databaseBytes + status.traffic.walBytes} /{" "}
+                      {status.traffic.budgetBytes} bytes (database + WAL)
+                    </span>
+                    <span>
+                      {status.traffic.quotaRefusals} quota refusals ·{" "}
+                      {status.traffic.prunedRecords} pruned records
+                    </span>
+                    <span>
+                      Rolling history; a missing completion is unknown, not
+                      proof of execution.
+                    </span>
+                    {status.traffic.faulted && (
+                      <span>
+                        Healthy control storage remains available for inspection
+                        and revocation. Restart requires full traffic
+                        validation.
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt>Credential storage</dt>
                 <dd>

@@ -210,8 +210,18 @@ func (store *Store) mutateOwned(ctx context.Context, recovery *recoveryAction, m
 	return nil
 }
 
+// ConfirmHealthy runs only a process-local admission detachment, never SQL or
+// persistence. It linearizes the final control-health check with fault fencing.
+func (store *Store) ConfirmHealthy(detach func() bool) bool {
+	store.faultFence.Lock()
+	defer store.faultFence.Unlock()
+	return !store.Latched() && detach != nil && detach()
+}
+
 func (store *Store) latch(cause error) error {
+	store.faultFence.Lock()
 	store.latched.Store(true)
+	store.faultFence.Unlock()
 	return fmt.Errorf("%w: %w", ErrStorageLatched, cause)
 }
 

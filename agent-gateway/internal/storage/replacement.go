@@ -2,12 +2,14 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 )
@@ -38,6 +40,34 @@ func InspectBaseIdentity(ctx context.Context, path string) (Identity, error) {
 	}
 	identity.Revision = uint64(revision)
 	return identity, nil
+}
+
+// OpenMigrationSource never upgrades or repairs the original generation. Full
+// schema/domain validation follows on the independently owned replacement.
+func OpenMigrationSource(ctx context.Context, ownership *gatewaypaths.Ownership) (*Store, error) {
+	layout, err := ownership.ActiveLayout()
+	if err != nil {
+		return nil, err
+	}
+	version, err := inspectDatabase(ctx, layout.Database)
+	if err != nil || version < 3 || version > CurrentSchema {
+		return nil, errors.Join(ErrInvalidDatabase, err)
+	}
+	marker := newMutationMarker(layout, nil)
+	marked, err := marker.hasArtifacts()
+	if err != nil || marked {
+		return nil, errors.Join(ErrStorageLatched, err)
+	}
+	store, err := openConfigured(ctx, layout, testOptions{})
+	if err != nil {
+		return nil, err
+	}
+	settings, err := store.Settings(ctx)
+	if err != nil || settings.Integrity != "ok" || settings.ApplicationID != ApplicationID {
+		_ = store.Close()
+		return nil, errors.Join(ErrInvalidDatabase, err)
+	}
+	return store, nil
 }
 
 // OpenReplacement opens and fully verifies a staged database generation under stopped-process ownership.
@@ -113,19 +143,25 @@ func InstallReplacement(ownership *gatewaypaths.Ownership, staged string) error 
 	if err := gatewaypaths.ValidateOwnerOnlyFile(staged); err != nil {
 		return err
 	}
-	rollback := layout.Database + ".pre-restore"
-	_ = os.Remove(rollback)
-	_ = os.Remove(rollback + "-wal")
-	_ = os.Remove(rollback + "-shm")
-	if err := os.Rename(layout.Database, rollback); err != nil {
-		return fmt.Errorf("stage current database generation: %w", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	current, err := openConfigured(ctx, layout, testOptions{})
+	if err != nil {
+		return err
 	}
-	restored := false
-	defer func() {
-		if !restored {
-			_ = os.Rename(rollback, layout.Database)
-		}
-	}()
+	err = errors.Join(current.Checkpoint(ctx), current.Close())
+	if err != nil {
+		return fmt.Errorf("settle current generation before replacement: %w", err)
+	}
+	// Retain the checkpointed prior inode without ever removing the active name.
+	// Existing recovery evidence refuses replacement rather than being erased.
+	rollback := layout.Database + ".previous-" + rand.Text()
+	if err := os.Link(layout.Database, rollback); err != nil {
+		return err
+	}
+	if err := syncDirectory(layout.Root); err != nil {
+		return err
+	}
 	for _, path := range []string{layout.Database + "-wal", layout.Database + "-shm", staged + "-wal", staged + "-shm"} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove database sidecar: %w", err)
@@ -136,13 +172,6 @@ func InstallReplacement(ownership *gatewaypaths.Ownership, staged string) error 
 	}
 	if err := syncDirectory(layout.Root); err != nil {
 		return fmt.Errorf("sync replacement generation: %w", err)
-	}
-	restored = true
-	if err := os.Remove(rollback); err != nil {
-		return fmt.Errorf("remove prior database generation: %w", err)
-	}
-	if err := syncDirectory(layout.Root); err != nil {
-		return fmt.Errorf("sync prior generation removal: %w", err)
 	}
 	return nil
 }

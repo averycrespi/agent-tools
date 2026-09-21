@@ -321,6 +321,26 @@ var _ invocation.Service
 			want:     "internal/api/bad.go: prohibited S4 SQL table invocations",
 		},
 		{
+			name: "traffic selected outside composition", path: "internal/api/bad.go",
+			contents: "package composition\nfunc build() { _ = evidence.OpenTraffic(ctx, owner, installation, generation, config) }\n",
+			want:     "internal/api/bad.go: prohibited unselected traffic constructor OpenTraffic",
+		},
+		{
+			name: "traffic generation cannot mutate evidence", path: "internal/invocation/traffic_generation.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/traffic_generation.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "traffic DDL owner cannot mutate evidence", path: "internal/storage/traffic_schema.go",
+			contents: "package storage\nfunc mutate() { _ = `UPDATE invocations SET terminal_class = NULL` }\n",
+			want:     "internal/storage/traffic_schema.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "traffic API cannot duplicate writer SQL", path: "internal/invocation/traffic.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/traffic.go: prohibited S4 SQL table invocations",
+		},
+		{
 			name: "S4 mutation in read owner", path: "internal/invocation/reads.go",
 			contents: "package invocation\nfunc mutate() { _ = `UPDATE invocations SET terminal_class = NULL` }\n",
 			want:     "internal/invocation/reads.go: prohibited S4 SQL table invocations",
@@ -425,7 +445,7 @@ func productionSliceViolations(source productionSource) []string {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" {
+		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited invocation import %s", source.path, imported))
 		}
 		if strings.HasSuffix(imported, "/internal/selfservice") && source.path != "internal/composition/composition.go" {
@@ -449,7 +469,7 @@ func productionSliceViolations(source productionSource) []string {
 	if strings.Contains(source.contents, ".MutateInvocation(") && source.path != "internal/invocation/repository.go" {
 		violations = append(violations, fmt.Sprintf("%s: invocation-only storage waiting outside audit repository", source.path))
 	}
-	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewRepositoryWithWaitStop(", "invocation.NewReadService(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
+	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewTrafficRepository(", "invocation.NewRepositoryWithWaitStop(", "invocation.NewReadService(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
 		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate invocation constructor %s", source.path, symbol))
 		}
@@ -468,7 +488,7 @@ func productionSliceViolations(source productionSource) []string {
 		for _, symbol := range []string{
 			"grantrequests.New(", "built.requests.ValidateStartup(", "grantrequests.NewAdminService(", "authorization.NewSelfProjectionService(",
 			"selfservice.NewCursorCodec(", "selfservice.NewService(", "discovery.NewWithSyntheticCatalog(", "invocation.NewServiceWithLocal(",
-			"invocation.NewRepositoryWithWaitStop(", "built.invocationPipelines.WaitStop()",
+			"invocation.NewTrafficRepository(", "invocation.OpenTraffic(",
 			"type AgentIngressDependencies struct", "func (built *Composition) AgentIngress()",
 			"type ControlAPIDependencies struct", "func (built *Composition) ControlAPI()",
 			"Authenticator: built.authorization", "ListTools:     built.listTools", "CallTools:     built.callTools",
@@ -620,6 +640,12 @@ func s3SQLViolations(source productionSource) []string {
 func s4SQLViolations(source productionSource) []string {
 	violations := make([]string, 0)
 	ast.Inspect(source.file, func(node ast.Node) bool {
+		if identifier, ok := node.(*ast.Ident); ok && source.path != "internal/invocation/traffic_generation.go" && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" {
+			switch identifier.Name {
+			case "CreateTraffic", "OpenTraffic", "openTraffic":
+				violations = append(violations, fmt.Sprintf("%s: prohibited unselected traffic constructor %s", source.path, identifier.Name))
+			}
+		}
 		literal, ok := node.(*ast.BasicLit)
 		if !ok || literal.Kind != token.STRING {
 			return true
@@ -629,13 +655,14 @@ func s4SQLViolations(source productionSource) []string {
 			return true
 		}
 		switch source.path {
-		case "internal/invocation/repository.go":
+		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go", "internal/invocation/traffic_migration.go":
 			return true
 		case "internal/invocation/reads.go", "internal/invocation/search.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}
-		case "internal/invocation/validation.go", "internal/storage/storage.go":
+		case "internal/invocation/validation.go", "internal/storage/storage.go",
+			"internal/invocation/traffic_generation.go", "internal/invocation/traffic_verify.go", "internal/storage/traffic_schema.go", "internal/storage/traffic_selection.go":
 			if !s4SQLDML.MatchString(value) {
 				return true
 			}

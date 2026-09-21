@@ -295,9 +295,24 @@ After durable/runtime cleanup, shutdown stops ordinary submissions and allows at
 
 ### Event delivery
 
-The authenticated event hub admits 16 streams with 16 buffered invalidations each. Publication is nonblocking and carries only the closed safe `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, and `grant_requests` representations; production emits every listed kind, invocation admission and terminal commits publish only the affected invocation ID as a refresh hint, and approval publishes `grant_requests` before `authorization`. Frames have no ID, cursor, replay, or storage authority. Connect and reconnect begin with no history; a full buffer disconnects the slow stream so its client recovers by reloading authenticated snapshots. A 15-second comment keepalive and per-write deadline bound dead peers. Request cancellation, session terminal state, parent-bearer invalidation, and shutdown close the stream and release its permit.
+The authenticated event hub admits 16 streams with 16 buffered invalidations each. Publication is nonblocking and carries only the closed safe `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, and `grant_requests` representations; production emits every listed kind, invocation admission and terminal commits publish refresh hints that may be coalesced without IDs, and approval publishes `grant_requests` before `authorization`. Frames have no ID, cursor, replay, or storage authority. Connect and reconnect begin with no history; a full buffer disconnects the slow stream so its client recovers by reloading authenticated snapshots. A 15-second comment keepalive and per-write deadline bound dead peers. Request cancellation, session terminal state, parent-bearer invalidation, and shutdown close the stream and release its permit.
+
+Traffic `invocations` and `system_status` hints are coalesced server-side over
+250 ms before delivery, without resource IDs or replay. New subscribers do not
+receive pre-subscription hints. One timer per hub is joined at shutdown; bounded
+buffers still disconnect slow readers. Other event ordering is unchanged.
 
 ### Occupancy and status
+
+System separates control readiness/latch from traffic readiness, persistence
+faults, pressure, combined DB/WAL bytes, quota refusals and pruning. It explains
+rolling history and unknown completions without treating status as execution
+proof. Traffic-only failure leaves healthy operator inspection and revocation
+available; only the control latch globally closes administrative mutations.
+The optional typed status addition is defined in the [public contract](public-contract.md#independent-traffic-status).
+`serve` and canonical service install/update persist the validated 4 GiB default
+traffic budget, preserving omitted installed selections. Snapshot, migration and
+backup staging consume separately bounded disk allowance.
 
 Event streams release authenticated-admin admission after authentication because their own registry supplies the lifetime bound; saturation therefore cannot consume the status/recovery pool. Live status composes the independent HTTP, session, MCP, event, backup, keyring-work, candidate, credential, idempotency, backup-record, database, durable server identity, nondeleted server, process-local runtime, reconciliation, foreground OAuth-flow, principal, grant, global request-row, and request-evidence-byte occupancies from their actual owners. Principal/grant reads come from the sole composition-owned authority and retain fixed zero-use limits on a transient read failure; `agent_auth` is `principal_credentials`, sourced from the same composition bundle as the positive authenticator and discovery service. Server reads compose process-local runtime state and safe reason/runtime identifiers over durable desired authority; restore never turns durable rows into active facts before fresh reconstruction. Every admission and retained-record cap is compiled, rejects before expensive allocation without queuing, and releases on every terminal path.
 

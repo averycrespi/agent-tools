@@ -73,5 +73,13 @@ func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 	if applicationID != ApplicationID || schema < 3 || schema > CurrentSchema || !installationIDPattern.MatchString(installationID) || revision < 0 || integrity != "ok" {
 		return Identity{}, fmt.Errorf("%w: backup identity or integrity mismatch", ErrInvalidDatabase)
 	}
-	return Identity{InstallationID: installationID, SchemaVersion: schema, Revision: uint64(revision)}, nil
+	identity := Identity{InstallationID: installationID, SchemaVersion: schema, Revision: uint64(revision)}
+	if schema >= 18 {
+		generation, err := selectedTraffic(ctx, database)
+		if err != nil {
+			return Identity{}, err
+		}
+		identity.TrafficGeneration = generation
+	}
+	return identity, nil
 }

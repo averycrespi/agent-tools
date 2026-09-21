@@ -193,7 +193,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 		"product.invocation.outcome_derivation":             "invalid_params",
 		"product.invocation.missing_terminal_unknown":       "Missing terminal evidence",
 		"product.invocation.local_target_unknown":           "local storage uncertainty",
-		"product.invocation.bounded_retention":              "65,536",
+		"product.invocation.bounded_retention":              "rolling bounded traffic history",
 		"product.invocation.polling_without_authority":      "Neither event handling nor repeated operator reads submit, complete, resume, or replay a call",
 	}
 	seen := 0

@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/grantrequests"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -71,6 +72,16 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 		return storage.Identity{}, ErrInvalidArtifact
 	}
 
+	budget := artifact.TrafficBudgetBytes
+	if artifact.Format != 2 {
+		budget = invocation.DefaultTrafficConfig().BudgetBytes
+	}
+	controlLimit, _ := contract.FixedLimitByName("database_bytes")
+	releaseSpace, err := gatewaypaths.ReserveHeadroom(layout.Root, budget+2*controlLimit.Maximum)
+	if err != nil {
+		return storage.Identity{}, errors.Join(ErrResourceLimit, err)
+	}
+	defer releaseSpace()
 	staged := layout.Database + ".restore"
 	_ = os.Remove(staged)
 	_ = os.Remove(staged + "-wal")
@@ -140,6 +151,22 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	}
 	if identity.InstallationID != current.InstallationID {
 		return storage.Identity{}, ErrInvalidArtifact
+	}
+	generation, err := admin.NewID(options.Clock.Now(), options.Entropy)
+	if err != nil {
+		return storage.Identity{}, err
+	}
+	if artifact.Format == 2 {
+		if err := invocation.RestoreTraffic(ctx, ownership, filepath.Join(layout.Backups, options.BackupID, "traffic.db"), identity.InstallationID, artifact.TrafficGeneration, generation, trafficConfig(artifact.TrafficBudgetBytes)); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := replacement.SelectTraffic(ctx, artifact.TrafficGeneration, generation); err != nil {
+			return storage.Identity{}, err
+		}
+	} else {
+		if err := invocation.MigrateTraffic(ctx, ownership, replacement, generation, invocation.DefaultTrafficConfig()); err != nil {
+			return storage.Identity{}, err
+		}
 	}
 	if err := replacement.Checkpoint(ctx); err != nil {
 		return storage.Identity{}, err

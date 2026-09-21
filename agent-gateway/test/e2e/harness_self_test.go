@@ -36,6 +36,53 @@ func (capture *assertionCapture) Errorf(format string, arguments ...any) {
 	capture.output = fmt.Sprintf(format, arguments...)
 }
 
+func TestGatewayHarnessEventStreamOwnsLifetime(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	closed := make(chan struct{})
+	fixture := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer close(closed)
+		assert.Equal(t, "/api/v2/events", request.URL.Path)
+		assert.Equal(t, "Bearer fixture-admin", request.Header.Get("Authorization"))
+		writer.Header().Set("Content-Type", contract.MediaTypeEventStream)
+		_, err := io.WriteString(writer, ": keepalive\n\n")
+		assert.NoError(t, err)
+		writer.(http.Flusher).Flush()
+		// A stream spans a mutation and its coalesced invalidation, not one request budget.
+		timer := time.NewTimer(200 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			_, err = io.WriteString(writer, "event: invalidate\ndata: {}\n\n")
+			assert.NoError(t, err)
+			writer.(http.Flusher).Flush()
+		case <-request.Context().Done():
+			return
+		}
+		<-request.Context().Done()
+	}))
+	defer fixture.Close()
+	harness := &gatewayHarness{t: t, ctx: ctx, authority: strings.TrimPrefix(fixture.URL, "http://"), bearer: "fixture-admin", client: fixture.Client()}
+	harness.client.Timeout = 100 * time.Millisecond
+	response := harness.OpenEvents()
+	defer func() { require.NoError(t, response.Body.Close()) }()
+	reader := newBoundedEventReader(response.Body)
+	require.Equal(t, ": keepalive\n\n", string(reader.frame(t)))
+	require.Equal(t, "event: invalidate\ndata: {}\n\n", string(reader.frame(t)))
+	assert.Equal(t, 100*time.Millisecond, harness.client.Timeout, "ordinary requests keep their deadline")
+	deadline, bounded := response.Request.Context().Deadline()
+	require.True(t, bounded)
+	assert.LessOrEqual(t, time.Until(deadline), 2*time.Second)
+	cancel()
+	_, err := response.Body.Read(make([]byte, 1))
+	require.ErrorIs(t, err, context.Canceled)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("event stream cancellation did not reach fixture")
+	}
+}
+
 func TestGatewayHarnessCatalogQuietWindow(t *testing.T) {
 	epoch := time.Unix(0, 0).UTC()
 	period, jitter := contract.CatalogPollInterval, contract.CatalogPollMaximumJitter

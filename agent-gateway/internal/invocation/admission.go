@@ -20,6 +20,7 @@ type AuditAdmissionRequest struct {
 }
 
 type AdmissionResult struct {
+	receipt            *TrafficReceipt
 	InvocationID       string
 	Class              contract.InvocationAdmissionClass
 	Decision           *contract.AuthorizationDecision
@@ -46,6 +47,9 @@ func (coordinator *AdmissionCoordinator) Admit(
 	identity PreparedAdmission,
 	request AuditAdmissionRequest,
 ) (AdmissionResult, error) {
+	if coordinator.audits.traffic != nil {
+		return coordinator.admitTraffic(ctx, lease, identity, request)
+	}
 	result := AdmissionResult{InvocationID: identity.InvocationID}
 	if lease == nil || !validAdmissionIdentity(identity) || !validAuditAdmissionRequest(request) {
 		return result, ErrInvalidInput

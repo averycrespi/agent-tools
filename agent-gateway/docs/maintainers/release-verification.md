@@ -102,9 +102,27 @@ Shared tests use mutex-safe fake time and finite deterministic entropy, real own
 
 The common real-binary runner requires a positive timeout and per-stream byte cap, captures stdout and stderr separately, reports truncation and exit status, owns an identity-revalidated process group, applies bounded TERM/KILL/reap cleanup when its context expires, and can signal a bounded started process for lifecycle tests. Successful `Setpgid` at startup establishes the fresh group's ID from its unreaped child, including fast-exiting Darwin children; this does not replace identity revalidation during later cleanup. The single E2E harness and acceptance executor inherit that ownership through an outer cleanup ledger and fail on surviving processes, listeners, or temporary roots. Nested suite executors clean their owned command groups but leave the inherited ledger to the outer acceptance owner; cleaning that ledger inside a leaf would terminate its still-live parent. Component-specific fault hooks, protocol fixtures, and barriers remain with their owning packages.
 
-The retention E2E owner seeds the real 65,536-row boundary with one set-based transaction, then exercises real Gateway startup, one call, eviction, backup, events, shutdown, and private-artifact scanning. Its stopped artifact observation uses a read-only connection and the existing 65,537-row overflow bound rather than reconstructing storage authority a second time. Artifact observation is not startup/integrity evidence: production initialization, startup validation, and the dedicated integrity/migration/fault owners remain unchanged.
+The retention E2E owner seeds the real 65,536-row boundary with one set-based transaction, then exercises real Gateway startup, one call, eviction, backup, events, shutdown, and private-artifact scanning. Its stopped artifact observation uses a read-only connection and the existing 65,537-row overflow bound rather than reconstructing storage authority a second time. Artifact observation is not startup/integrity evidence: production initialization, startup validation, and the dedicated integrity/migration/fault owners remain unchanged. The Go harness event stream has its own finite process-lifetime context because it spans a mutation and coalesced invalidations; ordinary HTTP requests retain their three-second whole-response deadline. Stream cancellation and body closure remain owned by the fixture.
 
 `TestServeFirstSignalDeadlineRetainsUncleanMarker` owns the real compiled graceful-shutdown deadline, exit 7, listener closure, verified process cleanup, unclean marker, and recovery. `TestCLIServePostStartFailureOutput` in the CLI package owns human/JSON terminal-problem formatting and singular acknowledgement without waiting through that deadline again. `TestCLIServeOutputLifecycle` retains real-binary human/JSON startup and pre-start failure output; separate E2E owners retain second-signal forcing, active transport cancellation, and late-completion fencing.
+
+### Traffic-store checks
+
+`invocation.TrafficStore` owns production MCP persistence. Its isolated
+`TestTraffic*` fixtures belong to the existing invocation integration owner and
+exercise real SQLite without changing control recovery markers. For focused work,
+run `go test -race -tags=integration ./internal/invocation ./internal/storage -count=1 -timeout=5m`
+from `agent-gateway/`, followed by `make verify`. Changes to normative or maintainer
+docs also require the contract/documentation checks in `test-unit` and
+`test-harness`; product tests alone do not cover these source guards.
+
+Keep caller cancellation distinct from cooperative commit settlement. Changes to
+the SQLite driver, default VFS, cache spilling, page size, or write shape must
+requalify the [combined database/WAL reservation](../design/storage-and-recovery.md#isolated-traffic-store).
+The store's receipts, pins and full restart validation are correctness evidence,
+not throughput, native filesystem, or power-loss qualification. Preserve the
+complete lifecycle/read/paired-backup boundary, schema-17 diagnostic evidence and
+schema-18 traffic selection; never introduce dual writes or partial readers.
 
 ## Freeze the candidate
 

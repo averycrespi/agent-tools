@@ -17,7 +17,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -401,20 +400,7 @@ func (harness *gatewayHarness) legacyRequest(method string, bearer *agentBearer,
 func (harness *gatewayHarness) AuditObservations() []auditObservation {
 	harness.t.Helper()
 	require.Nil(harness.t, harness.process, "audit inspection requires a stopped Gateway")
-	ownership, err := gatewaypaths.Acquire(harness.root)
-	require.NoError(harness.t, err)
-	store, err := storage.Open(harness.ctx, ownership)
-	require.NoError(harness.t, err)
-	var observations []auditObservation
-	err = store.View(harness.ctx, func(transaction *sql.Tx) error {
-		observations, err = readAuditObservations(harness.ctx, transaction)
-		return err
-	})
-	require.NoError(harness.t, err)
-	require.NoError(harness.t, store.Close())
-	require.NoError(harness.t, ownership.MarkClean())
-	require.NoError(harness.t, ownership.Close())
-	return observations
+	return harness.readOnlyAuditObservations()
 }
 
 func (harness *gatewayHarness) ArtifactAuditObservations() []auditObservation {
@@ -431,7 +417,7 @@ func (harness *gatewayHarness) LiveAuditObservations() []auditObservation {
 
 func (harness *gatewayHarness) readOnlyAuditObservations() []auditObservation {
 	harness.t.Helper()
-	databasePath := filepath.Join(harness.root, gatewaypaths.DatabaseName)
+	databasePath := selectedTrafficPath(harness.t, harness.root)
 	require.NoError(harness.t, gatewaypaths.ValidateOwnerOnlyFile(databasePath))
 	databaseURL := url.URL{Scheme: "file", Path: databasePath}
 	query := databaseURL.Query()
@@ -446,6 +432,20 @@ func (harness *gatewayHarness) readOnlyAuditObservations() []auditObservation {
 	require.NoError(harness.t, err)
 	require.NoError(harness.t, database.Close())
 	return observations
+}
+
+func selectedTrafficPath(t *testing.T, root string) string {
+	t.Helper()
+	controlPath := filepath.Join(root, gatewaypaths.DatabaseName)
+	require.NoError(t, gatewaypaths.ValidateOwnerOnlyFile(controlPath))
+	uri := (&url.URL{Scheme: "file", Path: controlPath, RawQuery: "mode=ro"}).String()
+	db, err := sql.Open("sqlite3", uri)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+	var generation string
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT generation FROM traffic_selection WHERE singleton=1`).Scan(&generation))
+	require.Regexp(t, `^[0-7][0-9A-HJKMNP-TV-Z]{25}$`, generation)
+	return filepath.Join(root, "traffic-"+generation+".db")
 }
 
 type auditQueryer interface {

@@ -14,6 +14,21 @@ Principal IDs, display names, active/disabled state, the singular agent credenti
 
 The public names `visibility` and `default_grant` and the `Principal`, `PrincipalCreation`, and `AgentCredential` representations remain compatibility contracts. `visibility` means MCP discovery visibility; it grants no access, and MCP grants remain authoritative for calls. `default_grant` identifies the ordinary MCP self-service grant created with a principal, not protocol-general or downstream authority. These clarifications require no reinitialization, migration, backup conversion, credential replacement, or data rewrite. Bearer/verifier/fingerprint framing, keyring identities, revisions, audit vocabulary, and self-service names/schemas remain unchanged.
 
+## Traffic confirmation boundary
+
+Control SQLite remains the sole authority for principal, credential and policy
+state. Invocation evaluation uses one short gate/coherent control snapshot and
+seals its exact revision, time and pending binding. No authority gate or control
+transaction spans traffic persistence. ALLOW confirmation reacquires that gate,
+requires the unchanged global authorization revision and exact active binding,
+and atomically consumes matching process-local evidence and detaches under drain
+and both storage-health fences. Unrelated policy changes may conservatively
+reject; no failed confirmation reevaluates or retries. Evaluation-time expiry and
+post-admission revocation semantics remain unchanged. Current display-name
+snapshots used by traffic history are bounded recognition data, never authority.
+The [invocation chapter](invocation-and-ingress.md#admission-and-execution) owns
+the complete evaluation/receipt/confirmation and outcome protocol.
+
 ## Internal access target boundary
 
 `internal/accesstarget.MCP` is the single internal target vocabulary for grant creation and evaluation, resolved invocation evidence and admission verification, structural discovery, conservative DENY checks, request dedupe/narrowing/approval, and self-grant projection. It carries an immutable server ID and a nullable exact upstream name: null means server-wide scope, not an unresolved call. MCP is the only supported domain. The value and its scope comparisons confer no authority, existence, validation, or read-only eligibility; callers do not mutate shared upstream-name pointers.

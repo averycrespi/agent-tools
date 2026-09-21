@@ -12,6 +12,10 @@ import (
 )
 
 func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
+	return VerifyCurrentWithTraffic(ctx, root, nil)
+}
+
+func VerifyCurrentWithTraffic(ctx context.Context, root string, verifyTraffic func(context.Context, *gatewaypaths.Ownership, *Store) error) (Identity, error) {
 	ctx = audit.WithOffline(ctx)
 	ownership, err := gatewaypaths.AcquireForMaintenance(root)
 	if err != nil {
@@ -53,6 +57,12 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 	if err != nil {
 		_ = store.Close()
 		return Identity{}, err
+	}
+	if verifyTraffic != nil {
+		if err := verifyTraffic(ctx, ownership, store); err != nil {
+			_ = store.Close()
+			return Identity{}, err
+		}
 	}
 	marker := newMutationMarker(layout, nil)
 	recovery, err := marker.recovery(identity.InstallationID)

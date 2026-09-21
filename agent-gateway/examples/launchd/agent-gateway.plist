@@ -16,6 +16,8 @@
         <string>/ABSOLUTE/PATH/TO/gateway-data</string>
         <string>--listen</string>
         <string>127.0.0.1:8210</string>
+        <string>--traffic-budget-bytes</string>
+        <string>4294967296</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

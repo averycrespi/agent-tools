@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:ee9b2e79123106a78ddc40eaec9cd9a17d4b69b7a6045f42e6d71b2229d97fda", digest)
+	assert.Equal(t, "sha256:389a664d17d70eede0a363e2516200b70e8dbc241414addaf6dc39c3a5228006", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -115,8 +115,8 @@ func TestCLIContract(t *testing.T) {
 			{path: []string{"initialize"}, use: "initialize", flags: []string{"data-dir", "json", "output", "secret-output"}},
 			{path: []string{"admin", "reset"}, use: "reset", flags: []string{"data-dir", "json", "output", "secret-output"}},
 			{path: []string{"backup", "restore"}, use: "restore BACKUP_ID", flags: []string{"data-dir", "json", "output", "secret-output"}},
-			{path: []string{"storage", "verify"}, use: "verify", flags: []string{"data-dir", "json", "output"}},
-			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "data-dir", "json", "listen", "log-level", "output"}},
+			{path: []string{"storage", "verify"}, use: "verify", flags: []string{"data-dir", "json", "output", "traffic-budget-bytes"}},
+			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "data-dir", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},
 		}
 		for _, test := range cases {
 			name := strings.Join(test.path, " ")

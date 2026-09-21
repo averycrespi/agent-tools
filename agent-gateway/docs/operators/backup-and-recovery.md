@@ -23,6 +23,46 @@ Gateway must be stopped for `backup restore`, `storage verify`, and `admin reset
 
 The retired top-level `restore` and `--verify-current` flag have no execution aliases or completions. Update scripts and use the matching binary's help when rolling operator tooling back. This command-only cutover changes no database schema, backup metadata, credential/keyring identity, root, process lock, service argv, or installed executable path. Switching binaries does not reinitialize or recover an installation. Older binaries must still reject schemas newer than they support; never force a downgrade or edit durable metadata to make one work. Historical acceptance reports are not current qualification.
 
+## Migrate existing invocation storage
+
+This is a separate schema/storage cutover, not the command rename above. Existing
+single-store installations cannot serve until explicitly migrated. Obtain consent
+to stop the installation; disable its service supervisor and all other launchers.
+Retain an existing verified backup and confirm the exact installation ID and root.
+Do not run this procedure against a live user installation as a test.
+
+```bash
+agent-gateway storage migrate-traffic \
+  --data-dir /path/to/gateway-data \
+  --installation-id INSTALLATION_ID --confirm \
+  --traffic-budget-bytes 4294967296
+agent-gateway storage verify --data-dir /path/to/gateway-data \
+  --traffic-budget-bytes 4294967296
+```
+
+Migration acquires the existing lock without creating storage, checks binding and
+headroom, stages a control copy, validates every retained invocation and its
+sequence/high-water, and publishes a generation-addressed traffic database. Only
+then does one atomic control replacement select the matching traffic generation.
+It preserves credentials, installation/keyring/service identity and historical IDs;
+it never replays calls or fills missing terminal evidence. The prior control inode
+is retained as `gateway.db.previous-*`; interrupted stages and old traffic remain.
+These are recovery evidence, not automatically selected backups.
+
+After interruption, retain all artifacts and inspect the selected control and
+traffic bindings before deciding on another action. Failure before control
+replacement leaves the original authoritative; failure afterward may mean the new
+pair is selected despite an error. Never assume two file renames are atomic, delete
+a stage to bypass a refusal, edit a selector, or fall back to empty traffic. Missing,
+foreign or corrupt selected traffic fails closed. Diagnose and use an explicitly
+selected verified backup where necessary. Restart with the same budget and restore
+service supervision only after stopped verification succeeds. Fresh initialization
+creates a matching pair directly and needs no legacy migration. If first-run setup
+stops before any administrator credential exists, a deliberate `initialize` retry
+completes or validates the pair before publishing authority, retaining abandoned
+stages. Any historical administrator credential distinguishes an installed service
+and prevents this first-run recovery path from backfilling legacy traffic.
+
 ## Create and manage backups
 
 Create and inspect owner-only backup generations through the authenticated public control API:
@@ -34,7 +74,14 @@ agent-gateway backup get BACKUP_ID
 agent-gateway backup delete BACKUP_ID --yes
 ```
 
-Backup creation uses SQLite's online backup facility, integrity-checks the staged database, records installation, schema, source-revision, size, and SHA-256 metadata, then publishes atomically. A backup contains safe durable Gateway state but no raw administrator bearer, agent bearer, keyring value, browser session, MCP session, runtime handle, or in-flight work.
+Backup creation uses SQLite's online backup facility to capture a consistent pair.
+Format-2 internal metadata binds the control selector, installation, schema and
+revision to traffic generation, budget, sizes and SHA-256 digests. Admission and
+writers pause only to pin stable snapshots, with a one-second acquisition ceiling;
+overrun fails the backup. Copying then proceeds outside that fence with a 30-second
+snapshot bound. Capacity/headroom refusal leaves healthy stores usable. Already
+admitted work may finish after the snapshot, so missing completion stays unknown.
+Both staged databases are verified before atomic directory publication. A backup contains safe durable Gateway state but no raw administrator bearer, agent bearer, keyring value, browser session, MCP session, runtime handle, or in-flight work.
 
 Creation generates an idempotency key unless one is supplied. If the response is uncertain, retain the reported key and canonical `{}` digest and use a backup read before deciding whether deliberate same-tuple replay is necessary. The CLI never retries automatically. Deletion requires confirmation and read-before-retry recovery.
 
@@ -48,7 +95,10 @@ agent-gateway storage verify \
   --output json
 ```
 
-`storage verify` accepts neither a backup ID nor `--secret-output`. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
+`storage verify` accepts neither a backup ID nor `--secret-output`. Supply the
+installation's `--traffic-budget-bytes` value when it differs from 4 GiB. It fully
+validates the selected traffic generation as well as control storage, without
+manufacturing missing traffic or requiring a persistent traffic-only latch. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
 
 A recognized uncertain agent-credential candidate is cleared only when its principal, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. The command does not start Gateway; return ownership to the service before any online read:
 
@@ -66,7 +116,14 @@ agent-gateway backup restore BACKUP_ID \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 17, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
+Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 18, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
+
+Format-2 restore verifies both stores before selecting a fresh traffic generation.
+Accepted legacy single-database backups receive staged extraction; pre-invocation
+schemas legitimately restore empty history. Restored traffic preserves IDs and
+unknown outcomes but deliberately invalidates cursor continuity. No execution pin
+or pending call is restored. Retain enough free space for original, staging and
+rollback generations; the traffic database/WAL budget is not a total disk quota.
 
 A successful restore preserves safe principals, grants, requests, request evidence, server configuration, and compatible history. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
 

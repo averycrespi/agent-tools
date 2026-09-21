@@ -95,7 +95,21 @@ Gateway-local tools use a narrower result boundary. Known and post-commit-uncert
 
 ## Understand redaction and retention
 
-Gateway retains at most 65,536 invocation rows and evicts the oldest row in the same transaction as a new admission. Evidence is ordered by durable insertion sequence rather than client timestamps.
+Gateway keeps rolling bounded traffic history, with a 65,536-row production ceiling
+and a configurable combined database/WAL budget (4 GiB by default). It prunes the
+oldest eligible evidence transactionally while protecting live calls through their
+sole completion attempt; this can leave holes around pinned rows. Generation or
+pruning changes invalidate traversal rather than silently omitting evidence.
+Current principal names come from a separate bounded control snapshot, and name
+changes also invalidate affected cursors. Evidence is ordered by durable insertion
+sequence, never client timestamps. A missing row proves neither success nor
+nonexecution; no fixed history window is promised.
+
+**System** and `status` expose independent traffic health, pressure, byte occupancy,
+quota refusals and pruning. Traffic faults reject new dispatch but leave healthy
+administration available, including revocation. Restart restores traffic writes
+only after full validation; it never repairs history by replay or fabricating
+terminal evidence. Control-storage uncertainty still blocks traffic authority.
 
 The browser labels this evidence **Captured arguments**; an empty object appears as **Captured arguments · Empty**, distinct from an absent capture. A JSON value is the compact historical capture after fixed recursive sensitive-key redaction. `[REDACTED]` replaces a value whose field name matched the recognized key set; other secrets may remain visible, so inspect the capture only when operationally necessary. `[TRUNCATED]` means the redacted capture exceeded the 8 KiB compact bound and argument content was not retained. An absent capture means redaction or encoding did not produce evidence; Gateway retained no raw fallback. This is defense in depth, not guaranteed secret detection, and the capture is not necessarily the exact original request. Callers must not submit secrets where the tool contract does not require them.
 

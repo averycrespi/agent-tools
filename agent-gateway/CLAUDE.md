@@ -119,7 +119,7 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 ### Ownership and composition
 
 - `internal/composition` is the sole production constructor and lifecycle owner for the authorization, discovery, invocation, runtime, catalog, OAuth, and keyring graph. Root consumes narrow complete bundles; it must not create a second authenticator, repository, route consumer, or active-capability path.
-- Follow [evidence boundaries](docs/design/invocation-and-ingress.md#internal-evidence-boundary).
+- Keep [evidence](docs/design/invocation-and-ingress.md#internal-evidence-boundary) and [paired storage](docs/design/storage-and-recovery.md) boundaries.
 - SQL owners: servers, catalog, authorization (online principal/grant), grantrequests, invocation, audit (control-plane), and storage (migration DDL). Cross-owner mutations use supplied transactions, never nested mutation admission.
 - Keep storage/keyring/network/process work outside unrelated locks and admissions. Mutations that may expose authority must arm durable intent before uncertain external work and fail closed; never add online repair or automatic replay.
 - Preserve the [authority](docs/design/invocation-and-ingress.md#agent-authentication-and-leases) and [storage admission](docs/design/storage-and-recovery.md) contracts: never wait for authority while holding storage, extend acquisition deadlines into active SQL, or duplicate actual-owner occupancy.

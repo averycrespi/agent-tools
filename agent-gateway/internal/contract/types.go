@@ -275,7 +275,22 @@ type ProtocolStatus struct {
 	AgentAuth AgentAuthMode `json:"agent_auth"`
 }
 
+type TrafficStatus struct {
+	Ready                     bool   `json:"ready"`
+	Faulted                   bool   `json:"faulted"`
+	Pressure                  bool   `json:"pressure"`
+	BudgetBytes               int64  `json:"budget_bytes"`
+	DatabaseBytes             int64  `json:"database_bytes"`
+	WALBytes                  int64  `json:"wal_bytes"`
+	QuotaRefusals             int64  `json:"quota_refusals"`
+	PrunedRecords             int64  `json:"pruned_records"`
+	Generation                string `json:"generation"`
+	RollingHistory            bool   `json:"rolling_history"`
+	UnknownCompletionPossible bool   `json:"unknown_completion_possible"`
+}
+
 type SystemStatus struct {
+	Traffic   *TrafficStatus `json:"traffic,omitempty"`
 	Process   ProcessStatus  `json:"process"`
 	SQLite    SQLiteStatus   `json:"sqlite"`
 	Keyring   KeyringStatus  `json:"keyring"`

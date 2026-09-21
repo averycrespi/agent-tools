@@ -194,7 +194,19 @@ func (harness *gatewayHarness) AdminJSON(method, path, body string, headers map[
 
 func (harness *gatewayHarness) OpenEvents() *http.Response {
 	harness.t.Helper()
-	return harness.AdminJSON(http.MethodGet, "/api/v2/events", "", nil, nil)
+	// Streams span other requests and coalesced events. Bound their lifetime by
+	// the owned process, not the ordinary client's whole-response timeout.
+	ctx, cancel := context.WithTimeout(harness.ctx, gatewayProcessDeadline)
+	harness.t.Cleanup(cancel)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+harness.authority+"/api/v2/events", nil)
+	require.NoError(harness.t, err)
+	request.Header.Set("Authorization", "Bearer "+harness.bearer)
+	client := *harness.client
+	client.Timeout = 0
+	response, err := client.Do(request)
+	require.NoError(harness.t, err)
+	harness.t.Cleanup(func() { _ = response.Body.Close() })
+	return response
 }
 
 func (harness *gatewayHarness) WaitOperation(serverID, operationID string, state contract.ServerOperationState) contract.ServerOperation {

@@ -15,8 +15,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
@@ -217,8 +219,8 @@ func invocationByID(t *testing.T, items []contract.InvocationSummary, id string)
 
 func simulateRetainedInvocationWindow(t *testing.T, harness *gatewayHarness, retainedID string) {
 	t.Helper()
-	databasePath := filepath.Join(harness.root, gatewaypaths.DatabaseName)
-	databaseURL := (&url.URL{Scheme: "file", Path: databasePath, RawQuery: "_pragma=busy_timeout(2000)"}).String()
+	databasePath := selectedTrafficPath(t, harness.root)
+	databaseURL := (&url.URL{Scheme: "file", Path: databasePath, RawQuery: "mode=rw&_pragma=busy_timeout(2000)&_pragma=foreign_keys(1)"}).String()
 	database, err := sql.Open("sqlite3", databaseURL)
 	require.NoError(t, err)
 	database.SetMaxOpenConns(1)
@@ -227,6 +229,8 @@ func simulateRetainedInvocationWindow(t *testing.T, harness *gatewayHarness, ret
 	removed, err := result.RowsAffected()
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, removed, int64(1))
+	_, err = database.ExecContext(harness.ctx, `UPDATE traffic_meta SET pruning=high_water-records WHERE singleton=1`)
+	require.NoError(t, err)
 	require.NoError(t, database.Close())
 }
 
@@ -328,11 +332,15 @@ func TestArtifactAuditObservationsDoNotReconstructStorageAuthority(t *testing.T)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
 	_, err = database.ExecContext(t.Context(), `CREATE TABLE invocations (
 		insertion_sequence INTEGER, id TEXT, admission_class TEXT, decision TEXT, terminal_class TEXT
-	); INSERT INTO invocations VALUES (1, 'artifact-row', 'invalid_params', NULL, NULL)`)
+	); INSERT INTO invocations VALUES (1, 'artifact-row', 'invalid_params', NULL, NULL);
+	CREATE TABLE traffic_selection(singleton INTEGER, generation TEXT);
+	INSERT INTO traffic_selection VALUES(1, '01M10H00000000000000000000')`)
 	require.NoError(t, err)
 	require.NoError(t, database.Close())
 	before, err := os.ReadFile(path)
 	require.NoError(t, err)
+	trafficPath := filepath.Join(root, "traffic-01M10H00000000000000000000.db")
+	require.NoError(t, os.WriteFile(trafficPath, before, 0o600))
 	harness := &gatewayHarness{t: t, ctx: t.Context(), root: root}
 	assert.Equal(t, []auditObservation{{Sequence: 1, InvocationID: "artifact-row", AdmissionClass: contract.AdmissionInvalidParams}}, harness.ArtifactAuditObservations())
 	after, err := os.ReadFile(path)
@@ -358,15 +366,23 @@ func seedInvocationHistory(t *testing.T, root string, count int) {
 	store, err := storage.Open(ctx, ownership)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
+	identity, err := store.Identity(ctx)
+	require.NoError(t, err)
 	err = store.Mutate(ctx, func(transaction *sql.Tx) error {
+		// Model an unselected legacy installation; the real stopped CLI must
+		// preserve these rows and select traffic before the next serve.
+		if _, err := transaction.ExecContext(ctx, `UPDATE traffic_selection SET generation=NULL`); err != nil {
+			return err
+		}
 		result, err := transaction.ExecContext(ctx, `WITH RECURSIVE fixtures(sequence) AS (
 			SELECT 0 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence + 1 < ?
 		) INSERT INTO invocations (
 			id, principal_id, credential_id, credential_fingerprint, credential_revision,
-			admitted_at, admission_class
-		) SELECT printf('01M10E%020d', sequence), ?, ?, ?, 1, ?, ? FROM fixtures`,
+			admitted_at, admission_class, redacted_arguments
+		) SELECT printf('01M10E%020d', sequence), ?, ?, ?, 1, ?, ?, ? FROM fixtures`,
 			count, "01M10F00000000000000000000", "01M10G00000000000000000000", "0123456789abcdef",
-			"2026-08-26T00:00:00.000000000Z", string(contract.AdmissionInvalidParams))
+			"2026-08-26T00:00:00.000000000Z", string(contract.AdmissionInvalidParams),
+			`{"record":{"value":"`+strings.Repeat("record-", 72)+`"},"token":"[REDACTED]"}`)
 		if err != nil {
 			return err
 		}
@@ -384,6 +400,12 @@ func seedInvocationHistory(t *testing.T, root string, count int) {
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.MarkClean())
 	require.NoError(t, ownership.Close())
+	runner, err := testutil.NewBinaryRunner(60*time.Second, 64*1024)
+	require.NoError(t, err)
+	result, err := runner.Run(t.Context(), gatewayBinary(t), "storage", "migrate-traffic", "--data-dir", root, "--installation-id", identity.InstallationID, "--confirm")
+	require.NoError(t, err, "stopped migration: %s", result.Stderr)
+	require.True(t, result.Cleanup.Reaped)
+	require.False(t, result.Cleanup.Survived)
 }
 
 func seededInvocationID(index int) string {

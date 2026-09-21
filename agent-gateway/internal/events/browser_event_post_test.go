@@ -34,7 +34,7 @@ func TestBrowserEventPostSubscription(t *testing.T) {
 	overflow, err := hub.Subscribe("overflow", nil)
 	require.NoError(t, err)
 	for range hub.buffer + 1 {
-		hub.Publish(event)
+		hub.Publish(contract.Invalidation{Kind: contract.InvalidationBackups})
 	}
 	assertChannelClosed(t, overflow.Done())
 	assert.Equal(t, int64(0), hub.Status().InUse)

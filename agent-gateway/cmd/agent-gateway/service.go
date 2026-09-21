@@ -24,6 +24,7 @@ func newServiceOperation(verb string) *cobra.Command {
 	var jsonOutput bool
 	var hosts []string
 	var clear bool
+	var trafficBudget int64
 	command := &cobra.Command{Use: verb, Short: descriptions[verb], Example: "  agent-gateway service " + verb}
 	usage := "agent-gateway service " + verb
 	fail := func(c *cobra.Command, message string) error {
@@ -41,6 +42,7 @@ func newServiceOperation(verb string) *cobra.Command {
 		command.Flags().StringVar(&binary, "binary", "", "absolute native executable path (install defaults to this executable)")
 		command.Flags().StringVar(&dataDir, "data-dir", "", "absolute data directory; update preserves the installed value when omitted")
 		command.Flags().StringVar(&listen, "listen", "", "exact numeric IPv4 loopback authority")
+		command.Flags().Int64Var(&trafficBudget, "traffic-budget-bytes", 0, "persist combined traffic database/WAL budget; omitted updates preserve installed selection")
 		command.Flags().StringVar(&level, "log-level", "", "persist serve diagnostics: warn, info, or debug")
 		command.Flags().StringArrayVar(&hosts, "allowed-host", nil, "replace the complete installed hostname list (repeatable)")
 		command.Flags().BoolVar(&clear, "clear-allowed-hosts", false, "clear all installed allowed hostnames")
@@ -60,6 +62,12 @@ func newServiceOperation(verb string) *cobra.Command {
 			return fail(c, "This operation uses installed settings; --data-dir overrides are not accepted.")
 		}
 		if settings {
+			if c.Flags().Changed("traffic-budget-bytes") {
+				if trafficBudget < 1<<20 || trafficBudget > 16<<30 {
+					return fail(c, "Traffic budget must be between 1048576 and 17179869184 bytes.")
+				}
+				changes.TrafficBudgetBytes = &trafficBudget
+			}
 			if c.Flags().Changed("binary") {
 				changes.Binary = &binary
 			}

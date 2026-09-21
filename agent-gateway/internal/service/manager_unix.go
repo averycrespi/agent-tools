@@ -20,11 +20,12 @@ import (
 
 // Changes uses nil to preserve an installed selection; an empty host slice clears it.
 type Changes struct {
-	Binary       *string
-	DataDir      *string
-	Listen       *string
-	AllowedHosts *[]string
-	LogLevel     *string
+	TrafficBudgetBytes *int64
+	Binary             *string
+	DataDir            *string
+	Listen             *string
+	AllowedHosts       *[]string
+	LogLevel           *string
 }
 
 type Result struct {
@@ -73,6 +74,9 @@ func Execute(ctx context.Context, operation string, changes Changes) (Result, er
 	return m.execute(ctx, operation, changes)
 }
 func apply(s Settings, c Changes) Settings {
+	if c.TrafficBudgetBytes != nil {
+		s.TrafficBudgetBytes = *c.TrafficBudgetBytes
+	}
 	if c.Binary != nil {
 		s.Binary = *c.Binary
 	}
@@ -293,7 +297,7 @@ func (m *manager) install(ctx context.Context, changes Changes, result Result) (
 		}
 		root = filepath.Join(m.xdg, "agent-gateway")
 	}
-	d := definition{Settings: apply(Settings{Binary: m.executable, DataDir: root, Listen: "127.0.0.1:8210"}, changes), Stdout: filepath.Join(m.logs(), "stdout.log"), Stderr: filepath.Join(m.logs(), "stderr.log")}
+	d := definition{Settings: apply(Settings{Binary: m.executable, DataDir: root, Listen: "127.0.0.1:8210", TrafficBudgetBytes: 4294967296}, changes), Stdout: filepath.Join(m.logs(), "stdout.log"), Stderr: filepath.Join(m.logs(), "stderr.log")}
 	if _, err := os.Lstat(m.plist()); !errors.Is(err, os.ErrNotExist) {
 		return result, errors.New("canonical plist already exists or is inaccessible; use service update")
 	}

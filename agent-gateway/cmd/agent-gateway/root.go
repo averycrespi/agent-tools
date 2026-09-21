@@ -126,6 +126,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
+	command.Flags().Int64("traffic-budget-bytes", composition.DefaultTrafficBudget, "combined traffic database/WAL budget in bytes (1 MiB–16 GiB)")
 	command.Flags().StringVar(&logLevel, "log-level", "warn", "serve diagnostic level: warn, info, or debug (JSON stderr)")
 	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
 	command.Flags().StringArrayVar(&allowedHosts, "allowed-host", nil, "additional exact ASCII DNS hostname for trusted local forwarding (repeatable; no port; does not trust browser Origins)")
@@ -165,6 +166,13 @@ func selectedDataDir(command *cobra.Command, local string) string {
 }
 
 func executeServe(command *cobra.Command, dataDir, authority string, allowedHosts []string, dependencies offlineDependencies, phases *controlclient.ServePhases) (bool, error) {
+	budget := composition.DefaultTrafficBudget
+	if command.Flags().Lookup("traffic-budget-bytes") != nil {
+		budget, _ = command.Flags().GetInt64("traffic-budget-bytes")
+	}
+	if !composition.ValidTrafficBudget(budget) {
+		return false, controlclient.NewInputError("Traffic budget must be between 1048576 and 17179869184 bytes.")
+	}
 	for _, host := range allowedHosts {
 		if _, ok := contract.NormalizeHostname(host); !ok {
 			return false, controlclient.NewInputError("Each --allowed-host must be an ASCII DNS hostname without a port or trailing dot.")
@@ -194,6 +202,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		newComposition = composition.New
 	}
 	runtime, err := newComposition(composition.Options{
+		Ownership: ownership, TrafficBudget: budget,
 		Store: store, InstallationID: identity.InstallationID, CallbackURL: "http://" + authority + "/oauth/callback",
 		Clock: dependencies.clock, Entropy: dependencies.entropy, Invalidate: eventHub.Publish, Ready: ready.Load,
 		Diagnostics:         dependencies.diagnostics,
@@ -231,7 +240,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
 	})
 	defer unsubscribeEvents()
-	backupManager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
+	backupManager, err := backup.New(backup.Options{Traffic: runtime.Traffic(), Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
 	if err != nil {
 		return false, err
 	}
@@ -293,6 +302,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 				startedAt, current, store.Latched(), draining.Load(), agentIngress.AuthMode, capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
 				mcpWork, mcpStreams, legacySessions,
 			)
+			trafficStatus := runtime.Traffic().Status(context.Background())
+			trafficStatus.Ready = trafficStatus.Ready && !store.Latched() && !draining.Load()
+			status.Traffic = &trafficStatus
 			status.Backup = backupManager.Status()
 			status.Limits.BackupWork = backupManager.WorkStatus()
 			status.Limits.BackupRecords = backupManager.RecordStatus()
@@ -665,6 +677,23 @@ func executeAdminAuthority(
 
 	service := admin.NewService(store, dependencies.clock, dependencies.entropy)
 	if operation == "initialize" {
+		initialized, checkErr := service.Initialized(ctx)
+		if checkErr != nil {
+			return storage.Identity{}, checkErr
+		}
+		if initialized {
+			return storage.Identity{}, admin.ErrAlreadyInitialized
+		}
+		// A control store without any historical administrator credential is
+		// interrupted first-run setup, not an installed legacy service. Retain
+		// abandoned stages and choose a fresh name before publishing authority.
+		generation, generationErr := admin.NewID(dependencies.clock.Now(), dependencies.entropy)
+		if generationErr != nil {
+			return storage.Identity{}, generationErr
+		}
+		if err := composition.InitializeTraffic(ctx, ownership, store, generation); err != nil {
+			return storage.Identity{}, err
+		}
 		_, err = service.Initialize(ctx, sink)
 	} else {
 		_, err = service.Reset(ctx, sink)
@@ -745,7 +774,7 @@ func boundedProblemPath(path, fallback string) string {
 func newStorageCmd(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{Use: "storage", Short: "Verify and recover current stopped Gateway storage"}
 	configureNamespaceCommand(command)
-	command.AddCommand(newRecoveryCmd(dependencies, true))
+	command.AddCommand(newRecoveryCmd(dependencies, true), newTrafficMigrationCmd(dependencies))
 	return command
 }
 
@@ -759,6 +788,7 @@ type recoveryResult struct {
 }
 
 func newRecoveryCmd(dependencies offlineDependencies, verify bool) *cobra.Command {
+	var budget int64
 	var dataDir, secretOutput, output string
 	var jsonOutput bool
 	use, operation := "restore BACKUP_ID", "backup_restore"
@@ -801,7 +831,7 @@ func newRecoveryCmd(dependencies offlineDependencies, verify bool) *cobra.Comman
 			var identity storage.Identity
 			backupID := ""
 			if verify {
-				identity, err = storage.VerifyCurrent(command.Context(), layout.Root)
+				identity, err = composition.VerifyStorageBudget(command.Context(), layout.Root, budget)
 			} else {
 				backupID = args[0]
 				identity, err = backup.Restore(command.Context(), backup.RestoreOptions{Root: layout.Root, BackupID: backupID, Sink: admin.NewFileSecretSink(secretOutput), Clock: dependencies.clock, Entropy: dependencies.entropy})
@@ -830,6 +860,9 @@ func newRecoveryCmd(dependencies offlineDependencies, verify bool) *cobra.Comman
 		},
 	}
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
+	if verify {
+		command.Flags().Int64Var(&budget, "traffic-budget-bytes", composition.DefaultTrafficBudget, "selected installation's combined traffic database/WAL budget in bytes")
+	}
 	if !verify {
 		command.Flags().StringVar(&secretOutput, "secret-output", "", "new non-symlink 0600 owner-only file for the replacement admin bearer")
 	}

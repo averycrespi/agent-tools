@@ -19,6 +19,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
@@ -48,6 +49,7 @@ const (
 type Clock interface{ Now() time.Time }
 
 type Options struct {
+	Traffic *invocation.TrafficStore
 	Store   *storage.Store
 	Layout  gatewaypaths.Layout
 	Clock   Clock
@@ -56,6 +58,7 @@ type Options struct {
 }
 
 type Manager struct {
+	traffic *invocation.TrafficStore
 	store   *storage.Store
 	layout  gatewaypaths.Layout
 	clock   Clock
@@ -67,6 +70,11 @@ type Manager struct {
 }
 
 type artifactMetadata struct {
+	Format             int    `json:"format,omitempty"`
+	TrafficGeneration  string `json:"traffic_generation,omitempty"`
+	TrafficSHA256      string `json:"traffic_sha256,omitempty"`
+	TrafficSizeBytes   int64  `json:"traffic_size_bytes,omitempty"`
+	TrafficBudgetBytes int64  `json:"traffic_budget_bytes,omitempty"`
 	contract.Backup
 	AuthorityHash string `json:"authority_hash"`
 	KeyHash       string `json:"key_hash"`
@@ -80,7 +88,7 @@ func New(options Options) (*Manager, error) {
 	if err := ensureDirectory(options.Layout.Backups); err != nil {
 		return nil, err
 	}
-	manager := &Manager{store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
+	manager := &Manager{traffic: options.Traffic, store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
 	items, _, err := manager.load(context.Background())
 	if err != nil {
 		return nil, err
@@ -123,6 +131,16 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	default:
 		return contract.Backup{}, false, ErrResourceLimit
 	}
+	stageLimit, _ := contract.FixedLimitByName("database_bytes")
+	headroom := stageLimit.Maximum
+	if manager.traffic != nil {
+		headroom += manager.traffic.BudgetBytes()
+	}
+	releaseSpace, err := gatewaypaths.ReserveHeadroom(manager.layout.Backups, 2*headroom)
+	if err != nil {
+		return contract.Backup{}, false, errors.Join(ErrResourceLimit, err)
+	}
+	defer releaseSpace()
 	id, err := admin.NewID(manager.clock.Now(), manager.entropy)
 	if err != nil {
 		return contract.Backup{}, false, fmt.Errorf("generate backup ID: %w", err)
@@ -159,7 +177,11 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 		return contract.Backup{}, false, err
 	}
 	databasePath := filepath.Join(staging, databaseFile)
-	if err := manager.store.BackupTo(ctx, databasePath); err != nil {
+	if manager.traffic != nil {
+		if err := manager.traffic.BackupPair(ctx, manager.store, databasePath, filepath.Join(staging, "traffic.db")); err != nil {
+			return contract.Backup{}, false, err
+		}
+	} else if err := manager.store.BackupTo(ctx, databasePath); err != nil {
 		return contract.Backup{}, false, err
 	}
 	identity, err := storage.VerifyBackup(ctx, databasePath)
@@ -185,6 +207,22 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	artifact := artifactMetadata{
 		Backup:        contract.Backup{ID: id, CreatedAt: createdAt, InstallationID: identity.InstallationID, SchemaVersion: fmt.Sprintf("%d", identity.SchemaVersion), SourceRevision: fmt.Sprintf("%d", identity.Revision), SizeBytes: info.Size(), SHA256: digest},
 		AuthorityHash: authorityHash, KeyHash: keyHash, InputHash: digestText("{}"),
+	}
+	if manager.traffic != nil {
+		trafficPath := filepath.Join(staging, "traffic.db")
+		artifact.Format, artifact.TrafficGeneration, artifact.TrafficBudgetBytes = 2, identity.TrafficGeneration, manager.traffic.BudgetBytes()
+		if err := invocation.VerifyTrafficFile(ctx, trafficPath, identity.InstallationID, artifact.TrafficGeneration, trafficConfig(artifact.TrafficBudgetBytes)); err != nil {
+			return contract.Backup{}, false, err
+		}
+		trafficInfo, err := os.Stat(trafficPath)
+		if err != nil {
+			return contract.Backup{}, false, err
+		}
+		artifact.TrafficSizeBytes = trafficInfo.Size()
+		artifact.TrafficSHA256, err = digestFile(trafficPath)
+		if err != nil {
+			return contract.Backup{}, false, err
+		}
 	}
 	if err := manager.fail(FaultMetadata); err != nil {
 		return contract.Backup{}, false, err
@@ -353,7 +391,37 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 	if err != nil || digest != metadata.SHA256 {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
+	if metadata.Format == 2 {
+		trafficPath := filepath.Join(directory, "traffic.db")
+		if identity.TrafficGeneration != metadata.TrafficGeneration || metadata.TrafficGeneration == "" {
+			return artifactMetadata{}, ErrInvalidArtifact
+		}
+		if err := invocation.VerifyTrafficFile(ctx, trafficPath, identity.InstallationID, metadata.TrafficGeneration, trafficConfig(metadata.TrafficBudgetBytes)); err != nil {
+			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+		}
+		info, err := os.Stat(trafficPath)
+		if err != nil || info.Size() != metadata.TrafficSizeBytes {
+			return artifactMetadata{}, ErrInvalidArtifact
+		}
+		digest, err := digestFile(trafficPath)
+		if err != nil || digest != metadata.TrafficSHA256 {
+			return artifactMetadata{}, ErrInvalidArtifact
+		}
+	} else if metadata.Format != 0 || identity.TrafficGeneration != "" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
+		return artifactMetadata{}, ErrInvalidArtifact
+	}
+	if metadata.Format == 0 {
+		if err := invocation.VerifyLegacyEvidence(ctx, databasePath, identity.SchemaVersion); err != nil {
+			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+		}
+	}
 	return metadata, nil
+}
+
+func trafficConfig(budget int64) invocation.TrafficConfig {
+	config := invocation.DefaultTrafficConfig()
+	config.BudgetBytes = budget
+	return config
 }
 
 func ValidID(value string) bool { return backupIDPattern.MatchString(value) }

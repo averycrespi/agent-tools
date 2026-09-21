@@ -12,6 +12,8 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
@@ -27,6 +29,7 @@ func TestRestoreVerifyCurrentRealBinary(t *testing.T) {
 	require.NoError(t, err)
 	store, err := storage.Initialize(ctx, ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.NoError(t, err)
+	require.NoError(t, composition.InitializeTraffic(ctx, ownership, store, "01ARZ3NDEKTSV4RRFFQ69G5FAW"))
 	require.NoError(t, store.Close())
 	marker := `{"installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","state":"armed"}` + "\n"
 	require.NoError(t, os.WriteFile(ownership.Layout().MutationMarker, []byte(marker), 0o600))
@@ -60,10 +63,17 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	require.NoError(t, err)
 	store, err := storage.Open(ctx, ownership)
 	require.NoError(t, err)
-	manager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: e2eClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x66}, 128))})
+	identity, err := store.Identity(ctx)
+	require.NoError(t, err)
+	generation, err := store.SelectedTraffic(ctx)
+	require.NoError(t, err)
+	traffic, err := invocation.OpenTraffic(ctx, ownership, identity.InstallationID, generation, invocation.DefaultTrafficConfig())
+	require.NoError(t, err)
+	manager, err := backup.New(backup.Options{Traffic: traffic, Store: store, Layout: ownership.Layout(), Clock: e2eClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x66}, 128))})
 	require.NoError(t, err)
 	artifact, _, err := manager.Create(ctx, "authority", "e2e-restore")
 	require.NoError(t, err)
+	require.NoError(t, traffic.Close())
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 
