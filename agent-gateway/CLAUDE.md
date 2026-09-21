@@ -78,7 +78,7 @@ internal/remote/             Hardened destination validation and HTTP transport 
 internal/oauth/              Resource/issuer trust, registration, flows, callback, and refresh
 internal/downstream/         Raw bounded JSON-RPC and stdio/Streamable HTTP connections
 internal/accesstarget/       MCP target values and scope comparisons
-internal/httppolicy/         Pure HTTP v1 canonical targets, grants, containment and evaluation
+internal/httppolicy/         Pure HTTP v1 policy and canonical targets
 internal/authorization/      Principals, credentials, grants, policy SQL, and admission leases
 internal/discovery/          Principal-specific current-tool projection and cursors
 internal/grantrequests/      Durable request workflow, evidence, dedupe, and adjudication
@@ -111,13 +111,13 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 
 ### Contracts and boundaries
 
-- `internal/contract` is the executable source for public routes, safe problems, media/protocol values, fixed limits, closed states/reasons/events, resource mechanics, approved secret sinks, and behavior manifests. Change the corresponding contract tests and the owning [normative design chapter](DESIGN.md#documentation-authority) deliberately when intended behavior changes.
-- `internal/strictjson` is the dependency-neutral parser for API, downstream, OAuth, and catalog input. Use explicit positive size/depth bounds, reject duplicate/unknown/trailing values for closed shapes, and preserve lexical number tokens where policy or canonical evidence depends on them.
+- `internal/contract` owns executable vocabulary, bounds, mechanics, sinks and manifests. Change its tests and the [owning design chapter](DESIGN.md#documentation-authority) together.
+- Use dependency-neutral `internal/strictjson` for API/downstream/OAuth/catalog input: positive byte/depth bounds, closed fields, no duplicates/trailing values, and policy/evidence-preserving lexical numbers.
 - Keep exact numeric-loopback listener validation and explicit hostname Host matching separate from port-sensitive Origin trust. Keep early Host validation, route classification, and admission ahead of authentication or body work. Every API response remains `no-store`; never add CORS authority.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation channels separate. Raw secrets never enter configuration, arguments, URLs, logs, metrics, events, SQLite, backups, browser storage, or read APIs. Only supported client token exports and runtime-resolved clean stdio secret slots permit environment delivery; never add ambient or administrator environment-secret fallback.
 - The official MCP SDK remains behind Gateway-owned authentication, classification, limits, and lifecycle. Only the ingress handler boundary may import it; never add a second SDK list cache, subscription, transport owner, or active-capability consumer.
 
-- HTTP policy v1 is a pure foundation in `internal/httppolicy`, with closed shapes/bounds in `internal/contract/http_policy.go`. Keep immutable canonical targets as the only matching/forwarding coordinates; never reuse Broker precedence or `remote.Policy.AllowRestricted` as HTTP grant authority. Snapshot/admission, DNS pinning, complete Gateway-listener facts, per-request pooled-connection checks and credential acquisition belong to their later owners. Do not wire a second authenticator, SQL store or transport here. These dependency-light tests belong to the source-derived unit suite.
+- Follow [HTTP v1](docs/design/identity-and-authorization.md#http-policy-version-1): keep `httppolicy` pure and canonical, never reuse Broker precedence or remote private authority. Tests: `test-unit`.
 
 ### Ownership and composition
 
