@@ -49,7 +49,14 @@ it never replays calls or fills missing terminal evidence. The prior control ino
 is retained as `gateway.db.previous-*`; interrupted stages and old traffic remain.
 These are recovery evidence, not automatically selected backups.
 
-After interruption, retain all artifacts and inspect the selected control and
+Released schema 17 is a supported single-store migration source; traffic selection
+metadata is introduced only in schema 18. Run `storage verify` after migration,
+not as a pre-migration schema upgrade. Do not manually remove `run.unclean`, the
+installation lock, or SQLite WAL/SHM files to bypass a refusal.
+
+Migration reports validation errors on stderr with exit 2, installation-in-use
+with exit 5, and operational failure with exit 7. Failure does not establish that
+no changes occurred. After interruption, retain all artifacts and inspect the selected control and
 traffic bindings before deciding on another action. Failure before control
 replacement leaves the original authoritative; failure afterward may mean the new
 pair is selected despite an error. Never assume two file renames are atomic, delete

@@ -84,7 +84,8 @@ func MigrateStorage(ctx context.Context, root, expectedInstallation, generation 
 		_ = control.Close()
 		return storage.Identity{}, invocation.ErrInvalidInput
 	}
-	if sourceIdentity.SchemaVersion >= 17 {
+	// Released schema 17 has failure diagnostics, but no traffic selector.
+	if sourceIdentity.SchemaVersion >= 18 {
 		selected, err := control.SelectedTraffic(ctx)
 		if err != nil || selected != "" {
 			_ = control.Close()
