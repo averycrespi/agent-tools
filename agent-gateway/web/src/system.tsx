@@ -20,6 +20,7 @@ import {
 import type { SessionClient } from "./session";
 import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
 import { UserTime } from "./time";
+import { resourceUtilization } from "./resource-utilization";
 import type { ViewCoordinator, ViewSnapshot } from "./view";
 
 type Listener = (status: StatusView | undefined) => void;
@@ -706,6 +707,9 @@ function ResourceLimits({
             <th scope="col" class="column-count">
               Limit
             </th>
+            <th scope="col" class="column-count">
+              Used (%)
+            </th>
             <th scope="col" class="column-status">
               Status
             </th>
@@ -719,6 +723,9 @@ function ResourceLimits({
               </th>
               <td class="column-count">{limit.inUse}</td>
               <td class="column-count">{limit.limit}</td>
+              <td class="column-count">
+                {resourceUtilization(limit.inUse, limit.limit)}
+              </td>
               <td class="column-status">
                 <StatusLabel state={stateForLimit(limit)}>
                   {limit.saturated ? "Saturated" : "Available"}
