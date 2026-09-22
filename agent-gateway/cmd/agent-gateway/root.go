@@ -71,6 +71,9 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		if online.Name() == "backup" {
 			online.AddCommand(newRecoveryCmd(dependencies, false))
 		}
+		if online.Name() == "http" {
+			online.AddCommand(newHTTPCACmd(dependencies))
+		}
 		command.AddCommand(online)
 	}
 	command.Long = command.Short + ".\n\nOnly agent-gateway is published. Renaming a current binary does not change\nits commands, installation, credentials, or process lock. Operator clients\nmust upgrade with the service for the API v2 and mcp command namespaces."

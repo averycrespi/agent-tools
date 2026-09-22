@@ -21,9 +21,8 @@ func (store *Store) verifyMigrationStructure(ctx context.Context, name string) e
 		statement = strings.TrimSpace(statement)
 		fields := strings.Fields(statement)
 		if len(fields) >= 3 && fields[0] == "ALTER" {
-			// Schema 19 rebuilds the closed keyring-kind check; its replacement
-			// CREATE TABLE below remains subject to exact structural verification.
-			if name == "019_http_credentials.sql" && statement == "ALTER TABLE keyring_authority_fences RENAME TO keyring_authority_fences_previous" {
+			// Later migrations deliberately replace the closed keyring-kind check.
+			if (name == "019_http_credentials.sql" || name == "021_http_ca.sql") && statement == "ALTER TABLE keyring_authority_fences RENAME TO keyring_authority_fences_previous" {
 				continue
 			}
 			_, column, ok := strings.Cut(statement, " ADD COLUMN ")
@@ -40,6 +39,10 @@ func (store *Store) verifyMigrationStructure(ctx context.Context, name string) e
 			continue
 		}
 		if len(fields) < 3 || fields[0] != "CREATE" {
+			continue
+		}
+		if name == "019_http_credentials.sql" && fields[1] == "TABLE" && fields[2] == "keyring_authority_fences" {
+			// Schema 21's replacement is checked separately against exact DDL.
 			continue
 		}
 		kind, name := fields[1], fields[2]

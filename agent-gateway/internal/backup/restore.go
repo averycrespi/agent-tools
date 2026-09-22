@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/grantrequests"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
@@ -137,6 +138,9 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 		return storage.Identity{}, err
 	}
 	if err := httpcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := httpca.InvalidateStaged(ctx, replacement, options.Clock); err != nil {
 		return storage.Identity{}, err
 	}
 	if err := injectRestoreFault(options.fault, restoreFaultAfterInvalidation); err != nil {

@@ -26,7 +26,7 @@ The `go-keyring` process-global functions sit behind instance-local adapters. Ga
 
 Any Get/Set/Delete may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. One process-global nonblocking `keyring_work` permit bounds outstanding operations; saturation rejects immediately and cancellation does not release the slot before the backend call returns. This accepted MVP limitation never permits file/configuration fallback. The MVP is unsuitable for unattended credential access; hardening is required before unattended deployment or after any unexpected dialog, cancellation-surviving call, or keyring-induced service blockage.
 
-A keyring namespace binds the installation ULID, an immutable Gateway-derived resource-owner ULID, and one closed kind: `static_credential`, `oauth_client`, or `oauth_tokens`. Secret payloads are limited to 256 KiB, base64url encoded into stored values no larger than 3,000 bytes, and identified outside the provider only by random opaque handles. Chunks are written before a versioned owner/kind/handle/length/SHA-256 manifest, so no partial generation reads. Read verifies every binding, bound, decoded length, and digest; deletion handles complete or interrupted generations.
+A keyring namespace binds the installation ULID, an immutable Gateway-derived resource-owner ULID, and one closed kind: `static_credential`, `oauth_client`, `oauth_tokens`, `http_credential`, or `http_ca`. Secret payloads are limited to 256 KiB, base64url encoded into stored values no larger than 3,000 bytes, and identified outside the provider only by random opaque handles. Chunks are written before a versioned owner/kind/handle/length/SHA-256 manifest, so no partial generation reads. Read verifies every binding, bound, decoded length, and digest; deletion handles complete or interrupted generations.
 
 SQLite registers a non-authoritative candidate before the first keyring write, making crash leftovers discoverable without persisting secret bytes. After writing and reading back a complete generation, one latched transaction advances the Gateway revision, selects its opaque handle as authority, invokes any domain callback, and moves the prior handle to bounded cleanup metadata.
 
@@ -47,6 +47,47 @@ The recipe accepts one ASCII token header name (1–128 bytes), a printable ASCI
 Typed `http_credential` keyring records use the existing opaque-generation coordinator and durable fence/activation protocol. Create reserves safe metadata before one bounded secret ingress; failed publication can leave an unavailable visible record. Rotation preserves identity, fences old authority before external work, verifies the candidate and activates only acknowledged publication. Mutation admission is nonqueueing. A stale ETag is rejected before material work. Failed or uncertain rotation cannot fall back to old bytes; keyring cleanup failure does not reactivate authority. Future acquisitions require the exact current metadata revision and selected handle/material revision; an already admitted material pin retains its own generation until cleared. Secrets never enter ordinary reads, events, diagnostics, SQLite or backups.
 
 Metadata edits and deletion run in the shared control transaction. `ReferenceInspector.ReferencesTx` supplies all referencing grants on that transaction; edits check full containment for every reference and deletion rejects any reference. `CheckReferenceTx` is the grant owner's reciprocal insertion/update seam and checks the exact credential binding. Neither opens nested mutation admission. Schema 20 composition supplies the singular authorization repository as the real reference inspector. Referenced recipe changes reject atomically, as do boundaries that fail whole-grant containment and referenced deletion. `NoHTTPGrants` remains only for isolated credential fixtures with an empty grant store, never production. Restored stages invalidate all HTTP material authority before installation, even when old keyring chunks survive; deliberate new secret ingress is required.
+
+## Installation interception CA
+
+`internal/httpca` owns a stable installation-scoped P-256 CA. This delivery supplies
+composition-owned lifecycle and stopped `http ca create`, `http ca replace`, and
+`http ca export` commands, not production proxy activation, a trust installer, or a
+hidden runtime switch. All require exclusive existing installation ownership and
+an exact installation ID. Mutations also require explicit confirmation. Creation
+uses expected revision `0`; replacement reads the current nonzero revision under
+the same stopped lock and requires client trust updates. Export reads public
+metadata without constructing a keyring provider. Commands hold ownership through
+storage closure, never replay uncertain failure, and do not start the serving graph. Startup/load never generates, rotates, scans old handles or
+falls back to plaintext. Missing, mismatched, expired, fenced or unavailable material
+fails interception closed. Key loss requires a new CA, not portable recovery.
+
+Storage investigation preceded selection: the existing provider supports a 256 KiB
+decoded generation through 3,000-byte encoded chunks (2,250 raw bytes), followed by
+a binding/digest manifest. The CA-specific JSON envelope is bounded to 4,096 bytes,
+so at most two chunks plus one manifest are needed. It binds installation identity,
+private key and matching public certificate. Native maximum-size and noninteractive
+operation remain unqualified; deterministic backend tests are not native evidence.
+The provider returns private bytes in process memory, not a hardware signer.
+
+Schema 21 stores only singleton revision, opaque handle and public certificate.
+The existing sole coordinator registers candidates, fences old authority before
+external work, writes and verifies protected material, atomically publishes matching
+metadata, then activates acknowledged authority. Failed replacement never falls
+back to an old signer. Ordinary backup/read/export surfaces contain no signing key;
+public certificate export attests neither material availability nor installed trust.
+
+Every backup restore removes CA authority and advances its revision, even if retired
+physical keyring items remain. Public metadata may remain as history, but interception
+requires explicit replacement and client trust updates after **every restore**.
+Ordinary restarts preserve selected CA identity. Restore never accesses the keyring
+or revives a backup handle; installation identity alone is not anti-rollback proof.
+
+Roots last five years; leaves last at most 24 hours and never outlive the root.
+Canonical DNS/IP SAN issuance rejects invalid hosts, uses fresh P-256 leaf keys and
+positive random serials, retains at most 256 cached leaves, and admits one issuance
+without waiters. Cache pressure evicts the bounded cache rather than allocating
+unbounded work. Closing the signer withdraws issuance and drops cached references.
 
 ## Direct stdio supervision
 

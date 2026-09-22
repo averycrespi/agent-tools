@@ -25,7 +25,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 20
+	CurrentSchema           = 21
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -41,7 +41,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql", "017_failure_diagnostics.sql", "018_traffic_selection.sql", "019_http_credentials.sql", "020_http_grants.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql", "017_failure_diagnostics.sql", "018_traffic_selection.sql", "019_http_credentials.sql", "020_http_grants.sql", "021_http_ca.sql"}
 
 type Identity struct {
 	TrafficGeneration string
@@ -404,6 +404,9 @@ func (store *Store) verify(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
 	if err := store.verifyMigrationStructure(ctx, "020_http_grants.sql"); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
+	if err := store.verifyMigrationStructure(ctx, "021_http_ca.sql"); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
 	if _, err := store.SelectedTraffic(ctx); err != nil {

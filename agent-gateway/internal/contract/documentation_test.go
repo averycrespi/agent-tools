@@ -30,11 +30,14 @@ func TestDocumentationContractDrift(t *testing.T) {
 		},
 		"../../docs/operators/backup-and-recovery.md": {
 			"Gateway must be stopped", "agent-gateway storage verify", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
+			"Every restore invalidates interception CA authority.",
 		},
 		"../../DESIGN.md": {
 			"## Documentation authority", "docs/design/public-contract.md", "docs/design/identity-and-authorization.md", "docs/design/storage-and-recovery.md",
 			"docs/design/downstream-servers.md", "docs/design/invocation-and-ingress.md", "docs/design/administrative-control-plane.md",
 		},
+		"../../docs/design/downstream-servers.md":     {"## Installation interception CA", "4,096 bytes", "after **every restore**"},
+		"../../docs/design/invocation-and-ingress.md": {"## Unselected HTTP proxy engine", "one hour from admission", "no blanket hard lifetime"},
 		"../../docs/design/identity-and-authorization.md": {
 			"grant_requests", "sole online schema-10 DML owner",
 		},
@@ -45,7 +48,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"no-check adoption", "clean revision",
 		},
 		"../../CLAUDE.md": {
-			"`internal/contract` is the executable source", "`internal/composition` is the sole production constructor", "`internal/remote` is the sole production downstream/OAuth HTTP client",
+			"`internal/contract` is the executable source", "`internal/composition` is the sole production constructor", "`internal/remote` is the sole production downstream/OAuth/proxy HTTP client",
 			"Online CLI commands acquire one selected administrator bearer", "docs/maintainers/release-verification.md", "npm run ui:verify-supply-chain",
 		},
 	}

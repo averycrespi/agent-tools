@@ -780,8 +780,11 @@ func (coordinator *Coordinator) removeCandidate(
 
 func authorityAuditTarget(namespace Namespace) contract.AuditTarget {
 	kind := "server"
-	if namespace.kind == RecordHTTPCredential {
+	switch namespace.kind {
+	case RecordHTTPCredential:
 		kind = "http_credential"
+	case RecordHTTPCA:
+		kind = "installation"
 	}
 	return contract.AuditTarget{Type: kind, ID: namespace.owner}
 }

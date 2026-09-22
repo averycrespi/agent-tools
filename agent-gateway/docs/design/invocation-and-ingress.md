@@ -44,6 +44,63 @@ of queued completion reserve 640 bytes, including the full 512-byte payload;
 existing immutable per-member MCP diagnostics and no-added-dwell batching remain.
 No production proxy listener, background terminal retry or replay is introduced.
 
+## Unselected HTTP proxy engine
+
+`internal/httpproxy` consumes the sole composition-owned authenticator, authority,
+receipt coordinator, HTTP material service, CA signer, remote factory and lifecycle.
+It accepts an already-owned listener only in controlled fixtures; no production
+listener, public activation flag or alternative credential slot is selected.
+
+Absolute-form plain HTTP uses request policy. CONNECT authenticates its original
+bearer and selects either explicitly granted opaque TCP or local TLS interception.
+Each intercepted H1 request/H2 stream freshly authenticates that bearer, pins its
+original principal/credential identity and performs durable admission/confirmation.
+Origin requests neither supply nor receive proxy credentials. Later revocation
+rejects new admissions without canceling admitted work. Interception itself grants
+no upstream permission. Invalid authenticated coordinates retain only invalid-request
+evidence, not the submitted URL. Parser-level malformed framing is rejected before
+an authenticated request exists.
+
+CONNECT fixes HTTPS authority; SNI and inner Host must agree through the policy
+canonicalizer. Forwarding uses the resulting canonical path/authority, never
+forwarding headers or a reparsed raw URL. Duplicate Host and malformed framing
+are refused by the HTTP parser; accepted framing is reserialized on a fresh hop.
+Intercepted upgrades/WebSockets and trailers reject; explicit tunnels are opaque
+and never run inner request policy or credential injection. No HTTP/3 or TLS-error
+fallback exists.
+
+The remote owner resolves a bounded complete address set once, evaluates every
+answer, pins it, and dials only its first validated address after confirmed evidence.
+It rechecks unconditional exclusions and current composition-owned listener
+reservations at dial. Callback endpoints are reserved before binding. Private
+permission belongs only to the selected request/tunnel grant. Each request uses a
+fresh HTTP/1 upstream transport with a single-use dial, explicit H1-only protocol,
+no keepalive, proxy, compression, redirect client or body replay. Thus H2 client
+streams cannot coalesce upstream connections or transfer another principal/path's
+permission. Selected HTTPS credential material replaces its single header only
+after admission; missing material never falls back. An authorized upstream can
+itself disclose any secret it receives; the proxy cannot prevent that disclosure.
+
+Bounds are executable in `contract/http_engine.go`: 256 accepted connections, 128
+active work owners, 96 per principal, 32 H2 streams per connection, 32 KiB streaming
+buffers and header ceiling, 10-second dial/TLS handshake, 15-second headers,
+60-second I/O inactivity, and 10-second caller drain. The H2 plaintext frame adapter
+bounds incomplete frame/header phases without interpreting HPACK; HEADERS and
+CONTINUATION share a nonrenewable header deadline. Between complete frames no
+header timer caps a progressing stream. Existing H2 preface/SETTINGS and idle/ping
+bounds remain. Rejections, uploads, response writes and cleanup are bounded;
+request-upload teardown joins before completion evidence and handler return.
+Occupancy permits 32 streams plus 32 tunnels with headroom, but is **not** capacity
+qualification. Prior failed capacity evidence remains applicable.
+
+Opaque tunnels expire one hour from admission, never renewed by traffic. Expiry
+closes both sides and never reconnects; in-flight effects may be unknown. Intercepted
+downloads/SSE have no blanket hard lifetime. Shutdown fences new work, closes owned
+connections, and retains actual owner accounting until cleanup settles. Timeout
+reports unconfirmed cleanup, not permission to close storage underneath live work.
+One completion attempt carries only safe status, byte counts and outcome; interrupted
+or uncertain dispatch remains unknown and is never replayed.
+
 ## Governed invocation and audit evidence
 
 Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/administration.md#mcp-invocation-namespace-cutover).

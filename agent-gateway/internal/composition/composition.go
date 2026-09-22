@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,7 +21,9 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/grantrequests"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpproxy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/mcpingress"
@@ -117,6 +120,9 @@ type Composition struct {
 	refresh              *oauth.RefreshService
 	replacements         *servercredentials.Service
 	httpCredentials      *httpcredentials.Service
+	httpCA               *httpca.Service
+	httpProxy            *httpproxy.Engine
+	httpNow              func() time.Time
 	manager              *runtimes.Manager
 	publisher            *activePublisher
 	callbacks            *callbackSlots
@@ -130,6 +136,37 @@ type Composition struct {
 	drainFenced          chan struct{}
 	drainDone            chan struct{}
 	drainResult          runtimes.DrainResult
+}
+
+// prepareHTTPProxy is intentionally unselected: no production caller or CLI
+// flag invokes it. Composition fixtures exercise the complete owner bundle.
+func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy netip.AddrPort) (*httpproxy.Engine, error) {
+	built.startMu.Lock()
+	defer built.startMu.Unlock()
+	if built.started || built.startFailed || built.httpProxy != nil || !main.IsValid() || !proxy.IsValid() || main.Port() == 0 || proxy.Port() == 0 || built.httpCA == nil {
+		return nil, httpproxy.ErrUnavailable
+	}
+	signer, err := built.httpCA.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	admissions, err := invocation.NewAdmissionCoordinator(built.invocationRepository, built.authorization)
+	if err != nil {
+		return nil, err
+	}
+	listeners := func() []netip.AddrPort {
+		all := []netip.AddrPort{main, proxy}
+		if built.oauthCallbacks != nil {
+			built.oauthCallbacks.mu.Lock()
+			defer built.oauthCallbacks.mu.Unlock()
+			for _, lease := range built.oauthCallbacks.leases {
+				all = append(all, lease.address)
+			}
+		}
+		return all
+	}
+	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, Remote: built.remoteFactory, Signer: signer, Listeners: listeners, Now: built.httpNow})
+	return built.httpProxy, err
 }
 
 func (built *Composition) Servers() *servers.Repository { return built.servers }
@@ -455,7 +492,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil
 	}
 	references := &diagnosticReferences{process: options.DiagnosticProcessID}
-	built := &Composition{diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready}
+	built := &Composition{diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -746,6 +783,13 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct refresh_service: %w", err)
 	}
+	if err := httpca.ValidateStartup(context.Background(), options.Store); err != nil {
+		return nil, fmt.Errorf("validate HTTP CA: %w", err)
+	}
+	built.httpCA, err = httpca.New(options.Store, built.keyring, options.InstallationID, options.Clock, options.Entropy)
+	if err != nil {
+		return nil, fmt.Errorf("construct HTTP CA: %w", err)
+	}
 	if err := httpcredentials.ValidateStartup(context.Background(), options.Store); err != nil {
 		return nil, fmt.Errorf("validate HTTP credentials: %w", err)
 	}
@@ -898,6 +942,12 @@ func (built *Composition) beginDrain() {
 	if built.flows != nil {
 		built.flows.Shutdown()
 	}
+	if built.httpProxy != nil {
+		built.httpProxy.BeginDrain()
+	}
+	if built.httpCA != nil {
+		built.httpCA.Close()
+	}
 	if built.keyring != nil {
 		built.keyring.Drain()
 	}
@@ -910,7 +960,7 @@ func (built *Composition) beginDrain() {
 
 func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
 	ctx := context.Background()
-	waits := make(chan bool, 7)
+	waits := make(chan bool, 9)
 	waitCount := 0
 	for _, wait := range []func(context.Context) bool{
 		func(ctx context.Context) bool {
@@ -925,6 +975,7 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 		func(ctx context.Context) bool { return built.flows == nil || built.flows.Wait(ctx) },
 		func(ctx context.Context) bool { return built.oauthCallbacks == nil || built.oauthCallbacks.Wait(ctx) },
 		func(ctx context.Context) bool { return built.keyring == nil || built.keyring.Wait(ctx) },
+		func(ctx context.Context) bool { return built.httpProxy == nil || built.httpProxy.Wait(ctx) == nil },
 	} {
 		waitCount++
 		wait := wait

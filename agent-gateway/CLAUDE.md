@@ -74,6 +74,8 @@ internal/catalog/            Durable descriptors, normalization, active publicat
 internal/credentialauthority/ Current server credential resolution
 internal/servercredentials/  MCP credential cutover
 internal/httpcredentials/    Scoped HTTP credentials
+internal/httpca/             Installation CA lifecycle
+internal/httpproxy/          Unselected HTTP/CONNECT engine
 internal/runtimes/           Process-local reconciliation and stdio supervision
 internal/remote/             Hardened destination validation and HTTP transport construction
 internal/oauth/              Resource/issuer trust, registration, flows, callback, and refresh
@@ -124,8 +126,8 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 
 - `internal/composition` is the sole production constructor and lifecycle owner for the authorization, discovery, invocation, runtime, catalog, OAuth, and keyring graph. Root consumes narrow complete bundles; it must not create a second authenticator, repository, route consumer, or active-capability path.
 - Keep [MCP/HTTP evidence](docs/design/invocation-and-ingress.md#http-traffic-evidence) and [paired storage](docs/design/storage-and-recovery.md) boundaries.
-- SQL owners: servers, catalog, authorization (online principal/grant), grantrequests, invocation, audit (control-plane), and storage (migration DDL). Cross-owner mutations use supplied transactions, never nested mutation admission.
-- Keep storage/keyring/network/process work outside unrelated locks and admissions. Mutations that may expose authority must arm durable intent before uncertain external work and fail closed; never add online repair or automatic replay.
+- Domain owners retain SQL; storage owns DDL. Cross-owner mutations use supplied transactions, never nested mutation admission.
+- Keep external work outside unrelated locks/admissions. Arm durable intent before authority-affecting external work; fail closed without online repair or replay.
 - Preserve the [authority](docs/design/invocation-and-ingress.md#agent-authentication-and-leases) and [storage admission](docs/design/storage-and-recovery.md) contracts: never wait for authority while holding storage, extend acquisition deadlines into active SQL, or duplicate actual-owner occupancy.
 
 ### Diagnostic ownership
@@ -137,7 +139,7 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 - Follow [installation safety](docs/operators/installation-safety.md): preserve legacy-path refusal, exact completed-tombstone recognition and explicit existing/custom roots. The migrator is retired; never clear tombstones, reservations or recovery markers as naming cleanup. LaunchAgent commands remain bounded to five seconds/1 MiB, retain child identity through cleanup and never replay mutations.
 - `internal/service` owns canonical LaunchAgent management without private database or credential access. Keep strict literal plist parsing, stable nonblocking management locking, installed-value preservation, loaded intent and one-shot bootout/bootstrap. The composition source guard registers only `internal/service/runner_unix.go` as its `exec.Command` owner; production entry allows only absolute `/bin/launchctl` and `/bin/ps`. Utility children remain unreaped until group cleanup; never signal Gateway PIDs or substitute basename scans for installation ownership. Darwin cleanup may accept `EPERM` only with fixed-size singleton-group proof of the matching owned zombie; additional members, incomplete evidence or inspection failure retain the error, without retrying the signal. Keep the bounded one-record query, not the unbounded-retry slice helper. Native tests require separate disposable-resource consent; Linux fixtures are not native proof.
 - Runtime state, handles, routes, OAuth transients, sessions, and cursors are process-local. Never serialize or resume them after restart.
-- `internal/remote` is the sole production downstream/OAuth HTTP client and transport factory. The only separate client is `internal/controlclient` for public administration at numeric loopback or an explicitly selected trusted forwarding hostname.
+- `internal/remote` is the sole production downstream/OAuth/proxy HTTP client and transport factory; only `internal/controlclient` handles public administration. Keep the [engine](docs/design/invocation-and-ingress.md#unselected-http-proxy-engine) unselected; CA commands remain stopped and composition-owned.
 - Direct stdio uses validated absolute executables, literal arguments, exact working directories, clean environments, fresh process groups, bounded streams, and identity-validated TERM/KILL/reap cleanup. Never signal an unverified PID or treat unconfirmed stop as success.
 - Downstream calls are one-shot. Preserve the pre-start versus start-uncertain marker, pinned capability revalidation, no reroute, and no automatic retry/reconnect behavior.
 - Reconciliation completion reattempts only typed pre-mutation storage admission refusal, within the fixed four-attempt bound. Release the lifecycle lock during acquisition backoff and revalidate the exact work/generation/drain fence before each attempt; never replay external work or uncertain persistence. Explicit catalog refresh holds the lifecycle lock through terminal-operation mutation cleanup, matching admitted reconciliation completion. An operation row can be readable before the writer is released; E2E scenarios must use `WaitSettledOperation` before the next mutation, not terminal-state polling alone.

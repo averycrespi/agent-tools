@@ -37,7 +37,7 @@ func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []pr
 		return path == "internal/service/runner_unix.go" || path == "cmd/agent-gateway/online_auth_flows.go" || path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
 	}
 	processConstructors := map[string]string{"internal/service/runner_unix.go": "Command", "cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
-	allowedHTTP := map[string]bool{"internal/remote/remote.go": true, "internal/controlclient/controlclient.go": true}
+	allowedHTTP := map[string]bool{"internal/remote/remote.go": true, "internal/remote/proxy.go": true, "internal/controlclient/controlclient.go": true}
 	allowedSDK := map[string]bool{"internal/mcpingress/handler.go": true}
 	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}
 	for _, source := range sources {
@@ -458,7 +458,7 @@ func productionSliceViolations(source productionSource) []string {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" {
+		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" && source.path != "internal/httpproxy/engine.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited invocation import %s", source.path, imported))
 		}
 		if strings.HasSuffix(imported, "/internal/selfservice") && source.path != "internal/composition/composition.go" {
