@@ -152,7 +152,7 @@ func credential() contract.AdminCredential {
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
 	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
-	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Backups: &fakeBackups{}, Status: func() contract.SystemStatus {
+	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Backups: &fakeBackups{}, Status: func(context.Context) (contract.SystemStatus, error) {
 		return contract.SystemStatus{
 			Process: contract.ProcessStatus{State: contract.ProcessReady, Ready: true, StartedAt: "2026-08-22T18:00:00Z"},
 			SQLite:  contract.SQLiteStatus{State: contract.SQLiteReady, SchemaVersion: "3", Revision: "1"},
@@ -164,7 +164,7 @@ func newTestHandler(t *testing.T) http.Handler {
 			},
 			Backup:    contract.BackupStatus{State: contract.BackupIdle},
 			Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: contract.AgentAuthDenyAll},
-		}
+		}, nil
 	}})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	if err != nil {
@@ -197,6 +197,26 @@ func TestStatusIsAuthenticatedNoStoreAndUsesSnapshot(t *testing.T) {
 	if got := response.Body.String(); !strings.Contains(got, `"keyring":{"capability":"interaction_required"}`) || strings.Contains(got, "remediation") || !strings.Contains(got, `"keyring_work":{"in_use":1,"limit":1,"saturated":true}`) || !strings.Contains(got, `"grant_requests":{"in_use":2,"limit":4096,"saturated":false}`) || !strings.Contains(got, `"grant_request_evidence_bytes":{"in_use":64,"limit":268435456,"saturated":false}`) {
 		t.Fatalf("unsafe or incomplete status: %s", got)
 	}
+}
+
+func TestStatusAccountingFailureIsAuthenticatedAndTyped(t *testing.T) {
+	calls := 0
+	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Status: func(ctx context.Context) (contract.SystemStatus, error) {
+		require.NoError(t, ctx.Err())
+		calls++
+		return contract.SystemStatus{}, backup.ErrInvalidArtifact
+	}})
+	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
+	require.NoError(t, err)
+	response := perform(boundary, http.MethodGet, "/api/v2/system-status", "", nil)
+	require.Equal(t, http.StatusUnauthorized, response.Code)
+	require.Zero(t, calls)
+	response = perform(boundary, http.MethodGet, "/api/v2/system-status", "", map[string]string{"Authorization": "Bearer " + testBearer})
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	require.Equal(t, 1, calls)
+	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	require.Contains(t, response.Body.String(), `"code":"storage_unavailable"`)
+	require.NotContains(t, response.Body.String(), backup.ErrInvalidArtifact.Error())
 }
 
 func TestAuthenticationDomainsAndAmbiguity(t *testing.T) {

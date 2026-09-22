@@ -319,7 +319,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		TriggerServer:    runtime.TriggerServer,
 		CatalogTraversal: runtime.CatalogServerStatus,
 		DispatchStatus:   runtime.DispatchServerStatus,
-		Status: func() contract.SystemStatus {
+		Status: func(ctx context.Context) (contract.SystemStatus, error) {
+			backupRecords, backupIdempotency, accountingErr := backupManager.AccountingStatus(ctx)
+			if accountingErr != nil {
+				return contract.SystemStatus{}, accountingErr
+			}
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
 				current = identity
@@ -337,8 +341,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			status.HTTPProxy = &proxyStatus
 			status.Backup = backupManager.Status()
 			status.Limits.BackupWork = backupManager.WorkStatus()
-			status.Limits.BackupRecords = backupManager.RecordStatus()
-			status.Limits.IdempotencyRecords = backupManager.IdempotencyStatus()
+			status.Limits.BackupRecords = backupRecords
+			status.Limits.IdempotencyRecords = backupIdempotency
 			status.Limits.EventStreams = eventHub.Status()
 			status.Limits.ServerReconciliations = runtime.ReconciliationStatus()
 			status.Limits.DownstreamRuntimes = runtime.RuntimeOccupancy()
@@ -375,7 +379,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			if boundary != nil {
 				status.Limits.HTTPRegular, status.Limits.HTTPControlAuth, status.Limits.HTTPAdmin, status.Limits.HTTPHealth = boundary.AdmissionStatus()
 			}
-			return status
+			return status, nil
 		},
 	})
 	boundary, err = httpboundary.New(httpboundary.Options{
