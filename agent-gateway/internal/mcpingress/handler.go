@@ -136,6 +136,9 @@ func New(options Options) *Handler {
 	modern := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{
+			// Gateway's outer boundary owns Host/Origin validation and authentication,
+			// including explicitly allowed forwarding hostnames on loopback listeners.
+			DisableLocalhostProtection:   true,
 			Stateless:                    true,
 			JSONResponse:                 true,
 			MaxRequestBodyBytes:          int64(limit("mcp_body_bytes")),
@@ -610,8 +613,11 @@ func newLegacySDK(sessionID string, toolsEnabled bool) http.Handler {
 	return mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{
-			JSONResponse:        true,
-			MaxRequestBodyBytes: int64(limit("mcp_body_bytes")),
+			// As with modern ingress, Gateway's authenticated outer boundary owns
+			// Host/Origin validation; the SDK's narrower localhost guard is redundant.
+			DisableLocalhostProtection: true,
+			JSONResponse:               true,
+			MaxRequestBodyBytes:        int64(limit("mcp_body_bytes")),
 		},
 	)
 }

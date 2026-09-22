@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,9 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/grantrequests"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpproxy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/mcpingress"
@@ -69,7 +73,11 @@ type ControlAPIDependencies struct {
 
 	GrantRequests *grantrequests.AdminService
 	Invocations   *invocation.ReadService
+	HTTPTraffic   *invocation.ReadService
 	Audit         *audit.Repository
+
+	HTTPPolicies    *authorization.Repository
+	HTTPCredentials *httpcredentials.Service
 }
 
 type Composition struct {
@@ -111,6 +119,11 @@ type Composition struct {
 	oauthCallbacks       *oauthCallbackListeners
 	refresh              *oauth.RefreshService
 	replacements         *servercredentials.Service
+	httpCredentials      *httpcredentials.Service
+	httpCA               *httpca.Service
+	httpProxy            *httpproxy.Engine
+	httpProxyAuthority   string
+	httpNow              func() time.Time
 	manager              *runtimes.Manager
 	publisher            *activePublisher
 	callbacks            *callbackSlots
@@ -124,6 +137,56 @@ type Composition struct {
 	drainFenced          chan struct{}
 	drainDone            chan struct{}
 	drainResult          runtimes.DrainResult
+}
+
+// PrepareHTTPProxy selects the sole HTTP bundle before Start. The caller owns
+// both validated listener binds; failure is fatal only for explicit selection.
+func (built *Composition) PrepareHTTPProxy(ctx context.Context, main, proxy netip.AddrPort) (*httpproxy.Engine, error) {
+	return built.prepareHTTPProxy(ctx, main, proxy)
+}
+
+func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy netip.AddrPort) (*httpproxy.Engine, error) {
+	built.startMu.Lock()
+	defer built.startMu.Unlock()
+	if built.started || built.startFailed || built.httpProxy != nil || !main.IsValid() || !proxy.IsValid() || !main.Addr().Is4() || !main.Addr().IsLoopback() || !proxy.Addr().Is4() || !proxy.Addr().IsLoopback() || main == proxy || main.Port() == 0 || proxy.Port() == 0 || built.httpCA == nil {
+		return nil, httpproxy.ErrUnavailable
+	}
+	signer, err := built.httpCA.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	admissions, err := invocation.NewAdmissionCoordinator(built.invocationRepository, built.authorization)
+	if err != nil {
+		return nil, err
+	}
+	listeners := func() []netip.AddrPort {
+		all := []netip.AddrPort{main, proxy}
+		if built.oauthCallbacks != nil {
+			built.oauthCallbacks.mu.Lock()
+			defer built.oauthCallbacks.mu.Unlock()
+			for _, lease := range built.oauthCallbacks.leases {
+				all = append(all, lease.address)
+			}
+		}
+		return all
+	}
+	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, Remote: built.remoteFactory, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
+	if err == nil {
+		built.httpProxyAuthority = proxy.String()
+	}
+	return built.httpProxy, err
+}
+
+func (built *Composition) HTTPProxyStatus() contract.HTTPProxyStatus {
+	built.startMu.Lock()
+	defer built.startMu.Unlock()
+	if built.httpProxy == nil {
+		return contract.HTTPProxyStatus{}
+	}
+	status := built.httpProxy.Status()
+	status.Authority = built.httpProxyAuthority
+	status.Ready = status.Ready && status.CAReady && built.ready() && built.accepting.Load()
+	return status
 }
 
 func (built *Composition) Servers() *servers.Repository { return built.servers }
@@ -150,10 +213,10 @@ func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
 	}, true
 }
 func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
-	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil {
+	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil || built.httpCredentials == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, Audit: built.auditRepository}, true
+	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization}, true
 }
 func (built *Composition) authorityDependenciesComplete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
@@ -449,7 +512,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil
 	}
 	references := &diagnosticReferences{process: options.DiagnosticProcessID}
-	built := &Composition{diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready}
+	built := &Composition{diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -740,6 +803,24 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct refresh_service: %w", err)
 	}
+	if err := httpca.ValidateStartup(context.Background(), options.Store); err != nil {
+		return nil, fmt.Errorf("validate HTTP CA: %w", err)
+	}
+	built.httpCA, err = httpca.New(options.Store, built.keyring, options.InstallationID, options.Clock, options.Entropy)
+	if err != nil {
+		return nil, fmt.Errorf("construct HTTP CA: %w", err)
+	}
+	if err := httpcredentials.ValidateStartup(context.Background(), options.Store); err != nil {
+		return nil, fmt.Errorf("validate HTTP credentials: %w", err)
+	}
+	httpRepository, err := httpcredentials.NewRepository(options.Store, options.Clock, options.Entropy, built.authorization)
+	if err != nil {
+		return nil, fmt.Errorf("construct HTTP credentials: %w", err)
+	}
+	built.httpCredentials, err = httpcredentials.NewService(httpRepository, built.keyring, options.InstallationID)
+	if err != nil {
+		return nil, fmt.Errorf("construct HTTP credential service: %w", err)
+	}
 	if err := check("replacement_service"); err != nil {
 		return nil, err
 	}
@@ -881,6 +962,9 @@ func (built *Composition) beginDrain() {
 	if built.flows != nil {
 		built.flows.Shutdown()
 	}
+	if built.httpProxy != nil {
+		built.httpProxy.BeginDrain()
+	}
 	if built.keyring != nil {
 		built.keyring.Drain()
 	}
@@ -893,7 +977,7 @@ func (built *Composition) beginDrain() {
 
 func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runtimes.DrainResult) {
 	ctx := context.Background()
-	waits := make(chan bool, 7)
+	waits := make(chan bool, 9)
 	waitCount := 0
 	for _, wait := range []func(context.Context) bool{
 		func(ctx context.Context) bool {
@@ -908,6 +992,7 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 		func(ctx context.Context) bool { return built.flows == nil || built.flows.Wait(ctx) },
 		func(ctx context.Context) bool { return built.oauthCallbacks == nil || built.oauthCallbacks.Wait(ctx) },
 		func(ctx context.Context) bool { return built.keyring == nil || built.keyring.Wait(ctx) },
+		func(ctx context.Context) bool { return built.httpProxy == nil || built.httpProxy.Wait(ctx) == nil },
 	} {
 		waitCount++
 		wait := wait
@@ -933,6 +1018,10 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 			result.Verified = int(ownedBefore - ownedAfter)
 			result.Unconfirmed = int(ownedAfter)
 		}
+	}
+	// Signing material outlives every owned connection and completion attempt.
+	if built.httpCA != nil {
+		built.httpCA.Close()
 	}
 	if built.traffic != nil && built.traffic.Close() != nil {
 		clean = false

@@ -2447,6 +2447,16 @@ export async function runSystemStatus(
   let eventStreams = 0;
   let currentStatus = {
     ...overviewStatusFixture(),
+    http_proxy: {
+      enabled: true,
+      ready: false,
+      ca_ready: true,
+      authority: "127.0.0.1:8212",
+      connections: { in_use: 4, limit: 256, saturated: false },
+      work: { in_use: 3, limit: 128, saturated: false },
+      active_streams: 2,
+      active_tunnels: 1,
+    },
     traffic: {
       ready: true,
       faulted: false,
@@ -2601,6 +2611,7 @@ export async function runSystemStatus(
   currentStatus = {
     ...currentStatus,
     process: { ...currentStatus.process, state: "ready", ready: true },
+    http_proxy: { ...currentStatus.http_proxy, ready: true },
     sqlite: { ...currentStatus.sqlite, state: "ready", latched: false },
     keyring: { capability: "ready" },
     limits: Object.fromEntries(
@@ -2624,6 +2635,7 @@ export async function runSystemStatus(
   for (const faulted of [false, true]) {
     currentStatus = {
       ...currentStatus,
+      http_proxy: { ...currentStatus.http_proxy, ready: !faulted },
       traffic: {
         ...currentStatus.traffic,
         ready: !faulted,
@@ -2635,7 +2647,7 @@ export async function runSystemStatus(
     await page
       .getByText(
         faulted
-          ? "MCP traffic persistence needs attention"
+          ? "Shared traffic persistence needs attention"
           : "No current issues require operator action.",
         { exact: true },
       )
@@ -2647,7 +2659,13 @@ export async function runSystemStatus(
     )
       fail("Traffic-only failure disabled healthy administration");
     await expect(
-      page.getByText("MCP traffic storage", { exact: true }),
+      page.getByText("Shared traffic storage", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("HTTP proxy", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("2 active requests/streams · 1 opaque tunnels", {
+        exact: true,
+      }),
     ).toBeVisible();
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
@@ -2674,6 +2692,7 @@ export async function runSystemStatus(
   }
   currentStatus = {
     ...currentStatus,
+    http_proxy: { ...currentStatus.http_proxy, ready: true },
     traffic: {
       ...currentStatus.traffic,
       ready: true,

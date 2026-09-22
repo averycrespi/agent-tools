@@ -123,7 +123,15 @@ agent-gateway backup restore BACKUP_ID \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 18, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
+Every restore invalidates interception CA authority. When proxy activation becomes
+available, interception after restore will require explicit CA replacement and
+client trust updates. Ordinary restarts preserve the CA. Backups contain public
+certificate metadata, never its protected signing key; surviving retired keyring
+items cannot reactivate a backed-up CA. Key loss likewise requires a new CA.
+The proxy engine remains unselected; no production proxy or trust installation
+command is introduced here. Stopped CA management is available as described below.
+
+Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 21, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
 
 Format-2 restore verifies both stores before selecting a fresh traffic generation.
 Accepted legacy single-database backups receive staged extraction; pre-invocation
@@ -189,6 +197,36 @@ Success exits 0. Invalid arguments/output/flags and unusable replacement sinks e
 ```
 
 Restore's corresponding title is `The Gateway is running. Stop it before restoring a backup.` The offline `uncertain:false` field is not proof of rollback: exit 7 or output loss can occur after generation installation or marker work. Nothing is replayed or compensated automatically.
+
+## Stopped interception CA commands
+
+See `agent-gateway http ca --help`. Disable every service launcher and stop Gateway
+before using these commands. They require an existing installation, exclusive
+process ownership and its exact installation ID (from initialization or status).
+They do not enable the proxy, install trust, or export a private key.
+
+```bash
+agent-gateway http ca create --data-dir /path/to/gateway-data \
+  --installation-id ID --confirm
+agent-gateway http ca export --data-dir /path/to/gateway-data \
+  --installation-id ID > /safe/path/gateway-ca.pem
+# Explicit rotation, key loss, or after EVERY backup restore:
+agent-gateway http ca replace --data-dir /path/to/gateway-data \
+  --installation-id ID --confirm
+```
+
+`create` is first-use only; it cannot replace an existing or restored CA.
+`replace` selects new protected signing material and a new public certificate.
+After creation or replacement, export again and explicitly update client trust
+before interception. Ordinary restart never calls either mutation. The native
+keyring must be available; there is no plaintext fallback.
+
+`export` writes only public PEM to stdout and never reads the keyring. Its success
+is not proof that signing material is available or that client trust is installed;
+restored historical public metadata can still be exported. Errors are bounded,
+redacted stderr with typed exits: usage 2, installation in use 5, unavailable 7.
+A mutation failure or lost output can follow authority fencing or replacement:
+inspect before another deliberate attempt; no automatic retry or rollback occurs.
 
 ## Failure handling
 

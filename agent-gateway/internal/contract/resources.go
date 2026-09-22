@@ -81,10 +81,26 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/events", Method: "POST", RequestSchema: "EmptyObject", SuccessSchema: "EventStream", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/audit-events", Method: "GET", RequestSchema: "AuditListQuery", SuccessSchema: "AuditPage", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v2/audit-events/{id}", Method: "GET", RequestSchema: "AuditItemQuery", SuccessSchema: "AuditItem", SuccessStatuses: []int{200}},
+	{Pattern: "/api/v2/http/traffic", Method: "GET", RequestSchema: "HTTPTrafficQuery", SuccessSchema: "HTTPTrafficPage", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/http/traffic/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "HTTPTrafficRecord", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/mcp/invocations", Method: "GET", RequestSchema: "InvocationListQuery", SuccessSchema: "InvocationPage", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v2/mcp/invocations/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "Invocation", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/admin-authority", Method: "GET", RequestSchema: "None", SuccessSchema: "AdminAuthority", SuccessStatuses: []int{200}, ETag: true},
 	{Pattern: "/api/v2/admin-credentials/{id}/rotation-completion", Method: "POST", RequestSchema: "AdminCredentialRotationCompletion", SuccessSchema: "AdminCredentialRotationResult", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/http/grants", Method: "GET", RequestSchema: "HTTPGrantListQuery", SuccessSchema: "QueryPage<HTTPGrantTableItem>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/http/grants", Method: "POST", RequestSchema: "HTTPGrantWrite", SuccessSchema: "HTTPGrant", SuccessStatuses: []int{201}, ETag: true},
+	{Pattern: "/api/v2/http/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "HTTPGrant", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/http/grants/{id}", Method: "PATCH", RequestSchema: "HTTPGrantWrite", SuccessSchema: "HTTPGrant", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/http/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
+	{Pattern: "/api/v2/http/defaults/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "PrincipalHTTPDefault", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/http/defaults/{id}", Method: "PATCH", RequestSchema: "HTTPDefaultWrite", SuccessSchema: "PrincipalHTTPDefault", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/http/access-preview", Method: "POST", RequestSchema: "HTTPAccessInput", SuccessSchema: "HTTPAccessPreview", SuccessStatuses: []int{200}},
+	{Pattern: "/api/v2/http/credentials", Method: "GET", RequestSchema: "HTTPCredentialListQuery", SuccessSchema: "QueryPage<HTTPCredential>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/http/credentials", Method: "POST", RequestSchema: "HTTPCredentialCreate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{201}, ETag: true},
+	{Pattern: "/api/v2/http/credentials/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/http/credentials/{id}", Method: "PATCH", RequestSchema: "HTTPCredentialUpdate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/http/credentials/{id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
+	{Pattern: "/api/v2/http/credentials/{id}/rotate", Method: "POST", RequestSchema: "HTTPCredentialRotate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 }
 
 func ResourceMechanics() []ResourceMechanic {
@@ -109,6 +125,7 @@ const (
 	SecretSinkAgentCredentialCreation            SecretSink  = "agent_credential_creation" //nolint:gosec // Public sink name, not a credential.
 	SecretSinkBrowserOneTimeDisplay              SecretSink  = "browser_one_time_display"
 	SecretSinkUserInitiatedClipboard             SecretSink  = "user_initiated_clipboard"
+	SecretSinkHTTPProxyEnvironment               SecretSink  = "http_proxy_client_environment" //nolint:gosec // Public sink name, not a credential.
 	SecretOutputFileMode                         fs.FileMode = 0o600
 	SecretOutputTerminator                                   = "\n"
 )
@@ -125,5 +142,6 @@ func ApprovedSecretSinks() []SecretSink {
 		SecretSinkAgentCredentialCreation,
 		SecretSinkBrowserOneTimeDisplay,
 		SecretSinkUserInitiatedClipboard,
+		SecretSinkHTTPProxyEnvironment,
 	}
 }

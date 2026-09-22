@@ -81,6 +81,13 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 func TestCLIRetainedFileSecurity(t *testing.T) {
 	root := newRootCmd()
 	fileOwners := map[string]bool{
+		"http grant create":             true,
+		"http grant update":             true,
+		"http default update":           true,
+		"http test-access":              true,
+		"http credential create":        true,
+		"http credential update":        true,
+		"http credential rotate":        true,
 		"mcp server create":             true,
 		"mcp server update":             true,
 		"mcp server credential replace": true,
@@ -97,6 +104,8 @@ func TestCLIRetainedFileSecurity(t *testing.T) {
 	for _, test := range []struct {
 		args []string
 	}{
+		{args: []string{"http", "credential", "create", "--secret", "secret-canary"}},
+		{args: []string{"http", "credential", "rotate", idForSecurityTest(), "--secret", "secret-canary"}},
 		{args: []string{"mcp", "server", "create", "--transport", "secret-canary"}},
 		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--values", "secret-canary"}},
 		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--client-secret", "secret-canary"}},

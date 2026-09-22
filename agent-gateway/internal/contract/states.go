@@ -87,6 +87,7 @@ const (
 	InvalidationCatalog          InvalidationKind = "catalog"
 	InvalidationAuthorization    InvalidationKind = "authorization"
 	InvalidationGrantRequests    InvalidationKind = "grant_requests"
+	InvalidationHTTPCredentials  InvalidationKind = "http_credentials"
 	InvalidationInvocations      InvalidationKind = "invocations"
 )
 
@@ -102,5 +103,6 @@ func InvalidationKinds() []InvalidationKind {
 		InvalidationAuthorization,
 		InvalidationInvocations,
 		InvalidationGrantRequests,
+		InvalidationHTTPCredentials,
 	}
 }

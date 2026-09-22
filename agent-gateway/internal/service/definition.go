@@ -23,6 +23,7 @@ const definitionLimit = 1 << 20
 
 // Settings are literal installed selections; Output and JSON preserve old installer argv.
 type Settings struct {
+	HTTPProxyListen    string   `json:"http_proxy_listen,omitempty"`
 	TrafficBudgetBytes int64    `json:"traffic_budget_bytes,omitempty"`
 	Binary             string   `json:"binary"`
 	DataDir            string   `json:"data_dir"`
@@ -57,6 +58,12 @@ func (s Settings) validate() error {
 	if err != nil || !addr.Addr().Is4() || !addr.Addr().IsLoopback() || addr.Port() == 0 || addr.String() != s.Listen {
 		return errors.New("listen must be an exact numeric IPv4 loopback authority, for example 127.0.0.1:8210")
 	}
+	if s.HTTPProxyListen != "" {
+		proxy, err := netip.ParseAddrPort(s.HTTPProxyListen)
+		if err != nil || !proxy.Addr().Is4() || !proxy.Addr().IsLoopback() || proxy.Port() == 0 || proxy.String() != s.HTTPProxyListen || proxy == addr {
+			return errors.New("http-proxy-listen must be a distinct exact numeric IPv4 loopback authority")
+		}
+	}
 	if len(s.AllowedHosts) > 128 {
 		return errors.New("too many allowed hosts")
 	}
@@ -78,6 +85,9 @@ func (s Settings) arguments() []string {
 	args := []string{s.Binary, "serve", "--data-dir", s.DataDir, "--listen", s.Listen}
 	for _, host := range s.AllowedHosts {
 		args = append(args, "--allowed-host", host)
+	}
+	if s.HTTPProxyListen != "" {
+		args = append(args, "--http-proxy-listen", s.HTTPProxyListen)
 	}
 	if s.LogLevel != "" {
 		args = append(args, "--log-level", s.LogLevel)
@@ -118,6 +128,11 @@ func parseArguments(args []string) (Settings, error) {
 		switch flag {
 		case "--allowed-host":
 			s.AllowedHosts = append(s.AllowedHosts, args[i])
+		case "--http-proxy-listen":
+			if args[i] == "" {
+				return s, errors.New("empty proxy authority")
+			}
+			s.HTTPProxyListen = args[i]
 		case "--log-level":
 			s.LogLevel = args[i]
 		case "--traffic-budget-bytes":

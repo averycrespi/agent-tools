@@ -175,7 +175,7 @@ func TestRootCompositionFailurePreventsStartupOutput(t *testing.T) {
 	command.SetOut(stdout)
 	stderr := new(bytes.Buffer)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"serve", "--data-dir", root, "--listen", "127.0.0.1:0", "--output", "json"})
+	command.SetArgs([]string{"serve", "--data-dir", root, "--listen", "127.0.0.1:8210", "--output", "json"})
 
 	err := command.ExecuteContext(context.Background())
 	require.Error(t, err)
