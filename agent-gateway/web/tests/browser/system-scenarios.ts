@@ -271,7 +271,7 @@ export async function runBackups(
   const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FB0", "01ARZ3NDEKTSV4RRFFQ69G5FB1"];
   const backup = (index: number) => ({
     id: ids[index],
-    created_at: "2026-08-28T12:00:00Z",
+    created_at: `2026-08-2${8 + index}T12:00:00Z`,
     installation_id: "11111111-2222-3333-4444-555555555555",
     schema_version: "10",
     source_revision: String(index + 7),
@@ -381,10 +381,49 @@ export async function runBackups(
     ["Backup", "Source", "Size", "Created", "Actions"],
     "Backup",
   );
-  await page.locator('[data-testid="backup-inspect"]').click();
-  await page.locator('[data-testid="backup-detail"]').waitFor();
+  const inventory = page.locator('[data-testid="backups-view"]');
+  const rows = inventory.locator('[data-testid="backup-row"]');
+  const assertSimplifiedInventory = async () => {
+    await expect(
+      inventory.getByRole("button", { name: "Inspect" }),
+    ).toHaveCount(0);
+    await expect(
+      inventory.locator('[data-testid="backup-detail"]'),
+    ).toHaveCount(0);
+    await expect(rows.locator("a, summary, [role=link]")).toHaveCount(0);
+    await expect(rows.getByRole("button")).toHaveText(
+      items.map(() => "Delete"),
+    );
+    expect(details).toBe(0);
+  };
+  await assertSimplifiedInventory();
+  await expect(rows.first().getByRole("rowheader")).toHaveText(
+    `Gateway backup${ids[0]}`,
+  );
+  await expect(rows.first().locator('[data-label="Source"]')).toHaveText(
+    "Schema 10Revision 7",
+  );
+  await expect(rows.first().locator('[data-label="Size"]')).toHaveText(
+    "4,096 bytes",
+  );
+  await expect(rows.first().locator("time")).toHaveAttribute(
+    "datetime",
+    backup(0).created_at,
+  );
   await page.locator('[data-testid="backup-create"]').click();
-  await page.locator('[data-testid="backup-create-view"]').waitFor();
+  await page
+    .locator('[data-testid="backup-create-view"]')
+    .getByRole("link", { name: "Cancel", exact: true })
+    .click();
+  await expect(inventory).toBeVisible();
+  expect(creates).toBe(0);
+  await page.locator('[data-testid="backup-create"]').click();
+  await page.locator('[data-testid="backup-review-create"]').click();
+  await page.locator('[data-testid="backup-create-confirm-cancel"]').click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.locator('[data-testid="backup-review-create"]'),
+  ).toBeFocused();
   await page.locator('[data-testid="backup-review-create"]').click();
   if (Number(creates) !== 0) fail("backup submitted before final review");
   await page.locator('[data-testid="backup-create-confirm-submit"]').click();
@@ -392,9 +431,37 @@ export async function runBackups(
   if (creates !== 1) fail("uncertain backup create replayed automatically");
   await page.locator('[data-testid="backup-replay"]').click();
   await page.getByText(/is durably published/).waitFor();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText(ids[1]!);
+  await inventory.getByRole("button", { name: "Size", exact: true }).click();
+  await expect(rows.first()).toContainText(ids[0]!);
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await inventory
+    .locator(".table-sort-controls select")
+    .selectOption("created");
+  await expect(rows.first()).toContainText(ids[0]!);
+  await inventory
+    .getByRole("button", { name: "Published backup artifacts sort direction" })
+    .click();
+  await expect(rows.first()).toContainText(ids[1]!);
+  await assertSimplifiedInventory();
+  await page.locator('[data-testid="backup-delete"]').first().click();
+  await expect(page.getByRole("dialog")).toContainText(ids[1]!);
+  await page.locator('[data-testid="backup-delete-confirm-cancel"]').click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  expect(deletes).toBe(0);
+  await expect(rows).toHaveCount(2);
   await page.locator('[data-testid="backup-delete"]').first().click();
   await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
   await page.getByText(/Backup deleted/).waitFor();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(ids[0]!);
+  await page.locator('[data-testid="backup-delete"]').click();
+  await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
+  await expect(
+    inventory.getByText("No backups", { exact: true }),
+  ).toBeVisible();
+  await assertSimplifiedInventory();
   await page.locator('[data-testid="backup-create"]').click();
   await page.locator('[data-testid="backup-review-create"]').click();
   await page.locator('[data-testid="backup-create-confirm-submit"]').click();
