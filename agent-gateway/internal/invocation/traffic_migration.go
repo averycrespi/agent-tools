@@ -137,6 +137,47 @@ func extractTraffic(ctx context.Context, source *sql.Tx, destination *sql.DB, co
 	if err = rows.Err(); err != nil {
 		return err
 	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	var hasHTTP bool
+	if err = source.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='http_traffic')`).Scan(&hasHTTP); err != nil {
+		return err
+	}
+	if hasHTTP {
+		httpRows, err := source.QueryContext(ctx, httpTrafficSelect+` ORDER BY insertion_sequence LIMIT ?`, sourceLimit+1)
+		if err != nil {
+			return err
+		}
+		for httpRows.Next() {
+			record, charge, scanErr := scanHTTPTraffic(httpRows)
+			if scanErr != nil {
+				err = scanErr
+				break
+			}
+			count++
+			bytes += charge
+			if count > sourceLimit || count > config.RetainedRecords || record.Sequence <= 0 || record.Sequence > high || bytes > trafficPages(config)*trafficPageSize/4 {
+				err = ErrInvalidState
+				break
+			}
+			admission, _ := encodeHTTPAdmission(record.Admission)
+			var completion any
+			if record.Completion != nil {
+				completion, err = encodeHTTPCompletion(record.Admission, *record.Completion)
+				if err != nil {
+					break
+				}
+			}
+			if _, err = tx.ExecContext(ctx, `INSERT INTO http_traffic(insertion_sequence,id,admission,completion,bytes) VALUES(?,?,?,?,?)`, record.Sequence, record.Admission.ID, admission, completion, charge); err != nil {
+				break
+			}
+		}
+		err = errors.Join(err, httpRows.Err(), httpRows.Close())
+		if err != nil {
+			return err
+		}
+	}
 	if high < count {
 		return ErrInvalidState
 	}

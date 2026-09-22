@@ -11,6 +11,17 @@ type ControlPlaneCapability struct {
 }
 
 var controlPlaneCapabilities = []ControlPlaneCapability{
+	{ID: "http-grant-read", Operation: "HTTP grant list/get", WebControl: "HTTP / Grants", CLIUses: []string{"http grant list", "http grant get ID"}, Mechanics: "bounded query snapshot; safe selectors"},
+	{ID: "http-grant-create", Operation: "HTTP grant create", WebControl: "HTTP / Grants / Create", CLIUses: []string{"http grant create --file PATH"}, Mechanics: "closed policy; entire credential containment; confirmation"},
+	{ID: "http-grant-update", Operation: "HTTP grant update", WebControl: "HTTP grant / Edit", CLIUses: []string{"http grant update ID --file PATH [--etag ETAG]"}, Mechanics: "atomic replacement; exact ETag; no replay"},
+	{ID: "http-grant-delete", Operation: "HTTP grant delete", WebControl: "HTTP grant / Delete", CLIUses: []string{"http grant delete ID [--etag ETAG]"}, Mechanics: "bodyless; exact ETag; confirmation"},
+	{ID: "http-default", Operation: "HTTP principal default", WebControl: "Principal / HTTP access", CLIUses: []string{"http default get ID", "http default update ID --file PATH [--etag ETAG]"}, Mechanics: "separate compatible resource; exact ETag; default block"},
+	{ID: "http-preview", Operation: "HTTP policy preview", WebControl: "HTTP / Grants / Test access", CLIUses: []string{"http test-access --file PATH"}, Mechanics: "policy-only evaluator; no DNS, dispatch, secret resolution or retained coordinates"},
+	{ID: "http-credential-read", Operation: "HTTP credential list/get", WebControl: "HTTP / Credentials", CLIUses: []string{"http credential list", "http credential get ID"}, Mechanics: "cursor/limit; bodyless; safe metadata only"},
+	{ID: "http-credential-create", Operation: "HTTP credential create", WebControl: "HTTP / Credentials / Create", CLIUses: []string{"http credential create --file PATH"}, Mechanics: "strict write-only file; confirmation; no replay"},
+	{ID: "http-credential-update", Operation: "HTTP credential update", WebControl: "HTTP credential / Edit", CLIUses: []string{"http credential update ID --file PATH [--etag ETAG]"}, Mechanics: "complete safe metadata; transactional references; automatic or explicit ETag"},
+	{ID: "http-credential-rotate", Operation: "HTTP credential rotate", WebControl: "HTTP credential / Rotate", CLIUses: []string{"http credential rotate ID --file PATH [--etag ETAG]"}, Mechanics: "strict write-only file; automatic or explicit ETag; confirmation; no replay"},
+	{ID: "http-credential-delete", Operation: "HTTP credential delete", WebControl: "HTTP credential / Delete", CLIUses: []string{"http credential delete ID [--etag ETAG]"}, Mechanics: "exact {}; reject references; automatic or explicit ETag; confirmation"},
 	{ID: "audit-read", Operation: "Administrative audit list/get", WebControl: "Activity / Administrative audit", CLIUses: []string{"audit list", "audit get AUDIT_EVENT_ID"}, Mechanics: "authoritative filters/cursor/limit; generation and retention; bodyless"},
 	{ID: "status", Operation: "Detailed status", WebControl: "Overview/System", CLIUses: []string{"status"}, Mechanics: "GET status"},
 	{ID: "admin-credential-read", Operation: "Admin credential list/get", WebControl: "System / Admin credentials", CLIUses: []string{"admin credential list", "admin credential get ID"}, Mechanics: "cursor/limit; bodyless"},
@@ -43,6 +54,7 @@ var controlPlaneCapabilities = []ControlPlaneCapability{
 	{ID: "grant-request-read", Operation: "Grant-request list/get", WebControl: "MCP / Access requests", CLIUses: []string{"mcp grant-request list", "mcp grant-request get REQUEST_ID"}, Mechanics: "filters/cursor/limit; bodyless"},
 	{ID: "grant-request-approve", Operation: "Grant-request approve", WebControl: "request detail / Review", CLIUses: []string{"mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]"}, Mechanics: "optional grant description; exclusive direct/file narrowing; automatic or explicit ETag; confirmation; no replay"},
 	{ID: "grant-request-reject", Operation: "Grant-request reject", WebControl: "request detail / Review", CLIUses: []string{"mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]"}, Mechanics: "direct closed reason; automatic or explicit ETag; confirmation; no replay"},
+	{ID: "http-traffic-read", Operation: "HTTP traffic list/get", WebControl: "HTTP / Traffic", CLIUses: []string{"http traffic list", "http traffic get ID"}, Mechanics: "exact filters/cursor/limit; bodyless; historical bounded evidence; separate from MCP"},
 	{ID: "invocation-read", Operation: "MCP invocation list/get", WebControl: "MCP / MCP invocations", CLIUses: []string{"mcp invocation list", "mcp invocation get INVOCATION_ID"}, Mechanics: "filters/cursor/limit; bodyless"},
 }
 

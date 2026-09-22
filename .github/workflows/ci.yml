@@ -134,6 +134,10 @@ jobs:
         if: matrix.suite == 'harness'
         with:
           node-version: 24
+      - name: Prepare Gateway harness build cache
+        if: matrix.suite == 'harness'
+        timeout-minutes: 5
+        run: go -C agent-gateway build -mod=readonly -tags=e2e -o /dev/null ./cmd/agent-gateway
       - name: Run platform owner
         env:
           SUITE: ${{ matrix.suite }}

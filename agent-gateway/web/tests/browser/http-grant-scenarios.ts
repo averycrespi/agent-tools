@@ -1,0 +1,508 @@
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { assertSecretAbsent, waitForLifecycle } from "./shared.ts";
+
+export async function runHTTPGrants(
+  context: BrowserContext,
+  page: Page,
+  baseURL: string,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-grants-"));
+  const captureState = async (name: string) => {
+    await page.screenshot({
+      path: join(screenshots, `${name}.png`),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: join(screenshots, `${name}-narrow.png`),
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(390);
+    await page.setViewportSize({ width: 1280, height: 900 });
+  };
+  const api = async (
+    path: string,
+    data: unknown,
+    method = "POST",
+    etag?: string,
+  ) => {
+    const r = await context.request.fetch(baseURL + path, {
+      method,
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        Cookie: "",
+        "Content-Type": "application/json",
+        ...(etag === undefined ? {} : { "If-Match": etag }),
+      },
+      data,
+    });
+    expect(
+      r.ok(),
+      `${method} ${path}: ${r.status()} ${r.ok() ? "" : await r.text()}`,
+    ).toBe(true);
+    return r;
+  };
+  const created = await api("/api/v2/principals", {
+    display_name: "HTTP Policy Agent",
+    visibility: "all",
+  });
+  const principal = (await created.json()).principal as { id: string };
+  const creds: { id: string }[] = [];
+  for (const name of [
+    "Compatible credential",
+    "Second compatible credential",
+    "Unrelated credential",
+  ]) {
+    const r = await api("/api/v2/http/credentials", {
+      name,
+      boundary: {
+        host:
+          name === "Unrelated credential"
+            ? "other.example.com"
+            : "api.example.com",
+        port: 443,
+        allow_wildcard: false,
+      },
+      recipe: { header: "Authorization", prefix: "Bearer " },
+      secret: "http-grant-material-canary",
+    });
+    creds.push((await r.json()) as { id: string });
+  }
+  await waitForLifecycle(page, "signed_out");
+  await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
+  await page.locator('[data-testid="sign-in-submit"]').click();
+  await waitForLifecycle(page, "authenticated");
+  await page.locator('#primary-navigation a[href="#/http/grants"]').click();
+  await expect(page.getByText("No HTTP grants", { exact: true })).toBeVisible();
+  const grants: { id: string; revision: string }[] = [];
+  for (const kind of [
+    "block_destination",
+    "allow_tunnel",
+    "block_requests",
+    "allow_requests",
+  ]) {
+    await page
+      .getByRole("link", { name: "Create HTTP grant", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Create HTTP grant",
+        level: 1,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page
+      .getByLabel("Principal", { exact: true })
+      .selectOption(principal.id);
+    await page.getByLabel("Description (optional)").fill(`Test ${kind}`);
+    await page.getByLabel("Grant type").selectOption(kind);
+    await page
+      .getByLabel("Destination host", { exact: true })
+      .fill(
+        kind === "allow_requests"
+          ? "api.example.com"
+          : kind === "block_requests"
+            ? "xn--bcher-kva.example"
+            : "isolated.example.com",
+      );
+    const requests = kind.endsWith("requests");
+    await expect(page.getByLabel("Path match")).toHaveCount(requests ? 1 : 0);
+    await expect(page.getByLabel("Credential (optional)")).toHaveCount(
+      kind === "allow_requests" ? 1 : 0,
+    );
+    await expect(
+      page.getByLabel("Allow local/private destinations"),
+    ).toHaveCount(kind.startsWith("allow") ? 1 : 0);
+    if (kind === "allow_tunnel")
+      await expect(
+        page.getByText("Opaque tunnel bypass", { exact: true }),
+      ).toBeVisible();
+    if (kind === "allow_requests") {
+      await expect(
+        page.getByLabel("Credential (optional)").locator("option"),
+      ).toHaveCount(3);
+      await page.getByLabel("Credential (optional)").selectOption(creds[0]!.id);
+    }
+    await page.screenshot({
+      path: join(screenshots, `${kind}-desktop.png`),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: join(screenshots, `${kind}-narrow.png`),
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page
+      .getByRole("button", { name: "Review changes", exact: true })
+      .click();
+    const response = page.waitForResponse(
+      (r) =>
+        r.url() === `${baseURL}/api/v2/http/grants` &&
+        r.request().method() === "POST",
+    );
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Apply grant", exact: true })
+      .click();
+    const r = await response;
+    expect(r.status()).toBe(201);
+    grants.push((await r.json()) as { id: string; revision: string });
+    await expect(
+      page.getByRole("heading", { name: "Current policy", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Back to HTTP grants" }).click();
+  }
+  await page.screenshot({
+    path: join(screenshots, "table-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.screenshot({
+    path: join(screenshots, "table-320.png"),
+    fullPage: true,
+  });
+  const narrow = await page.evaluate(() => ({
+    viewport: innerWidth,
+    width: document.documentElement.scrollWidth,
+    overflow: [...document.querySelectorAll("body *")]
+      .filter((e) => e.getBoundingClientRect().right > innerWidth)
+      .map((e) => ({
+        tag: e.tagName,
+        cls: e.className,
+        right: e.getBoundingClientRect().right,
+      })),
+  }));
+  expect(narrow.width, JSON.stringify(narrow)).toBeLessThanOrEqual(
+    narrow.viewport,
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole("link", { name: "Test access", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Test access", level: 1, exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Principal", { exact: true })
+    .selectOption(principal.id);
+  await page
+    .getByLabel("URL", { exact: true })
+    .fill("https://api.example.com/v1?preview-private-canary=1");
+  const firstPreviewResponse = page.waitForResponse(
+    (r) =>
+      r.url() === `${baseURL}/api/v2/http/access-preview` &&
+      r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Test access", exact: true }).click();
+  const firstPreview = await (await firstPreviewResponse).json();
+  await expect(
+    page.getByRole("heading", { name: "Allowed by request policy" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      `Policy snapshot ${firstPreview.decision.policy_revision} · HTTP default: ${firstPreview.default} (revision ${firstPreview.decision.default_revision}). Test again after policy changes.`,
+      { exact: true },
+    ),
+  ).toBeVisible();
+  for (const key of ["principal", "grant", "credential", "credential_grant"]) {
+    const fact = page
+      .locator("dl.fact-grid > div")
+      .filter({
+        has: page.getByText(key.replaceAll("_", " "), { exact: true }),
+      })
+      .locator("dd");
+    await expect(fact).toContainText(firstPreview.decision[key].id);
+    await expect(fact).toContainText(
+      `revision ${firstPreview.decision[key].revision}`,
+    );
+  }
+  for (const fault of ["principal", "transport", "reason", "references"]) {
+    const previewPath = `${baseURL}/api/v2/http/access-preview`;
+    await page.route(previewPath, async (route) => {
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      const body = await response.json();
+      if (fault === "principal") body.decision.principal.id = creds[0]!.id;
+      if (fault === "transport") body.decision.transport = "tunnel";
+      if (fault === "reason") body.decision.allowed = false;
+      if (fault === "references") delete body.decision.credential;
+      await route.fulfill({ response, body: JSON.stringify(body) });
+    });
+    await page
+      .getByRole("button", { name: "Test access", exact: true })
+      .click();
+    await expect(
+      page.getByText("Access preview unavailable", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Allowed by request policy" }),
+    ).toHaveCount(0);
+    if (fault === "principal") await captureState("preview-invalid");
+    await page.unroute(previewPath);
+  }
+  const conflictPolicy = {
+    version: 1,
+    type: "allow_requests",
+    request: {
+      origin: { scheme: "https", host: "api.example.com", port: 443 },
+      methods: { any: true },
+      path: { kind: "any" },
+    },
+    credential_id: creds[1]!.id,
+  };
+  await api("/api/v2/http/grants", {
+    principal_id: principal.id,
+    description: "Conflict",
+    expires_at: null,
+    policy: conflictPolicy,
+  });
+  await page.getByRole("button", { name: "Test access", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Blocked: matching grants require different credentials",
+    }),
+  ).toBeVisible();
+  await captureState("preview-conflict");
+  await page.getByLabel("Access type").selectOption("connect");
+  await expect(
+    page.getByRole("heading", {
+      name: "Blocked: matching grants require different credentials",
+    }),
+  ).toHaveCount(0);
+  await page.getByLabel("Host", { exact: true }).fill("tunnel.example.com");
+  const connectResponse = page.waitForResponse(
+    (r) =>
+      r.url() === `${baseURL}/api/v2/http/access-preview` &&
+      r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Test access", exact: true }).click();
+  const connectEvidence = await (await connectResponse).json();
+  expect(connectEvidence.decision.reason).toBe("intercept_required");
+  await expect(
+    page.getByRole("heading", {
+      name: "Interception required; each decrypted request needs its own evaluation",
+    }),
+  ).toBeVisible();
+  await page.goto(`${baseURL}/#/principals/${principal.id}`);
+  await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
+    "block",
+  );
+  await page.getByLabel("HTTP default", { exact: true }).selectOption("allow");
+  await page.getByRole("button", { name: "Review HTTP default" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Apply default" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Review HTTP default" }),
+  ).toBeDisabled();
+  await captureState("principal-default");
+  for (const fault of ["missing-etag", "wrong-etag", "wrong-principal"]) {
+    const routePath = `${baseURL}/api/v2/http/defaults/${principal.id}`;
+    const previous = await page
+      .getByLabel("HTTP default", { exact: true })
+      .inputValue();
+    const proposed = previous === "allow" ? "block" : "allow";
+    let submissions = 0;
+    await page.route(routePath, async (route) => {
+      if (route.request().method() !== "PATCH") {
+        await route.continue();
+        return;
+      }
+      submissions++;
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      const headers = { ...response.headers() };
+      const body = await response.json();
+      if (fault === "missing-etag") delete headers.etag;
+      if (fault === "wrong-etag")
+        headers.etag = `"http-default-${principal.id}-999999"`;
+      if (fault === "wrong-principal") {
+        body.principal_id = creds[0]!.id;
+        headers.etag = `"http-default-${body.principal_id}-${body.revision}"`;
+      }
+      await route.fulfill({ status: 200, headers, body: JSON.stringify(body) });
+    });
+    await page
+      .getByLabel("HTTP default", { exact: true })
+      .selectOption(proposed);
+    await page.getByRole("button", { name: "Review HTTP default" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Apply default" })
+      .click();
+    await expect(
+      page.getByText("Outcome uncertain", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Review HTTP default" }),
+    ).toBeDisabled();
+    if (fault === "missing-etag") await captureState("default-uncertain");
+    expect(submissions).toBe(1);
+    const observed = await (
+      await api(`/api/v2/http/defaults/${principal.id}`, undefined, "GET")
+    ).json();
+    expect(observed.default).toBe(proposed);
+    await page.unroute(routePath);
+    await page.reload();
+    await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
+      proposed,
+    );
+  }
+  await page
+    .getByRole("link", { name: "HTTP grants for this principal" })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`principal_id=${principal.id}`));
+  await expect(
+    page.getByRole("link", { name: "Test allow_requests", exact: true }),
+  ).toBeVisible();
+  const editPath = `${baseURL}/api/v2/http/grants/${grants[0]!.id}`;
+  await page.route(editPath, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: '{"malformed":true}',
+    }),
+  );
+  await page
+    .getByRole("link", { name: "Test block_destination", exact: true })
+    .click();
+  await expect(
+    page.getByText("HTTP grant unavailable", { exact: true }),
+  ).toBeVisible();
+  await captureState("detail-error");
+  await page.unroute(editPath);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Edit HTTP grant" }),
+  ).toBeVisible();
+  await page.getByLabel("Description (optional)").fill("Retained local draft");
+  const currentResponse = await api(
+    `/api/v2/http/grants/${grants[0]!.id}`,
+    undefined,
+    "GET",
+  );
+  const current = await currentResponse.json();
+  await api(
+    `/api/v2/http/grants/${grants[0]!.id}`,
+    {
+      principal_id: principal.id,
+      description: "Concurrent edit",
+      policy: current.policy,
+      expires_at: null,
+    },
+    "PATCH",
+    currentResponse.headers().etag,
+  );
+  await expect(page.getByText("Policy changed", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Description (optional)")).toHaveValue(
+    "Retained local draft",
+  );
+  await expect(
+    page.getByRole("button", { name: "Review changes", exact: true }),
+  ).toBeDisabled();
+  await captureState("detail-stale");
+  await page.getByRole("button", { name: "Use current revision" }).click();
+  for (const fault of [
+    "identity",
+    "reversed-times",
+    "noncanonical-time",
+    "duplicate-member",
+    "invalid-idna",
+  ]) {
+    const draft =
+      fault === "identity" ? "Retained local draft" : `Retained draft ${fault}`;
+    if (fault !== "identity") {
+      await page.reload();
+      await expect(page.getByLabel("Description (optional)")).toBeVisible();
+      await page.getByLabel("Description (optional)").fill(draft);
+    }
+    let editCalls = 0;
+    await page.route(editPath, async (route) => {
+      if (route.request().method() !== "PATCH") {
+        await route.continue();
+        return;
+      }
+      editCalls++;
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      const malformed = await response.json();
+      if (fault === "identity") malformed.id = creds[0]!.id;
+      if (fault === "invalid-idna")
+        malformed.policy.destination.host = "xn--a.example";
+      if (fault === "reversed-times")
+        malformed.updated_at = "2000-01-01T00:00:00.000000000Z";
+      if (fault === "noncanonical-time")
+        malformed.updated_at = malformed.updated_at.replace("Z", "+00:00");
+      await route.fulfill({
+        response,
+        headers: {
+          ...response.headers(),
+          etag: `"http-grant-${malformed.id}-${malformed.revision}"`,
+        },
+        body:
+          fault === "duplicate-member"
+            ? `{"revision":${JSON.stringify(malformed.revision)},${JSON.stringify(malformed).slice(1)}`
+            : JSON.stringify(malformed),
+      });
+    });
+    await page
+      .getByRole("button", { name: "Review changes", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Apply grant", exact: true })
+      .click();
+    await expect(
+      page.getByText("Outcome uncertain", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Review changes", exact: true }),
+    ).toBeDisabled();
+    await expect(page.getByLabel("Description (optional)")).toHaveValue(draft);
+    await expect(
+      page.getByRole("heading", { name: draft, exact: true }),
+    ).toBeVisible();
+    expect(editCalls).toBe(1);
+    const observed = await (
+      await api(`/api/v2/http/grants/${grants[0]!.id}`, undefined, "GET")
+    ).json();
+    expect(observed.description).toBe(draft);
+    await captureState(
+      fault === "identity" ? "detail-uncertain" : `detail-${fault}-uncertain`,
+    );
+    await page.unroute(editPath);
+  }
+  await assertSecretAbsent(
+    page,
+    context,
+    baseURL,
+    ["http-grant-material-canary"],
+    true,
+  );
+  const stored = await page.evaluate(() => ({
+    local: Object.keys(localStorage)
+      .map((k) => localStorage.getItem(k))
+      .join(""),
+    session: Object.keys(sessionStorage).join(""),
+  }));
+  expect(JSON.stringify(stored)).not.toContain("preview-private-canary");
+  console.log(
+    JSON.stringify({
+      event: "http_grants_complete",
+      requests: requestCount(),
+      screenshots,
+    }),
+  );
+}

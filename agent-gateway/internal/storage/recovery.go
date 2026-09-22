@@ -149,7 +149,14 @@ func restoreKeyringAuthorityFence(
 		_ = transaction.Rollback()
 		return err
 	}
-	if err := audit.MutationTx(ctx, transaction, time.Now(), "keyring", "fence", contract.AuditTarget{Type: "server", ID: recovery.Owner}); err != nil {
+	targetType := "server"
+	switch recovery.Kind {
+	case "http_ca":
+		targetType = "installation"
+	case "http_credential":
+		targetType = "http_credential"
+	}
+	if err := audit.MutationTx(ctx, transaction, time.Now(), "keyring", "fence", contract.AuditTarget{Type: targetType, ID: recovery.Owner}); err != nil {
 		_ = transaction.Rollback()
 		return err
 	}

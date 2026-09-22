@@ -233,7 +233,7 @@ func TestStaticSecretSinkClosure(t *testing.T) {
 		contract.SecretSinkControllingTerminal, contract.SecretSinkOwnerOnlyFile, contract.SecretSinkAdminCredentialReplacement,
 		contract.SecretSinkDCRClientSecret, contract.SecretSinkAuthorizationCodeTokenResponse, contract.SecretSinkRefreshResponse,
 		contract.SecretSinkAuthoritativeGenerationRefreshCopy, contract.SecretSinkAgentCredentialCreation,
-		contract.SecretSinkBrowserOneTimeDisplay, contract.SecretSinkUserInitiatedClipboard,
+		contract.SecretSinkBrowserOneTimeDisplay, contract.SecretSinkUserInitiatedClipboard, contract.SecretSinkHTTPProxyEnvironment,
 	}, contract.ApprovedSecretSinks())
 	reportSchema, err := os.ReadFile(filepath.Join(repositoryRoot(t), "agent-gateway", "test", "acceptance", "release_report.schema.json"))
 	require.NoError(t, err)

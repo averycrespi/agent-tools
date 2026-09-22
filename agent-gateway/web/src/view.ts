@@ -22,6 +22,7 @@ export type InvalidationKind =
   | "catalog"
   | "authorization"
   | "grant_requests"
+  | "http_credentials"
   | "invocations";
 
 export interface Invalidation {
@@ -95,6 +96,7 @@ const invalidationKinds = new Set<InvalidationKind>([
   "catalog",
   "authorization",
   "grant_requests",
+  "http_credentials",
   "invocations",
 ]);
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;

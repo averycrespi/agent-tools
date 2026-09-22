@@ -31,12 +31,16 @@ func testUpstreamHeaderChange(t *testing.T, replacement string) {
 	const initial = "default,actions,gists,issues,labels,pull_requests,users"
 	replacementStarted := make(chan struct{})
 	releaseReplacement := make(chan struct{})
-	var releaseOnce, startedOnce, blockersOnce sync.Once
-	blockersStarted := make(chan struct{}, 4)
-	releaseBlockers := make(chan struct{})
+	var releaseOnce, startedOnce sync.Once
+	blockersStarted := make(chan func(), 4)
+	var releaseBlockers []func()
 	var staleCalls atomic.Int32
 	defer releaseOnce.Do(func() { close(releaseReplacement) })
-	defer blockersOnce.Do(func() { close(releaseBlockers) })
+	defer func() {
+		for _, release := range releaseBlockers {
+			release()
+		}
+	}()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var envelope struct {
 			ID     uint64 `json:"id"`
@@ -49,9 +53,10 @@ func testUpstreamHeaderChange(t *testing.T, replacement string) {
 		w.Header().Set("Content-Type", contract.MediaTypeJSON)
 		if r.URL.Path == "/block" {
 			if envelope.Method == "server/discover" {
-				blockersStarted <- struct{}{}
+				released := make(chan struct{})
+				blockersStarted <- sync.OnceFunc(func() { close(released) })
 				select {
-				case <-releaseBlockers:
+				case <-released:
 				case <-r.Context().Done():
 					return
 				}
@@ -120,15 +125,16 @@ func testUpstreamHeaderChange(t *testing.T, replacement string) {
 		require.NotNil(t, activation.Operation)
 		activations = append(activations, *activation.Operation)
 	}
-	// Reconciliation writes must not race the fixture's remaining setup mutations.
+	// Finish setup mutations first, then admit each blocker through discovery
+	// before starting the next: concurrent startup writes can refuse admission.
+	// Earlier discoveries stay blocked, so all four slots remain occupied.
 	for index, blocker := range blockers {
 		built.TriggerServer(t.Context(), blocker.ID, &activations[index].ID, true)
-	}
-	for range 4 {
 		select {
-		case <-blockersStarted:
+		case release := <-blockersStarted:
+			releaseBlockers = append(releaseBlockers, release)
 		case <-time.After(5 * time.Second):
-			t.Fatal("reconciliation blocker did not start")
+			t.Fatalf("reconciliation blocker %d did not start: %+v", index, built.RuntimeStatus(blocker.ID))
 		}
 	}
 	require.True(t, built.ReconciliationStatus().Saturated)
@@ -155,7 +161,10 @@ func testUpstreamHeaderChange(t *testing.T, replacement string) {
 	result := preacquired.Execute(t.Context(), json.RawMessage(`{}`))
 	assert.Equal(t, downstream.FailurePreStart, result.Failure)
 	assert.Zero(t, staleCalls.Load(), "pre-acquired lease sent old headers after the update")
-	blockersOnce.Do(func() { close(releaseBlockers) })
+	// One free slot admits the replacement. Keep the other blockers parked so
+	// their catalog/operation writes cannot contend with the replacement.
+	// The existing composition drain cancels them before storage cleanup.
+	releaseBlockers[0]()
 	select {
 	case <-replacementStarted:
 	case <-time.After(5 * time.Second):

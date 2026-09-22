@@ -69,7 +69,7 @@ func TestGrantRequestRoutesProblemsAndLimitsAreExact(t *testing.T) {
 	require.Equal(t, []CreateGrantRequestOutcome{RequestCreated, RequestExisting, RequestDenyConflict, RequestTargetUnavailable, RequestLimitReached}, CreateGrantRequestOutcomes())
 	require.Equal(t, []GetGrantRequestOutcome{RequestFound, RequestNotFound}, GetGrantRequestOutcomes())
 	require.Equal(t, []CancelGrantRequestOutcome{RequestCancellationCancelled, RequestCancellationAlreadyCancelled, RequestCancellationNotPending, RequestCancellationNotFound}, CancelGrantRequestOutcomes())
-	require.Equal(t, []InvalidationKind{InvalidationGrantRequests}, InvalidationKinds()[len(InvalidationKinds())-1:])
+	require.Equal(t, []InvalidationKind{InvalidationGrantRequests, InvalidationHTTPCredentials}, InvalidationKinds()[len(InvalidationKinds())-2:])
 	for _, parse := range []func(string) error{
 		func(value string) error { _, err := ParseGrantRequestState(value); return err },
 		func(value string) error { _, err := ParsePolicyScope(value); return err },

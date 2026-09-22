@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ type oauthCallbackListeners struct {
 }
 
 type oauthCallbackListener struct {
+	address  netip.AddrPort
 	once     sync.Once
 	listener net.Listener
 	server   *http.Server
@@ -62,7 +64,13 @@ func (owner *oauthCallbackListeners) AcquireCallback(ctx context.Context, id, ur
 		owner.mu.Unlock()
 		return nil, errCallbackListener
 	}
-	lease := &oauthCallbackListener{}
+	endpoint, parseErr := netip.ParseAddrPort(address)
+	if parseErr != nil {
+		owner.mu.Unlock()
+		return nil, errCallbackListener
+	}
+	// Reserve destination exclusion before binding, not after acceptance starts.
+	lease := &oauthCallbackListener{address: endpoint}
 	owner.leases[id] = lease
 	owner.mu.Unlock()
 	config := net.ListenConfig{}

@@ -1,5 +1,65 @@
 # Public Contract
 
+## HTTP traffic history
+
+Administrator bearer/session bodyless GET reads use `/api/v2/http/traffic` and
+`/api/v2/http/traffic/{id}`, independently of MCP invocations. Responses are
+no-store; there is no mutation, replay or traffic-to-grant operation. Collection
+`HTTPTrafficQuery` accepts singleton nonempty `limit` (default 50, canonical 1–100), `cursor`,
+`principal_id` (exact), `destination` (exact canonical hostname/IP), `type`
+(`request`, `connect`, `invalid`), `decision` (`allow`, `block`, `intercept`,
+`invalid`), and `outcome` (`not_dispatched`, `outcome_unknown`, `succeeded`,
+`prestart_failure`, `upstream_failure`). Unknown, duplicate or malformed values
+fail. All filters combine before descending shared sequence pagination; indexed
+stored query facts avoid loading policy evidence to select a page.
+
+`HTTPTrafficPage` is exactly `{items,next_cursor}`. Each summary is
+`{id,admitted_at,principal_id,target,type,decision,outcome}`; target is null for
+unparseable requests, `{host,port}` for CONNECT, or `{host,port,scheme,method}`
+for a request. No observed path exists. Item `HTTPTrafficRecord` is exactly
+`{admission,completion}` using the executable bounded evidence contract; only
+items include historical matched selectors and material-generation references.
+No current-resource lookup reconstructs their meaning. Missing completion is
+unknown for an allow, including confirmation failure, not permission to replay.
+
+HTTP cursors use a distinct authenticated version with the shared process-local
+key, binding complete filters, generation, shared pruning, upper and next sequence.
+They are at most 512 bytes. Later insertions are excluded; any shared pruning or
+generation replacement invalidates continuation. Like MCP, completion predicates
+are coherent per page, not a frozen terminal snapshot; counts describe loaded
+matches, not totals. Traffic reader capacity/deadline and complete startup
+validation remain shared. HTTP UI refresh uses the existing bounded/coalesced
+System traffic invalidation, not per-record fetches or a new stream owner.
+
+## HTTP grant resources
+
+| Route                         | Allow                |
+| ----------------------------- | -------------------- |
+| `/api/v2/http/grants`         | `GET, POST`          |
+| `/api/v2/http/grants/{id}`    | `DELETE, GET, PATCH` |
+| `/api/v2/http/defaults/{id}`  | `GET, PATCH`         |
+| `/api/v2/http/access-preview` | `POST`               |
+
+All use administrator bearer/session authority, closed bounded JSON, no-store responses and no replay/idempotency. `HTTPGrantWrite` requires exactly `principal_id`, nullable `description`, `policy` and nullable `expires_at`. POST returns `HTTPGrant` / 201; PATCH atomically replaces that complete configuration / 200, retaining ID and principal. GET returns the same resource / 200. DELETE is bodyless and returns `Empty` / 204. PATCH and DELETE require exact `"http-grant-ID-REVISION"` ETags; GET/create/update return them. Missing and stale preconditions use `grant_precondition_required` and `stale_grant_revision`; invalid policy uses `invalid_grant`, incompatible references use `conflict`.
+
+`HTTPGrant` is exactly `{id,principal_id,description,revision,policy,expires_at,state,created_at,updated_at}`. Revisions are positive decimal strings; policy version remains immutable integer 1. State is active/expired; response timestamps use fixed UTC nanoseconds (`2026-09-21T00:00:00.000000000Z`), with updated time no earlier than creation and non-null expiry later than creation. `HTTPGrantListQuery` accepts singleton nonempty `cursor`, canonical `limit` (default 50, maximum 100), `principal_id`, `identity`, `principal`, `target`, `type`, `state`, `sort`, `direction`. Text filters and ordering reuse MCP grant recognition rules; target means destination hostname. Type uses the four HTTP types. Sort is id/description/principal/target/effect/state, where effect sorts the explicit HTTP type. Default is description ascending, ID ascending ties. Direction requires sort. `QueryPage<HTTPGrantTableItem>` has the existing count/offset envelope; items are exactly `{grant,principal_display_name}`. HMAC snapshot cursors bind HTTP representation, query, metadata, principal labels and expiry state for five minutes, never policy bodies.
+
+Default GET returns `PrincipalHTTPDefault`, exactly `{principal_id,default,revision}` with `"http-default-ID-REVISION"` ETag. PATCH requires that ETag and `HTTPDefaultWrite`, exactly `{default:"block"|"allow"}`, returning the updated resource. This does not change public Principal fields or MCP authority.
+
+`HTTPAccessInput` is exactly `{principal_id,url,method}` or `{principal_id,connect:{host,port}}`; members of the other branch, including null, reject. POST returns `HTTPAccessPreview`, exactly `{decision,default,policy_only,network_verified,tls_verified,material_verified,admission_authority}`. Only policy_only is true among the Boolean qualification fields. It shares production policy selection, uses known literal address classification without DNS, and returns only safe revision/reference/reason evidence. Request paths/query values are neither echoed nor retained in audit, events or diagnostics. No dispatch, secret resolution, permission lease or future admission authority is created.
+
+## HTTP credential resources
+
+| Route                                  | Allow                |
+| -------------------------------------- | -------------------- |
+| `/api/v2/http/credentials`             | `GET, POST`          |
+| `/api/v2/http/credentials/{id}`        | `DELETE, GET, PATCH` |
+| `/api/v2/http/credentials/{id}/rotate` | `POST`               |
+
+All use existing administrator bearer/session authority, strict bounded JSON, no-store responses, and no idempotency or automatic replay. GET collection uses `HTTPCredentialListQuery`, accepting only `cursor` and `limit` (default 50, maximum 100), in creation-descending order, returning `QueryPage<HTTPCredential>` (including `total_count` and `offset`). Item GET is bodyless and queryless. `HTTPCredential` contains `id`, `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, decimal-string `revision`, `available`, `referencing_grants:[{id}]`, `created_at`, and `updated_at`. Availability is coherent selected-generation metadata, not a guarantee of later keyring access. No secret or keyring handle is returned.
+
+`HTTPCredentialCreate` requires `name`, `boundary`, `recipe`, and write-only `secret`; POST returns 201 plus the safe resource. PATCH `HTTPCredentialUpdate` is a complete secret-free metadata replacement requiring `name`, `boundary`, and `recipe`; it returns 200. POST rotate accepts only `HTTPCredentialRotate` with `{secret}` and returns 200. DELETE accepts `EmptyObject` and returns 204. Every mutation except create requires exact strong `If-Match: "http-credential-ID-REVISION"`; missing/stale preconditions use `precondition_required`/`stale_revision`. Resource reads and successful create/update/rotate return that ETag. Incompatible references use `conflict`; invalid recipes use `invalid_operation`, never reflected input. Secret ingress is bounded by the recipe and standard JSON body bounds; the browser validates those bounds before confirmation and clears rejected write-only input. Keyring capability/material failures use `keyring_unavailable`, not a storage latch; a joined actual storage latch retains `storage_unavailable` precedence. The [credential owner](downstream-servers.md#scoped-http-credentials) defines validation, lifecycle, containment, and failure behavior.
+
 Audience: Maintainers and contributors changing the public HTTP and data contract
 
 Authority: Normative product design
@@ -11,6 +71,15 @@ This chapter owns the behavior and invariants described below. Operational proce
 The `internal/contract` package is the single executable source consumed by API, ingress, authorization, discovery, and composition implementations. Its returned tables are copies so callers cannot mutate the canonical contract. The tables and mechanics below document the corresponding normative closed vocabulary for principal-credential authentication, administration, discovery, and invocation. The default authority is `127.0.0.1:8210`, its canonical Origin is `http://127.0.0.1:8210`, the supported protocol versions are modern `2026-07-28` and legacy `2025-11-25`, and the media types are `application/json`, `application/problem+json`, and `text/event-stream`.
 
 `NormalizeHostname` owns the ASCII DNS hostname grammar shared by startup Host configuration and explicit CLI destinations. Early Host classification admits only the canonical numeric listener authority or an explicitly configured `--allowed-host` hostname; the latter ignores an absent or valid nonzero decimal request port. Matching folds ASCII case only and never consults DNS. This does not alter route/method authority, the exact numeric browser Origin, or OAuth callback construction. See [HTTP administration](administrative-control-plane.md#http-administration) for validation and security semantics.
+
+### HTTP policy dialect
+
+`HTTPPolicy`, `HTTPDecision` and the `HTTPPolicy*`, `HTTPMethodBytes`,
+`HTTPHostBytes`, `HTTPPathBytes`, `HTTPTargetBytes` and `HTTPAddressFacts`
+constants in `internal/contract/http_policy.go` define the immutable HTTP v1
+contract. The [identity chapter](identity-and-authorization.md#http-policy-version-1)
+owns its closed shapes, bounds, canonicalization, precedence and safe evidence.
+HTTP grant/default resources above persist this dialect without adding System limit occupancy or a second authentication domain. Policy dialect version is distinct from resource revision. Existing principal and MCP contracts are unchanged.
 
 ### Diagnostic event contract
 
@@ -99,6 +168,17 @@ missing completion proves nonexecution. This is storage posture, not dispatch
 authority. Control readiness and latch remain independent; a traffic-only fault
 does not globally disable healthy administrative mutations. History item/list
 representations, routes, IDs, filters and one-shot CLI behavior remain unchanged.
+
+### Optional HTTP proxy status
+
+`http_proxy` is optional for older status producers and present in production.
+Its closed fields are `enabled`, `ready`, `ca_ready`, `connections`, `work`,
+`active_streams`, `active_tunnels`, and `authority` only when enabled. Occupancy
+objects use `{in_use,limit,saturated}`; counters are nonnegative. Disabled HTTP
+reports false readiness and zero occupancy. `ca_ready` attests loaded process-local
+signing capability and certificate validity, not native persistence or client trust.
+Readiness also requires healthy traffic/control and open lifecycle admission.
+No secret, request destination, path or principal identity appears in this status.
 
 ### Control-plane audit reads
 
@@ -321,7 +401,7 @@ The event stream still has no replay mechanism. Browser streaming uses session-o
 
 Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, and `grant_requests`.
 
-Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `agent_gateway_session`. The legacy `mcp_gateway_session` name is expiry-only, never authority; see the [session cutover and exact cookie scope](administrative-control-plane.md#administrative-authority-and-sessions). Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. Standard output and standard error are not secret sinks.
+Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `agent_gateway_session`. The legacy `mcp_gateway_session` name is expiry-only, never authority; see the [session cutover and exact cookie scope](administrative-control-plane.md#administrative-authority-and-sessions). Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. `http_proxy_client_environment` permits only explicit client proxy-URL exports resolved at shell startup from the existing owner-private agent token file; never administrator tokens, persisted configuration or service environment. Standard output and standard error are not secret sinks.
 
 ### Server, catalog, and OAuth request mechanics
 

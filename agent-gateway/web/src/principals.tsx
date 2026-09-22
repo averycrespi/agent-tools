@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { PrincipalHTTPDefault } from "./http-grants";
 import { parseFragment, type ResolvedLocation } from "./location";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -230,7 +231,9 @@ export class PrincipalDirectory {
       id: "principal-directory",
       matches: (key) =>
         key === "#/overview" ||
-        parseFragment(key)?.destination === "invocations",
+        ["invocations", "http-traffic"].includes(
+          parseFragment(key)?.destination ?? "",
+        ),
       invalidations: ["authorization"],
       read: () => readPrincipals(session),
       publish: (principals) => {
@@ -1018,6 +1021,14 @@ export function Principals({
             </div>
           </dl>
         </section>
+        <PrincipalHTTPDefault
+          key={principal.id}
+          session={session}
+          mutations={mutations}
+          view={view}
+          onRefresh={onRefresh}
+          principalID={principal.id}
+        />
         <PrincipalCredentialActions
           mutations={mutations}
           sinks={sinks}

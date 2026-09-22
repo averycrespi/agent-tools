@@ -9,7 +9,7 @@ import (
 
 func TestV2CollectionContractsCoverEveryCursorResource(t *testing.T) {
 	collections := CollectionContracts()
-	require.Len(t, collections, 12)
+	require.Len(t, collections, 15)
 	byPath := make(map[string]CollectionContract)
 	for _, collection := range collections {
 		require.NotContains(t, byPath, collection.Pattern)
@@ -36,7 +36,7 @@ func TestV2CollectionContractsCoverEveryCursorResource(t *testing.T) {
 		}
 	}
 	require.Len(t, covered, len(collections))
-	require.Equal(t, map[string]bool{"/api/v2/principals": true, "/api/v2/mcp/grants": true, "/api/v2/mcp/grant-requests": true, "/api/v2/mcp/servers/{id}/operations": true}, counts)
+	require.Equal(t, map[string]bool{"/api/v2/http/grants": true, "/api/v2/http/credentials": true, "/api/v2/principals": true, "/api/v2/mcp/grants": true, "/api/v2/mcp/grant-requests": true, "/api/v2/mcp/servers/{id}/operations": true}, counts)
 	require.Equal(t, []string{"active"}, byPath["/api/v2/mcp/servers/{id}/operations"].Projections)
 	require.Equal(t, []string{"full", "summary"}, byPath["/api/v2/mcp/servers/{id}/descriptors"].Projections)
 	collections[0].QueryMembers[0] = "mutated"

@@ -20,6 +20,7 @@ import (
 
 // Changes uses nil to preserve an installed selection; an empty host slice clears it.
 type Changes struct {
+	HTTPProxyListen    *string
 	TrafficBudgetBytes *int64
 	Binary             *string
 	DataDir            *string
@@ -74,6 +75,9 @@ func Execute(ctx context.Context, operation string, changes Changes) (Result, er
 	return m.execute(ctx, operation, changes)
 }
 func apply(s Settings, c Changes) Settings {
+	if c.HTTPProxyListen != nil {
+		s.HTTPProxyListen = *c.HTTPProxyListen
+	}
 	if c.TrafficBudgetBytes != nil {
 		s.TrafficBudgetBytes = *c.TrafficBudgetBytes
 	}

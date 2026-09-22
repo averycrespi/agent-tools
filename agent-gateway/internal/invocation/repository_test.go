@@ -19,6 +19,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,8 @@ import (
 const invocationTestInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var invocationTestTime = time.Date(2026, 8, 26, 19, 0, 0, 123456789, time.UTC)
+
+var invocationDatabaseTemplate = storagefixture.New(invocationTestInstallationID)
 
 type repositoryClock struct {
 	mu  sync.Mutex
@@ -305,6 +308,35 @@ func TestAdmissionInputCannotCarryForbiddenPayloads(t *testing.T) {
 	}
 }
 
+func TestRepositoryFixturesIsolateRowsAndFaultAuthority(t *testing.T) {
+	first, _, _ := newInvocationRepository(t, nil, entropyBytes(64))
+	prepared, err := first.Prepare(testEvaluatedAdmission())
+	require.NoError(t, err)
+	require.NoError(t, first.Insert(t.Context(), prepared))
+
+	second, secondStore, _ := newInvocationRepository(t, nil, entropyBytes(64))
+	_, found, err := second.Read(t.Context(), prepared.InvocationID)
+	require.NoError(t, err)
+	require.False(t, found, "a new fixture must not inherit another fixture's rows")
+	require.NoError(t, second.Insert(t.Context(), prepared))
+
+	faulted, faultStore, _ := newInvocationRepository(t, func(point storage.FaultPoint) error {
+		if point == storage.FaultAfterCommit {
+			return errors.New("isolated uncertain commit")
+		}
+		return nil
+	}, entropyBytes(64))
+	require.ErrorIs(t, faulted.Insert(t.Context(), prepared), ErrStorageUnavailable)
+	require.True(t, faultStore.Latched())
+	require.False(t, secondStore.Latched())
+	for _, repository := range []*Repository{first, second} {
+		_, found, err = repository.Read(t.Context(), prepared.InvocationID)
+		require.NoError(t, err)
+		require.True(t, found, "faulted fixture must not affect another fixture's committed state")
+		require.NoError(t, repository.ValidateStartup(t.Context()))
+	}
+}
+
 func newInvocationRepository(t *testing.T, fault func(storage.FaultPoint) error, entropy io.Reader) (*Repository, *storage.Store, *repositoryClock) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")
@@ -313,7 +345,7 @@ func newInvocationRepository(t *testing.T, fault func(storage.FaultPoint) error,
 	require.NoError(t, err)
 	var store *storage.Store
 	if fault == nil {
-		store, err = storage.Initialize(context.Background(), ownership, invocationTestInstallationID)
+		store, err = invocationDatabaseTemplate.Open(context.Background(), ownership)
 	} else {
 		store, err = storage.InitializeWithFaultInjection(context.Background(), ownership, invocationTestInstallationID, fault)
 	}

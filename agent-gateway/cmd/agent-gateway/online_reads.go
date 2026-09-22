@@ -16,6 +16,14 @@ var gatewayIDPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) error {
 	switch strings.Join(spec.Path, " ") {
+	case "http traffic list", "http traffic get":
+		return runHTTPTrafficRead(command, options, args, spec.Path[2])
+	case "http grant list", "http grant get", "http grant create", "http grant update", "http grant delete", "http default get", "http default update":
+		return runHTTPPolicy(command, options, args, spec.Path[1], spec.Path[2])
+	case "http test-access":
+		return runHTTPPolicy(command, options, args, "test-access", "preview")
+	case "http credential list", "http credential get", "http credential create", "http credential update", "http credential rotate", "http credential delete":
+		return runHTTPCredential(command, options, args, spec.Path[len(spec.Path)-1])
 	case "audit list", "audit get":
 		return runAuditRead(command, options, args)
 	case "status":
@@ -383,6 +391,19 @@ func statusTable(body []byte) (controlclient.Table, error) {
 		{"keyring", string(status.Keyring.Capability), "OS-managed capability; later operations may still interact or fail"},
 		{"backup", string(status.Backup.State), "last_completed_at=" + lastBackup},
 		{"protocols", string(status.Protocols.AgentAuth), fmt.Sprintf("modern=%s legacy=%s", status.Protocols.Modern, status.Protocols.Legacy)},
+	}
+	if proxy := status.HTTPProxy; proxy != nil {
+		state := "disabled"
+		if proxy.Enabled {
+			state = "unavailable"
+			if proxy.Ready {
+				state = "ready"
+			}
+		}
+		rows = append(rows, []string{"http_proxy", state, fmt.Sprintf("authority=%s ca_loaded=%t streams=%d tunnels=%d connections=%d/%d work=%d/%d; client trust is separate", proxy.Authority, proxy.CAReady, proxy.ActiveStreams, proxy.ActiveTunnels, proxy.Connections.InUse, proxy.Connections.Limit, proxy.Work.InUse, proxy.Work.Limit)})
+	}
+	if traffic := status.Traffic; traffic != nil {
+		rows = append(rows, []string{"traffic", fmt.Sprintf("ready=%t faulted=%t pressure=%t", traffic.Ready, traffic.Faulted, traffic.Pressure), fmt.Sprintf("bytes=%d budget=%d quota_refusals=%d; shared MCP/HTTP history, missing completion is unknown", traffic.DatabaseBytes+traffic.WALBytes, traffic.BudgetBytes, traffic.QuotaRefusals)})
 	}
 	for _, limit := range statusLimits(status.Limits) {
 		state := "available"

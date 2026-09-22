@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -71,6 +72,9 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		if online.Name() == "backup" {
 			online.AddCommand(newRecoveryCmd(dependencies, false))
 		}
+		if online.Name() == "http" {
+			online.AddCommand(newHTTPCACmd(dependencies))
+		}
 		command.AddCommand(online)
 	}
 	command.Long = command.Short + ".\n\nOnly agent-gateway is published. Renaming a current binary does not change\nits commands, installation, credentials, or process lock. Operator clients\nmust upgrade with the service for the API v2 and mcp command namespaces."
@@ -129,6 +133,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().Int64("traffic-budget-bytes", composition.DefaultTrafficBudget, "combined traffic database/WAL budget in bytes (1 MiB–16 GiB)")
 	command.Flags().StringVar(&logLevel, "log-level", "warn", "serve diagnostic level: warn, info, or debug (JSON stderr)")
 	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
+	command.Flags().String("http-proxy-listen", "", "enable HTTP proxy on a separate numeric IPv4 loopback authority (for example 127.0.0.1:8212); requires an existing CA")
 	command.Flags().StringArrayVar(&allowedHosts, "allowed-host", nil, "additional exact ASCII DNS hostname for trusted local forwarding (repeatable; no port; does not trust browser Origins)")
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
@@ -176,6 +181,24 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	for _, host := range allowedHosts {
 		if _, ok := contract.NormalizeHostname(host); !ok {
 			return false, controlclient.NewInputError("Each --allowed-host must be an ASCII DNS hostname without a port or trailing dot.")
+		}
+	}
+	proxyAuthority := ""
+	if command.Flags().Lookup("http-proxy-listen") != nil {
+		proxyAuthority, _ = command.Flags().GetString("http-proxy-listen")
+		if command.Flags().Changed("http-proxy-listen") && proxyAuthority == "" {
+			return false, controlclient.NewInputError("Provide a nonempty --http-proxy-listen authority, or omit the flag to disable HTTP.")
+		}
+	}
+	if err := httpboundary.ValidateAuthority(authority); err != nil {
+		return false, err
+	}
+	if proxyAuthority != "" {
+		if err := httpboundary.ValidateAuthority(proxyAuthority); err != nil {
+			return false, err
+		}
+		if proxyAuthority == authority {
+			return false, controlclient.NewInputError("Proxy and administration listen authorities must differ.")
 		}
 	}
 	ctx := command.Context()
@@ -268,7 +291,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
 		Invocations:   controlAPI.Invocations,
+		HTTPTraffic:   controlAPI.HTTPTraffic,
 		Audit:         controlAPI.Audit,
+
+		HTTPCredentials: controlAPI.HTTPCredentials,
+		HTTPPolicies:    controlAPI.HTTPPolicies,
 
 		AuthorizationCollections: controlAPI.AuthorizationCollections,
 
@@ -305,6 +332,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			trafficStatus := runtime.Traffic().Status(context.Background())
 			trafficStatus.Ready = trafficStatus.Ready && !store.Latched() && !draining.Load()
 			status.Traffic = &trafficStatus
+			proxyStatus := runtime.HTTPProxyStatus()
+			proxyStatus.Ready = proxyStatus.Ready && trafficStatus.Ready
+			status.HTTPProxy = &proxyStatus
 			status.Backup = backupManager.Status()
 			status.Limits.BackupWork = backupManager.WorkStatus()
 			status.Limits.BackupRecords = backupManager.RecordStatus()
@@ -379,6 +409,24 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	}
 	defer func() { _ = listener.Close() }()
 	capabilitySnapshot = capability
+	var proxyDone chan error
+	if proxyAuthority != "" {
+		proxyListener, _, bindErr := httpboundary.OpenListener(ctx, proxyAuthority, nil)
+		if bindErr != nil {
+			return false, bindErr
+		}
+		defer func() { _ = proxyListener.Close() }()
+		proxy, prepareErr := runtime.PrepareHTTPProxy(ctx, netip.MustParseAddrPort(authority), netip.MustParseAddrPort(proxyAuthority))
+		if prepareErr != nil {
+			return false, prepareErr
+		}
+		proxyDone = make(chan error, 1)
+		go func() { proxyDone <- proxy.Serve(proxyListener) }()
+		defer func() {
+			proxy.BeginDrain()
+			<-proxyDone
+		}()
+	}
 	server := &http.Server{
 		ErrorLog:          diagnostics.HTTPErrorLog(),
 		Handler:           boundary,
@@ -409,6 +457,10 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	case err := <-serveDone:
 		ready.Store(false)
 		return false, err
+	case err := <-proxyDone:
+		proxyDone <- err
+		stopBeforeAcknowledgement()
+		return false, err
 	default:
 	}
 	result := struct {
@@ -430,10 +482,15 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	dependencies.diagnostics.Observe(diagnostics.Facts{Event: diagnostics.Readiness})
 	runtimeClean := true
 	select {
+	case err := <-proxyDone:
+		proxyDone <- err
+		ready.Store(false)
+		_ = server.Close()
+		<-serveDone
+		return true, fmt.Errorf("HTTP proxy stopped: %w", err)
 	case err := <-serveDone:
-		if !errors.Is(err, http.ErrServerClosed) {
-			return true, err
-		}
+		ready.Store(false)
+		return true, fmt.Errorf("administration listener stopped before drain: %w", err)
 	case <-ctx.Done():
 		dependencies.diagnostics.Observe(diagnostics.Facts{Event: diagnostics.Drain})
 		draining.Store(true)
