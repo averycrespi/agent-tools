@@ -104,17 +104,17 @@ stderr. It never prunes when the keychain cannot be reached — that failure exi
 
 `show` and `rotate` require exactly one valid role and return command-specific errors for missing, extra, or unknown arguments.
 
-Agent activation is coordinated: rotate, refresh/copy and re-provision `agent-token` while avoiding new client starts, send `SIGHUP` promptly, then reconnect old-token clients. After reload, old credentials fail on new CONNECT and absolute-form requests, but traffic inside an established tunnel or MITM CONNECT continues. This is not zero-downtime revocation.
+Agent activation is coordinated: rotate, securely refresh client `agent-token` files while avoiding new client starts, send `SIGHUP` promptly, then reconnect old-token clients. After reload, old credentials fail on new CONNECT and absolute-form requests, but traffic inside an established tunnel or MITM CONNECT continues. This is not zero-downtime revocation.
 
 Admin activation is rotate, `SIGHUP`, then reopen/re-authenticate the dashboard. Old Bearer credentials and cookies fail on new dashboard requests; an already-open SSE stream may continue. The untouched role remains valid.
 
 ## `ca`
 
-| Command               | Effect                                                                                                                    |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `ca path`             | Print the CA certificate path.                                                                                            |
-| `ca export [-o file]` | Write the CA certificate. The private key is never exported.                                                              |
-| `ca rotate --yes`     | Generate a new CA. **Requires `--yes`**: there is no overlap window, and every provisioned sandbox needs re-provisioning. |
+| Command               | Effect                                                                                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ca path`             | Print the CA certificate path.                                                                                                                                  |
+| `ca export [-o file]` | Write the CA certificate. The private key is never exported.                                                                                                    |
+| `ca rotate --yes`     | Generate a new CA. **Requires `--yes`**: there is no overlap window, and every client trusting the old CA needs the new public CA installed in its trust store. |
 
 ## Refusal reasons
 

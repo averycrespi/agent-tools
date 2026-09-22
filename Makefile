@@ -1,8 +1,7 @@
-TOOLS := mcp-broker agent-gateway sandbox-manager local-git-mcp http-broker typesafe-mcp
+TOOLS := mcp-broker agent-gateway local-git-mcp http-broker typesafe-mcp
 OTHER_TOOLS := $(filter-out agent-gateway,$(TOOLS))
 INTEGRATION_TOOLS := mcp-broker agent-gateway local-git-mcp typesafe-mcp
 E2E_TOOLS := mcp-broker agent-gateway http-broker
-UNAME_S := $(shell uname -s)
 LOCAL_TEST_JOBS ?= 2
 
 ifneq ($(LOCAL_TEST_JOBS),1)
@@ -29,11 +28,6 @@ install-dev:
 	npm install
 
 setup:
-ifeq ($(UNAME_S),Darwin)
-	brew bundle
-else
-	@echo "Skipping brew bundle on $(UNAME_S); install system dependencies manually."
-endif
 	$(MAKE) install-dev
 	$(MAKE) install
 

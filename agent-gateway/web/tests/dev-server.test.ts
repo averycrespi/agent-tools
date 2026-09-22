@@ -278,7 +278,7 @@ for (const retired of ["MCP_GATEWAY_UI_LISTEN", "MCP_GATEWAY_UI_GATEWAY"]) {
   });
 }
 
-test("provisioning exports are not retired development settings", () => {
+test("client compatibility exports are not retired development settings", () => {
   assert.deepEqual(
     parseDevelopmentConfig(
       {

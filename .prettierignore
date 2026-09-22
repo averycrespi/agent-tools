@@ -3,4 +3,3 @@
 .handoffs/
 .pi/tickets/
 agent-gateway/internal/api/static/
-sandbox-manager/internal/sandbox/files/lima.yaml

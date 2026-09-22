@@ -86,7 +86,7 @@ func TestTokenRotateChangesOnlySelectedRoleWithoutPrintingRawValue(t *testing.T)
 	if strings.Contains(output.String(), afterAgent.Agent) {
 		t.Fatal("agent rotation printed the raw replacement credential")
 	}
-	for _, phrase := range []string{"agent token", "re-provision", "SIGHUP"} {
+	for _, phrase := range []string{"agent token", "securely refresh client agent-token files", "SIGHUP"} {
 		if !strings.Contains(output.String(), phrase) {
 			t.Fatalf("agent guidance does not contain %q", phrase)
 		}

@@ -270,7 +270,7 @@ func (s *stack) readToken(role string) string {
 }
 
 // fetchCAPool retrieves the CA over the unauthenticated endpoint, the same way
-// provisioning would obtain it.
+// a client would obtain it.
 func (s *stack) fetchCAPool() *x509.CertPool {
 	s.t.Helper()
 	resp, err := http.Get(s.dashURL("/ca.pem")) //nolint:noctx // test helper

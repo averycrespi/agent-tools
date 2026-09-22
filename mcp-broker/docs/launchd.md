@@ -17,7 +17,7 @@ launchd does not source shell profiles. Prefer backends that use the macOS Keych
 | `~/.local/share/mcp-broker/audit.db`  | SQLite audit log                                        |
 | `~/.local/share/mcp-broker/grants.db` | SQLite grant authorization state                        |
 
-A legacy `auth-token` is migration input only. Its normalized value becomes `agent-token`, a fresh distinct `admin-token` is created, and the legacy file is retired. Update external sandbox `copy_paths` to `agent-token` before the next provisioning run; never copy `admin-token` into a sandbox.
+A legacy `auth-token` is migration input only. Its normalized value becomes `agent-token`, a fresh distinct `admin-token` is created, and the legacy file is retired. Securely transfer only the canonical `agent-token` to clients; never copy `admin-token` into a sandbox.
 
 ## Install
 
@@ -56,7 +56,7 @@ launchctl bootout gui/$UID/dev.agent-tools.mcp-broker
 
 A bad rules file or bad role candidate cannot block a valid change to another reloadable file. Invalid role values keep that role's prior in-memory credential.
 
-Agent rotation is coordinated: run `mcp-broker token rotate agent`, refresh sandbox `copy_paths` and re-provision while avoiding new agent starts, send `SIGHUP` promptly, then reconnect clients with the old value. New MCP HTTP requests reject the old value after activation; existing streams may drain. For admin rotation, rotate, send `SIGHUP`, and reopen the dashboard. Old cookies fail on new dashboard requests, while an already-open SSE stream may continue.
+Agent rotation is coordinated: run `mcp-broker token rotate agent`, securely refresh client agent-token files while avoiding new agent starts, send `SIGHUP` promptly, then reconnect clients with the old value. New MCP HTTP requests reject the old value after activation; existing streams may drain. For admin rotation, rotate, send `SIGHUP`, and reopen the dashboard. Old cookies fail on new dashboard requests, while an already-open SSE stream may continue.
 
 Restart is still required for backend servers, tool patches, hooks, listener settings, `rules.path`, database paths/settings, Telegram, approval timeout, logging, browser behavior, body limits, or backend rediscovery. Grant mint/revoke changes apply per request.
 

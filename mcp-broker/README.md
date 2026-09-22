@@ -494,32 +494,21 @@ mcp-broker token rotate agent # Rotate only agent-token; raw value is not printe
 mcp-broker token rotate admin # Rotate only admin-token; raw value is not printed
 ```
 
-Agent rotation is a coordinated cutover, not zero-downtime revocation: rotate the host file, refresh `copy_paths`/re-provision while avoiding new agent starts, send `SIGHUP` promptly, then reconnect clients holding the old value. After activation, old agent credentials fail on new MCP HTTP requests; existing MCP streaming responses may drain. For admin rotation, rotate, send `SIGHUP`, then reopen the dashboard; old credentials and cookies fail on new dashboard requests, while an already-open SSE stream may continue. The untouched role remains valid.
+Agent rotation is a coordinated cutover, not zero-downtime revocation: rotate the host file, securely refresh client agent-token files while avoiding new agent starts, send `SIGHUP` promptly, then reconnect clients holding the old value. After activation, old agent credentials fail on new MCP HTTP requests; existing MCP streaming responses may drain. For admin rotation, rotate, send `SIGHUP`, then reopen the dashboard; old credentials and cookies fail on new dashboard requests, while an already-open SSE stream may continue. The untouched role remains valid.
 
 Downgrading to a one-token binary re-merges agent and dashboard authority. A deliberate rollback requires stopping or isolating the broker, reconstructing legacy shared-token state, and treating every sandbox holder as dashboard-authorized until re-upgrade and rotation.
 
 Background clients that must not wait for human approval can add `Mcp-Broker-Approval-Mode: reject` to individual tool calls, or set it as a default HTTP header for that client.
 
-## How the sandbox consumes it
+## Manual client configuration
 
-The sandbox needs only `~/.config/mcp-broker/agent-token`; never copy, mount, export, or embed `admin-token`. Update existing external `copy_paths` from `auth-token` before the next `sb provision`; already-running guests keep working because migration preserves the old value as the agent credential.
+Repository-owned guest provisioning is retired. Transfer only `~/.config/mcp-broker/agent-token` through an authenticated, confidential channel; never copy, mount, export or embed `admin-token` or upstream credentials. On upgrade, use the canonical agent file, not the migration-only `auth-token`.
 
-### With sandbox-manager
+Before transfer, verify ownership, reject symlinked parents/files and reconcile existing destinations privately. Keep the client token in an owner-private directory (`0700`) and regular file (`0600` or `0400`). Configure Streamable HTTP at `http://host.lima.internal:8200/mcp` for trusted local Lima forwarding, or the appropriate loopback endpoint for a host client. Keep the broker loopback-only; plain HTTP is not secure arbitrary-remote transport.
 
-```json
-{
-  "copy_paths": ["~/.config/mcp-broker/agent-token"],
-  "scripts": [
-    "/path/to/agent-tools/mcp-broker/examples/provision/configure-mcp-broker.sh"
-  ]
-}
-```
+Load the current agent file at client startup through its supported secret-file or environment mechanism and send `Authorization: Bearer <agent-token>`. Existing integrations using `MCP_BROKER_ENDPOINT=http://host.lima.internal:8200` and `MCP_BROKER_AGENT_TOKEN` remain supported; wire them to the client’s `/mcp` transport. Do not embed raw tokens in profiles/settings, arguments or logs. Disable shell tracing around credential reads and never dump environments. After rotation, securely refresh copies and restart clients retaining old environments.
 
-The provisioning script reads that file at shell startup and exports `MCP_BROKER_ENDPOINT=http://host.lima.internal:8200` plus `MCP_BROKER_AGENT_TOKEN` in a marker-fenced `~/.bashrc` block. Wire those into the agent's MCP config.
-
-### Without sandbox-manager
-
-Copy only `agent-token` into the sandbox, then run [`examples/provision/configure-mcp-broker.sh`](examples/provision/configure-mcp-broker.sh). The script targets bash; adapt the rc-file write for other shells.
+Operators own shell/launcher configuration and stale managed-block reconciliation; source retirement does not edit live profiles, transfer credentials or prove client connectivity.
 
 ## Run as a launchd agent (macOS)
 

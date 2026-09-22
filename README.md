@@ -2,24 +2,23 @@
 
 [![CI](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml)
 
-My tools for working with AI coding agents: sandboxed execution and controlled external access that keeps upstream credentials on the host. Use individual tools or combine them to fit your workflow.
+My tools for working with AI coding agents: controlled external access that keeps upstream credentials on the host. Use individual tools or combine them to fit your workflow.
 
 ## Tools at a Glance
 
-| Tool                                          | Purpose                                               | Runs on         |
-| --------------------------------------------- | ----------------------------------------------------- | --------------- |
-| [Sandbox Manager (`sb`)](#sandbox-manager-sb) | Manage a Lima VM for agent execution                  | macOS host      |
-| [MCP Broker](#mcp-broker)                     | Apply rules and per-call human approval to MCP tools  | Host            |
-| [Agent Gateway](#agent-gateway)               | Give agents scoped access to MCP tools                | Host            |
-| [HTTP Broker](#http-broker)                   | Inject credentials into proxied HTTP/HTTPS requests   | Host            |
-| [Local Git MCP](#local-git-mcp)               | Perform authenticated Git remote operations over MCP  | Host subprocess |
-| [TypeSafe MCP](#typesafe-mcp)                 | Evaluate agent-defined questions with TypeSafe models | Host subprocess |
+| Tool                            | Purpose                                               | Runs on         |
+| ------------------------------- | ----------------------------------------------------- | --------------- |
+| [MCP Broker](#mcp-broker)       | Apply rules and per-call human approval to MCP tools  | Host            |
+| [Agent Gateway](#agent-gateway) | Give agents scoped access to MCP tools                | Host            |
+| [HTTP Broker](#http-broker)     | Inject credentials into proxied HTTP/HTTPS requests   | Host            |
+| [Local Git MCP](#local-git-mcp) | Perform authenticated Git remote operations over MCP  | Host subprocess |
+| [TypeSafe MCP](#typesafe-mcp)   | Evaluate agent-defined questions with TypeSafe models | Host subprocess |
 
 ## Choosing and Combining Tools
 
 These tools are independent, not a mandatory stack:
 
-- **Execution:** Sandbox Manager provides an optional Lima VM. The access tools do not require the Pi coding agent, and Agent Gateway does not depend on Lima or a particular agent harness.
+- **Execution:** Bring your own client environment. These access tools do not manage VMs or guest provisioning and do not require Lima or a particular agent harness.
 - **MCP access:** Choose MCP Broker or Agent Gateway based on the permission model below. Both connect agents to backend MCP servers.
 - **Git access:** Run Local Git MCP as a stdio backend behind either Broker or Gateway, using that service's access controls and invocation history.
 - **Model evaluation:** Run TypeSafe MCP behind Gateway for agent-defined Choice, Score, and Noul questions, with explicit paid-inference authorization.
@@ -38,18 +37,6 @@ Both keep upstream credentials outside the sandbox, but approval means different
 They have separate configuration and state; Gateway does not migrate Broker settings.
 
 ## Tool Summaries
-
-### Sandbox Manager (sb)
-
-`sb` manages a lightweight Lima VM on macOS for running agents in a separate development environment.
-
-- Creates an Ubuntu VM with a host-matching UID and writable workspace mounts.
-- Applies repeatable provisioning scripts to install and configure the tools your agents need.
-- Provides commands to enter, provision, and destroy the sandbox.
-
-The sandbox protects host integrity and credential custody; it is not a data-loss-prevention boundary. Guest network egress is allowed by default, so do not put secrets or sensitive private data in the VM unless you accept that an agent can transmit them.
-
-See the [Sandbox Manager README](sandbox-manager/README.md) for setup and usage.
 
 ### MCP Broker
 
@@ -71,7 +58,7 @@ See the [MCP Broker README](mcp-broker/README.md) for setup and usage.
 - Manages upstream credentials and OAuth; agents receive a separate Gateway credential, not upstream service secrets.
 - Provides a web application and CLI for administration, with redacted invocation history and control-plane audit records.
 
-Only the canonical executable is published. Existing installations retain explicit-root operation and the separately authorized [stopped migration procedure](agent-gateway/docs/operators/installation-migration.md); publication never removes stale installed artifacts. The source directory and Go module are `agent-gateway`; durable and MCP identities remain unchanged.
+Only the canonical executable is published. Existing installations retain explicit-root operation and the [post-migration installation safety guidance](agent-gateway/docs/operators/installation-safety.md); publication never removes stale installed artifacts. The source directory and Go module are `agent-gateway`; durable and MCP identities remain unchanged.
 
 See the [Agent Gateway README](agent-gateway/README.md) for setup and usage.
 
@@ -112,13 +99,11 @@ Inference discloses submitted data to TypeSafe and consumes quota. See the [Type
 Requirements:
 
 - Go 1.26.6 or later and GNU Make
-- macOS and Lima for Sandbox Manager (`brew bundle` installs Lima from the repository root)
 - A supported operating-system keyring for Agent Gateway server credentials
 
 From the repository root, run the install command for the tools you need:
 
 ```bash
-make -C sandbox-manager install
 make -C mcp-broker install
 make -C agent-gateway install
 make -C http-broker install
@@ -144,7 +129,7 @@ make build  # build all Go tools
 make check  # check CI selection, formatting, lint, and ordinary tool correctness
 ```
 
-On macOS, `make setup` combines Homebrew dependencies, development dependencies, and installation of all tools.
+`make setup` combines development dependencies and installation of all tools.
 
 GitHub Actions checks affected tools on pull requests and all tools on `main`, manual runs, and a weekly schedule. See the [contributor guidance](CLAUDE.md#development) for test ownership and focused checks, and [CI guidance](CLAUDE.md#ci) for selection, caching, and required checks.
 
@@ -155,19 +140,20 @@ GitHub Actions checks affected tools on pull requests and all tools on `main`, m
 
 These tools are no longer maintained, but their final versions remain available in the repository history.
 
-| Tool                  | Last commit                                                                                                                  | Reason                                                               |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `local-gomod-proxy`   | [`586ed5d1aa`](https://github.com/averycrespi/agent-tools/tree/586ed5d1aa925778bf7a98e69a9308d1d4eaad94/local-gomod-proxy)   | No longer needed.                                                    |
-| `worktree-manager`    | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-manager)    | Deprecated in favor of Herdr for workspace and worktree management.  |
-| `worktree-sync`       | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-sync)       | Deprecated in favor of Herdr for workspace and worktree management.  |
-| `pi-session-analyzer` | [`7f52e38085`](https://github.com/averycrespi/agent-tools/tree/7f52e380857a435b25ba85a6c3c7e8865e04cd1d/pi-session-analyzer) | Built as an experiment and not carried forward.                      |
-| `pi-dispatcher`       | [`d1f7ae3da4`](https://github.com/averycrespi/agent-tools/tree/d1f7ae3da4aa70616ee2ee6161eaf22e81cd4c51/pi-dispatcher)       | Replaced by the scheduled-tasks Pi extension.                        |
-| `pi-orchestrator`     | [`3e799fa7c1`](https://github.com/averycrespi/agent-tools/tree/3e799fa7c1b568f8d5abe1faf9335f7ba18ad0b1/pi-orchestrator)     | Replaced by the scheduled-tasks Pi extension.                        |
-| `telegram-mcp`        | [`3d9dc4338b`](https://github.com/averycrespi/agent-tools/tree/3d9dc4338b27123184783c80ada6a6aa5e5b7f0f/telegram-mcp)        | Retired; the standalone notification server is no longer maintained. |
-| `agent-mailbox`       | [`4378f6ef71`](https://github.com/averycrespi/agent-tools/tree/4378f6ef71ea25961b3bb8e08053dfc8ff0302eb/agent-mailbox)       | Replaced by `telegram-mcp`, which is now also retired.               |
-| `local-gh-mcp`        | [`1f7cfd126f`](https://github.com/averycrespi/agent-tools/tree/1f7cfd126fe10f5f3107db771a06450c2adc0d92/local-gh-mcp)        | Deprecated in favor of the official GitHub MCP server.               |
-| `broker-cli`          | [`0251368f3b`](https://github.com/averycrespi/agent-tools/tree/0251368f3b209242d6edcc7b916f476f810cb584/broker-cli)          | Replaced by the `mcp-broker` Pi extension.                           |
-| `hindsight`           | [`164ffccbc0`](https://github.com/averycrespi/agent-tools/tree/164ffccbc010cc41c0a1330f8f1a5570ae61199f/hindsight)           | An experimental memory solution that was ultimately abandoned.       |
+| Tool                  | Last commit                                                                                                                  | Reason                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `sandbox-manager`     | [`e9f0dfd3a0`](https://github.com/averycrespi/agent-tools/tree/e9f0dfd3a06461aa068e429349539e929b960357/sandbox-manager)     | Retired with repository-owned guest provisioning; bring your own client environment. |
+| `local-gomod-proxy`   | [`586ed5d1aa`](https://github.com/averycrespi/agent-tools/tree/586ed5d1aa925778bf7a98e69a9308d1d4eaad94/local-gomod-proxy)   | No longer needed.                                                                    |
+| `worktree-manager`    | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-manager)    | Deprecated in favor of Herdr for workspace and worktree management.                  |
+| `worktree-sync`       | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-sync)       | Deprecated in favor of Herdr for workspace and worktree management.                  |
+| `pi-session-analyzer` | [`7f52e38085`](https://github.com/averycrespi/agent-tools/tree/7f52e380857a435b25ba85a6c3c7e8865e04cd1d/pi-session-analyzer) | Built as an experiment and not carried forward.                                      |
+| `pi-dispatcher`       | [`d1f7ae3da4`](https://github.com/averycrespi/agent-tools/tree/d1f7ae3da4aa70616ee2ee6161eaf22e81cd4c51/pi-dispatcher)       | Replaced by the scheduled-tasks Pi extension.                                        |
+| `pi-orchestrator`     | [`3e799fa7c1`](https://github.com/averycrespi/agent-tools/tree/3e799fa7c1b568f8d5abe1faf9335f7ba18ad0b1/pi-orchestrator)     | Replaced by the scheduled-tasks Pi extension.                                        |
+| `telegram-mcp`        | [`3d9dc4338b`](https://github.com/averycrespi/agent-tools/tree/3d9dc4338b27123184783c80ada6a6aa5e5b7f0f/telegram-mcp)        | Retired; the standalone notification server is no longer maintained.                 |
+| `agent-mailbox`       | [`4378f6ef71`](https://github.com/averycrespi/agent-tools/tree/4378f6ef71ea25961b3bb8e08053dfc8ff0302eb/agent-mailbox)       | Replaced by `telegram-mcp`, which is now also retired.                               |
+| `local-gh-mcp`        | [`1f7cfd126f`](https://github.com/averycrespi/agent-tools/tree/1f7cfd126fe10f5f3107db771a06450c2adc0d92/local-gh-mcp)        | Deprecated in favor of the official GitHub MCP server.                               |
+| `broker-cli`          | [`0251368f3b`](https://github.com/averycrespi/agent-tools/tree/0251368f3b209242d6edcc7b916f476f810cb584/broker-cli)          | Replaced by the `mcp-broker` Pi extension.                                           |
+| `hindsight`           | [`164ffccbc0`](https://github.com/averycrespi/agent-tools/tree/164ffccbc010cc41c0a1330f8f1a5570ae61199f/hindsight)           | An experimental memory solution that was ultimately abandoned.                       |
 
 </details>
 

@@ -26,7 +26,6 @@ jobs:
       integration: ${{ steps.select.outputs.integration }}
       e2e: ${{ steps.select.outputs.e2e }}
       gateway: ${{ steps.select.outputs.gateway }}
-      sandbox: ${{ steps.select.outputs.sandbox }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,20 +138,6 @@ jobs:
           SUITE: ${{ matrix.suite }}
         run: make -C agent-gateway "test-$SUITE"
 
-  sandbox-manager-macos:
-    name: Sandbox Manager tests (macOS)
-    needs: changes
-    if: needs.changes.outputs.sandbox == 'true'
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/go-cache
-        with:
-          role: macos
-          tool: sandbox-manager
-      - run: make -C sandbox-manager test
-
   integration-tests:
     name: Integration tests (${{ matrix.tool }})
     needs: changes
@@ -245,7 +230,6 @@ jobs:
       - changes
       - quality
       - unit-tests
-      - sandbox-manager-macos
       - integration-tests
       - e2e-tests
       - gateway-demo

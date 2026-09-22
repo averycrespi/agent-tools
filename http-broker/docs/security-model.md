@@ -60,7 +60,7 @@ loopback.
     credentials.
 11. **A failed reload keeps the previous policy serving.** A typo cannot take
     the sandbox's network down.
-12. **Role authority is strict and confined.** The proxy compares only the agent credential; the dashboard query/Bearer/cookie flow compares only admin. `/`, `/healthz`, `/ca.pem`, and the host-authentication guidance at `/dashboard/unauthorized` are intentional public exceptions. Admin credentials never enter provisioning or daemon logs.
+12. **Role authority is strict and confined.** The proxy compares only the agent credential; the dashboard query/Bearer/cookie flow compares only admin. `/`, `/healthz`, `/ca.pem`, and the host-authentication guidance at `/dashboard/unauthorized` are intentional public exceptions. Admin credentials never enter agent client environments or daemon logs.
 13. **Credential state converges safely.** Canonical role files are distinct and atomically replaced under an advisory lock. Legacy `auth-token` is initialization-only migration input preserved as agent, then retired; it is never a runtime fallback. `SIGHUP` publishes one immutable pair and applies a valid role change even if another role or unrelated reload fails.
 
 ## Out of scope
@@ -70,8 +70,8 @@ These are **not** guarantees. Do not rely on them.
 - **This is not a containment boundary.** Enforcement is cooperative: it rests
   on the sandbox honouring `HTTP_PROXY`/`HTTPS_PROXY`. An agent that unsets
   them, runs `curl --noproxy`, or opens a raw socket bypasses this tool
-  entirely. `sandbox-manager/DESIGN.md` states the sandbox "is not a data-loss
-  prevention boundary" and that guest egress is intentionally allowed.
+  entirely. Client isolation and egress restrictions belong to the chosen
+  environment; this proxy supplies neither a VM nor a data-loss-prevention boundary.
   Network-level enforcement — guest firewall rules permitting egress only to
   the proxy — is the v2 direction and does not exist yet.
 - **The audit log is not complete.** It records cooperating traffic. Traffic
@@ -94,7 +94,7 @@ These are **not** guarantees. Do not rely on them.
 
 ### A leaked agent credential
 
-Anyone holding it can use proxy policy as written, but cannot authenticate to the dashboard. Coordinate the cutover: `http-broker token rotate agent`, refresh/copy and re-provision `agent-token` while avoiding new client starts, send `SIGHUP` promptly, then reconnect clients holding the old value. New CONNECT and absolute-form requests reject the old credential after activation; existing tunnel and MITM CONNECT traffic continues. Review the audit log. This is not zero-downtime revocation.
+Anyone holding it can use proxy policy as written, but cannot authenticate to the dashboard. Coordinate the cutover: `http-broker token rotate agent`, securely refresh client `agent-token` files while avoiding new client starts, send `SIGHUP` promptly, then reconnect clients holding the old value. New CONNECT and absolute-form requests reject the old credential after activation; existing tunnel and MITM CONNECT traffic continues. Review the audit log. This is not zero-downtime revocation.
 
 ### A leaked admin credential
 
@@ -114,9 +114,10 @@ undetected.
 http-broker ca rotate --yes
 ```
 
-There is **no overlap window**: every sandbox stops trusting the proxy the
-moment rotation completes, and TLS interception fails there until provisioning
-is re-run in each one. Re-provision every sandbox, then `SIGHUP`.
+There is **no overlap window**: clients trusting only the old CA cannot verify
+new interception certificates. Securely transfer and install the new public CA
+in every client trust store, then send `SIGHUP` to activate it in a running proxy.
+Never transfer the private key or disable TLS verification.
 
 Then treat every credential the proxy could inject as exposed and rotate it at
 its provider — a holder of the CA key could have read them in flight.

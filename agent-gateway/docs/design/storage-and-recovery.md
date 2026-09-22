@@ -126,7 +126,7 @@ The installation-migration CLI, stopped host inspection and atomic whole-directo
 
 Nothing deletes or rewrites tombstones, interrupted reservations, old plists, logs, backups or recovery markers. There is no resume or reverse-exchange command. Unexpected residual state or durability uncertainty requires operator investigation and a separately reviewed stopped plan. Binary/configuration rollback retains the same destination root. See [installation safety](../operators/installation-safety.md).
 
-Retirement preserves installation ULID, SQLite application/schema identity, database/backup lineage and metadata, `gateway.db`/`gateway.lock`, bearer/verifier/fingerprint domains, native-keyring services/generation handles, policy/history/OAuth material and all MCP/provisioning contracts. Deterministic source tests are not native service/keyring or live-host adoption evidence.
+Retirement preserves installation ULID, SQLite application/schema identity, database/backup lineage and metadata, `gateway.db`/`gateway.lock`, bearer/verifier/fingerprint domains, native-keyring services/generation handles, policy/history/OAuth material and all MCP and client credential contracts. Deterministic source tests are not native service/keyring or live-host adoption evidence.
 
 ## Security mutation and stopped recovery
 

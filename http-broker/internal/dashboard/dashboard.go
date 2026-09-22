@@ -135,7 +135,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Unauthenticated. /healthz is the liveness probe an external monitor
-	// needs (AC-19); /ca.pem is fetched by provisioning before any token
+	// needs (AC-19); /ca.pem serves a public certificate before any token
 	// exists in the sandbox. The unauthorized page explains how a host operator
 	// can authenticate without exposing dashboard state.
 	mux.HandleFunc("GET /healthz", d.handleHealthz)

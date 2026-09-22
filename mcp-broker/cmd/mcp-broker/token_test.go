@@ -91,7 +91,7 @@ func TestTokenRotateChangesOnlySelectedFileWithoutPrintingCredential(t *testing.
 	}
 	require.Contains(t, output.String(), "agent token")
 	require.Contains(t, output.String(), "SIGHUP")
-	require.Contains(t, output.String(), "re-provision")
+	require.Contains(t, output.String(), "securely refresh client agent-token files")
 
 	output.Reset()
 	require.NoError(t, tokenRotateCmd.RunE(tokenRotateCmd, []string{"admin"}))

@@ -8,7 +8,7 @@
 // refuses to run against a directory it cannot write.
 //
 // The root's private key never leaves the host. Sandboxes receive only ca.pem,
-// shipped in by sandbox-manager's copy_paths.
+// transferred by the operator through a trusted channel.
 package ca
 
 import (
@@ -64,7 +64,7 @@ type Authority struct {
 }
 
 // RootPEM returns the PEM-encoded certificate for the root CA. This is what
-// GET /ca.pem serves and what provisioning installs into a sandbox.
+// GET /ca.pem serves and what operators install into a sandbox.
 func (a *Authority) RootPEM() []byte { return a.current.Load().rootPEM }
 
 // RootCert returns the parsed root certificate.
@@ -81,7 +81,7 @@ func LoadOrGenerate(keyPath, certPath string) (*Authority, error) {
 	// invalidating every sandbox that trusts the surviving certificate.
 	if fileExists(certPath) != fileExists(keyPath) {
 		return nil, fmt.Errorf(
-			"ca: found only one of %s and %s; remove the remaining file to regenerate the CA, then re-run provisioning in every sandbox",
+			"ca: found only one of %s and %s; remove the remaining file to regenerate the CA, then manually install the new CA in every client trust store",
 			keyPath, certPath)
 	}
 	return generate(keyPath, certPath)
@@ -92,7 +92,7 @@ func LoadOrGenerate(keyPath, certPath string) (*Authority, error) {
 // leaves signed by the new root.
 //
 // In-flight handshakes holding an old leaf complete normally. Every
-// provisioned sandbox stops trusting this proxy until provisioning is re-run
+// provisioned sandbox stops trusting this proxy until the new CA is manually installed
 // there; there is no overlap window.
 func (a *Authority) Rotate() error {
 	next, err := generate(a.keyPath, a.certPath)
