@@ -222,6 +222,12 @@ Drain fences all new gate entrants before waiting boundedly, then removes and ca
 
 Ingress authentication runs before MCP body reads, era classification, and session lookup. Production consumes the coordinated composition-owned positive authenticator and discovery bundle. The authentication seam accepts the authorization repository's already-registered non-expiring lease with exact principal/credential revisions, fingerprint, and visibility. A shared idempotent request owner releases the lease on boundary abort or every ingress terminal path, and lease invalidation cancels an in-flight modern request; detached ingress bindings, credential expiry, and optional post-auth subscriptions no longer exist.
 
+### SDK transport trust boundary
+
+Both embedded SDK transports run behind Gateway's early HTTP boundary and agent authentication. Gateway owns Host and Origin validation: only the canonical numeric IPv4 loopback authority or an explicitly allowed forwarding hostname is admitted, before authentication or body processing. Forwarding headers remain forbidden, and hostname allowlisting grants neither browser Origin trust nor credentials or grants. The original request Host is preserved.
+
+The modern and legacy SDK handlers disable only their redundant localhost-protection guard, which otherwise rejects allowed forwarding hostnames when the HTTP listener context is loopback. Production ingress must remain behind `httpboundary.Boundary`; the SDK is not an independently exposed HTTP server. Gateway's listener validation, authentication, protocol classification, limits, and authorization remain authoritative.
+
 ### Modern ingress
 
 Gateway validates the modern `2026-07-28` header/body protocol mirror and dispatches only sessionless POST requests to the official SDK's stateless transport. Per-request client metadata replaces initialization state in this era.
