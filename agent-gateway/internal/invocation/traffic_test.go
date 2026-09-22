@@ -217,7 +217,7 @@ func TestTrafficRestartRejectsInvalidGeneration(t *testing.T) {
 		{"high water", `UPDATE traffic_meta SET high_water=high_water+1`},
 		{"foreign binding", `UPDATE traffic_meta SET installation='01ARZ3NDEKTSV4RRFFQ69G5FAX'`},
 		{"application", `PRAGMA application_id=0`},
-		{"schema", `PRAGMA user_version=2`},
+		{"schema", `PRAGMA user_version=3`},
 		{"unexpected object", `CREATE TABLE surprise(value TEXT)`},
 		{"missing charge", `DELETE FROM traffic_sizes`},
 	}

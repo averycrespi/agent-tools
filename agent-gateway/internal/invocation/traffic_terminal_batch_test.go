@@ -2,6 +2,7 @@ package invocation
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,8 +14,10 @@ import (
 )
 
 func TestTrafficTerminalBatchSettlement(t *testing.T) {
-	for _, mode := range []string{"success", "invalid-member", "cancelled-member", "close"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, scenario := range []string{"success", "invalid-member", "cancelled-member", "close", "mixed-success", "mixed-invalid-member", "mixed-cancelled-member", "mixed-close"} {
+		t.Run(scenario, func(t *testing.T) {
+			mixed := strings.HasPrefix(scenario, "mixed-")
+			mode := strings.TrimPrefix(scenario, "mixed-")
 			entered, release := make(chan struct{}), make(chan struct{})
 			var armed atomic.Bool
 			var begins atomic.Int32
@@ -39,7 +42,13 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 			diagnostics := make([]*contract.FailureDiagnostics, 4)
 			receipts := make([]*TrafficReceipt, 4)
 			for i := range receipts {
-				receipt, err := s.Admit(t.Context(), trafficPrepared(i+1))
+				var receipt *TrafficReceipt
+				var err error
+				if mixed && i%2 == 1 {
+					receipt, err = s.AdmitHTTP(t.Context(), httpTrafficAdmission(i+1))
+				} else {
+					receipt, err = s.Admit(t.Context(), trafficPrepared(i+1))
+				}
 				require.NoError(t, err)
 				require.True(t, s.Confirm(t.Context(), receipt))
 				receipts[i] = receipt
@@ -53,7 +62,13 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 			for i := range results {
 				results[i] = make(chan error, 1)
 			}
-			go func() { results[0] <- s.complete(t.Context(), receipts[0], completion, diagnostics[0]) }()
+			finish := func(ctx context.Context, i int) error {
+				if mixed && i%2 == 1 {
+					return s.CompleteHTTP(ctx, receipts[i], httpTrafficCompletion())
+				}
+				return s.complete(ctx, receipts[i], completion, diagnostics[i])
+			}
+			go func() { results[0] <- finish(t.Context(), 0) }()
 			select {
 			case <-entered:
 			case <-time.After(5 * time.Second):
@@ -63,7 +78,7 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 			defer cancel()
 			// Queue in a known order behind the owned transaction, not via timing luck.
 			for i := 1; i < 4; i++ {
-				go func(i int) { results[i] <- s.complete(ctx, receipts[i], completion, diagnostics[i]) }(i)
+				go func(i int) { results[i] <- finish(ctx, i) }(i)
 				require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.terminalQueued == i+1 }, time.Second, time.Millisecond)
 			}
 			// Encoding has completed before enqueue; caller mutation cannot alter the batch.
@@ -106,8 +121,24 @@ func TestTrafficTerminalBatchSettlement(t *testing.T) {
 			} else {
 				rows, err := s.History(t.Context(), 0, 10)
 				require.NoError(t, err)
-				require.Len(t, rows.Records, 4)
+				expectedMCP := 4
+				if mixed {
+					expectedMCP = 2
+				}
+				require.Len(t, rows.Records, expectedMCP)
 				completed := 0
+				if mixed {
+					httpRows, readErr := s.HTTPHistory(t.Context(), 0, 10)
+					require.NoError(t, readErr)
+					require.Len(t, httpRows.Records, 2)
+					for _, row := range httpRows.Records {
+						if row.Completion != nil {
+							completed++
+							assert.Equal(t, "succeeded", row.Completion.Outcome)
+							assert.Equal(t, 200, row.Completion.Status)
+						}
+					}
+				}
 				for _, row := range rows.Records {
 					if row.CompletedAt != nil {
 						completed++

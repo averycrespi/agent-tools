@@ -6,6 +6,118 @@ Authority: Normative product design
 
 This chapter owns the behavior and invariants described below. Operational procedures remain in the linked guides; exact executable contract values remain owned by `internal/contract` and must agree with this chapter.
 
+## HTTP traffic evidence
+
+HTTP admission uses the same registered agent lease, short authority gate and
+selected traffic writer as MCP. Under one coherent control snapshot it captures
+one decision time, principal and singular agent-credential revisions, default and
+policy revisions, at most four deduplicated deciding grant references with their
+canonical configured selectors, transport, and the selected injection credential
+metadata/material generation. These facts never join current grants on reads.
+Only canonical origin/method or CONNECT host/port is observed evidence: no observed
+path, query, header, body, address list, bearer, secret, upstream error or response
+content enters storage or public projections. Configured matched selectors are
+historical policy, not observed request paths. An opaque tunnel exposes no inner
+HTTP requests.
+
+The gate and control read end before material acquisition and traffic persistence.
+Acknowledged allow receipts are confirmed once against the exact active binding,
+shared policy revision and selected material generation. HTTP credential edits,
+rotation, fence activation and deletion share a nonqueueing material guard held
+only for metadata revalidation and final detachment, never keyring I/O. Registry
+drain, control health, original cancellation and traffic health fence detachment.
+Failed admission or confirmation never dispatches, reevaluates, retries or falls
+back to uninjected access. Unparseable authenticated requests retain only binding,
+identity/time and `invalid_request`, with no target or policy. Unauthenticated or
+unverifiable authority produces no durable HTTP row. Denials and interception
+settle the receipt without upstream dispatch; interception is not permission for
+an inner request. An acknowledged allow that loses confirmation remains unknown,
+not evidence of execution or a fabricated denial.
+
+HTTP shares the admission/completion queues, fairness, atomic batches, fault
+boundary, active pins and budget with MCP. One synchronous best-effort completion
+attempt records only completion time, closed outcome, optional 100–599 request
+status, nonnegative byte counts and elapsed milliseconds. Outcomes are `succeeded`,
+`prestart_failure`, `upstream_failure`, or `outcome_unknown`. Missing terminal
+remains unknown for an allow and never overrides a known live result. Both kinds
+of queued completion reserve 640 bytes, including the full 512-byte payload;
+existing immutable per-member MCP diagnostics and no-added-dwell batching remain.
+No background terminal retry or replay is introduced.
+
+## HTTP proxy engine
+
+`internal/httpproxy` consumes the sole composition-owned authenticator, authority,
+receipt coordinator, HTTP material service, CA signer, remote factory and lifecycle.
+It accepts a dedicated composition-selected listener only with explicit
+`serve --http-proxy-listen` configuration. Omission leaves HTTP disabled without
+loading CA signing material; existing MCP operation remains independent. The
+selected authority must be canonical numeric IPv4 loopback, nonzero and distinct
+from administration/MCP. Both binds and CA load must succeed before startup
+acknowledgement; explicit selection never silently falls back to MCP-only.
+Administration, MCP routes and temporary OAuth callbacks are never proxy routes
+or permitted upstream destinations, even with private-address permission.
+
+Proxy authentication accepts one bounded `Proxy-Authorization` header: Bearer or
+standard Basic with username `agent` and the existing agent credential as password.
+Parsing is limited to 1024 bytes before decoding. All authentication-required
+responses use a safe Basic 407 challenge, no-store and connection close. Administrator
+credentials never authenticate, and proxy authorization never reaches an upstream.
+Client proxy-URL environment exports are an explicit supported agent-secret sink,
+read at shell startup from the private token file, never persisted in configuration.
+No alternate credential slot is introduced.
+
+Absolute-form plain HTTP uses request policy. CONNECT authenticates its original
+bearer and selects either explicitly granted opaque TCP or local TLS interception.
+Each intercepted H1 request/H2 stream freshly authenticates that bearer, pins its
+original principal/credential identity and performs durable admission/confirmation.
+Origin requests neither supply nor receive proxy credentials. Later revocation
+rejects new admissions without canceling admitted work. Interception itself grants
+no upstream permission. Invalid authenticated coordinates retain only invalid-request
+evidence, not the submitted URL. Parser-level malformed framing is rejected before
+an authenticated request exists.
+
+CONNECT fixes HTTPS authority; SNI and inner Host must agree through the policy
+canonicalizer. Forwarding uses the resulting canonical path/authority, never
+forwarding headers or a reparsed raw URL. Duplicate Host and malformed framing
+are refused by the HTTP parser; accepted framing is reserialized on a fresh hop.
+Intercepted upgrades/WebSockets and trailers reject; explicit tunnels are opaque
+and never run inner request policy or credential injection. No HTTP/3 or TLS-error
+fallback exists.
+
+The remote owner resolves a bounded complete address set once, evaluates every
+answer, pins it, and dials only its first validated address after confirmed evidence.
+It rechecks unconditional exclusions and current composition-owned listener
+reservations at dial. Callback endpoints are reserved before binding. Private
+permission belongs only to the selected request/tunnel grant. Each request uses a
+fresh HTTP/1 upstream transport with a single-use dial, explicit H1-only protocol,
+no keepalive, proxy, compression, redirect client or body replay. Thus H2 client
+streams cannot coalesce upstream connections or transfer another principal/path's
+permission. Selected HTTPS credential material replaces its single header only
+after admission; missing material never falls back. An authorized upstream can
+itself disclose any secret it receives; the proxy cannot prevent that disclosure.
+
+Bounds are executable in `contract/http_engine.go`: 256 accepted connections, 128
+active work owners, 96 per principal, 32 H2 streams per connection, 32 KiB streaming
+buffers and header ceiling, 10-second dial/TLS handshake, 15-second headers,
+60-second I/O inactivity, and 10-second caller drain. The H2 plaintext frame adapter
+bounds incomplete frame/header phases without interpreting HPACK; HEADERS and
+CONTINUATION share a nonrenewable header deadline. Between complete frames no
+header timer caps a progressing stream. Existing H2 preface/SETTINGS and idle/ping
+bounds remain. Rejections, uploads, response writes and cleanup are bounded;
+request-upload teardown joins before completion evidence and handler return.
+Occupancy permits 32 streams plus 32 tunnels with headroom, but is **not** capacity
+qualification. Prior failed capacity evidence remains applicable.
+
+Opaque tunnels expire one hour from admission, never renewed by traffic. Expiry
+closes both sides and never reconnects; in-flight effects may be unknown. Intercepted
+downloads/SSE have no blanket hard lifetime. Shutdown fences new work, closes owned
+connections, and retains actual owner accounting until cleanup settles. CA material
+is closed only after HTTP owners and their completion attempts settle, before the
+shared traffic store closes. Timeout
+reports unconfirmed cleanup, not permission to close storage underneath live work.
+One completion attempt carries only safe status, byte counts and outcome; interrupted
+or uncertain dispatch remains unknown and is never replayed.
+
 ## Governed invocation and audit evidence
 
 Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/administration.md#mcp-invocation-namespace-cutover).
@@ -66,7 +178,7 @@ Without an acknowledged admission, the error is `audit_unavailable` with no invo
 
 ### Internal evidence boundary
 
-`internal/activity` owns only common evidence values: the prepared identity and admission time, principal and credential identity/revision/fingerprint, admission class and authorization evidence, and optional paired completion time/class. Its envelope composes these lifecycle facts without owning validation, authority, SQL, execution, or public representations. The existing closed contract vocabulary remains unchanged; MCP is the only supported domain.
+`internal/activity` owns only common evidence values: the prepared identity and admission time, principal and credential identity/revision/fingerprint, admission class and authorization evidence, and optional paired completion time/class. Its envelope composes these lifecycle facts without owning validation, authority, SQL, execution, or public representations. MCP common values retain their existing vocabulary; HTTP uses the separate closed `HTTPTrafficAdmission` and completion projection in `internal/contract`.
 
 `internal/invocation.MCPDetails` owns the requested tool name, fixed-redacted argument capture, and optional resolved route. A resolved route follows the [access-target boundary](identity-and-authorization.md#internal-access-target-boundary): it carries the canonical `accesstarget.MCP` exact target plus invocation-owned tool ID and pinned descriptor revision/fingerprint. Synthetic local and downstream targets are distinctions within MCP, not separate protocols. An absent route means unresolved evidence, never server-wide scope. Malformed calls may retain their existing independently available name/capture fields; resolved classes still require complete exact-target and descriptor evidence.
 

@@ -444,6 +444,7 @@ function StatusPanel({
     status.ready &&
     !status.latched &&
     status.keyring === "ready" &&
+    (!status.httpProxy?.enabled || status.httpProxy.ready) &&
     (!status.traffic ||
       (status.traffic.ready &&
         !status.traffic.faulted &&
@@ -508,15 +509,23 @@ function StatusPanel({
                 status.traffic.pressure) && (
                 <StateNotice
                   state="warning"
-                  title="MCP traffic persistence needs attention"
+                  title="Shared traffic persistence needs attention"
                 >
                   <p>
                     {status.traffic.faulted
-                      ? "New tool dispatch is blocked. Healthy control storage remains available for inspection and revocation; restart requires full traffic validation."
+                      ? "New MCP dispatch and HTTP forwarding are blocked. Healthy control storage remains available for inspection and revocation; restart requires full traffic validation."
                       : "Traffic capacity is pressured or temporarily unavailable. Missing completion remains unknown; never automatically replay calls."}
                   </p>
                 </StateNotice>
               )}
+            {status.httpProxy?.enabled && !status.httpProxy.ready && (
+              <StateNotice state="warning" title="HTTP proxy is unavailable">
+                <p>
+                  Check the loaded CA, shared traffic storage and lifecycle
+                  state. Client trust must be configured separately.
+                </p>
+              </StateNotice>
+            )}
             {status.keyring !== "ready" && (
               <StateNotice
                 state="warning"
@@ -563,9 +572,44 @@ function StatusPanel({
                   </span>
                 </dd>
               </div>
+              {status.httpProxy && (
+                <div>
+                  <dt>HTTP proxy</dt>
+                  <dd>
+                    <strong>
+                      {!status.httpProxy.enabled
+                        ? "Disabled"
+                        : status.httpProxy.ready
+                          ? "Ready"
+                          : "Unavailable"}
+                    </strong>
+                    {status.httpProxy.enabled && (
+                      <>
+                        <span>{status.httpProxy.authority}</span>
+                        <span>
+                          Interception CA{" "}
+                          {status.httpProxy.caReady ? "loaded" : "unavailable"};
+                          client trust is separate
+                        </span>
+                        <span>
+                          {status.httpProxy.activeStreams} active
+                          requests/streams · {status.httpProxy.activeTunnels}{" "}
+                          opaque tunnels
+                        </span>
+                        <span>
+                          {status.httpProxy.connections.inUse} /{" "}
+                          {status.httpProxy.connections.limit} connections ·{" "}
+                          {status.httpProxy.work.inUse} /{" "}
+                          {status.httpProxy.work.limit} work owners
+                        </span>
+                      </>
+                    )}
+                  </dd>
+                </div>
+              )}
               {status.traffic && (
                 <div>
-                  <dt>MCP traffic storage</dt>
+                  <dt>Shared traffic storage</dt>
                   <dd>
                     <strong>
                       {status.traffic.faulted

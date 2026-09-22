@@ -79,7 +79,7 @@ func VerifyTrafficFile(ctx context.Context, path, installation, generation strin
 	if err = db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return err
 	}
-	if app != trafficApplicationID || version != 1 || integrity != "ok" {
+	if app != trafficApplicationID || (version != 1 && version != 2) || integrity != "ok" {
 		return ErrInvalidState
 	}
 	return (&TrafficStore{db: db, path: path, config: config}).validateTrafficEvidence(ctx, installation, generation)

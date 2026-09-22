@@ -173,6 +173,12 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	path := strings.Join(spec.Path, " ")
 	var parts []string
 	switch {
+	case strings.HasPrefix(path, "http credential "):
+		parts = httpCredentialETagPattern.FindStringSubmatch(options.etag)
+	case strings.HasPrefix(path, "http grant "):
+		parts = httpGrantETagPattern.FindStringSubmatch(options.etag)
+	case strings.HasPrefix(path, "http default "):
+		parts = httpDefaultETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "mcp server "):
 		parts = serverETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "principal "):
@@ -281,6 +287,13 @@ func marshalIntent(value any) ([]byte, error) {
 }
 
 var onlineIntentSpecs = map[string]onlineIntentSpec{
+	"http grant create":      {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
+	"http grant update":      {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
+	"http default update":    {fileMembers: []string{"default"}},
+	"http test-access":       {fileMembers: []string{"principal_id", "url", "method", "connect"}},
+	"http credential create": {fileMembers: []string{"name", "boundary", "recipe", "secret"}},
+	"http credential update": {fileMembers: []string{"name", "boundary", "recipe"}},
+	"http credential rotate": {fileMembers: []string{"secret"}},
 	"admin credential create": {
 		direct:        []onlineDirectFlag{{name: "expires-at"}},
 		defaultDirect: true,

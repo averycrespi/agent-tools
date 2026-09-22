@@ -75,6 +75,10 @@ filter_blocks() {
 				name=${line/'# <<< '/'# >>> '}; name=${name/' <<<'/' >>>'}
 				[[ "$active" == "$name" ]] || return 1
 				active='' ;;
+			'# >>> agent-gateway-http-proxy >>>'|'# <<< agent-gateway-http-proxy <<<')
+				# The explicit HTTP client script owns this independent block.
+				[[ -z "$active" ]] || return 1
+				printf '%s' "$line"; [[ $ending != 0 ]] || printf '\n' ;;
 			*)
 				case "$line" in
 					*'>>>'*'agent-gateway'*|*'<<<'*'agent-gateway'*|*'>>>'*'mcp-gateway'*|*'<<<'*'mcp-gateway'*) return 1 ;;

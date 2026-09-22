@@ -11,6 +11,7 @@ Start with the [Gateway README](../README.md) for installation and the quick sta
 - [Run as a macOS launchd agent](operators/launchd.md) — per-user startup, verification, graceful maintenance, and native-keyring caveats.
 - [Upstream server configuration](operators/upstream-servers.md) — servers, credentials, OAuth, operations, and catalogs.
 - [Access control](operators/access-control.md) — principals, agent credentials, grants, and grant requests.
+- [HTTP proxy setup](operators/http-proxy.md) — explicit activation, fresh client credentials and public CA trust.
 - [Invocation evidence](operators/invocation-evidence.md) — retained evidence, redaction, and unknown outcomes.
 - [Backup and recovery](operators/backup-and-recovery.md) — backups, verification, restore, and administrator reset.
 
