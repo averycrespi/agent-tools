@@ -23,6 +23,7 @@ type DocumentationSecurityContract struct {
 }
 
 var documentationGuides = []DocumentationGuide{
+	{ID: "docs.guide.http.proxy", Path: "docs/operators/http-proxy.md", Audience: "Gateway administrators and client operators", Purpose: "Enable proxying and configure fresh clients without migrating Broker state."},
 	{ID: "docs.guide.installation.safety", Path: "docs/operators/installation-safety.md", Audience: "Operators maintaining existing Gateway installations", Purpose: "Select the existing installation and retain post-migration safety and recovery artifacts."},
 	{ID: "docs.guide.launchd", Path: "docs/operators/launchd.md", Audience: "Gateway operators using a logged-in macOS desktop", Purpose: "Install, verify, and manage a per-user LaunchAgent"},
 	{ID: "docs.guide.cli.local.administration", Path: "docs/operators/administration.md", Audience: "Gateway operators and automation authors", Purpose: "Run local administration safely through the public CLI."},

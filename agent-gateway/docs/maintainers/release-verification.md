@@ -108,6 +108,17 @@ The retention E2E owner seeds the real 65,536-row boundary with one set-based tr
 
 `TestServeFirstSignalDeadlineRetainsUncleanMarker` owns the real compiled graceful-shutdown deadline, exit 7, listener closure, verified process cleanup, unclean marker, and recovery. `TestCLIServePostStartFailureOutput` in the CLI package owns human/JSON terminal-problem formatting and singular acknowledgement without waiting through that deadline again. `TestCLIServeOutputLifecycle` retains real-binary human/JSON startup and pre-start failure output; separate E2E owners retain second-signal forcing, active transport cancellation, and late-completion fencing.
 
+### HTTP activation fixtures
+
+The HTTP activation real-binary fixture links an absolute disposable fake-material
+directory into a separate `e2e` binary. Ordinary E2E/demo builds retain process-local
+material; normal builds contain neither fixture selector nor plaintext backend.
+The fixture's marked private directory is outside installation/backup/evidence trees,
+bounded and removed by its test owner. It permits stopped CA creation, serve and
+restart to share fake material without touching a native keyring. This is production
+composition correctness, **not** native signing persistence, protected key custody,
+unattended access, client trust qualification or target capacity evidence.
+
 ### Traffic-store checks
 
 `invocation.TrafficStore` owns production MCP persistence. Its isolated

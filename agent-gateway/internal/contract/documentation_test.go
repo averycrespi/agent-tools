@@ -37,7 +37,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"docs/design/downstream-servers.md", "docs/design/invocation-and-ingress.md", "docs/design/administrative-control-plane.md",
 		},
 		"../../docs/design/downstream-servers.md":     {"## Installation interception CA", "4,096 bytes", "after **every restore**"},
-		"../../docs/design/invocation-and-ingress.md": {"## Unselected HTTP proxy engine", "one hour from admission", "no blanket hard lifetime"},
+		"../../docs/design/invocation-and-ingress.md": {"## HTTP proxy engine", "serve --http-proxy-listen", "username `agent`", "one hour from admission", "no blanket hard lifetime"},
 		"../../docs/design/identity-and-authorization.md": {
 			"grant_requests", "sole online schema-10 DML owner",
 		},

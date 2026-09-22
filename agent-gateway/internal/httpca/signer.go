@@ -177,6 +177,18 @@ func cloneCertificate(c *tls.Certificate) *tls.Certificate {
 	return &result
 }
 
+// Ready reports only the loaded signing capability, not native keyring health
+// or client trust. It never exports protected material or performs keyring I/O.
+func (s *Signer) Ready() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.clock.Now()
+	return s.key != nil && !now.Before(s.root.NotBefore) && now.Before(s.root.NotAfter)
+}
+
 // Close withdraws signing capability and drops process-local cache references.
 func (s *Signer) Close() {
 	if s == nil {

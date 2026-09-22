@@ -169,6 +169,17 @@ authority. Control readiness and latch remain independent; a traffic-only fault
 does not globally disable healthy administrative mutations. History item/list
 representations, routes, IDs, filters and one-shot CLI behavior remain unchanged.
 
+### Optional HTTP proxy status
+
+`http_proxy` is optional for older status producers and present in production.
+Its closed fields are `enabled`, `ready`, `ca_ready`, `connections`, `work`,
+`active_streams`, `active_tunnels`, and `authority` only when enabled. Occupancy
+objects use `{in_use,limit,saturated}`; counters are nonnegative. Disabled HTTP
+reports false readiness and zero occupancy. `ca_ready` attests loaded process-local
+signing capability and certificate validity, not native persistence or client trust.
+Readiness also requires healthy traffic/control and open lifecycle admission.
+No secret, request destination, path or principal identity appears in this status.
+
 ### Control-plane audit reads
 
 `GET /api/v2/audit-events` and `GET /api/v2/audit-events/{id}` accept administrator bearer or session authority, remain bodyless and `no-store`, and have exact `Allow` value `GET`. There are no audit mutation, replay, export, or ordinary read-access-log endpoints.
@@ -390,7 +401,7 @@ The event stream still has no replay mechanism. Browser streaming uses session-o
 
 Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, and `grant_requests`.
 
-Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `agent_gateway_session`. The legacy `mcp_gateway_session` name is expiry-only, never authority; see the [session cutover and exact cookie scope](administrative-control-plane.md#administrative-authority-and-sessions). Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. Standard output and standard error are not secret sinks.
+Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `agent_gateway_session`. The legacy `mcp_gateway_session` name is expiry-only, never authority; see the [session cutover and exact cookie scope](administrative-control-plane.md#administrative-authority-and-sessions). Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. `http_proxy_client_environment` permits only explicit client proxy-URL exports resolved at shell startup from the existing owner-private agent token file; never administrator tokens, persisted configuration or service environment. Standard output and standard error are not secret sinks.
 
 ### Server, catalog, and OAuth request mechanics
 

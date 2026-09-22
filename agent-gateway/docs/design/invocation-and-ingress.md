@@ -42,14 +42,29 @@ status, nonnegative byte counts and elapsed milliseconds. Outcomes are `succeede
 remains unknown for an allow and never overrides a known live result. Both kinds
 of queued completion reserve 640 bytes, including the full 512-byte payload;
 existing immutable per-member MCP diagnostics and no-added-dwell batching remain.
-No production proxy listener, background terminal retry or replay is introduced.
+No background terminal retry or replay is introduced.
 
-## Unselected HTTP proxy engine
+## HTTP proxy engine
 
 `internal/httpproxy` consumes the sole composition-owned authenticator, authority,
 receipt coordinator, HTTP material service, CA signer, remote factory and lifecycle.
-It accepts an already-owned listener only in controlled fixtures; no production
-listener, public activation flag or alternative credential slot is selected.
+It accepts a dedicated composition-selected listener only with explicit
+`serve --http-proxy-listen` configuration. Omission leaves HTTP disabled without
+loading CA signing material; existing MCP operation remains independent. The
+selected authority must be canonical numeric IPv4 loopback, nonzero and distinct
+from administration/MCP. Both binds and CA load must succeed before startup
+acknowledgement; explicit selection never silently falls back to MCP-only.
+Administration, MCP routes and temporary OAuth callbacks are never proxy routes
+or permitted upstream destinations, even with private-address permission.
+
+Proxy authentication accepts one bounded `Proxy-Authorization` header: Bearer or
+standard Basic with username `agent` and the existing agent credential as password.
+Parsing is limited to 1024 bytes before decoding. All authentication-required
+responses use a safe Basic 407 challenge, no-store and connection close. Administrator
+credentials never authenticate, and proxy authorization never reaches an upstream.
+Client proxy-URL environment exports are an explicit supported agent-secret sink,
+read at shell startup from the private token file, never persisted in configuration.
+No alternate credential slot is introduced.
 
 Absolute-form plain HTTP uses request policy. CONNECT authenticates its original
 bearer and selects either explicitly granted opaque TCP or local TLS interception.
@@ -96,7 +111,9 @@ qualification. Prior failed capacity evidence remains applicable.
 Opaque tunnels expire one hour from admission, never renewed by traffic. Expiry
 closes both sides and never reconnects; in-flight effects may be unknown. Intercepted
 downloads/SSE have no blanket hard lifetime. Shutdown fences new work, closes owned
-connections, and retains actual owner accounting until cleanup settles. Timeout
+connections, and retains actual owner accounting until cleanup settles. CA material
+is closed only after HTTP owners and their completion attempts settle, before the
+shared traffic store closes. Timeout
 reports unconfirmed cleanup, not permission to close storage underneath live work.
 One completion attempt carries only safe status, byte counts and outcome; interrupted
 or uncertain dispatch remains unknown and is never replayed.

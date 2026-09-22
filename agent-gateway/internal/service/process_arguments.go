@@ -202,7 +202,7 @@ func sameRoot(candidate, selected string) bool {
 }
 func observationFlag(flag, value string) bool {
 	switch flag {
-	case "--listen":
+	case "--listen", "--http-proxy-listen":
 		addr, e := netip.ParseAddrPort(value)
 		return e == nil && addr.Addr().Is4() && addr.Addr().IsLoopback() && addr.Port() != 0
 	case "--allowed-host":

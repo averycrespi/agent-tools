@@ -392,6 +392,19 @@ func statusTable(body []byte) (controlclient.Table, error) {
 		{"backup", string(status.Backup.State), "last_completed_at=" + lastBackup},
 		{"protocols", string(status.Protocols.AgentAuth), fmt.Sprintf("modern=%s legacy=%s", status.Protocols.Modern, status.Protocols.Legacy)},
 	}
+	if proxy := status.HTTPProxy; proxy != nil {
+		state := "disabled"
+		if proxy.Enabled {
+			state = "unavailable"
+			if proxy.Ready {
+				state = "ready"
+			}
+		}
+		rows = append(rows, []string{"http_proxy", state, fmt.Sprintf("authority=%s ca_loaded=%t streams=%d tunnels=%d connections=%d/%d work=%d/%d; client trust is separate", proxy.Authority, proxy.CAReady, proxy.ActiveStreams, proxy.ActiveTunnels, proxy.Connections.InUse, proxy.Connections.Limit, proxy.Work.InUse, proxy.Work.Limit)})
+	}
+	if traffic := status.Traffic; traffic != nil {
+		rows = append(rows, []string{"traffic", fmt.Sprintf("ready=%t faulted=%t pressure=%t", traffic.Ready, traffic.Faulted, traffic.Pressure), fmt.Sprintf("bytes=%d budget=%d quota_refusals=%d; shared MCP/HTTP history, missing completion is unknown", traffic.DatabaseBytes+traffic.WALBytes, traffic.BudgetBytes, traffic.QuotaRefusals)})
+	}
 	for _, limit := range statusLimits(status.Limits) {
 		state := "available"
 		if limit.value.Saturated {

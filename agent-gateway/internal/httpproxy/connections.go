@@ -109,6 +109,10 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	}
 	decision := result.Evidence.Decision
 	if decision.Transport == contract.HTTPTransportTunnel && result.DispatchAuthorized {
+		e.mu.Lock()
+		e.tunnels++
+		e.mu.Unlock()
+		defer func() { e.mu.Lock(); e.tunnels--; e.mu.Unlock() }()
 		completion := contract.HTTPTrafficCompletion{Outcome: "prestart_failure"}
 		defer func() { e.complete(result, identity, completion) }()
 		admittedAt, parseErr := time.Parse(time.RFC3339Nano, identity.AdmittedAt)

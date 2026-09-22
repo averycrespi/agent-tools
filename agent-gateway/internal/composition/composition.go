@@ -122,6 +122,7 @@ type Composition struct {
 	httpCredentials      *httpcredentials.Service
 	httpCA               *httpca.Service
 	httpProxy            *httpproxy.Engine
+	httpProxyAuthority   string
 	httpNow              func() time.Time
 	manager              *runtimes.Manager
 	publisher            *activePublisher
@@ -138,12 +139,16 @@ type Composition struct {
 	drainResult          runtimes.DrainResult
 }
 
-// prepareHTTPProxy is intentionally unselected: no production caller or CLI
-// flag invokes it. Composition fixtures exercise the complete owner bundle.
+// PrepareHTTPProxy selects the sole HTTP bundle before Start. The caller owns
+// both validated listener binds; failure is fatal only for explicit selection.
+func (built *Composition) PrepareHTTPProxy(ctx context.Context, main, proxy netip.AddrPort) (*httpproxy.Engine, error) {
+	return built.prepareHTTPProxy(ctx, main, proxy)
+}
+
 func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy netip.AddrPort) (*httpproxy.Engine, error) {
 	built.startMu.Lock()
 	defer built.startMu.Unlock()
-	if built.started || built.startFailed || built.httpProxy != nil || !main.IsValid() || !proxy.IsValid() || main.Port() == 0 || proxy.Port() == 0 || built.httpCA == nil {
+	if built.started || built.startFailed || built.httpProxy != nil || !main.IsValid() || !proxy.IsValid() || !main.Addr().Is4() || !main.Addr().IsLoopback() || !proxy.Addr().Is4() || !proxy.Addr().IsLoopback() || main == proxy || main.Port() == 0 || proxy.Port() == 0 || built.httpCA == nil {
 		return nil, httpproxy.ErrUnavailable
 	}
 	signer, err := built.httpCA.Load(ctx)
@@ -165,8 +170,23 @@ func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy neti
 		}
 		return all
 	}
-	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, Remote: built.remoteFactory, Signer: signer, Listeners: listeners, Now: built.httpNow})
+	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, Remote: built.remoteFactory, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
+	if err == nil {
+		built.httpProxyAuthority = proxy.String()
+	}
 	return built.httpProxy, err
+}
+
+func (built *Composition) HTTPProxyStatus() contract.HTTPProxyStatus {
+	built.startMu.Lock()
+	defer built.startMu.Unlock()
+	if built.httpProxy == nil {
+		return contract.HTTPProxyStatus{}
+	}
+	status := built.httpProxy.Status()
+	status.Authority = built.httpProxyAuthority
+	status.Ready = status.Ready && status.CAReady && built.ready() && built.accepting.Load()
+	return status
 }
 
 func (built *Composition) Servers() *servers.Repository { return built.servers }
@@ -945,9 +965,6 @@ func (built *Composition) beginDrain() {
 	if built.httpProxy != nil {
 		built.httpProxy.BeginDrain()
 	}
-	if built.httpCA != nil {
-		built.httpCA.Close()
-	}
 	if built.keyring != nil {
 		built.keyring.Drain()
 	}
@@ -1001,6 +1018,10 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 			result.Verified = int(ownedBefore - ownedAfter)
 			result.Unconfirmed = int(ownedAfter)
 		}
+	}
+	// Signing material outlives every owned connection and completion attempt.
+	if built.httpCA != nil {
+		built.httpCA.Close()
 	}
 	if built.traffic != nil && built.traffic.Close() != nil {
 		clean = false

@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnselectedHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
+func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	built, err := newWithHooks(options, constructorHooks{provider: func(id string) (*keyring.Provider, error) {
@@ -34,8 +34,10 @@ func TestUnselectedHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	endpoint := netip.MustParseAddrPort(listener.Addr().String())
-	engine, err := built.prepareHTTPProxy(ctx, netip.MustParseAddrPort("127.0.0.1:8210"), endpoint)
+	engine, err := built.PrepareHTTPProxy(ctx, netip.MustParseAddrPort("127.0.0.1:8210"), endpoint)
 	require.NoError(t, err)
+	require.NoError(t, built.Start(ctx))
+	require.True(t, built.HTTPProxyStatus().Ready)
 	done := make(chan error, 1)
 	go func() { done <- engine.Serve(listener) }()
 	defer func() {
@@ -57,14 +59,13 @@ func TestUnselectedHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T)
 	require.NoError(t, err)
 	_, err = built.authorization.PutHTTPGrant(ctx, "", "", authorization.HTTPGrantInput{PrincipalID: principal.Principal.ID, Policy: policy})
 	require.NoError(t, err)
-	proxyURL := &url.URL{Scheme: "http", Host: listener.Addr().String()}
+	proxyURL := &url.URL{Scheme: "http", Host: listener.Addr().String(), User: url.UserPassword("agent", credential.Bearer)}
 	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableKeepAlives: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
 	request := func() int {
 		r, err := http.NewRequestWithContext(ctx, "GET", upstream.URL+"/", nil)
 		require.NoError(t, err)
-		r.Header.Set("Proxy-Authorization", "Bearer "+credential.Bearer)
 		response, err := client.Do(r)
 		require.NoError(t, err)
 		_, err = io.Copy(io.Discard, response.Body)

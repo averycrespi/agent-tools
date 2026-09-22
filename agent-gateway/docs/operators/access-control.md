@@ -16,7 +16,7 @@ See [DESIGN](../../DESIGN.md) for the system design index and [Identity and auth
 
 ## HTTP grants and Test access
 
-Use **HTTP → Grants** for HTTP policy, and principal detail for its separate HTTP default. Existing and new principals default to block. MCP grants, visibility, credentials and self-service are unchanged. This control surface starts no production HTTP proxy. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
+Use **HTTP → Grants** for HTTP policy, and principal detail for its separate HTTP default. Existing and new principals default to block. MCP grants, visibility, credentials and self-service are unchanged. [Proxy activation](http-proxy.md) is separately opt-in. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
 
 ```sh
 agent-gateway http grant list
@@ -47,9 +47,8 @@ network-enforced containment.
 
 See the [normative HTTP v1 contract](../design/identity-and-authorization.md#http-policy-version-1)
 for the deliberately restricted path grammar, explicit wildcard hosts, exact
-ports, credential containment and bounded explanations. This foundation does
-not migrate Broker rules or qualify capacity, native credentials or a production
-HTTP transport.
+ports, credential containment and bounded explanations. This policy surface does not migrate Broker rules or qualify capacity or native
+credentials.
 
 ## Browse principal and grant tables
 
@@ -77,7 +76,7 @@ Discovery visibility grants no access; MCP grants remain authoritative for calls
 
 Principal creation also creates an ordinary permanent grant described as **Default Gateway access** for the six fixed `mcp_gateway` self-service tools. It grants no downstream access or authority for future protocols. This is the design's synthetic default grant: the description stays unchanged for existing and new records. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Creation is atomic: capacity or required audit failure leaves neither a new principal nor its grant. Human creation output is principal metadata; JSON retains `{principal,default_grant}`. Issue the credential separately and configure downstream MCP grants separately. Principals are permanent and cannot be deleted.
 
-The principal ID/state and single credential slot remain shared identity, not per-protocol settings. Generic compatibility names such as `visibility`, `default_grant`, and `AgentCredential` do not make MCP grants protocol-general. Existing credentials and backups remain usable without reinitialization, conversion, or rotation for this clarification. The HTTP MVP will share this same agent credential, with separate HTTP permissions; MCP grants do not authorize HTTP.
+The principal ID/state and single credential slot remain shared identity, not per-protocol settings. Generic compatibility names such as `visibility`, `default_grant`, and `AgentCredential` do not make MCP grants protocol-general. Existing credentials and backups remain usable without reinitialization, conversion, or rotation for this clarification. HTTP shares this same agent credential, with separate HTTP permissions; MCP grants do not authorize HTTP.
 
 ## Update principal state or visibility
 

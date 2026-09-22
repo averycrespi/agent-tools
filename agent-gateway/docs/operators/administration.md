@@ -44,7 +44,7 @@ and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
 pair is needed. Backups remain paired and restore both evidence domains. The stopped
 `storage migrate-traffic` command still rejects an already selected pair.
-This delivery does not start a production HTTP proxy.
+[Proxy activation and fresh client setup](http-proxy.md) are explicit and separate from control administration.
 
 ## Scoped HTTP credentials
 

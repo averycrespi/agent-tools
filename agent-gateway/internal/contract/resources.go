@@ -125,6 +125,7 @@ const (
 	SecretSinkAgentCredentialCreation            SecretSink  = "agent_credential_creation" //nolint:gosec // Public sink name, not a credential.
 	SecretSinkBrowserOneTimeDisplay              SecretSink  = "browser_one_time_display"
 	SecretSinkUserInitiatedClipboard             SecretSink  = "user_initiated_clipboard"
+	SecretSinkHTTPProxyEnvironment               SecretSink  = "http_proxy_client_environment" //nolint:gosec // Public sink name, not a credential.
 	SecretOutputFileMode                         fs.FileMode = 0o600
 	SecretOutputTerminator                                   = "\n"
 )
@@ -141,5 +142,6 @@ func ApprovedSecretSinks() []SecretSink {
 		SecretSinkAgentCredentialCreation,
 		SecretSinkBrowserOneTimeDisplay,
 		SecretSinkUserInitiatedClipboard,
+		SecretSinkHTTPProxyEnvironment,
 	}
 }

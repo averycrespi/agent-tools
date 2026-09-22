@@ -66,7 +66,18 @@ export interface TrafficView {
   prunedRecords: number;
   generation: string;
 }
+export interface HTTPProxyView {
+  enabled: boolean;
+  ready: boolean;
+  caReady: boolean;
+  authority?: string;
+  connections: Omit<LimitView, "name">;
+  work: Omit<LimitView, "name">;
+  activeStreams: number;
+  activeTunnels: number;
+}
 export interface StatusView {
+  httpProxy?: HTTPProxyView;
   traffic?: TrafficView;
   processState: string;
   ready: boolean;
@@ -176,7 +187,10 @@ function limit(value: unknown, name: LimitName): LimitView {
 export function decodeStatus(value: unknown): StatusView {
   const hasTraffic =
     value !== null && typeof value === "object" && "traffic" in value;
+  const hasProxy =
+    value !== null && typeof value === "object" && "http_proxy" in value;
   const root = record(value, [
+    ...(hasProxy ? ["http_proxy"] : []),
     ...(hasTraffic ? ["traffic"] : []),
     "process",
     "sqlite",
@@ -217,6 +231,32 @@ export function decodeStatus(value: unknown): StatusView {
       generation: stringValue(item.generation),
     };
   }
+  let httpProxy: HTTPProxyView | undefined;
+  if (hasProxy) {
+    const raw = root.http_proxy;
+    const hasAuthority =
+      raw !== null && typeof raw === "object" && "authority" in raw;
+    const item = record(raw, [
+      "enabled",
+      "ready",
+      "ca_ready",
+      "connections",
+      "work",
+      "active_streams",
+      "active_tunnels",
+      ...(hasAuthority ? ["authority"] : []),
+    ]);
+    httpProxy = {
+      enabled: booleanValue(item.enabled),
+      ready: booleanValue(item.ready),
+      caReady: booleanValue(item.ca_ready),
+      ...(hasAuthority ? { authority: stringValue(item.authority) } : {}),
+      connections: limit(item.connections, "http_regular"),
+      work: limit(item.work, "http_regular"),
+      activeStreams: integer(item.active_streams),
+      activeTunnels: integer(item.active_tunnels),
+    };
+  }
   const process = record(root.process, ["state", "ready", "started_at"]);
   const sqlite = record(root.sqlite, [
     "state",
@@ -230,6 +270,7 @@ export function decodeStatus(value: unknown): StatusView {
   const protocols = record(root.protocols, ["modern", "legacy", "agent_auth"]);
   return {
     ...(traffic ? { traffic } : {}),
+    ...(httpProxy ? { httpProxy } : {}),
     processState: closed(process.state, [
       "uninitialized",
       "starting",

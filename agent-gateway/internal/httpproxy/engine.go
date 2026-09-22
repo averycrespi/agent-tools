@@ -1,4 +1,4 @@
-// Package httpproxy implements the unselected receipt-gated HTTP proxy engine.
+// Package httpproxy implements the receipt-gated HTTP proxy engine.
 package httpproxy
 
 import (
@@ -36,6 +36,7 @@ type Options struct {
 	Signer     *httpca.Signer
 	Listeners  func() []netip.AddrPort
 	Now        func() time.Time
+	Ready      func() bool
 }
 
 type Engine struct {
@@ -44,6 +45,8 @@ type Engine struct {
 	draining    bool
 	connections map[net.Conn]struct{}
 	work        int
+	streams     int
+	tunnels     int
 	principals  map[string]int
 	server      *http.Server
 	// Fixture-only trust/timer seams are not public configuration.
@@ -64,8 +67,7 @@ func (e *Engine) newServer(handler http.Handler) *http.Server {
 	return &http.Server{Handler: handler, ReadHeaderTimeout: contract.HTTPProxyHeaderTimeout, IdleTimeout: contract.HTTPProxyIdleTimeout, MaxHeaderBytes: contract.HTTPProxyHeaderBytes, ErrorLog: diagnostics.HTTPErrorLog()}
 }
 
-// Serve consumes an already bound composition-owned listener. No production
-// caller selects it in this delivery, and New never binds a socket.
+// Serve consumes an already bound composition-owned listener; New never binds a socket.
 func (e *Engine) Serve(listener net.Listener) error {
 	return e.server.Serve(&boundListener{Listener: listener, engine: e})
 }
@@ -156,20 +158,19 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 			panic(http.ErrAbortHandler)
 		}
 	}()
-	if !e.acquire("") {
+	if (e.options.Ready != nil && !e.options.Ready()) || !e.acquire("") {
 		reject(w, http.StatusServiceUnavailable)
 		return
 	}
 	defer e.release("")
 	bearer := ""
 	if inside == nil {
-		values := r.Header.Values("Proxy-Authorization")
-		if len(values) != 1 || !strings.HasPrefix(values[0], "Bearer ") {
-			w.Header().Set("Proxy-Authenticate", "Bearer")
+		var valid bool
+		bearer, valid = proxyBearer(r.Header.Values("Proxy-Authorization"))
+		if !valid {
 			reject(w, http.StatusProxyAuthRequired)
 			return
 		}
-		bearer = strings.TrimPrefix(values[0], "Bearer ")
 	} else {
 		bearer = inside.bearer
 		if len(r.Header.Values("Proxy-Authorization")) != 0 {
@@ -212,6 +213,10 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		e.connect(w, r, lease, bearer)
 		return
 	}
+	e.mu.Lock()
+	e.streams++
+	e.mu.Unlock()
+	defer func() { e.mu.Lock(); e.streams--; e.mu.Unlock() }()
 	raw := r.RequestURI
 	sni := ""
 	var destination *httppolicy.Destination
@@ -331,6 +336,9 @@ func reject(w http.ResponseWriter, status int) {
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(time.Now().Add(contract.HTTPProxyDrainTimeout))
 	_ = controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyDrainTimeout))
+	if status == http.StatusProxyAuthRequired {
+		w.Header().Set("Proxy-Authenticate", `Basic realm="Agent Gateway"`)
+	}
 	w.Header().Set("Connection", "close")
 	w.Header().Set("Cache-Control", "no-store")
 	http.Error(w, http.StatusText(status), status)
