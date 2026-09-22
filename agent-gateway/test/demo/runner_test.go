@@ -140,6 +140,16 @@ func startDemo(t *testing.T, dataset, scenario, listen string, extra ...string) 
 }
 func (s *demoSubject) ready(t *testing.T) (string, readyManifest) {
 	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		// The outer entry prints only safe stage errors, never child logs or
+		// credential contents. Join owned cleanup before reading its result.
+		stopErr := s.process.Stop()
+		result, waitErr := s.process.Wait()
+		t.Logf("demo failure: stop=%v wait=%v exit=%d cleanup=%+v stderr_truncated=%t diagnostic=%s", stopErr, waitErr, result.ExitCode, result.Cleanup, result.StderrTruncated, result.Stderr)
+	})
 	var root string
 	var manifest readyManifest
 	require.Eventually(t, func() bool {
