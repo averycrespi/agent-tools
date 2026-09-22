@@ -83,6 +83,11 @@ type proxyFixture struct {
 
 func fixture(t *testing.T) *proxyFixture {
 	t.Helper()
+	return fixtureWithCompletionClock(t, nil)
+}
+
+func fixtureWithCompletionClock(t *testing.T, completionNow func() time.Time) *proxyFixture {
+	t.Helper()
 	ctx := audit.WithSystem(t.Context())
 	const installation = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	owner, err := gatewaypaths.Acquire(filepath.Join(t.TempDir(), "gateway"))
@@ -125,7 +130,10 @@ func fixture(t *testing.T) *proxyFixture {
 	require.NoError(t, err)
 	admissions, err := invocation.NewAdmissionCoordinator(evidence, authority)
 	require.NoError(t, err)
-	engine, err := New(Options{Authority: authority, Evidence: evidence, Admissions: admissions, Materials: materials, Remote: remote.New(remote.Options{}), Signer: signer, Listeners: func() []netip.AddrPort { return nil }, Now: clock.Now})
+	if completionNow == nil {
+		completionNow = clock.Now
+	}
+	engine, err := New(Options{Authority: authority, Evidence: evidence, Admissions: admissions, Materials: materials, Remote: remote.New(remote.Options{}), Signer: signer, Listeners: func() []netip.AddrPort { return nil }, Now: completionNow})
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

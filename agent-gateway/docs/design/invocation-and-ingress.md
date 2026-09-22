@@ -116,7 +116,9 @@ is closed only after HTTP owners and their completion attempts settle, before th
 shared traffic store closes. Timeout
 reports unconfirmed cleanup, not permission to close storage underneath live work.
 One completion attempt carries only safe status, byte counts and outcome; interrupted
-or uncertain dispatch remains unknown and is never replayed.
+or uncertain dispatch remains unknown and is never replayed. Completion timestamps
+use canonical UTC with exactly nine fractional digits, including on lower-precision
+clocks; trimming trailing zeros violates the traffic store's evidence contract.
 
 ## Governed invocation and audit evidence
 
