@@ -24,7 +24,7 @@ func demoAgentFile(label string) string {
 	return strings.ReplaceAll(strings.ToLower(label), " ", "-") + "-bearer"
 }
 
-func seed(ctx context.Context, c *client, root string, endpoints map[string]string, children []*child, command func(string, []string) error) error {
+func seed(ctx context.Context, c *client, root, proxy string, endpoints map[string]string, children []*child, command func(string, []string) error) error {
 	servers := map[string]string{}
 	for _, kind := range []string{"workshop", "library"} {
 		label := map[string]string{"workshop": "Workshop", "library": "Library"}[kind]
@@ -135,5 +135,8 @@ func seed(ctx context.Context, c *client, root string, endpoints map[string]stri
 		}
 		c.require(names["demo_workshop.echo"] && names["demo_workshop.add"] && names["demo_library.lookup"] && names["demo_workshop.controlled_error"] == (label == "Explorer"), "demo discovery mismatch")
 	}
-	return c.err
+	if c.err != nil {
+		return c.err
+	}
+	return seedHTTP(c, proxy, endpoints["workshop"], principals["Explorer"], agents["Explorer"], children)
 }

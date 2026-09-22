@@ -111,8 +111,10 @@ The retention E2E owner seeds the real 65,536-row boundary with one set-based tr
 ### HTTP activation fixtures
 
 The HTTP activation real-binary fixture links an absolute disposable fake-material
-directory into a separate `e2e` binary. Ordinary E2E/demo builds retain process-local
-material; normal builds contain neither fixture selector nor plaintext backend.
+directory into a separate `e2e` binary. The disposable demo uses this same link-time
+mechanism to share its CA between stopped creation and serving; unconfigured E2E
+builds retain process-local material. Normal builds contain neither fixture selector
+nor plaintext backend.
 The fixture's marked private directory is outside installation/backup/evidence trees,
 bounded and removed by its test owner. It permits stopped CA creation, serve and
 restart to share fake material without touching a native keyring. This is production

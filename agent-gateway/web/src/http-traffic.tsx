@@ -4,6 +4,7 @@ import type { SessionClient } from "./session";
 import type { PrincipalDirectory } from "./principals";
 import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 import {
+  BinaryToggle,
   CollectionTable,
   TableIdentity,
   StateNotice,
@@ -373,27 +374,28 @@ export function HTTPTraffic({
       aria-label="HTTP Traffic"
       data-testid="http-traffic-view"
     >
-      <TrafficFilters query={query} navigate={navigate} />
-      <div class="form-actions">
-        <label>
-          <input
-            type="checkbox"
-            checked={current.live}
-            onChange={(event) =>
-              controller.setLive(event.currentTarget.checked)
-            }
-          />{" "}
-          Live
-        </label>
-        {current.paused && (
-          <>
-            <span>Live paused while viewing older results</span>
-            <button type="button" onClick={() => controller.resume()}>
-              {current.live ? "Resume live" : "Return to newest"}
-            </button>
-          </>
-        )}
+      <div class="collection-toolbar live-collection-toolbar">
+        <label for="http-traffic-live-mode">Live mode</label>
+        <BinaryToggle
+          attributes={{ id: "http-traffic-live-mode" }}
+          checked={current.live}
+          showState={false}
+          onChange={(live) => controller.setLive(live)}
+        />
       </div>
+      <TrafficFilters query={query} navigate={navigate} />
+      {current.paused && (
+        <div class="inline-actions">
+          {current.live && (
+            <StatusLabel state="warning">
+              Live paused while viewing older results
+            </StatusLabel>
+          )}
+          <button type="button" onClick={() => controller.resume()}>
+            {current.live ? "Resume live" : "Return to newest"}
+          </button>
+        </div>
+      )}
       {current.notice && <StateNotice state="warning" title={current.notice} />}
       {(current.error || panel?.status === "error") && (
         <StateNotice state="error" title="HTTP traffic unavailable">

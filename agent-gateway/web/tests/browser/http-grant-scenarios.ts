@@ -13,11 +13,34 @@ export async function runHTTPGrants(
 ): Promise<void> {
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-grants-"));
   const captureState = async (name: string) => {
+    if (name === "principal-default") {
+      const skip = await page.locator(".skip-link").evaluate((node) => ({
+        focused: node === document.activeElement,
+        bottom: node.getBoundingClientRect().bottom,
+        transform: getComputedStyle(node).transform,
+      }));
+      expect(skip.focused).toBe(false);
+      expect(skip.bottom).toBeLessThan(0);
+      await page.screenshot({
+        path: join(screenshots, `${name}-viewport.png`),
+      });
+    }
     await page.screenshot({
       path: join(screenshots, `${name}.png`),
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
+    if (name === "principal-default") {
+      await expect(page.locator(".skip-link")).not.toBeFocused();
+      expect(
+        await page
+          .locator(".skip-link")
+          .evaluate((node) => node.getBoundingClientRect().bottom),
+      ).toBeLessThan(0);
+      await page.screenshot({
+        path: join(screenshots, `${name}-narrow-viewport.png`),
+      });
+    }
     await page.screenshot({
       path: join(screenshots, `${name}-narrow.png`),
       fullPage: true,
@@ -81,6 +104,11 @@ export async function runHTTPGrants(
   await waitForLifecycle(page, "authenticated");
   await page.locator('#primary-navigation a[href="#/http/grants"]').click();
   await expect(page.getByText("No HTTP grants", { exact: true })).toBeVisible();
+  const toolbar = page.locator(".collection-toolbar").filter({
+    has: page.getByRole("link", { name: "Create grant", exact: true }),
+  });
+  await expect(toolbar).toHaveCSS("gap", "8px");
+  await expect(toolbar).toHaveCSS("flex-wrap", "wrap");
   const grants: { id: string; revision: string }[] = [];
   for (const kind of [
     "block_destination",
@@ -88,15 +116,16 @@ export async function runHTTPGrants(
     "block_requests",
     "allow_requests",
   ]) {
-    await page
-      .getByRole("link", { name: "Create HTTP grant", exact: true })
-      .click();
+    await page.getByRole("link", { name: "Create grant", exact: true }).click();
     await expect(
       page.getByRole("heading", {
         name: "Create HTTP grant",
         level: 1,
         exact: true,
       }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Grant configuration" }),
     ).toBeVisible();
     await page
       .getByLabel("Principal", { exact: true })
@@ -146,7 +175,7 @@ export async function runHTTPGrants(
     ).toBe(true);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page
-      .getByRole("button", { name: "Review changes", exact: true })
+      .getByRole("button", { name: "Review and create", exact: true })
       .click();
     const response = page.waitForResponse(
       (r) =>
@@ -170,6 +199,18 @@ export async function runHTTPGrants(
     fullPage: true,
   });
   await page.setViewportSize({ width: 320, height: 800 });
+  const createBounds = await page
+    .getByRole("link", { name: "Create grant", exact: true })
+    .boundingBox();
+  const testBounds = await page
+    .getByRole("link", { name: "Test access", exact: true })
+    .boundingBox();
+  expect(createBounds).not.toBeNull();
+  expect(testBounds).not.toBeNull();
+  expect(
+    testBounds!.x >= createBounds!.x + createBounds!.width + 8 ||
+      testBounds!.y >= createBounds!.y + createBounds!.height + 8,
+  ).toBe(true);
   await page.screenshot({
     path: join(screenshots, "table-320.png"),
     fullPage: true,
@@ -298,7 +339,46 @@ export async function runHTTPGrants(
   await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
     "block",
   );
+  const editor = page.getByRole("region", {
+    name: "Edit principal",
+    exact: true,
+  });
+  await expect(
+    editor.getByLabel("HTTP default", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "HTTP access", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator("form form")).toHaveCount(0);
+  let principalWrites = 0;
+  let defaultWrites = 0;
+  page.on("request", (request) => {
+    if (request.method() !== "PATCH") return;
+    if (request.url() === `${baseURL}/api/v2/principals/${principal.id}`)
+      principalWrites++;
+    if (request.url() === `${baseURL}/api/v2/http/defaults/${principal.id}`)
+      defaultWrites++;
+  });
+  await editor
+    .getByLabel("Display name", { exact: true })
+    .fill("HTTP Policy Agent renamed");
   await page.getByLabel("HTTP default", { exact: true }).selectOption("allow");
+  await editor
+    .getByRole("button", { name: "Save principal", exact: true })
+    .click();
+  await expect(
+    page.getByText("Principal identity and MCP discovery visibility saved.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(principalWrites).toBe(1);
+  expect(defaultWrites).toBe(0);
+  await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
+    "allow",
+  );
+  await editor
+    .getByLabel("Display name", { exact: true })
+    .fill("Unsubmitted principal draft");
   await page.getByRole("button", { name: "Review HTTP default" }).click();
   await page
     .getByRole("dialog")
@@ -307,6 +387,14 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("button", { name: "Review HTTP default" }),
   ).toBeDisabled();
+  expect(principalWrites).toBe(1);
+  expect(defaultWrites).toBe(1);
+  await expect(editor.getByLabel("Display name", { exact: true })).toHaveValue(
+    "Unsubmitted principal draft",
+  );
+  await editor
+    .getByLabel("Display name", { exact: true })
+    .fill("HTTP Policy Agent renamed");
   await captureState("principal-default");
   for (const fault of ["missing-etag", "wrong-etag", "wrong-principal"]) {
     const routePath = `${baseURL}/api/v2/http/defaults/${principal.id}`;
@@ -360,10 +448,10 @@ export async function runHTTPGrants(
       proposed,
     );
   }
-  await page
-    .getByRole("link", { name: "HTTP grants for this principal" })
-    .click();
-  await expect(page).toHaveURL(new RegExp(`principal_id=${principal.id}`));
+  await expect(
+    page.getByRole("link", { name: "HTTP grants for this principal" }),
+  ).toHaveCount(0);
+  await page.locator('#primary-navigation a[href="#/http/grants"]').click();
   await expect(
     page.getByRole("link", { name: "Test allow_requests", exact: true }),
   ).toBeVisible();

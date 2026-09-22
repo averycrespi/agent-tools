@@ -149,11 +149,24 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("2 HTTP traffic records loaded", { exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Live", { exact: true }).uncheck();
+  const live = page.getByRole("switch", { name: "Live mode", exact: true });
+  await live.focus();
+  await page.keyboard.press("Space");
+  await expect(live).not.toBeChecked();
+  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Return to newest", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Live paused while viewing older results", { exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Return to newest", exact: true })
+    .click();
   const before = reads;
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect.poll(() => reads).toBeGreaterThan(before);
-  await expect(page.getByLabel("Live", { exact: true })).not.toBeChecked();
+  await expect(live).not.toBeChecked();
   await page
     .getByLabel("Destination host", { exact: true })
     .fill("example.com");

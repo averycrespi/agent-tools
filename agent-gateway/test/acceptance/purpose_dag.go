@@ -60,7 +60,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"agent-gateway/web/src/session.ts", "agent-gateway/web/src/view.ts", "agent-gateway/web/src/mutation.ts", "agent-gateway/web/src/sinks.ts", "agent-gateway/web/src/location.ts", "agent-gateway/web/src/invocation-query.ts",
 		"agent-gateway/internal/contract/server_states.go", "agent-gateway/internal/contract/authorization_states.go", "agent-gateway/internal/contract/invocation_projections.go",
 	}
-	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go"}
+	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/seed_http.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go"}
 	commonDefinitions := []string{makefile, manifest, dagDefinition, "agent-gateway/test/acceptance/suite_selection.go", "agent-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
 	leaf := func(id string, behaviorIDs []string, timeout, budget time.Duration, repeats, processStarts, browserStarts int, artifacts []string, extraDefinitions ...string) purposeEvidenceLeaf {

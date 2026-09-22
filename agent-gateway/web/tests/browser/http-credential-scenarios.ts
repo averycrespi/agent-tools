@@ -12,6 +12,9 @@ export async function runHTTPCredentials(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
+  const screenshots = await mkdtemp(
+    join(tmpdir(), "gateway-http-credentials-"),
+  );
   let credentialMutations = 0;
   page.on("request", (request) => {
     if (
@@ -31,8 +34,22 @@ export async function runHTTPCredentials(
     page.getByText("No HTTP credentials", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("link", { name: "Create HTTP credential", exact: true })
+    .getByRole("link", { name: "Create credential", exact: true })
     .click();
+  await expect(
+    page.getByRole("region", { name: "Credential configuration" }),
+  ).toBeVisible();
+  for (const [name, width, height] of [
+    ["create-desktop", 1280, 900],
+    ["create-narrow", 390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.screenshot({
+      path: join(screenshots, `${name}.png`),
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page
     .getByLabel("Name", { exact: true })
     .fill("Example HTTP credential");
@@ -42,7 +59,7 @@ export async function runHTTPCredentials(
     "c".repeat(63),
     "d".repeat(61),
   ].join(".");
-  const wildcard = page.getByRole("checkbox", {
+  const wildcard = page.getByRole("switch", {
     name: "Allow the explicit *. subdomain boundary",
   });
   for (const [host, allowWildcard] of [
@@ -54,7 +71,7 @@ export async function runHTTPCredentials(
     await wildcard.setChecked(allowWildcard);
     await page.getByLabel("Secret", { exact: true }).fill("host-bound-canary");
     await page
-      .getByRole("button", { name: "Review create", exact: true })
+      .getByRole("button", { name: "Review and create", exact: true })
       .click();
     await expect(
       page.getByRole("alert").filter({ hasText: "Check credential fields" }),
@@ -71,7 +88,7 @@ export async function runHTTPCredentials(
     await wildcard.setChecked(allowWildcard);
     await page.getByLabel("Secret", { exact: true }).fill("host-bound-canary");
     await page
-      .getByRole("button", { name: "Review create", exact: true })
+      .getByRole("button", { name: "Review and create", exact: true })
       .click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page
@@ -88,7 +105,7 @@ export async function runHTTPCredentials(
     .getByLabel("Secret", { exact: true })
     .fill("oversized-canary-" + "x".repeat(1 << 20));
   await page
-    .getByRole("button", { name: "Review create", exact: true })
+    .getByRole("button", { name: "Review and create", exact: true })
     .click();
   await expect(
     page.getByRole("alert").filter({ hasText: "Check credential fields" }),
@@ -99,7 +116,7 @@ export async function runHTTPCredentials(
     .getByLabel("Secret", { exact: true })
     .fill("http-credential-rejected-canary");
   await page
-    .getByRole("button", { name: "Review create", exact: true })
+    .getByRole("button", { name: "Review and create", exact: true })
     .click();
   await page
     .getByRole("dialog")
@@ -114,7 +131,7 @@ export async function runHTTPCredentials(
     .getByLabel("Secret", { exact: true })
     .fill("http-credential-create-canary");
   await page
-    .getByRole("button", { name: "Review create", exact: true })
+    .getByRole("button", { name: "Review and create", exact: true })
     .click();
   await page
     .getByRole("dialog")
@@ -204,9 +221,6 @@ export async function runHTTPCredentials(
   await expect(
     page.getByRole("button", { name: "Review delete", exact: true }),
   ).toBeDisabled();
-  const screenshots = await mkdtemp(
-    join(tmpdir(), "gateway-http-credentials-"),
-  );
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
     path: join(screenshots, "desktop.png"),

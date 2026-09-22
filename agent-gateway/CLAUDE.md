@@ -50,7 +50,7 @@ npm run ui:verify-supply-chain
 npm run ui:audit
 ```
 
-Use `make serve-demo` for isolated feature testing, never default-installation/native-keyring access. Dataset defaults to curated; `AGENT_GATEWAY_DEMO_DATASET=empty` selects first run. The Linux/macOS Go runner builds the `e2e` variant and owns two bounded local HTTP fixtures outside production. Its shell entry compiles a nonsecret bootstrap into ignored `.demo-bin/`; data/credentials are disposable. No Python/Node is needed. `AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:PORT` overrides `127.0.0.1:8211`. See frontend development for credentials/workflows. The former runner has no alias; demo evidence qualifies neither native keyring nor persistence across restarts.
+Use `make serve-demo` for isolated feature testing, never native-keyring access. `AGENT_GATEWAY_DEMO_DATASET=empty` selects first run instead of curated data. The Go runner owns two local HTTP fixtures, a separate loopback proxy, and disposable E2E file-backed CA material; readiness verifies real allow/block traffic. The nonsecret bootstrap remains in ignored `.demo-bin/`. No Python/Node is needed. `AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:PORT` overrides `127.0.0.1:8211`. See frontend development for credentials and lifecycle. Demo evidence qualifies neither native keyring nor production persistence.
 
 The [demo supervision contract](docs/maintainers/frontend-development.md#demo-supervision) owns process identity, deadlines, cleanup, and CI cache isolation. Retain one-shot mutations, read-only readiness polling, and fail-closed cleanup.
 
