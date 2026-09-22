@@ -27,6 +27,14 @@ func TestHTTPTrafficPairedRestorePreservesBothDomains(t *testing.T) {
 	require.True(t, traffic.Confirm(t.Context(), unknown))
 	root := t.TempDir()
 	source := filepath.Join(root, "traffic.db")
+	// Admission acknowledgment precedes writer-gate release. Synchronize the
+	// fixture, and prove that an occupied writer still refuses a snapshot.
+	traffic.writerGate.Lock()
+	busy := traffic.BackupPair(t.Context(), control, filepath.Join(root, "control.db"), source)
+	traffic.writerGate.Unlock()
+	require.ErrorIs(t, busy, ErrTrafficCapacity)
+	assert.True(t, traffic.Healthy())
+	assert.False(t, control.Latched())
 	require.NoError(t, traffic.BackupPair(t.Context(), control, filepath.Join(root, "control.db"), source))
 	require.NoError(t, traffic.Close())
 	require.NoError(t, RestoreTraffic(t.Context(), owner, source, invocationTestInstallationID, invocationID(90), invocationID(91), traffic.config))
