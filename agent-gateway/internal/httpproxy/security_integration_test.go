@@ -41,9 +41,8 @@ func TestIntegrationProxyAdmissionFailureAndPrincipalIsolation(t *testing.T) {
 	require.NoError(t, err)
 	credential, err := f.authority.IssueCredential(ctx, principal.Principal.ID, principal.Principal.Revision)
 	require.NoError(t, err)
-	def, err := f.authority.GetHTTPDefault(ctx, principal.Principal.ID)
-	require.NoError(t, err)
-	_, err = f.authority.SetHTTPDefault(ctx, principal.Principal.ID, def.Revision, contract.HTTPDefaultAllow)
+	allow := contract.HTTPDefaultAllow
+	_, err = f.authority.PatchPrincipal(ctx, principal.Principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: credential.Principal.Revision, HTTPDefault: &allow})
 	require.NoError(t, err)
 	var reused atomic.Bool
 	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { reused.Store(info.Reused) }}

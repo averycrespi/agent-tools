@@ -16,7 +16,7 @@ See [DESIGN](../../DESIGN.md) for the system design index and [Identity and auth
 
 ## HTTP grants and Test access
 
-Use **HTTP → Grants** for HTTP policy, and principal detail for its separate HTTP default. Existing and new principals default to block. MCP grants, visibility, credentials and self-service are unchanged. [Proxy activation](http-proxy.md) is separately opt-in. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
+Use **HTTP → Grants** for HTTP policy, and **Edit principal** for its HTTP default. New principals default to block; existing principals retain their stored allow/block value. MCP grants, visibility, credentials and self-service are unchanged. [Proxy activation](http-proxy.md) is separately opt-in. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
 
 ```sh
 agent-gateway http grant list
@@ -29,7 +29,7 @@ agent-gateway http default update PRINCIPAL_ID --file /private/default.json --ye
 agent-gateway http test-access --file /private/preview.json
 ```
 
-Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and principal; it is not delete/recreate. Default files are exactly `{"default":"block"}` or `{"default":"allow"}`. Omitted ETags get one validated read; use `--etag` to pin a reviewed revision. A stale or uncertain result must be inspected, never automatically replayed.
+Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and principal; it is not delete/recreate. Default files are exactly `{"http_default":"block"}` or `{"http_default":"allow"}`. These convenience commands read/write the canonical principal endpoint and return Principal JSON with its unified ETag, not a separate default resource. For a combined change, use `agent-gateway principal update PRINCIPAL_ID --display-name NAME --http-default allow --yes`. Omitted ETags get one validated read; use `--etag` to pin a reviewed principal revision. A stale or uncertain result must be inspected, never automatically replayed.
 
 Example grant policy: `{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"values":["GET"]},"path":{"kind":"segment_prefix","value":"/v1"}}}`. An optional `credential_id` must contain the entire HTTPS origin scope. Referenced credentials cannot be deleted or have their recipe changed; incompatible scope edits fail atomically. Expired grants remain visible and reference-bearing until deleted.
 

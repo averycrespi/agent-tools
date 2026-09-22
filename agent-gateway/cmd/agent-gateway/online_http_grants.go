@@ -14,11 +14,7 @@ import (
 )
 
 var httpGrantETagPattern = regexp.MustCompile(`^"http-grant-([0-7][0-9A-HJKMNP-TV-Z]{25})-([1-9][0-9]*)"$`)
-var httpDefaultETagPattern = regexp.MustCompile(`^"http-default-([0-7][0-9A-HJKMNP-TV-Z]{25})-([1-9][0-9]*)"$`)
 
-func validHTTPDefault(d contract.PrincipalHTTPDefault) bool {
-	return contract.ValidAuditID(d.PrincipalID) && validCanonicalRevision(d.Revision) && d.Revision != "0" && (d.Default == contract.HTTPDefaultAllow || d.Default == contract.HTTPDefaultBlock)
-}
 func httpGrantTable(body []byte) (controlclient.Table, error) {
 	var g contract.HTTPGrant
 	if controlclient.DecodeExactResponse(body, &g) != nil || !validHTTPGrant(g) {
@@ -31,11 +27,11 @@ func httpGrantTable(body []byte) (controlclient.Table, error) {
 	return controlclient.Table{Headers: []string{"ID", "DESCRIPTION", "PRINCIPAL", "STATE", "POLICY"}, Rows: [][]string{{g.ID, description, g.PrincipalID, string(g.State), string(g.Policy)}}}, nil
 }
 func httpDefaultTable(body []byte) (controlclient.Table, error) {
-	var d contract.PrincipalHTTPDefault
-	if controlclient.DecodeExactResponse(body, &d) != nil || !validHTTPDefault(d) {
+	var d contract.Principal
+	if controlclient.DecodeExactResponse(body, &d) != nil || !validPrincipal(d) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"PRINCIPAL", "HTTP DEFAULT"}, Rows: [][]string{{d.PrincipalID, string(d.Default)}}}, nil
+	return controlclient.Table{Headers: []string{"PRINCIPAL", "HTTP DEFAULT"}, Rows: [][]string{{d.ID, string(d.HTTPDefault)}}}, nil
 }
 func httpGrantListTable(body []byte) (controlclient.Table, error) {
 	var page contract.QueryCollection[contract.HTTPGrantTableItem]
@@ -78,8 +74,8 @@ func runHTTPPolicy(cmd *cobra.Command, options *onlineOptions, args []string, gr
 	path := "/api/v2/http/grants"
 	table := httpGrantTable
 	if group == "default" {
-		kind = onlineItemHTTPDefault
-		path = "/api/v2/http/defaults"
+		kind = onlineItemPrincipal
+		path = "/api/v2/principals"
 		table = httpDefaultTable
 	}
 	preview := group == "test-access"
@@ -109,7 +105,7 @@ func runHTTPPolicy(cmd *cobra.Command, options *onlineOptions, args []string, gr
 	if action != "delete" {
 		fields := []string{"principal_id", "description", "policy", "expires_at"}
 		if group == "default" {
-			fields = []string{"default"}
+			fields = []string{"http_default"}
 		}
 		if preview {
 			fields = []string{"principal_id", "url", "method", "connect"}
@@ -121,6 +117,14 @@ func runHTTPPolicy(cmd *cobra.Command, options *onlineOptions, args []string, gr
 		}
 	}
 	defer clear(body)
+	if group == "default" && action == "update" {
+		var input struct {
+			HTTPDefault contract.HTTPDefault `json:"http_default"`
+		}
+		if json.Unmarshal(body, &input) != nil || input.HTTPDefault != contract.HTTPDefaultAllow && input.HTTPDefault != contract.HTTPDefaultBlock {
+			return writeOnlineFailure(cmd, options.output, controlclient.NewInputError("Supply http_default as allow or block."))
+		}
+	}
 	if !preview {
 		if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change HTTP access policy? Tunnel allows bypass request policy and credential injection. Never replay an uncertain mutation."}); err != nil {
 			return writeOnlineFailure(cmd, options.output, controlclient.ClassifyClientError(err))

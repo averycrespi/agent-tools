@@ -103,7 +103,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"http credential create --file PATH", "http credential update ID --file PATH [--etag ETAG]", "http credential rotate ID --file PATH [--etag ETAG]",
 			"backup create", "mcp server create --file PATH", "mcp server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "mcp server delete ID [--etag ETAG]",
 			"mcp server operation start ID --kind KIND [--etag ETAG]", "mcp server credential replace ID --file PATH [--etag ETAG]",
-			"principal create --display-name NAME --visibility VISIBILITY", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE]", "principal credential revoke ID [--etag ETAG]",
+			"principal create --display-name NAME --visibility VISIBILITY", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]", "principal credential revoke ID [--etag ETAG]",
 			"mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "mcp grant update ID --description TEXT [--etag ETAG]", "mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
 		},
 		"no_content": {

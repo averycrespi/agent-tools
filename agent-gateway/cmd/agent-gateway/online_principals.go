@@ -30,8 +30,8 @@ func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []s
 	if err != nil || len(members) == 0 {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal update input is invalid."))
 	}
-	if members["state"] {
-		if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change this principal's authority state? Disabling immediately clears credential authority and sessions; re-enabling restores neither credentials nor deleted grants."}); err != nil {
+	if members["state"] || members["http_default"] {
+		if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change this principal's authority? Disabling clears credential authority and sessions; re-enabling restores neither credentials nor deleted grants. HTTP default allow grants no credential, tunnel or private-network permission."}); err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 	}
@@ -45,7 +45,7 @@ func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []s
 func readPrincipalInput(command *cobra.Command, options *onlineOptions, create bool) ([]byte, map[string]bool, error) {
 	allowed := []string{"display_name", "visibility"}
 	if !create {
-		allowed = append(allowed, "state")
+		allowed = append(allowed, "state", "http_default")
 	}
 	body, err := readOnlineJSONInput(command, options, allowed)
 	if err != nil {
@@ -78,6 +78,12 @@ func readPrincipalInput(command *cobra.Command, options *onlineOptions, create b
 			return nil, nil, controlclient.ErrInvalidInput
 		}
 		if _, err := contract.ParsePrincipalState(string(state)); err != nil {
+			return nil, nil, controlclient.ErrInvalidInput
+		}
+	}
+	if raw, ok := object["http_default"]; ok {
+		var policy contract.HTTPDefault
+		if json.Unmarshal(raw, &policy) != nil || policy != contract.HTTPDefaultAllow && policy != contract.HTTPDefaultBlock {
 			return nil, nil, controlclient.ErrInvalidInput
 		}
 	}
@@ -170,13 +176,18 @@ func validPrincipal(principal contract.Principal) bool {
 	}
 	_, stateErr := contract.ParsePrincipalState(string(principal.State))
 	_, visibilityErr := contract.ParsePrincipalVisibility(string(principal.Visibility))
-	return stateErr == nil && visibilityErr == nil
+	return stateErr == nil && visibilityErr == nil && (principal.HTTPDefault == contract.HTTPDefaultAllow || principal.HTTPDefault == contract.HTTPDefaultBlock)
 }
 
 func principalListTable(body []byte) (controlclient.Table, error) {
 	var page contract.QueryCollection[contract.Principal]
 	if err := controlclient.DecodeResponse(body, &page); err != nil {
 		return controlclient.Table{}, err
+	}
+	for _, principal := range page.Items {
+		if !validPrincipal(principal) {
+			return controlclient.Table{}, controlclient.ErrResponseInvalid
+		}
 	}
 	return withNextCursor(principalTable(page.Items), page.NextCursor), nil
 }
@@ -196,7 +207,7 @@ func principalTable(principals []contract.Principal) controlclient.Table {
 		if principal.Credential != nil {
 			credential = principal.Credential.ID + " revision=" + principal.Credential.Revision
 		}
-		rows = append(rows, []string{principal.ID, principal.DisplayName, string(principal.State), string(principal.Visibility), principal.Revision, principal.CredentialRevision, credential, principal.UpdatedAt})
+		rows = append(rows, []string{principal.ID, principal.DisplayName, string(principal.State), string(principal.Visibility), string(principal.HTTPDefault), principal.Revision, principal.CredentialRevision, credential, principal.UpdatedAt})
 	}
-	return controlclient.Table{Headers: []string{"ID", "DISPLAY", "STATE", "VISIBILITY", "REVISION", "CREDENTIAL_REVISION", "CREDENTIAL", "UPDATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"ID", "DISPLAY", "STATE", "VISIBILITY", "HTTP DEFAULT", "REVISION", "CREDENTIAL_REVISION", "CREDENTIAL", "UPDATED"}, Rows: rows}
 }

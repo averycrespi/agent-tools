@@ -19,7 +19,7 @@ import (
 func TestCLIValidatedItemETagLoader(t *testing.T) {
 	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	serverBody := mustJSON(t, serverWire{ID: id, Namespace: "example", DisplayName: "Example", DesiredState: contract.DesiredServerEnabled, DesiredRevision: "7"})
-	principalBody := mustJSON(t, contract.Principal{ID: id, DisplayName: "Agent", State: contract.PrincipalActive, Visibility: contract.VisibilityRequestable, Revision: "7", CredentialRevision: "1"})
+	principalBody := mustJSON(t, contract.Principal{HTTPDefault: contract.HTTPDefaultBlock, ID: id, DisplayName: "Agent", State: contract.PrincipalActive, Visibility: contract.VisibilityRequestable, Revision: "7", CredentialRevision: "1"})
 	requestBody := mustJSON(t, contract.GrantRequest{GrantRequestSummary: contract.GrantRequestSummary{ID: id, PrincipalID: id, State: contract.RequestPending, Revision: "7"}, ResolvedServerID: id})
 
 	valid := []struct {

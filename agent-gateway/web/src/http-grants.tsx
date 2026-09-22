@@ -27,7 +27,6 @@ import { parseAuditJSON as parsePolicyJSON } from "./audit-contract";
 
 import {
   decodeGrant,
-  decodeDefault,
   decodePreview,
   object,
   exact,
@@ -37,7 +36,6 @@ import {
   type Policy,
   type Grant,
   type GrantRow,
-  type Default,
 } from "./http-policy-response";
 const labels: Record<Kind, string> = {
   block_destination: "Block destination",
@@ -119,22 +117,6 @@ async function readCredentialChoices(
     cursor = result.next;
   }
   throw new Error("Credential choice limit exceeded.");
-}
-function defaultResponse(
-  value: unknown,
-  response: Response,
-  principalID: string,
-): Default {
-  const d = decodeDefault(value);
-  if (
-    d.principal_id !== principalID ||
-    response.headers.get("ETag") !== defaultETag(d)
-  )
-    throw new Error("HTTP default revision unavailable.");
-  return d;
-}
-function defaultETag(d: Default): string {
-  return `"http-default-${d.principal_id}-${d.revision}"`;
 }
 function grantETag(g: Grant): string {
   return `"http-grant-${g.id}-${g.revision}"`;
@@ -935,131 +917,6 @@ function GrantEditor(props: Props & { grant?: Grant }) {
         onConfirm={submit}
       />
     </section>
-  );
-}
-
-export function PrincipalHTTPDefault(props: {
-  session: SessionClient;
-  mutations: MutationCoordinator;
-  view: ViewSnapshot;
-  onRefresh: () => void;
-  principalID: string;
-}) {
-  const [current, setCurrent] = useState<Default>();
-  const [value, setValue] = useState<"allow" | "block">("block");
-  const [error, setError] = useState(false);
-  const [confirm, setConfirm] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [expected, setExpected] = useState<string>();
-  const button = useRef<HTMLButtonElement>(null);
-  useUnsavedChanges(dirty);
-  const mutation = usePolicyMutation<Default>(props);
-  useEffect(() => {
-    let active = true;
-    void read(
-      props.session,
-      `/api/v2/http/defaults/${props.principalID}`,
-      (value, response) => defaultResponse(value, response, props.principalID),
-    )
-      .then((d) => {
-        if (active && d !== undefined) {
-          setCurrent(d);
-          setError(false);
-          if (!dirty) {
-            setValue(d.default);
-            setExpected(d.revision);
-          }
-        }
-      })
-      .catch(() => {
-        if (active) setError(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [props.principalID, props.view.generation, dirty]);
-  if (error)
-    return <StateNotice state="error" title="HTTP default unavailable" />;
-  if (current === undefined)
-    return <StateNotice state="loading" title="Loading HTTP default" />;
-  const stale = expected !== current.revision;
-  return (
-    <div class="form-section">
-      <FormField
-        id="principal-http-default"
-        label="HTTP default"
-        hint="Default allow supplies no credential, tunnel permission or local/private access."
-      >
-        {(a) => (
-          <select
-            {...a}
-            value={value}
-            onChange={(e) => {
-              setValue(e.currentTarget.value as typeof value);
-              setDirty(true);
-            }}
-          >
-            <option value="block">Block</option>
-            <option value="allow">Allow requests</option>
-          </select>
-        )}
-      </FormField>
-      {stale && (
-        <StateNotice state="warning" title="Default changed">
-          <p>Current default: {current.default}.</p>
-          <button
-            onClick={() => {
-              setExpected(current.revision);
-              setValue(current.default);
-              setDirty(false);
-            }}
-          >
-            Use current default
-          </button>
-        </StateNotice>
-      )}
-      <MutationNotice state={mutation.state} />
-      <button
-        ref={button}
-        type="button"
-        class="form-submit-action"
-        disabled={mutation.blocked || stale || value === current.default}
-        onClick={() => setConfirm(true)}
-      >
-        Review HTTP default
-      </button>
-      <ConfirmationDialog
-        id="http-default-confirm"
-        open={confirm}
-        title="Change HTTP default"
-        consequence={`Default ${value} for otherwise unmatched HTTP requests. Explicit blocks still win.`}
-        confirmLabel="Apply default"
-        returnFocus={button as unknown as RefObject<HTMLElement>}
-        onCancel={() => setConfirm(false)}
-        onConfirm={() => {
-          setConfirm(false);
-          void mutation.submit(
-            {
-              route: `/api/v2/http/defaults/${props.principalID}`,
-              method: "PATCH",
-              body: JSON.stringify({ default: value }),
-              precondition: `"http-default-${props.principalID}-${expected}"`,
-              requiresPrecondition: true,
-              idempotency: "none",
-              successStatuses: [200],
-              decode: async (r) =>
-                defaultResponse(await boundedJSON(r), r, props.principalID),
-            },
-            (d) => {
-              setCurrent(d);
-              setExpected(d.revision);
-              setDirty(false);
-              props.onRefresh();
-            },
-          );
-        }}
-      />
-    </div>
   );
 }
 

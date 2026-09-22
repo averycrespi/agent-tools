@@ -92,8 +92,6 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/http/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "HTTPGrant", SuccessStatuses: []int{200}, ETag: true},
 	{Pattern: "/api/v2/http/grants/{id}", Method: "PATCH", RequestSchema: "HTTPGrantWrite", SuccessSchema: "HTTPGrant", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v2/http/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
-	{Pattern: "/api/v2/http/defaults/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "PrincipalHTTPDefault", SuccessStatuses: []int{200}, ETag: true},
-	{Pattern: "/api/v2/http/defaults/{id}", Method: "PATCH", RequestSchema: "HTTPDefaultWrite", SuccessSchema: "PrincipalHTTPDefault", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v2/http/access-preview", Method: "POST", RequestSchema: "HTTPAccessInput", SuccessSchema: "HTTPAccessPreview", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/http/credentials", Method: "GET", RequestSchema: "HTTPCredentialListQuery", SuccessSchema: "QueryPage<HTTPCredential>", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v2/http/credentials", Method: "POST", RequestSchema: "HTTPCredentialCreate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{201}, ETag: true},

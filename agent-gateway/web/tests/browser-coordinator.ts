@@ -759,6 +759,11 @@ try {
           externalRequests[0] !== expectedOAuthOpen
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
+      (input.scenario === "http-grants" &&
+        consoleFailures.length === 1 &&
+        /^Failed to load resource: the server responded with a status of 412(?: \(Precondition Failed\))?$/.test(
+          consoleFailures[0]!,
+        )) ||
       (input.scenario === "http-credentials" &&
         consoleFailures.length === 2 &&
         consoleFailures.every((value) =>

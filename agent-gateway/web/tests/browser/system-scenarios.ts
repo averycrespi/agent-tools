@@ -1094,6 +1094,7 @@ export async function runOverview(
           {
             id: overviewRequestFixture().principal_id,
             display_name: "Overview agent",
+            http_default: "block",
             state: "active",
             visibility: "all",
             revision: "1",
@@ -1837,6 +1838,7 @@ export async function runInvocations(
           {
             id: invocationIDs.principal,
             display_name: "Build agent",
+            http_default: "block",
             state: "active",
             visibility: "all",
             revision: "1",

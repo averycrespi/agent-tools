@@ -18,6 +18,7 @@ export async function exerciseCollectionPagination(
     display_name: index === 127 ? "Zulu needle" : "Duplicate name",
     state: index === 127 ? "disabled" : "active",
     visibility: index === 127 ? "all" : "requestable",
+    http_default: "block",
     revision: "1",
     credential_revision: "0",
     credential: null,

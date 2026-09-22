@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   decodeGrant,
-  decodeDefault,
   decodePreview,
   object,
   type Grant,
@@ -101,14 +100,6 @@ test("canonical HTTP resources preserve all four shapes, nanoseconds and expired
   g.expires_at = "2026-09-21T00:00:00.123456790Z";
   g.state = "expired";
   assert.equal(decodeGrant(g), g);
-  assert.equal(
-    decodeDefault({
-      principal_id: principal,
-      default: "block",
-      revision: "9223372036854775807",
-    }).default,
-    "block",
-  );
 });
 test("noncanonical HTTP grants cannot cross the response boundary", () => {
   const edits: Array<(g: Grant) => void> = [

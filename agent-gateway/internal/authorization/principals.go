@@ -12,7 +12,8 @@ import (
 const principalSelect = `
 	SELECT insertion_sequence, id, display_name, state, visibility, revision,
 	       credential_revision, credential_id, credential_fingerprint,
-	       credential_created_at, created_at, updated_at
+	       credential_created_at, created_at, updated_at,
+	       (SELECT policy FROM http_defaults WHERE principal_id = principals.id)
 	FROM principals`
 
 type principalScanner interface {
@@ -99,9 +100,12 @@ func scanPrincipal(scanner principalScanner) (int64, contract.Principal, error) 
 	if err := scanner.Scan(
 		&sequence, &principal.ID, &principal.DisplayName, &principal.State, &principal.Visibility,
 		&revision, &credentialRevision, &credentialID, &credentialFingerprint,
-		&credentialCreatedAt, &principal.CreatedAt, &principal.UpdatedAt,
+		&credentialCreatedAt, &principal.CreatedAt, &principal.UpdatedAt, &principal.HTTPDefault,
 	); err != nil {
 		return 0, contract.Principal{}, err
+	}
+	if principal.HTTPDefault != contract.HTTPDefaultAllow && principal.HTTPDefault != contract.HTTPDefaultBlock {
+		return 0, contract.Principal{}, ErrInvalidState
 	}
 	principal.Revision = strconv.FormatInt(revision, 10)
 	principal.CredentialRevision = strconv.FormatInt(credentialRevision, 10)

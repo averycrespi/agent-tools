@@ -43,10 +43,28 @@ func runCLIPrincipalInputMatrix(t *testing.T) {
 	assert.Contains(t, string(listed.Stdout), principalID)
 	assert.Contains(t, string(got.Stdout), "CLI principal")
 
-	updated := runOnlineCLI(t, harness, bearerPath, true, "principal", "update", principalID, "--display-name", "CLI principal updated", "--output", "json")
+	updated := runOnlineCLI(t, harness, bearerPath, true, "principal", "update", principalID, "--display-name", "CLI principal updated", "--http-default", "allow", "--yes", "--output", "json")
 	results = append(results, updated)
 	var principal contract.Principal
 	require.NoError(t, json.Unmarshal(updated.Stdout, &principal))
+	assert.Equal(t, "CLI principal updated", principal.DisplayName)
+	assert.Equal(t, contract.HTTPDefaultAllow, principal.HTTPDefault)
+	defaultRead := runOnlineCLI(t, harness, bearerPath, true, "http", "default", "get", principalID, "--output", "json")
+	results = append(results, defaultRead)
+	var defaultPrincipal contract.Principal
+	require.NoError(t, json.Unmarshal(defaultRead.Stdout, &defaultPrincipal))
+	assert.Equal(t, principal, defaultPrincipal)
+	retiredPath := "/api/v2/http/defaults/" + principalID
+	for _, method := range []string{http.MethodGet, http.MethodPatch} {
+		retired := harness.adminSnapshot(method, retiredPath, []byte(`{"default":"block"}`))
+		assert.Equal(t, http.StatusNotFound, retired.StatusCode)
+	}
+	defaultFile := filepath.Join(t.TempDir(), "default.json")
+	require.NoError(t, os.WriteFile(defaultFile, []byte(`{"http_default":"block"}`), 0o600))
+	defaultUpdate := runOnlineCLI(t, harness, bearerPath, true, "http", "default", "update", principalID, "--file", defaultFile, "--yes", "--output", "json")
+	results = append(results, defaultUpdate)
+	require.NoError(t, json.Unmarshal(defaultUpdate.Stdout, &principal))
+	assert.Equal(t, contract.HTTPDefaultBlock, principal.HTTPDefault)
 	assert.Equal(t, "CLI principal updated", principal.DisplayName)
 	oldETag := etag
 	etag = contract.PrincipalETag(principalID, principal.Revision)

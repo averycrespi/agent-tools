@@ -35,11 +35,6 @@ export interface GrantRow {
   grant: Grant;
   principal_display_name: string;
 }
-export interface Default {
-  principal_id: string;
-  default: "allow" | "block";
-  revision: string;
-}
 export const idPattern = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 export function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -300,17 +295,6 @@ export function decodeGrant(value: unknown): Grant {
       throw new Error("Invalid expiry.");
   }
   return value as Grant;
-}
-export function decodeDefault(value: unknown): Default {
-  const d = exact(value, ["principal_id", "default", "revision"]);
-  if (
-    typeof d.principal_id !== "string" ||
-    !idPattern.test(d.principal_id) ||
-    !["allow", "block"].includes(String(d.default)) ||
-    !revision(d.revision)
-  )
-    throw new Error("HTTP default unavailable.");
-  return value as Default;
 }
 export function decodePreview(
   value: unknown,
