@@ -2408,7 +2408,11 @@ export async function runSystemStatus(
     join(tmpdir(), "gateway-traffic-status-"),
   );
   let holdStatus = false;
-  let releaseStatus: (() => void) | undefined;
+  let failStatus = false;
+  const statusReleases: Array<() => void> = [];
+  const releaseStatus = () => {
+    for (const release of statusReleases.splice(0)) release();
+  };
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/api/v2/events"))
       eventStreams += 1;
@@ -2423,8 +2427,20 @@ export async function runSystemStatus(
     statusReads += 1;
     if (holdStatus) {
       await new Promise<void>((resolve) => {
-        releaseStatus = resolve;
+        statusReleases.push(resolve);
       });
+    }
+    if (failStatus) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "unavailable",
+          title: "Unavailable",
+        }),
+      });
+      return;
     }
     await route.fulfill({
       status: 200,
@@ -2640,7 +2656,7 @@ export async function runSystemStatus(
   holdStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();
   await eventually(
-    () => releaseStatus !== undefined,
+    () => statusReleases.length > 0,
     "System refresh did not start",
   );
   await page.waitForFunction(
@@ -2677,7 +2693,7 @@ export async function runSystemStatus(
   await assertTableConventions(
     page,
     "Gateway resource occupancy and hard limits",
-    ["Resource", "In use", "Limit", "Status"],
+    ["Resource", "In use", "Limit", "Used (%)", "Status"],
     "Resource",
     true,
   );
@@ -2689,6 +2705,146 @@ export async function runSystemStatus(
     ).includes("Current occupancy against enforced Gateway limits.")
   )
     fail("Resource limits retained redundant occupancy guidance");
+
+  const utilizationCases = [
+    [0, 32, "0%", true],
+    [8, 32, "25%", false],
+    [27, 32, "84.4%", false],
+    [32, 32, "100%", true],
+    [9999, 10000, "99.9%", false],
+    [1, 0, "N/A", false],
+    [33, 32, "103.1%", false],
+    [Number.MAX_SAFE_INTEGER, 32, "28147497671065596.9%", false],
+  ] as const;
+  const expectedRows = overviewLimitNames
+    .map((name, index) => {
+      const [inUse, limit, used, saturated] =
+        utilizationCases[index % utilizationCases.length]!;
+      currentStatus.limits[name] = { in_use: inUse, limit, saturated };
+      return { name, inUse, limit, used, saturated };
+    })
+    .sort((left, right) =>
+      left.saturated !== right.saturated
+        ? left.saturated
+          ? -1
+          : 1
+        : left.name.localeCompare(right.name),
+    );
+  const rowContents = () =>
+    page
+      .locator('[data-testid="system-limit-row"]')
+      .evaluateAll((rows) =>
+        rows.map((row) => Array.from(row.children, (cell) => cell.textContent)),
+      );
+  const beforeRefresh = await rowContents();
+  holdStatus = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await eventually(
+    () => statusReleases.length > 0,
+    "Resource refresh did not start",
+  );
+  expect(await rowContents()).toEqual(beforeRefresh);
+  await expect(page.locator('[data-testid="gateway-shell"]')).toHaveAttribute(
+    "data-freshness",
+    "current",
+  );
+  holdStatus = false;
+  releaseStatus();
+  const expectedCells = expectedRows.map(
+    ({ name, inUse, limit, used, saturated }) => [
+      name,
+      String(inUse),
+      String(limit),
+      used,
+      saturated ? "Saturated" : "Available",
+    ],
+  );
+  await expect.poll(rowContents).toEqual(expectedCells);
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+
+  failStatus = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await expect(
+    page.locator('[data-testid="system-limits-view"]'),
+  ).toHaveAttribute("data-panel-status", "error");
+  expect(await rowContents()).toEqual(expectedCells);
+  await page.screenshot({
+    path: join(trafficScreenshots, "resources-error-1280.png"),
+    fullPage: true,
+  });
+  failStatus = false;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await expect(
+    page.locator('[data-testid="system-limits-view"]'),
+  ).toHaveAttribute("data-panel-status", "current");
+  expect(await rowContents()).toEqual(expectedCells);
+
+  const limitsTable = page.getByRole("table", {
+    name: "Gateway resource occupancy and hard limits",
+  });
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await limitsTable.getByRole("columnheader").allTextContents(),
+    ).toEqual(["Resource", "In use", "Limit", "Used (%)", "Status"]);
+    expect(await limitsTable.getByRole("rowheader").allTextContents()).toEqual(
+      expectedRows.map(({ name }) => name),
+    );
+    expect(
+      await limitsTable
+        .locator("tbody tr:first-child td:nth-child(4)")
+        .evaluate((cell) => getComputedStyle(cell).textAlign),
+    ).toBe("right");
+    expect(
+      await limitsTable
+        .getByRole("columnheader", { name: "Used (%)", exact: true })
+        .evaluate((cell) => getComputedStyle(cell).textAlign),
+    ).toBe("right");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    ).toBe(false);
+    const violations = (
+      await new AxeBuilder({ page }).analyze()
+    ).violations.filter(
+      (item) => item.impact === "serious" || item.impact === "critical",
+    );
+    expect(violations).toEqual([]);
+    await page.screenshot({
+      path: join(trafficScreenshots, `resources-${width}.png`),
+      fullPage: true,
+    });
+    if (width < 700) {
+      const region = limitsTable.locator("..");
+      await region.focus();
+      await expect(region).toBeFocused();
+      await region.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+      });
+      await expect(
+        limitsTable.getByRole("columnheader", {
+          name: "Used (%)",
+          exact: true,
+        }),
+      ).toBeInViewport();
+      await expect(
+        limitsTable.getByRole("columnheader", { name: "Status", exact: true }),
+      ).toBeInViewport();
+      await page.screenshot({
+        path: join(trafficScreenshots, `resources-scrolled-${width}.png`),
+        fullPage: false,
+      });
+      await region.evaluate((element) => {
+        element.scrollLeft = 0;
+      });
+    }
+  }
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(

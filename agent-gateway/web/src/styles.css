@@ -1846,6 +1846,7 @@ button.sort-button:not(:disabled):hover {
 }
 
 .table-region .system-limit-name {
+  min-width: 12rem;
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
