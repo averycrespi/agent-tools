@@ -144,6 +144,12 @@ func launchServiceLines(data, target string) ([]string, error) {
 		if !strings.HasPrefix(indent, current.indent) || len(indent) <= len(current.indent) {
 			return nil, invalid
 		}
+		// Irrelevant sections have their own launchctl-specific formats (such
+		// as LWCR dictionaries and arrays). Only their enclosing boundary is
+		// identity-relevant: never parse or promote their deeper contents.
+		if len(stack) > 1 && !current.args {
+			continue
+		}
 		if current.child == "" {
 			current.child = indent
 		} else if indent != current.child {
