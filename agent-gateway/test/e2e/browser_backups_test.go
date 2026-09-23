@@ -63,8 +63,8 @@ func TestBrowserBackups(t *testing.T) {
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
 	assert.Equal(t, 3, event.Creates)
-	assert.Equal(t, 1, event.Deletes)
-	assert.Equal(t, 1, event.Details)
+	assert.Equal(t, 2, event.Deletes)
+	assert.Zero(t, event.Details)
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "backup scenario must own one Gateway lifecycle")
 }

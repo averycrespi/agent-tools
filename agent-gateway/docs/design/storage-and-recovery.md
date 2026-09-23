@@ -209,6 +209,30 @@ unknown terminal evidence in the snapshot. Pins and execution are never backed u
 
 Stopped-process and backup procedures are canonical in [backup and recovery](../operators/backup-and-recovery.md). On-demand backup uses SQLite's online backup API under one nonblocking global work slot. Gateway stages an owner-only closed generation, verifies identity/schema/revision/full integrity and the 1 GiB bound, computes SHA-256, writes safe internal metadata, and atomically publishes it under a 26-character ID. The artifact-bound authority/key digest provides durable retry identity without storing a bearer or replaying a secret; 64 retained artifacts are the fixed record bound. Verification of a closed artifact reads its digest-bound database immutably: it neither creates sidecars under ambient permissions nor consults an unrelated WAL. Existing sidecars are not deleted by verification or installation naming cleanup.
 
+### Status occupancy
+
+System status obtains backup-record and retained backup-idempotency counts in one
+metadata traversal, using one retention instant and the existing inclusive
+idempotency window. Reads observe completed create/delete operations without a
+cache; hidden staging entries are not published records. Directory enumeration
+uses bounded batches and each metadata JSON read is limited to 8 KiB, with strict
+closed fields, duplicate rejection, identity/format checks and valid timestamps.
+An excess visible entry beyond the fixed 64-record maximum fails accounting before
+opening that entry's metadata; status never truncates an over-limit count into a
+successful saturated result.
+Descriptor-relative no-follow opens validate owner-only directories and regular
+metadata files before reading. Missing, unreadable, malformed or unsafe required
+metadata fails the status request with `storage_unavailable`, never healthy zero
+occupancy. A concurrent deletion may likewise cause a failed read; the next
+request observes the completed deletion without retrying the mutation.
+
+These counts do not establish artifact integrity: status neither opens nor reads
+backup databases, hashes their contents, nor runs SQLite or traffic verification.
+Creation/publication, initialization of the backup manager, list/get/delete,
+idempotent creation and stopped restore retain their full verification. Metadata
+accounting is not restore or mutation authorization; supported artifact formats
+and the successful status representation are unchanged.
+
 ### Generation replacement
 
 Stopped migration stages the control copy without upgrading the original, validates

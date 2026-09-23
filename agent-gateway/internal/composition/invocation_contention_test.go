@@ -106,7 +106,8 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			defer downstream.Close()
 			options, cleanup := newCompositionOptions(t)
 			defer cleanup()
-			options.Diagnostics = diagnostic
+			observed := &contentionDiagnostics{Observer: diagnostic}
+			options.Diagnostics = observed
 			options.Clock = testutil.NewFakeClock(compositionTime.Add(30 * time.Second))
 			built, err := New(options)
 			require.NoError(t, err)
@@ -144,20 +145,21 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 					return err
 				}
 				if len(result.Result) == 0 || len(result.Error) != 0 {
-					return fmt.Errorf("call did not succeed: %s", result.Error)
+					status := built.traffic.Status(ctx)
+					return fmt.Errorf("%s did not succeed: %s (authority_expired=%d traffic_ready=%t traffic_faulted=%t traffic_pressure=%t quota_refusals=%d context_done=%t)", method, result.Error, observed.authorityExpired.Load(), status.Ready, status.Faulted, status.Pressure, status.QuotaRefusals, ctx.Err() != nil)
 				}
 				return nil
 			}
 			done := make(chan error, 4)
-			for range 4 {
+			for worker := range 4 {
 				go func() {
-					for range 8 {
+					for iteration := range 8 {
 						if err := request("tools/list"); err != nil {
-							done <- err
+							done <- fmt.Errorf("worker %d iteration %d: %w", worker, iteration, err)
 							return
 						}
 						if err := request("tools/call"); err != nil {
-							done <- err
+							done <- fmt.Errorf("worker %d iteration %d: %w", worker, iteration, err)
 							return
 						}
 					}
@@ -183,6 +185,20 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			assert.Zero(t, legacy, "no traffic dual write into control storage")
 			assert.False(t, options.Store.Latched())
 		})
+	}
+}
+
+// Keep the real sink and backpressure behavior; retain only a typed rejection
+// counter even when the intentionally stalled diagnostic pipe cannot be read.
+type contentionDiagnostics struct {
+	diagnostics.Observer
+	authorityExpired atomic.Int32
+}
+
+func (observed *contentionDiagnostics) Authority(facts diagnostics.Facts) {
+	observed.Observer.Authority(facts)
+	if facts.Event == diagnostics.AuthorityReject && facts.Cause == diagnostics.Expired {
+		observed.authorityExpired.Add(1)
 	}
 }
 

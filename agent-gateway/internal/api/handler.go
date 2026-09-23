@@ -99,7 +99,7 @@ type Options struct {
 	Invalidate       func(contract.Invalidation)
 	NewKeepalive     func() (<-chan time.Time, func())
 	Origin           string
-	Status           func() contract.SystemStatus
+	Status           func(context.Context) (contract.SystemStatus, error)
 	OAuthCallback    OAuthCallbackService
 	Servers          ServerService
 	Principals       PrincipalService
@@ -131,7 +131,7 @@ type Handler struct {
 	invalidate       func(contract.Invalidation)
 	newKeepalive     func() (<-chan time.Time, func())
 	origin           string
-	status           func() contract.SystemStatus
+	status           func(context.Context) (contract.SystemStatus, error)
 	callbackService  OAuthCallbackService
 	servers          ServerService
 	principals       PrincipalService
@@ -171,7 +171,7 @@ type authentication struct {
 
 func New(options Options) *Handler {
 	if options.Status == nil {
-		options.Status = func() contract.SystemStatus { return contract.SystemStatus{} }
+		options.Status = func(context.Context) (contract.SystemStatus, error) { return contract.SystemStatus{}, nil }
 	}
 	if options.NewKeepalive == nil {
 		options.NewKeepalive = func() (<-chan time.Time, func()) {
@@ -360,7 +360,12 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			writeProblem(writer, contract.ProblemMalformedRequest)
 			return
 		}
-		writeJSON(writer, http.StatusOK, handler.status())
+		status, err := handler.status(request.Context())
+		if err != nil {
+			writeProblem(writer, contract.ProblemStorageUnavailable)
+			return
+		}
+		writeJSON(writer, http.StatusOK, status)
 	case path == "/api/v2/backups" && request.Method == http.MethodGet:
 		handler.listBackups(writer, request)
 	case path == "/api/v2/backups" && request.Method == http.MethodPost:

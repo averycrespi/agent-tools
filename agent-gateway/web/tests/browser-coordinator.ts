@@ -764,6 +764,13 @@ try {
         /^Failed to load resource: the server responded with a status of 412(?: \(Precondition Failed\))?$/.test(
           consoleFailures[0]!,
         )) ||
+      (input.scenario === "system-status" &&
+        consoleFailures.length === 2 &&
+        consoleFailures.every((value) =>
+          value.startsWith(
+            "Failed to load resource: the server responded with a status of 503",
+          ),
+        )) ||
       (input.scenario === "http-credentials" &&
         consoleFailures.length === 2 &&
         consoleFailures.every((value) =>
