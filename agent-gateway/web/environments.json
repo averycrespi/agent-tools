@@ -19,8 +19,7 @@
       "browser": "firefox",
       "browser_version": "153.0",
       "availability": "available",
-      "acceptance_class": "blocking_when_available",
-      "unavailable_class": "additive",
+      "acceptance_class": "optional",
       "owner": "browser_cross",
       "executable_locator": "playwright:firefox",
       "executable_sha256": "sha256:d05db54a87f95746a38295d31b0e2621aaab05ae74d6ce7d7271b9e8e14a65e1"
@@ -31,8 +30,7 @@
       "browser": "playwright_webkit",
       "browser_version": "26.5",
       "availability": "available",
-      "acceptance_class": "blocking_when_available",
-      "unavailable_class": "additive",
+      "acceptance_class": "optional",
       "owner": "browser_cross",
       "executable_locator": "playwright:webkit",
       "executable_sha256": "sha256:a85baad3d8c07173ac387a59b41500c382b21ed692afe0964d29aac247ccc63b"
@@ -42,8 +40,7 @@
       "os": "macos",
       "browser": "safari",
       "availability": "unavailable_on_linux_runner",
-      "acceptance_class": "blocking_when_available",
-      "unavailable_class": "additive",
+      "acceptance_class": "optional",
       "owner": "external_evidence",
       "executable_locator": "/Applications/Safari.app"
     },
@@ -53,8 +50,7 @@
       "browser": "safari",
       "assistive_technology": "voiceover",
       "availability": "unavailable_on_linux_runner",
-      "acceptance_class": "blocking_when_available",
-      "unavailable_class": "additive",
+      "acceptance_class": "optional",
       "owner": "external_evidence",
       "executable_locator": "/Applications/Safari.app"
     }

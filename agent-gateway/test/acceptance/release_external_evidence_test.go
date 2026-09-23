@@ -17,11 +17,28 @@ import (
 func TestReleaseExternalEvidenceDefinitionsTrackEnvironmentManifest(t *testing.T) {
 	definitions, err := releaseExternalEvidenceDefinitions(repositoryRoot(t))
 	require.NoError(t, err)
-	assert.Equal(t, releaseExternalTestDefinitions(), definitions)
-	result, err := defaultReleaseEnvironmentProber(definitions[0])
+	assert.Empty(t, definitions, "optional browsers must not require release sidecars")
+	result, err := defaultReleaseEnvironmentProber(releaseExternalTestDefinitions()[0])
 	require.NoError(t, err)
 	if runtime.GOOS != "darwin" {
 		assert.Equal(t, "platform_mismatch", result.UnavailableReason)
+	}
+}
+
+func TestBrowserPolicyCannotDropChromiumOrRequireOptionalEngines(t *testing.T) {
+	contents, err := os.ReadFile(filepath.Join(repositoryRoot(t), "agent-gateway/web/environments.json"))
+	require.NoError(t, err)
+	for _, mutation := range []struct{ old, replacement string }{
+		{`"acceptance_class": "blocking"`, `"acceptance_class": "optional"`},
+		{`"id": "linux-chromium"`, `"id": "missing-chromium"`},
+		{`"acceptance_class": "optional"`, `"acceptance_class": "blocking_when_available"`},
+	} {
+		root := t.TempDir()
+		path := filepath.Join(root, "agent-gateway/web/environments.json")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte(strings.Replace(string(contents), mutation.old, mutation.replacement, 1)), 0o600))
+		_, err := releaseExternalEvidenceDefinitions(root)
+		require.Error(t, err)
 	}
 }
 

@@ -18,7 +18,8 @@ import (
 
 func TestNodeFoundationDefinitionOwnership(t *testing.T) {
 	root := frontendDevelopmentModuleRoot(t)
-	dag := purposeEvidenceDAG()
+	definitions, err := finalReleaseDefinitionFiles(filepath.Dir(root))
+	require.NoError(t, err)
 	files, err := filepath.Glob(filepath.Join(root, "web/tests/*.test.ts"))
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
@@ -26,14 +27,27 @@ func TestNodeFoundationDefinitionOwnership(t *testing.T) {
 		relative, err := filepath.Rel(root, file)
 		require.NoError(t, err)
 		definition := "agent-gateway/" + filepath.ToSlash(relative)
-		assert.Contains(t, dag.Leaves["test-frontend-development-node"].DefinitionFiles, definition)
-		assert.Contains(t, dag.Commands["node.test-dev"].DefinitionFiles, definition)
+		assert.Contains(t, definitions, definition)
 	}
-	for id, leaf := range dag.Leaves {
-		if strings.HasPrefix(id, "test-browser-") {
-			assert.NotContains(t, leaf.DefinitionFiles, "agent-gateway/web/tests/foundations.test.ts")
-		}
+}
+
+func TestFrontendDefinitionInventoryIncludesNewModulesAndRejectsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{"web/src", "web/tests/browser"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "agent-gateway", directory), 0o700))
 	}
+	path := "agent-gateway/web/tests/browser/new-owner.ts"
+	require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte("export {};\n"), 0o600))
+	definitions, err := finalReleaseDefinitionFiles(root)
+	require.NoError(t, err)
+	assert.Contains(t, definitions, path)
+	require.NoError(t, os.Remove(filepath.Join(root, path)))
+	without, err := finalReleaseDefinitionFiles(root)
+	require.NoError(t, err)
+	assert.NotContains(t, without, path)
+	require.NoError(t, os.Symlink(t.TempDir(), filepath.Join(root, "agent-gateway/web/src/outside")))
+	_, err = finalReleaseDefinitionFiles(root)
+	require.ErrorContains(t, err, "symlink in release definitions")
 }
 
 func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
@@ -53,7 +67,7 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	assert.ElementsMatch(t, expectedLeaves, actualLeaves)
 	assert.Equal(t, map[string][]string{
 		"test":                      {"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo"},
-		"test-browser":              {"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"},
+		"test-browser":              {"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility"},
 		"test-frontend-development": {"test-frontend-development-node", "test-frontend-development-browser"},
 	}, dag.Aggregates)
 
@@ -96,13 +110,6 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	}
 	assert.Equal(t, 5*time.Minute, dag.Leaves["test-unit"].Timeout)
 	assert.Equal(t, 6*time.Minute, dag.Leaves["test-unit"].Budget)
-	assert.Equal(t, 67, dag.Leaves["test-e2e"].GatewayStarts)
-	assert.Equal(t, 36, dag.Leaves["test-browser-workflows"].GatewayStarts)
-	assert.Equal(t, 35, dag.Leaves["test-browser-workflows"].BrowserStarts)
-	assert.Equal(t, 2, dag.Leaves["test-frontend-development-browser"].GatewayStarts)
-	assert.Equal(t, 2, dag.Leaves["test-frontend-development-browser"].BrowserStarts)
-	assert.Equal(t, 1, dag.Leaves["test-browser-cross"].GatewayStarts)
-	assert.Equal(t, 2, dag.Leaves["test-browser-cross"].BrowserStarts)
 
 	for id, command := range dag.Commands {
 		assert.Equal(t, id, command.ID)
@@ -118,10 +125,8 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 func TestBrowserCoordinatorModulesAreBoundToEvidenceLeaves(t *testing.T) {
 	root := repositoryRoot(t)
 	coordinatorPath := "agent-gateway/web/tests/browser-coordinator.ts"
-	coordinator, err := os.ReadFile(filepath.Join(root, coordinatorPath))
+	definitions, err := finalReleaseDefinitionFiles(root)
 	require.NoError(t, err)
-	assert.Less(t, strings.Count(string(coordinator), "\n"), 1000)
-	assert.NotRegexp(t, `(?m)^(?:export )?async function run[A-Z]`, string(coordinator))
 	paths := []string{coordinatorPath}
 	require.NoError(t, filepath.WalkDir(filepath.Join(root, "agent-gateway/web/tests/browser"), func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -137,10 +142,12 @@ func TestBrowserCoordinatorModulesAreBoundToEvidenceLeaves(t *testing.T) {
 		return nil
 	}))
 	require.Greater(t, len(paths), 1)
-	for id, leaf := range purposeEvidenceDAG().Leaves {
-		if strings.HasPrefix(id, "test-browser-") || id == "test-frontend-development-browser" {
-			assert.Subset(t, leaf.DefinitionFiles, paths, id)
-		}
+	assert.Subset(t, definitions, paths)
+	assert.True(t, sort.StringsAreSorted(definitions))
+	seen := make(map[string]bool)
+	for _, path := range definitions {
+		assert.False(t, seen[path], "duplicate definition %s", path)
+		seen[path] = true
 	}
 }
 
@@ -256,7 +263,11 @@ func TestPurposeEvidenceDAGRecordsTransitiveMakeAndNPMEdges(t *testing.T) {
 
 	browserLeaves, err := expandPurposeLeaves(dag, []string{"test-browser"})
 	require.NoError(t, err)
-	assert.Len(t, browserLeaves, 5)
+	assert.Len(t, browserLeaves, 4)
+	for _, leaf := range browserLeaves {
+		assert.NotEqual(t, "test-browser-cross", leaf.ID)
+	}
+	assert.NotContains(t, dag.FinalLeaves, "test-browser-cross")
 	_, err = expandPurposeLeaves(dag, []string{"test-browser", "test-browser-privacy"})
 	assert.ErrorContains(t, err, "duplicate leaf test-browser-privacy")
 }

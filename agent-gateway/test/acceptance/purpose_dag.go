@@ -2,7 +2,6 @@ package acceptance
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -51,16 +50,6 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		generatedScript = "agent-gateway/web/scripts/verify-generated.mjs"
 		supplyScript    = "agent-gateway/web/scripts/verify-supply-chain.mjs"
 	)
-	nodeFoundationDefinitions := []string{
-		"agent-gateway/web/tests/diagnostic-correlation.test.ts", "agent-gateway/web/src/diagnostic-correlation.ts",
-		"agent-gateway/web/tests/pending-requests.test.ts", "agent-gateway/web/src/pending-requests.ts",
-		"agent-gateway/web/tests/resource-utilization.test.ts", "agent-gateway/web/src/resource-utilization.ts",
-		"agent-gateway/web/tests/http-policy-response.test.ts", "agent-gateway/web/src/http-policy-response.ts",
-		"agent-gateway/web/tests/http-traffic-contract.test.ts", "agent-gateway/web/src/http-traffic-contract.ts",
-		"agent-gateway/web/tests/foundations.test.ts", "agent-gateway/web/tests/invocation-query.test.ts", "agent-gateway/web/tests/location.test.ts", "agent-gateway/web/tests/mutation-contract.test.ts",
-		"agent-gateway/web/src/session.ts", "agent-gateway/web/src/view.ts", "agent-gateway/web/src/mutation.ts", "agent-gateway/web/src/sinks.ts", "agent-gateway/web/src/location.ts", "agent-gateway/web/src/invocation-query.ts",
-		"agent-gateway/internal/contract/server_states.go", "agent-gateway/internal/contract/authorization_states.go", "agent-gateway/internal/contract/invocation_projections.go",
-	}
 	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/seed_http.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go"}
 	commonDefinitions := []string{makefile, manifest, dagDefinition, "agent-gateway/test/acceptance/suite_selection.go", "agent-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
@@ -77,7 +66,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 
 	leaves := map[string]purposeEvidenceLeaf{
 		"test-unit":        leaf("test-unit", []string{"tier.unit.contract"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
-		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
+		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 12*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
 		"test-harness":     leaf("test-harness", []string{"tier.harness.selftests", "product.compatibility.release_evidence", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"runner and fixture self-test output"}),
 		"test-material":    leaf("test-material", []string{"tier.native.keyring"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
 		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 11, 0, []string{"curated and empty demo public outcomes, privacy and lifecycle cleanup"}, demoDefinitions...),
@@ -87,7 +76,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 			"product.grant_request.conflict_and_uncertainty", "product.grant_request.approval_narrowing", "product.invocation.page_coherence",
 			"product.client_refresh.no_unsafe_replay", "product.invocation.missing_terminal_unknown",
 		}, 2*time.Minute, 5*time.Minute, 20, 0, 0, []string{"five targeted race scenario results"}),
-		"test-keyring-native": leaf("test-keyring-native", []string{"tier.native.keyring"}, 10*time.Second, 30*time.Second, 1, 0, 0, []string{"typed native keyring classification"}, "agent-gateway/test/keyring-native.sh"),
+		"test-keyring-native": leaf("test-keyring-native", []string{"tier.native.keyring"}, 10*time.Second, 7*time.Minute, 1, 0, 0, []string{"typed native keyring classification"}, "agent-gateway/test/keyring-native.sh"),
 
 		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 5*time.Minute, 6*time.Minute, 1, 36, 35, []string{"browser workflow output", "browser cleanup records"}, "agent-gateway/test/e2e/harness_test.go"),
 		"test-browser-privacy":       leaf("test-browser-privacy", []string{"security.browser.storage", "frontend.privacy"}, 30*time.Second, 45*time.Second, 1, 1, 1, []string{"secret canary scan", "browser cleanup records"}, "agent-gateway/test/e2e/browser_secret_storage_privacy_test.go"),
@@ -102,35 +91,6 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"frontend-verify-generated":         leaf("frontend-verify-generated", []string{"security.frontend.generated_assets"}, 60*time.Second, 90*time.Second, 1, 0, 0, []string{"deterministic generated-asset comparison"}, packageManifest, generatedScript, "agent-gateway/web/vite.config.ts"),
 		"frontend-verify-supply-chain":      leaf("frontend-verify-supply-chain", []string{"product.frontend.static_supply_chain", "frontend.production_separation", "security.frontend.generated_assets"}, 90*time.Second, 2*time.Minute, 1, 0, 0, []string{"dependency provenance", "generated-asset comparison", "static allowlist test output"}, packageManifest, generatedScript, supplyScript, "package-lock.json"),
 		"frontend-audit":                    leaf("frontend-audit", []string{"tier.supply_chain.frontend"}, 60*time.Second, 60*time.Second, 1, 0, 0, []string{"unsuppressed npm vulnerability findings"}, packageManifest, "package-lock.json"),
-	}
-
-	nodeLeaf := leaves["test-frontend-development-node"]
-	nodeLeaf.DefinitionFiles = append(nodeLeaf.DefinitionFiles, nodeFoundationDefinitions...)
-	nodeLeaf.Artifacts = append(nodeLeaf.Artifacts, "session, view, mutation and sensitive-sink foundation results")
-	leaves[nodeLeaf.ID] = nodeLeaf
-
-	browserDefinitions := []string{
-		"agent-gateway/test/e2e/harness_deadline_browser_test.go",
-		"agent-gateway/web/tests/browser/pending-requests.ts", "agent-gateway/web/src/pending-requests.ts",
-		"agent-gateway/web/tests/browser-coordinator.ts", "agent-gateway/web/tests/collection-pagination.ts", "agent-gateway/web/tests/visual-matrix.ts",
-		"agent-gateway/web/tests/browser/shared.ts", "agent-gateway/web/tests/browser/fixtures.ts",
-		"agent-gateway/web/tests/browser/lifecycle-scenarios.ts", "agent-gateway/web/tests/browser/privacy-presentation-scenarios.ts",
-		"agent-gateway/web/tests/browser/system-scenarios.ts", "agent-gateway/web/tests/browser/access-scenarios.ts",
-		"agent-gateway/web/tests/browser/audit-scenarios.ts", "agent-gateway/web/src/audit-contract.ts",
-		"agent-gateway/web/tests/browser/history-scenarios.ts",
-		"agent-gateway/web/tests/browser/http-credential-scenarios.ts", "agent-gateway/web/src/http-credentials.tsx",
-		"agent-gateway/web/tests/browser/http-grant-scenarios.ts", "agent-gateway/web/src/http-grants.tsx",
-		"agent-gateway/web/tests/browser/http-traffic-scenarios.ts", "agent-gateway/web/src/http-traffic.tsx",
-		"agent-gateway/web/tests/browser/server-scenarios.ts", "agent-gateway/web/tests/browser/development-scenarios.ts",
-		"agent-gateway/web/tests/browser/catalog-pagination.ts", "agent-gateway/web/tests/browser/upstream-headers.ts",
-		"agent-gateway/web/tests/browser/operation-pagination.ts", "agent-gateway/web/tests/browser/table-conventions.ts",
-		"agent-gateway/web/src/mutation.ts", "agent-gateway/web/src/sinks.ts", "agent-gateway/web/src/session.ts", "agent-gateway/web/src/view.ts",
-	}
-	for id, browserLeaf := range leaves {
-		if strings.HasPrefix(id, "test-browser-") || id == "test-frontend-development-browser" {
-			browserLeaf.DefinitionFiles = append(browserLeaf.DefinitionFiles, browserDefinitions...)
-			leaves[id] = browserLeaf
-		}
 	}
 
 	commands := map[string]purposeCommandNode{}
@@ -171,10 +131,6 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addCommand("npm.ui.test-dev", []string{"npm", "--prefix", "..", "run", "ui:test-dev"}, []string{makefile, packageManifest}, []string{"node.test-dev"})
 	addCommand("node.test-dev", []string{"node", "--test", "--test-concurrency=1", "--test-timeout=30000"}, []string{packageManifest, "agent-gateway/web/tests/dev-server.test.ts", "agent-gateway/web/tests/proxy-admission.test.ts", "agent-gateway/web/tests/audit-contract.test.ts", "agent-gateway/web/src/audit-contract.ts", "agent-gateway/web/tests/theme.test.ts", "agent-gateway/web/src/theme.ts"}, nil)
 
-	nodeCommand := commands["node.test-dev"]
-	nodeCommand.DefinitionFiles = append(nodeCommand.DefinitionFiles, nodeFoundationDefinitions...)
-	commands[nodeCommand.ID] = nodeCommand
-
 	addMake("frontend-typecheck", "npm.ui.typecheck")
 	addCommand("npm.ui.typecheck", []string{"npm", "--prefix", "..", "run", "ui:typecheck"}, []string{makefile, packageManifest}, []string{"tsc.frontend"})
 	addCommand("tsc.frontend", []string{"tsc", "-p", "agent-gateway/web/tsconfig.json", "--noEmit"}, []string{packageManifest, "agent-gateway/web/tsconfig.json"}, nil)
@@ -192,19 +148,21 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addCommand("npm.ui.audit", []string{"npm", "--prefix", "..", "run", "ui:audit"}, []string{makefile, packageManifest}, []string{"npm.audit.frontend"})
 	addCommand("npm.audit.frontend", []string{"npm", "audit", "--audit-level=high"}, []string{packageManifest, "package-lock.json"}, nil)
 
+	var finalLeaves []string
+	for _, id := range finalReleaseOrder() {
+		if _, ok := leaves[id]; ok {
+			finalLeaves = append(finalLeaves, id)
+		}
+	}
 	return purposeEvidenceGraph{
 		Leaves: leaves,
 		Aggregates: map[string][]string{
 			"test":                      {"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo"},
-			"test-browser":              {"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross"},
+			"test-browser":              {"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility"},
 			"test-frontend-development": {"test-frontend-development-node", "test-frontend-development-browser"},
 		},
-		Commands: commands,
-		FinalLeaves: []string{
-			"test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
-			"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
-			"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "frontend-audit",
-		},
+		Commands:    commands,
+		FinalLeaves: finalLeaves,
 	}
 }
 

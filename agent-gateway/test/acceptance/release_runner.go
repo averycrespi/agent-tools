@@ -22,7 +22,7 @@ func runReleaseProfile(ctx context.Context, root string, executor Executor, defi
 	if executor == nil || finalize == nil {
 		return releaseReport{}, errors.New("release executor and cleanup finalizer are required")
 	}
-	if err := validateFinalOrFixtureReleaseProfile(definition); err != nil {
+	if err := validateFinalOrFixtureReleaseProfile(root, definition); err != nil {
 		return releaseReport{}, err
 	}
 	revision, err := gitOutput(ctx, root, "rev-parse", "HEAD")
@@ -46,14 +46,14 @@ func runReleaseProfile(ctx context.Context, root string, executor Executor, defi
 	report := releaseReport{
 		SchemaVersion: releaseReportSchemaVersion, Profile: releaseProfile, ProfileHash: profileHash, CommandDefinitionHash: definitionHash, ManifestHash: manifestHash,
 		Result: ResultPassed, Reason: "all_checks_passed", Revision: revision, CleanBefore: true, StartedAt: started.Format(time.RFC3339Nano),
-		Coverage: cloneReleaseCoverage(definition.Coverage), Checks: []releaseCheck{}, ExternalEvidence: append([]releaseExternalEvidenceReference(nil), external...),
+		Coverage: cloneReleaseCoverage(definition.Coverage), Checks: []releaseCheck{}, ExternalEvidence: append([]releaseExternalEvidenceReference{}, external...),
 	}
 	profileContext, cancelProfile := context.WithTimeout(ctx, time.Duration(definition.BudgetMillis)*time.Millisecond)
 	defer cancelProfile()
 	for _, expected := range definition.Checks {
 		checkStarted := time.Now().UTC()
-		checkContext, cancelCheck := context.WithTimeout(profileContext, time.Duration(expected.TimeoutMillis)*time.Millisecond)
-		command := Command{CheckName: expected.ID, Name: expected.Argv[0], Arguments: append([]string(nil), expected.Argv[1:]...), Artifacts: append([]string(nil), expected.Artifacts...), Native: expected.Native, Timeout: time.Duration(expected.TimeoutMillis) * time.Millisecond}
+		checkContext, cancelCheck := context.WithTimeout(profileContext, time.Duration(expected.BudgetMillis)*time.Millisecond)
+		command := Command{CheckName: expected.ID, Name: expected.Argv[0], Arguments: append([]string(nil), expected.Argv[1:]...), Artifacts: append([]string(nil), expected.Artifacts...), Native: expected.Native, Timeout: time.Duration(expected.BudgetMillis) * time.Millisecond}
 		output, commandErr := executor.Run(checkContext, root, command)
 		cancelCheck()
 		if commandErr == nil && expected.Native {
@@ -217,9 +217,9 @@ func prepareAndQualifyReleaseExternalEvidence(ctx context.Context, root string, 
 	return err
 }
 
-func validateFinalOrFixtureReleaseProfile(definition releaseProfileDefinition) error {
+func validateFinalOrFixtureReleaseProfile(root string, definition releaseProfileDefinition) error {
 	if definition.Profile == releaseProfile && len(definition.Coverage.ProductBehaviors) == len(canonicalReleaseProductBehaviors()) {
-		return validateFinalReleaseProfile(definition)
+		return validateFinalReleaseProfile(root, definition)
 	}
 	return validateReleaseProfileDefinition(definition)
 }

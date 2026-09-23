@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, inventory
+from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, integration_matrix, inventory
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,6 +73,23 @@ class SelectionTests(unittest.TestCase):
             self.assertEqual(self.select([], event)["tools"], TOOLS)
 
 
+class IntegrationMatrixTests(unittest.TestCase):
+    def test_gateway_has_exactly_two_shards_and_other_tools_run_once(self):
+        self.assertEqual(integration_matrix([]), [])
+        self.assertEqual(integration_matrix(["agent-gateway"]), [
+            {"tool": "agent-gateway", "suite": "integration-1"},
+            {"tool": "agent-gateway", "suite": "integration-2"},
+        ])
+        selected = inventory(ROOT)["integration"]
+        actual = integration_matrix(selected)
+        self.assertEqual(len(actual), len(selected) + 1)
+        self.assertEqual(len({(item["tool"], item["suite"]) for item in actual}), len(actual))
+        for tool in selected:
+            if tool != "agent-gateway":
+                self.assertEqual([item for item in actual if item["tool"] == tool],
+                                 [{"tool": tool, "suite": "integration"}])
+
+
 class DiffTests(unittest.TestCase):
     def test_merge_base_diff_includes_deletions_both_rename_paths_and_odd_names(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -128,7 +145,8 @@ class CLITests(unittest.TestCase):
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(json.loads(values["tools"]), TOOLS)
             self.assertEqual(values["gateway"], "true")
-            self.assertEqual(set(values), {"tools", "integration", "e2e", "gateway"})
+            self.assertEqual(set(values), {"tools", "integration", "integration_matrix", "e2e", "gateway"})
+            self.assertEqual(json.loads(values["integration_matrix"]), integration_matrix(json.loads(values["integration"])))
 
     def test_gate_exit_code_blocks_failed_and_missing_results(self):
         needs = GateTests().needs(["README.md"])
@@ -211,6 +229,12 @@ class CacheTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.identity(**override)
 
+    def test_integration_shards_have_independent_cache_writers(self):
+        for platform in ("Linux/X64", "macOS/ARM64"):
+            prefixes = [self.identity(role=role, platform=platform)["prefix"]
+                        for role in ("integration", "integration-1", "integration-2")]
+            self.assertEqual(len(set(prefixes)), 3)
+
     def test_workspace_dependencies_and_linter_configuration_invalidate(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -270,7 +294,7 @@ class CacheTests(unittest.TestCase):
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
         job = jobs["gateway-macos"]
         for fragment in ("needs: changes", "if: needs.changes.outputs.gateway == 'true'",
-                         "runs-on: macos-latest", "fail-fast: false", "suite: [integration, harness]",
+                         "runs-on: macos-latest", "fail-fast: false", "suite: [integration-1, integration-2, harness]",
                          "role: ${{ matrix.suite }}", "tool: agent-gateway",
                          'run: make -C agent-gateway "test-$SUITE"', "SUITE: ${{ matrix.suite }}"):
             self.assertIn(fragment, job)
@@ -288,7 +312,7 @@ class CacheTests(unittest.TestCase):
         dependencies = re.findall(r"^      - ([a-z0-9-]+)$", required, re.M)
         self.assertEqual(set(dependencies), {"changes", "quality", *SUITE_JOBS})
         roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint", "gateway-harness": "harness",
-                 "integration-tests": "integration", "e2e-tests": "e2e", "gateway-demo": "demo",
+                 "integration-tests": "${{ matrix.suite }}", "e2e-tests": "e2e", "gateway-demo": "demo",
                  "vulnerability-scan": "vulnerability",
                  "gateway-macos": "${{ matrix.suite }}"}
         for job, role in roles.items():
@@ -307,7 +331,11 @@ class CacheTests(unittest.TestCase):
         self.assertNotIn("actions/setup-node", jobs["gateway-demo"])
         self.assertNotIn("actions/setup-node", jobs["unit-tests"])
         self.assertIn('make -C "$TOOL" test-unit', jobs["unit-tests"])
-        self.assertIn('make -C "$TOOL" test-integration', jobs["integration-tests"])
+        self.assertIn('make -C "$TOOL" "test-$SUITE"', jobs["integration-tests"])
+        self.assertIn('include: ${{ fromJSON(needs.changes.outputs.integration_matrix) }}', jobs["integration-tests"])
+        self.assertIn('SUITE: ${{ matrix.suite }}', jobs["integration-tests"])
+        self.assertIn('integration_matrix: ${{ steps.select.outputs.integration_matrix }}', jobs["changes"])
+        self.assertNotIn('continue-on-error', jobs["integration-tests"])
         action = (ROOT / ".github/actions/go-cache/action.yml").read_text()
         for fragment in ("cache: false", "ci.py cache", "uses: actions/cache@v4", "go env GOMODCACHE",
                          "go env GOCACHE", "GOLANGCI_LINT_CACHE=", "key: ${{ steps.identity.outputs.key }}",

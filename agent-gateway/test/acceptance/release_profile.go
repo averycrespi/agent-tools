@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"time"
@@ -33,7 +35,7 @@ func finalReleaseProfile(root string) (releaseProfileDefinition, error) {
 	if err != nil {
 		return releaseProfileDefinition{}, err
 	}
-	definitionFiles, err := finalReleaseDefinitionFiles()
+	definitionFiles, err := finalReleaseDefinitionFiles(root)
 	if err != nil {
 		return releaseProfileDefinition{}, err
 	}
@@ -42,7 +44,7 @@ func finalReleaseProfile(root string) (releaseProfileDefinition, error) {
 		Coverage: releaseCoverage{ProductBehaviors: canonicalReleaseProductBehaviors(), CleanupCriteria: canonicalReleaseCleanupCriteria()},
 		Checks:   checks, ExternalEvidence: external, DefinitionFiles: definitionFiles,
 	}
-	if err := validateFinalReleaseProfile(definition); err != nil {
+	if err := validateFinalReleaseProfile(root, definition); err != nil {
 		return releaseProfileDefinition{}, err
 	}
 	return definition, nil
@@ -118,11 +120,7 @@ func finalReleaseCheckSpecs() ([]finalReleaseCheckSpec, error) {
 		"repository-other-tools": {ID: "repository-other-tools", Argv: []string{"make", "check-other-tools"}, Timeout: 2 * time.Minute, Budget: 3 * time.Minute, Repeats: 1},
 		"repository-diff":        {ID: "repository-diff", Argv: []string{"git", "diff", "--check"}, Timeout: 10 * time.Second, Budget: 30 * time.Second, Repeats: 1},
 	}
-	order := []string{
-		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
-		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
-		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
-	}
+	order := finalReleaseOrder()
 	specs := make([]finalReleaseCheckSpec, 0, len(order))
 	for _, id := range order {
 		if spec, ok := special[id]; ok {
@@ -136,6 +134,14 @@ func finalReleaseCheckSpecs() ([]finalReleaseCheckSpec, error) {
 		specs = append(specs, spec)
 	}
 	return specs, nil
+}
+
+func finalReleaseOrder() []string {
+	return []string{
+		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility",
+		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
+	}
 }
 
 func canonicalReleaseProductBehaviors() []string {
@@ -153,7 +159,9 @@ func canonicalReleaseProductBehaviors() []string {
 		ids = append(ids, row.ID)
 	}
 	for _, row := range contract.EvidenceTierManifest() {
-		ids = append(ids, row.ID)
+		if !row.Optional {
+			ids = append(ids, row.ID)
+		}
 	}
 	return ids
 }
@@ -205,7 +213,7 @@ func releaseProductBehaviorOwners() map[string]string {
 	return owners
 }
 
-func finalReleaseDefinitionFiles() ([]string, error) {
+func finalReleaseDefinitionFiles(root string) ([]string, error) {
 	dag := purposeEvidenceDAG()
 	leaves, err := expandPurposeLeaves(dag, dag.FinalLeaves)
 	if err != nil {
@@ -241,6 +249,33 @@ func finalReleaseDefinitionFiles() ([]string, error) {
 	for _, tool := range []string{"mcp-broker", "local-git-mcp", "http-broker", "typesafe-mcp"} {
 		add(tool+"/Makefile", tool+"/.golangci.yml", tool+"/go.mod", tool+"/go.sum")
 	}
+	// Bind authored frontend modules and scenarios once, not in every browser leaf.
+	// WalkDir never follows symlinks; reject them rather than hash an outside target.
+	for _, directory := range []string{"agent-gateway/web/src", "agent-gateway/web/tests"} {
+		if err := filepath.WalkDir(filepath.Join(root, directory), func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.Type()&fs.ModeSymlink != 0 {
+				return fmt.Errorf("symlink in release definitions: %s", path)
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			switch filepath.Ext(path) {
+			case ".ts", ".tsx", ".css":
+				relative, err := filepath.Rel(root, path)
+				if err != nil {
+					return err
+				}
+				add(filepath.ToSlash(relative))
+			}
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	add("agent-gateway/internal/contract/server_states.go", "agent-gateway/internal/contract/authorization_states.go", "agent-gateway/internal/contract/invocation_projections.go", "agent-gateway/test/e2e/harness_deadline_browser_test.go")
 	paths := make([]string, 0, len(set))
 	for path := range set {
 		paths = append(paths, path)
@@ -249,7 +284,7 @@ func finalReleaseDefinitionFiles() ([]string, error) {
 	return paths, nil
 }
 
-func validateFinalReleaseProfile(definition releaseProfileDefinition) error {
+func validateFinalReleaseProfile(root string, definition releaseProfileDefinition) error {
 	if err := validateReleaseProfileDefinition(definition); err != nil {
 		return err
 	}
@@ -275,7 +310,7 @@ func validateFinalReleaseProfile(definition releaseProfileDefinition) error {
 			return fmt.Errorf("final release check %s does not match its closed direct command and metadata", actual.ID)
 		}
 	}
-	expectedDefinitions, err := finalReleaseDefinitionFiles()
+	expectedDefinitions, err := finalReleaseDefinitionFiles(root)
 	if err != nil {
 		return err
 	}

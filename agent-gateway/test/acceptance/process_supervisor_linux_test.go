@@ -28,7 +28,7 @@ func TestReleaseExecutorCancellationReapsNestedProcessGroup(t *testing.T) {
 	result := make(chan error, 1)
 	go func() {
 		_, runErr := (OSExecutor{}).Run(ctx, t.TempDir(), Command{
-			Name: os.Args[0], Arguments: []string{"-test.run=^TestReleaseExecutorNestedFixture$"},
+			Name: os.Args[0], Arguments: []string{"-test.run=^TestReleaseExecutorNestedFixture$"}, Timeout: time.Minute,
 		})
 		result <- runErr
 	}()

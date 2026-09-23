@@ -146,7 +146,7 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 				}
 				if len(result.Result) == 0 || len(result.Error) != 0 {
 					status := built.traffic.Status(ctx)
-					return fmt.Errorf("%s did not succeed: %s (authority_expired=%d traffic_ready=%t traffic_faulted=%t traffic_pressure=%t quota_refusals=%d context_done=%t)", method, result.Error, observed.authorityExpired.Load(), status.Ready, status.Faulted, status.Pressure, status.QuotaRefusals, ctx.Err() != nil)
+					return fmt.Errorf("%s did not succeed: %s (authority_observed=%t authority_expired=%d traffic_ready=%t traffic_faulted=%t traffic_pressure=%t quota_refusals=%d context_done=%t)", method, result.Error, observed.DebugEnabled(), observed.authorityExpired.Load(), status.Ready, status.Faulted, status.Pressure, status.QuotaRefusals, ctx.Err() != nil)
 				}
 				return nil
 			}

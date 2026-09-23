@@ -52,6 +52,17 @@ func TestReleaseRunnerExecutesClosedOrderAndProducesValidReport(t *testing.T) {
 	require.NoError(t, validateReleaseReport(report, definition))
 }
 
+func TestReleaseRunnerWithoutExternalRequirements(t *testing.T) {
+	root, definition, external := releaseRunnerFixture(t, func(definition *releaseProfileDefinition) {
+		definition.ExternalEvidence = []releaseExternalEvidenceDefinition{}
+	})
+	report, err := runReleaseProfile(t.Context(), root, &releaseFakeExecutor{}, definition, external, passedReleaseCleanup)
+	require.NoError(t, err)
+	assert.Equal(t, ResultPassed, report.Result)
+	assert.Empty(t, report.ExternalEvidence)
+	require.NoError(t, validateReleaseReport(report, definition))
+}
+
 func TestReleaseRunnerFailsFastAndRecordsTimeoutTermination(t *testing.T) {
 	root, definition, external := releaseRunnerFixture(t)
 	executor := &releaseFakeExecutor{failAt: 1, failure: &commandExecutionError{cause: context.DeadlineExceeded, termination: "kill", cleanup: "passed"}}
@@ -108,9 +119,12 @@ func TestReleaseRunnerCleanupFailureBlocksPass(t *testing.T) {
 	assert.Equal(t, "failed", report.Cleanup.Status)
 }
 
-func releaseRunnerFixture(t *testing.T) (string, releaseProfileDefinition, []releaseExternalEvidenceReference) {
+func releaseRunnerFixture(t *testing.T, configure ...func(*releaseProfileDefinition)) (string, releaseProfileDefinition, []releaseExternalEvidenceReference) {
 	t.Helper()
 	root, definition := releaseReportTestRepository(t)
+	for _, apply := range configure {
+		apply(&definition)
+	}
 	exclude := filepath.Join(root, ".git", "info", "exclude")
 	require.NoError(t, os.WriteFile(exclude, []byte("/.design/\n"), 0o600))
 	profileHash, _, manifestHash, err := releaseDefinitionHashes(root, definition)

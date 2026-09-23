@@ -46,22 +46,17 @@ func suiteCommandArgv(id string) []string {
 }
 
 func suiteTimeout(id string) time.Duration {
-	switch id {
-	case "test-security", "test-browser-privacy", "frontend-static-tests":
+	if id == "frontend-static-tests" {
 		return 30 * time.Second
-	case "test-browser-visual":
-		return time.Minute
-	case "test-browser-accessibility", "test-browser-cross":
-		return 45 * time.Second
-	case "test-browser-workflows":
-		return 5 * time.Minute
-	case "test-stress", "test-frontend-development-browser":
-		return 2 * time.Minute
-	case "test-keyring-native":
-		return 10 * time.Second
-	default:
-		return 5 * time.Minute
 	}
+	return purposeEvidenceDAG().Leaves[id].Timeout
+}
+
+func suiteCommandBudget(id string) time.Duration {
+	if id == "frontend-static-tests" {
+		return purposeEvidenceDAG().Leaves["frontend-verify-supply-chain"].Budget
+	}
+	return purposeEvidenceDAG().Leaves[id].Budget
 }
 
 func suiteOwner(path string, tags map[string]bool) (string, []string, error) {
@@ -261,6 +256,33 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 	if repeats < 1 || (id != "test-stress" && repeats != 1) {
 		return nil, fmt.Errorf("only stress permits repeated execution")
 	}
+	if id == "test-integration-1" || id == "test-integration-2" {
+		commands, err := PlanSuite(moduleRoot, "test-integration", inventory, repeats)
+		if err != nil {
+			return nil, err
+		}
+		var sharded []SuiteGoCommand
+		for _, command := range commands {
+			var tests []SuiteTest
+			for _, test := range command.Tests {
+				if integrationShard(test.Package) == id {
+					tests = append(tests, test)
+				}
+			}
+			if len(tests) == 0 {
+				continue
+			}
+			planned := suiteGoCommand("test-integration", strings.Join(tests[0].Tags, ","), tests, repeats)
+			if err := validateSuiteCommand(moduleRoot, inventory, planned); err != nil {
+				return nil, err
+			}
+			sharded = append(sharded, planned)
+		}
+		if len(sharded) == 0 {
+			return nil, fmt.Errorf("empty integration shard %s", id)
+		}
+		return sharded, nil
+	}
 	if id == "test-browser" {
 		leaves, err := expandPurposeLeaves(purposeEvidenceDAG(), []string{id})
 		if err != nil {
@@ -316,6 +338,18 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 		}
 	}
 	return commands, nil
+}
+
+// The first shard holds six heavy owners (~half of the measured macOS package time).
+// All other and newly discovered packages go to shard two: this is a partition,
+// never a second executable inventory. Packages remain indivisible fixture owners.
+func integrationShard(pkg string) string {
+	switch pkg {
+	case "./internal/invocation", "./internal/storage", "./internal/authorization", "./internal/composition", "./internal/keyring", "./internal/admin":
+		return "test-integration-1"
+	default:
+		return "test-integration-2"
+	}
 }
 
 func suiteGoCommand(id, tags string, tests []SuiteTest, repeats int) SuiteGoCommand {
@@ -441,7 +475,7 @@ func RunSuite(ctx context.Context, root, id string, repeats int, executor Execut
 			return err
 		}
 		// Go bounds each test binary; the executor separately bounds compilation and the whole package group.
-		_, err := executor.Run(ctx, moduleRoot, Command{CheckName: id, Name: command.Argv[0], Arguments: command.Argv[1:], Timeout: suiteTimeout(id)})
+		_, err := executor.Run(ctx, moduleRoot, Command{CheckName: id, Name: command.Argv[0], Arguments: command.Argv[1:], Timeout: suiteCommandBudget(id)})
 		if err != nil {
 			return err
 		}
