@@ -299,31 +299,6 @@ func (manager *Manager) WorkStatus() contract.LimitStatus {
 	return contract.LimitStatus{InUse: inUse, Limit: 1, Saturated: inUse == 1}
 }
 
-func (manager *Manager) RecordStatus() contract.LimitStatus {
-	items, err := manager.List(context.Background())
-	inUse := int64(len(items))
-	if err != nil {
-		inUse = 0
-	}
-	limit, _ := contract.FixedLimitByName("backup_records")
-	return contract.LimitStatus{InUse: inUse, Limit: limit.Maximum, Saturated: inUse >= limit.Maximum}
-}
-
-func (manager *Manager) IdempotencyStatus() contract.LimitStatus {
-	_, metadata, err := manager.load(context.Background())
-	var inUse int64
-	if err == nil {
-		for _, item := range metadata {
-			createdAt, parseErr := time.Parse(time.RFC3339Nano, item.CreatedAt)
-			if parseErr == nil && manager.clock.Now().Sub(createdAt) <= contract.IdempotencyRetention {
-				inUse++
-			}
-		}
-	}
-	limit, _ := contract.FixedLimitByName("idempotency_records")
-	return contract.LimitStatus{InUse: inUse, Limit: limit.Maximum, Saturated: inUse >= limit.Maximum}
-}
-
 func (manager *Manager) Status() contract.BackupStatus {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
