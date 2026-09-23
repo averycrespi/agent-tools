@@ -1,4 +1,5 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,6 +103,114 @@ export async function runHTTPGrants(
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
+  const createdDefaults: Record<string, string> = {};
+  let creations = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url() === `${baseURL}/api/v2/principals`
+    )
+      creations++;
+  });
+  for (const policy of ["block", "allow"]) {
+    await page.goto(`${baseURL}/#/agents/new`);
+    const choice = page.getByLabel("HTTP default", { exact: true });
+    await expect(choice).toHaveValue("block");
+    await expect(choice.locator("option")).toHaveText([
+      "Block requests",
+      "Allow requests",
+    ]);
+    await page
+      .getByLabel("Display name", { exact: true })
+      .fill(`Created ${policy}`);
+    await choice.selectOption(policy);
+    await captureState(`principal-create-${policy}`);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page
+      .getByRole("button", { name: "Review and create", exact: true })
+      .click();
+    const review = page.getByRole("dialog");
+    await expect(review).toContainText(
+      policy === "allow" ? "Allow requests" : "Block requests",
+    );
+    await captureState(`principal-create-${policy}-review`);
+    const before = creations;
+    await review.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(creations).toBe(before);
+    await expect(choice).toHaveValue(policy);
+    await page
+      .getByRole("button", { name: "Review and create", exact: true })
+      .click();
+    const response = page.waitForResponse(
+      (r) =>
+        r.url() === `${baseURL}/api/v2/principals` &&
+        r.request().method() === "POST",
+    );
+    await review
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    const committed = await response;
+    expect(committed.status()).toBe(201);
+    const value = (await committed.json()).principal;
+    createdDefaults[policy] = value.id;
+    expect(value.http_default).toBe(policy);
+    expect(creations).toBe(before + 1);
+    await expect(page).toHaveURL(`${baseURL}/#/agents/${value.id}`);
+    const details = page.getByRole("region", {
+      name: "Agent details",
+      exact: true,
+    });
+    await expect(details).toContainText(
+      policy === "allow" ? "Allow requests" : "Block requests",
+    );
+    await page.reload();
+    await expect(details).toContainText(
+      policy === "allow" ? "Allow requests" : "Block requests",
+    );
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await captureState(`principal-created-${policy}`);
+  }
+  await page.goto(`${baseURL}/#/agents/new`);
+  await page
+    .getByLabel("Display name", { exact: true })
+    .fill("Uncertain allow creation");
+  await page.getByLabel("HTTP default", { exact: true }).selectOption("allow");
+  let uncertainID = "";
+  await page.route(`${baseURL}/api/v2/principals`, async (route) => {
+    const response = await route.fetch();
+    expect(response.status()).toBe(201);
+    uncertainID = (await response.json()).principal.id;
+    // The server committed; an unusable acknowledgement must never replay POST.
+    await route.fulfill({ response, body: "{}" });
+  });
+  const beforeUncertain = creations;
+  await page
+    .getByRole("button", { name: "Review and create", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create agent", exact: true })
+    .click();
+  await expect(
+    page.getByText("Agent outcome is unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Review and create", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
+    "allow",
+  );
+  expect(creations).toBe(beforeUncertain + 1);
+  const persisted = await (
+    await api(`/api/v2/principals/${uncertainID}`, undefined, "GET")
+  ).json();
+  expect(persisted.http_default).toBe("allow");
+  await captureState("principal-create-uncertain");
+  await page.unroute(`${baseURL}/api/v2/principals`);
+  await page.reload();
+  await waitForLifecycle(page, "authenticated");
+  expect(creations).toBe(beforeUncertain + 1);
+  await page.goto(`${baseURL}/#/http/grants`);
   await page.locator('#primary-navigation a[href="#/http/grants"]').click();
   await expect(page.getByText("No HTTP grants", { exact: true })).toBeVisible();
   const toolbar = page.locator(".collection-toolbar").filter({
@@ -232,6 +341,24 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("heading", { name: "Test access", level: 1, exact: true }),
   ).toBeVisible();
+  for (const policy of ["block", "allow"]) {
+    await page
+      .getByLabel("Agent", { exact: true })
+      .selectOption(createdDefaults[policy]!);
+    await page
+      .getByLabel("URL", { exact: true })
+      .fill("https://public.example.com/");
+    await page
+      .getByRole("button", { name: "Test access", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", {
+        name: `Agent default: ${policy === "allow" ? "Allow requests" : "Block requests"}`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await captureState(`preview-default-${policy}`);
+  }
   await page.getByLabel("Agent", { exact: true }).selectOption(principal.id);
   await page
     .getByLabel("URL", { exact: true })
@@ -248,7 +375,7 @@ export async function runHTTPGrants(
   ).toBeVisible();
   await expect(
     page.getByText(
-      `Policy snapshot ${firstPreview.decision.policy_revision} · HTTP default: ${firstPreview.default} (revision ${firstPreview.decision.default_revision}). Test again after policy changes.`,
+      `Policy snapshot ${firstPreview.decision.policy_revision} · HTTP default: ${firstPreview.default === "allow" ? "Allow requests" : "Block requests"} (revision ${firstPreview.decision.default_revision}). Test again after policy changes.`,
       { exact: true },
     ),
   ).toBeVisible();
@@ -267,7 +394,14 @@ export async function runHTTPGrants(
       `revision ${firstPreview.decision[key].revision}`,
     );
   }
-  for (const fault of ["principal", "transport", "reason", "references"]) {
+  for (const fault of [
+    "principal",
+    "transport",
+    "reason",
+    "references",
+    "default",
+    "default-array",
+  ]) {
     const previewPath = `${baseURL}/api/v2/http/access-preview`;
     await page.route(previewPath, async (route) => {
       const response = await route.fetch();
@@ -277,6 +411,8 @@ export async function runHTTPGrants(
       if (fault === "transport") body.decision.transport = "tunnel";
       if (fault === "reason") body.decision.allowed = false;
       if (fault === "references") delete body.decision.credential;
+      if (fault === "default") body.default = "unknown";
+      if (fault === "default-array") body.default = ["allow"];
       await route.fulfill({ response, body: JSON.stringify(body) });
     });
     await page
@@ -368,7 +504,7 @@ export async function runHTTPGrants(
   await editor.getByRole("button", { name: "Save agent", exact: true }).click();
   const confirm = page.getByRole("dialog");
   await expect(confirm).toContainText("HTTP Policy Agent renamed");
-  await expect(confirm).toContainText("allow");
+  await expect(confirm).toContainText("Allow requests");
   await captureState("principal-combined-confirm");
   await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(principalWrites).toBe(0);
@@ -390,6 +526,9 @@ export async function runHTTPGrants(
     await api(`/api/v2/principals/${principal.id}`, undefined, "GET")
   ).json();
   expect(saved.http_default).toBe("allow");
+  await expect(
+    page.getByRole("region", { name: "Agent details", exact: true }),
+  ).toContainText("Allow requests");
   expect(saved.display_name).toBe("HTTP Policy Agent renamed");
   await captureState("principal-default");
   await page.getByLabel("HTTP default", { exact: true }).selectOption("block");
@@ -450,6 +589,9 @@ export async function runHTTPGrants(
   ).json();
   expect(afterConflict.display_name).toBe("Concurrent rename");
   expect(afterConflict.http_default).toBe("block");
+  await expect(
+    page.getByRole("region", { name: "Agent details", exact: true }),
+  ).toContainText("Block requests");
   expect(principalBodies.at(-1)).toEqual({ http_default: "block" });
   expect(defaultWrites).toBe(0);
   for (const fault of ["missing-etag", "wrong-etag", "wrong-principal"]) {

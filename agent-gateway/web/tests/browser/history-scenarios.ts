@@ -222,7 +222,7 @@ export async function assertAuthoritativeHistory(
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
     await expect(
       page.getByTestId("audit-row").locator('[data-label="Target"] a'),
-    ).toHaveAttribute("href", `#/principals/${principalID}`);
+    ).toHaveAttribute("href", `#/agents/${principalID}`);
     await page
       .getByTestId("audit-row")
       .locator('[data-label="Event"] .table-primary a')
@@ -370,7 +370,7 @@ export async function assertAuthoritativeHistory(
       await expect(page.getByTestId("invocation-detail")).toBeVisible();
       await expect(principalLink).toHaveAttribute(
         "href",
-        `#/principals/${principalID}`,
+        `#/agents/${principalID}`,
       );
       await page.reload();
       await waitForLifecycle(page, "authenticated");

@@ -12,6 +12,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIntegrationPrincipalCreationHTTPDefault(t *testing.T) {
+	h, _ := newHTTPCredentialIntegrationHandler(t)
+	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
+	for _, policy := range []string{"block", "allow"} {
+		created := perform(h, http.MethodPost, "/api/v2/principals", `{"display_name":"Agent","visibility":"requestable","http_default":"`+policy+`"}`, headers)
+		require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+		var result contract.PrincipalCreation
+		require.NoError(t, json.Unmarshal(created.Body.Bytes(), &result))
+		require.EqualValues(t, policy, result.Principal.HTTPDefault)
+		require.Equal(t, "1", result.Principal.Revision)
+		read := perform(h, http.MethodGet, "/api/v2/principals/"+result.Principal.ID, "", headers)
+		var actual contract.Principal
+		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &actual))
+		require.Equal(t, result.Principal, actual)
+	}
+	for _, value := range []string{`null`, `true`, `1`, `""`, `"unknown"`} {
+		failed := perform(h, http.MethodPost, "/api/v2/principals", `{"display_name":"Invalid","visibility":"requestable","http_default":`+value+`}`, headers)
+		require.Equal(t, http.StatusBadRequest, failed.Code, failed.Body.String())
+	}
+}
+
 func TestIntegrationPrincipalSettingsStrictAtomicContract(t *testing.T) {
 	h, _ := newHTTPCredentialIntegrationHandler(t)
 	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}

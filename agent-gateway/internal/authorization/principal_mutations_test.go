@@ -81,6 +81,7 @@ func TestCreatePrincipalRollsBackPrincipalGrantAndRevisionTogether(t *testing.T)
 		trigger string
 	}{
 		{name: "required audit failure", trigger: `CREATE TRIGGER fail_required_audit BEFORE INSERT ON control_audit_events BEGIN SELECT RAISE(ABORT, 'injected'); END`},
+		{name: "initial HTTP default failure", trigger: `CREATE TRIGGER fail_http_default BEFORE UPDATE ON http_defaults BEGIN SELECT RAISE(ABORT, 'injected'); END`},
 		{name: "default grant failure", trigger: `CREATE TRIGGER fail_default_grant BEFORE INSERT ON grants BEGIN SELECT RAISE(ABORT, 'injected'); END`},
 		{name: "revision failure after both inserts", trigger: `CREATE TRIGGER fail_revision BEFORE UPDATE ON authorization_meta BEGIN SELECT RAISE(ABORT, 'injected'); END`},
 	} {
@@ -91,12 +92,21 @@ func TestCreatePrincipalRollsBackPrincipalGrantAndRevisionTogether(t *testing.T)
 				return err
 			}))
 
-			_, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Agent", Visibility: contract.VisibilityRequestable})
+			policy := contract.HTTPDefaultAllow
+			_, err := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Agent", Visibility: contract.VisibilityRequestable, HTTPDefault: &policy})
 			assert.ErrorIs(t, err, ErrStorageUnavailable)
 			principals, grants, statusErr := repository.Occupancy(context.Background())
 			require.NoError(t, statusErr)
 			assert.Zero(t, principals.InUse)
 			assert.Zero(t, grants.InUse)
+			require.NoError(t, store.View(context.Background(), func(transaction *sql.Tx) error {
+				var defaults int
+				if err := transaction.QueryRow(`SELECT count(*) FROM http_defaults`).Scan(&defaults); err != nil {
+					return err
+				}
+				assert.Zero(t, defaults)
+				return nil
+			}))
 			revision, revisionErr := repository.AuthorizationRevision(context.Background())
 			require.NoError(t, revisionErr)
 			assert.Equal(t, "0", revision)

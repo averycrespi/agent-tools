@@ -341,6 +341,22 @@ test("policy-only preview accepts every actual selection outcome with revision e
     assert.equal(decodePreview(p, principal, connect), p, name);
   }
 });
+test("preview rejects malformed defaults instead of coercing them", () => {
+  for (const value of [
+    null,
+    true,
+    1,
+    "unknown",
+    ["allow"],
+    ["block"],
+    { toString: () => "allow" },
+  ]) {
+    assert.throws(() =>
+      decodePreview({ ...preview(), default: value }, principal, false),
+    );
+  }
+});
+
 test("preview rejects wrong request identity and incoherent or incomplete evidence", () => {
   const edits: Array<(p: ReturnType<typeof preview>) => void> = [
     (p) => {

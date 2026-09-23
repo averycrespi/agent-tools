@@ -449,7 +449,7 @@ export function HTTPTraffic({
                 render: (row) => (
                   <TableIdentity
                     primary={
-                      <a href={`#/principals/${row.principal_id}`}>
+                      <a href={`#/agents/${row.principal_id}`}>
                         {names.get(row.principal_id) ?? "Agent"}
                       </a>
                     }

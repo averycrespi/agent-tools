@@ -315,6 +315,10 @@ async function decodeMutationCreation(
   return decodeCreation((await response.json()) as unknown);
 }
 
+export function httpDefaultText(value: "allow" | "block"): string {
+  return value === "allow" ? "Allow requests" : "Block requests";
+}
+
 function visibilityText(value: PrincipalVisibility): string {
   return value === "requestable"
     ? "Requestable"
@@ -417,7 +421,7 @@ function PrincipalEditor({
         notify(
           "Agent created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
         );
-        navigate(`#/principals/${saved.id}`, true);
+        navigate(`#/agents/${saved.id}`, true);
       } else {
         setNotice("Agent settings saved.");
         onRefresh();
@@ -442,7 +446,11 @@ function PrincipalEditor({
         spec: {
           route: "/api/v2/principals",
           method: "POST",
-          body: JSON.stringify({ display_name: displayName, visibility }),
+          body: JSON.stringify({
+            display_name: displayName,
+            visibility,
+            http_default: httpDefault,
+          }),
           precondition: null,
           requiresPrecondition: false,
           idempotency: "none",
@@ -508,7 +516,7 @@ function PrincipalEditor({
         <div>
           <span class="panel-code">{create ? "AGENT NEW" : "AGENT EDIT"}</span>
           <h2 id="principal-editor-title">
-            {create ? "Create agent" : "Edit agent"}
+            {create ? "Agent configuration" : "Edit agent"}
           </h2>
         </div>
       </div>
@@ -585,27 +593,25 @@ function PrincipalEditor({
             </select>
           )}
         </FormField>
-        {!create && (
-          <FormField
-            id="principal-http-default"
-            label="HTTP default"
-            hint="Default allow supplies no credential, tunnel permission or local/private access."
-          >
-            {(attributes) => (
-              <select
-                {...attributes}
-                value={httpDefault}
-                disabled={disabled}
-                onChange={(event) =>
-                  setHTTPDefault(event.currentTarget.value as "allow" | "block")
-                }
-              >
-                <option value="block">Block</option>
-                <option value="allow">Allow requests</option>
-              </select>
-            )}
-          </FormField>
-        )}
+        <FormField
+          id="principal-http-default"
+          label="HTTP default"
+          hint="Default allow supplies no credential, tunnel permission or local/private access."
+        >
+          {(attributes) => (
+            <select
+              {...attributes}
+              value={httpDefault}
+              disabled={disabled}
+              onChange={(event) =>
+                setHTTPDefault(event.currentTarget.value as "allow" | "block")
+              }
+            >
+              <option value="block">Block requests</option>
+              <option value="allow">Allow requests</option>
+            </select>
+          )}
+        </FormField>
       </form>
       {(stale || mutation.requiresRefresh || mutation.state === "uncertain") &&
         detail !== undefined && (
@@ -614,7 +620,7 @@ function PrincipalEditor({
               Your draft is preserved. Current values:{" "}
               {detail.principal.displayName}; {detail.principal.state};{" "}
               {visibilityText(detail.principal.visibility)}; HTTP default{" "}
-              {detail.principal.httpDefault}.
+              {httpDefaultText(detail.principal.httpDefault)}.
             </p>
             <div class="form-actions">
               <button type="button" onClick={onRefresh}>
@@ -739,6 +745,10 @@ function PrincipalEditor({
                   <dd>{visibilityText(visibility)}</dd>
                 </div>
                 <div>
+                  <dt>HTTP default</dt>
+                  <dd>{httpDefaultText(httpDefault)}</dd>
+                </div>
+                <div>
                   <dt>Initial MCP self-service access</dt>
                   <dd>
                     Default Gateway access — an ordinary grant for Gateway's six
@@ -772,7 +782,7 @@ function PrincipalEditor({
                 {httpDefault !== initialDraft.current.httpDefault && (
                   <div>
                     <dt>HTTP default</dt>
-                    <dd>{httpDefault}</dd>
+                    <dd>{httpDefaultText(httpDefault)}</dd>
                   </div>
                 )}
               </dl>
@@ -1142,7 +1152,7 @@ export function Principals({
           </StateNotice>
         )}
         <nav class="detail-navigation" aria-label="Agent navigation">
-          <a href="#/principals">Back to agents</a>
+          <a href="#/agents">Back to agents</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
@@ -1174,6 +1184,10 @@ export function Principals({
             <div>
               <dt>MCP discovery visibility</dt>
               <dd>{visibilityText(principal.visibility)}</dd>
+            </div>
+            <div>
+              <dt>HTTP default</dt>
+              <dd>{httpDefaultText(principal.httpDefault)}</dd>
             </div>
             <div>
               <dt>Agent revision</dt>
@@ -1249,7 +1263,7 @@ function PrincipalCollection({
       <div class="collection-toolbar">
         <a
           class="button-link create-action"
-          href="#/principals/new"
+          href="#/agents/new"
           data-testid="principal-create-link"
         >
           Create agent
@@ -1312,7 +1326,7 @@ function PrincipalCollection({
               render: (principal) => (
                 <TableIdentity
                   primary={
-                    <a href={`#/principals/${principal.id}`}>
+                    <a href={`#/agents/${principal.id}`}>
                       {principal.displayName}
                     </a>
                   }

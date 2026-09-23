@@ -11,7 +11,7 @@ const other = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const collections = [
   "mcp/servers",
   "mcp/tools",
-  "principals",
+  "agents",
   "mcp/grants",
   "mcp/access-requests",
   "mcp/invocations",
@@ -22,7 +22,7 @@ const collections = [
 ];
 const details = [
   "mcp/servers",
-  "principals",
+  "agents",
   "mcp/grants",
   "mcp/access-requests",
   "mcp/invocations",
@@ -30,7 +30,7 @@ const details = [
 ].map((path) => `${path}/${id}`);
 const creates = [
   "mcp/servers/new",
-  "principals/new",
+  "agents/new",
   "mcp/grants/new",
   "system/backups/new",
   "system/admin-credentials/new",
@@ -39,6 +39,38 @@ const owned = ["operations", "auth-flows", "descriptors"].map(
   (kind) => `mcp/servers/${id}/${kind}/${other}`,
 );
 const routes = [...collections, ...details, ...creates, ...owned];
+
+test("legacy agent fragments canonicalize only valid locations without loops", () => {
+  for (const suffix of [
+    "",
+    "/new",
+    `/${id}`,
+    "?filter_name=Caf%C3%A9&sort=name&direction=descending",
+  ]) {
+    const resolved = resolveFragment(`#/principals${suffix}`, true);
+    assert.equal(resolved.invalid, false);
+    assert.ok(resolved.canonicalFragment.startsWith("#/agents"));
+    assert.deepEqual(
+      resolveFragment(resolved.canonicalFragment, true),
+      resolved,
+    );
+    assert.deepEqual(
+      resolved.location.query,
+      parseFragment(`#/agents${suffix}`)?.query,
+    );
+  }
+  for (const path of [
+    "principals-extra",
+    "principals/unknown",
+    "principals/new?filter_name=x",
+    "principals?secret=x",
+    "principals//new",
+    "principals/%6Eew",
+    "unrelated/principals",
+  ]) {
+    assert.equal(resolveFragment(`#/${path}`, true).invalid, true, path);
+  }
+});
 
 test("every canonical collection, detail, create and server-owned route round trips", () => {
   for (const path of routes) {
@@ -143,7 +175,7 @@ test("destination queries have deterministic ordering and preserve valid context
     ],
     [
       "principals?filter_visibility=all&sort=name",
-      "principals?sort=name&filter_visibility=all",
+      "agents?sort=name&filter_visibility=all",
     ],
     [
       "mcp/grants?filter_effect=deny&sort=target",

@@ -1,4 +1,5 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3351,9 +3352,8 @@ export async function runServerCatalogReads(
   if (body.includes("Authorize server"))
     fail("non-OAuth server offered OAuth authorization");
   const serverTitle = page.locator('[data-testid="server-context"] h2');
-  await expect(serverTitle).toHaveText(
-    `MCP Server: ${activeServer.display_name}`,
-  );
+  await expect(serverTitle).toHaveText(activeServer.display_name);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   const titleArtifacts = await mkdtemp(join(tmpdir(), "gateway-mcp-titles-"));
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -3405,9 +3405,7 @@ export async function runServerCatalogReads(
     )
     .click();
   await page.locator('[data-testid="descriptor-detail"]').waitFor();
-  await expect(serverTitle).toHaveText(
-    `MCP Server: ${activeServer.display_name}`,
-  );
+  await expect(serverTitle).toHaveText(activeServer.display_name);
   await expect(page.locator("#descriptor-detail-title")).toHaveText(
     "MCP Tool: server.retired-tool",
   );

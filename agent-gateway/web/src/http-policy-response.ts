@@ -300,7 +300,7 @@ export function decodePreview(
   value: unknown,
   principalID: string,
   connect: boolean,
-): Record<string, unknown> {
+): Record<string, unknown> & { default: "allow" | "block" } {
   const r = exact(value, [
     "decision",
     "default",
@@ -316,11 +316,11 @@ export function decodePreview(
     r.tls_verified !== false ||
     r.material_verified !== false ||
     r.admission_authority !== false ||
-    !["allow", "block"].includes(String(r.default))
+    (r.default !== "allow" && r.default !== "block")
   )
     throw new Error("Invalid preview.");
   validateHTTPDecision(r.decision, principalID, connect, r.default);
-  return r;
+  return r as Record<string, unknown> & { default: "allow" | "block" };
 }
 
 export function validateHTTPDecision(

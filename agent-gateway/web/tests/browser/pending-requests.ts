@@ -40,7 +40,7 @@ export async function exercisePendingRequests(page: Page): Promise<void> {
       location.hash = "#/mcp/access-requests?queue=all&filter_state=rejected";
     });
     await expect(link).toHaveAccessibleName("Requests, 125 pending");
-    await page.locator('#primary-navigation a[href="#/principals"]').click();
+    await page.locator('#primary-navigation a[href="#/agents"]').click();
     total = 124;
     await page.getByTestId("manual-refresh").click();
     await expect(link).toHaveAccessibleName("Requests, 124 pending");
