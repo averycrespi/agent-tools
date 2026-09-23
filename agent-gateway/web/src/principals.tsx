@@ -15,6 +15,7 @@ import {
   ConfirmationDialog,
   FormField,
   StateNotice,
+  problemTitle,
   StatusLabel,
 } from "./primitives";
 import type { ProtectedContext, SessionClient } from "./session";
@@ -186,7 +187,7 @@ async function readJSON(
       response.headers.get("Content-Type") !== "application/json" &&
       response.headers.get("Content-Type") !== "application/problem+json"
     )
-      throw new Error("Principal data is unavailable.");
+      throw new Error("Agent data is unavailable.");
     return { value: (await response.json()) as unknown, response };
   });
 }
@@ -206,7 +207,7 @@ export async function readPrincipals(
       restarted = true;
       continue;
     }
-    if (!result.response.ok) throw new Error("Principal data is unavailable.");
+    if (!result.response.ok) throw new Error("Agent data is unavailable.");
     const page = record(result.value, [
       "items",
       "next_cursor",
@@ -274,11 +275,11 @@ async function readPrincipal(
 ): Promise<PrincipalDetail | undefined> {
   const result = await readJSON(session, `/api/v2/principals/${id}`);
   if (result === undefined) return undefined;
-  if (!result.response.ok) throw new Error("Principal data is unavailable.");
+  if (!result.response.ok) throw new Error("Agent data is unavailable.");
   const principal = decodePrincipal(result.value);
   const etag = result.response.headers.get("ETag");
   if (principal.id !== id || etag !== `"principal-${id}-${principal.revision}"`)
-    throw new Error("The current principal revision is unavailable.");
+    throw new Error("The current agent revision is unavailable.");
   return { principal, etag };
 }
 async function decodeMutationPrincipal(response: Response): Promise<Principal> {
@@ -289,7 +290,7 @@ async function decodeMutationPrincipal(response: Response): Promise<Principal> {
     response.headers.get("ETag") !==
     `"principal-${principal.id}-${principal.revision}"`
   )
-    throw new Error("invalid principal revision");
+    throw new Error("invalid agent revision");
   return principal;
 }
 async function decodeCredentialCreation(
@@ -414,11 +415,11 @@ function PrincipalEditor({
       setExpected(`"principal-${saved.id}-${saved.revision}"`);
       if (create) {
         notify(
-          "Principal created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
+          "Agent created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
         );
         navigate(`#/principals/${saved.id}`, true);
       } else {
-        setNotice("Principal settings saved.");
+        setNotice("Agent settings saved.");
         onRefresh();
       }
     }
@@ -464,7 +465,7 @@ function PrincipalEditor({
     if (visibility !== baseline.visibility) patch.visibility = visibility;
     if (httpDefault !== baseline.httpDefault) patch.http_default = httpDefault;
     if (Object.keys(patch).length === 0) {
-      setError("Change at least one principal field.");
+      setError("Change at least one agent field.");
       return undefined;
     }
     return {
@@ -480,7 +481,7 @@ function PrincipalEditor({
         decode: async (response) => {
           const saved = await decodeMutationPrincipal(response);
           if (saved.id !== current.id)
-            throw new Error("invalid principal identity");
+            throw new Error("invalid agent identity");
           return saved;
         },
       },
@@ -505,24 +506,22 @@ function PrincipalEditor({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">
-            {create ? "PRINCIPAL NEW" : "PRINCIPAL EDIT"}
-          </span>
+          <span class="panel-code">{create ? "AGENT NEW" : "AGENT EDIT"}</span>
           <h2 id="principal-editor-title">
-            {create ? "Create principal" : "Edit principal"}
+            {create ? "Create agent" : "Edit agent"}
           </h2>
         </div>
       </div>
       {create && (
         <>
           <p>
-            Creating a principal also adds the ordinary Default Gateway access
+            Creating an agent also adds the ordinary Default Gateway access
             grant for Gateway's six fixed MCP self-service tools, not downstream
             tools or future protocols.
           </p>
           <p class="bounded-note">
-            Gateway generates the principal ID as a permanent identity. The
-            display name and MCP discovery visibility can be changed later.
+            Gateway generates the agent ID as a permanent identity. The display
+            name and MCP discovery visibility can be changed later.
           </p>
         </>
       )}
@@ -549,7 +548,7 @@ function PrincipalEditor({
         {!create && (
           <FormField
             id="principal-state"
-            label="Principal enabled"
+            label="Agent enabled"
             hint="Disabling immediately removes current credential authority."
           >
             {(attributes) => (
@@ -610,10 +609,7 @@ function PrincipalEditor({
       </form>
       {(stale || mutation.requiresRefresh || mutation.state === "uncertain") &&
         detail !== undefined && (
-          <StateNotice
-            state="warning"
-            title="Review current principal settings"
-          >
+          <StateNotice state="warning" title="Review current agent settings">
             <p>
               Your draft is preserved. Current values:{" "}
               {detail.principal.displayName}; {detail.principal.state};{" "}
@@ -679,12 +675,12 @@ function PrincipalEditor({
           </StateNotice>
         )}
       {error !== undefined && (
-        <StateNotice state="error" title="Check principal configuration">
+        <StateNotice state="error" title="Check agent configuration">
           <p>{error}</p>
         </StateNotice>
       )}
       {mutation.problem !== undefined && (
-        <StateNotice state="error" title={mutation.problem.title}>
+        <StateNotice state="error" title={problemTitle(mutation.problem)}>
           {mutation.requiresRefresh && (
             <p>
               Review current settings and the preserved draft before accepting a
@@ -694,9 +690,9 @@ function PrincipalEditor({
         </StateNotice>
       )}
       {mutation.state === "uncertain" && (
-        <StateNotice state="warning" title="Principal outcome is unknown">
+        <StateNotice state="warning" title="Agent outcome is unknown">
           <p>
-            Do not replay this non-idempotent change. Refresh the principal and
+            Do not replay this non-idempotent change. Refresh the agent and
             authorization state to investigate.
           </p>
         </StateNotice>
@@ -719,12 +715,12 @@ function PrincipalEditor({
           ? "Submitting…"
           : create
             ? "Review and create"
-            : "Save principal"}
+            : "Save agent"}
       </button>
       <ConfirmationDialog
         id="principal-change-confirm"
         open={mutation.state === "confirming"}
-        title={create ? "Review principal" : "Review principal changes"}
+        title={create ? "Review agent" : "Review agent changes"}
         consequence={
           create ? (
             <div class="review-stack">
@@ -763,7 +759,7 @@ function PrincipalEditor({
                 )}
                 {state !== initialDraft.current.state && (
                   <div>
-                    <dt>Principal enabled</dt>
+                    <dt>Agent enabled</dt>
                     <dd>{state === "active" ? "Enabled" : "Disabled"}</dd>
                   </div>
                 )}
@@ -796,7 +792,7 @@ function PrincipalEditor({
             </div>
           )
         }
-        confirmLabel={create ? "Create principal" : "Save principal changes"}
+        confirmLabel={create ? "Create agent" : "Save agent changes"}
         destructive={!create && state === "disabled"}
         returnFocus={submitButton}
         onCancel={() => controller.abandon()}
@@ -897,8 +893,8 @@ function PrincipalCredentialActions({
           publication === "published"
             ? "The one-time agent bearer is ready. It cannot be revealed again."
             : action === "rotate"
-              ? "The replacement may now be current and the prior bearer may already be invalid. Review principal metadata, then explicitly rotate or revoke the lost current credential. Do not replay the operation."
-              : "A current credential may now occupy the slot, but its bearer was lost and cannot be recovered. Review principal metadata, then explicitly rotate or revoke it. Do not replay issue.",
+              ? "The replacement may now be current and the prior bearer may already be invalid. Review agent metadata, then explicitly rotate or revoke the lost current credential. Do not replay the operation."
+              : "A current credential may now occupy the slot, but its bearer was lost and cannot be recovered. Review agent metadata, then explicitly rotate or revoke it. Do not replay issue.",
         );
       } else {
         setNotice(
@@ -967,16 +963,16 @@ function PrincipalCredentialActions({
         </dl>
       )}
       {principal.state !== "active" && (
-        <StateNotice state="unavailable" title="Principal is disabled">
-          <p>Re-enable the principal before issuing agent authority.</p>
+        <StateNotice state="unavailable" title="Agent is disabled">
+          <p>Re-enable the agent before issuing agent authority.</p>
         </StateNotice>
       )}
       {mutation.problem !== undefined && (
-        <StateNotice state="error" title={mutation.problem.title}>
+        <StateNotice state="error" title={problemTitle(mutation.problem)}>
           {mutation.requiresRefresh && (
             <p>
-              The current principal revision was reloaded. Review current
-              authority before trying a new explicit action.
+              The current agent revision was reloaded. Review current authority
+              before trying a new explicit action.
             </p>
           )}
         </StateNotice>
@@ -985,10 +981,10 @@ function PrincipalCredentialActions({
         <StateNotice state="warning" title="Credential outcome is unknown">
           <p>
             {action === "rotate"
-              ? "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the principal, then explicitly rotate or revoke the observed current credential."
+              ? "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the agent, then explicitly rotate or revoke the observed current credential."
               : action === "issue"
-                ? "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the principal, then explicitly rotate or revoke the observed credential."
-                : "Do not replay revoke. Authority may already be revoked. Refresh the principal before another explicit action."}
+                ? "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the agent, then explicitly rotate or revoke the observed credential."
+                : "Do not replay revoke. Authority may already be revoked. Refresh the agent before another explicit action."}
           </p>
         </StateNotice>
       )}
@@ -1035,13 +1031,13 @@ function PrincipalCredentialActions({
             </p>
           ) : action === "issue" ? (
             <p>
-              The new bearer is displayed once and becomes this principal's
-              current authority.
+              The new bearer is displayed once and becomes this agent's current
+              authority.
             </p>
           ) : (
             <p>
               The current bearer, authenticated sessions, and streams stop
-              authorizing this principal.
+              authorizing this agent.
             </p>
           )
         }
@@ -1105,7 +1101,7 @@ export function Principals({
             setError(
               caught instanceof Error
                 ? caught.message
-                : "Principal data is unavailable.",
+                : "Agent data is unavailable.",
             );
         });
     }
@@ -1130,28 +1126,28 @@ export function Principals({
     detail?.principal.id !== principalID
   )
     return (
-      <StateNotice state="error" title="Principal data unavailable">
+      <StateNotice state="error" title="Agent data unavailable">
         <p>{error}</p>
       </StateNotice>
     );
   if (principalID !== undefined) {
     if (detail?.principal.id !== principalID)
-      return <StateNotice state="loading" title="Loading principal" />;
+      return <StateNotice state="loading" title="Loading agent" />;
     const principal = detail.principal;
     return (
       <div class="domain-view" data-testid="principal-detail">
         {error !== undefined && (
-          <StateNotice state="error" title="Current principal data unavailable">
+          <StateNotice state="error" title="Current agent data unavailable">
             <p>{error} Your draft is preserved; refresh before saving.</p>
           </StateNotice>
         )}
-        <nav class="detail-navigation" aria-label="Principal navigation">
-          <a href="#/principals">Back to principals</a>
+        <nav class="detail-navigation" aria-label="Agent navigation">
+          <a href="#/principals">Back to agents</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
             <div>
-              <span class="panel-code">PRINCIPAL</span>
+              <span class="panel-code">AGENT</span>
               <h1 id="principal-page-title" tabindex={-1}>
                 {principal.displayName}
               </h1>
@@ -1162,7 +1158,7 @@ export function Principals({
           <div class="panel-heading">
             <div>
               <span class="panel-code">PERMANENT IDENTITY</span>
-              <h2 id="principal-title">Principal details</h2>
+              <h2 id="principal-title">Agent details</h2>
             </div>
             <StatusLabel
               state={principal.state === "active" ? "current" : "neutral"}
@@ -1172,7 +1168,7 @@ export function Principals({
           </div>
           <dl class="fact-grid">
             <div>
-              <dt>Principal ID</dt>
+              <dt>Agent ID</dt>
               <dd class="technical-value">{principal.id}</dd>
             </div>
             <div>
@@ -1180,7 +1176,7 @@ export function Principals({
               <dd>{visibilityText(principal.visibility)}</dd>
             </div>
             <div>
-              <dt>Principal revision</dt>
+              <dt>Agent revision</dt>
               <dd>{principal.revision}</dd>
             </div>
             <div>
@@ -1256,23 +1252,23 @@ function PrincipalCollection({
           href="#/principals/new"
           data-testid="principal-create-link"
         >
-          Create principal
+          Create agent
         </a>
       </div>
       <section class="panel domain-panel" aria-labelledby="page-title">
         <CollectionTable
-          caption="Principal identities"
+          caption="Agent identities"
           rowHeaderKey="name"
           additionalSorts={[
             {
               key: "id",
-              label: "Principal ID",
+              label: "Agent ID",
               sortValue: (principal) => principal.id,
             },
           ]}
           remote={controls}
-          itemNames={{ singular: "principal", plural: "principals" }}
-          emptyTitle="No principals"
+          itemNames={{ singular: "agent", plural: "agents" }}
+          emptyTitle="No agents"
           items={items}
           rowKey={(principal) => principal.id}
           initialSort={{ key: "name", direction: "ascending" }}
@@ -1310,7 +1306,7 @@ function PrincipalCollection({
           columns={[
             {
               key: "name",
-              label: "Principal",
+              label: "Agent",
               role: "identity",
               sortValue: (principal) => principal.displayName,
               render: (principal) => (

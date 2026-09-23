@@ -127,9 +127,7 @@ export async function runHTTPGrants(
     await expect(
       page.getByRole("region", { name: "Grant configuration" }),
     ).toBeVisible();
-    await page
-      .getByLabel("Principal", { exact: true })
-      .selectOption(principal.id);
+    await page.getByLabel("Agent", { exact: true }).selectOption(principal.id);
     await page.getByLabel("Description (optional)").fill(`Test ${kind}`);
     await page.getByLabel("Grant type").selectOption(kind);
     await page
@@ -234,9 +232,7 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("heading", { name: "Test access", level: 1, exact: true }),
   ).toBeVisible();
-  await page
-    .getByLabel("Principal", { exact: true })
-    .selectOption(principal.id);
+  await page.getByLabel("Agent", { exact: true }).selectOption(principal.id);
   await page
     .getByLabel("URL", { exact: true })
     .fill("https://api.example.com/v1?preview-private-canary=1");
@@ -260,7 +256,10 @@ export async function runHTTPGrants(
     const fact = page
       .locator("dl.fact-grid > div")
       .filter({
-        has: page.getByText(key.replaceAll("_", " "), { exact: true }),
+        has: page.getByText(
+          key === "principal" ? "Agent" : key.replaceAll("_", " "),
+          { exact: true },
+        ),
       })
       .locator("dd");
     await expect(fact).toContainText(firstPreview.decision[key].id);
@@ -340,7 +339,7 @@ export async function runHTTPGrants(
     "block",
   );
   const editor = page.getByRole("region", {
-    name: "Edit principal",
+    name: "Edit agent",
     exact: true,
   });
   await expect(
@@ -366,9 +365,7 @@ export async function runHTTPGrants(
     .getByLabel("Display name", { exact: true })
     .fill("HTTP Policy Agent renamed");
   await page.getByLabel("HTTP default", { exact: true }).selectOption("allow");
-  await editor
-    .getByRole("button", { name: "Save principal", exact: true })
-    .click();
+  await editor.getByRole("button", { name: "Save agent", exact: true }).click();
   const confirm = page.getByRole("dialog");
   await expect(confirm).toContainText("HTTP Policy Agent renamed");
   await expect(confirm).toContainText("allow");
@@ -376,14 +373,12 @@ export async function runHTTPGrants(
   await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(principalWrites).toBe(0);
   expect(defaultWrites).toBe(0);
-  await editor
-    .getByRole("button", { name: "Save principal", exact: true })
-    .click();
+  await editor.getByRole("button", { name: "Save agent", exact: true }).click();
   await confirm
-    .getByRole("button", { name: "Save principal changes", exact: true })
+    .getByRole("button", { name: "Save agent changes", exact: true })
     .click();
   await expect(
-    page.getByText("Principal settings saved.", { exact: true }),
+    page.getByText("Agent settings saved.", { exact: true }),
   ).toBeVisible();
   expect(principalWrites).toBe(1);
   expect(defaultWrites).toBe(0);
@@ -413,9 +408,7 @@ export async function runHTTPGrants(
     }
     await route.continue();
   });
-  await editor
-    .getByRole("button", { name: "Save principal", exact: true })
-    .click();
+  await editor.getByRole("button", { name: "Save agent", exact: true }).click();
   const [staleResponse] = await Promise.all([
     page.waitForResponse(
       (response) =>
@@ -423,15 +416,15 @@ export async function runHTTPGrants(
         response.request().method() === "PATCH",
     ),
     confirm
-      .getByRole("button", { name: "Save principal changes", exact: true })
+      .getByRole("button", { name: "Save agent changes", exact: true })
       .click(),
   ]);
   expect(staleResponse.status()).toBe(412);
   await expect(
-    page.getByText("Review current principal settings", { exact: true }),
+    page.getByText("Review current agent settings", { exact: true }),
   ).toBeVisible();
   await expect(
-    editor.getByRole("button", { name: "Save principal", exact: true }),
+    editor.getByRole("button", { name: "Save agent", exact: true }),
   ).toBeDisabled();
   await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
     "block",
@@ -445,14 +438,12 @@ export async function runHTTPGrants(
   await page
     .getByRole("button", { name: "Use reviewed revision; keep draft" })
     .click();
-  await editor
-    .getByRole("button", { name: "Save principal", exact: true })
-    .click();
+  await editor.getByRole("button", { name: "Save agent", exact: true }).click();
   await confirm
-    .getByRole("button", { name: "Save principal changes", exact: true })
+    .getByRole("button", { name: "Save agent changes", exact: true })
     .click();
   await expect(
-    page.getByText("Principal settings saved.", { exact: true }),
+    page.getByText("Agent settings saved.", { exact: true }),
   ).toBeVisible();
   const afterConflict = await (
     await api(`/api/v2/principals/${principal.id}`, undefined, "GET")
@@ -491,17 +482,17 @@ export async function runHTTPGrants(
       .getByLabel("HTTP default", { exact: true })
       .selectOption(proposed);
     await editor
-      .getByRole("button", { name: "Save principal", exact: true })
+      .getByRole("button", { name: "Save agent", exact: true })
       .click();
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "Save principal changes", exact: true })
+      .getByRole("button", { name: "Save agent changes", exact: true })
       .click();
     await expect(
-      page.getByText("Principal outcome is unknown", { exact: true }),
+      page.getByText("Agent outcome is unknown", { exact: true }),
     ).toBeVisible();
     await expect(
-      editor.getByRole("button", { name: "Save principal", exact: true }),
+      editor.getByRole("button", { name: "Save agent", exact: true }),
     ).toBeDisabled();
     if (fault === "missing-etag") await captureState("default-uncertain");
     expect(submissions).toBe(1);

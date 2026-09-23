@@ -914,8 +914,12 @@ export function Overview({
                 <ul class="overview-conditions">
                   {pressure.map((item) => (
                     <li key={item.name}>
-                      <strong>{sentenceCase(item.name)}</strong>: {item.inUse} /{" "}
-                      {item.limit}
+                      <strong>
+                        {item.name === "principals"
+                          ? "Agents"
+                          : sentenceCase(item.name)}
+                      </strong>
+                      : {item.inUse} / {item.limit}
                       {" — "}
                       {capacityState(item) === "saturated"
                         ? "Capacity saturated; additional work may be rejected."
@@ -1000,7 +1004,7 @@ export function Overview({
                   <li key={item.id} data-testid="overview-request-row">
                     <div class="overview-requester">
                       {principalNames.get(item.principalID) ??
-                        `Principal ${item.principalID}`}
+                        `Agent ${item.principalID}`}
                     </div>
                     <a href={`#/mcp/access-requests/${item.id}`}>
                       Review access to {item.target}

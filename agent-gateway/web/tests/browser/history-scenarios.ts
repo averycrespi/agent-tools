@@ -216,13 +216,13 @@ export async function assertAuthoritativeHistory(
     await page.evaluate((id) => {
       window.location.hash = `#/audit-log?filter_action=create&filter_category=principal&filter_outcome=succeeded&filter_target_id=${id}`;
     }, principalID);
-    const auditData = await (await auditResponse).json();
-    if (
-      auditData.items.length !== 1 ||
-      auditData.items[0].target.id !== principalID
-    )
-      fail("Real Audit older-only query failed");
+    expect((await auditResponse).status()).toBe(200);
+    // Assert the application's consumed result: Chromium may discard CDP's
+    // response body even after the native stream was successfully read to EOF.
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("audit-row").locator('[data-label="Target"] a'),
+    ).toHaveAttribute("href", `#/principals/${principalID}`);
     await page
       .getByTestId("audit-row")
       .locator('[data-label="Event"] .table-primary a')
@@ -268,9 +268,7 @@ export async function assertAuthoritativeHistory(
       fail("Real Invocation older-only fuzzy query failed");
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await expect(page.getByLabel("Tool", { exact: true })).toBeFocused();
-    await page
-      .getByLabel("Principal", { exact: true })
-      .fill("cafe investgiator");
+    await page.getByLabel("Agent", { exact: true }).fill("cafe investgiator");
     await expect(page).toHaveURL(/filter_principal=cafe%20investgiator/);
     await expect(page.getByTestId("invocation-row")).toHaveCount(1);
     await page

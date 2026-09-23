@@ -445,12 +445,12 @@ export function HTTPTraffic({
               {
                 key: "principal",
                 role: "relation",
-                label: "Principal",
+                label: "Agent",
                 render: (row) => (
                   <TableIdentity
                     primary={
                       <a href={`#/principals/${row.principal_id}`}>
-                        {names.get(row.principal_id) ?? "Principal"}
+                        {names.get(row.principal_id) ?? "Agent"}
                       </a>
                     }
                     secondary={row.principal_id}
@@ -554,7 +554,7 @@ function TrafficFilters({
       aria-label="HTTP traffic filters"
     >
       {[
-        ["principal_id", "Principal ID"],
+        ["principal_id", "Agent ID"],
         ["destination", "Destination host"],
       ].map(([key, label]) => (
         <input
@@ -600,7 +600,7 @@ function TrafficFilters({
       {error && (
         <StateNotice
           state="error"
-          title="Use an exact principal ID or canonical destination hostname."
+          title="Use an exact agent ID or canonical destination hostname."
         />
       )}
     </div>
@@ -682,7 +682,7 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
         </p>
         <dl class="fact-grid">
           {[
-            ["Principal", a.principal],
+            ["Agent", a.principal],
             ["Agent credential", a.agent_credential],
           ].map(([label, value]) => {
             const ref = value as { id: string; revision: number };

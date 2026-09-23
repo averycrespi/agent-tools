@@ -6,7 +6,7 @@ Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
 This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. [Invocation and ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway mcp invocation --help` owns exact syntax.
 
-See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for principals, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
+See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for agents, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
 
 ## List and inspect evidence
 
@@ -17,7 +17,7 @@ agent-gateway mcp invocation list --limit 50
 agent-gateway mcp invocation get INVOCATION_ID
 ```
 
-Lists are newest-first and support closed principal, server, requested-name, admission, decision, and outcome filters:
+Lists are newest-first and support closed agent, server, requested-name, admission, decision, and outcome filters:
 
 ```bash
 agent-gateway mcp invocation list \
@@ -35,13 +35,13 @@ Collections omit argument captures and return summary evidence only. `agent-gate
 
 Open **MCP → Invocations** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/mcp/invocations` and its detail suffixes with valid filters. Old `#/invocations` and `#/activity/invocations` bookmarks are invalid and have no redirects; see the [coordinated API/CLI/browser cutover](upgrade-compatibility.md#mcp-invocation-namespace-cutover). **Back to invocations** retains the applied query; **Audit Log** remains the separate shared administrative audit history.
 
-Tool, Principal, Authorization and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Principal searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
+Tool, Agent, Authorization and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Agent searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
 
 Text changes apply after a short typing pause; dropdowns and Clear filters apply immediately. Filters remain available for empty history and errors. Load older retrieves older matches under the same query; the count reports loaded matches, not the total retained history. Opening a detail and returning keeps the query and live preference but restarts at newest with a notice rather than silently restoring an unsafe older traversal.
 
 ## Read the evidence shape
 
-A summary identifies the admitted principal and credential revision, request time, admission class, requested name when classifiable, resolved target when present, authorization evidence when evaluated, and one outcome class plus basis.
+A summary identifies the admitted agent and credential revision, request time, admission class, requested name when classifiable, resolved target when present, authorization evidence when evaluated, and one outcome class plus basis.
 
 A downstream target identifies the pinned server/tool/upstream descriptor evidence used for that attempt. Gateway-local targets identify one of the fixed self-service tools; they do not imply downstream handoff.
 
@@ -100,7 +100,7 @@ and a configurable combined database/WAL budget (4 GiB by default). It prunes th
 oldest eligible evidence transactionally while protecting live calls through their
 sole completion attempt; this can leave holes around pinned rows. Generation or
 pruning changes invalidate traversal rather than silently omitting evidence.
-Current principal names come from a separate bounded control snapshot, and name
+Current agent names come from a separate bounded control snapshot, and name
 changes also invalidate affected cursors. Evidence is ordered by durable insertion
 sequence, never client timestamps. A missing row proves neither success nor
 nonexecution; no fixed history window is promised.

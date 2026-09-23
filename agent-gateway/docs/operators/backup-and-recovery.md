@@ -64,7 +64,7 @@ installation's `--traffic-budget-bytes` value when it differs from 4 GiB. It ful
 validates the selected traffic generation as well as control storage, without
 manufacturing missing traffic or requiring a persistent traffic-only latch. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
 
-A recognized uncertain agent-credential candidate is cleared only when its principal, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. The command does not start Gateway; return ownership to the service before any online read:
+A recognized uncertain agent-credential candidate is cleared only when its agent, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. The command does not start Gateway; return ownership to the service before any online read:
 
 ```bash
 agent-gateway serve --data-dir /path/to/gateway-data
@@ -98,7 +98,7 @@ unknown outcomes but deliberately invalidates cursor continuity. No execution pi
 or pending call is restored. Retain enough free space for original, staging and
 rollback generations; the traffic database/WAL budget is not a total disk quota.
 
-A successful restore preserves safe principals, grants, requests, request evidence, server configuration, and compatible history. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
+A successful restore preserves safe agents, grants, requests, request evidence, server configuration, and compatible history. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
 
 Restore does not rewrite the default `admin-bearer`. Start the verified replacement generation, then explicitly select its replacement authority for online recovery:
 
@@ -109,7 +109,7 @@ agent-gateway --data-dir /path/to/gateway-data \
   status --admin-bearer-file /safe/new/restored-admin-bearer
 ```
 
-Issue fresh agent credentials after reviewing restored principal and policy state.
+Issue fresh agent credentials after reviewing restored agent and policy state.
 
 ## Reset administrator authority
 

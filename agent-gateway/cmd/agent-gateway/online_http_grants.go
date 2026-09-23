@@ -24,14 +24,14 @@ func httpGrantTable(body []byte) (controlclient.Table, error) {
 	if g.Description != nil {
 		description = *g.Description
 	}
-	return controlclient.Table{Headers: []string{"ID", "DESCRIPTION", "PRINCIPAL", "STATE", "POLICY"}, Rows: [][]string{{g.ID, description, g.PrincipalID, string(g.State), string(g.Policy)}}}, nil
+	return controlclient.Table{Headers: []string{"ID", "DESCRIPTION", "AGENT", "STATE", "POLICY"}, Rows: [][]string{{g.ID, description, g.PrincipalID, string(g.State), string(g.Policy)}}}, nil
 }
 func httpDefaultTable(body []byte) (controlclient.Table, error) {
 	var d contract.Principal
 	if controlclient.DecodeExactResponse(body, &d) != nil || !validPrincipal(d) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"PRINCIPAL", "HTTP DEFAULT"}, Rows: [][]string{{d.ID, string(d.HTTPDefault)}}}, nil
+	return controlclient.Table{Headers: []string{"AGENT", "HTTP DEFAULT"}, Rows: [][]string{{d.ID, string(d.HTTPDefault)}}}, nil
 }
 func httpGrantListTable(body []byte) (controlclient.Table, error) {
 	var page contract.QueryCollection[contract.HTTPGrantTableItem]
@@ -41,7 +41,7 @@ func httpGrantListTable(body []byte) (controlclient.Table, error) {
 	if page.NextCursor != nil && (*page.NextCursor == "" || len(*page.NextCursor) > 512 || containsControl(*page.NextCursor)) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	table := controlclient.Table{Headers: []string{"ID", "PRINCIPAL", "STATE", "POLICY"}}
+	table := controlclient.Table{Headers: []string{"ID", "AGENT", "STATE", "POLICY"}}
 	seen := map[string]bool{}
 	for _, item := range page.Items {
 		if !validHTTPGrant(item.Grant) || seen[item.Grant.ID] || len(item.PrincipalDisplayName) == 0 || len(item.PrincipalDisplayName) > 256 || !utf8.ValidString(item.PrincipalDisplayName) || containsControl(item.PrincipalDisplayName) {
@@ -61,7 +61,7 @@ func httpPreviewTable(body []byte) (controlclient.Table, error) {
 	for _, item := range []struct {
 		name string
 		ref  *contract.HTTPRevisionRef
-	}{{"principal", &p.Decision.Principal}, {"grant", p.Decision.Grant}, {"private grant", p.Decision.PrivateGrant}, {"credential", p.Decision.Credential}, {"credential grant", p.Decision.CredentialGrant}, {"conflict credential", p.Decision.ConflictCredential}, {"conflict grant", p.Decision.ConflictGrant}} {
+	}{{"agent", &p.Decision.Principal}, {"grant", p.Decision.Grant}, {"private grant", p.Decision.PrivateGrant}, {"credential", p.Decision.Credential}, {"credential grant", p.Decision.CredentialGrant}, {"conflict credential", p.Decision.ConflictCredential}, {"conflict grant", p.Decision.ConflictGrant}} {
 		if item.ref != nil {
 			evidence = append(evidence, item.name+" "+item.ref.ID+"@"+strconv.FormatUint(item.ref.Revision, 10))
 		}

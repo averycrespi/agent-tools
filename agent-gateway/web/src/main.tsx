@@ -70,7 +70,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   overview: "Overview",
   servers: "Servers",
   catalog: "Tools",
-  principals: "Principals",
+  principals: "Agents",
   "http-credentials": "Credentials",
   "http-grants": "Grants",
   "http-traffic": "Traffic",
@@ -522,7 +522,7 @@ function App() {
               : "MCP Server details"
             : destination === "principals" &&
                 resolved.canonicalFragment === "#/principals/new"
-              ? "Create principal"
+              ? "Create agent"
               : destination === "grants" &&
                   resolved.canonicalFragment.startsWith("#/mcp/grants/new")
                 ? "Create MCP Grant"
@@ -755,7 +755,7 @@ function App() {
               tabindex={-1}
             >
               {isPrincipalDetail
-                ? "Principal details"
+                ? "Agent details"
                 : isInvocationDetail
                   ? "MCP Invocation details"
                   : isGrantDetail

@@ -31,7 +31,7 @@ func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []s
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal update input is invalid."))
 	}
 	if members["state"] || members["http_default"] {
-		if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change this principal's authority? Disabling clears credential authority and sessions; re-enabling restores neither credentials nor deleted grants. HTTP default allow grants no credential, tunnel or private-network permission."}); err != nil {
+		if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change this agent's authority? Disabling clears credential authority and sessions; re-enabling restores neither credentials nor deleted grants. HTTP default allow grants no credential, tunnel or private-network permission."}); err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 	}

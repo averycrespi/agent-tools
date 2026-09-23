@@ -30,6 +30,19 @@ export function sentenceCase(value: string): string {
   return words.replace(/^./, (letter) => letter.toLocaleUpperCase());
 }
 
+export function problemTitle(problem: { code: string; title: string }): string {
+  switch (problem.code) {
+    case "invalid_principal":
+      return "The agent is invalid.";
+    case "stale_principal_revision":
+      return "The agent revision is stale.";
+    case "principal_precondition_required":
+      return "The current agent revision is required.";
+    default:
+      return problem.title;
+  }
+}
+
 export type OperationalState =
   | "current"
   | "neutral"

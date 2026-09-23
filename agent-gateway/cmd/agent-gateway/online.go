@@ -209,9 +209,9 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
 	case "principal create":
-		return spec.Short + ". Principals and their singular credential slot remain shared administration. Creation also adds Default Gateway access: an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Human output shows principal metadata; JSON retains principal and default_grant. Issue the credential separately; configure downstream MCP grants separately. Discovery visibility grants no access; MCP grants remain authoritative."
+		return spec.Short + ". Agents and their singular credential slot remain shared administration. Creation also adds Default Gateway access: an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Human output shows agent metadata; JSON retains principal and default_grant. Issue the credential separately; configure downstream MCP grants separately. Discovery visibility grants no access; MCP grants remain authoritative."
 	case "principal update":
-		return spec.Short + ". Principals and credentials remain shared administration. --visibility changes MCP discovery only and grants no access; MCP grants remain authoritative. Disabling clears the current credential and invalidates admitted authority; re-enabling restores neither credentials nor deleted grants."
+		return spec.Short + ". Agents and credentials remain shared administration. --visibility changes MCP discovery only and grants no access; MCP grants remain authoritative. Disabling clears the current credential and invalidates admitted authority; re-enabling restores neither credentials nor deleted grants."
 	case "mcp grant create", "mcp grant-request approve":
 		return spec.Short + ". --read-only restricts server ALLOW access to current and future tools explicitly declaring readOnlyHint=true. Hints are trusted server declarations, not side-effect isolation. Other ALLOW grants may authorize writes; matching DENY still wins. Read-only requests must retain --read-only and server scope; --acknowledge-future-tools remains required for server approval. Approval reads the submitted restriction before mutation, even with an explicit ETag, and never refreshes that ETag or replays a mutation. Direct flags and --file are mutually exclusive."
 	case "audit list", "audit get":
@@ -309,10 +309,31 @@ func writeOnlineFailure(command *cobra.Command, rawMode string, failure *control
 	if err != nil {
 		mode = controlclient.OutputTable
 	}
-	if err := controlclient.WriteFailure(command.ErrOrStderr(), mode, failure); err != nil {
+	displayFailure := failure
+	if mode != controlclient.OutputJSON && failure != nil {
+		projected := *failure
+		projected.Title = agentProblemTitle(failure.Title)
+		displayFailure = &projected
+	}
+	if err := controlclient.WriteFailure(command.ErrOrStderr(), mode, displayFailure); err != nil {
 		return controlclient.NewInputError("The command error could not be written.")
 	}
 	return failure
+}
+
+// Translate only product-authored prose; commands embedded in recovery guidance
+// and the original problem (including JSON output) retain their wire spelling.
+func agentProblemTitle(title string) string {
+	if title == "The explicit principal ETag does not match the loaded principal." {
+		return "The explicit agent ETag does not match the loaded agent."
+	}
+	for _, prefix := range []string{"The principal ", "The current principal ", "Principal credential ", "Issue this principal's ", "Atomically replace this principal's ", "Revoke this principal's ", "Change this principal's "} {
+		if strings.HasPrefix(title, prefix) {
+			label := strings.ReplaceAll(strings.ReplaceAll(prefix, "principal", "agent"), "Principal", "Agent")
+			return label + strings.TrimPrefix(title, prefix)
+		}
+	}
+	return title
 }
 
 func projectOnlineFailure(command *cobra.Command, failure *controlclient.OnlineError) *controlclient.OnlineError {
@@ -465,7 +486,7 @@ var onlineGroupDescriptions = map[string]string{
 	"http":                  "Manage HTTP access",
 	"http traffic":          "Inspect recorded HTTP traffic",
 	"http grant":            "Manage HTTP access grants",
-	"http default":          "Manage principal HTTP defaults",
+	"http default":          "Manage agent HTTP defaults",
 	"http credential":       "Manage scoped HTTP credentials",
 	"admin":                 "Manage administrator authority",
 	"admin credential":      "Manage administrator credentials",
@@ -477,7 +498,7 @@ var onlineGroupDescriptions = map[string]string{
 	"mcp server auth-flow":  "Manage server OAuth authorization flows",
 	"mcp server descriptor": "Inspect discovered server tools",
 	"mcp catalog":           "Inspect published Gateway tools",
-	"principal":             "Manage agent principals",
+	"principal":             "Manage agents",
 	"principal credential":  "Issue, rotate, and revoke agent credentials",
 	"mcp grant":             "Manage MCP authorization grants",
 	"mcp grant-request":     "Review MCP permission approval requests",
@@ -494,8 +515,8 @@ var onlineLeafDescriptions = map[string]string{
 	"http grant create --file PATH":                       "Create an HTTP grant",
 	"http grant update ID --file PATH [--etag ETAG]":      "Replace HTTP policy atomically",
 	"http grant delete ID [--etag ETAG]":                  "Delete an HTTP grant",
-	"http default get ID":                                 "Inspect a principal HTTP default",
-	"http default update ID --file PATH [--etag ETAG]":    "Patch principal http_default using its unified ETag",
+	"http default get ID":                                 "Inspect an agent HTTP default",
+	"http default update ID --file PATH [--etag ETAG]":    "Patch agent http_default using its unified ETag",
 	"http test-access --file PATH":                        "Preview policy only without DNS, dispatch or secret resolution",
 	"http credential list":                                "List scoped HTTP credentials without secrets",
 	"http credential get ID":                              "Show HTTP credential boundaries, recipe and references",
@@ -531,10 +552,10 @@ var onlineLeafDescriptions = map[string]string{
 	"mcp server descriptor list ID":                                "List discovered tools for a server",
 	"mcp server descriptor get ID TOOL_ID":                         "Look up a discovered server tool by ID",
 	"mcp catalog list":                                             "List published Gateway tools",
-	"principal list":                                               "List agent principals",
-	"principal get ID":                                             "Show agent principal details and the current mutation ETag",
-	"principal create --display-name NAME --visibility VISIBILITY": "Create an agent principal",
-	"principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]": "Atomically update principal settings",
+	"principal list":                                               "List agents",
+	"principal get ID":                                             "Show agent details and the current mutation ETag",
+	"principal create --display-name NAME --visibility VISIBILITY": "Create an agent",
+	"principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]": "Atomically update agent settings",
 	"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]":                                                    "Issue an agent credential into an empty slot",
 	"principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]":                                                   "Rotate an occupied agent credential atomically",
 	"principal credential revoke ID [--etag ETAG]":                                                                              "Revoke an agent credential",

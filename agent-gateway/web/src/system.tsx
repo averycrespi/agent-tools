@@ -691,7 +691,11 @@ function StatusPanel({
               </div>
               <div>
                 <dt>Agent authentication</dt>
-                <dd>{sentenceCase(status.agentAuth)}</dd>
+                <dd>
+                  {status.agentAuth === "principal_credentials"
+                    ? "Agent credentials"
+                    : sentenceCase(status.agentAuth)}
+                </dd>
               </div>
             </dl>
           </section>
@@ -764,7 +768,7 @@ function ResourceLimits({
           {limits.map((limit) => (
             <tr key={limit.name} data-testid="system-limit-row">
               <th class="system-limit-name" scope="row">
-                {limit.name}
+                {limit.name === "principals" ? "Agents" : limit.name}
               </th>
               <td class="column-count">{limit.inUse}</td>
               <td class="column-count">{limit.limit}</td>

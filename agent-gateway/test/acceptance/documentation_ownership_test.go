@@ -135,7 +135,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	require.Contains(t, cli, "## Installation root")
 	assert.Less(t, strings.Index(cli, "## Installation root"), strings.Index(cli, "## HTTP policy administration"))
 	compatibility := read("docs/operators/upgrade-compatibility.md")
-	for _, heading := range []string{"## Upgrade sequence", "## Operator v2 cutover", "## Browser persistence cutover", "## Browser location cutover", "## MCP invocation namespace cutover", "## MCP permission namespace cutover", "## Principal HTTP-default client cutover"} {
+	for _, heading := range []string{"## Upgrade sequence", "## Operator v2 cutover", "## Browser persistence cutover", "## Browser location cutover", "## MCP invocation namespace cutover", "## MCP permission namespace cutover", "## Agent HTTP-default client cutover"} {
 		require.Contains(t, compatibility, heading)
 		assert.NotContains(t, cli, heading, "cutover mappings have one canonical owner")
 	}
@@ -147,7 +147,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 		assert.NotContains(t, administration, heading, "browser contracts have one canonical owner")
 	}
 	for _, task := range []struct{ path, first, later string }{
-		{"docs/operators/access-control.md", "## Create and inspect principals", "## HTTP grants and Test access"},
+		{"docs/operators/access-control.md", "## Create and inspect agents", "## HTTP grants and Test access"},
 		{"docs/operators/backup-and-recovery.md", "## Choose a recovery task", "## Structured results and exits"},
 		{"docs/maintainers/frontend-development.md", "npm run ui:dev", "## Demo dataset and verification"},
 	} {
@@ -213,7 +213,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 		"product.grant_request.conflict_and_uncertainty":    "never executes, resumes, or replays",
 		"product.grant_request.historical_approval":         "historical evidence only",
 		"product.invocation.read_only_routes":               "read-only",
-		"product.invocation.closed_filters":                 "principal, server, requested-name, admission, decision, and outcome filters",
+		"product.invocation.closed_filters":                 "agent, server, requested-name, admission, decision, and outcome filters",
 		"product.invocation.newest_first_cursor":            "newest-first",
 		"product.invocation.page_coherence":                 "stale_cursor",
 		"product.invocation.summary_projection":             "Collections omit argument captures",
@@ -327,12 +327,19 @@ func markdownLinkError(path, link string) error {
 		return err
 	}
 	seen := map[string]int{}
+	explicitAnchor := regexp.MustCompile(`^<a id="([a-z0-9_-]+)"></a>$`)
 	fenced := false
 	for _, line := range strings.Split(string(contents), "\n") {
 		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
 			fenced = !fenced
 		}
-		if fenced || !strings.HasPrefix(line, "#") {
+		if fenced {
+			continue
+		}
+		if match := explicitAnchor.FindStringSubmatch(line); match != nil && match[1] == target.Fragment {
+			return nil
+		}
+		if !strings.HasPrefix(line, "#") {
 			continue
 		}
 		heading := strings.TrimSpace(strings.TrimLeft(line, "#"))
@@ -359,11 +366,11 @@ func markdownLinkError(path, link string) error {
 
 func TestMarkdownLinksCheckFragments(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "guide.md")
-	require.NoError(t, os.WriteFile(path, []byte("# Hello `world`!\n## Hello world\n```\n# Not a heading\n```\n"), 0o600))
-	for _, link := range []string{"#hello-world", "guide.md#hello-world-1", "https://example.invalid/#remote"} {
+	require.NoError(t, os.WriteFile(path, []byte("# Hello `world`!\n## Hello world\n<a id=\"retained-anchor\"></a>\n```\n# Not a heading\n<a id=\"not-an-anchor\"></a>\n```\n"), 0o600))
+	for _, link := range []string{"#hello-world", "guide.md#hello-world-1", "#retained-anchor", "https://example.invalid/#remote"} {
 		assert.NoError(t, markdownLinkError(path, link))
 	}
-	for _, link := range []string{"#missing", "#not-a-heading", "missing.md#hello-world"} {
+	for _, link := range []string{"#missing", "#not-a-heading", "#not-an-anchor", "missing.md#hello-world"} {
 		assert.Error(t, markdownLinkError(path, link))
 	}
 }

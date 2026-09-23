@@ -866,7 +866,7 @@ function InvocationFacts({
         <dd>{item.id}</dd>
       </div>
       <div>
-        <dt>Principal</dt>
+        <dt>Agent</dt>
         <dd>
           <a href={`#/principals/${item.principalID}`}>
             {principalNames.get(item.principalID) ?? item.principalID}
@@ -1138,7 +1138,7 @@ function InvocationList({
             },
             {
               key: "principal",
-              label: "Principal",
+              label: "Agent",
               role: "relation",
               render: (item) => (
                 <a href={`#/principals/${item.principalID}`}>
@@ -1260,7 +1260,7 @@ function InvocationFilters({
         {["tool", "principal"].map((key) => (
           <InvocationTextFilter
             key={`${key}:${reset}`}
-            name={sentenceCase(key)}
+            name={key === "principal" ? "Agent" : sentenceCase(key)}
             value={query[`filter_${key}`] ?? ""}
             change={(value) => change(key, value)}
           />

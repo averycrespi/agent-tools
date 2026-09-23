@@ -5,8 +5,8 @@ Audience: Gateway administrators and client operators
 Purpose: Enable proxying and configure fresh clients without migrating Broker state.
 
 The proxy is opt-in and cooperative, not network-enforced egress containment.
-MCP permissions never authorize HTTP. New principals, and principals backfilled
-when HTTP defaults were introduced, start at block. Existing principals retain
+MCP permissions never authorize HTTP. New agents, and agents backfilled
+when HTTP defaults were introduced, start at block. Existing agents retain
 their stored `http_default` (`allow` or `block`); configure separate
 [HTTP defaults and grants](access-control.md#http-grants-and-test-access).
 No HTTP self-service, automatic access request, retry or replay is provided.
@@ -14,7 +14,7 @@ Capacity remains unqualified; deterministic tests are not a throughput guarantee
 
 ## Host setup
 
-Retain the existing initialized installation and singular principal credential.
+Retain the existing initialized installation and singular agent credential.
 Stop the selected Gateway before explicitly creating its interception CA using
 [stopped CA commands](backup-and-recovery.md#stopped-interception-ca-commands).
 These commands require the exact installation ID; never export a private key.
@@ -67,7 +67,7 @@ Use the existing `mgw_agent_` credential, never an administrator bearer. Standar
 proxy clients use Basic authentication with username `agent` and the agent token
 as password. Explicit-header clients may instead use `Proxy-Authorization: Bearer`.
 Gateway strips proxy authorization before forwarding. Rotation/revocation or
-principal disablement affects subsequent admissions in both protocols, not already
+agent disablement affects subsequent admissions in both protocols, not already
 admitted work; each intercepted request/stream revalidates the original credential.
 Opaque tunnels expire one hour after admission, including after revocation.
 

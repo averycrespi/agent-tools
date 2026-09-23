@@ -467,14 +467,14 @@ export async function runPrincipals(
       unknown
     >;
     if (
-      body.display_name !== "New automation" ||
+      body.display_name !== "Principal investigator" ||
       body.visibility !== "allowed-only" ||
       Object.keys(body).sort().join(",") !== "display_name,visibility"
     )
       fail("principal create body changed shape");
     const created = principal(
       createdID,
-      "New automation",
+      "Principal investigator",
       "active",
       "allowed-only",
       "1",
@@ -510,7 +510,7 @@ export async function runPrincipals(
         id === createdID
           ? principal(
               createdID,
-              "New automation",
+              "Principal investigator",
               "active",
               "allowed-only",
               "1",
@@ -624,9 +624,9 @@ export async function runPrincipals(
   if (staleListRestarted) fail("principal list traversed without navigation");
   await assertTableConventions(
     page,
-    "Principal identities",
-    ["Principal", "Status", "MCP discovery visibility"],
-    "Principal",
+    "Agent identities",
+    ["Agent", "Status", "MCP discovery visibility"],
+    "Agent",
   );
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page
@@ -679,20 +679,19 @@ export async function runPrincipals(
   if (
     principalHeaders
       .map((value) => value.replace(/\s?[↑↓↕]$/, ""))
-      .join("|") !== "Principal|Status|MCP discovery visibility"
+      .join("|") !== "Agent|Status|MCP discovery visibility"
   )
     fail(`principal columns drifted: ${principalHeaders.join("|")}`);
   if (
-    (await page
-      .getByRole("link", { name: "Principals", exact: true })
-      .count()) !== 1 ||
+    (await page.getByRole("link", { name: "Agents", exact: true }).count()) !==
+      1 ||
     (await page
       .locator('#primary-navigation a[href="#/mcp/grants"]')
       .count()) !== 1 ||
     (await page.getByRole("link", { name: "Access", exact: true }).count()) !==
       0
   )
-    fail("Principals and Grants were not independent navigation destinations");
+    fail("Agents and Grants were not independent navigation destinations");
   const principalCreate = page.locator('[data-testid="principal-create-link"]');
   if (
     !(await principalCreate.evaluate((element) =>
@@ -704,16 +703,19 @@ export async function runPrincipals(
           .x,
     ) > 1
   )
-    fail("Create principal was not aligned with Create server");
+    fail("Create agent was not aligned with Create server");
 
   await page.evaluate(() => {
     window.location.hash = "#/principals/new";
   });
   await page.locator('[data-testid="principal-create-view"]').waitFor();
+  await expect(
+    page.getByTestId("principal-create-view").locator(".panel-code").first(),
+  ).toHaveText("AGENT NEW");
   body = (await page.locator("body").textContent()) ?? "";
   if (
     (await page
-      .getByRole("heading", { level: 1, name: "Create principal", exact: true })
+      .getByRole("heading", { level: 1, name: "Create agent", exact: true })
       .count()) !== 1 ||
     body.includes("permanent synthetic default ALLOW grant") ||
     !body.includes("six fixed MCP self-service tools") ||
@@ -739,7 +741,7 @@ export async function runPrincipals(
     fail(`principal create action gap was ${principalActionGap}px`);
   await page
     .locator('[data-testid="principal-display-name"]')
-    .fill("New automation");
+    .fill("Principal investigator");
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
@@ -750,7 +752,7 @@ export async function runPrincipals(
     (await page.evaluate(() => window.location.hash)) !== "#/principals/new" ||
     (await page
       .locator('[data-testid="principal-display-name"]')
-      .inputValue()) !== "New automation"
+      .inputValue()) !== "Principal investigator"
   )
     fail("principal editor did not register its dirty draft");
   await page
@@ -766,7 +768,7 @@ export async function runPrincipals(
     fail("principal creation omitted its review action");
   await page.locator('[data-testid="principal-editor-submit"]').click();
   await page
-    .getByRole("heading", { name: "Review principal", exact: true })
+    .getByRole("heading", { name: "Review agent", exact: true })
     .waitFor();
   if (creates !== 0) fail("principal creation submitted before final review");
   const principalReview =
@@ -774,7 +776,7 @@ export async function runPrincipals(
       .locator("#principal-change-confirm-consequence")
       .textContent()) ?? "";
   if (
-    !principalReview.includes("New automation") ||
+    !principalReview.includes("Principal investigator") ||
     !principalReview.includes("Allowed tools only") ||
     !principalReview.includes("Default Gateway access") ||
     !principalReview.includes("MCP discovery visibility") ||
@@ -785,11 +787,27 @@ export async function runPrincipals(
     fail("principal creation review omitted submitted values");
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page.locator('[data-testid="principal-detail"]').waitFor();
+  await expect(
+    page
+      .getByTestId("principal-detail")
+      .locator(".panel-code")
+      .filter({ hasText: /^(?:AGENT|PRINCIPAL)(?: EDIT)?$/ }),
+  ).toHaveText(["AGENT", "AGENT EDIT"]);
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Principal investigator",
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(new URL(page.url()).hash).toMatch(
+    /^#\/principals\/[0-9A-HJKMNP-TV-Z]{26}$/,
+  );
   await page
     .getByTestId("toast")
     .filter({
       hasText:
-        "Principal created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
+        "Agent created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
     })
     .waitFor();
 
@@ -804,7 +822,7 @@ export async function runPrincipals(
     (await page
       .getByRole("heading", {
         level: 2,
-        name: "Principal details",
+        name: "Agent details",
         exact: true,
       })
       .count()) !== 1 ||
@@ -879,12 +897,12 @@ export async function runPrincipals(
     .getByRole("heading", { name: "Renamed agent", exact: true })
     .waitFor();
   await page
-    .getByText("Principal settings saved.", {
+    .getByText("Agent settings saved.", {
       exact: true,
     })
     .waitFor();
   const principalState = page.getByRole("switch", {
-    name: "Principal enabled",
+    name: "Agent enabled",
   });
   if (!(await principalState.isChecked()))
     fail("active principal switch was not checked");
@@ -892,7 +910,7 @@ export async function runPrincipals(
   await page.locator('[data-testid="principal-editor-submit"]').click();
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page
-    .getByText("The principal revision is stale.", { exact: true })
+    .getByText("The agent revision is stale.", { exact: true })
     .waitFor();
   if ((await principalState.isChecked()) !== false)
     fail("principal stale refresh discarded safe draft");
@@ -1094,7 +1112,7 @@ export async function runPrincipalCredentials(
     .locator('[data-testid="principal-credential-confirm-submit"]')
     .click();
   await page
-    .getByText("The principal revision is stale.", { exact: true })
+    .getByText("The agent revision is stale.", { exact: true })
     .waitFor();
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
@@ -1121,7 +1139,7 @@ export async function runPrincipalCredentials(
   releaseLost?.();
   await page
     .getByText(
-      "The replacement may now be current and the prior bearer may already be invalid. Review principal metadata, then explicitly rotate or revoke the lost current credential. Do not replay the operation.",
+      "The replacement may now be current and the prior bearer may already be invalid. Review agent metadata, then explicitly rotate or revoke the lost current credential. Do not replay the operation.",
       { exact: true },
     )
     .waitFor();
@@ -1138,7 +1156,7 @@ export async function runPrincipalCredentials(
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   await page
     .getByText(
-      "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the principal, then explicitly rotate or revoke the observed current credential.",
+      "Do not replay. The replacement may be current and the prior bearer may already be invalid. Refresh the agent, then explicitly rotate or revoke the observed current credential.",
       { exact: true },
     )
     .waitFor();
@@ -1172,7 +1190,7 @@ export async function runPrincipalCredentials(
     .click();
   await page
     .getByText(
-      "Do not replay revoke. Authority may already be revoked. Refresh the principal before another explicit action.",
+      "Do not replay revoke. Authority may already be revoked. Refresh the agent before another explicit action.",
       { exact: true },
     )
     .waitFor();
@@ -1212,7 +1230,7 @@ export async function runPrincipalCredentials(
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   await page
     .getByText(
-      "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the principal, then explicitly rotate or revoke the observed credential.",
+      "Do not replay issue. A current credential may occupy the slot while its bearer is permanently lost. Refresh the agent, then explicitly rotate or revoke the observed credential.",
       { exact: true },
     )
     .waitFor();
@@ -1817,7 +1835,7 @@ export async function runGrantReadsCreate(
   const headers = await page.locator("thead th").allInnerTexts();
   expect(headers.map((header) => header.replace(/[↕↑↓]/g, "").trim())).toEqual([
     "Grant",
-    "Principal",
+    "Agent",
     "Target",
     "Effect",
     "Status",
@@ -1839,15 +1857,7 @@ export async function runGrantReadsCreate(
   await assertTableConventions(
     page,
     "Grant policy records",
-    [
-      "Grant",
-      "Principal",
-      "Target",
-      "Effect",
-      "Status",
-      "Conditions",
-      "Expires",
-    ],
+    ["Grant", "Agent", "Target", "Effect", "Status", "Conditions", "Expires"],
     "Grant",
   );
   await expect(firstGrantRow.locator(".table-primary")).toHaveText(
@@ -2976,18 +2986,9 @@ export async function runGrantCorrection(
     fail("stale correction submitted deletion");
 
   const defaultWarnings: Array<[string, string]> = [
-    [
-      grantIDs[7]!,
-      "removes the principal's access to Gateway self-service tools",
-    ],
-    [
-      grantIDs[8]!,
-      "removes the principal's access to Gateway self-service tools",
-    ],
-    [
-      grantIDs[9]!,
-      "removes the principal's access to Gateway self-service tools",
-    ],
+    [grantIDs[7]!, "removes the agent's access to Gateway self-service tools"],
+    [grantIDs[8]!, "removes the agent's access to Gateway self-service tools"],
+    [grantIDs[9]!, "removes the agent's access to Gateway self-service tools"],
   ];
   for (const [grantID, phrase] of defaultWarnings) {
     await navigate(grantID);
@@ -3426,7 +3427,7 @@ export async function runRequestReads(
       .getByTestId("request-row")
       .first()
       .evaluate((row) => {
-        return ["Request", "Principal", "Target"].map((label) => {
+        return ["Request", "Agent", "Target"].map((label) => {
           const style = getComputedStyle(
             row.querySelector(`[data-label="${label}"] a`)!,
           );
@@ -3453,7 +3454,7 @@ export async function runRequestReads(
     requestHeaders
       .map((header) => header.replace(/[↕↑↓]/g, "").trim())
       .join("|") !==
-    "Submitted|Request|Principal|Target|Status|Requested duration|Conditions|Actions"
+    "Submitted|Request|Agent|Target|Status|Requested duration|Conditions|Actions"
   )
     fail(`request table columns changed: ${requestHeaders.join("|")}`);
   await assertTableConventions(
@@ -3462,7 +3463,7 @@ export async function runRequestReads(
     [
       "Submitted",
       "Request",
-      "Principal",
+      "Agent",
       "Target",
       "Status",
       "Requested duration",
@@ -4455,7 +4456,7 @@ export async function runRequestAdjudication(
     permanentDialog.getByText("Access considerations", { exact: true }),
   ).toHaveCount(0);
   await expect(permanentDialog.locator("dt")).toHaveText([
-    "Principal",
+    "Agent",
     "Approved target",
     "Tools",
     "Duration",

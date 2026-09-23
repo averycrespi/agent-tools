@@ -443,7 +443,12 @@ export async function runAudit(
     "invalid",
   );
   await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
-  await page.getByLabel("Category", { exact: true }).selectOption("principal");
+  await page
+    .getByLabel("Category", { exact: true })
+    .selectOption({ label: "Agent" });
+  await expect(page.getByLabel("Category", { exact: true })).toHaveValue(
+    "principal",
+  );
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("principal");
   expect(queries.at(-1)?.has("action")).toBe(false);
   await expect(page.getByLabel("Action", { exact: true })).toHaveValue("");
