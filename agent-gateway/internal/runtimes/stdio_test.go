@@ -76,8 +76,12 @@ func TestStdioFixtureProcess(t *testing.T) {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 	case "ignore-term":
 		signal.Ignore(syscall.SIGTERM)
+		// An external wakeup source keeps the fixture alive without Go's deadlock exit.
+		blocked := make(chan os.Signal, 1)
+		signal.Notify(blocked, syscall.SIGUSR1)
 		_, _ = fmt.Fprintln(os.Stdout, `{}`)
-		select {}
+		for range blocked {
+		}
 	case "exit":
 		code, _ := strconv.Atoi(arguments[1])
 		os.Exit(code)
