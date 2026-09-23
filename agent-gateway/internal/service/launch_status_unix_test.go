@@ -10,6 +10,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// User-supplied LWCR excerpt, including the unusual inline array close. The
+// surrounding service fixture is synthetic; this is not native qualification.
+const launchLWCR = `        LWCR = {
+                "reqs" => {
+                        "cdhash" => {
+                                "$in" => [
+                                        0 =                             ]
+                        }
+                }
+                "vers" => 1
+                "comp" => 1
+                "ccat" => 0
+        }
+`
+
+func withLaunchLWCR(s string) string {
+	s = strings.ReplaceAll(s, "\t", "        ")
+	return strings.Replace(s, "        arguments = {", launchLWCR+"        resource coalition = {\n                state = active\n        }\n        jetsam coalition = {\n                state = active\n        }\n        arguments = {", 1)
+}
+
 // Synthetic launchctl-shaped blocks: regression evidence, not native qualification.
 func TestServiceStatusNestedLaunchFields(t *testing.T) {
 	for _, tc := range []struct {
@@ -17,6 +37,7 @@ func TestServiceStatusNestedLaunchFields(t *testing.T) {
 		change func(string) string
 		want   string
 	}{
+		{"actual LWCR excerpt", withLaunchLWCR, "running"},
 		{"coalitions", func(s string) string {
 			return strings.Replace(s, "\targuments = {", "\tresource coalition = {\n\t\tid = 123\n\t\tstate = active\n\t}\n\tjetsam coalition = {\n\t\tstate = active\n\t}\n\targuments = {", 1)
 		}, "running"},
@@ -44,6 +65,15 @@ func TestServiceStatusNestedLaunchFields(t *testing.T) {
 		{"nested only pid", func(s string) string {
 			return strings.Replace(s, "\tpid = 123456", "\tnested = {\n\t\tpid = 123456\n\t}", 1)
 		}, "unknown"},
+		{"opaque section syntax", func(s string) string {
+			return strings.Replace(s, "\targuments = {", "\topaque = {\n\t\tarray => [\n\t\t\t0 = ]\n\t\todd dictionary => {\n\t\t\tstate = active\n\t}\n\targuments = {", 1)
+		}, "running"},
+		{"opaque boundary missing", func(s string) string {
+			return strings.Replace(s, "\targuments = {", "\topaque = {\n\t\tstate = active\n\targuments = {", 1)
+		}, "unknown"},
+		{"opaque boundary wrong indent", func(s string) string {
+			return strings.Replace(s, "\targuments = {", "\topaque = {\n\t\tstate = active\n  }\n\targuments = {", 1)
+		}, "unknown"},
 		{"unclosed nested", func(s string) string {
 			return strings.Replace(s, "\tstate = running", "\tnested = {\n\tstate = running", 1)
 		}, "unknown"},
@@ -63,11 +93,47 @@ func TestServiceStatusNestedLaunchFields(t *testing.T) {
 			result, err := f.m.execute(t.Context(), "status", Changes{})
 			require.NoError(t, err)
 			require.True(t, result.Installed)
-			require.Equal(t, tc.want, result.Launchd)
+			require.Equal(t, tc.want, result.Launchd, "%+v", result)
 			require.Equal(t, "not-ready", result.Readiness)
+			if tc.want == "unknown" {
+				_, err = f.m.execute(t.Context(), "restart", Changes{})
+				require.Error(t, err)
+			}
 			require.Empty(t, f.mutations)
 		})
 	}
+}
+
+func TestServiceRestartWithLWCR(t *testing.T) {
+	f := newFixture(t)
+	f.install(t)
+	f.loaded, f.running = true, true
+	f.m.run = func(ctx context.Context, name string, args ...string) ([]byte, int, error) {
+		data, code, err := f.run(ctx, name, args...)
+		if name == "/bin/launchctl" && args[0] == "print" && code == 0 {
+			data = []byte(withLaunchLWCR(string(data)))
+		}
+		return data, code, err
+	}
+	_, err := f.m.execute(t.Context(), "restart", Changes{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"bootout", "bootstrap"}, f.mutations)
+}
+
+func TestLaunchArgumentsAreLiteral(t *testing.T) {
+	f := newFixture(t)
+	f.install(t)
+	d, _, _, err := f.m.read()
+	require.NoError(t, err)
+	// Delimiter-like path contents are data, not new blocks or closes.
+	d.argv = []string{d.Binary, "serve", "/data/ends = {", "/data/} => [ ]"}
+	text := f.m.target() + " = {\n\tpath = " + f.m.plist() + "\n\tprogram = " + d.Binary + "\n\tstate = running\n\tpid = 123456\n\targuments = {\n\t\t" + strings.Join(d.argv, "\n\t\t") + "\n\t}\n}\n"
+	f.m.run = func(context.Context, string, ...string) ([]byte, int, error) {
+		return []byte(withLaunchLWCR(text)), 0, nil
+	}
+	observed, err := f.m.observe(t.Context(), d)
+	require.NoError(t, err)
+	require.Equal(t, "running", observed.State)
 }
 
 func TestServiceLaunchIdentityRefusesImpersonation(t *testing.T) {
