@@ -666,7 +666,7 @@ func validKeyringOwner(owner string) bool {
 
 func validKeyringRecordKind(kind string) bool {
 	switch kind {
-	case "static_credential", "oauth_client", "oauth_tokens":
+	case "static_credential", "oauth_client", "oauth_tokens", "http_credential", "http_ca":
 		return true
 	default:
 		return false

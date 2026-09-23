@@ -20,6 +20,9 @@ import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
+import { HTTPCredentials } from "./http-credentials";
+import { HTTPGrants } from "./http-grants";
+import { HTTPTraffic, HTTPTrafficController } from "./http-traffic";
 import { Requests } from "./requests";
 import { PendingRequestsController } from "./pending-requests";
 import {
@@ -54,6 +57,10 @@ const navigation: ReadonlyArray<{
 }> = [
   { destinations: ["overview", "principals", "audit", "system"] },
   {
+    label: "HTTP",
+    destinations: ["http-credentials", "http-grants", "http-traffic"],
+  },
+  {
     label: "MCP",
     destinations: ["servers", "catalog", "grants", "requests", "invocations"],
   },
@@ -64,6 +71,9 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   servers: "Servers",
   catalog: "Tools",
   principals: "Principals",
+  "http-credentials": "Credentials",
+  "http-grants": "Grants",
+  "http-traffic": "Traffic",
   grants: "Grants",
   requests: "Access requests",
   invocations: "Invocations",
@@ -74,6 +84,9 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
 
 const pageLabels: Readonly<Record<Destination, string>> = {
   ...destinationLabels,
+  "http-credentials": "HTTP Credentials",
+  "http-grants": "HTTP Grants",
+  "http-traffic": "HTTP Traffic",
   servers: "MCP Servers",
   catalog: "MCP Tools",
   grants: "MCP Grants",
@@ -104,6 +117,10 @@ const invocationsController = new InvocationsController(
   sessionClient,
   viewCoordinator,
 );
+const httpTrafficController = new HTTPTrafficController(
+  sessionClient,
+  viewCoordinator,
+);
 const principalDirectory = new PrincipalDirectory(
   sessionClient,
   viewCoordinator,
@@ -121,7 +138,11 @@ const registerInvalidationTrigger = (
   id: string,
   matches: (viewKey: string) => boolean,
   invalidations: ReadonlyArray<
-    "authorization" | "grant_requests" | "servers" | "catalog"
+    | "authorization"
+    | "grant_requests"
+    | "servers"
+    | "catalog"
+    | "http_credentials"
   >,
 ) =>
   viewCoordinator.registerPanel({
@@ -131,6 +152,16 @@ const registerInvalidationTrigger = (
     read: async () => null,
     publish: () => undefined,
   });
+registerInvalidationTrigger(
+  "http-policy-invalidation",
+  (key) => /^#\/http\/grants(?:[/?]|$)/.test(key),
+  ["authorization", "http_credentials"],
+);
+registerInvalidationTrigger(
+  "http-credential-invalidation",
+  (key) => /^#\/http\/credentials(?:[/?]|$)/.test(key),
+  ["http_credentials"],
+);
 registerInvalidationTrigger(
   "principal-invalidation",
   (key) => /^#\/principals(?:[/?]|$)/.test(key),
@@ -377,7 +408,8 @@ function App() {
         ? resolved.location.segments[1]
         : undefined;
     const invocationID =
-      resolved.location.destination === "invocations"
+      resolved.location.destination === "invocations" ||
+      resolved.location.destination === "http-traffic"
         ? resolved.location.segments[1]
         : undefined;
     const grantID =
@@ -463,27 +495,43 @@ function App() {
   const isRequestDetail =
     destination === "requests" && resolved.location.segments[1] !== undefined;
   const isResourceDetail =
+    ((destination === "http-credentials" ||
+      destination === "http-grants" ||
+      destination === "http-traffic") &&
+      resolved.location.segments[1] !== undefined &&
+      resolved.location.segments[1] !== "new" &&
+      resolved.location.segments[1] !== "test-access") ||
     isPrincipalDetail ||
     isInvocationDetail ||
     isGrantDetail ||
     isRequestDetail ||
     (destination === "audit" && resolved.location.segments[1] !== undefined);
   const destinationLabel =
-    destination === "servers" && resolved.location.segments[1] !== undefined
-      ? resolved.canonicalFragment === "#/mcp/servers/new"
-        ? "Create MCP Server"
-        : "MCP Server details"
-      : destination === "principals" &&
-          resolved.canonicalFragment === "#/principals/new"
-        ? "Create principal"
-        : destination === "grants" &&
-            resolved.canonicalFragment.startsWith("#/mcp/grants/new")
-          ? "Create MCP Grant"
-          : resolved.canonicalFragment === "#/system/backups/new"
-            ? "Create backup"
-            : resolved.canonicalFragment === "#/system/admin-credentials/new"
-              ? "Create admin credential"
-              : pageLabels[destination];
+    destination === "http-grants" && resolved.location.segments[1] === "new"
+      ? "Create HTTP grant"
+      : destination === "http-grants" &&
+          resolved.location.segments[1] === "test-access"
+        ? "Test access"
+        : destination === "http-credentials" &&
+            resolved.location.segments[1] === "new"
+          ? "Create HTTP credential"
+          : destination === "servers" &&
+              resolved.location.segments[1] !== undefined
+            ? resolved.canonicalFragment === "#/mcp/servers/new"
+              ? "Create MCP Server"
+              : "MCP Server details"
+            : destination === "principals" &&
+                resolved.canonicalFragment === "#/principals/new"
+              ? "Create principal"
+              : destination === "grants" &&
+                  resolved.canonicalFragment.startsWith("#/mcp/grants/new")
+                ? "Create MCP Grant"
+                : resolved.canonicalFragment === "#/system/backups/new"
+                  ? "Create backup"
+                  : resolved.canonicalFragment ===
+                      "#/system/admin-credentials/new"
+                    ? "Create admin credential"
+                    : pageLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
   const pendingRequests = pendingRequestsController.presentation(view);
 
@@ -756,6 +804,13 @@ function App() {
               view={view}
               navigate={navigate}
             />
+          ) : destination === "http-traffic" ? (
+            <HTTPTraffic
+              controller={httpTrafficController}
+              principals={principalDirectory}
+              view={view}
+              navigate={navigate}
+            />
           ) : destination === "invocations" ? (
             <Invocations
               controller={invocationsController}
@@ -776,6 +831,25 @@ function App() {
             <Requests
               session={sessionClient}
               mutations={mutationCoordinator}
+              resolved={resolved}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "http-grants" ? (
+            <HTTPGrants
+              key={resolved.location.segments.join("/")}
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              resolved={resolved}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "http-credentials" ? (
+            <HTTPCredentials
+              key={resolved.canonicalFragment}
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
               resolved={resolved}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}

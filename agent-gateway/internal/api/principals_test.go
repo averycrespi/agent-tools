@@ -38,7 +38,7 @@ func (service *fakePrincipalService) CreatePrincipal(_ context.Context, request 
 		return contract.PrincipalCreation{}, service.err
 	}
 	service.create = request
-	principal := contract.Principal{ID: testID, DisplayName: request.DisplayName, State: contract.PrincipalActive, Visibility: request.Visibility, Revision: "1", CredentialRevision: "0", CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
+	principal := contract.Principal{HTTPDefault: contract.HTTPDefaultBlock, ID: testID, DisplayName: request.DisplayName, State: contract.PrincipalActive, Visibility: request.Visibility, Revision: "1", CredentialRevision: "0", CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
 	service.items = append(service.items, principal)
 	return contract.PrincipalCreation{Principal: principal, DefaultGrant: service.defaultGrant}, nil
 }
@@ -144,6 +144,9 @@ func (service *fakePrincipalService) PatchPrincipal(_ context.Context, id string
 	if request.Visibility != nil {
 		service.items[0].Visibility = *request.Visibility
 	}
+	if request.HTTPDefault != nil {
+		service.items[0].HTTPDefault = *request.HTTPDefault
+	}
 	service.items[0].Revision = "2"
 	return service.items[0], nil
 }
@@ -215,7 +218,7 @@ func (service *fakePrincipalService) DeleteGrant(_ context.Context, id string) e
 }
 
 func principalResource() contract.Principal {
-	return contract.Principal{ID: testID, DisplayName: "Agent", State: contract.PrincipalActive, Visibility: contract.VisibilityRequestable, Revision: "1", CredentialRevision: "0", CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
+	return contract.Principal{HTTPDefault: contract.HTTPDefaultBlock, ID: testID, DisplayName: "Agent", State: contract.PrincipalActive, Visibility: contract.VisibilityRequestable, Revision: "1", CredentialRevision: "0", CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
 }
 
 func newPrincipalHandler(t *testing.T, service PrincipalService, invalidations *[]contract.Invalidation) http.Handler {

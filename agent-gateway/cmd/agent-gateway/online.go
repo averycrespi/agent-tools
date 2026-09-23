@@ -139,6 +139,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 				return writeOnlineFailure(command, options.output, failure)
 			}
 			options.intent = intent
+			defer clear(options.intent.body)
 			for _, required := range spec.RequiredFlags {
 				if !command.Flags().Changed(required) {
 					return writeOnlineFailure(command, options.output, onlineUsageProblem(spec, "The --"+required+" flag is required."))
@@ -387,6 +388,22 @@ func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.Onl
 
 func onlineCommandSpecs() []onlineCommandSpec {
 	return []onlineCommandSpec{
+		onlineSpec([]string{"http", "traffic", "list"}, "list", "http traffic list", "limit", "cursor", "principal-id", "destination", "type", "decision", "outcome"),
+		onlineSpec([]string{"http", "traffic", "get"}, "get ID", "http traffic get ID"),
+		onlineSpec([]string{"http", "grant", "list"}, "list", "http grant list", "limit", "cursor"),
+		onlineSpec([]string{"http", "grant", "get"}, "get ID", "http grant get ID"),
+		onlineSpec([]string{"http", "grant", "create"}, "create", "http grant create --file PATH", "file", "yes"),
+		onlineSpec([]string{"http", "grant", "update"}, "update ID", "http grant update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "grant", "delete"}, "delete ID", "http grant delete ID [--etag ETAG]", "etag", "yes"),
+		onlineSpec([]string{"http", "default", "get"}, "get ID", "http default get ID"),
+		onlineSpec([]string{"http", "default", "update"}, "update ID", "http default update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "test-access"}, "test-access", "http test-access --file PATH", "file"),
+		onlineSpec([]string{"http", "credential", "list"}, "list", "http credential list", "limit", "cursor"),
+		onlineSpec([]string{"http", "credential", "get"}, "get ID", "http credential get ID"),
+		onlineSpec([]string{"http", "credential", "create"}, "create", "http credential create --file PATH", "file", "yes"),
+		onlineSpec([]string{"http", "credential", "update"}, "update ID", "http credential update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "credential", "rotate"}, "rotate ID", "http credential rotate ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
+		onlineSpec([]string{"http", "credential", "delete"}, "delete ID", "http credential delete ID [--etag ETAG]", "etag", "yes"),
 		onlineSpec([]string{"status"}, "status", "status"),
 		onlineSpec([]string{"audit", "list"}, "list", "audit list", "limit", "cursor", "generation", "actor-type", "credential-id", "category", "action", "target-type", "target-id", "outcome", "correlation-id", "from", "until"),
 		onlineSpec([]string{"audit", "get"}, "get AUDIT_EVENT_ID", "audit get AUDIT_EVENT_ID", "generation"),
@@ -418,7 +435,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"principal", "list"}, "list", "principal list", "limit", "cursor"),
 		onlineSpec([]string{"principal", "get"}, "get ID", "principal get ID"),
 		onlineSpec([]string{"principal", "create"}, "create", "principal create --display-name NAME --visibility VISIBILITY", "display-name", "visibility"),
-		onlineSpec([]string{"principal", "update"}, "update ID", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE]", "etag", "display-name", "visibility", "state", "yes"),
+		onlineSpec([]string{"principal", "update"}, "update ID", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]", "etag", "display-name", "visibility", "state", "http-default", "yes"),
 		onlineSpec([]string{"principal", "credential", "issue"}, "issue ID", "principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
 		onlineSpec([]string{"principal", "credential", "rotate"}, "rotate ID", "principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
 		onlineSpec([]string{"principal", "credential", "revoke"}, "revoke ID", "principal credential revoke ID [--etag ETAG]", "etag", "yes"),
@@ -445,6 +462,11 @@ func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineC
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineGroupDescriptions = map[string]string{
+	"http":                  "Manage HTTP access",
+	"http traffic":          "Inspect recorded HTTP traffic",
+	"http grant":            "Manage HTTP access grants",
+	"http default":          "Manage principal HTTP defaults",
+	"http credential":       "Manage scoped HTTP credentials",
 	"admin":                 "Manage administrator authority",
 	"admin credential":      "Manage administrator credentials",
 	"backup":                "Create and manage recovery backups",
@@ -465,6 +487,22 @@ var onlineGroupDescriptions = map[string]string{
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineLeafDescriptions = map[string]string{
+	"http traffic list":                                   "List recorded HTTP traffic",
+	"http traffic get ID":                                 "Inspect admission-time HTTP evidence and terminal uncertainty",
+	"http grant list":                                     "List HTTP access grants",
+	"http grant get ID":                                   "Inspect an HTTP grant",
+	"http grant create --file PATH":                       "Create an HTTP grant",
+	"http grant update ID --file PATH [--etag ETAG]":      "Replace HTTP policy atomically",
+	"http grant delete ID [--etag ETAG]":                  "Delete an HTTP grant",
+	"http default get ID":                                 "Inspect a principal HTTP default",
+	"http default update ID --file PATH [--etag ETAG]":    "Patch principal http_default using its unified ETag",
+	"http test-access --file PATH":                        "Preview policy only without DNS, dispatch or secret resolution",
+	"http credential list":                                "List scoped HTTP credentials without secrets",
+	"http credential get ID":                              "Show HTTP credential boundaries, recipe and references",
+	"http credential create --file PATH":                  "Create a scoped HTTP credential from a write-only file",
+	"http credential update ID --file PATH [--etag ETAG]": "Update HTTP credential metadata and scope",
+	"http credential rotate ID --file PATH [--etag ETAG]": "Replace HTTP credential material without revealing stored secrets",
+	"http credential delete ID [--etag ETAG]":             "Delete an unreferenced HTTP credential",
 	"status":                   "Show Gateway status",
 	"audit list":               "List newest-first retained control-plane audit events",
 	"audit get AUDIT_EVENT_ID": "Show bounded audit event detail and retention history",
@@ -496,10 +534,10 @@ var onlineLeafDescriptions = map[string]string{
 	"principal list":                                               "List agent principals",
 	"principal get ID":                                             "Show agent principal details and the current mutation ETag",
 	"principal create --display-name NAME --visibility VISIBILITY": "Create an agent principal",
-	"principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE]": "Update an agent principal",
-	"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]":                            "Issue an agent credential into an empty slot",
-	"principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]":                           "Rotate an occupied agent credential atomically",
-	"principal credential revoke ID [--etag ETAG]":                                                      "Revoke an agent credential",
+	"principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]": "Atomically update principal settings",
+	"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]":                                                    "Issue an agent credential into an empty slot",
+	"principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]":                                                   "Rotate an occupied agent credential atomically",
+	"principal credential revoke ID [--etag ETAG]":                                                                              "Revoke an agent credential",
 	"mcp grant list":   "List authorization grants",
 	"mcp grant get ID": "Look up an authorization grant by ID",
 	"mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]": "Create an authorization grant",
@@ -514,6 +552,13 @@ var onlineLeafDescriptions = map[string]string{
 }
 
 var onlineRequiredFlags = map[string][]string{
+	"http grant create --file PATH":                                      {"file"},
+	"http grant update ID --file PATH [--etag ETAG]":                     {"file"},
+	"http default update ID --file PATH [--etag ETAG]":                   {"file"},
+	"http test-access --file PATH":                                       {"file"},
+	"http credential create --file PATH":                                 {"file"},
+	"http credential update ID --file PATH [--etag ETAG]":                {"file"},
+	"http credential rotate ID --file PATH [--etag ETAG]":                {"file"},
 	"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH": {"secret-output"},
 	"mcp server create --file PATH":                                      {"file"},
 	"mcp server credential replace ID --file PATH [--etag ETAG]":         {"file"},

@@ -45,6 +45,7 @@ export interface Principal {
   displayName: string;
   state: PrincipalState;
   visibility: PrincipalVisibility;
+  httpDefault: "allow" | "block";
   revision: string;
   credentialRevision: string;
   credential: AgentCredential | null;
@@ -98,6 +99,7 @@ function decodePrincipal(value: unknown): Principal {
     "display_name",
     "state",
     "visibility",
+    "http_default",
     "revision",
     "credential_revision",
     "credential",
@@ -118,6 +120,7 @@ function decodePrincipal(value: unknown): Principal {
     displayName: text(item.display_name),
     state: closed(item.state, ["active", "disabled"]),
     visibility: closed(item.visibility, ["requestable", "allowed-only", "all"]),
+    httpDefault: closed(item.http_default, ["allow", "block"]),
     revision: revision(item.revision),
     credentialRevision: revision(item.credential_revision),
     credential:
@@ -230,7 +233,9 @@ export class PrincipalDirectory {
       id: "principal-directory",
       matches: (key) =>
         key === "#/overview" ||
-        parseFragment(key)?.destination === "invocations",
+        ["invocations", "http-traffic"].includes(
+          parseFragment(key)?.destination ?? "",
+        ),
       invalidations: ["authorization"],
       read: () => readPrincipals(session),
       publish: (principals) => {
@@ -270,15 +275,22 @@ async function readPrincipal(
   const result = await readJSON(session, `/api/v2/principals/${id}`);
   if (result === undefined) return undefined;
   if (!result.response.ok) throw new Error("Principal data is unavailable.");
+  const principal = decodePrincipal(result.value);
   const etag = result.response.headers.get("ETag");
-  if (etag === null || !/^"[\x21\x23-\x7e]{1,255}"$/.test(etag))
+  if (principal.id !== id || etag !== `"principal-${id}-${principal.revision}"`)
     throw new Error("The current principal revision is unavailable.");
-  return { principal: decodePrincipal(result.value), etag };
+  return { principal, etag };
 }
 async function decodeMutationPrincipal(response: Response): Promise<Principal> {
   if (response.headers.get("Content-Type") !== "application/json")
     throw new Error("invalid response");
-  return decodePrincipal((await response.json()) as unknown);
+  const principal = decodePrincipal((await response.json()) as unknown);
+  if (
+    response.headers.get("ETag") !==
+    `"principal-${principal.id}-${principal.revision}"`
+  )
+    throw new Error("invalid principal revision");
+  return principal;
 }
 async function decodeCredentialCreation(
   response: Response,
@@ -315,7 +327,9 @@ function PrincipalEditor({
   detail,
   onRefresh,
   notify,
+  readUnavailable = false,
 }: {
+  readUnavailable?: boolean;
   mutations: MutationCoordinator;
   detail?: PrincipalDetail;
   onRefresh: () => void;
@@ -327,6 +341,7 @@ function PrincipalEditor({
     displayName: principal?.displayName ?? "",
     state: principal?.state ?? ("active" as PrincipalState),
     visibility: principal?.visibility ?? ("requestable" as PrincipalVisibility),
+    httpDefault: principal?.httpDefault ?? ("block" as const),
   });
   const [displayName, setDisplayName] = useState(
     initialDraft.current.displayName,
@@ -337,6 +352,10 @@ function PrincipalEditor({
   const [visibility, setVisibility] = useState<PrincipalVisibility>(
     initialDraft.current.visibility,
   );
+  const [httpDefault, setHTTPDefault] = useState<"allow" | "block">(
+    initialDraft.current.httpDefault,
+  );
+  const [expected, setExpected] = useState(detail?.etag);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [controller] = useState<
@@ -346,23 +365,33 @@ function PrincipalEditor({
     controller.snapshot(),
   );
   const submitButton = useRef<HTMLButtonElement>(null);
-  const navigate = useUnsavedChanges(
-    JSON.stringify({ displayName, state, visibility }) !==
-      JSON.stringify(initialDraft.current),
-  );
+  const dirty =
+    JSON.stringify({ displayName, state, visibility, httpDefault }) !==
+    JSON.stringify(initialDraft.current);
+  const stale = !create && (readUnavailable || expected !== detail?.etag);
+  const navigate = useUnsavedChanges(dirty);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
-    if (principal === undefined) return;
+    if (
+      principal === undefined ||
+      dirty ||
+      mutation.state === "uncertain" ||
+      mutation.requiresRefresh
+    )
+      return;
     initialDraft.current = {
       displayName: principal.displayName,
       state: principal.state,
       visibility: principal.visibility,
+      httpDefault: principal.httpDefault,
     };
     setDisplayName(principal.displayName);
     setState(principal.state);
     setVisibility(principal.visibility);
-  }, [principal?.id]);
+    setHTTPDefault(principal.httpDefault);
+    setExpected(detail?.etag);
+  }, [principal?.id, detail?.etag]);
 
   const settle = async (
     promise: Promise<MutationOutcome<Principal | PrincipalCreation>>,
@@ -376,17 +405,20 @@ function PrincipalEditor({
         displayName: saved.displayName,
         state: saved.state,
         visibility: saved.visibility,
+        httpDefault: saved.httpDefault,
       };
       setDisplayName(saved.displayName);
       setState(saved.state);
       setVisibility(saved.visibility);
+      setHTTPDefault(saved.httpDefault);
+      setExpected(`"principal-${saved.id}-${saved.revision}"`);
       if (create) {
         notify(
           "Principal created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
         );
         navigate(`#/principals/${saved.id}`, true);
       } else {
-        setNotice("Principal identity and MCP discovery visibility saved.");
+        setNotice("Principal settings saved.");
         onRefresh();
       }
     }
@@ -417,27 +449,40 @@ function PrincipalEditor({
           decode: decodeMutationCreation,
         },
       };
-    if (detail === undefined) return undefined;
+    if (
+      detail === undefined ||
+      stale ||
+      mutation.state === "uncertain" ||
+      mutation.requiresRefresh
+    )
+      return undefined;
     const current = detail.principal;
+    const baseline = initialDraft.current;
     const patch: Record<string, string> = {};
-    if (displayName !== current.displayName) patch.display_name = displayName;
-    if (state !== current.state) patch.state = state;
-    if (visibility !== current.visibility) patch.visibility = visibility;
+    if (displayName !== baseline.displayName) patch.display_name = displayName;
+    if (state !== baseline.state) patch.state = state;
+    if (visibility !== baseline.visibility) patch.visibility = visibility;
+    if (httpDefault !== baseline.httpDefault) patch.http_default = httpDefault;
     if (Object.keys(patch).length === 0) {
       setError("Change at least one principal field.");
       return undefined;
     }
     return {
-      authority: state !== current.state,
+      authority: patch.state !== undefined || patch.http_default !== undefined,
       spec: {
         route: `/api/v2/principals/${current.id}`,
         method: "PATCH",
         body: JSON.stringify(patch),
-        precondition: detail.etag,
+        precondition: expected ?? null,
         requiresPrecondition: true,
         idempotency: "none",
         successStatuses: [200],
-        decode: decodeMutationPrincipal,
+        decode: async (response) => {
+          const saved = await decodeMutationPrincipal(response);
+          if (saved.id !== current.id)
+            throw new Error("invalid principal identity");
+          return saved;
+        },
       },
     };
   };
@@ -450,6 +495,7 @@ function PrincipalEditor({
   };
   const disabled =
     mutation.state === "submitting" ||
+    mutation.state === "confirming" ||
     mutation.availability === "storage_latched";
 
   return (
@@ -481,6 +527,7 @@ function PrincipalEditor({
         </>
       )}
       <form
+        id="principal-editor-form"
         data-testid="principal-editor"
         onSubmit={(event) => {
           event.preventDefault();
@@ -539,54 +586,145 @@ function PrincipalEditor({
             </select>
           )}
         </FormField>
-        {error !== undefined && (
-          <StateNotice state="error" title="Check principal configuration">
-            <p>{error}</p>
-          </StateNotice>
-        )}
-        {mutation.problem !== undefined && (
-          <StateNotice state="error" title={mutation.problem.title}>
-            {mutation.requiresRefresh && (
-              <p>
-                The current principal was reloaded. Review the preserved safe
-                draft before submitting again.
-              </p>
+        {!create && (
+          <FormField
+            id="principal-http-default"
+            label="HTTP default"
+            hint="Default allow supplies no credential, tunnel permission or local/private access."
+          >
+            {(attributes) => (
+              <select
+                {...attributes}
+                value={httpDefault}
+                disabled={disabled}
+                onChange={(event) =>
+                  setHTTPDefault(event.currentTarget.value as "allow" | "block")
+                }
+              >
+                <option value="block">Block</option>
+                <option value="allow">Allow requests</option>
+              </select>
             )}
-          </StateNotice>
+          </FormField>
         )}
-        {mutation.state === "uncertain" && (
-          <StateNotice state="warning" title="Principal outcome is unknown">
-            <p>
-              Do not replay this non-idempotent change. Refresh the principal
-              and authorization state to investigate.
-            </p>
-          </StateNotice>
-        )}
-        {notice !== undefined && <StateNotice state="empty" title={notice} />}
-        <button
-          ref={submitButton}
-          class={`${create ? "create-action" : "safe-action"} form-submit-action`}
-          data-testid="principal-editor-submit"
-          type="submit"
-          disabled={disabled}
-        >
-          {mutation.state === "submitting"
-            ? "Submitting…"
-            : create
-              ? "Review and create"
-              : "Save principal"}
-        </button>
       </form>
+      {(stale || mutation.requiresRefresh || mutation.state === "uncertain") &&
+        detail !== undefined && (
+          <StateNotice
+            state="warning"
+            title="Review current principal settings"
+          >
+            <p>
+              Your draft is preserved. Current values:{" "}
+              {detail.principal.displayName}; {detail.principal.state};{" "}
+              {visibilityText(detail.principal.visibility)}; HTTP default{" "}
+              {detail.principal.httpDefault}.
+            </p>
+            <div class="form-actions">
+              <button type="button" onClick={onRefresh}>
+                Refresh current settings
+              </button>
+              {mutation.state !== "uncertain" && (
+                <button
+                  type="button"
+                  disabled={readUnavailable}
+                  onClick={() => {
+                    const current = detail.principal;
+                    const baseline = initialDraft.current;
+                    if (displayName === baseline.displayName)
+                      setDisplayName(current.displayName);
+                    if (state === baseline.state) setState(current.state);
+                    if (visibility === baseline.visibility)
+                      setVisibility(current.visibility);
+                    if (httpDefault === baseline.httpDefault)
+                      setHTTPDefault(current.httpDefault);
+                    initialDraft.current = {
+                      displayName: current.displayName,
+                      state: current.state,
+                      visibility: current.visibility,
+                      httpDefault: current.httpDefault,
+                    };
+                    setExpected(detail.etag);
+                    controller.abandon();
+                  }}
+                >
+                  Use reviewed revision; keep draft
+                </button>
+              )}
+              {mutation.state === "uncertain" && (
+                <button
+                  type="button"
+                  disabled={readUnavailable}
+                  onClick={() => {
+                    const current = detail.principal;
+                    initialDraft.current = {
+                      displayName: current.displayName,
+                      state: current.state,
+                      visibility: current.visibility,
+                      httpDefault: current.httpDefault,
+                    };
+                    setDisplayName(current.displayName);
+                    setState(current.state);
+                    setVisibility(current.visibility);
+                    setHTTPDefault(current.httpDefault);
+                    setExpected(detail.etag);
+                    controller.abandon();
+                    setNotice(undefined);
+                  }}
+                >
+                  Discard uncertain draft; use current settings
+                </button>
+              )}
+            </div>
+          </StateNotice>
+        )}
+      {error !== undefined && (
+        <StateNotice state="error" title="Check principal configuration">
+          <p>{error}</p>
+        </StateNotice>
+      )}
+      {mutation.problem !== undefined && (
+        <StateNotice state="error" title={mutation.problem.title}>
+          {mutation.requiresRefresh && (
+            <p>
+              Review current settings and the preserved draft before accepting a
+              refreshed revision.
+            </p>
+          )}
+        </StateNotice>
+      )}
+      {mutation.state === "uncertain" && (
+        <StateNotice state="warning" title="Principal outcome is unknown">
+          <p>
+            Do not replay this non-idempotent change. Refresh the principal and
+            authorization state to investigate.
+          </p>
+        </StateNotice>
+      )}
+      {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      <button
+        ref={submitButton}
+        class={`${create ? "create-action" : "safe-action"} form-submit-action`}
+        data-testid="principal-editor-submit"
+        form="principal-editor-form"
+        type="submit"
+        disabled={
+          disabled ||
+          stale ||
+          mutation.requiresRefresh ||
+          mutation.state === "uncertain"
+        }
+      >
+        {mutation.state === "submitting"
+          ? "Submitting…"
+          : create
+            ? "Review and create"
+            : "Save principal"}
+      </button>
       <ConfirmationDialog
         id="principal-change-confirm"
         open={mutation.state === "confirming"}
-        title={
-          create
-            ? "Review principal"
-            : state === "disabled"
-              ? "Disable principal?"
-              : "Re-enable principal?"
-        }
+        title={create ? "Review principal" : "Review principal changes"}
         consequence={
           create ? (
             <div class="review-stack">
@@ -614,25 +752,51 @@ function PrincipalEditor({
                 </div>
               </dl>
             </div>
-          ) : state === "disabled" ? (
-            <p>
-              Disabling revokes current agent authority and interrupts
-              credential-bound sessions and streams.
-            </p>
           ) : (
-            <p>
-              Re-enabling does not restore revoked credentials or removed MCP
-              self-service access.
-            </p>
+            <div class="review-stack">
+              <dl class="fact-grid">
+                {displayName !== initialDraft.current.displayName && (
+                  <div>
+                    <dt>Display name</dt>
+                    <dd>{displayName}</dd>
+                  </div>
+                )}
+                {state !== initialDraft.current.state && (
+                  <div>
+                    <dt>Principal enabled</dt>
+                    <dd>{state === "active" ? "Enabled" : "Disabled"}</dd>
+                  </div>
+                )}
+                {visibility !== initialDraft.current.visibility && (
+                  <div>
+                    <dt>MCP discovery visibility</dt>
+                    <dd>{visibilityText(visibility)}</dd>
+                  </div>
+                )}
+                {httpDefault !== initialDraft.current.httpDefault && (
+                  <div>
+                    <dt>HTTP default</dt>
+                    <dd>{httpDefault}</dd>
+                  </div>
+                )}
+              </dl>
+              {state !== initialDraft.current.state && (
+                <p>
+                  {state === "disabled"
+                    ? "Disabling revokes current agent authority and interrupts credential-bound sessions and streams."
+                    : "Re-enabling does not restore revoked credentials or removed MCP self-service access."}
+                </p>
+              )}
+              {httpDefault !== initialDraft.current.httpDefault && (
+                <p>
+                  Explicit blocks still win. Default allow supplies no
+                  credential, tunnel permission or local/private access.
+                </p>
+              )}
+            </div>
           )
         }
-        confirmLabel={
-          create
-            ? "Create principal"
-            : state === "disabled"
-              ? "Disable principal"
-              : "Re-enable principal"
-        }
+        confirmLabel={create ? "Create principal" : "Save principal changes"}
         destructive={!create && state === "disabled"}
         returnFocus={submitButton}
         onCancel={() => controller.abandon()}
@@ -960,7 +1124,11 @@ export function Principals({
         />
       </div>
     );
-  if (principalID !== undefined && error !== undefined)
+  if (
+    principalID !== undefined &&
+    error !== undefined &&
+    detail?.principal.id !== principalID
+  )
     return (
       <StateNotice state="error" title="Principal data unavailable">
         <p>{error}</p>
@@ -972,6 +1140,11 @@ export function Principals({
     const principal = detail.principal;
     return (
       <div class="domain-view" data-testid="principal-detail">
+        {error !== undefined && (
+          <StateNotice state="error" title="Current principal data unavailable">
+            <p>{error} Your draft is preserved; refresh before saving.</p>
+          </StateNotice>
+        )}
         <nav class="detail-navigation" aria-label="Principal navigation">
           <a href="#/principals">Back to principals</a>
         </nav>
@@ -1025,8 +1198,10 @@ export function Principals({
           onRefresh={onRefresh}
         />
         <PrincipalEditor
+          key={principal.id}
           mutations={mutations}
           detail={detail}
+          readUnavailable={error !== undefined}
           onRefresh={onRefresh}
           notify={notify}
         />

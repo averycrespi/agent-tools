@@ -144,6 +144,7 @@ type AgentCredential struct {
 }
 
 type Principal struct {
+	HTTPDefault        HTTPDefault         `json:"http_default"`
 	ID                 string              `json:"id"`
 	DisplayName        string              `json:"display_name"`
 	State              PrincipalState      `json:"state"`
@@ -289,14 +290,26 @@ type TrafficStatus struct {
 	UnknownCompletionPossible bool   `json:"unknown_completion_possible"`
 }
 
+type HTTPProxyStatus struct {
+	Enabled       bool        `json:"enabled"`
+	Ready         bool        `json:"ready"`
+	Authority     string      `json:"authority,omitempty"`
+	CAReady       bool        `json:"ca_ready"`
+	Connections   LimitStatus `json:"connections"`
+	Work          LimitStatus `json:"work"`
+	ActiveStreams int64       `json:"active_streams"`
+	ActiveTunnels int64       `json:"active_tunnels"`
+}
+
 type SystemStatus struct {
-	Traffic   *TrafficStatus `json:"traffic,omitempty"`
-	Process   ProcessStatus  `json:"process"`
-	SQLite    SQLiteStatus   `json:"sqlite"`
-	Keyring   KeyringStatus  `json:"keyring"`
-	Limits    LimitsStatus   `json:"limits"`
-	Backup    BackupStatus   `json:"backup"`
-	Protocols ProtocolStatus `json:"protocols"`
+	HTTPProxy *HTTPProxyStatus `json:"http_proxy,omitempty"`
+	Traffic   *TrafficStatus   `json:"traffic,omitempty"`
+	Process   ProcessStatus    `json:"process"`
+	SQLite    SQLiteStatus     `json:"sqlite"`
+	Keyring   KeyringStatus    `json:"keyring"`
+	Limits    LimitsStatus     `json:"limits"`
+	Backup    BackupStatus     `json:"backup"`
+	Protocols ProtocolStatus   `json:"protocols"`
 }
 
 type AdminSessionBootstrap struct {

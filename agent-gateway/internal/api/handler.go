@@ -99,13 +99,16 @@ type Options struct {
 	Invalidate       func(contract.Invalidation)
 	NewKeepalive     func() (<-chan time.Time, func())
 	Origin           string
-	Status           func() contract.SystemStatus
+	Status           func(context.Context) (contract.SystemStatus, error)
 	OAuthCallback    OAuthCallbackService
 	Servers          ServerService
 	Principals       PrincipalService
 	GrantRequests    GrantRequestService
 	Invocations      InvocationReader
+	HTTPTraffic      HTTPTrafficReader
 	Audit            AuditReader
+	HTTPPolicies     HTTPPolicyService
+	HTTPCredentials  HTTPCredentialService
 	GrantTarget      authorization.CurrentGrantTargetValidator
 	AuthFlows        AuthFlowService
 	Replacements     CredentialReplacementService
@@ -128,14 +131,17 @@ type Handler struct {
 	invalidate       func(contract.Invalidation)
 	newKeepalive     func() (<-chan time.Time, func())
 	origin           string
-	status           func() contract.SystemStatus
+	status           func(context.Context) (contract.SystemStatus, error)
 	callbackService  OAuthCallbackService
 	servers          ServerService
 	principals       PrincipalService
 	collections      AuthorizationCollectionService
 	grantRequests    GrantRequestService
 	invocations      InvocationReader
+	httpTraffic      HTTPTrafficReader
 	audit            AuditReader
+	httpPolicies     HTTPPolicyService
+	httpCredentials  HTTPCredentialService
 	grantTarget      authorization.CurrentGrantTargetValidator
 	authFlows        AuthFlowService
 	replacements     CredentialReplacementService
@@ -165,7 +171,7 @@ type authentication struct {
 
 func New(options Options) *Handler {
 	if options.Status == nil {
-		options.Status = func() contract.SystemStatus { return contract.SystemStatus{} }
+		options.Status = func(context.Context) (contract.SystemStatus, error) { return contract.SystemStatus{}, nil }
 	}
 	if options.NewKeepalive == nil {
 		options.NewKeepalive = func() (<-chan time.Time, func()) {
@@ -192,7 +198,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{inventoryEpoch: rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, audit: options.Audit, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{inventoryEpoch: rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, httpTraffic: options.HTTPTraffic, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -354,7 +360,12 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			writeProblem(writer, contract.ProblemMalformedRequest)
 			return
 		}
-		writeJSON(writer, http.StatusOK, handler.status())
+		status, err := handler.status(request.Context())
+		if err != nil {
+			writeProblem(writer, contract.ProblemStorageUnavailable)
+			return
+		}
+		writeJSON(writer, http.StatusOK, status)
 	case path == "/api/v2/backups" && request.Method == http.MethodGet:
 		handler.listBackups(writer, request)
 	case path == "/api/v2/backups" && request.Method == http.MethodPost:
@@ -371,6 +382,15 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.auditCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v2/audit-events/") && handler.audit != nil:
 		handler.auditMember(writer, request, strings.TrimPrefix(path, "/api/v2/audit-events/"))
+	case path == "/api/v2/http/traffic" && handler.httpTraffic != nil && request.Method == http.MethodGet:
+		handler.httpTrafficCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v2/http/traffic/") && handler.httpTraffic != nil && request.Method == http.MethodGet:
+		id := strings.TrimPrefix(path, "/api/v2/http/traffic/")
+		if id != "" && !strings.Contains(id, "/") {
+			handler.httpTrafficMember(writer, request, id)
+		} else {
+			writeProblem(writer, contract.ProblemNotFound)
+		}
 	case path == "/api/v2/mcp/invocations" && handler.invocations != nil:
 		handler.invocationsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v2/mcp/invocations/") && handler.invocations != nil:
@@ -401,6 +421,24 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		if len(segments) == 1 && segments[0] != "" {
 			handler.grantMember(writer, request, segments[0])
 		} else {
+			writeProblem(writer, contract.ProblemNotFound)
+		}
+	case path == "/api/v2/http/grants" && handler.httpPolicies != nil:
+		handler.httpGrants(writer, request, "")
+	case strings.HasPrefix(path, "/api/v2/http/grants/") && handler.httpPolicies != nil:
+		handler.httpGrants(writer, request, strings.TrimPrefix(path, "/api/v2/http/grants/"))
+	case path == "/api/v2/http/access-preview" && handler.httpPolicies != nil:
+		handler.previewHTTP(writer, request)
+	case path == "/api/v2/http/credentials" && handler.httpCredentials != nil:
+		handler.httpCredentialCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v2/http/credentials/") && handler.httpCredentials != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/http/credentials/"), "/")
+		switch {
+		case len(segments) == 1:
+			handler.httpCredentialMember(writer, request, segments[0], false)
+		case len(segments) == 2 && segments[1] == "rotate":
+			handler.httpCredentialMember(writer, request, segments[0], true)
+		default:
 			writeProblem(writer, contract.ProblemNotFound)
 		}
 	case path == "/api/v2/principals" && handler.principals != nil:

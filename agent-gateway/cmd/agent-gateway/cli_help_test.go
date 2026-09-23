@@ -85,7 +85,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:370915ca7ddbfe4b06f75c5aaf1b7609afad382e2be44593966b8c39db4c5488", digest)
+	assert.Equal(t, "sha256:90112eaa85652cf25a1cd3f17719cf11195187c58b51ddf9df2ceccc0225eba4", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -209,6 +209,13 @@ func TestCLIUnknownCommandsAreInputErrors(t *testing.T) {
 
 func testCLICommandErrors(t *testing.T) {
 	requiredFlags := map[string][]string{
+		"http grant create --file PATH":                                      {"file"},
+		"http grant update ID --file PATH [--etag ETAG]":                     {"file"},
+		"http default update ID --file PATH [--etag ETAG]":                   {"file"},
+		"http test-access --file PATH":                                       {"file"},
+		"http credential create --file PATH":                                 {"file"},
+		"http credential update ID --file PATH [--etag ETAG]":                {"file"},
+		"http credential rotate ID --file PATH [--etag ETAG]":                {"file"},
 		"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH": {"secret-output"},
 		"mcp server create --file PATH":                                      {"file"},
 		"mcp server credential replace ID --file PATH [--etag ETAG]":         {"file"},

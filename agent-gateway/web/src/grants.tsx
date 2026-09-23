@@ -876,6 +876,7 @@ async function principalVisibility(
     "display_name",
     "state",
     "visibility",
+    "http_default",
     "revision",
     "credential_revision",
     "credential",

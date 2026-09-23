@@ -9,7 +9,20 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 )
 
+// e2eMaterialDirectory is set only by the isolated real-binary harness at link
+// time, including the disposable demo runner. Unconfigured E2E builds retain
+// process-local material. It is not a runtime
+// flag, environment fallback, native provider or production persistence claim.
+var e2eMaterialDirectory string
+
 func productionProvider(installationID string) (*keyring.Provider, error) {
+	if e2eMaterialDirectory != "" {
+		backend, err := newE2EFileBackend(e2eMaterialDirectory)
+		if err != nil {
+			return nil, err
+		}
+		return keyring.NewProviderWithBackend(installationID, backend)
+	}
 	return keyring.NewProviderWithBackend(installationID, newE2EKeyringBackend())
 }
 

@@ -24,24 +24,57 @@ Schema 16 adds `grants.read_only`, `grant_requests.requested_read_only`, and `gr
 
 Schema 17 adds nullable `invocations.failure_diagnostics`, a maximum 512-byte JSON object limited to failed terminal rows. Invocation validates its closed vocabulary at writes and startup. Existing rows retain NULL, with no reconstructed history. Diagnostics commit with the one terminal transition, remain immutable afterward, and are included in backups; raw errors and payloads remain forbidden.
 
+Schema 19 adds secret-free HTTP credential metadata and permanent tombstones, and expands the keyring fence kind to `http_credential` while preserving existing MCP fences. Structural verification checks the replacement fence table and credential DDL; the HTTP credential owner validates canonical metadata and current material bindings before readiness. Backup restore invokes its stopped-stage invalidation seam, removing restored current HTTP authority and advancing affected metadata/material revisions without reading or deleting keyring contents. An older snapshot therefore cannot reactivate retired material.
+
+Schema 20 adds HTTP default and grant tables without changing MCP rows. Defaults backfill to block and an exact verified principal-insert trigger seeds each new default atomically. Grant rows contain only canonical policy configuration, bounded descriptions, immutable principal/ID, revisions and timestamps. The authorization owner validates all defaults, policies and credential references during startup and staged restore. Restored unavailable credential material remains unavailable without deleting its valid grant references.
+
+Schema 21 adds the installation CA's safe singleton revision, opaque handle and
+public certificate, and expands the closed keyring fence kind to `http_ca`.
+The CA owner validates metadata/bindings; signing bytes remain only in protected
+keyring generations. Every staged restore invalidates CA authority before installation,
+requiring explicit replacement and client trust updates even when old physical keys
+survive. See [CA lifecycle](downstream-servers.md#installation-interception-ca).
+
 Storage owns only this DDL, seeding, and structural migration boundary. Authorization owns online SQL and validates every bounded principal-authority singleton and row coherently before the rest of the production graph is constructed; server target existence and synthetic collision checks remain delegated to the servers package on that same transaction.
 
 Every connection installs a two-second busy policy, enables foreign keys, verifies WAL and `synchronous=FULL`, and derives `max_page_count` from the compiled 1 GiB database limit and that connection's actual page size. Foreign, newer, partial, corrupt, unsafe-permission, and over-limit generations fail closed.
 
 ## Isolated traffic store
 
-Schema 17 adds the control-owned `traffic_selection` singleton. Production selects
-exactly one independently bound `invocation.TrafficStore` for all MCP evidence,
+Schema 18 adds the control-owned `traffic_selection` singleton. Production selects
+exactly one independently bound `invocation.TrafficStore` for MCP and HTTP evidence,
 completion and history. Control retains identities, credentials, policy, requests,
 configuration and administrative audit. Storage owns traffic DDL; invocation owns
 its evidence, SQL, validation, writer and reads. There is one composition graph,
-installation lock and authenticator, with no dual writes, HTTP registry, execution
+installation lock and authenticator, with no dual writes, protocol registry, execution
 queue or replay. Composition retains installation ownership through traffic close.
 A missing, foreign or invalid selected generation fails closed; an unselected
 legacy installation requires explicit stopped migration, never live backfill.
 
 An explicitly created `traffic-<generation>.db` uses application ID `MGT1`, schema
-1, and exact installation/generation bindings. Creation checkpoints and closes an
+2, and exact installation/generation bindings. Control schema 20 retains the
+existing installation/generation selector: its binding format does not change.
+Traffic schema 2 adds a distinct `http_traffic` table, stored indexed query facts,
+and immutable-admission/one-terminal triggers in the same database. MCP tables,
+rows, diagnostics and public representations are unchanged. Both domains share
+traffic metadata, monotonic sequence allocation, retention and physical budget.
+The MCP sequence high-water includes HTTP insertions without inventing MCP rows.
+
+Before readiness, under existing installation ownership and before constructing
+readers or starting the writer, a schema-1 selected generation receives exactly
+one complete schema/binding/evidence/accounting validation. A bounded transaction
+then adds only empty HTTP tables/indexes/triggers and advances user_version to 2.
+This uses the existing writer connection, physical reservation and FULL durability;
+after commit, exact new DDL and file bounds are verified without rescanning
+unchanged evidence. Current schema-2 startup performs one complete validation of
+both domains. A failed or uncertain migration never produces a ready store;
+a fresh startup validates the atomic version that actually settled. No online
+backfill, new operator command, file replacement or implicit empty initialization
+is involved. Existing selected pairs still reject `migrate-traffic`; schema-17
+single-store extraction remains the explicit stopped operation. Older readers
+reject traffic schema 2. Immutable paired backup verification accepts exact
+schema-1 and schema-2 definitions, and restore copies both domains into a fresh
+generation while preserving missing completions. Creation checkpoints and closes an
 owner-only stage, syncs its file, publishes without replacing an existing name,
 and syncs the directory before and after removing the staging name. Failed
 publication retains evidence; opening a missing generation never creates it.
@@ -54,8 +87,7 @@ common time/class pair; production completion additionally persists validated,
 immutable encoded diagnostics in the same terminal update. The fixed retention
 charge reserves the maximum diagnostic size before admission. Control schema 18
 adds traffic selection after schema 17 diagnostics; stopped migration and restore
-preserve diagnostics, while older schema-9-through-16 history has none. Earlier experimental traffic schemas are rejected,
-not silently migrated or recreated.
+preserve diagnostics, while older schema-9-through-16 history has none. Unsupported experimental traffic schemas are rejected, not silently recreated.
 
 The writer has one connection, WAL, `synchronous=FULL`, a 50 ms busy bound,
 foreign keys, disabled cache spilling and automatic checkpointing, and a verified
@@ -82,8 +114,11 @@ violations; I/O uncertainty faults the writer. This conservative policy may refu
 work well below the combined limit; it is not a throughput guarantee or a hard
 bound on uninterruptible filesystem I/O. Ownership remains held until settlement.
 
-Logical retention charges include encoded evidence plus 1024 bytes per admission,
-including reserved completion space. The logical allowance is one quarter of the
+Logical retention charges include encoded evidence plus 1024 bytes and the
+protocol's reserved completion payload: 512 bytes for MCP diagnostics or HTTP
+terminal facts. HTTP admission JSON is at most 65,536 bytes; its charge includes
+that entire immutable payload. MCP retains its existing 16,384-byte charged-record
+ceiling. Shared batching reserves for the largest accepted domain member. The logical allowance is one quarter of the
 database partition, leaving index/fragmentation headroom. A separately configurable
 1–1,000,000 retained-row ceiling bounds full semantic validation work; it is not a
 promised history window. Each pruning scan is bounded by active capacity plus
@@ -150,7 +185,7 @@ Durability failure and latch events classify size check, identity check, intent 
 
 ### Restore credential invalidation
 
-Authorization separately owns general stopped-stage credential surgery on a supplied verified current-schema replacement store. One marker-armed transaction validates all synthetic, principal, grant, target, capacity, and revision semantics before writing; clears every complete current slot while advancing only each affected principal and credential revision once; then revalidates the complete authority and absence of current slots before commit. Zero credentials is an exact no-op. Principal metadata and timestamps, grants, synthetic identity, authorization revision, Gateway revision, server facts, and admin authority remain unchanged. Backup owns no principal, credential, or grant DML. For every accepted schema-3-through-current (currently 18) restore lineage, orchestration migrates and initially verifies the stage, invokes this authorization seam, rekeys admin authority, checkpoints and closes, then reruns closed SQLite verification plus complete authorization and grant-request semantics through the server-target and request supplied-transaction inspectors before installation. Every pre-install fault leaves the original generation authoritative.
+Authorization separately owns general stopped-stage credential surgery on a supplied verified current-schema replacement store. One marker-armed transaction validates all synthetic, principal, grant, target, capacity, and revision semantics before writing; clears every complete current slot while advancing only each affected principal and credential revision once; then revalidates the complete authority and absence of current slots before commit. Zero credentials is an exact no-op. Principal metadata and timestamps, grants, synthetic identity, authorization revision, Gateway revision, server facts, and admin authority remain unchanged. Backup owns no principal, credential, or grant DML. For every accepted schema-3-through-current (currently 21) restore lineage, orchestration migrates and initially verifies the stage, invokes this authorization seam, rekeys admin authority, checkpoints and closes, then reruns closed SQLite verification plus complete authorization and grant-request semantics through the server-target and request supplied-transaction inspectors before installation. Every pre-install fault leaves the original generation authoritative.
 
 ### Operator command boundary
 
@@ -174,6 +209,30 @@ unknown terminal evidence in the snapshot. Pins and execution are never backed u
 
 Stopped-process and backup procedures are canonical in [backup and recovery](../operators/backup-and-recovery.md). On-demand backup uses SQLite's online backup API under one nonblocking global work slot. Gateway stages an owner-only closed generation, verifies identity/schema/revision/full integrity and the 1 GiB bound, computes SHA-256, writes safe internal metadata, and atomically publishes it under a 26-character ID. The artifact-bound authority/key digest provides durable retry identity without storing a bearer or replaying a secret; 64 retained artifacts are the fixed record bound. Verification of a closed artifact reads its digest-bound database immutably: it neither creates sidecars under ambient permissions nor consults an unrelated WAL. Existing sidecars are not deleted by verification or installation naming cleanup.
 
+### Status occupancy
+
+System status obtains backup-record and retained backup-idempotency counts in one
+metadata traversal, using one retention instant and the existing inclusive
+idempotency window. Reads observe completed create/delete operations without a
+cache; hidden staging entries are not published records. Directory enumeration
+uses bounded batches and each metadata JSON read is limited to 8 KiB, with strict
+closed fields, duplicate rejection, identity/format checks and valid timestamps.
+An excess visible entry beyond the fixed 64-record maximum fails accounting before
+opening that entry's metadata; status never truncates an over-limit count into a
+successful saturated result.
+Descriptor-relative no-follow opens validate owner-only directories and regular
+metadata files before reading. Missing, unreadable, malformed or unsafe required
+metadata fails the status request with `storage_unavailable`, never healthy zero
+occupancy. A concurrent deletion may likewise cause a failed read; the next
+request observes the completed deletion without retrying the mutation.
+
+These counts do not establish artifact integrity: status neither opens nor reads
+backup databases, hashes their contents, nor runs SQLite or traffic verification.
+Creation/publication, initialization of the backup manager, list/get/delete,
+idempotent creation and stopped restore retain their full verification. Metadata
+accounting is not restore or mutation authorization; supported artifact formats
+and the successful status representation are unchanged.
+
 ### Generation replacement
 
 Stopped migration stages the control copy without upgrading the original, validates
@@ -188,4 +247,4 @@ bounded semantic evidence validation and stopped extraction; accepted schemas
 before invocation history legitimately extract an empty store. No path restores
 execution pins or falls back to empty history.
 
-Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete generation. Accepted schema-3-through-current (currently 18) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events, raw secrets, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.
+Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete generation. Accepted schema-3-through-current (currently 21) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events, raw secrets, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.

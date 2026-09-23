@@ -85,10 +85,11 @@ For trusted local VM/container forwarding, `agent-gateway serve --allowed-host h
 
 ## Common workflows
 
-Generated `agent-gateway --help` and subcommand help are the exact command reference. Renaming a current binary does not change its canonical grammar or completion name; old standalone binaries are not compatible operator clients for the current installation/control contract.
+Use `agent-gateway --help` and subcommand help for exact commands. Renaming preserves current grammar/completions; old standalone clients are incompatible.
 
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
+- [HTTP administration](docs/operators/administration.md#http-traffic-history), [CA commands](docs/operators/backup-and-recovery.md#stopped-interception-ca-commands), and [explicit proxy setup](docs/operators/http-proxy.md).
 - Use `principal`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/administration.md#mcp-permission-namespace-cutover) and [manual client configuration](docs/operators/access-control.md#configure-an-agent-client-manually).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
 - Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrative audit destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).

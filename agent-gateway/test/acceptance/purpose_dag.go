@@ -54,11 +54,14 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	nodeFoundationDefinitions := []string{
 		"agent-gateway/web/tests/diagnostic-correlation.test.ts", "agent-gateway/web/src/diagnostic-correlation.ts",
 		"agent-gateway/web/tests/pending-requests.test.ts", "agent-gateway/web/src/pending-requests.ts",
+		"agent-gateway/web/tests/resource-utilization.test.ts", "agent-gateway/web/src/resource-utilization.ts",
+		"agent-gateway/web/tests/http-policy-response.test.ts", "agent-gateway/web/src/http-policy-response.ts",
+		"agent-gateway/web/tests/http-traffic-contract.test.ts", "agent-gateway/web/src/http-traffic-contract.ts",
 		"agent-gateway/web/tests/foundations.test.ts", "agent-gateway/web/tests/invocation-query.test.ts", "agent-gateway/web/tests/location.test.ts", "agent-gateway/web/tests/mutation-contract.test.ts",
 		"agent-gateway/web/src/session.ts", "agent-gateway/web/src/view.ts", "agent-gateway/web/src/mutation.ts", "agent-gateway/web/src/sinks.ts", "agent-gateway/web/src/location.ts", "agent-gateway/web/src/invocation-query.ts",
 		"agent-gateway/internal/contract/server_states.go", "agent-gateway/internal/contract/authorization_states.go", "agent-gateway/internal/contract/invocation_projections.go",
 	}
-	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go"}
+	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/seed_http.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go"}
 	commonDefinitions := []string{makefile, manifest, dagDefinition, "agent-gateway/test/acceptance/suite_selection.go", "agent-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
 	leaf := func(id string, behaviorIDs []string, timeout, budget time.Duration, repeats, processStarts, browserStarts int, artifacts []string, extraDefinitions ...string) purposeEvidenceLeaf {
@@ -115,6 +118,9 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"agent-gateway/web/tests/browser/system-scenarios.ts", "agent-gateway/web/tests/browser/access-scenarios.ts",
 		"agent-gateway/web/tests/browser/audit-scenarios.ts", "agent-gateway/web/src/audit-contract.ts",
 		"agent-gateway/web/tests/browser/history-scenarios.ts",
+		"agent-gateway/web/tests/browser/http-credential-scenarios.ts", "agent-gateway/web/src/http-credentials.tsx",
+		"agent-gateway/web/tests/browser/http-grant-scenarios.ts", "agent-gateway/web/src/http-grants.tsx",
+		"agent-gateway/web/tests/browser/http-traffic-scenarios.ts", "agent-gateway/web/src/http-traffic.tsx",
 		"agent-gateway/web/tests/browser/server-scenarios.ts", "agent-gateway/web/tests/browser/development-scenarios.ts",
 		"agent-gateway/web/tests/browser/catalog-pagination.ts", "agent-gateway/web/tests/browser/upstream-headers.ts",
 		"agent-gateway/web/tests/browser/operation-pagination.ts", "agent-gateway/web/tests/browser/table-conventions.ts",

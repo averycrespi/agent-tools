@@ -82,12 +82,12 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 		if err != nil {
 			return nil, err
 		}
-		_, err = db.ExecContext(ctx, storage.TrafficSchema())
+		_, err = db.ExecContext(ctx, storage.TrafficSchemaVersion(2))
 		if err == nil {
 			_, err = db.ExecContext(ctx, `INSERT INTO traffic_meta VALUES(1,?,?,0,0,0,0)`, installation, generation)
 		}
 		if err == nil {
-			_, err = db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id=%d; PRAGMA user_version=1`, trafficApplicationID))
+			_, err = db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id=%d; PRAGMA user_version=2`, trafficApplicationID))
 		}
 		if err == nil && populate != nil {
 			err = populate(ctx, db)
@@ -140,7 +140,10 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 	s := &TrafficStore{db: db, path: path, config: config, pins: make(map[*TrafficReceipt]*trafficPin),
 		admissions: make(chan *trafficRequest, config.QueueRecords), terminals: make(chan *trafficRequest, config.QueueRecords),
 		stop: make(chan struct{}), done: make(chan struct{}), readSlots: make(chan struct{}, config.Readers), fault: fault}
-	if err = s.validateTraffic(ctx, installation, generation); err != nil {
+	if err = s.validateTraffic(ctx, installation, generation); err == nil {
+		err = s.upgradeTraffic(ctx)
+	}
+	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -318,7 +321,7 @@ func (s *TrafficStore) validateTraffic(ctx context.Context, installation, genera
 	if err := s.db.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&auto); err != nil {
 		return err
 	}
-	if app != trafficApplicationID || version != 1 || pageSize != trafficPageSize || maxPages != trafficPages(s.config) || syncMode != 2 || busy != 50 || spill != 0 || auto != 0 || foreign != 1 || journal != "wal" {
+	if app != trafficApplicationID || (version != 1 && version != 2) || pageSize != trafficPageSize || maxPages != trafficPages(s.config) || syncMode != 2 || busy != 50 || spill != 0 || auto != 0 || foreign != 1 || journal != "wal" {
 		return ErrInvalidState
 	}
 	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
@@ -330,12 +333,16 @@ func (s *TrafficStore) validateTraffic(ctx context.Context, installation, genera
 	return s.validateTrafficEvidence(ctx, installation, generation)
 }
 
-func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation, generation string) error {
+func (s *TrafficStore) validateTrafficSchema(ctx context.Context, version int) error {
+	ddl := storage.TrafficSchemaVersion(version)
+	if ddl == "" {
+		return ErrInvalidState
+	}
 	expected := map[string]bool{}
-	for _, ddl := range strings.Split(strings.TrimSpace(storage.TrafficSchema()), "\n\n") {
+	for _, ddl := range strings.Split(strings.TrimSpace(ddl), "\n\n") {
 		expected[strings.Join(strings.Fields(strings.TrimSuffix(strings.TrimSpace(ddl), ";")), " ")] = true
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' LIMIT 16`)
+	rows, err := s.db.QueryContext(ctx, `SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' LIMIT 32`)
 	if err != nil {
 		return err
 	}
@@ -358,16 +365,27 @@ func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation
 	if len(expected) != 0 {
 		return ErrInvalidState
 	}
+	return nil
+}
+
+func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation, generation string) error {
+	var version int
+	if err := s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if err := s.validateTrafficSchema(ctx, version); err != nil {
+		return err
+	}
 	var storedInstallation, storedGeneration string
 	var count, bytes, high, pruning int64
-	if err = s.db.QueryRowContext(ctx, `SELECT installation,generation,records,bytes,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&storedInstallation, &storedGeneration, &count, &bytes, &high, &pruning); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT installation,generation,records,bytes,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&storedInstallation, &storedGeneration, &count, &bytes, &high, &pruning); err != nil {
 		return err
 	}
 	if installation != storedInstallation || generation != storedGeneration || count > s.config.RetainedRecords || bytes > s.retentionBytes() || high < 0 || pruning < 0 || pruning > high {
 		return ErrInvalidState
 	}
 	validationSelect := strings.Replace(invocationSelect, "FROM invocations", ", (SELECT bytes FROM traffic_sizes WHERE id=invocations.id) FROM invocations", 1)
-	rows, err = s.db.QueryContext(ctx, validationSelect+` ORDER BY insertion_sequence LIMIT ?`, s.config.RetainedRecords+1)
+	rows, err := s.db.QueryContext(ctx, validationSelect+` ORDER BY insertion_sequence LIMIT ?`, s.config.RetainedRecords+1)
 	if err != nil {
 		return err
 	}
@@ -398,6 +416,15 @@ func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation
 	if err != nil {
 		return err
 	}
+	mcpCount := actualCount
+	if version == 2 {
+		httpCount, httpBytes, err := s.validateHTTPTraffic(ctx, high)
+		if err != nil {
+			return err
+		}
+		actualCount += httpCount
+		actualBytes += httpBytes
+	}
 	if actualCount != count || actualBytes != bytes {
 		return ErrInvalidState
 	}
@@ -405,7 +432,7 @@ func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation
 	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT 1 FROM traffic_sizes LIMIT ?)`, s.config.RetainedRecords+1).Scan(&sizeCount); err != nil {
 		return err
 	}
-	if sizeCount != count {
+	if sizeCount != mcpCount {
 		return ErrInvalidState
 	}
 	var sequence int64

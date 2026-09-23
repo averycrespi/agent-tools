@@ -24,7 +24,7 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 		body   []byte
 	}
 	requests := make(chan capturedRequest, 4)
-	principalBody := `{"id":"` + principalID + `","display_name":"Direct agent","state":"active","visibility":"requestable","revision":"2","credential_revision":"1","credential":null,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"}`
+	principalBody := `{"id":"` + principalID + `","display_name":"Direct agent","state":"active","visibility":"requestable","http_default":"block","revision":"2","credential_revision":"1","credential":null,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"}`
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		body, err := io.ReadAll(request.Body)
 		if err != nil {

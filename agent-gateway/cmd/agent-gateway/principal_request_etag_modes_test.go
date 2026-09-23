@@ -81,6 +81,13 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 func TestCLIRetainedFileSecurity(t *testing.T) {
 	root := newRootCmd()
 	fileOwners := map[string]bool{
+		"http grant create":             true,
+		"http grant update":             true,
+		"http default update":           true,
+		"http test-access":              true,
+		"http credential create":        true,
+		"http credential update":        true,
+		"http credential rotate":        true,
 		"mcp server create":             true,
 		"mcp server update":             true,
 		"mcp server credential replace": true,
@@ -97,6 +104,8 @@ func TestCLIRetainedFileSecurity(t *testing.T) {
 	for _, test := range []struct {
 		args []string
 	}{
+		{args: []string{"http", "credential", "create", "--secret", "secret-canary"}},
+		{args: []string{"http", "credential", "rotate", idForSecurityTest(), "--secret", "secret-canary"}},
 		{args: []string{"mcp", "server", "create", "--transport", "secret-canary"}},
 		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--values", "secret-canary"}},
 		{args: []string{"mcp", "server", "credential", "replace", idForSecurityTest(), "--client-secret", "secret-canary"}},
@@ -168,7 +177,7 @@ func principalETagBody(id, revision string, occupied bool) string {
 	if occupied {
 		credential = `{"id":"` + id + `","fingerprint":"sha256:test","revision":"1","created_at":"2026-08-30T00:00:00Z"}`
 	}
-	return `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"` + revision + `","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"}`
+	return `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","http_default":"block","revision":"` + revision + `","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"}`
 }
 
 func grantETagBody(id, revision, description string) string {

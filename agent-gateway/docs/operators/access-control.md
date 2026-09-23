@@ -6,13 +6,49 @@ Audience: Gateway administrators managing agent access
 
 Purpose: Manage principals, credentials, grants, and grant requests.
 
-This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). MCP remains the only supported target domain. Generated help owns exact syntax:
+This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). HTTP grants are administered separately from MCP permissions. Generated help owns exact syntax:
 
 - `agent-gateway principal --help`
 - `agent-gateway mcp grant --help`
 - `agent-gateway mcp grant-request --help`
 
 See [DESIGN](../../DESIGN.md) for the system design index and [Identity and authorization](../design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [Administrator CLI and local administration](administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `agent-gateway serve` first; a proven refused selected address reports the exact startup command.
+
+## HTTP grants and Test access
+
+Use **HTTP → Grants** for HTTP policy, and **Edit principal** for its HTTP default. New principals default to block; existing principals retain their stored allow/block value. MCP grants, visibility, credentials and self-service are unchanged. [Proxy activation](http-proxy.md) is separately opt-in. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
+
+```sh
+agent-gateway http grant list
+agent-gateway http grant get ID
+agent-gateway http grant create --file /private/grant.json --yes
+agent-gateway http grant update ID --file /private/grant.json --yes
+agent-gateway http grant delete ID --yes
+agent-gateway http default get PRINCIPAL_ID
+agent-gateway http default update PRINCIPAL_ID --file /private/default.json --yes
+agent-gateway http test-access --file /private/preview.json
+```
+
+Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and principal; it is not delete/recreate. Default files are exactly `{"http_default":"block"}` or `{"http_default":"allow"}`. These convenience commands read/write the canonical principal endpoint and return Principal JSON with its unified ETag, not a separate default resource. For a combined change, use `agent-gateway principal update PRINCIPAL_ID --display-name NAME --http-default allow --yes`. Omitted ETags get one validated read; use `--etag` to pin a reviewed principal revision. A stale or uncertain result must be inspected, never automatically replayed.
+
+Example grant policy: `{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"values":["GET"]},"path":{"kind":"segment_prefix","value":"/v1"}}}`. An optional `credential_id` must contain the entire HTTPS origin scope. Referenced credentials cannot be deleted or have their recipe changed; incompatible scope edits fail atomically. Expired grants remain visible and reference-bearing until deleted.
+
+Test access takes exactly `{"principal_id":"ID","url":"https://api.example.com/v1?x=1","method":"GET"}` or `{"principal_id":"ID","connect":{"host":"api.example.com","port":443}}`. It sends no upstream request and resolves neither DNS nor secrets. Interpret results as policy-only: network, TLS and material are unverified, and the result is not future admission authority. Submitted paths/query values are not retained in audit/events/logs. Use the same Test access form from the Grants page for readable deciding grant/default and credential-conflict explanations. Results show the policy, HTTP-default and principal revisions and revision-qualified deciding grant/credential references. They are labeled policy snapshots; policy changes require another explicit test.
+
+The vocabulary is **Block destination**, **Allow tunnel**, **Block requests** and
+**Allow requests**. A destination block wins; a matching tunnel allow makes
+CONNECT opaque and bypasses request restrictions and injection. Otherwise each
+request is intercepted and checked: request block wins, then request allow, then
+the principal's HTTP default. A plain/default allow does not override a matching
+credential requirement or permit private/loopback access. Only an applicable
+allow grant can permit private/loopback access; metadata and Gateway listeners
+remain forbidden. Do not treat GET as read-only or the cooperative proxy as
+network-enforced containment.
+
+See the [normative HTTP v1 contract](../design/identity-and-authorization.md#http-policy-version-1)
+for the deliberately restricted path grammar, explicit wildcard hosts, exact
+ports, credential containment and bounded explanations. This policy surface does not migrate Broker rules or qualify capacity or native
+credentials.
 
 ## Browse principal and grant tables
 
@@ -40,7 +76,7 @@ Discovery visibility grants no access; MCP grants remain authoritative for calls
 
 Principal creation also creates an ordinary permanent grant described as **Default Gateway access** for the six fixed `mcp_gateway` self-service tools. It grants no downstream access or authority for future protocols. This is the design's synthetic default grant: the description stays unchanged for existing and new records. That grant counts toward capacity, can be deleted or overridden by `DENY`, and only an administrator can restore equivalent access. Creation is atomic: capacity or required audit failure leaves neither a new principal nor its grant. Human creation output is principal metadata; JSON retains `{principal,default_grant}`. Issue the credential separately and configure downstream MCP grants separately. Principals are permanent and cannot be deleted.
 
-The principal ID/state and single credential slot remain shared identity, not per-protocol settings. Generic compatibility names such as `visibility`, `default_grant`, and `AgentCredential` do not make MCP grants protocol-general. Existing credentials and backups remain usable without reinitialization, conversion, or rotation for this clarification. Whether a future HTTP ingress shares a bearer is undecided.
+The principal ID/state and single credential slot remain shared identity, not per-protocol settings. Generic compatibility names such as `visibility`, `default_grant`, and `AgentCredential` do not make MCP grants protocol-general. Existing credentials and backups remain usable without reinitialization, conversion, or rotation for this clarification. HTTP shares this same agent credential, with separate HTTP permissions; MCP grants do not authorize HTTP.
 
 ## Update principal state or visibility
 

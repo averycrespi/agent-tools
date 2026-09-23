@@ -39,7 +39,10 @@ func validateAuthorityTx(ctx context.Context, transaction *sql.Tx, targets Store
 	if err != nil {
 		return err
 	}
-	return validateGrants(ctx, transaction, targets, principalIDs)
+	if err := validateGrants(ctx, transaction, targets, principalIDs); err != nil {
+		return err
+	}
+	return validateHTTPAuthorityTx(ctx, transaction, principalIDs)
 }
 
 func validateSingletons(ctx context.Context, transaction *sql.Tx, targets StoredGrantTargetInspector) error {

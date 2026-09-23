@@ -89,7 +89,7 @@ func (s *TrafficStore) drainTraffic() {
 
 func (s *TrafficStore) settleTraffic(r *trafficRequest, receipt *TrafficReceipt, err error) {
 	s.mu.Lock()
-	if r.completion != nil {
+	if r.terminal() {
 		s.terminalQueued--
 		delete(s.pins, r.receipt)
 	} else {
@@ -150,8 +150,8 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	}
 	for _, r := range active {
 		var receipt *TrafficReceipt
-		if err == nil && r.completion == nil {
-			receipt = &TrafficReceipt{evidence: r.prepared, owner: s, request: r.ctx}
+		if err == nil && !r.terminal() {
+			receipt = &TrafficReceipt{evidence: r.prepared, owner: s, request: r.ctx, httpAdmission: r.httpAdmission, httpAllowed: r.httpAllowed}
 		}
 		s.settleTraffic(r, receipt, err)
 	}
@@ -195,9 +195,15 @@ func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest
 }
 
 func (s *TrafficStore) applyTraffic(ctx context.Context, tx *sql.Tx, batch []*trafficRequest) error {
-	if batch[0].completion != nil {
+	if batch[0].terminal() {
 		for _, r := range batch {
-			result, err := tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=?,failure_diagnostics=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.diagnosticJSON, r.receipt.evidence.InvocationID)
+			var result sql.Result
+			var err error
+			if r.httpCompletion != "" {
+				result, err = tx.ExecContext(ctx, `UPDATE http_traffic SET completion=? WHERE id=? AND completion IS NULL`, r.httpCompletion, r.receipt.evidence.InvocationID)
+			} else {
+				result, err = tx.ExecContext(ctx, `UPDATE invocations SET completed_at=?,terminal_class=?,failure_diagnostics=? WHERE id=? AND completed_at IS NULL AND terminal_class IS NULL`, r.completion.CompletedAt, string(r.completion.Class), r.diagnosticJSON, r.receipt.evidence.InvocationID)
+			}
 			if err != nil {
 				return err
 			}
@@ -221,7 +227,7 @@ func (s *TrafficStore) applyTraffic(ctx context.Context, tx *sql.Tx, batch []*tr
 		}
 		ids[id] = true
 		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM invocations WHERE id=?)`, id).Scan(&exists); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM invocations WHERE id=? UNION ALL SELECT 1 FROM http_traffic WHERE id=?)`, id, id).Scan(&exists); err != nil {
 			return err
 		}
 		if exists != 0 {
@@ -246,7 +252,7 @@ func (s *TrafficStore) applyTraffic(ctx context.Context, tx *sql.Tx, batch []*tr
 	// and SQLite overhead. Pruning work is independently bounded per transaction.
 	victims := make([]string, 0)
 	if count+int64(len(batch)) > s.config.RetainedRecords || bytes+incoming > s.retentionBytes() {
-		rows, err := tx.QueryContext(ctx, `SELECT invocations.id,traffic_sizes.bytes FROM invocations JOIN traffic_sizes USING(id) ORDER BY insertion_sequence LIMIT ?`, s.config.ActiveRecords+s.config.BatchRecords+256)
+		rows, err := tx.QueryContext(ctx, `SELECT id,bytes FROM (SELECT invocations.id,traffic_sizes.bytes,insertion_sequence FROM invocations JOIN traffic_sizes USING(id) UNION ALL SELECT id,bytes,insertion_sequence FROM http_traffic) ORDER BY insertion_sequence LIMIT ?`, s.config.ActiveRecords+s.config.BatchRecords+256)
 		if err != nil {
 			return err
 		}
@@ -278,22 +284,40 @@ func (s *TrafficStore) applyTraffic(ctx context.Context, tx *sql.Tx, batch []*tr
 		if _, err := tx.ExecContext(ctx, `DELETE FROM invocations WHERE id=?`, id); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM http_traffic WHERE id=?`, id); err != nil {
+			return err
+		}
 	}
-	for _, r := range batch {
+	for i, r := range batch {
+		sequence := high + int64(i) + 1
+		if r.httpAdmission != "" {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO http_traffic(insertion_sequence,id,admission,bytes) VALUES(?,?,?,?)`, sequence, r.prepared.InvocationID, r.httpAdmission, r.bytes); err != nil {
+				return err
+			}
+			continue
+		}
 		values, err := admissionSQLValues(r.prepared)
 		if err != nil {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO invocations (
- id,principal_id,credential_id,credential_fingerprint,credential_revision,
+ insertion_sequence,id,principal_id,credential_id,credential_fingerprint,credential_revision,
  admitted_at,admission_class,requested_name,redacted_arguments,server_id,tool_id,upstream_name,
  descriptor_revision,descriptor_fingerprint,decision,authorization_revision,evaluated_at,grant_id
- ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, values...); err != nil {
+ ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, append([]any{sequence}, values...)...); err != nil {
 			return err
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO traffic_sizes VALUES(?,?)`, r.prepared.InvocationID, r.bytes); err != nil {
 			return err
 		}
+	}
+	// Preserve the common high-water even when the final member is HTTP, without
+	// altering MCP rows or renumbering retained evidence.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sqlite_sequence WHERE name='invocations'`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name,seq) VALUES('invocations',?)`, high+int64(len(batch))); err != nil {
+		return err
 	}
 	_, err := tx.ExecContext(ctx, `UPDATE traffic_meta SET high_water=?,pruning=pruning+? WHERE singleton=1`, high+int64(len(batch)), len(victims))
 	return err

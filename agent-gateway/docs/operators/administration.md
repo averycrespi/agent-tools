@@ -10,7 +10,64 @@ Agent Gateway's `agent-gateway --help` and subcommand help are the canonical com
 
 Keep identity and credential work under `agent-gateway principal` and **Access → Principals**. Each principal has one identity/state and at most one current agent credential. Its **MCP discovery visibility** setting affects discovery only and grants no access; manage call authority through MCP grants. Principal creation also creates the ordinary **Default Gateway access** grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols.
 
-Existing `--visibility`, API `visibility`, and creation `default_grant` names remain unchanged compatibility fields, not protocol-general grants. Principal JSON and credential representations, CLI output, defaults, and one-time sinks are unchanged; no protocol selector or MCP-settings endpoint is added. See [principal creation and credential procedures](access-control.md#create-and-inspect-principals) and the [normative identity boundary](../design/identity-and-authorization.md#shared-identity-and-mcp-policy-ownership). Do not rotate credentials, reinitialize, or convert backups for this wording clarification.
+Existing `--visibility`, API `visibility`, and creation `default_grant` names remain unchanged compatibility fields, not protocol-general grants. Every Principal JSON representation now includes `http_default`; credential-slot semantics and one-time sinks are unchanged. No protocol selector or MCP-settings endpoint is added. See [principal creation and credential procedures](access-control.md#create-and-inspect-principals) and the [normative identity boundary](../design/identity-and-authorization.md#shared-identity-and-mcp-policy-ownership). Do not rotate credentials, reinitialize, or convert backups for this wording clarification.
+
+## HTTP policy administration
+
+`agent-gateway http --help` groups scoped credentials, grants, principal HTTP defaults and policy-only Test access. Use **HTTP → Grants** or `http grant list|get|create|update|delete`; `http default get|update` operates on a principal ID without changing MCP defaults. `http test-access --file PATH` previews policy without DNS, dispatch or secret resolution. The [HTTP access-control guide](access-control.md#http-grants-and-test-access) owns complete file shapes, examples, precedence and limitations. All writes retain the same strict file, exact ETag, confirmation and no-replay mechanics below; this surface starts no production proxy.
+
+### Principal HTTP-default client cutover
+
+Upgrade service, CLI and strict clients together and reload the browser. `/api/v2/http/defaults/{id}` GET/PATCH and `http-default-*` ETags are removed, with no alias or redirect. Read `/api/v2/principals/{id}` instead; PATCH `{"http_default":"allow"}` or any combination with `display_name`, `state`, and `visibility` using that response's principal ETag. Missing/stale preconditions fail closed; an old default ETag is never valid. Lists, creation and credential-operation responses include the same new Principal field. HTTP-default CLI files use `http_default`, not `default`; JSON output is the complete Principal.
+
+In **Edit principal**, **Save principal** commits all dirty fields in one request. State/default changes share one confirmation; cancel sends no write. Conflicts preserve the draft and require review of refreshed current values before accepting their revision. Unknown outcomes are never replayed: inspect current settings and deliberately discard the uncertain draft before forming new intent. Existing stored defaults and backups need no migration, reinitialization or credential rotation.
+
+## HTTP traffic history
+
+Use **HTTP → Traffic** or the separate read-only commands:
+
+```bash
+agent-gateway http traffic list --destination example.com --type request --outcome succeeded
+agent-gateway http traffic get TRAFFIC_ID
+```
+
+Optional exact filters are `--principal-id`, `--destination` (canonical hostname,
+not a URL), `--type`, `--decision`, and `--outcome`. Lists accept the usual
+`--limit`, `--cursor`, and `--output json` controls. Detail preserves historical
+policy selectors and credential-generation references even after grants change;
+they are not current authority. Request paths, queries, headers, bodies and secrets
+are never traffic evidence. CONNECT tunnels expose no inner requests. An allowed
+record without completion means unknown outcome, not proof of nonexecution or
+permission to retry. No grant-creation or replay action is available.
+
+The browser starts Live, pauses it when loading older records, and retains at most
+500 records before requiring narrower filters or a return to newest. Manual refresh
+replaces the loaded window. Shared retention can expire a cursor; the browser then
+restarts at newest with a notice. MCP Invocations remains separate and unchanged.
+
+On ordinary startup, existing selected traffic-schema-1 stores are fully validated
+and transactionally receive empty HTTP tables in the same file before readiness.
+MCP history and generation bindings are preserved; no upgrade command or replacement
+pair is needed. Backups remain paired and restore both evidence domains. The stopped
+`storage migrate-traffic` command still rejects an already selected pair.
+[Proxy activation and fresh client setup](http-proxy.md) are explicit and separate from control administration.
+
+## Scoped HTTP credentials
+
+Use **HTTP → Credentials** to create, inspect, edit, rotate or delete a reusable HTTPS credential. It has one host/port boundary, one header, an optional fixed prefix, and one write-only secret. `Authorization` with `Bearer ` and custom API-key headers are supported. Wildcard hosts require both `*.example.com` spelling and explicit opt-in; they do not cover the apex. Transport-control headers cannot be overwritten. Credentials alone grant no HTTP access and do not start a proxy.
+
+```bash
+agent-gateway http credential list
+agent-gateway http credential get ID
+agent-gateway http credential create --file /private/create.json --yes
+agent-gateway http credential update ID --file /private/metadata.json --yes
+agent-gateway http credential rotate ID --file /private/rotation.json --yes
+agent-gateway http credential delete ID --yes
+```
+
+Create files contain `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, and `secret`. Update files contain the same complete metadata without `secret`; rotation files contain only `secret`. Treat input files as secrets and manage their permissions and removal yourself; Gateway neither persists nor deletes your source file. Never put a secret in argv, an environment variable or a browser URL. Browser input clears after submission, cancellation, navigation and sign-out; stored values cannot be revealed.
+
+Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Restoring a backup invalidates HTTP credential material even if old keyring entries survive; deliberately rotate to supply fresh authority. Existing MCP server credentials are separate and unchanged.
 
 ## Installation root
 
@@ -36,6 +93,7 @@ Exact syntax and defaults:
 - `agent-gateway admin --help`
 - `agent-gateway admin credential --help`
 - `agent-gateway admin reset --help`
+- `agent-gateway http credential --help`
 
 ## Start and inspect Gateway
 

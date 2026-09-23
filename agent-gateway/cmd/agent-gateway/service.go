@@ -20,10 +20,10 @@ func newServiceCmd() *cobra.Command {
 }
 func newServiceOperation(verb string) *cobra.Command {
 	descriptions := map[string]string{"install": "Create the private plist and logs without starting Gateway", "start": "Load the installed definition unless already loaded", "stop": "Gracefully unload and confirm process exit", "restart": "Gracefully restart with unchanged installed selections", "update": "Persist explicit settings, preserving omitted selections", "status": "Read installed settings, launchd state and separate readiness", "uninstall": "Confirm stop and remove only the canonical plist"}
-	var binary, dataDir, listen, level, output string
+	var binary, dataDir, listen, proxyListen, level, output string
 	var jsonOutput bool
 	var hosts []string
-	var clear bool
+	var clear, clearProxy bool
 	var trafficBudget int64
 	command := &cobra.Command{Use: verb, Short: descriptions[verb], Example: "  agent-gateway service " + verb}
 	usage := "agent-gateway service " + verb
@@ -42,6 +42,8 @@ func newServiceOperation(verb string) *cobra.Command {
 		command.Flags().StringVar(&binary, "binary", "", "absolute native executable path (install defaults to this executable)")
 		command.Flags().StringVar(&dataDir, "data-dir", "", "absolute data directory; update preserves the installed value when omitted")
 		command.Flags().StringVar(&listen, "listen", "", "exact numeric IPv4 loopback authority")
+		command.Flags().StringVar(&proxyListen, "http-proxy-listen", "", "enable proxy on a separate numeric IPv4 loopback authority; requires an existing CA")
+		command.Flags().BoolVar(&clearProxy, "clear-http-proxy-listen", false, "disable the installed HTTP proxy listener")
 		command.Flags().Int64Var(&trafficBudget, "traffic-budget-bytes", 0, "persist combined traffic database/WAL budget; omitted updates preserve installed selection")
 		command.Flags().StringVar(&level, "log-level", "", "persist serve diagnostics: warn, info, or debug")
 		command.Flags().StringArrayVar(&hosts, "allowed-host", nil, "replace the complete installed hostname list (repeatable)")
@@ -62,6 +64,15 @@ func newServiceOperation(verb string) *cobra.Command {
 			return fail(c, "This operation uses installed settings; --data-dir overrides are not accepted.")
 		}
 		if settings {
+			if clearProxy && c.Flags().Changed("http-proxy-listen") {
+				return fail(c, "Choose --http-proxy-listen or --clear-http-proxy-listen, not both.")
+			}
+			if c.Flags().Changed("http-proxy-listen") && proxyListen == "" {
+				return fail(c, "Provide a proxy authority or use --clear-http-proxy-listen.")
+			}
+			if clearProxy || c.Flags().Changed("http-proxy-listen") {
+				changes.HTTPProxyListen = &proxyListen
+			}
 			if c.Flags().Changed("traffic-budget-bytes") {
 				if trafficBudget < 1<<20 || trafficBudget > 16<<30 {
 					return fail(c, "Traffic budget must be between 1048576 and 17179869184 bytes.")
@@ -122,6 +133,11 @@ func writeServiceResult(c *cobra.Command, mode controlclient.OutputMode, verb st
 		if s := result.Settings; s != nil {
 			text.WriteString("\nSettings\n")
 			field("Listen", s.Listen)
+			proxy := s.HTTPProxyListen
+			if proxy == "" {
+				proxy = "disabled"
+			}
+			field("HTTP proxy", proxy)
 			field("Allowed hosts", strings.Join(s.AllowedHosts, ", "))
 			if s.LogLevel != "" {
 				field("Log level", s.LogLevel)

@@ -41,6 +41,16 @@ Install refuses an existing plist, loaded canonical job, unsafe permissions/owne
 
 The [example plist](../../examples/launchd/agent-gateway.plist) illustrates the Go-owned definition, not a runtime template dependency. XML-aware serialization preserves literal arguments, including spaces and XML characters. Generated XML includes the standard plist declaration and self-closing boolean elements for launchd compatibility; passing `plutil -lint` alone does not prove launchd will accept a definition. launchd runs the selected executable directly: no shell expansion, profile sourcing, or wrapper. `RunAtLoad` and `KeepAlive` retain launchd supervision; `ExitTimeOut=30` leaves room for Gateway's ten-second drain plus best-effort diagnostic flush. The utility PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, not a shell/version-manager environment. Managed stdio servers have their own clean configured environments.
 
+### Optional HTTP proxy
+
+HTTP is disabled by default. Install/update may persist
+`--http-proxy-listen 127.0.0.1:8212`, a distinct numeric IPv4 loopback authority.
+Omitted updates preserve it; `--clear-http-proxy-listen` explicitly disables it
+and cannot accompany a replacement value. Both binds and existing CA signing
+material must be available for configured readiness. Complete the separate
+[proxy and client setup](http-proxy.md) first; service management never creates
+CA material or installs trust. MCP-only operation does not load signing material.
+
 ### Custom paths
 
 ```bash

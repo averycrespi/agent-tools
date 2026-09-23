@@ -271,7 +271,7 @@ export async function runBackups(
   const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FB0", "01ARZ3NDEKTSV4RRFFQ69G5FB1"];
   const backup = (index: number) => ({
     id: ids[index],
-    created_at: "2026-08-28T12:00:00Z",
+    created_at: `2026-08-2${8 + index}T12:00:00Z`,
     installation_id: "11111111-2222-3333-4444-555555555555",
     schema_version: "10",
     source_revision: String(index + 7),
@@ -381,10 +381,49 @@ export async function runBackups(
     ["Backup", "Source", "Size", "Created", "Actions"],
     "Backup",
   );
-  await page.locator('[data-testid="backup-inspect"]').click();
-  await page.locator('[data-testid="backup-detail"]').waitFor();
+  const inventory = page.locator('[data-testid="backups-view"]');
+  const rows = inventory.locator('[data-testid="backup-row"]');
+  const assertSimplifiedInventory = async () => {
+    await expect(
+      inventory.getByRole("button", { name: "Inspect" }),
+    ).toHaveCount(0);
+    await expect(
+      inventory.locator('[data-testid="backup-detail"]'),
+    ).toHaveCount(0);
+    await expect(rows.locator("a, summary, [role=link]")).toHaveCount(0);
+    await expect(rows.getByRole("button")).toHaveText(
+      items.map(() => "Delete"),
+    );
+    expect(details).toBe(0);
+  };
+  await assertSimplifiedInventory();
+  await expect(rows.first().getByRole("rowheader")).toHaveText(
+    `Gateway backup${ids[0]}`,
+  );
+  await expect(rows.first().locator('[data-label="Source"]')).toHaveText(
+    "Schema 10Revision 7",
+  );
+  await expect(rows.first().locator('[data-label="Size"]')).toHaveText(
+    "4,096 bytes",
+  );
+  await expect(rows.first().locator("time")).toHaveAttribute(
+    "datetime",
+    backup(0).created_at,
+  );
   await page.locator('[data-testid="backup-create"]').click();
-  await page.locator('[data-testid="backup-create-view"]').waitFor();
+  await page
+    .locator('[data-testid="backup-create-view"]')
+    .getByRole("link", { name: "Cancel", exact: true })
+    .click();
+  await expect(inventory).toBeVisible();
+  expect(creates).toBe(0);
+  await page.locator('[data-testid="backup-create"]').click();
+  await page.locator('[data-testid="backup-review-create"]').click();
+  await page.locator('[data-testid="backup-create-confirm-cancel"]').click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.locator('[data-testid="backup-review-create"]'),
+  ).toBeFocused();
   await page.locator('[data-testid="backup-review-create"]').click();
   if (Number(creates) !== 0) fail("backup submitted before final review");
   await page.locator('[data-testid="backup-create-confirm-submit"]').click();
@@ -392,9 +431,37 @@ export async function runBackups(
   if (creates !== 1) fail("uncertain backup create replayed automatically");
   await page.locator('[data-testid="backup-replay"]').click();
   await page.getByText(/is durably published/).waitFor();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText(ids[1]!);
+  await inventory.getByRole("button", { name: "Size", exact: true }).click();
+  await expect(rows.first()).toContainText(ids[0]!);
+  await page.setViewportSize({ width: 390, height: 1000 });
+  await inventory
+    .locator(".table-sort-controls select")
+    .selectOption("created");
+  await expect(rows.first()).toContainText(ids[0]!);
+  await inventory
+    .getByRole("button", { name: "Published backup artifacts sort direction" })
+    .click();
+  await expect(rows.first()).toContainText(ids[1]!);
+  await assertSimplifiedInventory();
+  await page.locator('[data-testid="backup-delete"]').first().click();
+  await expect(page.getByRole("dialog")).toContainText(ids[1]!);
+  await page.locator('[data-testid="backup-delete-confirm-cancel"]').click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  expect(deletes).toBe(0);
+  await expect(rows).toHaveCount(2);
   await page.locator('[data-testid="backup-delete"]').first().click();
   await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
   await page.getByText(/Backup deleted/).waitFor();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(ids[0]!);
+  await page.locator('[data-testid="backup-delete"]').click();
+  await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
+  await expect(
+    inventory.getByText("No backups", { exact: true }),
+  ).toBeVisible();
+  await assertSimplifiedInventory();
   await page.locator('[data-testid="backup-create"]').click();
   await page.locator('[data-testid="backup-review-create"]').click();
   await page.locator('[data-testid="backup-create-confirm-submit"]').click();
@@ -1094,6 +1161,7 @@ export async function runOverview(
           {
             id: overviewRequestFixture().principal_id,
             display_name: "Overview agent",
+            http_default: "block",
             state: "active",
             visibility: "all",
             revision: "1",
@@ -1837,6 +1905,7 @@ export async function runInvocations(
           {
             id: invocationIDs.principal,
             display_name: "Build agent",
+            http_default: "block",
             state: "active",
             visibility: "all",
             revision: "1",
@@ -2380,6 +2449,16 @@ export async function runSystemStatus(
   let eventStreams = 0;
   let currentStatus = {
     ...overviewStatusFixture(),
+    http_proxy: {
+      enabled: true,
+      ready: false,
+      ca_ready: true,
+      authority: "127.0.0.1:8212",
+      connections: { in_use: 4, limit: 256, saturated: false },
+      work: { in_use: 3, limit: 128, saturated: false },
+      active_streams: 2,
+      active_tunnels: 1,
+    },
     traffic: {
       ready: true,
       faulted: false,
@@ -2398,7 +2477,11 @@ export async function runSystemStatus(
     join(tmpdir(), "gateway-traffic-status-"),
   );
   let holdStatus = false;
-  let releaseStatus: (() => void) | undefined;
+  let failStatus = false;
+  const statusReleases: Array<() => void> = [];
+  const releaseStatus = () => {
+    for (const release of statusReleases.splice(0)) release();
+  };
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/api/v2/events"))
       eventStreams += 1;
@@ -2413,8 +2496,20 @@ export async function runSystemStatus(
     statusReads += 1;
     if (holdStatus) {
       await new Promise<void>((resolve) => {
-        releaseStatus = resolve;
+        statusReleases.push(resolve);
       });
+    }
+    if (failStatus) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "unavailable",
+          title: "Unavailable",
+        }),
+      });
+      return;
     }
     await route.fulfill({
       status: 200,
@@ -2534,6 +2629,7 @@ export async function runSystemStatus(
   currentStatus = {
     ...currentStatus,
     process: { ...currentStatus.process, state: "ready", ready: true },
+    http_proxy: { ...currentStatus.http_proxy, ready: true },
     sqlite: { ...currentStatus.sqlite, state: "ready", latched: false },
     keyring: { capability: "ready" },
     limits: Object.fromEntries(
@@ -2557,6 +2653,7 @@ export async function runSystemStatus(
   for (const faulted of [false, true]) {
     currentStatus = {
       ...currentStatus,
+      http_proxy: { ...currentStatus.http_proxy, ready: !faulted },
       traffic: {
         ...currentStatus.traffic,
         ready: !faulted,
@@ -2568,7 +2665,7 @@ export async function runSystemStatus(
     await page
       .getByText(
         faulted
-          ? "MCP traffic persistence needs attention"
+          ? "Shared traffic persistence needs attention"
           : "No current issues require operator action.",
         { exact: true },
       )
@@ -2580,7 +2677,13 @@ export async function runSystemStatus(
     )
       fail("Traffic-only failure disabled healthy administration");
     await expect(
-      page.getByText("MCP traffic storage", { exact: true }),
+      page.getByText("Shared traffic storage", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("HTTP proxy", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("2 active requests/streams · 1 opaque tunnels", {
+        exact: true,
+      }),
     ).toBeVisible();
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
@@ -2607,6 +2710,7 @@ export async function runSystemStatus(
   }
   currentStatus = {
     ...currentStatus,
+    http_proxy: { ...currentStatus.http_proxy, ready: true },
     traffic: {
       ...currentStatus.traffic,
       ready: true,
@@ -2621,7 +2725,7 @@ export async function runSystemStatus(
   holdStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();
   await eventually(
-    () => releaseStatus !== undefined,
+    () => statusReleases.length > 0,
     "System refresh did not start",
   );
   await page.waitForFunction(
@@ -2658,7 +2762,7 @@ export async function runSystemStatus(
   await assertTableConventions(
     page,
     "Gateway resource occupancy and hard limits",
-    ["Resource", "In use", "Limit", "Status"],
+    ["Resource", "In use", "Limit", "Used (%)", "Status"],
     "Resource",
     true,
   );
@@ -2670,6 +2774,146 @@ export async function runSystemStatus(
     ).includes("Current occupancy against enforced Gateway limits.")
   )
     fail("Resource limits retained redundant occupancy guidance");
+
+  const utilizationCases = [
+    [0, 32, "0%", true],
+    [8, 32, "25%", false],
+    [27, 32, "84.4%", false],
+    [32, 32, "100%", true],
+    [9999, 10000, "99.9%", false],
+    [1, 0, "N/A", false],
+    [33, 32, "103.1%", false],
+    [Number.MAX_SAFE_INTEGER, 32, "28147497671065596.9%", false],
+  ] as const;
+  const expectedRows = overviewLimitNames
+    .map((name, index) => {
+      const [inUse, limit, used, saturated] =
+        utilizationCases[index % utilizationCases.length]!;
+      currentStatus.limits[name] = { in_use: inUse, limit, saturated };
+      return { name, inUse, limit, used, saturated };
+    })
+    .sort((left, right) =>
+      left.saturated !== right.saturated
+        ? left.saturated
+          ? -1
+          : 1
+        : left.name.localeCompare(right.name),
+    );
+  const rowContents = () =>
+    page
+      .locator('[data-testid="system-limit-row"]')
+      .evaluateAll((rows) =>
+        rows.map((row) => Array.from(row.children, (cell) => cell.textContent)),
+      );
+  const beforeRefresh = await rowContents();
+  holdStatus = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await eventually(
+    () => statusReleases.length > 0,
+    "Resource refresh did not start",
+  );
+  expect(await rowContents()).toEqual(beforeRefresh);
+  await expect(page.locator('[data-testid="gateway-shell"]')).toHaveAttribute(
+    "data-freshness",
+    "current",
+  );
+  holdStatus = false;
+  releaseStatus();
+  const expectedCells = expectedRows.map(
+    ({ name, inUse, limit, used, saturated }) => [
+      name,
+      String(inUse),
+      String(limit),
+      used,
+      saturated ? "Saturated" : "Available",
+    ],
+  );
+  await expect.poll(rowContents).toEqual(expectedCells);
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="gateway-shell"]')
+        ?.getAttribute("data-freshness") === "current",
+  );
+
+  failStatus = true;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await expect(
+    page.locator('[data-testid="system-limits-view"]'),
+  ).toHaveAttribute("data-panel-status", "error");
+  expect(await rowContents()).toEqual(expectedCells);
+  await page.screenshot({
+    path: join(trafficScreenshots, "resources-error-1280.png"),
+    fullPage: true,
+  });
+  failStatus = false;
+  await page.locator('[data-testid="manual-refresh"]').click();
+  await expect(
+    page.locator('[data-testid="system-limits-view"]'),
+  ).toHaveAttribute("data-panel-status", "current");
+  expect(await rowContents()).toEqual(expectedCells);
+
+  const limitsTable = page.getByRole("table", {
+    name: "Gateway resource occupancy and hard limits",
+  });
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await limitsTable.getByRole("columnheader").allTextContents(),
+    ).toEqual(["Resource", "In use", "Limit", "Used (%)", "Status"]);
+    expect(await limitsTable.getByRole("rowheader").allTextContents()).toEqual(
+      expectedRows.map(({ name }) => name),
+    );
+    expect(
+      await limitsTable
+        .locator("tbody tr:first-child td:nth-child(4)")
+        .evaluate((cell) => getComputedStyle(cell).textAlign),
+    ).toBe("right");
+    expect(
+      await limitsTable
+        .getByRole("columnheader", { name: "Used (%)", exact: true })
+        .evaluate((cell) => getComputedStyle(cell).textAlign),
+    ).toBe("right");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    ).toBe(false);
+    const violations = (
+      await new AxeBuilder({ page }).analyze()
+    ).violations.filter(
+      (item) => item.impact === "serious" || item.impact === "critical",
+    );
+    expect(violations).toEqual([]);
+    await page.screenshot({
+      path: join(trafficScreenshots, `resources-${width}.png`),
+      fullPage: true,
+    });
+    if (width < 700) {
+      const region = limitsTable.locator("..");
+      await region.focus();
+      await expect(region).toBeFocused();
+      await region.evaluate((element) => {
+        element.scrollLeft = element.scrollWidth;
+      });
+      await expect(
+        limitsTable.getByRole("columnheader", {
+          name: "Used (%)",
+          exact: true,
+        }),
+      ).toBeInViewport();
+      await expect(
+        limitsTable.getByRole("columnheader", { name: "Status", exact: true }),
+      ).toBeInViewport();
+      await page.screenshot({
+        path: join(trafficScreenshots, `resources-scrolled-${width}.png`),
+        fullPage: false,
+      });
+      await region.evaluate((element) => {
+        element.scrollLeft = 0;
+      });
+    }
+  }
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
