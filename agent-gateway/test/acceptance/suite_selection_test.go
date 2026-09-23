@@ -183,7 +183,7 @@ func TestSuiteOutputWriteFailureDoesNotPass(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, reader.Close())
 	t.Cleanup(func() { require.NoError(t, writer.Close()) })
-	_, err = runOSCommand(t.Context(), repositoryRoot(t), Command{Name: "sh", Arguments: []string{"-c", "printf evidence"}}, false, writer)
+	_, err = runOSCommand(t.Context(), repositoryRoot(t), Command{Name: "sh", Arguments: []string{"-c", "printf evidence"}, Timeout: 5 * time.Second}, false, writer)
 	require.ErrorIs(t, err, syscall.EPIPE)
 }
 
@@ -275,6 +275,7 @@ func TestSuiteRunnerKeepsPackageAndCommandDeadlinesSeparate(t *testing.T) {
 				assert.Equal(t, wantBound, bounded, "the package timeout must not bound compilation and the whole package group")
 				assert.Equal(t, wantDeadline, deadline)
 				assert.Contains(t, command.Arguments, "-timeout=5m0s")
+				assert.Equal(t, 12*time.Minute, command.Timeout, "the executor must receive the full command budget")
 				assert.Contains(t, command.Arguments, "-race")
 				assert.Contains(t, command.Arguments, "-count=1")
 				assert.Contains(t, command.Arguments, "./internal/first")

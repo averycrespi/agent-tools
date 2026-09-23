@@ -83,8 +83,13 @@ def check_gate(needs):
             raise ValueError(f"{job}: expected {expected}, got {actual}")
 
 
+def integration_matrix(tools):
+    return [{"tool": tool, "suite": suite} for tool in tools
+            for suite in (("integration-1", "integration-2") if tool == "agent-gateway" else ("integration",))]
+
+
 def cache_identity(root, role, tool, toolchain, platform, run, attempt):
-    if role not in {"quality", "unit", "lint", "integration", "harness", "e2e", "demo", "vulnerability"}:
+    if role not in {"quality", "unit", "lint", "integration", "integration-1", "integration-2", "harness", "e2e", "demo", "vulnerability"}:
         raise ValueError("Unknown build-cache role")
     if tool not in {"all", *inventory(root)["tools"]}:
         raise ValueError("Unknown build-cache tool")
@@ -113,6 +118,7 @@ def main():
             pr = payload["pull_request"]
             paths = changed_paths(root, pr["base"]["sha"], pr["head"]["sha"])
         selection = classify(paths, event, inventory(root))
+        selection["integration_matrix"] = integration_matrix(selection["integration"])
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             for key, value in selection.items():
                 output.write(f"{key}={json.dumps(value, separators=(',', ':'))}\n")

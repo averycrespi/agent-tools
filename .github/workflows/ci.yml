@@ -24,6 +24,7 @@ jobs:
     outputs:
       tools: ${{ steps.select.outputs.tools }}
       integration: ${{ steps.select.outputs.integration }}
+      integration_matrix: ${{ steps.select.outputs.integration_matrix }}
       e2e: ${{ steps.select.outputs.e2e }}
       gateway: ${{ steps.select.outputs.gateway }}
     steps:
@@ -122,7 +123,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [integration, harness]
+        suite: [integration-1, integration-2, harness]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/go-cache
@@ -143,7 +144,7 @@ jobs:
         run: make -C agent-gateway "test-$SUITE"
 
   integration-tests:
-    name: Integration tests (${{ matrix.tool }})
+    name: Integration tests (${{ matrix.tool }}, ${{ matrix.suite }})
     needs: changes
     if: needs.changes.outputs.integration != '[]'
     runs-on: ubuntu-latest
@@ -151,16 +152,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: ${{ fromJSON(needs.changes.outputs.integration) }}
+        include: ${{ fromJSON(needs.changes.outputs.integration_matrix) }}
     env:
       TOOL: ${{ matrix.tool }}
+      SUITE: ${{ matrix.suite }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/go-cache
         with:
-          role: integration
+          role: ${{ matrix.suite }}
           tool: ${{ matrix.tool }}
-      - run: make -C "$TOOL" test-integration
+      - run: make -C "$TOOL" "test-$SUITE"
 
   e2e-tests:
     name: End-to-end tests (${{ matrix.tool }})

@@ -49,7 +49,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 		},
 		"../../CLAUDE.md": {
 			"`internal/contract` is the executable source", "`internal/composition` is the sole production constructor", "`internal/remote` is the sole production downstream/OAuth/proxy HTTP client",
-			"Online CLI commands acquire one selected administrator bearer", "docs/maintainers/release-verification.md", "npm run ui:verify-supply-chain",
+			"Online CLI commands acquire one selected administrator bearer", "docs/maintainers/release-verification.md", "docs/maintainers/frontend-development.md",
 		},
 	}
 	for path, required := range documents {
@@ -253,7 +253,7 @@ func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T)
 		"The checked-in bundle contains no external or inline active content",
 		"OAuth URLs are text, never links",
 		"All polling pauses while hidden",
-		"Linux Chromium is blocking",
+		"Chromium is the required browser baseline for development and release acceptance",
 		"there is no prompt, argv, or environment fallback",
 		"No command polls, refetches a precondition",
 		"`accept` invokes disjoint leaves directly",

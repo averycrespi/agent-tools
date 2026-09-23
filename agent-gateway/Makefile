@@ -25,7 +25,8 @@ help:
 		'test-unit | test-integration | test-harness | test-material | suite-inventory' \
 		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-demo' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
-		'test-browser (developer aggregate; one planner, isolated leaves)' \
+		'test-browser (required Chromium aggregate; one planner, isolated leaves)' \
+		'test-browser-cross (optional Firefox/WebKit diagnostics)' \
 		'AGENT_GATEWAY_TEST_JSON=1 emits JSON events for planned Go test commands' \
 		'test-frontend-development-node | test-frontend-development-browser | test-frontend-development (developer aggregate)' \
 		'frontend-typecheck | frontend-build | frontend-verify-generated | frontend-verify-supply-chain | frontend-audit' \
@@ -65,6 +66,11 @@ test-serve-demo:
 
 test-integration:
 	go run ./test/acceptance/cmd run-suite test-integration $(SUITE_OUTPUT_FLAG)
+
+# CI-only package partitions; ordinary developer/release owners remain unsharded.
+.PHONY: test-integration-1 test-integration-2
+test-integration-1 test-integration-2:
+	go run ./test/acceptance/cmd run-suite $@ $(SUITE_OUTPUT_FLAG)
 
 test-e2e:
 	go run ./test/acceptance/cmd run-suite test-e2e $(SUITE_OUTPUT_FLAG)

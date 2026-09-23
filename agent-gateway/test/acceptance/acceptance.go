@@ -24,7 +24,8 @@ type Command struct {
 	Arguments []string
 	Artifacts []string
 	Native    bool
-	Timeout   time.Duration
+	// Timeout bounds the complete command, including compilation; Go's -timeout separately bounds each test binary.
+	Timeout time.Duration
 }
 
 type Executor interface {
@@ -48,7 +49,7 @@ func (OSExecutor) Run(ctx context.Context, root string, command Command) ([]byte
 }
 
 func runOSCommand(ctx context.Context, root string, command Command, cleanupInherited bool, stdout io.Writer) ([]byte, error) {
-	runner, err := testutil.NewBinaryRunner(19*time.Minute, 4*1024*1024)
+	runner, err := testutil.NewBinaryRunner(command.Timeout, 4*1024*1024)
 	if err != nil {
 		return nil, err
 	}

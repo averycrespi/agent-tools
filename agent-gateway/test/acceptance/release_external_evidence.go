@@ -148,35 +148,30 @@ func releaseExternalEvidenceDefinitions(root string) ([]releaseExternalEvidenceD
 	if manifest.SchemaVersion != 1 {
 		return nil, errors.New("external environment manifest version is unsupported")
 	}
-	definitions := canonicalReleaseExternalEvidenceDefinitions()
-	cells := make(map[string]struct {
-		OS, Browser, AssistiveTechnology, AcceptanceClass, UnavailableClass, ExecutableLocator string
-	}, len(manifest.Cells))
+	seen := make(map[string]bool)
 	for _, cell := range manifest.Cells {
-		cells[cell.ID] = struct {
-			OS, Browser, AssistiveTechnology, AcceptanceClass, UnavailableClass, ExecutableLocator string
-		}{cell.OS, cell.Browser, cell.AssistiveTechnology, cell.AcceptanceClass, cell.UnavailableClass, cell.ExecutableLocator}
-	}
-	for index := range definitions {
-		cell, ok := cells[definitions[index].CellID]
-		if !ok || cell.OS != "macos" || cell.Browser != "safari" || cell.AcceptanceClass != "blocking_when_available" || cell.UnavailableClass != "additive" || cell.ExecutableLocator == "" {
-			return nil, fmt.Errorf("external environment cell %s has invalid policy", definitions[index].CellID)
+		if seen[cell.ID] {
+			return nil, fmt.Errorf("duplicate browser environment %s", cell.ID)
 		}
-		definitions[index].TargetOS = cell.OS
-		definitions[index].Browser = cell.Browser
-		definitions[index].AssistiveTechnology = cell.AssistiveTechnology
-		definitions[index].AcceptanceClass = cell.AcceptanceClass
-		definitions[index].UnavailableClass = cell.UnavailableClass
-		definitions[index].ExecutableLocator = cell.ExecutableLocator
+		seen[cell.ID] = true
+		if cell.ID == "linux-chromium" {
+			if cell.Browser != "chromium" || cell.AcceptanceClass != "blocking" {
+				return nil, errors.New("browser baseline must require Chromium")
+			}
+		} else if cell.AcceptanceClass != "optional" {
+			return nil, fmt.Errorf("non-Chromium environment %s must be optional", cell.ID)
+		}
 	}
-	return definitions, nil
+	if !seen["linux-chromium"] {
+		return nil, errors.New("missing Chromium browser baseline")
+	}
+	return canonicalReleaseExternalEvidenceDefinitions(), nil
 }
 
 func canonicalReleaseExternalEvidenceDefinitions() []releaseExternalEvidenceDefinition {
-	return []releaseExternalEvidenceDefinition{
-		{BehaviorID: "tier.browser.cross", CellID: "macos-safari", TargetOS: "macos", Browser: "safari", AcceptanceClass: "blocking_when_available", UnavailableClass: "additive", ExecutableLocator: "/Applications/Safari.app", Checklist: []string{"sign-in-session", "navigation", "complete-workflows", "responsive-reflow", "network-boundary"}},
-		{BehaviorID: "product.accessibility.combined_evidence", CellID: "macos-voiceover-safari", TargetOS: "macos", Browser: "safari", AssistiveTechnology: "voiceover", AcceptanceClass: "blocking_when_available", UnavailableClass: "additive", ExecutableLocator: "/Applications/Safari.app", Checklist: []string{"landmarks-headings", "keyboard-focus", "dialog-announcement", "live-regions", "tables-forms-errors", "zoom-reduced-motion"}},
-	}
+	// Chromium automation is the release baseline. Optional browser/assistive
+	// technology diagnostics do not require external sidecars or unavailable gaps.
+	return []releaseExternalEvidenceDefinition{}
 }
 
 func generateReleaseExternalEvidenceTemplates(binding releaseExternalEvidenceBinding, definitions []releaseExternalEvidenceDefinition, probe releaseEnvironmentProber) ([]releaseExternalEvidenceTemplate, error) {
@@ -491,7 +486,7 @@ func validateReleaseExternalEvidenceReferences(root string, binding releaseExter
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(loaded, references) {
+	if len(loaded) != len(references) || (len(loaded) != 0 && !reflect.DeepEqual(loaded, references)) {
 		return errors.New("release external evidence references changed or are out of order")
 	}
 	return nil

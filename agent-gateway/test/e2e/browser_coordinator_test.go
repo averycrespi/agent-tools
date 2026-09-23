@@ -113,7 +113,7 @@ func assertBrowserEnvironmentManifest(t *testing.T) {
 	assert.Equal(t, "available", manifest.Cells[0].Availability)
 	assert.Equal(t, "blocking", manifest.Cells[0].AcceptanceClass)
 	for _, cell := range manifest.Cells[1:] {
-		assert.Equal(t, "blocking_when_available", cell.AcceptanceClass, cell.ID)
-		assert.Equal(t, "additive", cell.UnavailableClass, cell.ID)
+		assert.Equal(t, "optional", cell.AcceptanceClass, cell.ID)
+		assert.Empty(t, cell.UnavailableClass, cell.ID)
 	}
 }

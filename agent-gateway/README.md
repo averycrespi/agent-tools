@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Navigate **Overview**; **Access** (Principals); **MCP** (Servers, Tools, Grants, Access requests, MCP invocations); **Activity** (Administrative audit); **System**. MCP invocations shows redacted call history; Administrative audit includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/administration.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
+Manage principals and scoped MCP/HTTP access in the browser. **MCP → Invocations** shows redacted call history; **Audit Log** includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/administration.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
 
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
@@ -92,7 +92,7 @@ Use `agent-gateway --help` and subcommand help for exact commands. Renaming pres
 - [HTTP administration](docs/operators/administration.md#http-traffic-history), [CA commands](docs/operators/backup-and-recovery.md#stopped-interception-ca-commands), and [explicit proxy setup](docs/operators/http-proxy.md).
 - Use `principal`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/administration.md#mcp-permission-namespace-cutover) and [manual client configuration](docs/operators/access-control.md#configure-an-agent-client-manually).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
-- Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's Activity → Administrative audit destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
+- Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's **Audit Log** destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
 - Use `agent-gateway storage verify` or `agent-gateway backup restore BACKUP_ID` for stopped recovery. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.
 
 Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.
@@ -114,25 +114,7 @@ See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and
 
 Use the [documentation map](docs/README.md) to choose material by role and task.
 
-### Gateway administrators
-
-- [Administrator CLI and local administration](docs/operators/administration.md)
-- [macOS LaunchAgent commands](docs/operators/launchd.md): `agent-gateway service` needs no Python, Go toolchain, or checkout.
-- [Upstream server configuration](docs/operators/upstream-servers.md)
-- [Access control](docs/operators/access-control.md)
-- [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)
-- [Backup, restore, and recovery](docs/operators/backup-and-recovery.md)
-
-### Maintainers and coding agents
-
-- [Maintainer and agent guidance](CLAUDE.md)
-- [Frontend development](docs/maintainers/frontend-development.md)
-- [Release verification and acceptance evidence](docs/maintainers/release-verification.md)
-
-### System design
-
-- [Normative architecture index](DESIGN.md)
-- [Domain design chapters](docs/design/)
+Maintainers and coding agents start with [CLAUDE.md](CLAUDE.md). Intended behavior and domain authority live in [DESIGN.md](DESIGN.md); operator and maintainer procedures are indexed once in the map.
 
 ## Development
 
@@ -147,7 +129,7 @@ npm run ui:typecheck
 npm run ui:build
 ```
 
-`make suite-inventory` reports test ownership and build-context applicability. Browser, E2E, security, stress, and native evidence remain explicit leaves rather than hidden work in the fast unit path. `make test-browser` batches its five disjoint leaves through one planner while retaining separate test processes and Gateway builds. Add `AGENT_GATEWAY_TEST_JSON=1` to Go suite targets for structured execution events without changing selection or instrumentation.
+`make suite-inventory` reports test ownership and build-context applicability. Browser, E2E, security, stress, and native evidence remain explicit leaves rather than hidden work in the fast unit path. `make test-browser` batches its four required Chromium leaves through one planner while retaining separate test processes and Gateway builds. Add `AGENT_GATEWAY_TEST_JSON=1` to Go suite targets for structured execution events without changing selection or instrumentation.
 
 Use the [frontend development guide](docs/maintainers/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/maintainers/release-verification.md) for release evidence and failure discipline.
 

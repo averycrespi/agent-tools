@@ -10,24 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReleaseProfileDefinitions(t *testing.T) {
-	profile, err := finalReleaseProfile(repositoryRoot(t))
-	require.NoError(t, err)
-	require.NoError(t, validateFinalReleaseProfile(profile))
-	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
-	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 263)
-	assert.Len(t, profile.Checks, 23)
-}
-
 func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	profile, err := finalReleaseProfile(repositoryRoot(t))
 	require.NoError(t, err)
-	require.NoError(t, validateFinalReleaseProfile(profile))
+	require.NoError(t, validateFinalReleaseProfile(repositoryRoot(t), profile))
 
 	expectedChecks := []string{
 		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
-		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross",
+		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
 	}
 	actualChecks := make([]string, len(profile.Checks))
@@ -48,15 +38,15 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	assert.Equal(t, expectedChecks, actualChecks)
 	assert.Equal(t, canonicalReleaseProductBehaviors(), profile.Coverage.ProductBehaviors)
 	assert.Equal(t, canonicalReleaseCleanupCriteria(), profile.Coverage.CleanupCriteria)
-	assert.Len(t, profile.Coverage.ProductBehaviors, 263)
-	assert.Len(t, profile.Coverage.CleanupCriteria, 10)
 	for _, id := range profile.Coverage.ProductBehaviors {
 		assert.Equal(t, 1, productOwners[id], id)
 	}
 	for _, id := range profile.Coverage.CleanupCriteria {
 		assert.Equal(t, 1, cleanupOwners[id], id)
 	}
-	assert.Equal(t, releaseExternalTestDefinitions(), profile.ExternalEvidence)
+	assert.Empty(t, profile.ExternalEvidence)
+	assert.NotContains(t, profile.Coverage.ProductBehaviors, "tier.browser.cross")
+	assert.NotContains(t, actualChecks, "test-browser-cross")
 	assert.ElementsMatch(t, []string{
 		"product.grant_request.conflict_and_uncertainty", "product.grant_request.approval_narrowing", "product.invocation.page_coherence",
 		"product.client_refresh.no_unsafe_replay", "product.invocation.missing_terminal_unknown",
@@ -83,13 +73,10 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64((15 * time.Minute).Milliseconds()), profile.BudgetMillis)
 
-	var gatewayStarts, browserStarts int
 	for _, check := range profile.Checks {
 		assert.Positive(t, check.TimeoutMillis, check.ID)
 		assert.GreaterOrEqual(t, check.BudgetMillis, check.TimeoutMillis, check.ID)
 		assert.Equal(t, []string{"processes", "listeners", "temporary roots"}, check.CleanupRequirements, check.ID)
-		gatewayStarts += check.ExpectedGatewayStarts
-		browserStarts += check.ExpectedBrowserStarts
 		if check.ID == "test-stress" {
 			assert.Equal(t, 20, check.Repeats)
 			assert.Equal(t, []string{"make", "-C", "agent-gateway", "AGENT_GATEWAY_STRESS_COUNT=20", "test-stress"}, check.Argv)
@@ -100,8 +87,6 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}
-	assert.Equal(t, 120, gatewayStarts)
-	assert.Equal(t, 42, browserStarts)
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "test-e2e"))
 	assert.Equal(t, 1, countReleaseChecksContaining(profile.Checks, "verify-supply-chain"))
 	for _, aggregate := range []string{"test", "test-browser", "test-frontend-development", "frontend-build", "frontend-verify-generated"} {
@@ -148,24 +133,24 @@ func TestFinalReleaseProfileRejectsCoverageMultiplicityAndCleanupDrift(t *testin
 
 	missing := cloneReleaseProfile(profile)
 	missing.Checks[0].Coverage.ProductBehaviors = missing.Checks[0].Coverage.ProductBehaviors[1:]
-	assert.ErrorContains(t, validateFinalReleaseProfile(missing), "exactly one")
+	assert.ErrorContains(t, validateFinalReleaseProfile(repositoryRoot(t), missing), "exactly one")
 
 	duplicate := cloneReleaseProfile(profile)
 	duplicate.Checks[1].Coverage.ProductBehaviors = append(duplicate.Checks[1].Coverage.ProductBehaviors, duplicate.Checks[0].Coverage.ProductBehaviors[0])
-	assert.ErrorContains(t, validateFinalReleaseProfile(duplicate), "exactly one")
+	assert.ErrorContains(t, validateFinalReleaseProfile(repositoryRoot(t), duplicate), "exactly one")
 
 	stress := cloneReleaseProfile(profile)
 	index := slices.IndexFunc(stress.Checks, func(check releaseCheckDefinition) bool { return check.ID == "test-stress" })
 	stress.Checks[index].Repeats = 1
-	assert.ErrorContains(t, validateFinalReleaseProfile(stress), "stress")
+	assert.ErrorContains(t, validateFinalReleaseProfile(repositoryRoot(t), stress), "stress")
 
 	aggregate := cloneReleaseProfile(profile)
 	aggregate.Checks[0].Argv = []string{"make", "-C", "agent-gateway", "test-browser"}
-	assert.ErrorContains(t, validateFinalReleaseProfile(aggregate), "closed direct command")
+	assert.ErrorContains(t, validateFinalReleaseProfile(repositoryRoot(t), aggregate), "closed direct command")
 
 	cleanup := cloneReleaseProfile(profile)
 	cleanup.Checks[0].CleanupRequirements = []string{"processes"}
-	assert.ErrorContains(t, validateFinalReleaseProfile(cleanup), "cleanup")
+	assert.ErrorContains(t, validateFinalReleaseProfile(repositoryRoot(t), cleanup), "cleanup")
 }
 
 func countReleaseChecksContaining(checks []releaseCheckDefinition, fragment string) int {

@@ -8,28 +8,7 @@ See [Administrative control plane](../design/administrative-control-plane.md) fo
 
 Use the development server to work on the authored TypeScript, Preact, and CSS with Vite live reload. The workflow uses two independently owned loopback processes. The development server is a separate trusted local process, not a mode of the production Gateway binary.
 
-## Start both processes
-
-Install repository dependencies first. From the repository root, install and initialize Gateway if needed:
-
-```bash
-make -C agent-gateway install
-agent-gateway initialize
-```
-
-Start Gateway in one terminal. The default authority is `http://127.0.0.1:8210`:
-
-```bash
-agent-gateway serve
-```
-
-Start the frontend development server in a second terminal:
-
-```bash
-npm run ui:dev
-```
-
-Wait for its `ready` line, then open `http://127.0.0.1:5173`. Gateway remains independently owned: the development command neither starts nor restarts it.
+For feature work, install locked repository dependencies with `npm ci`, then use the disposable workflow below. Do not install binaries or initialize a native installation merely to test a checkout.
 
 ## Use a disposable feature-branch Gateway
 
@@ -81,6 +60,10 @@ HTTP creation pages use the shared labelled configuration panels and primary **R
 ### Demo supervision
 
 The demo supervisor retains unreaped child identities when signalling owned groups. Bounds: build 300s; initialization/credential CLI 15s; startup/seeding 60s plus active bounded CLI; HTTP 3s; output 1 MiB/stream; reap 5s; final group-absence probe 2s. Required fixture exits fail the demo. Mutations are one-shot; readiness polling is read-only. Failed cleanup retains the root and ownership evidence. Race-enabled real-process tests belong only to `test-serve-demo`, disjoint from E2E/harness. All `test/demo` code, including its fixture entry point, uses the `e2e` tag. Each command has a `/bin/sh` group owner that reaps it, reports exit through a private pipe and remains alive until teardown. Arguments are positional, never shell interpolation; children cannot inherit control/status pipes. The parent fences the group before `Wait`; settled/recycled identities are never signalled. Linux/macOS use the same implementation without zombie inspection. Final-probe permission errors may retry within its bound but never prove absence. The lifecycle tests resolve and preserve both `GOCACHE` and `GOMODCACHE` before isolating `HOME`, then clear `GOPATH` to exercise CI's default-path behavior. Dependency downloads must not move into each disposable account. CI runs the demo owner on both platforms.
+
+## Use an existing installation
+
+Only when the task explicitly concerns an authorized existing installation, start its independently owned Gateway with `agent-gateway serve` and run `npm run ui:dev` in another terminal. The default Gateway authority is `http://127.0.0.1:8210`. Wait for Vite's `ready` line, then open `http://127.0.0.1:5173`. The development command neither starts nor restarts Gateway. Installation and initialization are separate operator actions; follow [installation safety](../operators/installation-safety.md), not the disposable demo procedure, when those actions are authorized.
 
 ## Startup selectors
 
@@ -139,7 +122,7 @@ Press `Ctrl-C` in the frontend terminal and the Gateway terminal to stop each in
 
 ## Navigation implementation
 
-The Agent Gateway shell in `web/src/main.tsx` owns one ordered navigation model: Overview, Principals, Audit Log, System; then HTTP (Credentials) and MCP (Servers, Tools, Grants, Requests, Invocations). The first four links form an unlabeled group; HTTP and MCP are named groups. It renders the same groups and ordinary links in the desktop rail and narrow Menu disclosure. Separate groups with inset dividers and spacing; use small uppercase, letterspaced section labels so noninteractive headings are distinct from destination links. Preserve the existing visual language and keyboard/focus behavior; groups do not introduce editors, routes, state owners, or protocol placeholders.
+The Agent Gateway shell in `web/src/main.tsx` owns the ordered navigation model, including all HTTP credential, grant, and traffic destinations. Use that model rather than copying a menu inventory into guides. General destinations form an unlabeled group; HTTP and MCP are named groups. It renders the same groups and ordinary links in the desktop rail and narrow Menu disclosure. Separate groups with inset dividers and spacing; use small uppercase, letterspaced section labels so noninteractive headings are distinct from destination links. Preserve the existing visual language and keyboard/focus behavior; groups do not introduce editors, routes, state owners, or protocol placeholders.
 
 Display names differ from canonical route keys: Tools uses `#/mcp/tools`, Requests `#/mcp/access-requests`, Invocations `#/mcp/invocations`, and Audit Log `#/audit-log`. MCP collection page titles are **MCP Servers**, **MCP Tools**, **MCP Grants**, **MCP Access Requests**, and **MCP Invocations**; sidebar labels stay short. Creation titles are **Create MCP Server** and **Create MCP Grant**. Server and tool detail titles use **MCP Server: {display name}** and **MCP Tool: {external name}** inline, preserving resource names and natural narrow-screen wrapping. Grant and invocation detail titles prefix their type and ID with MCP; request detail titles use **Review MCP Access Request** or **{State} MCP Access Request**. Keep accessible page titles aligned, while tabs and internal section headings remain unprefixed. Audit Log uses its navigation label as its page title. Invocations has no explanatory subtitle. Servers, Principals, and Grants use `#/mcp/servers`, `#/principals`, and `#/mcp/grants`. Keep `location.ts` as the sole grammar owner: it maps domain prefixes to logical destination-relative segments for existing page owners and serializes them back, with no legacy aliases or redirects. Retired `#/access/principals` and `#/activity/audit` locations are invalid, including their detail/create suffixes; this browser-only cleanup changes no API paths. Server status elides its default tab; Operations uses `tab=operations`. Preserve declared detail/filter/query state and update dynamic links and refresh matchers alongside literal links. MCP permission routes use `/api/v2/mcp/grants`, `/api/v2/mcp/grant-requests`, and `/api/v2/mcp/grant-constraints/validate`; the development proxy forwards them unchanged under its existing segment-bounded API policy. Retired access hashes and unnamespaced grant API paths have no compatibility dispatch. Access requests means MCP permission approval, not network traffic. See the [old-to-new mapping](../operators/administration.md#browser-location-cutover). Invocations uses the existing MCP invocation controller and `/api/v2/mcp/invocations` list/item resources; the development proxy forwards these under the same segment-bounded policy. Retired `/api/v2/invocations` and `#/activity/invocations` locations have no compatibility dispatch. Audit Log retains the separate shared audit, including system and offline maintenance events. Follow the [coordinated invocation cutover](../operators/administration.md#mcp-invocation-namespace-cutover) when upgrading bundled consumers. These labels change neither actor selection nor evidence coverage. Theme persistence, session clearing, refresh, pagination, mutation guards and one-time-secret handling stay with their existing shared owners.
 

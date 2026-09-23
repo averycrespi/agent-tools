@@ -6,49 +6,19 @@ Purpose: Commands, ownership, editing and verification. The [documentation map](
 
 ## Development
 
-Run commands from `agent-gateway/` unless noted:
+Start with the smallest applicable owner; release acceptance is not the default agent loop.
 
-```bash
-make build                 # build agent-gateway from ./cmd/agent-gateway
-make install               # install only agent-gateway into GOPATH/bin
-make serve-demo            # build and serve an interactive isolated seeded Gateway
-make test                  # disjoint unit/integration/harness/material/demo aggregate
-make test-unit             # count-one dependency-light contract and algorithm tests
-make test-integration      # count-one component/SQLite/filesystem/compatibility tests
-make test-harness          # runner, fixture, report, and selector self-tests
-make test-material         # deterministic credential-material composition
-make suite-inventory       # JSON source/build-context/executable ownership
-make test-e2e              # count-one real-binary suite
-make test-security         # security/privacy source and sink evidence
-make test-stress           # repeat only five named stress scenarios
-make test-keyring-native   # typed native keyring evidence
-make test-serve-demo       # real-process demo outcomes, lifecycle and cleanup
-make test-browser          # one planner; five isolated browser leaves
-make frontend-typecheck
-make frontend-build
-make frontend-verify-generated
-make frontend-verify-supply-chain
-make frontend-audit
-make verify                # nonmutating module, format, and lint checks
-make lint                  # golangci-lint
-make fmt                   # goimports
-make tidy                  # go mod tidy and verify
-make audit                 # mutating full developer audit
+- **Component behavior:** read its domain design; run focused `go test -race -count=1 -timeout=5m` in its package with the owning build tag.
+- **Suite/executor/fixtures:** `make test-harness`; inspect `make suite-inventory` before changing ownership.
+- **Frontend:** `npm ci`, then [disposable demo/live reload](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway).
+- **CI/cache:** root `make test-ci`, then affected disjoint leaves; see [CI mapping](docs/maintainers/release-verification.md#ci-mapping).
+- **Docs:** check links, `npm run format:check`, and affected harness documentation tests.
+- **Go commits:** `make verify` plus focused behavioral evidence.
+- **Release:** only when authorized, [release verification](docs/maintainers/release-verification.md); native/external work requires its own authority.
 
-go tool govulncheck ./...  # unsuppressed blocking Go vulnerability check
-```
+Use `make help` for the current target inventory. Never run the Gateway aggregate alongside one of its leaves or launch CI integration partitions concurrently on the same host.
 
-Frontend commands run from the repository root:
-
-```bash
-npm run ui:typecheck
-npm run ui:dev
-make -C agent-gateway test-frontend-development
-npm run ui:build
-npm run ui:verify-generated
-npm run ui:verify-supply-chain
-npm run ui:audit
-```
+Run Gateway Make targets from `agent-gateway/` (or use `make -C agent-gateway` from the root); `npm run ui:*` commands run from the repository root. The [verification guide](docs/maintainers/release-verification.md#purpose-based-verification-dag) explains leaf ownership. `make verify` is nonmutating; `make fmt`, `make tidy`, and `make audit` mutate source/dependencies, so do not use them as default validation commands. `go tool govulncheck ./...` is the unsuppressed blocking Go vulnerability scan.
 
 Use `make serve-demo` for isolated feature testing, never native-keyring access. `AGENT_GATEWAY_DEMO_DATASET=empty` selects first run instead of curated data. The Go runner owns two local HTTP fixtures, a separate loopback proxy, and disposable E2E file-backed CA material; readiness verifies real allow/block traffic. The nonsecret bootstrap remains in ignored `.demo-bin/`. No Python/Node is needed. `AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:PORT` overrides `127.0.0.1:8211`. See frontend development for credentials and lifecycle. Demo evidence qualifies neither native keyring nor production persistence.
 
@@ -150,7 +120,8 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 - Every sentence earns its place: default to labels, values, actionable errors. Helper text only clarifies non-obvious choices or prevents concrete mistakes. Put implementation details/general caveats in docs, secondary diagnostics in accessible disclosures, warnings at the risk. Scope trust distinctions once; don't repeat headings/statuses or just shorten redundant prose.
 
 - Build web source deterministically to the exact `internal/api/static` allowlist. Build/test-only Node/Vite code must neither enter production imports nor write production assets.
-- Before completing UI/interaction changes, exercise affected states in a real browser and inspect desktop/narrow screenshots per [visual verification](docs/maintainers/frontend-development.md#visual-verification). Tests, DOM snapshots, screenshot generation/hashes are not visual inspection.
+- Chromium is the required browser for feature verification and release acceptance. Firefox/WebKit/Safari are opt-in diagnostics, not routine obligations or skipped-check caveats. Chromium accessibility checks remain required; never claim unperformed optional or native qualification.
+- Before completing UI/interaction changes, exercise affected states in Chromium and inspect desktop/narrow screenshots per [visual verification](docs/maintainers/frontend-development.md#visual-verification). Tests, DOM snapshots, screenshot generation/hashes are not visual inspection.
 - Follow the [table conventions](docs/design/administrative-control-plane.md#table-conventions) and shared [implementation contract](docs/maintainers/frontend-development.md#table-implementation).
 - Compose `web/src/` owners for location grammar, theme persistence, session epochs, visible refresh, mutation state, accessible primitives, and one-time sinks. No independent storage, timers, streams, fetch mutation/retry, clipboard, opener, or active-content paths.
 - Keep the development proxy trusted and loopback-only, with closed selectors and segment-bounded control API routes; never add Gateway startup, MCP ingress, OAuth callback, or production ownership.

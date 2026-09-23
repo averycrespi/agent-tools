@@ -17,7 +17,8 @@ type DocumentationBehavior struct {
 }
 
 type EvidenceTier struct {
-	ID string
+	ID       string
+	Optional bool
 }
 
 var productCriterionIDs = []string{
@@ -128,7 +129,7 @@ var evidenceTierRows = []EvidenceTier{
 	{ID: "tier.browser.workflows"},
 	{ID: "tier.browser.visual"},
 	{ID: "tier.browser.accessibility"},
-	{ID: "tier.browser.cross"},
+	{ID: "tier.browser.cross", Optional: true},
 	{ID: "tier.e2e.complete"},
 	{ID: "tier.security.privacy"},
 	{ID: "tier.supply_chain.go"},

@@ -31,7 +31,16 @@ func testProductBehaviorManifestSchema(t *testing.T) {
 	assert.Len(t, SecurityBehaviorManifest(), 18)
 	assert.Len(t, DocumentationBehaviorManifest(), 54)
 	assert.Len(t, PredecessorBehaviorManifest(), 18)
-	assert.Len(t, EvidenceTierManifest(), 18)
+	var optional []string
+	for _, tier := range EvidenceTierManifest() {
+		if tier.Optional {
+			optional = append(optional, tier.ID)
+		}
+	}
+	assert.Equal(t, []string{"tier.browser.cross"}, optional)
+	for _, behavior := range product {
+		assert.NotContains(t, optional, behavior.EvidenceOwner, behavior.ID)
+	}
 }
 
 func testProductBehaviorManifestIDsAreStableAndDisjoint(t *testing.T) {

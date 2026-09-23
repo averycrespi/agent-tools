@@ -130,10 +130,8 @@ func TestPurposeNamedTargetsPublishOnlyFinalAcceptanceInterface(t *testing.T) {
 		command := exec.Command("make", "-n", "-C", root, removed)
 		assert.Error(t, command.Run(), removed)
 	}
-	guidance, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
-	require.NoError(t, err)
 	for _, target := range []string{"test-security", "test-stress", "test-browser", "frontend-typecheck", "frontend-build", "frontend-verify-generated", "frontend-verify-supply-chain", "frontend-audit"} {
-		assert.Contains(t, string(guidance), "make "+target, target)
+		assert.Contains(t, help, target, target)
 	}
 }
 
