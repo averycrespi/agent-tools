@@ -469,7 +469,9 @@ export async function runPrincipals(
     if (
       body.display_name !== "Principal investigator" ||
       body.visibility !== "allowed-only" ||
-      Object.keys(body).sort().join(",") !== "display_name,visibility"
+      body.http_default !== "block" ||
+      Object.keys(body).sort().join(",") !==
+        "display_name,http_default,visibility"
     )
       fail("principal create body changed shape");
     const created = principal(
@@ -749,7 +751,7 @@ export async function runPrincipals(
     .locator('dialog[aria-labelledby="unsaved-changes-title"]')
     .waitFor({ state: "hidden" });
   if (
-    (await page.evaluate(() => window.location.hash)) !== "#/principals/new" ||
+    (await page.evaluate(() => window.location.hash)) !== "#/agents/new" ||
     (await page
       .locator('[data-testid="principal-display-name"]')
       .inputValue()) !== "Principal investigator"
@@ -801,7 +803,7 @@ export async function runPrincipals(
     }),
   ).toBeVisible();
   expect(new URL(page.url()).hash).toMatch(
-    /^#\/principals\/[0-9A-HJKMNP-TV-Z]{26}$/,
+    /^#\/agents\/[0-9A-HJKMNP-TV-Z]{26}$/,
   );
   await page
     .getByTestId("toast")
@@ -851,7 +853,7 @@ export async function runPrincipals(
     ).principalDetailFlashed = false;
     new MutationObserver(() => {
       if (
-        window.location.hash === `#/principals/${id}` &&
+        window.location.hash === `#/agents/${id}` &&
         document
           .querySelector('[data-testid="principal-detail"]')
           ?.textContent?.includes("Build agent")
@@ -3587,8 +3589,7 @@ export async function runRequestReads(
   ])
     if (!body.includes(phrase)) fail(`request detail omitted ${phrase}`);
   if (
-    (await page.locator(`a[href="#/principals/${principalID}"]`).count()) ===
-      0 ||
+    (await page.locator(`a[href="#/agents/${principalID}"]`).count()) === 0 ||
     (await page
       .locator(`a[href="#/mcp/servers/${serverID}?tab=tools"]`)
       .count()) === 0 ||

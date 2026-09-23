@@ -290,7 +290,7 @@ export async function exerciseCollectionPagination(
       await expect
         .poll(async () => (await links())[0])
         .toBe(
-          `#/${selected === "principals" ? "principals" : "mcp/grants"}/${id(selected === "principals" ? 127 : 327)}`,
+          `#/${selected === "principals" ? "agents" : "mcp/grants"}/${id(selected === "principals" ? 127 : 327)}`,
         );
       await settled(50);
       expect(requests.at(-1)?.query.get("direction")).toBe("descending");
@@ -355,7 +355,7 @@ export async function exerciseCollectionPagination(
       expect(requests.at(-1)?.query.get("direction")).toBe("descending");
       const descending = await links();
       expect(descending[0]).toBe(
-        `#/${selected === "principals" ? "principals" : "mcp/grants"}/${id(selected === "principals" ? 127 : 327)}`,
+        `#/${selected === "principals" ? "agents" : "mcp/grants"}/${id(selected === "principals" ? 127 : 327)}`,
       );
       expect(descending.slice(1)).toEqual(first.slice(0, 49));
       await next.click();

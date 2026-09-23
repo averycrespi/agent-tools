@@ -1918,9 +1918,7 @@ export function Requests({
             <div>
               <dt>Agent</dt>
               <dd>
-                <a href={`#/principals/${detail.principalID}`}>
-                  {principalName}
-                </a>
+                <a href={`#/agents/${detail.principalID}`}>{principalName}</a>
               </dd>
             </div>
             <div>
@@ -2274,7 +2272,7 @@ export function Requests({
               label: "Agent",
               role: "relation",
               render: (item) => (
-                <a href={`#/principals/${item.principalID}`}>
+                <a href={`#/agents/${item.principalID}`}>
                   {item.principalName}
                 </a>
               ),

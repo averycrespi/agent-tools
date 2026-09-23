@@ -14,7 +14,7 @@ import {
   StateNotice,
   TableIdentity,
 } from "./primitives";
-import { readPrincipals, type Principal } from "./principals";
+import { httpDefaultText, readPrincipals, type Principal } from "./principals";
 import { decodeHTTPCredential } from "./http-credentials";
 import type { SessionClient } from "./session";
 import {
@@ -260,7 +260,7 @@ export function HTTPGrants(props: Props) {
         <h2>Current policy</h2>
         <p>{summary(detail.policy)}</p>
         <p>
-          <a href={`#/principals/${detail.principal_id}`}>
+          <a href={`#/agents/${detail.principal_id}`}>
             Agent {detail.principal_id}
           </a>
         </p>
@@ -398,7 +398,7 @@ function GrantCollection(props: Props) {
               role: "relation",
               sortValue: (r) => r.principal_display_name,
               render: (r) => (
-                <a href={`#/principals/${r.grant.principal_id}`}>
+                <a href={`#/agents/${r.grant.principal_id}`}>
                   {r.principal_display_name}
                 </a>
               ),
@@ -928,7 +928,7 @@ function AccessPreview(props: Props) {
   const [method, setMethod] = useState("GET");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("443");
-  const [result, setResult] = useState<Record<string, unknown>>();
+  const [result, setResult] = useState<ReturnType<typeof decodePreview>>();
   const [error, setError] = useState(false);
   const [pending, setPending] = useState(false);
   const version = useRef(0);
@@ -1092,13 +1092,17 @@ function AccessPreview(props: Props) {
     </section>
   );
 }
-function PreviewResult({ result }: { result: Record<string, unknown> }) {
+function PreviewResult({
+  result,
+}: {
+  result: ReturnType<typeof decodePreview>;
+}) {
   const d = object(result.decision);
   const reasons: Record<string, string> = {
     destination_block: "Blocked by a destination grant",
     request_block: "Blocked by a request grant",
     request_allow: "Allowed by request policy",
-    principal_default: `Agent default: ${String(result.default)}`,
+    principal_default: `Agent default: ${httpDefaultText(result.default)}`,
     tunnel_allow:
       "Opaque tunnel allowed; request policy and injection bypassed",
     intercept_required:
@@ -1116,8 +1120,8 @@ function PreviewResult({ result }: { result: Record<string, unknown> }) {
       <h3>{reasons[String(d.reason)] ?? "Policy result unavailable"}</h3>
       <p>
         Policy snapshot {String(d.policy_revision)} · HTTP default:{" "}
-        {String(result.default)} (revision {String(d.default_revision)}). Test
-        again after policy changes.
+        {httpDefaultText(result.default)} (revision {String(d.default_revision)}
+        ). Test again after policy changes.
       </p>
       <p>
         Transport: {String(d.transport)}.{" "}
@@ -1129,7 +1133,7 @@ function PreviewResult({ result }: { result: Record<string, unknown> }) {
         <div>
           <dt>Agent</dt>
           <dd>
-            <a href={`#/principals/${String(object(d.principal).id)}`}>
+            <a href={`#/agents/${String(object(d.principal).id)}`}>
               {String(object(d.principal).id)}
             </a>{" "}
             · revision {String(object(d.principal).revision)}

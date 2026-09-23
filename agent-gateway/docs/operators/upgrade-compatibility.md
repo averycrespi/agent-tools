@@ -21,19 +21,19 @@ Reload and sign-in never replay mutations. If an old tab reports version skew, r
 
 ## Browser location cutover
 
-Retired browser paths have **no aliases or redirects**. Agents uses `#/principals` and Audit Log uses `#/audit-log`; their old grouped paths are invalid. This sidebar cleanup changes no API endpoints. Update bookmarks and browser automation to the canonical locations below. Old or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
+Agents uses `#/agents` and Audit Log uses `#/audit-log`; their old grouped paths are invalid. Valid former `#/principals` collection, create and detail links are replaced with canonical `#/agents` fragments, preserving supported filter/sort state and the outer URL query. Other retired browser paths have **no aliases or redirects**. This sidebar cleanup changes no API endpoints. Update bookmarks and browser automation to the canonical locations below. Other retired or invalid paths show a safe invalid-location notice and return to fixed navigation, not the corresponding resource.
 
 | Old collection                | Canonical collection    |
 | ----------------------------- | ----------------------- |
 | `#/servers`                   | `#/mcp/servers`         |
 | `#/catalog`                   | `#/mcp/tools`           |
-| `#/access/principals`         | `#/principals`          |
+| `#/access/principals`         | `#/agents`              |
 | `#/grants`                    | `#/mcp/grants`          |
 | `#/requests`                  | `#/mcp/access-requests` |
 | `#/invocations`               | `#/mcp/invocations`     |
 | `#/audit`, `#/activity/audit` | `#/audit-log`           |
 
-Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. `#/principals` is canonical; `#/access/grants` and `#/access/requests` are retired by the MCP permission cutover below. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
+Carry supported detail IDs and `/new` suffixes beneath the new collection. Server-owned destinations become `#/mcp/servers/{server-id}/operations/{id}`, `/auth-flows/{id}`, and `/descriptors/{id}`. Server `tab=activity` becomes `tab=operations`; status is the default and omits `tab=status`. Only declared destination-specific filters are accepted; copied valid filters remain supported, but cursors and secrets never belong in URLs. `#/agents` is canonical; `#/access/grants` and `#/access/requests` are retired by the MCP permission cutover below. `#/overview`, `#/sign-in`, `#/system`, System tabs and System create paths are unchanged. Hash routing remains in place; no pathname fallback is served.
 
 The location cutover itself is not an installation or browser-persistence migration. Durable authority, ports, MCP ingress/self-service and OAuth callback identities remain compatible. Current browser persistence follows the cutover above; current root/service selections follow [installation safety](installation-safety.md), while manual client configuration retains its separate compatibility requirements.
 
@@ -105,6 +105,6 @@ Existing same-key server work retains its durable identity across the route rena
 
 ## Agent HTTP-default client cutover
 
-Upgrade service, CLI and strict clients together and reload the browser. `/api/v2/http/defaults/{id}` GET/PATCH and `http-default-*` ETags are removed, with no alias or redirect. Read `/api/v2/principals/{id}` instead; PATCH `{"http_default":"allow"}` or any combination with `display_name`, `state`, and `visibility` using that response's agent ETag. Missing/stale preconditions fail closed; an old default ETag is never valid. Lists, creation and credential-operation responses include the same new `Principal` field. HTTP-default CLI files use `http_default`, not `default`; JSON output is the complete `Principal`.
+Upgrade service, CLI and strict clients together and reload the browser. `/api/v2/http/defaults/{id}` GET/PATCH and `http-default-*` ETags are removed, with no alias or redirect. Read `/api/v2/principals/{id}` instead; PATCH `{"http_default":"allow"}` or any combination with `display_name`, `state`, and `visibility` using that response's agent ETag. Missing/stale preconditions fail closed; an old default ETag is never valid. Lists, creation and credential-operation responses include the same new `Principal` field. Creation optionally accepts `http_default` as `block` or `allow` and persists it atomically with the agent and default MCP grant; omission remains block. The browser starts at **Block requests**, offers **Allow requests**, and shows the saved value in Agent details. Default allow supplies no credential, tunnel permission or local/private access and does not override explicit blocks. HTTP-default CLI files use `http_default`, not `default`; JSON output is the complete `Principal`.
 
 In **Edit agent**, **Save agent** commits all dirty fields in one request. State/default changes share one confirmation; cancel sends no write. Conflicts preserve the draft and require review of refreshed current values before accepting their revision. Unknown outcomes are never replayed: inspect current settings and deliberately discard the uncertain draft before forming new intent. Existing stored defaults and backups need no migration, reinitialization or credential rotation.

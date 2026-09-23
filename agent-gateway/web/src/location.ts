@@ -36,7 +36,7 @@ export const destinationPaths: Readonly<Record<Destination, string>> = {
   overview: "overview",
   servers: "mcp/servers",
   catalog: "mcp/tools",
-  principals: "principals",
+  principals: "agents",
   "http-credentials": "http/credentials",
   "http-grants": "http/grants",
   "http-traffic": "http/traffic",
@@ -256,7 +256,13 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   }
   const question = raw.indexOf("?");
   if (question !== -1 && question !== raw.lastIndexOf("?")) return undefined;
-  const path = raw.slice(2, question === -1 ? undefined : question);
+  const requestedPath = raw.slice(2, question === -1 ? undefined : question);
+  // Only the former agent collection prefix is compatible; the same closed
+  // grammar below validates every suffix and query before canonicalization.
+  const path =
+    requestedPath === "principals" || requestedPath.startsWith("principals/")
+      ? `agents${requestedPath.slice("principals".length)}`
+      : requestedPath;
   if (path.includes("%")) return undefined;
   const rawQuery = question === -1 ? "" : raw.slice(question + 1);
   if (

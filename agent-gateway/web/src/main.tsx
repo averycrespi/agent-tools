@@ -521,7 +521,7 @@ function App() {
               ? "Create MCP Server"
               : "MCP Server details"
             : destination === "principals" &&
-                resolved.canonicalFragment === "#/principals/new"
+                resolved.canonicalFragment === "#/agents/new"
               ? "Create agent"
               : destination === "grants" &&
                   resolved.canonicalFragment.startsWith("#/mcp/grants/new")
@@ -744,7 +744,12 @@ function App() {
             The requested location was invalid. A safe location was restored.
           </p>
         )}
-        <section class="intro" aria-labelledby="page-title">
+        <section
+          class="intro"
+          aria-labelledby={
+            authenticated && isPrincipalDetail ? undefined : "page-title"
+          }
+        >
           {authenticated && isResourceDetail ? (
             <span
               ref={(element) => {

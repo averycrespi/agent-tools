@@ -868,7 +868,7 @@ function InvocationFacts({
       <div>
         <dt>Agent</dt>
         <dd>
-          <a href={`#/principals/${item.principalID}`}>
+          <a href={`#/agents/${item.principalID}`}>
             {principalNames.get(item.principalID) ?? item.principalID}
           </a>
         </dd>
@@ -1141,7 +1141,7 @@ function InvocationList({
               label: "Agent",
               role: "relation",
               render: (item) => (
-                <a href={`#/principals/${item.principalID}`}>
+                <a href={`#/agents/${item.principalID}`}>
                   {principalNames.get(item.principalID) ?? item.principalID}
                 </a>
               ),

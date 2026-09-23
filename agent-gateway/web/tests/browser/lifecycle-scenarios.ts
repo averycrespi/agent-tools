@@ -437,21 +437,21 @@ export async function runFragmentStorage(
       `#/mcp/servers/${idA}/descriptors/${idB}`,
     ],
     ["#/mcp/tools", "#/mcp/tools"],
-    ["#/principals", "#/principals"],
+    ["#/principals", "#/agents"],
     [
       "#/principals?filter_name=Caf%C3%A9&filter_visibility=all&filter_state=disabled&direction=descending&sort=name",
-      "#/principals?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
+      "#/agents?sort=name&direction=descending&filter_name=Caf%C3%A9&filter_state=disabled&filter_visibility=all",
     ],
     [
       "#/mcp/grants?filter_target=Far&filter_state=expired&filter_principal=Agent&filter_identity=Policy&filter_effect=deny&direction=ascending&sort=principal",
       "#/mcp/grants?sort=principal&direction=ascending&filter_effect=deny&filter_identity=Policy&filter_principal=Agent&filter_state=expired&filter_target=Far",
     ],
     ["#/mcp/grants?sort=description", "#/mcp/grants?sort=description"],
-    ["#/principals/new", "#/principals/new"],
-    [`#/principals/${idA}`, `#/principals/${idA}`],
-    ["#/principals", "#/principals"],
-    ["#/principals/new", "#/principals/new"],
-    [`#/principals/${idA}`, `#/principals/${idA}`],
+    ["#/principals/new", "#/agents/new"],
+    [`#/principals/${idA}`, `#/agents/${idA}`],
+    ["#/agents", "#/agents"],
+    ["#/agents/new", "#/agents/new"],
+    [`#/agents/${idA}`, `#/agents/${idA}`],
     ["#/mcp/grants", "#/mcp/grants"],
     ["#/mcp/grants/new", "#/mcp/grants/new"],
     [
@@ -1242,7 +1242,7 @@ export async function runShellPrimitives(
 
   const expectedNavigation = [
     ["Overview", "#/overview"],
-    ["Agents", "#/principals"],
+    ["Agents", "#/agents"],
     ["Audit Log", "#/audit-log"],
     ["System", "#/system"],
     ["Credentials", "#/http/credentials"],

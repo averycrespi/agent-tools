@@ -31,6 +31,7 @@ type PrincipalService interface {
 }
 
 type rawPrincipalCreate struct {
+	HTTPDefault json.RawMessage               `json:"http_default,omitempty"`
 	DisplayName *string                       `json:"display_name"`
 	Visibility  *contract.PrincipalVisibility `json:"visibility"`
 }
@@ -113,7 +114,11 @@ func (handler *Handler) createPrincipal(writer http.ResponseWriter, request *htt
 		writeProblem(writer, contract.ProblemInvalidPrincipal)
 		return
 	}
-	created, err := handler.principals.CreatePrincipal(request.Context(), authorization.CreatePrincipalRequest{DisplayName: *raw.DisplayName, Visibility: *raw.Visibility})
+	var httpDefault *contract.HTTPDefault
+	if !decodePrincipalPatchMember(writer, raw.HTTPDefault, &httpDefault) {
+		return
+	}
+	created, err := handler.principals.CreatePrincipal(request.Context(), authorization.CreatePrincipalRequest{DisplayName: *raw.DisplayName, Visibility: *raw.Visibility, HTTPDefault: httpDefault})
 	if err != nil {
 		writePrincipalError(writer, err)
 		return

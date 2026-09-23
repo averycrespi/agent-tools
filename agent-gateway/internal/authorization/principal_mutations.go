@@ -14,7 +14,8 @@ import (
 )
 
 func (repository *Repository) CreatePrincipal(ctx context.Context, request CreatePrincipalRequest) (contract.PrincipalCreation, error) {
-	if !validDisplayName(request.DisplayName) || !validVisibility(request.Visibility) {
+	if !validDisplayName(request.DisplayName) || !validVisibility(request.Visibility) ||
+		request.HTTPDefault != nil && *request.HTTPDefault != contract.HTTPDefaultAllow && *request.HTTPDefault != contract.HTTPDefaultBlock {
 		return contract.PrincipalCreation{}, ErrInvalidInput
 	}
 	now := repository.clock.Now().UTC()
@@ -51,6 +52,13 @@ func (repository *Repository) CreatePrincipal(ctx context.Context, request Creat
 			) VALUES (?, ?, 'active', ?, 1, 0, ?, ?)`,
 			principalID, request.DisplayName, request.Visibility, timestamp, timestamp); err != nil {
 			return fmt.Errorf("insert principal: %w", err)
+		}
+		// The insert trigger preserves block for omitted defaults. An explicit
+		// choice is part of initial authority, not a second settings mutation.
+		if request.HTTPDefault != nil && *request.HTTPDefault == contract.HTTPDefaultAllow {
+			if _, err := transaction.ExecContext(ctx, `UPDATE http_defaults SET policy = ? WHERE principal_id = ?`, *request.HTTPDefault, principalID); err != nil {
+				return fmt.Errorf("set initial HTTP default: %w", err)
+			}
 		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO grants (
