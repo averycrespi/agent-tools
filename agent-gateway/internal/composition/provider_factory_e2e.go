@@ -10,7 +10,8 @@ import (
 )
 
 // e2eMaterialDirectory is set only by the isolated real-binary harness at link
-// time. Normal E2E/demo builds retain process-local material. It is not a runtime
+// time, including the disposable demo runner. Unconfigured E2E builds retain
+// process-local material. It is not a runtime
 // flag, environment fallback, native provider or production persistence claim.
 var e2eMaterialDirectory string
 

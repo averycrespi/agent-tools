@@ -325,7 +325,8 @@ func (e *Engine) complete(result invocation.HTTPAdmissionResult, identity invoca
 	if err != nil {
 		return
 	}
-	completion.CompletedAt = now.Format(time.RFC3339Nano)
+	// Traffic evidence requires nine fractional digits, even on coarse clocks.
+	completion.CompletedAt = now.Format("2006-01-02T15:04:05.000000000Z07:00")
 	completion.DurationMS = max(0, now.Sub(start).Milliseconds())
 	ctx, cancel := context.WithTimeout(context.Background(), contract.HTTPProxyDrainTimeout)
 	defer cancel()

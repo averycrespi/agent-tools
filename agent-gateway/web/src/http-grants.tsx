@@ -335,7 +335,7 @@ function GrantCollection(props: Props) {
     <div class="domain-view">
       <div class="collection-toolbar">
         <a class="button-link create-action" href="#/http/grants/new">
-          Create HTTP grant
+          Create grant
         </a>
         <a class="button-link" href="#/http/grants/test-access">
           Test access
@@ -607,8 +607,15 @@ function GrantEditor(props: Props & { grant?: Grant }) {
     );
   };
   return (
-    <section class="panel domain-panel">
-      {g !== undefined && <h2>Edit HTTP grant</h2>}
+    <section
+      class="panel domain-panel"
+      aria-labelledby="http-grant-editor-title"
+    >
+      <div class="panel-heading">
+        <h2 id="http-grant-editor-title">
+          {g === undefined ? "Grant configuration" : "Edit HTTP grant"}
+        </h2>
+      </div>
       {loadError && (
         <StateNotice
           state="error"
@@ -642,229 +649,243 @@ function GrantEditor(props: Props & { grant?: Grant }) {
           if (valid) setConfirm("save");
         }}
       >
-        <FormField id="http-grant-principal" label="Principal">
-          {(a) => (
-            <select
-              {...a}
-              required
-              disabled={g !== undefined}
-              value={principal}
-              onChange={(e) => setPrincipal(e.currentTarget.value)}
-            >
-              <option value="">Select principal</option>
-              {principals.map((v) => (
-                <option value={v.id} key={v.id}>
-                  {v.displayName}
-                </option>
-              ))}
-            </select>
-          )}
-        </FormField>
-        <FormField id="http-grant-description" label="Description (optional)">
-          {(a) => (
-            <input
-              {...a}
-              maxLength={256}
-              value={description}
-              onInput={(e) => setDescription(e.currentTarget.value)}
-            />
-          )}
-        </FormField>
-        <FormField id="http-grant-type" label="Grant type">
-          {(a) => (
-            <select
-              {...a}
-              value={kind}
-              onChange={(e) => setKind(e.currentTarget.value as Kind)}
-            >
-              {Object.entries(labels).map(([value, label]) => (
-                <option value={value}>{label}</option>
-              ))}
-            </select>
-          )}
-        </FormField>
-        {kind === "allow_tunnel" && (
-          <StateNotice state="warning" title="Opaque tunnel bypass">
-            <p>
-              Allows encrypted traffic without request method/path checks or
-              credential injection. Request blocks do not apply inside this
-              tunnel.
-            </p>
-          </StateNotice>
-        )}
-        {requests && (
-          <FormField id="http-grant-scheme" label="Scheme">
+        <div role="group" aria-label="Principal and description">
+          <FormField id="http-grant-principal" label="Principal">
             {(a) => (
               <select
                 {...a}
-                value={scheme}
-                onChange={(e) => {
-                  setScheme(e.currentTarget.value as "https" | "http");
-                  setCredential("");
-                }}
+                required
+                disabled={g !== undefined}
+                value={principal}
+                onChange={(e) => setPrincipal(e.currentTarget.value)}
               >
-                <option value="https">HTTPS</option>
-                <option value="http">HTTP</option>
-              </select>
-            )}
-          </FormField>
-        )}
-        <FormField
-          id="http-grant-host"
-          label="Destination host"
-          hint="Exact host, or *.example.com for every subdomain excluding the apex."
-        >
-          {(a) => (
-            <input
-              {...a}
-              required
-              maxLength={255}
-              value={host}
-              onInput={(e) => setHost(e.currentTarget.value)}
-            />
-          )}
-        </FormField>
-        <FormField id="http-grant-port" label="Port">
-          {(a) => (
-            <input
-              {...a}
-              required
-              type="number"
-              min={1}
-              max={65535}
-              value={port}
-              onInput={(e) => setPort(e.currentTarget.value)}
-            />
-          )}
-        </FormField>
-        {requests && (
-          <>
-            <fieldset class="collection-field">
-              <legend>Methods</legend>
-              <p>
-                {methods.length === 0
-                  ? "Any method"
-                  : "Only the listed methods"}
-              </p>
-              {methods.map((method, index) => (
-                <div class="form-actions">
-                  <input
-                    aria-label={`Method ${index + 1}`}
-                    required
-                    maxLength={32}
-                    pattern="[A-Z0-9!#$%&'*+.^_`|~-]+"
-                    value={method}
-                    onInput={(e) =>
-                      setMethods(
-                        methods.map((v, i) =>
-                          i === index ? e.currentTarget.value : v,
-                        ),
-                      )
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMethods(methods.filter((_, i) => i !== index))
-                    }
-                  >
-                    Remove method
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                disabled={methods.length >= 32}
-                onClick={() => setMethods([...methods, "GET"])}
-              >
-                Add method
-              </button>
-            </fieldset>
-            <FormField id="http-grant-path-kind" label="Path match">
-              {(a) => (
-                <select
-                  {...a}
-                  value={pathKind}
-                  onChange={(e) =>
-                    setPathKind(e.currentTarget.value as typeof pathKind)
-                  }
-                >
-                  <option value="any">Any path</option>
-                  <option value="exact">Exact path</option>
-                  <option value="segment_prefix">Path and descendants</option>
-                </select>
-              )}
-            </FormField>
-            {pathKind !== "any" && (
-              <FormField
-                id="http-grant-path"
-                label="Path"
-                hint="Slash and unreserved characters only; query, header and body matching are not supported."
-              >
-                {(a) => (
-                  <input
-                    {...a}
-                    required
-                    maxLength={4096}
-                    value={path}
-                    onInput={(e) => setPath(e.currentTarget.value)}
-                  />
-                )}
-              </FormField>
-            )}
-          </>
-        )}
-        {kind === "allow_requests" && (
-          <FormField
-            id="http-grant-credential"
-            label="Credential (optional)"
-            hint="Only HTTPS credentials covering this entire destination are eligible."
-          >
-            {(a) => (
-              <select
-                {...a}
-                value={credential}
-                onChange={(e) => setCredential(e.currentTarget.value)}
-              >
-                <option value="">No credential</option>
-                {compatible.map((c) => (
-                  <option value={c.id}>
-                    {c.name}
-                    {c.available ? "" : " — unavailable"}
+                <option value="">Select principal</option>
+                {principals.map((v) => (
+                  <option value={v.id} key={v.id}>
+                    {v.displayName}
                   </option>
                 ))}
               </select>
             )}
           </FormField>
-        )}
-        {allow && (
-          <label class="checkbox-field" for="http-grant-private">
-            <input
-              id="http-grant-private"
-              type="checkbox"
-              checked={privateAccess}
-              aria-describedby="http-grant-private-hint"
-              onChange={(e) => setPrivate(e.currentTarget.checked)}
-            />
-            <span>
-              <strong>Allow local/private destinations</strong>
-              <small id="http-grant-private-hint">
-                Permits loopback and private networks within this grant.
-                Metadata, link-local and Gateway endpoints remain forbidden.
-              </small>
-            </span>
-          </label>
-        )}
-        <FormField id="http-grant-expiry" label="Expires (optional)">
-          {(a) => (
-            <input
-              {...a}
-              type="datetime-local"
-              value={expiry}
-              onInput={(e) => setExpiry(e.currentTarget.value)}
-            />
+          <FormField id="http-grant-description" label="Description (optional)">
+            {(a) => (
+              <input
+                {...a}
+                maxLength={256}
+                value={description}
+                onInput={(e) => setDescription(e.currentTarget.value)}
+              />
+            )}
+          </FormField>
+        </div>
+        <div
+          class="form-section"
+          role="group"
+          aria-label="Destination and matching"
+        >
+          <FormField id="http-grant-type" label="Grant type">
+            {(a) => (
+              <select
+                {...a}
+                value={kind}
+                onChange={(e) => setKind(e.currentTarget.value as Kind)}
+              >
+                {Object.entries(labels).map(([value, label]) => (
+                  <option value={value}>{label}</option>
+                ))}
+              </select>
+            )}
+          </FormField>
+          {kind === "allow_tunnel" && (
+            <StateNotice state="warning" title="Opaque tunnel bypass">
+              <p>
+                Allows encrypted traffic without request method/path checks or
+                credential injection. Request blocks do not apply inside this
+                tunnel.
+              </p>
+            </StateNotice>
           )}
-        </FormField>
+          {requests && (
+            <FormField id="http-grant-scheme" label="Scheme">
+              {(a) => (
+                <select
+                  {...a}
+                  value={scheme}
+                  onChange={(e) => {
+                    setScheme(e.currentTarget.value as "https" | "http");
+                    setCredential("");
+                  }}
+                >
+                  <option value="https">HTTPS</option>
+                  <option value="http">HTTP</option>
+                </select>
+              )}
+            </FormField>
+          )}
+          <FormField
+            id="http-grant-host"
+            label="Destination host"
+            hint="Exact host, or *.example.com for every subdomain excluding the apex."
+          >
+            {(a) => (
+              <input
+                {...a}
+                required
+                maxLength={255}
+                value={host}
+                onInput={(e) => setHost(e.currentTarget.value)}
+              />
+            )}
+          </FormField>
+          <FormField id="http-grant-port" label="Port">
+            {(a) => (
+              <input
+                {...a}
+                required
+                type="number"
+                min={1}
+                max={65535}
+                value={port}
+                onInput={(e) => setPort(e.currentTarget.value)}
+              />
+            )}
+          </FormField>
+          {requests && (
+            <>
+              <fieldset class="collection-field">
+                <legend>Methods</legend>
+                <p>
+                  {methods.length === 0
+                    ? "Any method"
+                    : "Only the listed methods"}
+                </p>
+                {methods.map((method, index) => (
+                  <div class="form-actions">
+                    <input
+                      aria-label={`Method ${index + 1}`}
+                      required
+                      maxLength={32}
+                      pattern="[A-Z0-9!#$%&'*+.^_`|~-]+"
+                      value={method}
+                      onInput={(e) =>
+                        setMethods(
+                          methods.map((v, i) =>
+                            i === index ? e.currentTarget.value : v,
+                          ),
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMethods(methods.filter((_, i) => i !== index))
+                      }
+                    >
+                      Remove method
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  disabled={methods.length >= 32}
+                  onClick={() => setMethods([...methods, "GET"])}
+                >
+                  Add method
+                </button>
+              </fieldset>
+              <FormField id="http-grant-path-kind" label="Path match">
+                {(a) => (
+                  <select
+                    {...a}
+                    value={pathKind}
+                    onChange={(e) =>
+                      setPathKind(e.currentTarget.value as typeof pathKind)
+                    }
+                  >
+                    <option value="any">Any path</option>
+                    <option value="exact">Exact path</option>
+                    <option value="segment_prefix">Path and descendants</option>
+                  </select>
+                )}
+              </FormField>
+              {pathKind !== "any" && (
+                <FormField
+                  id="http-grant-path"
+                  label="Path"
+                  hint="Slash and unreserved characters only; query, header and body matching are not supported."
+                >
+                  {(a) => (
+                    <input
+                      {...a}
+                      required
+                      maxLength={4096}
+                      value={path}
+                      onInput={(e) => setPath(e.currentTarget.value)}
+                    />
+                  )}
+                </FormField>
+              )}
+            </>
+          )}
+        </div>
+        <div
+          class="form-section"
+          role="group"
+          aria-label="Permissions and expiry"
+        >
+          {kind === "allow_requests" && (
+            <FormField
+              id="http-grant-credential"
+              label="Credential (optional)"
+              hint="Only HTTPS credentials covering this entire destination are eligible."
+            >
+              {(a) => (
+                <select
+                  {...a}
+                  value={credential}
+                  onChange={(e) => setCredential(e.currentTarget.value)}
+                >
+                  <option value="">No credential</option>
+                  {compatible.map((c) => (
+                    <option value={c.id}>
+                      {c.name}
+                      {c.available ? "" : " — unavailable"}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </FormField>
+          )}
+          {allow && (
+            <label class="checkbox-field" for="http-grant-private">
+              <input
+                id="http-grant-private"
+                type="checkbox"
+                checked={privateAccess}
+                aria-describedby="http-grant-private-hint"
+                onChange={(e) => setPrivate(e.currentTarget.checked)}
+              />
+              <span>
+                <strong>Allow local/private destinations</strong>
+                <small id="http-grant-private-hint">
+                  Permits loopback and private networks within this grant.
+                  Metadata, link-local and Gateway endpoints remain forbidden.
+                </small>
+              </span>
+            </label>
+          )}
+          <FormField id="http-grant-expiry" label="Expires (optional)">
+            {(a) => (
+              <input
+                {...a}
+                type="datetime-local"
+                value={expiry}
+                onInput={(e) => setExpiry(e.currentTarget.value)}
+              />
+            )}
+          </FormField>
+        </div>
         {error && (
           <StateNotice state="error" title="Check the proposed policy">
             <p>
@@ -877,10 +898,10 @@ function GrantEditor(props: Props & { grant?: Grant }) {
         <div class="form-actions">
           <button
             ref={button}
-            class="form-submit-action"
+            class={`${g === undefined ? "create-action " : ""}form-submit-action`}
             disabled={mutation.blocked || stale || loadError}
           >
-            Review changes
+            {g === undefined ? "Review and create" : "Review changes"}
           </button>
           {g !== undefined && (
             <button
@@ -963,11 +984,7 @@ export function PrincipalHTTPDefault(props: {
     return <StateNotice state="loading" title="Loading HTTP default" />;
   const stale = expected !== current.revision;
   return (
-    <section class="panel domain-panel">
-      <h2>HTTP access</h2>
-      <a href={`#/http/grants?principal_id=${props.principalID}`}>
-        HTTP grants for this principal
-      </a>
+    <div class="form-section">
       <FormField
         id="principal-http-default"
         label="HTTP default"
@@ -1004,6 +1021,7 @@ export function PrincipalHTTPDefault(props: {
       <MutationNotice state={mutation.state} />
       <button
         ref={button}
+        type="button"
         class="form-submit-action"
         disabled={mutation.blocked || stale || value === current.default}
         onClick={() => setConfirm(true)}
@@ -1041,7 +1059,7 @@ export function PrincipalHTTPDefault(props: {
           );
         }}
       />
-    </section>
+    </div>
   );
 }
 

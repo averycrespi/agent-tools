@@ -102,11 +102,18 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	if err = os.Mkdir(home, 0700); err != nil {
 		return errors.New("demo home creation failed")
 	}
+	material := filepath.Join(root, "material")
+	if err = os.Mkdir(material, 0700); err != nil {
+		return errors.New("demo material creation failed")
+	}
+	if err = writePrivate(filepath.Join(material, ".fixture"), []byte("agent-gateway-disposable-e2e-material\n")); err != nil {
+		return errors.New("demo material marker failed")
+	}
 	binary := filepath.Join(root, "agent-gateway")
 	if _, err = fmt.Fprintln(out, "Building demo Gateway from "+opts.module); err != nil {
 		return errors.New("demo output failed")
 	}
-	build, err := opts.start("Gateway build", []string{"go", "-C", opts.module, "build", "-mod=readonly", "-tags=e2e", "-o", binary, "./cmd/agent-gateway"}, os.Environ())
+	build, err := opts.start("Gateway build", []string{"go", "-C", opts.module, "build", "-mod=readonly", "-tags=e2e", "-ldflags", "-X github.com/averycrespi/agent-tools/agent-gateway/internal/composition.e2eMaterialDirectory=" + material, "-o", binary, "./cmd/agent-gateway"}, os.Environ())
 	if err != nil {
 		return err
 	}
@@ -117,6 +124,7 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	children = children[:0]
 	env := []string{"PATH=/usr/bin:/bin", "HOME=" + home, "TMPDIR=" + root, "XDG_CONFIG_HOME=" + filepath.Join(home, "config"), "XDG_DATA_HOME=" + filepath.Join(home, "data"), "AGENT_GATEWAY_E2E_ACCOUNT_HOME=" + home}
 	env = append(env, opts.childEnv...)
+	var commandOutput []byte
 	command := func(label string, args []string) error {
 		if ctx.Err() != nil {
 			return errors.New("interrupted before " + label)
@@ -131,13 +139,34 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 		if finishErr := c.finish(ctx, 15*time.Second, true); finishErr != nil {
 			return finishErr
 		}
+		commandOutput = c.stdout.bytes()
 		children = children[:len(children)-1]
 		return nil
 	}
 	if err = command("initialize", []string{"initialize", "--secret-output", filepath.Join(root, "admin-bearer")}); err != nil {
 		return err
 	}
-	gateway, err := opts.start("Gateway", []string{binary, "serve", "--data-dir", filepath.Join(root, "data"), "--listen", listen}, env)
+	if err = command("installation identity", []string{"storage", "verify", "--json"}); err != nil {
+		return err
+	}
+	var identity struct {
+		InstallationID string `json:"installation_id"`
+	}
+	if json.Unmarshal(commandOutput, &identity) != nil || identity.InstallationID == "" {
+		return errors.New("installation identity unavailable")
+	}
+	if err = command("disposable HTTP CA", []string{"http", "ca", "create", "--installation-id", identity.InstallationID, "--confirm"}); err != nil {
+		return err
+	}
+	proxyProbe, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return errors.New("demo proxy listener unavailable")
+	}
+	proxy := proxyProbe.Addr().String()
+	if err = proxyProbe.Close(); err != nil {
+		return errors.New("demo proxy probe close failed")
+	}
+	gateway, err := opts.start("Gateway", []string{binary, "serve", "--data-dir", filepath.Join(root, "data"), "--listen", listen, "--http-proxy-listen", proxy}, env)
 	if err != nil {
 		return err
 	}
@@ -196,11 +225,11 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 				return err
 			}
 		}
-		if err = seed(seedCtx, c, root, endpoints, children, command); err != nil {
+		if err = seed(seedCtx, c, root, proxy, endpoints, children, command); err != nil {
 			return err
 		}
 	} else {
-		for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations"} {
+		for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations", "http/credentials", "http/grants", "http/traffic"} {
 			response := c.get(collection)
 			c.require(value(response, "items") != nil && len(rows(response, "items")) == 0, "empty dataset contains records")
 		}
@@ -215,7 +244,7 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 		}
 		processes[child.label] = child.cmd.Process.Pid
 	}
-	manifest, _ := json.Marshal(object{"dataset": dataset, "listen": listen, "processes": processes, "fixtures": endpoints})
+	manifest, _ := json.Marshal(object{"dataset": dataset, "listen": listen, "proxy": proxy, "processes": processes, "fixtures": endpoints})
 	if err = writePrivate(filepath.Join(root, "ready.json"), manifest); err != nil {
 		return errors.New("ready manifest publication failed")
 	}

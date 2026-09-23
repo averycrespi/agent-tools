@@ -104,6 +104,7 @@ type demoSubject struct {
 type readyManifest struct {
 	Dataset   string            `json:"dataset"`
 	Listen    string            `json:"listen"`
+	Proxy     string            `json:"proxy"`
 	Processes map[string]int    `json:"processes"`
 	Fixtures  map[string]string `json:"fixtures"`
 }
@@ -139,6 +140,16 @@ func startDemo(t *testing.T, dataset, scenario, listen string, extra ...string) 
 }
 func (s *demoSubject) ready(t *testing.T) (string, readyManifest) {
 	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		// The outer entry prints only safe stage errors, never child logs or
+		// credential contents. Join owned cleanup before reading its result.
+		stopErr := s.process.Stop()
+		result, waitErr := s.process.Wait()
+		t.Logf("demo failure: stop=%v wait=%v exit=%d cleanup=%+v stderr_truncated=%t diagnostic=%s", stopErr, waitErr, result.ExitCode, result.Cleanup, result.StderrTruncated, result.Stderr)
+	})
 	var root string
 	var manifest readyManifest
 	require.Eventually(t, func() bool {
@@ -306,9 +317,35 @@ func TestServeDemoLifecycle(t *testing.T) {
 		}
 		require.True(t, discovered["demo_workshop.add"])
 		require.False(t, discovered["demo_workshop.controlled_error"])
+		require.NotEqual(t, manifest.Listen, manifest.Proxy)
+		require.True(t, validAuthority(manifest.Proxy))
+		httpCredentials := rows(c.get("http/credentials"), "items")
+		require.Len(t, httpCredentials, 1)
+		credential, ok := httpCredentials[0].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, true, value(credential, "available"))
+		require.Equal(t, "demo.invalid", text(credential, "boundary", "host"))
+		require.Len(t, rows(credential, "referencing_grants"), 1)
+		require.Len(t, rows(c.get("http/grants"), "items"), 3)
+		history := rows(c.get("http/traffic"), "items")
+		require.Len(t, history, 2)
+		outcomes := []string{}
+		for _, item := range history {
+			row, ok := item.(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, "127.0.0.1", text(row, "target", "host"))
+			outcomes = append(outcomes, text(row, "decision")+"/"+text(row, "outcome"))
+		}
+		require.ElementsMatch(t, []string{"allow/succeeded", "block/not_dispatched"}, outcomes)
+		fixture := newClient(t.Context(), "127.0.0.1:"+manifest.Fixtures["workshop"], "")
+		counts, _ := fixture.request("GET", "/http-counts", nil, nil, 200, "")
+		require.NoError(t, fixture.err)
+		require.Equal(t, float64(1), value(counts, "allowed"))
+		require.Equal(t, float64(0), value(counts, "blocked"))
 		before := rows(c.get("mcp/invocations"), "items")
 		time.Sleep(200 * time.Millisecond)
 		require.Equal(t, before, rows(c.get("mcp/invocations"), "items"), "background activity")
+		require.Equal(t, history, rows(c.get("http/traffic"), "items"), "background HTTP activity")
 		require.True(t, contentIs(c.call(explorer, "demo_workshop.add", object{"a": 40, "b": 2}), "42"))
 		require.Len(t, rows(c.get("mcp/invocations"), "items"), len(before)+1)
 		require.Equal(t, "call_rejected", text(c.call(reader, "demo_workshop.add", object{"a": 1, "b": 2}), "error", "data", "code"))
@@ -322,7 +359,20 @@ func TestServeDemoLifecycle(t *testing.T) {
 		sinks, err := filepath.Glob(filepath.Join(root, "*-bearer"))
 		require.NoError(t, err)
 		require.Len(t, sinks, 9)
-		secrets := [][]byte{}
+		secrets := [][]byte{[]byte("disposable-demo-http-material")}
+		require.NoError(t, filepath.WalkDir(filepath.Join(root, "data"), func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if !entry.IsDir() {
+				data, readErr := os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				require.NotContains(t, string(data), "disposable-demo-http-material")
+			}
+			return nil
+		}))
 		for _, sink := range sinks {
 			info, err = os.Stat(sink)
 			require.NoError(t, err)
@@ -356,6 +406,9 @@ func TestServeDemoLifecycle(t *testing.T) {
 		for _, secret := range secrets {
 			require.NotContains(t, string(append(result.Stdout, result.Stderr...)), string(secret))
 		}
+		proxyListener, err := net.Listen("tcp4", manifest.Proxy)
+		require.NoError(t, err)
+		require.NoError(t, proxyListener.Close())
 		for _, port := range manifest.Fixtures {
 			conn, err := net.DialTimeout("tcp4", "127.0.0.1:"+port, 200*time.Millisecond)
 			if conn != nil {
@@ -377,7 +430,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			bearers[bearer] = true
 			c := testClient(t, s.listen, root)
-			for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations"} {
+			for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations", "http/credentials", "http/grants", "http/traffic"} {
 				require.Empty(t, rows(c.get(collection), "items"))
 			}
 			require.NoError(t, c.err)
@@ -386,6 +439,9 @@ func TestServeDemoLifecycle(t *testing.T) {
 				require.NoError(t, s.process.Signal(sig))
 			}
 			s.stopped(t, false)
+			proxyListener, err := net.Listen("tcp4", manifest.Proxy)
+			require.NoError(t, err)
+			require.NoError(t, proxyListener.Close())
 		}
 		require.Len(t, roots, 3)
 		require.Len(t, bearers, 3)

@@ -4,6 +4,7 @@ import type { ResolvedLocation } from "./location";
 import { useUnsavedChanges } from "./navigation";
 import type { MutationCoordinator, MutationSnapshot } from "./mutation";
 import {
+  BinaryToggle,
   CollectionTable,
   ConfirmationDialog,
   FormField,
@@ -255,7 +256,7 @@ function CredentialCollection(props: Props) {
     <div class="domain-view">
       <div class="collection-toolbar">
         <a class="button-link create-action" href="#/http/credentials/new">
-          Create HTTP credential
+          Create credential
         </a>
       </div>
       <section class="panel domain-panel">
@@ -487,8 +488,15 @@ function CredentialEditor({
     });
   };
   return (
-    <section class="panel domain-panel">
-      <h2>{title}</h2>
+    <section
+      class="panel domain-panel"
+      aria-labelledby={`http-credential-title-${mode}`}
+    >
+      <div class="panel-heading">
+        <h2 id={`http-credential-title-${mode}`}>
+          {mode === "create" ? "Credential configuration" : title}
+        </h2>
+      </div>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -531,14 +539,18 @@ function CredentialEditor({
                 />
               )}
             </FormField>
-            <label>
-              <input
-                type="checkbox"
-                checked={wildcard}
-                onChange={(e) => setWildcard(e.currentTarget.checked)}
-              />
-              Allow the explicit *. subdomain boundary
-            </label>
+            <FormField
+              id={`http-wildcard-${mode}`}
+              label="Allow the explicit *. subdomain boundary"
+            >
+              {(attributes) => (
+                <BinaryToggle
+                  attributes={attributes}
+                  checked={wildcard}
+                  onChange={setWildcard}
+                />
+              )}
+            </FormField>
             <FormField id={`http-header-${mode}`} label="Header name">
               {(attributes) => (
                 <input
@@ -598,11 +610,13 @@ function CredentialEditor({
           class={
             mode === "delete"
               ? "danger-action form-submit-action"
-              : "form-submit-action"
+              : `${mode === "create" ? "create-action " : ""}form-submit-action`
           }
           disabled={blocked}
         >
-          Review {mode === "edit" ? "changes" : mode}
+          {mode === "create"
+            ? "Review and create"
+            : `Review ${mode === "edit" ? "changes" : mode}`}
         </button>
       </form>
       <ConfirmationDialog

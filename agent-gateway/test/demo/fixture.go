@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -82,7 +83,24 @@ func toolResult(kind, name string, args object) (object, error) {
 	return object{"content": []object{{"type": "text", "text": text}}}, nil
 }
 func fixtureHandler(kind string) http.Handler {
+	var allowed, blocked atomic.Int64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if kind == "workshop" && r.Method == http.MethodGet {
+			switch r.URL.Path {
+			case "/http-allowed":
+				allowed.Add(1)
+				_, _ = io.WriteString(w, "Local HTTP demo response")
+				return
+			case "/http-blocked":
+				blocked.Add(1)
+				_, _ = io.WriteString(w, "Blocked fixture was contacted")
+				return
+			case "/http-counts":
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(object{"allowed": allowed.Load(), "blocked": blocked.Load()})
+				return
+			}
+		}
 		bad := func() { http.Error(w, "invalid demo request", http.StatusBadRequest) }
 		if r.Method != "POST" || r.URL.RequestURI() != "/mcp" || r.ContentLength <= 0 || r.ContentLength > 8192 || len(r.TransferEncoding) != 0 {
 			bad()

@@ -1411,6 +1411,8 @@ p {
 
 .collection-toolbar {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-start;
   margin-bottom: 12px;
 }

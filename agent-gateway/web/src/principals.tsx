@@ -318,7 +318,9 @@ function PrincipalEditor({
   detail,
   onRefresh,
   notify,
+  httpDefault,
 }: {
+  httpDefault?: import("preact").ComponentChildren;
   mutations: MutationCoordinator;
   detail?: PrincipalDetail;
   onRefresh: () => void;
@@ -484,6 +486,7 @@ function PrincipalEditor({
         </>
       )}
       <form
+        id="principal-editor-form"
         data-testid="principal-editor"
         onSubmit={(event) => {
           event.preventDefault();
@@ -542,44 +545,46 @@ function PrincipalEditor({
             </select>
           )}
         </FormField>
-        {error !== undefined && (
-          <StateNotice state="error" title="Check principal configuration">
-            <p>{error}</p>
-          </StateNotice>
-        )}
-        {mutation.problem !== undefined && (
-          <StateNotice state="error" title={mutation.problem.title}>
-            {mutation.requiresRefresh && (
-              <p>
-                The current principal was reloaded. Review the preserved safe
-                draft before submitting again.
-              </p>
-            )}
-          </StateNotice>
-        )}
-        {mutation.state === "uncertain" && (
-          <StateNotice state="warning" title="Principal outcome is unknown">
-            <p>
-              Do not replay this non-idempotent change. Refresh the principal
-              and authorization state to investigate.
-            </p>
-          </StateNotice>
-        )}
-        {notice !== undefined && <StateNotice state="empty" title={notice} />}
-        <button
-          ref={submitButton}
-          class={`${create ? "create-action" : "safe-action"} form-submit-action`}
-          data-testid="principal-editor-submit"
-          type="submit"
-          disabled={disabled}
-        >
-          {mutation.state === "submitting"
-            ? "Submitting…"
-            : create
-              ? "Review and create"
-              : "Save principal"}
-        </button>
       </form>
+      {httpDefault}
+      {error !== undefined && (
+        <StateNotice state="error" title="Check principal configuration">
+          <p>{error}</p>
+        </StateNotice>
+      )}
+      {mutation.problem !== undefined && (
+        <StateNotice state="error" title={mutation.problem.title}>
+          {mutation.requiresRefresh && (
+            <p>
+              The current principal was reloaded. Review the preserved safe
+              draft before submitting again.
+            </p>
+          )}
+        </StateNotice>
+      )}
+      {mutation.state === "uncertain" && (
+        <StateNotice state="warning" title="Principal outcome is unknown">
+          <p>
+            Do not replay this non-idempotent change. Refresh the principal and
+            authorization state to investigate.
+          </p>
+        </StateNotice>
+      )}
+      {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      <button
+        ref={submitButton}
+        class={`${create ? "create-action" : "safe-action"} form-submit-action`}
+        data-testid="principal-editor-submit"
+        form="principal-editor-form"
+        type="submit"
+        disabled={disabled}
+      >
+        {mutation.state === "submitting"
+          ? "Submitting…"
+          : create
+            ? "Review and create"
+            : "Save principal"}
+      </button>
       <ConfirmationDialog
         id="principal-change-confirm"
         open={mutation.state === "confirming"}
@@ -1021,14 +1026,6 @@ export function Principals({
             </div>
           </dl>
         </section>
-        <PrincipalHTTPDefault
-          key={principal.id}
-          session={session}
-          mutations={mutations}
-          view={view}
-          onRefresh={onRefresh}
-          principalID={principal.id}
-        />
         <PrincipalCredentialActions
           mutations={mutations}
           sinks={sinks}
@@ -1036,6 +1033,16 @@ export function Principals({
           onRefresh={onRefresh}
         />
         <PrincipalEditor
+          httpDefault={
+            <PrincipalHTTPDefault
+              key={principal.id}
+              session={session}
+              mutations={mutations}
+              view={view}
+              onRefresh={onRefresh}
+              principalID={principal.id}
+            />
+          }
           mutations={mutations}
           detail={detail}
           onRefresh={onRefresh}
