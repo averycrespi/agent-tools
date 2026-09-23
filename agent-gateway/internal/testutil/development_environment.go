@@ -7,7 +7,7 @@ import (
 
 // CheckDevelopmentEnvironment rejects retired fixture controls before a runner
 // can silently skip a fixture or discard its inherited cleanup ownership.
-// Client-facing provisioning exports are not developer controls.
+// Client-facing compatibility exports are not developer controls.
 func CheckDevelopmentEnvironment(environment []string) error {
 	for _, entry := range environment {
 		name, _, _ := strings.Cut(entry, "=")

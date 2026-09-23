@@ -29,7 +29,7 @@ Everything the dashboard serves lives under `/dashboard/`, matching
 `mcp-broker`. That tool shares one port between `/mcp` and its dashboard, so the
 prefix disambiguates; here the dashboard has its own listener and the prefix
 buys consistency instead. `/healthz` and `/ca.pem` stay at the root: they are
-consumed by monitors and provisioning scripts, not by the UI.
+consumed by monitors and public CA clients, not by the UI.
 
 ## Routes
 
@@ -40,21 +40,21 @@ asserts that no on-disk state changed. **A route added to the code must be
 added here, or it will never be swept.** A companion test fails if the code
 serves a route this table omits.
 
-| Route                            | Auth        | Returns                                                                                                     |
-| -------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| `GET /`                          | none        | 302 to `/dashboard/`, carrying `?token=` over if present. Exposes nothing itself.                           |
-| `GET /healthz`                   | none        | `ok`. The liveness probe an external monitor uses to detect a wedged-but-listening proxy.                   |
-| `GET /ca.pem`                    | none        | The CA certificate. Unauthenticated because provisioning fetches it before any token exists in the sandbox. |
-| `GET /dashboard/unauthorized`    | none        | Host guidance for authenticating with the admin credential.                                                 |
-| `GET /dashboard`                 | admin token | Redirects authenticated requests to `/dashboard/` and others directly to the guidance page.                 |
-| `GET /dashboard/`                | admin token | The dashboard page. Unauthenticated requests redirect to the guidance page.                                 |
-| `GET /dashboard/app.js`          | admin token | Dashboard script.                                                                                           |
-| `GET /dashboard/styles.css`      | admin token | Dashboard styles.                                                                                           |
-| `GET /dashboard/favicon.svg`     | admin token | Dashboard icon.                                                                                             |
-| `GET /dashboard/api/audit`       | admin token | Audit history. Filters: `host`, `outcome`, `source`, `mode`, `rule`, `limit`, `offset`.                     |
-| `GET /dashboard/api/rules`       | admin token | The active ruleset and fallthrough policy.                                                                  |
-| `GET /dashboard/api/credentials` | admin token | Credential **names, sources and bound hosts**, plus `referenced` and `index_error`. Never a value.          |
-| `GET /dashboard/api/events`      | admin token | Server-sent events: one `audit` event per new request.                                                      |
+| Route                            | Auth        | Returns                                                                                                                        |
+| -------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /`                          | none        | 302 to `/dashboard/`, carrying `?token=` over if present. Exposes nothing itself.                                              |
+| `GET /healthz`                   | none        | `ok`. The liveness probe an external monitor uses to detect a wedged-but-listening proxy.                                      |
+| `GET /ca.pem`                    | none        | The CA certificate. Public certificate only; clients must verify its provenance through a trusted channel before installation. |
+| `GET /dashboard/unauthorized`    | none        | Host guidance for authenticating with the admin credential.                                                                    |
+| `GET /dashboard`                 | admin token | Redirects authenticated requests to `/dashboard/` and others directly to the guidance page.                                    |
+| `GET /dashboard/`                | admin token | The dashboard page. Unauthenticated requests redirect to the guidance page.                                                    |
+| `GET /dashboard/app.js`          | admin token | Dashboard script.                                                                                                              |
+| `GET /dashboard/styles.css`      | admin token | Dashboard styles.                                                                                                              |
+| `GET /dashboard/favicon.svg`     | admin token | Dashboard icon.                                                                                                                |
+| `GET /dashboard/api/audit`       | admin token | Audit history. Filters: `host`, `outcome`, `source`, `mode`, `rule`, `limit`, `offset`.                                        |
+| `GET /dashboard/api/rules`       | admin token | The active ruleset and fallthrough policy.                                                                                     |
+| `GET /dashboard/api/credentials` | admin token | Credential **names, sources and bound hosts**, plus `referenced` and `index_error`. Never a value.                             |
+| `GET /dashboard/api/events`      | admin token | Server-sent events: one `audit` event per new request.                                                                         |
 
 Every route is registered with an explicit `GET` method pattern, so any other method returns 405 from the mux rather than relying on a handler to reject it. After admin rotation and `SIGHUP`, old credentials and cookies fail on new requests, while an already-authenticated SSE feed may remain open.
 

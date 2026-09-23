@@ -16,7 +16,6 @@ SUITE_JOBS = {
     "gateway-lint": "gateway",
     "gateway-harness": "gateway",
     "gateway-macos": "gateway",
-    "sandbox-manager-macos": "sandbox",
 }
 
 
@@ -47,7 +46,6 @@ def classify(paths, event, suites):
         selected.add("typesafe-mcp")
     result = {key: [tool for tool in tools if tool in selected] for key, tools in suites.items()}
     result["gateway"] = "agent-gateway" in selected
-    result["sandbox"] = "sandbox-manager" in selected
     return result
 
 
@@ -73,7 +71,7 @@ def check_gate(needs):
         if key not in outputs:
             raise ValueError(f"Missing selection output: {key}")
         selection = json.loads(outputs[key])
-        if key in {"gateway", "sandbox"}:
+        if key == "gateway":
             valid = isinstance(selection, bool)
         else:
             valid = isinstance(selection, list) and all(isinstance(tool, str) for tool in selection)
@@ -86,7 +84,7 @@ def check_gate(needs):
 
 
 def cache_identity(root, role, tool, toolchain, platform, run, attempt):
-    if role not in {"quality", "unit", "lint", "integration", "harness", "e2e", "demo", "vulnerability", "macos"}:
+    if role not in {"quality", "unit", "lint", "integration", "harness", "e2e", "demo", "vulnerability"}:
         raise ValueError("Unknown build-cache role")
     if tool not in {"all", *inventory(root)["tools"]}:
         raise ValueError("Unknown build-cache tool")

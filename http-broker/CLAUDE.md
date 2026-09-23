@@ -141,7 +141,7 @@ These are load-bearing. Changing one needs a matching change to `DESIGN.md`.
   registrations, the cookie `Path`, the `dashboardPaths` redirect allowlist,
   the embedded `index.html`/`app.js` URLs and `serve`'s startup URL all derive
   from it. `/healthz` and `/ca.pem` deliberately do not — moving them would
-  break liveness probes and provisioning. The root is registered `GET /{$}`,
+  break liveness probes and public CA retrieval. The root is registered `GET /{$}`,
   not `GET /`: a subtree pattern there would serve the page for every unmatched
   path instead of 404.
 

@@ -65,7 +65,7 @@ Prefer the keychain. This exists for headless Linux, CI, and the test suite.
 | `~/.local/share/http-broker/ca.key`   | CA private key. `0600`. Never leaves the host.  |
 | `~/.local/share/http-broker/ca.pem`   | CA certificate. `0644`. Shipped into sandboxes. |
 
-`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are honoured. Legacy `auth-token` is migration input only: its normalized value becomes `agent-token`, a fresh distinct admin value is created, then the legacy path is retired. It is never used by request authentication or normal reload. Sandbox `copy_paths` must ship only `agent-token`, never the host-only admin credential.
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are honoured. Legacy `auth-token` is migration input only: its normalized value becomes `agent-token`, a fresh distinct admin value is created, then the legacy path is retired. It is never used by request authentication or normal reload. Manual client transfer must include only `agent-token`, never the host-only admin credential; see [manual setup](../README.md#manual-client-setup).
 
 ## Environment
 

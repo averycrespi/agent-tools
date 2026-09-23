@@ -7,7 +7,6 @@ Monorepo of tools for working with AI coding agents.
 ```
 mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
 agent-gateway/         Locally secure MCP gateway — see agent-gateway/CLAUDE.md
-sandbox-manager/     Lima VM sandbox manager for isolated agent environments — see sandbox-manager/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 http-broker/         MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents — see http-broker/CLAUDE.md
 typesafe-mcp/        Stateless TypeSafe inference over stdio MCP — see typesafe-mcp/CLAUDE.md
@@ -46,11 +45,11 @@ Gateway's `test` includes integration, harness, material, and demo-runner covera
 
 ## CI
 
-GitHub Actions selects affected tools on PRs and runs the full tool set on `main`, manual runs, and a weekly schedule. Go lint/unit, integration, E2E, and blocking vulnerability checks are tool-scoped. Gateway lint runs independently of its unit, integration, harness/material, E2E, and demo-runner leaves; both lint and correctness remain mandatory in Required. Gateway's source-derived suite planner keeps component, harness, and material coverage out of its dependency-light unit path without omitting it from CI. Gateway's integration and harness owners also execute on macOS, covering disposable service utilities, platform filesystem operations, and harness process supervision; its Go demo runner remains checked on Linux and macOS. These fixtures do not qualify native launchd or Keychain resources. Sandbox Manager retains its macOS unit tests. Formatting and CI classifier/gate tests always run. Scheduled vulnerability scans can catch new advisories without code changes.
+GitHub Actions selects affected tools on PRs and runs the full tool set on `main`, manual runs, and a weekly schedule. Go lint/unit, integration, E2E, and blocking vulnerability checks are tool-scoped. Gateway lint runs independently of its unit, integration, harness/material, E2E, and demo-runner leaves; both lint and correctness remain mandatory in Required. Gateway's source-derived suite planner keeps component, harness, and material coverage out of its dependency-light unit path without omitting it from CI. Gateway's integration and harness owners also execute on macOS, covering disposable service utilities, platform filesystem operations, and harness process supervision; its Go demo runner remains checked on Linux and macOS. These fixtures do not qualify native launchd or Keychain resources. Formatting and CI classifier/gate tests always run. Scheduled vulnerability scans can catch new advisories without code changes.
 
 Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Gateway selection also selects TypeSafe MCP, whose integration owner executes Gateway's catalog schema contract. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames.
 
-Configure branch protection to require the stable **Required** check from the **CI** workflow rather than individual matrix jobs. When migrating from the old workflow, replace the old Unit tests (Linux), Integration tests, End-to-end tests, and Vulnerability scan requirements; conditional Sandbox Manager checks should also be covered by Required. The gate rejects failed, cancelled, missing, or unexpectedly skipped checks. Repository commits do not update GitHub branch-protection settings.
+Configure branch protection to require the stable **Required** check from the **CI** workflow rather than individual matrix jobs. When migrating from the old workflow, replace the old Unit tests (Linux), Integration tests, End-to-end tests, and Vulnerability scan requirements. The gate rejects failed, cancelled, missing, or unexpectedly skipped checks. Repository commits do not update GitHub branch-protection settings.
 
 Go module, build, and linter caches are owned by tool and execution role, with workspace/module dependencies, linter configuration, resolved toolchain, OS, and architecture in the compatibility identity. Each workflow run/attempt saves under a fresh key while restoring the latest compatible entry, so an incomplete restore can acquire and retain missing material. Build caches may span source revisions; they never replace exact-head correctness checks. Role isolation trades some cache duplication for independent writers and avoids a lint or ordinary-test cache blocking E2E material from being saved.
 
@@ -58,7 +57,7 @@ Keep `.github/workflows/ci.yml`, `.github/actions/go-cache/action.yml`, and `.gi
 
 ## Service Layout
 
-Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `sandbox-manager/`) as a template — file layout, Makefile targets, and package organization should match.
+Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `local-git-mcp/`) as a template — file layout, Makefile targets, and package organization should match.
 
 ## Go Conventions
 
@@ -70,35 +69,9 @@ For Cobra commands, avoid exposing generic argument validation errors such as `a
 Prefer command-specific `Args` functions that name missing arguments and include the command usage or a short example when quoting/order matters.
 Let Cobra print execution errors once; don't wrap `Execute()` with a second stderr print unless `SilenceErrors` is enabled.
 
-## Provisioning Scripts
+## Client configuration
 
-Example provisioning scripts live in each tool's `examples/provision/` and run under `sb provision`, which re-runs every script on each invocation. Write them to converge, not to skip.
-
-A script that edits a shell startup file (`~/.bashrc`) must fence its block between `# >>> <name> >>>` and `# <<< <name> <<<` markers and **replace that block wholesale on every run**:
-
-```bash
-touch "$BASHRC"
-if grep -qF "$MARKER_START" "$BASHRC"; then
-	sed -i "/^${MARKER_START}$/,/^${MARKER_END}$/d" "$BASHRC"
-fi
-if [[ -s "$BASHRC" && -n "$(tail -c 1 "$BASHRC")" ]]; then
-	printf '\n' >>"$BASHRC"
-fi
-cat >>"$BASHRC" <<EOF
-$MARKER_START
-...
-$MARKER_END
-EOF
-```
-
-The conditional `printf` keeps the marker on its own line when an existing file lacks a final newline without adding blank lines on repeated runs. Do not guard the write with `if ! grep -qF "$MARKER_START"`, which makes the block write-once. The contents change between versions — hostnames, ports, added exports — and a write-once block leaves an already-provisioned sandbox on the old ones forever, with no error to reveal it. `configure-http-broker.sh` is the reference implementation.
-
-Two things follow from this shape:
-
-- **Interpolate paths, read secrets at runtime.** Export a token as `$(cat "$TOKEN_FILE")` so shell startup reads the current file, rather than baking the value in. Rotation on the host then needs only the `copy_paths` refresh, and the block never holds a secret.
-- **Replacing moves the block to the end of the file.** Content outside the markers is preserved but ordering relative to it is not, so a block must not depend on a later line in `~/.bashrc`.
-
-Installs and system-level steps stay guarded, since they are expensive and not version-sensitive in the same way: check `command_exists`/`dpkg -s` before installing, and compare before rewriting a trust-store cert. Prefer scripts that are self-contained (work on a bare sandbox) and single-purpose; a script depending on another must check for the prerequisite upfront and fail fast.
+Repository-owned VM management and guest provisioning are retired. Keep manual client configuration and credential/CA transfer guidance in each tool’s operator documentation. Preserve independent sandbox support, trusted forwarding, credential roles, rotation and CA warnings. Never imply source tests qualify live client adoption or authorize modifying installed resources.
 
 ## Doc Purposes
 

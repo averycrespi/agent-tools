@@ -427,7 +427,7 @@ func TestLoadRejectsGarbagePEM(t *testing.T) {
 	_ = certPath
 }
 
-// TestRootPEMIsASingleCertificate guards what provisioning installs: extra
+// TestRootPEMIsASingleCertificate guards what clients install: extra
 // blocks, or a key accidentally concatenated, would be shipped into sandboxes.
 func TestRootPEMIsASingleCertificate(t *testing.T) {
 	a, _, _ := newAuthority(t)

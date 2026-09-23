@@ -50,7 +50,7 @@ var tokenProxyURLCmd = &cobra.Command{
 var tokenRotateCmd = &cobra.Command{
 	Use:   "rotate <agent|admin>",
 	Short: "Rotate one selected role credential",
-	Long:  "Rotate one role and activate it with SIGHUP. New CONNECT, absolute-form proxy, and dashboard requests reject the old role value; established tunnel/MITM traffic and dashboard SSE may continue. Agent rotation is a coordinated re-provisioning cutover, not zero-downtime revocation.",
+	Long:  "Rotate one role and activate it with SIGHUP. New CONNECT, absolute-form proxy, and dashboard requests reject the old role value; established tunnel/MITM traffic and dashboard SSE may continue. Agent rotation is a coordinated manual credential-refresh cutover, not zero-downtime revocation.",
 	Args:  tokenRoleArgs("rotate"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		role, _ := parseTokenRole(args[0])
@@ -61,7 +61,7 @@ var tokenRotateCmd = &cobra.Command{
 		var outputErr error
 		switch role {
 		case auth.AgentRole:
-			_, outputErr = fmt.Fprintf(cmd.OutOrStdout(), "Rotated agent token in %s; re-provision agent-token, send SIGHUP promptly, then reconnect old-token clients.\n", paths.Agent)
+			_, outputErr = fmt.Fprintf(cmd.OutOrStdout(), "Rotated agent token in %s; securely refresh client agent-token files, send SIGHUP promptly, then reconnect old-token clients.\n", paths.Agent)
 		case auth.AdminRole:
 			_, outputErr = fmt.Fprintf(cmd.OutOrStdout(), "Rotated admin token in %s. Send SIGHUP, then reopen the dashboard to authenticate again.\n", paths.Admin)
 		}

@@ -69,63 +69,56 @@ principal disablement affects subsequent admissions in both protocols, not alrea
 admitted work; each intercepted request/stream revalidates the original credential.
 Opaque tunnels expire one hour after admission, including after revocation.
 
-For a fresh Linux sandbox use the explicit
-[HTTP provisioning script](../../examples/provision/configure-agent-gateway-http-proxy.sh).
-It is separate from MCP client provisioning and makes no host/service or system
-trust changes. Before transferring, prepare the guest's owned nonsymlink
+Repository-owned guest provisioning is retired. Configure HTTP clients manually,
+independently of [MCP client configuration](access-control.md#configure-an-agent-client-manually).
+Before transferring, prepare the client's owned nonsymlink
 `~/.config/agent-gateway` directory with mode `0700`; `.config` must be owned and
-not group/world-writable. Copy only the private `0600` (or `0400`) agent-token file
-and exported public CA, never the Gateway data root or administrator credentials:
+not group/world-writable. Through an authenticated, confidential channel, copy only
+`agent-token` and the exported public `http-ca.pem` into that directory, with owned
+nonsymlink files at mode `0600` (or `0400`). Never transfer the Gateway data root,
+administrator credentials or CA private key. Validate the current `mgw_agent_`
+credential and public certificate before use; no retired script enforces these checks.
 
-```json
-{
-  "copy_paths": [
-    "~/.config/agent-gateway/agent-token",
-    "~/.config/agent-gateway/http-ca.pem"
-  ],
-  "scripts": [
-    "/path/to/agent-tools/agent-gateway/examples/provision/configure-agent-gateway-http-proxy.sh"
-  ]
-}
-```
-
-The guest requires Bash, coreutils, OpenSSL and the distribution public CA bundle
-(`/etc/ssl/certs/ca-certificates.crt`). The script fails explicitly if prerequisites
-are absent; install them through the separately authorized sandbox provisioning
-owner. Run `sb provision`, open a fresh shell and restart clients.
-
-The convergent managed block reads the current token at **every shell startup**,
-not during file generation. It exports uppercase/lowercase `HTTP_PROXY` and
-`HTTPS_PROXY` using `http://agent:<runtime token>@host.lima.internal:8212`.
+Configure the client's supported uppercase/lowercase `HTTP_PROXY` and
+`HTTPS_PROXY` selectors using `http://agent:<runtime token>@host.lima.internal:8212`
+when a trusted Lima forwarding path is deliberately selected. Other environments
+must use their explicitly selected trusted proxy endpoint. Read the current token
+from the private file at client launch rather than baking it into a shell profile.
 Only these client environment exports contain the token; never copy them into
 configuration, argv, logs, screenshots or tickets. Shell tracing is disabled before
 reading credentials and must stay disabled. Environment inheritance exposes the
 credential to child processes; this is not an OS security boundary.
 
-The script creates an owner-private client CA bundle from distribution roots plus
-the exported public CA, then sets `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
-`SSL_CERT_FILE`. `NODE_EXTRA_CA_CERTS` selects the public CA separately. It does not
-modify `/etc`, install system trust, or export protected keys. Clients must actually
+For clients that replace rather than extend their trust store, prepare an
+owner-private client CA bundle containing distribution roots plus the validated
+exported public CA, then select it with `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
+`SSL_CERT_FILE` as supported. `NODE_EXTRA_CA_CERTS` selects the public CA separately.
+Keep trust client-scoped: this procedure does not authorize modifying `/etc`,
+installing system trust, or exporting protected keys. Clients must actually
 support these selectors; Java, browser stores and other runtimes require explicit
 client-specific trust setup. Certificate-pinned clients cannot use interception:
 a narrowly scoped **Allow tunnel** grant is the explicit escape, bypassing inner
 request restrictions and credential injection. There is no TLS-failure fallback.
 
-`NO_PROXY`/`no_proxy` are empty by default. Any bypass skips all Gateway policy,
+Explicitly reconcile inherited proxy variables, including `ALL_PROXY`/`all_proxy`,
+and set `NO_PROXY`/`no_proxy` empty unless a bypass is deliberately required. Any bypass skips all Gateway policy,
 injection and evidence; clients may also implicitly bypass loopback regardless
 of these variables. Validate each client's behavior with a disposable upstream,
 not a production side effect. Do not broadly exempt private networks or wildcard
 hosts to make requests succeed. Proxy environment variables do not enforce egress.
 
-Token rotation requires refreshing `copy_paths` and restarting client processes;
-existing environments retain old bytes. CA replacement, key loss and **every backup
-restore** require explicit new CA replacement, export and client trust reprovisioning.
-Ordinary restarts retain the selected CA; missing signing material never regenerates
-or revives an old backup handle. A new public CA requires rerunning provisioning to
-rebuild the client bundle. Retire old client trust explicitly; no automatic trust
-removal is promised.
+Token rotation requires securely refreshing the private client file and restarting
+client processes; existing environments retain old bytes. CA replacement, key loss
+and **every backup restore** require explicit new CA replacement, public export and
+manual client trust refresh. Ordinary restarts retain the selected CA; missing
+signing material never regenerates or revives an old backup handle. Rebuild the
+client bundle when the public CA changes and retire old client trust explicitly;
+no automatic trust removal is promised.
 
-This is fresh setup, not HTTP Broker adoption. Conflicting proxy exports, Broker
-managed blocks and malformed duplicate markers refuse before rewriting `.bashrc`.
-No Broker importer, CA adoption, aliases, automatic shutdown, traffic import or
-retirement is included.
+This is fresh setup, not HTTP Broker adoption. Operators must inspect and reconcile
+conflicting proxy exports, historical Broker/Gateway managed blocks and malformed
+or duplicate markers before changing a profile. The retired scripts no longer
+refuse conflicts or rewrite `.bashrc`; do not leave an old block overriding the
+selected endpoint, token or trust. No Broker importer, CA adoption, aliases,
+automatic shutdown, traffic import or retirement is included. Source tests do not
+qualify live client adoption.

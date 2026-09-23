@@ -132,6 +132,14 @@ func TestFinalReleaseProfileHashesAreStableAndOrderSensitive(t *testing.T) {
 	for _, required := range []string{"agent-gateway/test/acceptance/release_profile.go", "agent-gateway/test/acceptance/release_report.schema.json", "agent-gateway/test/acceptance/release_external_evidence.schema.json", "agent-gateway/web/environments.json", "agent-gateway/Makefile", "Makefile", "package.json", "package-lock.json"} {
 		assert.Contains(t, first.DefinitionFiles, required)
 	}
+	for _, tool := range []string{"mcp-broker", "local-git-mcp", "http-broker", "typesafe-mcp"} {
+		for _, metadata := range []string{"Makefile", ".golangci.yml", "go.mod", "go.sum"} {
+			assert.Contains(t, first.DefinitionFiles, tool+"/"+metadata)
+		}
+	}
+	for _, path := range first.DefinitionFiles {
+		assert.NotContains(t, path, "sandbox-manager/")
+	}
 }
 
 func TestFinalReleaseProfileRejectsCoverageMultiplicityAndCleanupDrift(t *testing.T) {

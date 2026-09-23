@@ -21,8 +21,8 @@ Enforcement is **cooperative**. It rests on the sandbox honouring
 `HTTP_PROXY`/`HTTPS_PROXY`. An agent that unsets them, uses `curl --noproxy`,
 or opens a raw socket bypasses this tool entirely.
 
-This matches `sandbox-manager/DESIGN.md`, which states the sandbox "is not a
-data-loss-prevention boundary" and that guest egress is intentionally allowed.
+Client isolation and egress restrictions belong to the chosen environment.
+This repository supplies neither VM management nor guest provisioning.
 http-broker makes credential handling safe for cooperating traffic and makes
 that traffic auditable. **It is not a containment boundary.**
 
@@ -50,7 +50,7 @@ make the dashboard reachable _through_ the proxy.
 listener nothing else could collide, so the prefix earns its place only by
 matching `mcp-broker`, where the same port also serves `/mcp`. `/healthz` and
 `/ca.pem` stay at the root because their consumers are monitors and
-provisioning scripts, which should not have to track a UI path.
+public CA clients, which should not have to track a UI path.
 
 ```
 cmd/http-broker/     CLI entry point (Cobra), composition root in serve.go
@@ -291,7 +291,8 @@ ongoing cost, not a solved problem.
 handshake by design. The fix is a `mode: "tunnel"` rule; the README documents
 the error signature.
 
-**CA rotation invalidates every provisioned sandbox** with no overlap window.
+**CA rotation requires manually refreshing every client trust store** with no
+overlap window when the running proxy activates the replacement CA.
 
 ## Non-goals
 

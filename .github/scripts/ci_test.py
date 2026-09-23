@@ -12,7 +12,7 @@ from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, 
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = [
-    "mcp-broker", "agent-gateway", "sandbox-manager", "local-git-mcp",
+    "mcp-broker", "agent-gateway", "local-git-mcp",
     "http-broker", "typesafe-mcp",
 ]
 
@@ -39,13 +39,12 @@ class SelectionTests(unittest.TestCase):
                     for suite in ("integration", "e2e"):
                         self.assertEqual(result[suite], [item for item in expected if item in self.inventory[suite]])
                     self.assertEqual(result["gateway"], tool == "agent-gateway")
-                    self.assertEqual(result["sandbox"], tool == "sandbox-manager")
 
     def test_shared_and_unknown_paths_select_everything(self):
         for path in ("go.work", "go.work.sum", "Makefile", "package.json", "package-lock.json",
                      ".github/workflows/ci.yml", ".github/scripts/ci.py", ".github/actions/go-cache/action.yml", ".prettierignore",
                      "README.md", "assets/example.svg", "new-tool/main.go",
-                     "agent-gateway-lookalike/main.go"):
+                     "agent-gateway-lookalike/main.go", "sandbox-manager/deleted.go"):
             with self.subTest(path=path):
                 self.assertEqual(self.select([path])["tools"], TOOLS)
 
@@ -129,7 +128,7 @@ class CLITests(unittest.TestCase):
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(json.loads(values["tools"]), TOOLS)
             self.assertEqual(values["gateway"], "true")
-            self.assertEqual(values["sandbox"], "true")
+            self.assertEqual(set(values), {"tools", "integration", "e2e", "gateway"})
 
     def test_gate_exit_code_blocks_failed_and_missing_results(self):
         needs = GateTests().needs(["README.md"])
@@ -148,7 +147,7 @@ class GateTests(unittest.TestCase):
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
                          "vulnerability-scan": "tools", "gateway-demo": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
-                         "gateway-macos": "gateway", "sandbox-manager-macos": "sandbox"}.items():
+                         "gateway-macos": "gateway"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
 
@@ -290,7 +289,7 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(set(dependencies), {"changes", "quality", *SUITE_JOBS})
         roles = {"quality": "quality", "unit-tests": "unit", "gateway-lint": "lint", "gateway-harness": "harness",
                  "integration-tests": "integration", "e2e-tests": "e2e", "gateway-demo": "demo",
-                 "vulnerability-scan": "vulnerability", "sandbox-manager-macos": "macos",
+                 "vulnerability-scan": "vulnerability",
                  "gateway-macos": "${{ matrix.suite }}"}
         for job, role in roles.items():
             self.assertEqual(jobs[job].count("uses: ./.github/actions/go-cache"), 1)

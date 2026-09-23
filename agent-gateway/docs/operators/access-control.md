@@ -113,112 +113,41 @@ agent-gateway principal credential revoke PRINCIPAL_ID --etag ETAG --yes
 
 Issue, rotate, revoke, and disable never replay automatically. On an uncertain result, read the principal and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that rotation failed. After Gateway acknowledges issue, lost output may leave the singular slot occupied even though no bearer can be recovered from metadata. After acknowledged rotation, the replacement may be current and the prior bearer may already be invalid. In either case, explicitly rotate or revoke the observed current credential instead of replaying the original operation.
 
-## Provision a Pi agent in a Lima sandbox
+## Configure an agent client manually
 
-Use [configure-agent-gateway.sh](../../examples/provision/configure-agent-gateway.sh) to configure Pi's Gateway integration in a Linux guest (the pinned external extension still uses its legacy package path, as documented below). It retains **both** `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` as supported export pairs. All four values derive from one selected endpoint and the current canonical token file. The old `configure-mcp-gateway.sh` entry point is retired; update profile script references before reprovisioning. The canonical script is self-contained because sandbox-manager copies each script individually without siblings.
+Repository-owned guest provisioning is retired. Choose and manage your own client environment; Gateway does not require Lima or a particular agent harness. This source change does not modify installed clients, shell profiles, credentials or services, and does not qualify live adoption.
 
-This is client configuration only: no installation, grant changes, credential issuance/rotation, or network connectivity test. There is no canonical-only mode. Legacy exports deliberately remain supported for the pinned consumer below; their removal requires a separately authorized and qualified consumer cutover.
-
-On the host, start the initialized Gateway with the trusted forwarding hostname allowed:
+For trusted local Lima forwarding, start the initialized host Gateway with:
 
 ```bash
 agent-gateway serve --allowed-host host.lima.internal
 ```
 
-The listener remains `127.0.0.1:8210`. Lima must provide the trusted host-forwarding path separately. HTTP does not provide confidentiality or server authentication; use this only for trusted local forwarding. See [forwarding trust boundaries](administration.md#trusted-local-forwarding-and-sandbox-administration). Agent provisioning does **not** require the sandbox administrator credential described there.
+The listener remains numeric loopback at `127.0.0.1:8210`. The environment must supply trusted forwarding separately. Plain HTTP supplies neither confidentiality nor server authentication; do not expose this as arbitrary remote access. See [forwarding trust boundaries](administration.md#trusted-local-forwarding-and-sandbox-administration). Agent clients need only an agent credential, never an administrator bearer or Gateway data directory.
 
-Create a dedicated principal, record its ID, and issue its agent credential on the host:
+Create a dedicated principal and issue its credential using the procedure above; configure grants separately. For existing principals, retain the current credential rather than issuing or rotating merely for a path/name change. Transfer only that agent credential through an authenticated, confidential channel to a chosen owner-private client file, conventionally `~/.config/agent-gateway/agent-token`. Before transfer, verify ownership and reject symlinked parents/files, nonprivate destinations and unexpected existing content. Use a `0700` token directory and a regular `0600` (or `0400`) token file; keep `.config` owned and not group/world-writable. Reconcile conflicting copies privately with their owner; never overwrite an unexplained credential.
 
-```bash
-agent-gateway principal create --display-name sandbox-pi --visibility allowed-only
-mkdir -p "$HOME/.config/agent-gateway"
-chmod 700 "$HOME/.config/agent-gateway"
-agent-gateway principal credential issue PRINCIPAL_ID \
-  --secret-output "$HOME/.config/agent-gateway/agent-token" \
-  --yes
-```
-
-For a **new principal only**, the output file must be fresh; Gateway creates it owner-only. This is a chosen client-transfer path, not an automatically generated Gateway credential. Configure grants separately; issuance alone does not authorize upstream calls. For an existing principal, retain its current credential and follow the path migration below instead of issuing or rotating merely for a rename.
-
-Add these entries to sandbox-manager configuration, preserving other paths and scripts:
-
-```json
-{
-  "copy_paths": ["~/.config/agent-gateway/agent-token"],
-  "scripts": [
-    "/path/to/agent-tools/agent-gateway/examples/provision/configure-agent-gateway.sh"
-  ]
-}
-```
-
-Before the first transfer, open `sb shell` and create the guest's `~/.config/agent-gateway` directory with mode `0700` (and any retained legacy directory if refreshing a rollback copy). Verify ownership, absence of symlinks and any existing destination before copying. Sandbox-manager's parent `mkdir -p` does not enforce private permissions; provisioning scripts run too late to protect the initial transfer.
-
-Then run `sb provision`. It refreshes `copy_paths` **before** scripts. Copy only the agent credential, never an administrator credential or the Gateway data directory. The guest token directory must be owned by the guest user with mode `0700`, the regular token file `0600` (or read-only `0400`), and `.config` owned and not group/world-writable. Symlinked `.config`, token directories/files, and `.bashrc` are refused. Ensure guest permissions before running the script; it never repairs or overwrites credentials.
-
-The managed block reads and validates the current file at every Bash startup, then assigns:
-
-```bash
-export MCP_GATEWAY_ENDPOINT="$AGENT_GATEWAY_ENDPOINT"
-export MCP_GATEWAY_AGENT_TOKEN="$AGENT_GATEWAY_AGENT_TOKEN"
-```
-
-The canonical endpoint is fixed in the script's `_agent_gateway_load` function to `http://host.lima.internal:8210/mcp`; inherited endpoint/token variables do not select authority. Both pairs are cleared first and replaced together. The current agent-config consumer accepts the bearer only through the legacy environment variable, not settings JSON or a credential-file setting. The exact `/mcp` suffix, trusted-host setup and consumer endpoint validation remain required. For a nondefault endpoint, deliberately adapt the single endpoint literal and qualify it against the consumer's validation; do not independently edit either alias. Read-only mode and timeouts remain at consumer defaults.
-
-Tokens are never embedded in `.bashrc`, printed, or passed as arguments. The block disables shell xtrace before reading them and leaves it disabled; do not re-enable tracing around credential-consuming commands. Both pairs expose the same bearer to Pi and inherited child environments, as before; this is not an OS credential boundary. Never export an administrator bearer, dump the environment, or put credentials in settings JSON, tickets or logs.
+Configure the client's supported secret-file mechanism, or load the validated file at client startup into its supported agent-token environment variable. Do not embed tokens in profiles/settings JSON, command arguments, URLs, tickets or logs. Disable tracing before reading credentials; never dump the environment. Environment delivery exposes the bearer to the client and inherited children, not an OS credential boundary. Refuse missing/invalid files rather than falling back to stale inherited values.
 
 ### Existing sandbox migration and conflicts
 
-| Previous interface                                | Current interface                                                         |
-| ------------------------------------------------- | ------------------------------------------------------------------------- |
-| `configure-mcp-gateway.sh`                        | Retired; use `configure-agent-gateway.sh`                                 |
-| `~/.config/mcp-gateway/agent-token`               | Detection only; require `~/.config/agent-gateway/agent-token`             |
-| `# >>> mcp-gateway >>>` / `# <<< mcp-gateway <<<` | One `agent-gateway` marker pair                                           |
-| `MCP_GATEWAY_ENDPOINT`, `MCP_GATEWAY_AGENT_TOKEN` | Retained aliases of `AGENT_GATEWAY_ENDPOINT`, `AGENT_GATEWAY_AGENT_TOKEN` |
+The retired scripts no longer enforce token validation, marker replacement, alias agreement or permission checks. Operators now own those checks; this guide is not an automated replacement provisioning system.
 
-Token selection is evaluated at provisioning **and** shell startup:
+For consumers using the Gateway environment contract, retain **both** `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN`. Derive both pairs from one deliberately selected trusted endpoint (for Lima, `http://host.lima.internal:8210/mcp`) and the same current agent file. Do not let inherited aliases independently select endpoint or authority. Retiring provisioning does not authorize removing legacy exports or changing external consumers.
 
-- Only canonical present: use canonical. Only legacy present: refuse without rewriting `.bashrc`; update `copy_paths` and transfer the same current credential to the private canonical path. There is no legacy-token fallback, even though legacy exports remain supported.
-- Both present: validate both and require the same bearer (one optional final newline is insignificant); select canonical. A missing file is not an empty file: an existing empty, unreadable, invalid, administrator-shaped, nonprivate or symlinked file is an error, even when the other path is valid.
-- Neither present or any conflict: provisioning fails without changing `.bashrc`; startup clears all four exports and emits a value-free diagnostic. Existing parent directories are validated even when their token file is absent; an empty or dangling symlink directory is not a missing-token fallback. There is no fallback to stale inherited credentials.
-- Files are never moved, deleted or overwritten by either script. Existing legacy credentials remain until separately reconciled by their owner.
+Historical profiles may contain `mcp-gateway` or `agent-gateway` managed marker blocks, or a `~/.config/mcp-gateway/agent-token` copy. With clients stopped and files quiescent, inspect these and independent launcher settings before editing. Keep private backups and unrelated profile content. Reconcile duplicate/partial blocks and conflicting credentials explicitly; do not source multiple competing loaders. If keeping an old-path copy for rollback, ensure it holds the same current agent credential, not an administrator or invalidated bearer. No old-path fallback is implied.
 
-To migrate the transfer path without rotating authority:
-
-1. Keep the old profile/script available as rollback evidence. Privately validate that the old host file is the current agent credential; do not print it. Create the canonical parent with mode `0700`. Copy the **same** credential to a fresh canonical file using an owner-private, no-clobber operation. If the destination exists, compare privately and stop on disagreement; never blindly overwrite it.
-2. Inspect both guest paths **before** refreshing `copy_paths`, since the refresh itself can replace files before the script can reject a conflict. Reconcile any different credential with its owner. Update the repository checkout used by the profile, then update the profile's transfer path and script together. Keep refreshing both paths while both copies exist if future rotation must support rollback.
-3. Reprovision. A single complete old or new managed block is replaced wholesale with one canonical block at the end of `.bashrc`; unrelated bytes stay in order. A missing final newline gets one separator. Nested, duplicate, mismatched, partial markers or simultaneous old/new blocks are refused before replacement; explicitly reconcile to one intended block rather than letting the script guess which authority was intended. A NUL-containing file is refused. The resulting `.bashrc` is owner-private.
-4. Open a **fresh Bash shell**, then restart Pi and other launchers holding old environments. Merely updating files or a parent shell does not change an already-running process. Remove/reconcile independent Gateway exports outside the block and in launcher settings; otherwise they may reinstate stale values. Noninteractive launchers not sourcing `.bashrc` need equivalent trusted setup and qualification.
-
-The block is intentionally moved to the end; it must not depend on a later line. Broker's separate managed block remains untouched, but do not load the old Broker extension alongside Gateway; removing that configuration is separate work. Provision only while this user's shell files and token paths are quiescent; these example scripts are not a lock or a boundary against another writer with control of the account.
-
-For a real rotation, use the explicit `principal credential rotate` procedure above with a fresh output file, then securely refresh each retained transfer copy to the same replacement. Update guest copies together and start a fresh shell/Pi process. Two different old/new copies deliberately fail closed; do not select an old bearer as rollback after rotation invalidated it. Coordinate the interruption and never replay an uncertain rotation.
+After an authorized rotation, securely refresh every retained client copy with the replacement, then restart clients and launchers that retain old environments. Rotation has no authority overlap; do not restore an invalidated bearer as rollback or replay an uncertain rotation. File transfer alone cannot update an already-running process.
 
 ### Consumer compatibility, qualification and rollback
 
-The inspected external consumer revision is [agent-config `fadc9ac8d681f27bf9c8e5f59fc56011a0d512b1`](https://github.com/averycrespi/agent-config/commit/fadc9ac8d681f27bf9c8e5f59fc56011a0d512b1). Its `pi/agent/extensions/mcp-gateway/config.ts` accepts only `MCP_GATEWAY_*`: endpoint environment overrides trusted global settings; the bearer comes only from the environment. Project settings are ignored, so they cannot redirect a global credential. It validates exact `/mcp`, transport/hostname rules and `mgw_agent_` shape; administrator-shaped tokens and endpoint-embedded credentials are rejected without reflecting input. `config.test.ts` covers these boundaries; `pi/agent/extensions/code-mode/tool.test.ts` still uses the legacy pair.
+Historical inspection of [agent-config `fadc9ac8d681f27bf9c8e5f59fc56011a0d512b1`](https://github.com/averycrespi/agent-config/commit/fadc9ac8d681f27bf9c8e5f59fc56011a0d512b1) found a consumer accepting only the legacy `MCP_GATEWAY_*` pair: endpoint environment overrides trusted global settings, bearer comes only from the environment, and project settings cannot redirect global authority. That revision validates exact `/mcp`, transport/hostname rules and agent-token shape, rejecting administrator tokens and embedded credentials. This is historical compatibility evidence, not qualification of the currently installed external consumer.
 
-| Producer                                                                               | Consumer                                | Supported surface and evidence boundary                                                                                                          |
-| -------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Historical old (`ce28fd6c447bf83a6058295be19e2b5c3d60f3b4`)                            | Pinned legacy revision above            | Old script/path and legacy pair; historical baseline, not the current installation procedure                                                     |
-| Historical transition (`3853aca711aecf5d15b646134178193f9c46135f`), either entry point | Pinned legacy revision above            | Both pairs and legacy-path fallback; historical rollout/rollback evidence                                                                        |
-| Current `configure-agent-gateway.sh`                                                   | Pinned legacy revision above            | Canonical token path required, both export pairs retained from one authority; real-loader qualification uses isolated synthetic material         |
-| Current producer                                                                       | Separately delivered canonical consumer | Not qualified here; verify pairing, precedence, redaction, administrator rejection and global/project authority before adopting another consumer |
-| Canonical-only exports                                                                 | Any consumer                            | **Not enabled or part of this retirement.** Legacy exports remain supported by explicit scope decision                                           |
-
-Use synthetic agent material and disposable homes/project/global settings for configuration integration; never real tokens or native credentials. Record exact producer/consumer revisions, command, results and scope. Loader/source tests do not prove an MCP connection, installation or rollout. A merged consumer PR alone does not satisfy adoption. No external repository edits, Pi extension/settings namespace changes, MCP wire renames, keyring migrations or credential replacement are implied.
-
-Normal client rollback retains the current canonical script/token path and selects the known legacy consumer: it still receives the same legacy pair. If restoring the old producer is necessary, stop Pi/launchers, privately reconcile the old-path file to the **current** credential, restore the old `copy_paths`/script together, and explicitly remove the canonical managed block before running the old script (the old script cannot recognize it). Remove stale canonical exports from launcher environments, open a fresh shell and requalify. Keep unrelated content and private backups; do not delete credentials or revert to an invalidated bearer. Restoring an old shell without reconciling the marker/file mapping is unsafe.
+Before adopting a different consumer, test pairing, precedence, redaction, administrator rejection and global/project authority with synthetic material in disposable client environments. Canonical-only exports remain outside this retirement. Record exact consumer/configuration revisions and results; loader tests do not prove connectivity or deployment. Rollback may restore a known-compatible client configuration, but must retain the current credential and trusted endpoint, remove conflicting exports, and restart the client. Do not restore deleted provisioning scripts as the current procedure.
 
 ### Nonsecret adoption evidence
 
-For **each known sandbox profile and each client launch environment** (interactive Bash, noninteractive launcher and any independent settings), the rollout owner records:
-
-- Profile/launcher identifier, exact producer and consumer revisions, transfer-path choice, script entry point, permission-check result and managed-block count—never bearer values or environment dumps.
-- Fresh-shell/restarted-Pi confirmation; Boolean results for both endpoint values agreeing with the intended trusted endpoint, both tokens present/equal to the selected current file, and no stale/conflicting exports in startup files or launcher configuration.
-- Public-safe results of configuration validation, administrator-token rejection, project-versus-global authority and redaction tests; separately authorized MCP connectivity/admission evidence, if obtained.
-- Outcome, outstanding conflicts, operator, rollback choice and next action. Missing profiles/launchers stay explicitly unqualified; do not infer adoption from this repository's tests or CI.
-
-This source retirement does not inventory or mutate live profiles, start services, transfer real credentials, or claim deployment. The [installation safety guide](installation-safety.md#retired-executable-and-operator-cleanup) records the historical supported-scope attestation; it is not independently verified live-adoption evidence. Canonical-consumer qualification remains unrun; retaining the legacy exports keeps it outside this delivery's prerequisite.
+For each client environment and launcher, the rollout owner records permission/ownership checks, selected transfer path, consumer version, endpoint/alias agreement, current-token agreement as Boolean results, absence of stale loaders and fresh-process confirmation—never token values or environment dumps. Record separately authorized connectivity evidence, unresolved conflicts, rollback choice and next action. Uninspected clients remain unqualified. This repository's tests and CI do not inventory live profiles, transfer real credentials or establish rollout completion.
 
 ## Create and inspect immutable grants
 
