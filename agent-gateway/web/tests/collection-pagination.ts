@@ -175,6 +175,7 @@ export async function exerciseCollectionPagination(
       collection = selected;
       mode = "normal";
       const kind = selected === "principals" ? "principal" : "grant";
+      const itemLabel = selected === "principals" ? "agents" : "grants";
       const root = page.locator(`[data-testid="${selected}-view"]`);
       const rows = root.locator(`[data-testid="${kind}-row"]`);
       const settled = async (count: number) => {
@@ -208,7 +209,7 @@ export async function exerciseCollectionPagination(
         );
       const summary = root.locator('.collection-pagination [role="status"]');
       const range = (offset: number) =>
-        `Showing ${offset + 1}–${Math.min(offset + 50, 128)} of 128 ${selected}`;
+        `Showing ${offset + 1}–${Math.min(offset + 50, 128)} of 128 ${itemLabel}`;
       const previous = root
         .getByRole("button", {
           name: "Previous",
@@ -264,7 +265,7 @@ export async function exerciseCollectionPagination(
       const viewport = page.viewportSize()!;
       await page.setViewportSize({ width: 320, height: 900 });
       const sortColumn = root.getByRole("combobox", {
-        name: `${selected === "principals" ? "Principal identities" : "Grant policy records"} sort column`,
+        name: `${selected === "principals" ? "Agent identities" : "Grant policy records"} sort column`,
       });
       await sortColumn.focus();
       await expect(sortColumn).toBeFocused();
@@ -323,7 +324,9 @@ export async function exerciseCollectionPagination(
       await settled(1);
       await expect(rows).toContainText("Zulu needle");
       await expect(search).toBeFocused();
-      await expect(summary).toHaveText(`Showing 1–1 of 1 matching ${kind}`);
+      await expect(summary).toHaveText(
+        `Showing 1–1 of 1 matching ${selected === "principals" ? "agent" : "grant"}`,
+      );
       expect(requests.at(-1)?.cursor).toBeNull();
       expect(await page.evaluate(() => window.location.hash)).toContain(
         "filter_",
@@ -342,7 +345,7 @@ export async function exerciseCollectionPagination(
       await expect(summary).toHaveText(range(50));
       await root
         .getByRole("button", {
-          name: selected === "principals" ? "Principal" : "Grant",
+          name: selected === "principals" ? "Agent" : "Grant",
           exact: true,
         })
         .click();
@@ -407,9 +410,9 @@ export async function exerciseCollectionPagination(
       await expect(
         root
           .locator(".state-notice")
-          .getByText(`No ${selected}`, { exact: true }),
+          .getByText(`No ${itemLabel}`, { exact: true }),
       ).toBeVisible();
-      await expect(summary).toHaveText(`No ${selected}`);
+      await expect(summary).toHaveText(`No ${itemLabel}`);
       await capture?.(page, `${selected}-empty`);
       for (const invalid of [
         { total_count: undefined },
@@ -440,12 +443,14 @@ export async function exerciseCollectionPagination(
       mode = "single";
       await page.locator('[data-testid="manual-refresh"]').click();
       await settled(1);
-      await expect(summary).toHaveText(`Showing 1–1 of 1 ${kind}`);
+      await expect(summary).toHaveText(
+        `Showing 1–1 of 1 ${selected === "principals" ? "agent" : "grant"}`,
+      );
       mode = "normal";
       await search.fill("missing");
       await expect(root.getByText("No matches", { exact: true })).toBeVisible();
       await expect(search).toHaveValue("missing");
-      await expect(summary).toHaveText(`No matching ${selected}`);
+      await expect(summary).toHaveText(`No matching ${itemLabel}`);
       await capture?.(page, `${selected}-no-matches`);
       const started = new Promise<void>((resolve) => {
         signalLate = resolve;
@@ -465,7 +470,9 @@ export async function exerciseCollectionPagination(
       await settled(1);
       releaseLate?.();
       await finished;
-      await expect(summary).toHaveText(`Showing 1–1 of 1 matching ${kind}`);
+      await expect(summary).toHaveText(
+        `Showing 1–1 of 1 matching ${selected === "principals" ? "agent" : "grant"}`,
+      );
       await expect(rows).toContainText("Zulu needle");
       await expect(root.getByRole("alert")).toHaveCount(0);
       const selectFilter = async (
@@ -493,7 +500,7 @@ export async function exerciseCollectionPagination(
         await selectFilter("Effect", "deny", "effect");
         await selectFilter("Status", "expired", "state");
         for (const [label, value, parameter] of [
-          ["Principal", "needle", "principal"],
+          ["Agent", "needle", "principal"],
           ["Target", "Far", "target"],
         ]) {
           const response = page.waitForResponse((response) => {
@@ -559,7 +566,9 @@ export async function exerciseCollectionPagination(
       await search.fill("needle");
       await settled(1);
       await expect(root.getByRole("alert")).toHaveCount(0);
-      await expect(summary).toHaveText(`Showing 1–1 of 1 matching ${kind}`);
+      await expect(summary).toHaveText(
+        `Showing 1–1 of 1 matching ${selected === "principals" ? "agent" : "grant"}`,
+      );
       expect(referenceLookups).toBe(0);
     }
   } finally {

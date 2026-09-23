@@ -26,10 +26,10 @@ func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptio
 	}
 	principalID := args[0]
 	action := "issue"
-	consequence := "Issue this principal's first singular bearer?"
+	consequence := "Issue this agent's first singular bearer?"
 	if rotate {
 		action = "rotate"
-		consequence = "Atomically replace this principal's singular bearer with no authority overlap? Current bearer authority, sessions, streams, and admitted leases will be interrupted."
+		consequence = "Atomically replace this agent's singular bearer with no authority overlap? Current bearer authority, sessions, streams, and admitted leases will be interrupted."
 	}
 	sink, failure := prepareOnlineSensitiveAction(options, consequence, nil, nil)
 	if failure != nil {
@@ -92,7 +92,7 @@ func runPrincipalCredentialRevoke(command *cobra.Command, options *onlineOptions
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
 	}
 	principalID := args[0]
-	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Revoke this principal's singular bearer and close its sessions, streams, and admitted leases? No bearer will remain."}); err != nil {
+	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Revoke this agent's singular bearer and close its sessions, streams, and admitted leases? No bearer will remain."}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
 	etag, failure := resolveMutationETag(command, options, onlineItemPrincipal, principalID)

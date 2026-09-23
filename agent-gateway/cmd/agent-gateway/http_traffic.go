@@ -61,7 +61,7 @@ func httpTrafficListTable(body []byte) (controlclient.Table, error) {
 			return controlclient.Table{}, controlclient.ErrResponseInvalid
 		}
 	}
-	table := controlclient.Table{Headers: []string{"ADMITTED", "DESTINATION", "PRINCIPAL", "TYPE", "DECISION", "OUTCOME", "ID"}, NextCursor: page.NextCursor}
+	table := controlclient.Table{Headers: []string{"ADMITTED", "DESTINATION", "AGENT", "TYPE", "DECISION", "OUTCOME", "ID"}, NextCursor: page.NextCursor}
 	seen := map[string]bool{}
 	for _, item := range page.Items {
 		if !validHTTPTrafficSummary(item) || seen[item.ID] {
@@ -82,7 +82,7 @@ func httpTrafficItemTable(body []byte) (controlclient.Table, error) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
 	a := item.Admission
-	table := controlclient.Table{Headers: []string{"FIELD", "VALUE"}, Rows: [][]string{{"ID", a.ID}, {"Admitted", a.AdmittedAt}, {"Destination", httpTrafficDestination(a.Target)}, {"Principal", fmt.Sprintf("%s revision %d", a.Principal.ID, a.Principal.Revision)}, {"Agent credential", fmt.Sprintf("%s revision %d", a.AgentCredential.ID, a.AgentCredential.Revision)}, {"Evaluated", a.EvaluatedAt}, {"Evidence", "Policy and material references describe admission time, not current authority."}}}
+	table := controlclient.Table{Headers: []string{"FIELD", "VALUE"}, Rows: [][]string{{"ID", a.ID}, {"Admitted", a.AdmittedAt}, {"Destination", httpTrafficDestination(a.Target)}, {"Agent", fmt.Sprintf("%s revision %d", a.Principal.ID, a.Principal.Revision)}, {"Agent credential", fmt.Sprintf("%s revision %d", a.AgentCredential.ID, a.AgentCredential.Revision)}, {"Evaluated", a.EvaluatedAt}, {"Evidence", "Policy and material references describe admission time, not current authority."}}}
 	if a.Decision != nil {
 		d := a.Decision
 		table.Rows = append(table.Rows, []string{"Decision", fmt.Sprintf("allowed=%t; %s; policy revision %d; default revision %d", d.Allowed, d.Reason, d.PolicyRevision, d.DefaultRevision)}, []string{"Transport", string(d.Transport)})

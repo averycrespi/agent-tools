@@ -1932,7 +1932,7 @@ export async function runInvocations(
   expect(await page.locator("thead th").allTextContents()).toEqual([
     "Admitted",
     "Invocation",
-    "Principal",
+    "Agent",
     "Authorization",
     "Outcome",
   ]);
@@ -1948,7 +1948,7 @@ export async function runInvocations(
   await assertTableConventions(
     page,
     "Invocation history",
-    ["Admitted", "Invocation", "Principal", "Authorization", "Outcome"],
+    ["Admitted", "Invocation", "Agent", "Authorization", "Outcome"],
     "Invocation",
   );
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
@@ -2583,7 +2583,7 @@ export async function runSystemStatus(
     "Operational state",
     "Technical details",
     "2026-07-28",
-    "Principal credentials",
+    "Agent credentials",
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
   const statusPanel = page.locator('[data-testid="system-status-panel"]');
@@ -2821,7 +2821,7 @@ export async function runSystemStatus(
   releaseStatus();
   const expectedCells = expectedRows.map(
     ({ name, inUse, limit, used, saturated }) => [
-      name,
+      name === "principals" ? "Agents" : name,
       String(inUse),
       String(limit),
       used,
@@ -2862,7 +2862,7 @@ export async function runSystemStatus(
       await limitsTable.getByRole("columnheader").allTextContents(),
     ).toEqual(["Resource", "In use", "Limit", "Used (%)", "Status"]);
     expect(await limitsTable.getByRole("rowheader").allTextContents()).toEqual(
-      expectedRows.map(({ name }) => name),
+      expectedRows.map(({ name }) => (name === "principals" ? "Agents" : name)),
     );
     expect(
       await limitsTable

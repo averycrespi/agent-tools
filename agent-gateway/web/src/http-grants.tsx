@@ -261,7 +261,7 @@ export function HTTPGrants(props: Props) {
         <p>{summary(detail.policy)}</p>
         <p>
           <a href={`#/principals/${detail.principal_id}`}>
-            Principal {detail.principal_id}
+            Agent {detail.principal_id}
           </a>
         </p>
         <p class="technical-value">{detail.id}</p>
@@ -343,7 +343,7 @@ function GrantCollection(props: Props) {
             },
             {
               key: "principal",
-              label: "Principal",
+              label: "Agent",
               type: "text",
               value: (r) => r.principal_display_name,
               literalValues: (r) => [r.grant.principal_id],
@@ -394,7 +394,7 @@ function GrantCollection(props: Props) {
             },
             {
               key: "principal",
-              label: "Principal",
+              label: "Agent",
               role: "relation",
               sortValue: (r) => r.principal_display_name,
               render: (r) => (
@@ -601,7 +601,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
       {loadError && (
         <StateNotice
           state="error"
-          title="Principal or credential choices unavailable"
+          title="Agent or credential choices unavailable"
         />
       )}
       {stale && (
@@ -631,8 +631,8 @@ function GrantEditor(props: Props & { grant?: Grant }) {
           if (valid) setConfirm("save");
         }}
       >
-        <div role="group" aria-label="Principal and description">
-          <FormField id="http-grant-principal" label="Principal">
+        <div role="group" aria-label="Agent and description">
+          <FormField id="http-grant-principal" label="Agent">
             {(a) => (
               <select
                 {...a}
@@ -641,7 +641,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                 value={principal}
                 onChange={(e) => setPrincipal(e.currentTarget.value)}
               >
-                <option value="">Select principal</option>
+                <option value="">Select agent</option>
                 {principals.map((v) => (
                   <option value={v.id} key={v.id}>
                     {v.displayName}
@@ -871,7 +871,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
         {error && (
           <StateNotice state="error" title="Check the proposed policy">
             <p>
-              Use a valid principal, destination, future expiry and compatible
+              Use a valid agent, destination, future expiry and compatible
               credential.
             </p>
           </StateNotice>
@@ -903,7 +903,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
         title={confirm === "delete" ? "Delete HTTP grant" : "Apply HTTP grant"}
         consequence={
           confirm === "delete"
-            ? "Remove this grant. Other grants and the principal default still apply."
+            ? "Remove this grant. Other grants and the agent default still apply."
             : summary(policy) +
               (privateAccess && allow
                 ? " · Local/private access enabled"
@@ -998,7 +998,7 @@ function AccessPreview(props: Props) {
             .finally(() => setPending(false));
         }}
       >
-        <FormField id="preview-principal" label="Principal">
+        <FormField id="preview-principal" label="Agent">
           {(a) => (
             <select
               {...a}
@@ -1006,7 +1006,7 @@ function AccessPreview(props: Props) {
               value={principal}
               onChange={(e) => setPrincipal(e.currentTarget.value)}
             >
-              <option value="">Select principal</option>
+              <option value="">Select agent</option>
               {principals.map((p) => (
                 <option value={p.id}>{p.displayName}</option>
               ))}
@@ -1085,7 +1085,7 @@ function AccessPreview(props: Props) {
       </form>
       {error && (
         <StateNotice state="error" title="Access preview unavailable">
-          <p>Check the coordinates and current principal state.</p>
+          <p>Check the coordinates and current agent state.</p>
         </StateNotice>
       )}
       {result !== undefined && <PreviewResult result={result} />}
@@ -1098,7 +1098,7 @@ function PreviewResult({ result }: { result: Record<string, unknown> }) {
     destination_block: "Blocked by a destination grant",
     request_block: "Blocked by a request grant",
     request_allow: "Allowed by request policy",
-    principal_default: `Principal default: ${String(result.default)}`,
+    principal_default: `Agent default: ${String(result.default)}`,
     tunnel_allow:
       "Opaque tunnel allowed; request policy and injection bypassed",
     intercept_required:
@@ -1127,7 +1127,7 @@ function PreviewResult({ result }: { result: Record<string, unknown> }) {
       </p>
       <dl class="fact-grid">
         <div>
-          <dt>principal</dt>
+          <dt>Agent</dt>
           <dd>
             <a href={`#/principals/${String(object(d.principal).id)}`}>
               {String(object(d.principal).id)}

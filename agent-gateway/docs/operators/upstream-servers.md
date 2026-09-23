@@ -218,4 +218,4 @@ agent-gateway mcp server delete SERVER_ID --etag ETAG --yes
 
 Deletion tombstones the identity, withdraws active routes, retires durable descriptors, and invalidates local credential domains. There is no force path, and scheduled cleanup cannot guarantee remote revocation. If cleanup remains pending, retry only the documented local cleanup operation; never interpret a tombstone as restored authority.
 
-Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for common workflows. Use [Access control](access-control.md) to decide which principals can discover and call active tools, and [Invocation evidence](invocation-evidence.md) to investigate attempted calls.
+Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for common workflows. Use [Access control](access-control.md) to decide which agents can discover and call active tools, and [Invocation evidence](invocation-evidence.md) to investigate attempted calls.

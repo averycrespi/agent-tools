@@ -1242,7 +1242,7 @@ export async function runShellPrimitives(
 
   const expectedNavigation = [
     ["Overview", "#/overview"],
-    ["Principals", "#/principals"],
+    ["Agents", "#/principals"],
     ["Audit Log", "#/audit-log"],
     ["System", "#/system"],
     ["Credentials", "#/http/credentials"],

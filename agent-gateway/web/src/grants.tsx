@@ -36,6 +36,7 @@ import {
   FormField,
   InertJSON,
   StateNotice,
+  problemTitle,
   StatusLabel,
   SuggestionInput,
 } from "./primitives";
@@ -392,9 +393,7 @@ function GrantCreate({
       if (containsControlCharacters(description))
         throw new Error("Description cannot contain control characters.");
       if (!gatewayID.test(principalID) || !gatewayID.test(serverID))
-        throw new Error(
-          "Principal and server IDs must be complete Gateway IDs.",
-        );
+        throw new Error("Agent and server IDs must be complete Gateway IDs.");
       if (readOnly && (scope !== "server" || effect !== "allow"))
         throw new Error("Read-only access requires server-wide ALLOW scope.");
       if (scope === "tool" && upstreamName.length === 0)
@@ -502,7 +501,7 @@ function GrantCreate({
               />
             )}
           </FormField>
-          <FormField id="grant-principal" label="Principal" required>
+          <FormField id="grant-principal" label="Agent" required>
             {(attributes) => (
               <select
                 {...attributes}
@@ -511,7 +510,7 @@ function GrantCreate({
                 onChange={(event) => setPrincipalID(event.currentTarget.value)}
                 required
               >
-                <option value="">Choose a principal</option>
+                <option value="">Choose an agent</option>
                 {principals.map((principal) => (
                   <option value={principal.id} key={principal.id}>
                     {principal.displayName} — {principal.id}
@@ -712,7 +711,7 @@ function GrantCreate({
             </StateNotice>
           )}
           {mutation.problem !== undefined && (
-            <StateNotice state="error" title={mutation.problem.title} />
+            <StateNotice state="error" title={problemTitle(mutation.problem)} />
           )}
           {mutation.state === "uncertain" && (
             <StateNotice state="warning" title="Grant outcome is unknown">
@@ -760,11 +759,11 @@ function GrantCreate({
                   <dd>{description}</dd>
                 </div>
                 <div>
-                  <dt>Principal</dt>
+                  <dt>Agent</dt>
                   <dd>
                     {principals.find(
                       (principal) => principal.id === principalID,
-                    )?.displayName ?? "Unknown principal"}{" "}
+                    )?.displayName ?? "Unknown agent"}{" "}
                     · {principalID}
                   </dd>
                 </div>
@@ -1132,8 +1131,8 @@ function GrantActions({
   };
   const defaultWarning =
     visibility === undefined
-      ? "Deleting this default grant removes the principal's access to Gateway self-service tools. It is not restored automatically."
-      : `Deleting this default grant removes the principal's access to Gateway self-service tools. The principal's ${visibility} visibility does not restore authorization.`;
+      ? "Deleting this default grant removes the agent's access to Gateway self-service tools. It is not restored automatically."
+      : `Deleting this default grant removes the agent's access to Gateway self-service tools. The agent's ${visibility} visibility does not restore authorization.`;
   const disabled =
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched";
@@ -1167,7 +1166,7 @@ function GrantActions({
         </StateNotice>
       )}
       {mutation.problem !== undefined && (
-        <StateNotice state="error" title={mutation.problem.title}>
+        <StateNotice state="error" title={problemTitle(mutation.problem)}>
           <p>No later replacement step was submitted.</p>
         </StateNotice>
       )}
@@ -1256,7 +1255,7 @@ function GrantActions({
                 )}
               </FormField>
               <p>
-                The replacement keeps the same principal and scope, is
+                The replacement keeps the same agent and scope, is
                 unconstrained, and is permanent. Use Create grant for any other
                 policy shape.
               </p>
@@ -1444,10 +1443,10 @@ export function Grants({
               <dd>{detail.description ?? "—"}</dd>
             </div>
             <div>
-              <dt>Principal</dt>
+              <dt>Agent</dt>
               <dd>
                 <a href={`#/principals/${detail.principalID}`}>
-                  {principal?.displayName ?? `Principal ${detail.principalID}`}
+                  {principal?.displayName ?? `Agent ${detail.principalID}`}
                 </a>
               </dd>
             </div>
@@ -1607,7 +1606,7 @@ function GrantCollection({
             },
             {
               key: "principal",
-              label: "Principal",
+              label: "Agent",
               type: "text",
               value: (grant) => principalNames.get(grant.principalID) ?? "",
               literalValues: (grant) => [grant.principalID],
@@ -1660,14 +1659,14 @@ function GrantCollection({
             },
             {
               key: "principal",
-              label: "Principal",
+              label: "Agent",
               role: "relation",
               sortValue: (grant) =>
                 principalNames.get(grant.principalID) ?? grant.principalID,
               render: (grant) => (
                 <a href={`#/principals/${grant.principalID}`}>
                   {principalNames.get(grant.principalID) ??
-                    `Principal ${grant.principalID}`}
+                    `Agent ${grant.principalID}`}
                 </a>
               ),
             },

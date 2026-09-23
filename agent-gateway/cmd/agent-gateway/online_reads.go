@@ -491,7 +491,7 @@ func invocationItemTable(body []byte) (controlclient.Table, error) {
 }
 
 func invocationHeaders() []string {
-	return []string{"ID", "ADMITTED", "PRINCIPAL", "REQUESTED", "TARGET", "DECISION", "OUTCOME", "BASIS"}
+	return []string{"ID", "ADMITTED", "AGENT", "REQUESTED", "TARGET", "DECISION", "OUTCOME", "BASIS"}
 }
 
 func invocationSummaryRow(item contract.InvocationSummary) []string {

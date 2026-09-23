@@ -16,7 +16,7 @@ Access requests approve MCP permissions, not network traffic; they do not queue 
 
 ### Scoped access, not shared authority
 
-Give each agent its own shared principal identity and singular credential instead of sharing one all-access token. Creating a principal adds an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Grant access to a whole server or a specific tool, narrow it with argument constraints, and set an expiry when access should be temporary.
+Give each client its own [agent identity](docs/operators/access-control.md) and singular credential instead of sharing one all-access token. Creating an agent adds an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Grant access to a whole server or a specific tool, narrow it with argument constraints, and set an expiry when access should be temporary.
 
 Gateway denies calls by default and checks current policy before execution. Rotate or revoke an agent's access without distributing new upstream credentials.
 
@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Manage principals and scoped MCP/HTTP access in the browser. **MCP → Invocations** shows redacted call history; **Audit Log** includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
+Manage agents and scoped MCP/HTTP access in the browser. **MCP → Invocations** shows redacted call history; **Audit Log** includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
 
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
@@ -103,7 +103,7 @@ If an online command proves that the selected loopback Gateway is stopped, its e
 
 - Loopback limits network reachability but does not isolate untrusted processes running as the same operating-system user.
 - Raw secrets must not be placed in arguments, configuration, URLs, logs, SQLite, backups, browser storage, or read APIs. Environment delivery is limited to the [supported client token exports](docs/operators/access-control.md#existing-sandbox-migration-and-conflicts) and [runtime-resolved stdio secret slots](docs/design/downstream-servers.md#direct-stdio-supervision); neither permits ambient or administrator environment-secret fallback.
-- Gateway is deny by default: only a current credential for an active principal can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
+- Gateway is deny by default: only a current credential for an active agent can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
 - One-time secrets and OAuth URLs use prepared terminal, owner-only file, browser display, clipboard, or opener sinks. Lost one-time values cannot be recovered from metadata.
 - An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
 - Native keyring operations may prompt, fail, or outlive cancellation. Gateway never falls back to plaintext credential storage.

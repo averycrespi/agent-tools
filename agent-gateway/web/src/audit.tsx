@@ -647,7 +647,7 @@ function Filters({
               <option value="">Any</option>
               {choices.map((choice) => (
                 <option key={choice} value={choice}>
-                  {sentenceCase(choice)}
+                  {choice === "principal" ? "Agent" : sentenceCase(choice)}
                 </option>
               ))}
             </select>
@@ -835,7 +835,10 @@ export function Audit({
               <div>
                 <dt>Target</dt>
                 <dd>
-                  {sentenceCase(snapshot.item.target.type)}:{" "}
+                  {snapshot.item.target.type === "principal"
+                    ? "Agent"
+                    : sentenceCase(snapshot.item.target.type)}
+                  :{" "}
                   {snapshot.targetLink === undefined ? (
                     snapshot.item.target.id
                   ) : (
@@ -985,7 +988,9 @@ export function Audit({
                   role: "relation",
                   render: (item) => (
                     <>
-                      {sentenceCase(item.target.type)}
+                      {item.target.type === "principal"
+                        ? "Agent"
+                        : sentenceCase(item.target.type)}
                       <span class="table-identifier">
                         {controller.listTarget(item) === undefined ? (
                           item.target.id

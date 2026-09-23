@@ -451,5 +451,5 @@ func grantTable(grants []contract.Grant, truncateDescriptions bool) controlclien
 		}
 		rows = append(rows, []string{description, grant.ID, grant.PrincipalID, string(grant.Effect), grant.ServerID, upstream, constraint, pointerText(grant.ExpiresAt), string(grant.State), grant.CreatedAt})
 	}
-	return controlclient.Table{Headers: []string{"DESCRIPTION", "ID", "PRINCIPAL", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"DESCRIPTION", "ID", "AGENT", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
 }

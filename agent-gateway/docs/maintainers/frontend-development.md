@@ -41,9 +41,9 @@ Curated data includes:
 - **Demo Workshop:** `demo_workshop.echo` (`text`, at most 256 characters), `demo_workshop.add` (`a`/`b`, finite numbers between -1,000,000 and 1,000,000), and `demo_workshop.controlled_error` (empty arguments; expected safe `downstream_failure`).
 - **Demo Library:** `demo_library.lookup` with `document` set to `welcome` or `permissions`; it never reads arbitrary files.
 - **Demo Explorer:** all demo tools. **Demo Reader:** echo and lookup; arithmetic is discoverable but calls are rejected until access is approved. An explicit deny hides the controlled-error tool from Reader discovery. **Demo Disabled:** its credential cannot authenticate.
-- Five additional requestable principals, each with one pending request and no existing demo-server grants or DENYs, so approvals are independent:
+- Five additional requestable agents, each with one pending request and no existing demo-server grants or DENYs, so approvals are independent:
 
-  | Principal                | Pending request                                            |
+  | Agent                    | Pending request                                            |
   | ------------------------ | ---------------------------------------------------------- |
   | Demo Request Tool        | `demo_workshop.add`, no constraints or expiration          |
   | Demo Request Constraints | `demo_workshop.add`, argument `a` must equal `1`           |
@@ -51,7 +51,7 @@ Curated data includes:
   | Demo Request Server      | Entire `demo_workshop` server, all tools                   |
   | Demo Request Read-only   | Entire `demo_workshop` server, only tools marked read-only |
 
-  Open **MCP → Requests** to approve as requested or customize; follow each resulting grant to inspect it. The runner prints a protected agent-bearer file path for each principal. Workshop `echo` and Library `lookup` explicitly declare `readOnlyHint=true`; Workshop `add` omits the hint and `controlled_error` declares false. After read-only approval, `echo` succeeds while the other Workshop tools remain blocked. These fixtures are all harmless; the mixed labels demonstrate filtering rather than actual write effects. Restart the demo for fresh pending requests.
+  Open **MCP → Requests** to approve as requested or customize; follow each resulting grant to inspect it. The runner prints a protected agent-bearer file path for each agent. Workshop `echo` and Library `lookup` explicitly declare `readOnlyHint=true`; Workshop `add` omits the hint and `controlled_error` declares false. After read-only approval, `echo` succeeds while the other Workshop tools remain blocked. These fixtures are all harmless; the mixed labels demonstrate filtering rather than actual write effects. Restart the demo for fresh pending requests.
 
 - Real successful and controlled-error invocation history, plus the normal audit records emitted by those public mutations.
 - An available **Inert HTTPS example (never contacted)** credential and referencing HTTPS grant for `demo.invalid`. This configuration example is never contacted and does not demonstrate credential injection.
@@ -59,7 +59,7 @@ Curated data includes:
 
 Configure a test MCP client's existing authenticated HTTP transport for `http://127.0.0.1:8211/mcp`, reading the selected agent bearer from the printed protected file into its Authorization header at request time. Use modern protocol `2026-07-28` or the supported legacy handshake; do not put bearer values in command arguments, environment variables, URLs, or browser storage. These agent credentials have no administrator authority. The fixtures remain callable until shutdown; an unexpected fixture exit fails and closes the demo.
 
-HTTP creation pages use the shared labelled configuration panels and primary **Review and create** action; editing grants retains **Review changes**. In **Edit principal**, HTTP default follows MCP discovery visibility. **Save principal** sends one dirty-field PATCH under the unified principal ETag, with one combined confirmation when state or HTTP default changes. No separate default read, action or revision exists. Verify cancel, preserved conflict drafts with explicit revision review, uncertain-response non-replay, and desktop/narrow combined confirmation and saved states. HTTP Traffic uses the shared **Live mode** switch above filters; older history offers **Resume live** only with live enabled, otherwise **Return to newest**.
+HTTP creation pages use the shared labelled configuration panels and primary **Review and create** action; editing grants retains **Review changes**. In **Edit agent**, HTTP default follows MCP discovery visibility. **Save agent** sends one dirty-field PATCH under the unified agent ETag, with one combined confirmation when state or HTTP default changes. No separate default read, action or revision exists. Verify cancel, preserved conflict drafts with explicit revision review, uncertain-response non-replay, and desktop/narrow combined confirmation and saved states. HTTP Traffic uses the shared **Live mode** switch above filters; older history offers **Resume live** only with live enabled, otherwise **Return to newest**.
 
 ### Demo supervision
 
@@ -174,7 +174,7 @@ The administrator bearer remains in the owner-only file. Read it only at the bro
 
 A small set of UI operations reaches most populated states without a downstream fixture:
 
-1. Create a principal. Creation also adds its ordinary Default Gateway access grant for the six fixed MCP self-service tools, not downstream tools. Check MCP discovery visibility wording in create/edit, review, details, and collection/filter states; visibility grants no access.
+1. Create an agent. Creation also adds its ordinary Default Gateway access grant for the six fixed MCP self-service tools, not downstream tools. Check MCP discovery visibility wording in create/edit, review, details, and collection/filter states; visibility grants no access.
 2. Issue its agent credential to inspect confirmation and one-time-secret behavior.
 3. Create an exact grant against Gateway self-service tools.
 4. Create a disabled, unauthenticated HTTP server with a syntactically valid non-routable endpoint such as `https://example.invalid/mcp`. This exposes the server detail tabs without initiating downstream work.

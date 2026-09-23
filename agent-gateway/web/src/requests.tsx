@@ -38,6 +38,7 @@ import {
   InertJSON,
   sentenceCase,
   StateNotice,
+  problemTitle,
   StatusLabel,
   SuggestionInput,
 } from "./primitives";
@@ -1638,7 +1639,7 @@ function RequestActions({
         }
       />
       {mutation.problem !== undefined && (
-        <StateNotice state="error" title={mutation.problem.title}>
+        <StateNotice state="error" title={problemTitle(mutation.problem)}>
           {mutation.requiresRefresh && (
             <p>
               The current request was reloaded. Review its terminal state and
@@ -1674,7 +1675,7 @@ function RequestActions({
               </p>
               <dl class="fact-grid">
                 <div>
-                  <dt>Principal</dt>
+                  <dt>Agent</dt>
                   <dd>{principalName}</dd>
                 </div>
                 <div>
@@ -1711,7 +1712,7 @@ function RequestActions({
               </p>
               <details>
                 <summary>Exact identifiers and serialized policy</summary>
-                <p>Principal ID: {detail.principalID}</p>
+                <p>Agent ID: {detail.principalID}</p>
                 <p>Server ID: {detail.resolvedServerID}</p>
                 <strong>Read-only serialized policy</strong>
                 <textarea
@@ -1859,7 +1860,7 @@ export function Requests({
     const principalName =
       identity?.id === detail.id
         ? identity.principalName
-        : `Principal ${detail.principalID}`;
+        : `Agent ${detail.principalID}`;
     const serverName =
       identity?.id === detail.id
         ? identity.serverName
@@ -1915,7 +1916,7 @@ export function Requests({
           </div>
           <dl class="fact-grid">
             <div>
-              <dt>Principal</dt>
+              <dt>Agent</dt>
               <dd>
                 <a href={`#/principals/${detail.principalID}`}>
                   {principalName}
@@ -1991,7 +1992,7 @@ export function Requests({
               <dd>{detail.id}</dd>
             </div>
             <div>
-              <dt>Principal ID</dt>
+              <dt>Agent ID</dt>
               <dd>{detail.principalID}</dd>
             </div>
             <div>
@@ -2119,7 +2120,7 @@ export function Requests({
             {detail.approvedPolicy === null ? (
               <p>
                 {detail.state === "cancelled"
-                  ? "The requesting principal cancelled this request."
+                  ? "The requesting agent cancelled this request."
                   : "This request was rejected."}{" "}
                 This decision created no grant and did not revoke existing
                 access or create a DENY.
@@ -2206,7 +2207,7 @@ export function Requests({
             },
             {
               key: "principal",
-              label: "Principal",
+              label: "Agent",
               type: "text",
               value: (item) => item.principalName,
               literalValues: (item) => [item.principalID],
@@ -2270,7 +2271,7 @@ export function Requests({
             },
             {
               key: "principal",
-              label: "Principal",
+              label: "Agent",
               role: "relation",
               render: (item) => (
                 <a href={`#/principals/${item.principalID}`}>
