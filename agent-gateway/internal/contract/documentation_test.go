@@ -42,7 +42,10 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"grant_requests", "sole online schema-10 DML owner",
 		},
 		"../../docs/design/administrative-control-plane.md": {
-			"`internal/controlclient` is the sole online CLI transport owner", "Automated accessibility qualification",
+			"`internal/controlclient` is the sole online CLI transport owner",
+		},
+		"../../docs/design/browser-control-plane.md": {
+			"Automated accessibility qualification",
 		},
 		"../../docs/maintainers/release-verification.md": {
 			"no-check adoption", "clean revision",
@@ -168,7 +171,7 @@ func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 		"## Direct stdio supervision",
 		"## Downstream protocol and remote transport",
 		"## OAuth authority and catalog publication",
-		"# Invocation and MCP Ingress",
+		"# Invocation and Ingress",
 		"## Governed invocation and audit evidence",
 		"## MCP ingress and governed invocation",
 	} {
@@ -279,6 +282,7 @@ func readDesignCorpus(t *testing.T) string {
 		"../../docs/design/downstream-servers.md",
 		"../../docs/design/invocation-and-ingress.md",
 		"../../docs/design/administrative-control-plane.md",
+		"../../docs/design/browser-control-plane.md",
 	}
 	var documents []string
 	for _, path := range paths {

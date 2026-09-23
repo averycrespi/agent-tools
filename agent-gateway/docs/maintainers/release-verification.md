@@ -10,23 +10,59 @@ This guide owns the purpose-based verification DAG, clean-revision acceptance, r
 
 See [maintainer and agent guidance](../../CLAUDE.md) for package ownership and editing invariants, the [DESIGN overview](../../DESIGN.md) for normative security and compatibility boundaries, and [frontend development](frontend-development.md) for the separate live-reload and production-asset workflows.
 
-## Constrained-memory linting
+## Freeze the candidate
 
-Gateway pins golangci-lint v2.13.1, including Staticcheck's newer IR implementation. Its module and the shared workspace require patched Go 1.26.6; repository CI selects that version from `go.work`, and cache compatibility already includes the resolved toolchain and module/linter definitions. Other standalone tool modules retain their independent pins. Because lint tools are dependencies of the Gateway module, upgrading them can also raise shared library versions; qualify affected product tests, not just the lint executable.
+Before producing release evidence:
 
-`make lint` runs all configured linters, including analysis of normal test source (not behavioral test execution), with `GOMEMLIMIT=512MiB`, `GOGC=50`, and `GOMAXPROCS=1`. The linter configuration fixes package concurrency at one, including direct `go tool golangci-lint` invocations. `make verify` reuses that lint recipe after its nonmutating module and format checks. Runtime memory tuning trades CPU for headroom; `GOMEMLIMIT` is a soft Go runtime target, not a guaranteed resident-memory bound.
+1. Finish focused repairs and integration checks.
+2. Commit every tracked definition and behavior change.
+3. Require a clean worktree and record the candidate revision.
+4. Freeze Make, npm, runner, profile, manifest, schema, and executable definitions.
+5. Run `make accept REPORT=/absolute/path/report.json` once. The current profile requires no external browser sidecars; `make qualify-external-evidence` validates the manifest but has no browser qualification work to perform.
 
-The upgrade was measured against the previous v2.11.4 tooling: Staticcheck fact-cache misses forced source/IR analysis of the 5.7 MiB wasm2go SQLite dependency, even for a single storage package. The old process exceeded 950 MiB before being killed. An isolated v2.13.1 run with a fresh lint cache, warm Go build cache and all nine configured linters completed in 34 seconds at about 687 MiB process RSS / 697 MiB whole-cgroup peak. Those measurements motivate the settings; they are not universal performance guarantees or exact-revision release acceptance. Preserve genuine compatible lint caches, but do not depend on precomputed dependency facts to make cold lint feasible.
+The report records the exact clean revision, command and profile hashes, immutable definition inputs, command timings, timeout/termination facts, artifacts, and cleanup results. Any tracked change after evidence preparation creates a new candidate and invalidates candidate-bound evidence.
 
-On Linux with delegated user cgroups, enforce a separate hard ceiling for an explicitly started local run:
+## Native and external evidence
 
-```bash
-systemd-run --user --scope --collect \
-  -p MemoryMax=768M -p MemorySwapMax=0 \
-  make -C agent-gateway verify
-```
+The native wrapper checks self-test mode before selecting real material, and destructive-isolation eligibility before selecting native-provider tests. Forced classifier self-tests never launch those suites. Real wrapper execution runs `test-material` once, then selects only native-tagged executable identities rather than reselecting ordinary keyring or material tests. Evidence command identities name the suite runner; old raw-command classifications are historical and rejected.
 
-Run that command from the repository root. It limits the owned verification process tree, not unrelated agents. Do not add a lower `MemoryHigh` threshold merely to avoid OOM: reclaim throttling can obscure whether analysis is progressing. A cap kill or deadline remains failed verification. Do not disable Staticcheck, exclude generated dependency analysis, skip tests, forge facts, or silently swap the pinned executable to obtain a pass. macOS has no equivalent systemd command; use the same portable runtime defaults and report resource limitations honestly.
+Native keyring evidence is typed `passed`, `skipped`, or `failed`. `skipped` is an explicit additive gap, never success. `failed` blocks. Do not enable a destructive native prerequisite on a non-disposable user account merely to remove a gap.
+
+Chromium alone is required for browser acceptance, including privacy, visual, accessibility, and workflow evidence. Firefox/WebKit are available through the explicit `test-browser-cross` target; Safari and VoiceOver are optional manual diagnostics. Do not install or run them by default, request an exception for their absence, or add routine “Firefox/WebKit skipped” caveats. If optional checks are explicitly requested, report their actual outcome without claiming broader qualification from Chromium.
+
+The generic external-evidence validator remains covered by isolated fixtures, but the current release profile has no mandatory browser sidecars. Historical sidecars are not current acceptance evidence. Native keyring classification and authorized native service qualification are unchanged.
+
+## Failure discipline
+
+Treat acceptance as evidence production, not as the debugging loop.
+
+If a full run fails:
+
+1. Identify the failing leaf and build the narrowest deterministic reproduction.
+2. Reproduce the relevant concurrency, process, filesystem, browser, or timing boundary.
+3. Run only the affected named scenario at higher count when repetition is justified.
+4. Run the affected package or leaf once normally.
+5. Commit the correction at a clean checkpoint.
+6. Refresh candidate-bound native or external evidence if definitions or revision changed.
+7. Run full acceptance again only after the narrow owner is stable.
+
+Do not rerun `accept` unchanged after a failure. Do not raise timeouts instead of diagnosing the boundary, repeat package-wide fixtures, suppress vulnerability findings, fabricate unavailable evidence, or leave surviving processes/listeners/temp roots for another run.
+
+A second full failure in the same area requires reassessing the reproduction and ownership before another final attempt.
+
+## Report adoption
+
+`make adopt-acceptance-report REPORT=/absolute/path/report.json ADOPTION=/absolute/path/adoption.json` performs no-check adoption of one already-produced report. It reparses and hashes the immutable artifact, verifies the same candidate revision and clean worktree, rechecks profile/command/manifest definitions, native and external classifications, blocking results, and cleanup evidence, then writes a distinct adoption artifact.
+
+Adoption does not rerun product checks and never converts a failure, unavailable blocking cell, stale candidate, dirty revision, or mismatched definition into success. Use it only when no tracked state or acceptance definition changed after report production.
+
+Historical reports remain auditable through version control, but only a report for the exact current candidate and definition set can be adopted.
+
+## Report compatibility
+
+Reports from superseded report definitions are incompatible with the current acceptance profile. They remain historical files only and are not upgraded, relabeled, or silently adopted.
+
+A report parser must reject a mismatched profile, schema, revision, definition hash, command set, native classification, external sidecar, or cleanup record. Product API and durable-data compatibility do not imply compatibility of maintainer-facing acceptance artifacts.
 
 ## Purpose-based verification DAG
 
@@ -59,24 +95,6 @@ Integration retains five minutes per package and allows twelve minutes for compi
 
 Release definitions bind authored frontend source and test files through one sorted, symlink-refusing inventory of `web/src` and `web/tests`, plus explicit build/runner singleton inputs. New modules no longer need copying into every browser leaf. Immutable definition hashes and independent executable ownership/mutation checks remain mandatory. Declared expected process counts are planning metadata, not measured launches.
 
-## Constrained-memory test scheduling
-
-Keep the default Go package concurrency on ordinary development hosts. For lower-memory execution, `GOFLAGS=-p=2 make -C agent-gateway test-integration` bounds package workers without changing race instrumentation, count-one selection, or intentionally concurrent scenarios. Preserve any other required `GOFLAGS` when selecting that profile. Do not blanket-serialize `t.Parallel` or repeat migration/restore matrices as a stress test.
-
-A cleanup comparison based on `76a2a1c67ed589e8064ab14ef2c531fb2064f831`, before extending routine database templates, ran the complete integration plan once at each package concurrency on Linux arm64, Go 1.26.6, four CPUs and 3.9 GiB RAM, with shared warm Go caches. Race-enabled test processes used count one. A 20 ms `/proc` sampler measured all processes remaining in the owned session:
-
-| Package workers | Wall seconds | Largest sampled process RSS (MiB) | Peak simultaneous summed RSS (MiB) |
-| --------------- | -----------: | --------------------------------: | ---------------------------------: |
-| 1               |       800.13 |                            316.50 |                             360.11 |
-| 2               |       407.46 |                            327.88 |                             525.05 |
-| 4               |       241.63 |                            335.88 |                             914.13 |
-
-These are single sequential observations, not cold-cache setup measurements or hard bounds. Summed RSS counts shared pages per process, sampling can miss short peaks, and detached sessions are excluded; this is not a cgroup/PSS measurement. Two workers reduced observed simultaneous RSS versus four at a substantial wall-time cost; there is no evidence to change the default for every host. One worker nearly doubled wall time again. None of these figures proves a suite-memory benefit from fixture copying.
-
-A separate setup-only comparison at two package workers used that integration plan's same 27 packages, race/count-one/integration flags and `-timeout=5m`, replacing the test selector with `-run '^$'`. The first run used a newly created empty `GOCACHE`; the second reused it. Both retained the populated module cache and OS filesystem caches, so “cold” here means Go compilation cache only, not dependency downloads or a cold host. Both passed; no product test bodies were selected. Compilation plus package/test-runtime startup took 50.52 seconds cold versus 20.16 seconds warm. Largest sampled process RSS was 859.63 versus 307.97 MiB; simultaneous summed RSS peaked at 1030.26 versus 522.32 MiB. These setup-only costs are separate from the warm full-suite timings above, and demonstrate why two package workers are not a hard memory cap.
-
-The separate five-iteration race microbenchmark measured real initialization at 629,952,008 ns/op, 579,769 B/op and 5,408 allocs/op versus copy/open at 90,175,104 ns/op, 437,809 B/op and 4,342 allocs/op. That supports extending immutable closed templates to routine server/catalog fixtures, not initialization, migration, restore, recovery or fault-injection owners. Allocation bytes are cumulative work, not live RSS; cold template construction is separate from warm copies. Nonfault invocation repository fixtures also use this template; fault paths still initialize a real database, and invocation startup-corruption tests retain their row mutations and validation. This avoids repeating schema migrations for routine invocation tests without changing race/count-one selection, package deadlines, or cleanup.
-
 ## CI mapping
 
 | CI intent                 | Owners                                                                                                          |
@@ -99,6 +117,30 @@ Pull requests may run individual leaves in separate jobs, but the final acceptan
 Root `test` runs Gateway alone, then a bounded two-tool ordinary-test phase for the remaining modules (`LOCAL_TEST_JOBS=1` selects serial comparison). Gateway's close-and-rebind harness ports must not overlap other modules' listeners. Root linters and integration/E2E aggregates remain serial; `check-other-tools` finishes serial lint before its bounded test phase. Failures stop new workers while active workers drain their own cleanup. The non-Gateway integration selectors use checked package ownership and `TestIntegration*` names instead of reselecting ordinary tests.
 
 The root repository aggregate deliberately excludes Gateway acceptance. The Gateway `accept` profile includes `make check-other-tools` once as its disjoint `repository-other-tools` leaf; do not wrap `accept` in another aggregate or run that leaf separately as part of the same evidence set.
+
+## Constrained-memory linting
+
+Gateway pins golangci-lint v2.13.1, including Staticcheck's newer IR implementation. Its module and the shared workspace require patched Go 1.26.6; repository CI selects that version from `go.work`, and cache compatibility already includes the resolved toolchain and module/linter definitions. Other standalone tool modules retain their independent pins. Because lint tools are dependencies of the Gateway module, upgrading them can also raise shared library versions; qualify affected product tests, not just the lint executable.
+
+`make lint` runs all configured linters, including analysis of normal test source (not behavioral test execution), with `GOMEMLIMIT=512MiB`, `GOGC=50`, and `GOMAXPROCS=1`. The linter configuration fixes package concurrency at one, including direct `go tool golangci-lint` invocations. `make verify` reuses that lint recipe after its nonmutating module and format checks. Runtime memory tuning trades CPU for headroom; `GOMEMLIMIT` is a soft Go runtime target, not a guaranteed resident-memory bound.
+
+The upgrade was measured against the previous v2.11.4 tooling: Staticcheck fact-cache misses forced source/IR analysis of the 5.7 MiB wasm2go SQLite dependency, even for a single storage package. The old process exceeded 950 MiB before being killed. An isolated v2.13.1 run with a fresh lint cache, warm Go build cache and all nine configured linters completed in 34 seconds at about 687 MiB process RSS / 697 MiB whole-cgroup peak. Those measurements motivate the settings; they are not universal performance guarantees or exact-revision release acceptance. Preserve genuine compatible lint caches, but do not depend on precomputed dependency facts to make cold lint feasible.
+
+On Linux with delegated user cgroups, enforce a separate hard ceiling for an explicitly started local run:
+
+```bash
+systemd-run --user --scope --collect \
+  -p MemoryMax=768M -p MemorySwapMax=0 \
+  make -C agent-gateway verify
+```
+
+Run that command from the repository root. It limits the owned verification process tree, not unrelated agents. Do not add a lower `MemoryHigh` threshold merely to avoid OOM: reclaim throttling can obscure whether analysis is progressing. A cap kill or deadline remains failed verification. Do not disable Staticcheck, exclude generated dependency analysis, skip tests, forge facts, or silently swap the pinned executable to obtain a pass. macOS has no equivalent systemd command; use the same portable runtime defaults and report resource limitations honestly.
+
+## Constrained-memory test scheduling
+
+Keep the default Go package concurrency on ordinary development hosts. For lower-memory execution, `GOFLAGS=-p=2 make -C agent-gateway test-integration` bounds package workers without changing race instrumentation, count-one selection, or intentionally concurrent scenarios. Preserve any other required `GOFLAGS` when selecting that profile. Do not blanket-serialize `t.Parallel` or repeat migration/restore matrices as a stress test.
+
+Historical scheduling and fixture measurements, including their baseline and sampling limitations, are retained in [implementation evidence](implementation-evidence.md#test-scheduling-measurements). They do not change fixture ownership or qualify a release candidate.
 
 ## Harness safety invariants
 
@@ -143,60 +185,6 @@ not throughput, native filesystem, or power-loss qualification. Preserve the
 complete lifecycle/read/paired-backup boundary, schema-17 diagnostic evidence and
 schema-18 traffic selection; never introduce dual writes or partial readers.
 
-## Freeze the candidate
-
-Before producing release evidence:
-
-1. Finish focused repairs and integration checks.
-2. Commit every tracked definition and behavior change.
-3. Require a clean worktree and record the candidate revision.
-4. Freeze Make, npm, runner, profile, manifest, schema, and executable definitions.
-5. Run `make accept REPORT=/absolute/path/report.json` once. The current profile requires no external browser sidecars; `make qualify-external-evidence` validates the manifest but has no browser qualification work to perform.
-
-The report records the exact clean revision, command and profile hashes, immutable definition inputs, command timings, timeout/termination facts, artifacts, and cleanup results. Any tracked change after evidence preparation creates a new candidate and invalidates candidate-bound evidence.
-
-## Native and external evidence
-
-The native wrapper checks self-test mode before selecting real material, and destructive-isolation eligibility before selecting native-provider tests. Forced classifier self-tests never launch those suites. Real wrapper execution runs `test-material` once, then selects only native-tagged executable identities rather than reselecting ordinary keyring or material tests. Evidence command identities name the suite runner; old raw-command classifications are historical and rejected.
-
-Native keyring evidence is typed `passed`, `skipped`, or `failed`. `skipped` is an explicit additive gap, never success. `failed` blocks. Do not enable a destructive native prerequisite on a non-disposable user account merely to remove a gap.
-
-Chromium alone is required for browser acceptance, including privacy, visual, accessibility, and workflow evidence. Firefox/WebKit are available through the explicit `test-browser-cross` target; Safari and VoiceOver are optional manual diagnostics. Do not install or run them by default, request an exception for their absence, or add routine “Firefox/WebKit skipped” caveats. If optional checks are explicitly requested, report their actual outcome without claiming broader qualification from Chromium.
-
-The generic external-evidence validator remains covered by isolated fixtures, but the current release profile has no mandatory browser sidecars. Historical sidecars are not current acceptance evidence. Native keyring classification and authorized native service qualification are unchanged.
-
-## Report compatibility
-
-Reports from superseded report definitions are incompatible with the current acceptance profile. They remain historical files only and are not upgraded, relabeled, or silently adopted.
-
-A report parser must reject a mismatched profile, schema, revision, definition hash, command set, native classification, external sidecar, or cleanup record. Product API and durable-data compatibility do not imply compatibility of maintainer-facing acceptance artifacts.
-
-## Failure discipline
-
-Treat acceptance as evidence production, not as the debugging loop.
-
-If a full run fails:
-
-1. Identify the failing leaf and build the narrowest deterministic reproduction.
-2. Reproduce the relevant concurrency, process, filesystem, browser, or timing boundary.
-3. Run only the affected named scenario at higher count when repetition is justified.
-4. Run the affected package or leaf once normally.
-5. Commit the correction at a clean checkpoint.
-6. Refresh candidate-bound native or external evidence if definitions or revision changed.
-7. Run full acceptance again only after the narrow owner is stable.
-
-Do not rerun `accept` unchanged after a failure. Do not raise timeouts instead of diagnosing the boundary, repeat package-wide fixtures, suppress vulnerability findings, fabricate unavailable evidence, or leave surviving processes/listeners/temp roots for another run.
-
-A second full failure in the same area requires reassessing the reproduction and ownership before another final attempt.
-
-## Report adoption
-
-`make adopt-acceptance-report REPORT=/absolute/path/report.json ADOPTION=/absolute/path/adoption.json` performs no-check adoption of one already-produced report. It reparses and hashes the immutable artifact, verifies the same candidate revision and clean worktree, rechecks profile/command/manifest definitions, native and external classifications, blocking results, and cleanup evidence, then writes a distinct adoption artifact.
-
-Adoption does not rerun product checks and never converts a failure, unavailable blocking cell, stale candidate, dirty revision, or mismatched definition into success. Use it only when no tracked state or acceptance definition changed after report production.
-
-Historical reports remain auditable through version control, but only a report for the exact current candidate and definition set can be adopted.
-
 ## Developer source and tooling cutover
 
 The source directory, Go module/import prefix, sole command source, CI tool/cache identity, and developer artifact prefix are now `agent-gateway`. There is no old-directory shim or old-module forwarding layer.
@@ -216,7 +204,7 @@ The source directory, Go module/import prefix, sole command source, CI tool/cach
 
 Retired controls are not aliases. Remove them from shell startup files, CI environment, and Make command lines; merely adding the new name does not resolve the diagnostic. Empty retired values also fail. Diagnostics name the setting and replacement, never its value. Native-keyring consent (`AGENT_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN`) still requires a disposable account; renaming it does not authorize native access. Private demo and MCP fallback fixture controls also use the `AGENT_GATEWAY_` prefix. Neutral target arguments `REPORT` and `ADOPTION`, and `serve-demo.sh`, are unchanged. Installed LaunchAgent management now belongs to the Go `service` commands; the Python helper and install/restart shell entry points are removed. Service component fixtures and real-binary CLI grammar/platform refusals have disjoint integration/E2E owners. They do not qualify native launchd, which requires separately authorized disposable resources.
 
-At the developer source cutover, installed state and service paths were intentionally retained. New installations now use canonical Agent Gateway paths and launchd naming; the rollout owner attested that all installations migrated, and the migration capability is retired. Retain [installation safety artifacts and explicit root selections](../operators/installation-safety.md). Legacy executable publication is now retired; process-lock filenames, keyring service identifiers, credentials and database/backup lineage remain unchanged. Operator help/recovery guidance now uses `agent-gateway` directly; a renamed current binary still exposes only the canonical grammar and completions, not the old standalone implementation. The separate [operator v2 cutover](../operators/administration.md#operator-v2-cutover) retires old administrative clients, not installed state. MCP client/server identities (including the fixed `mcp-gateway` client name), credential hash domains, cursor MAC domains, schema-validation identifiers and self-service names remain compatibility contracts. Browser persistence now uses canonical theme/session names with the [preference migration and sign-in cutover](../operators/administration.md#browser-persistence-cutover); the old cookie is expiry-only, not authority. Repository-owned guest provisioning is now retired. Manual client configuration retains **both** `AGENT_GATEWAY_*` and `MCP_GATEWAY_*` endpoint/token pairs from one current authority; operators own private transfer, permission checks and reconciliation of historical managed shell blocks. Source retirement is not live rollout evidence. These legacy exports are supported client compatibility, not retired developer controls; their removal is explicitly outside this retirement and still requires separately delivered agent-config support and rollout qualification. Follow the [manual client compatibility and qualification](../operators/access-control.md#existing-sandbox-migration-and-conflicts). Do not migrate installed state or edit that external repository for the developer cutover.
+At the developer source cutover, installed state and service paths were intentionally retained. New installations now use canonical Agent Gateway paths and launchd naming; the rollout owner attested that all installations migrated, and the migration capability is retired. Retain [installation safety artifacts and explicit root selections](../operators/installation-safety.md). Legacy executable publication is now retired; process-lock filenames, keyring service identifiers, credentials and database/backup lineage remain unchanged. Operator help/recovery guidance now uses `agent-gateway` directly; a renamed current binary still exposes only the canonical grammar and completions, not the old standalone implementation. The separate [operator v2 cutover](../operators/upgrade-compatibility.md#operator-v2-cutover) retires old administrative clients, not installed state. MCP client/server identities (including the fixed `mcp-gateway` client name), credential hash domains, cursor MAC domains, schema-validation identifiers and self-service names remain compatibility contracts. Browser persistence now uses canonical theme/session names with the [preference migration and sign-in cutover](../operators/upgrade-compatibility.md#browser-persistence-cutover); the old cookie is expiry-only, not authority. Repository-owned guest provisioning is now retired. Manual client configuration retains **both** `AGENT_GATEWAY_*` and `MCP_GATEWAY_*` endpoint/token pairs from one current authority; operators own private transfer, permission checks and reconciliation of historical managed shell blocks. Source retirement is not live rollout evidence. These legacy exports are supported client compatibility, not retired developer controls; their removal is explicitly outside this retirement and still requires separately delivered agent-config support and rollout qualification. Follow the [manual client compatibility and qualification](../operators/access-control.md#existing-sandbox-migration-and-conflicts). Do not migrate installed state or edit that external repository for the developer cutover.
 
 Temporary test roots, native disposable fixture artifacts, frontend caches, and release schema identifiers use the new product prefix. Historical acceptance reports remain untouched and definition-bound; regenerate candidate evidence rather than rewriting or adopting an old report as current.
 

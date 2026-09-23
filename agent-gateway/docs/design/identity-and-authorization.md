@@ -10,24 +10,18 @@ This chapter owns the behavior and invariants described below. Operational proce
 
 Principal IDs, display names, active/disabled state, the singular agent credential slot, authentication, and authority admission are shared identity/state. MCP targets and grants, tool-discovery visibility, access requests, and the six fixed synthetic self-service tools are currently MCP-only policy. Shared identity does not imply protocol-general grants or access.
 
-`internal/composition` constructs and owns one authorization repository/authenticator and its authority gate/admission verifier. The distinction is semantic, not a split into identity and protocol authority owners. Sealed admitted subjects retain their existing identity/revision evidence; MCP policy uses the target boundary below. No generic protocol framework, protocol discriminator, second credential slot, or MCP-settings endpoint is introduced. HTTP policy uses this same singular agent credential, with separate HTTP permissions and default block for existing and new principals. Its control resources add no production HTTP ingress listener.
+`internal/composition` constructs and owns one authorization repository/authenticator and its authority gate/admission verifier. The distinction is semantic, not a split into identity and protocol authority owners. Sealed admitted subjects retain their existing identity/revision evidence; MCP policy uses the target boundary below. No generic protocol framework, protocol discriminator, second credential slot, or MCP-settings endpoint is introduced. HTTP policy uses this same singular agent credential, with separate HTTP permissions. New principals and the initial HTTP-default backfill start at block; existing principals retain their stored allow/block value. Its control resources add no production HTTP ingress listener.
 
 The public names `visibility` and `default_grant` and the `Principal`, `PrincipalCreation`, and `AgentCredential` representations remain compatibility contracts. `visibility` means MCP discovery visibility; it grants no access, and MCP grants remain authoritative for calls. `default_grant` identifies the ordinary MCP self-service grant created with a principal, not protocol-general or downstream authority. These clarifications require no reinitialization, migration, backup conversion, credential replacement, or data rewrite. Bearer/verifier/fingerprint framing, keyring identities, revisions, audit vocabulary, and self-service names/schemas remain unchanged.
 
 ## Traffic confirmation boundary
 
-Control SQLite remains the sole authority for principal, credential and policy
-state. Invocation evaluation uses one short gate/coherent control snapshot and
-seals its exact revision, time and pending binding. No authority gate or control
-transaction spans traffic persistence. ALLOW confirmation reacquires that gate,
-requires the unchanged global authorization revision and exact active binding,
-and atomically consumes matching process-local evidence and detaches under drain
-and both storage-health fences. Unrelated policy changes may conservatively
-reject; no failed confirmation reevaluates or retries. Evaluation-time expiry and
-post-admission revocation semantics remain unchanged. Current display-name
-snapshots used by traffic history are bounded recognition data, never authority.
-The [invocation chapter](invocation-and-ingress.md#admission-and-execution) owns
-the complete evaluation/receipt/confirmation and outcome protocol.
+Control SQLite is the sole principal, credential and policy authority. The
+[admission protocol](invocation-and-ingress.md#admission-and-execution) owns
+evaluation, receipt persistence, confirmation and outcome handling. No authority
+gate or control transaction spans traffic persistence; failed confirmation never
+reevaluates or retries. Current display-name snapshots are recognition data,
+not authority.
 
 ## Internal access target boundary
 
@@ -183,39 +177,7 @@ Preview and the ingress-facing authenticated-lease seam load the same coherent p
 
 ## Principal and grant contract
 
-Grant and access-request operator routes belong to MCP under `/api/v2/mcp/`; principals and credentials remain shared. This is a route-only cutover: persisted rows, IDs, descriptions, policy/dedupe bytes, ETags, audit vocabulary, `authorization`/`grant_requests` invalidations, backup lineage, and `mcp_gateway` self-service names and schemas retain their identities. No migration or protocol registry is introduced. The retired unnamespaced grant/request/validation paths reject before authentication or domain work, without redirects or inferred replacement operations.
-
-| Method and pattern                          | Closed request schema | Success schema/status             | Cursor | Idempotency | Exact `If-Match` | Response ETag |
-| ------------------------------------------- | --------------------- | --------------------------------- | ------ | ----------- | ---------------- | ------------- |
-| `GET /api/v2/principals`                    | `PrincipalListQuery`  | `QueryPage<Principal>` / 200      | yes    | no          | no               | no            |
-| `POST /api/v2/principals`                   | `PrincipalCreate`     | `PrincipalCreation` / 201         | no     | no          | no               | yes           |
-| `GET /api/v2/principals/{id}`               | `None`                | `Principal` / 200                 | no     | no          | no               | yes           |
-| `PATCH /api/v2/principals/{id}`             | `PrincipalPatch`      | `Principal` / 200                 | no     | no          | yes              | yes           |
-| `POST /api/v2/principals/{id}/credential`   | `EmptyObject`         | `AgentCredentialCreation` / 201   | no     | no          | yes              | yes           |
-| `DELETE /api/v2/principals/{id}/credential` | `EmptyObject`         | `Principal` / 200                 | no     | no          | yes              | yes           |
-| `GET /api/v2/mcp/grants`                    | `GrantListQuery`      | `QueryPage<GrantTableItem>` / 200 | yes    | no          | no               | no            |
-| `POST /api/v2/mcp/grants`                   | `GrantCreate`         | `Grant` / 201                     | no     | no          | no               | yes           |
-| `GET /api/v2/mcp/grants/{id}`               | `None`                | `Grant` / 200                     | no     | no          | no               | yes           |
-| `PATCH /api/v2/mcp/grants/{id}`             | `GrantPatch`          | `Grant` / 200                     | no     | no          | yes              | yes           |
-| `DELETE /api/v2/mcp/grants/{id}`            | `None`                | `Empty` / 204                     | no     | no          | no               | no            |
-
-Principal and grant collection cursors are authenticated with a fresh process-local repository key and expire five minutes after the first page. Continuations do not extend that lifetime. Restart, expiry, or alteration makes the cursor stale; clients must start a new traversal rather than persist cursors. Every ordinary request, including one without query settings, uses the same normalized query path and count envelope.
-
-The principal collection accepts singleton nonempty `cursor`, `limit`, `name`, `state`, `visibility`, `sort`, and `direction` query members and returns no ETag. Omitted sort uses name ascending, with ID ascending ties. Principal sort keys are `name`, `id`, `state`, and `visibility`; direction is `ascending` or `descending`. The `name` filter matches display name or literal ID, and state and visibility use their closed resource values; create/read/PATCH use the sole composition-owned repository and exact strong principal ETags. Create accepts only required non-null display name and visibility and returns the principal plus its atomic ordinary default grant.
-
-PATCH accepts a nonempty non-null subset of `display_name`, `state`, `visibility`, and `http_default` (`allow` or `block`); omitted members remain unchanged. Absent, weak, wildcard, malformed, multiple, wrong-principal, or stale preconditions fail safely, and exact no-ops conflict without invalidation. One authority-before-storage transaction applies all fields, required audit and revision changes atomically. Validation, stale revision, admission/storage refusal or required audit failure commits none of them. Successful mutations publish an ID-free authorization invalidation after commit; patches containing `http_default` also publish the coalesced HTTP-credential invalidation.
-
-The singular credential route accepts exact `{}` plus the current principal ETag: POST issues or replaces the slot and returns `AgentCredentialCreation` with the raw bearer exactly once, while DELETE revokes current authority and returns the safe principal. Both advance principal and credential revisions, expose the resulting ETag, and publish only the same ID-free invalidation after an acknowledged success; failures and retries never replay a bearer.
-
-Grant list/create/read/PATCH/delete use the same sole authority and a servers-owned supplied-transaction target callback. Creation requires every legacy member, with optional Boolean `read_only` as described below, including nullable `description`, `upstream_name`, `constraint`, and `expires_at`; descriptions are valid UTF-8, 1–256 bytes when present, free of control characters and surrounding whitespace, and need not be unique. PATCH accepts only `description`, requires the exact strong grant ETag, and may clear the description with null. Listing retains singleton `principal_id` and `server_id` filters and additionally accepts `identity` (description or ID), `principal` (display name or ID), `target` (server display name, scope/tool name, or server ID), `effect`, `state`, `sort`, and `direction`. Grant sort keys are `id`, `description`, `principal`, `target`, `effect`, and `state`; target ordering uses server display name. Omitted sort uses description ascending, with ID ascending ties. Every collection item is exactly `{grant,principal_display_name,server_display_name}` and supplies recognition labels without browser collection traversal. The retired `representation` query member is rejected.
-
-Text query values are valid UTF-8, at most 256 bytes, with no control or format characters. Text matching removes Unicode combining marks after NFKD normalization, lowercases, and requires every whitespace-separated token to match a substring or (for nondigit tokens of at least four characters) a word within one edit, including adjacent transposition. ID matching remains literal case-sensitive substring matching. Text sorts use normalized Unicode code-point order, with ID ascending as the deterministic tie-breaker. For both collections, `direction` requires an explicit `sort`; omitting `direction` selects ascending order. All filters are conjunctive; omitted or empty application controls impose no filter, while empty API query values are rejected.
-
-The sole operator query path scans compact recognition metadata bounded by the fixed principal/grant capacities, not full credentials or policy bodies. The servers owner supplies bounded display-name facts in the same read transaction; authorization owns principal/grant metadata, matching, ordering, and selected-page resource reads. The query response is exactly `{items,next_cursor,total_count,offset}`. `total_count` is the exact number of matching records before page slicing, and `offset` is the zero-based position of the first returned row. Both are nonnegative JSON integers derived from the same filtered snapshot and read transaction as the selected page, including when `next_cursor` is null. An empty result has zero total and offset. Computing this metadata adds no count query or full-resource hydration. This envelope also applies without filters, including grant lists using only `principal_id` or `server_id`. Its authenticated cursor binds the complete query, representation, and metadata snapshot; relevant edits, insertions/deletions, renames, or derived expiry-state changes make continuation stale instead of silently moving rows between pages. Previous navigation can reuse a prior cursor while that snapshot remains current. There is no implicit legacy operator path.
-
-Grant identity and policy are immutable and expose no idempotency surface. Create, read, and description-only PATCH return the grant ETag; PATCH requires that exact current value. Successful create, description update, and delete publish only the ID-free authorization invalidation.
-
-`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{id,display_name,state,visibility,http_default,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` is exactly `{id,description,revision,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}`. The self-service `AgentGrant` projection is exactly `{id,description,effect,policy,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`; the grant ETag is exactly `"grant-<id>-<revision>"`.
+The [public principal and grant contract](public-contract.md#principal-and-grant-contract) owns routes, closed shapes, ETags and collection mechanics. This chapter owns identity, policy, transactional authority and failure semantics.
 
 ## Principal credentials, grants, and policy
 
@@ -266,21 +228,7 @@ Resource accounting is shared, not multiplied by read surface or revision:
 
 At resident capacity, evict the oldest entries until both bounds admit the new successful entry. An individual entry exceeding the weight budget is returned to current readers but not retained, so it can recompile after its flight ends. No capacity path bypasses validation or returns a partial authorization decision. A fifth distinct flight fails closed with the existing resource-limit error rather than spawning an unbounded uncached compile or adding a queue; ordinary production readers already occupy at most four storage connections. Compiler failures retain their existing caller-specific malformed/unavailable mapping. Public limits and policy decisions are unchanged.
 
-#### Cache measurements and regression evidence
-
-Baseline: `4b0ed12572a951d1be8a2b53d5fcc45c24dd4400`, with only a package-private compiler counter seam and test workload added before changing the cache algorithm. The seam forwards to the unchanged `CompileConstraint`; administrator/self scanners were receiver-bound to count their existing direct compiles. `TestMatcherCacheReadMeasurements` seeds 100 distinct `item/<n>/[0-9]+` regex grants in real SQLite and reads ten 100-row pages independently through `ListGrants` and `ListSelfGrants`. `TestMatcherCacheRevisionMeasurements` loads the same 100 sources across ten revisions. Run from the checkout with:
-
-```sh
-go -C agent-gateway test -race -count=1 -timeout=90s -v -run '^TestMatcherCache(Read|Revision)Measurements$' ./internal/authorization
-```
-
-| Workload                                     | Baseline compiles | Shared-cache compiles |
-| -------------------------------------------- | ----------------: | --------------------: |
-| Admin: 10 × 100-row pages                    |             1,000 |                   100 |
-| Self-service: 10 × 100-row pages             |             1,000 |                   100 |
-| Evaluation cache: 100 sources × 10 revisions |             1,000 |                   100 |
-
-The baseline failed the retained 100-compilation assertions; the shared cache passes them (90% fewer compilations, zero recompilation on the nine repeated reads/revisions). This deterministic result, rather than a wall-clock speed claim, supports cross-revision retention. `TestMatcherCacheColdConcurrencyAndExhaustion` holds four unrelated compilers open simultaneously, verifies the fifth distinct source cannot allocate a flight, and verifies four identical older-revision readers add no compilation. The baseline's repository-wide compile mutex permits only one compiler at a time. Exact-byte identity, entry/weight eviction, old-reference safety, coherent older SQLite snapshots and malformed durable reads are covered by the race-enabled `TestMatcherCache*`, `TestCompiledConstraintCache*`, and `TestSelfProjection*` tests.
+Historical cache baselines, deterministic compilation counts and regression provenance are retained in [implementation evidence](../maintainers/implementation-evidence.md#cache-measurements-and-regression-evidence); they do not replace the bounds above.
 
 ## Self-service grant requests
 

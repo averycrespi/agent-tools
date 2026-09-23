@@ -1,5 +1,87 @@
 # Public Contract
 
+Audience: Maintainers and contributors changing the public HTTP and data contract
+
+Authority: Normative product design
+
+This chapter owns the behavior and invariants described below. Operational procedures remain in the linked guides; exact executable contract values remain owned by `internal/contract` and must agree with this chapter.
+
+## HTTP and data contract
+
+The `internal/contract` package is the single executable source consumed by API, ingress, authorization, discovery, and composition implementations. Its returned tables are copies so callers cannot mutate the canonical contract. The tables and mechanics below document the corresponding normative closed vocabulary for principal-credential authentication, administration, discovery, and invocation. The default authority is `127.0.0.1:8210`, its canonical Origin is `http://127.0.0.1:8210`, the supported protocol versions are modern `2026-07-28` and legacy `2025-11-25`, and the media types are `application/json`, `application/problem+json`, and `text/event-stream`.
+
+`NormalizeHostname` owns the ASCII DNS hostname grammar shared by startup Host configuration and explicit CLI destinations. Early Host classification admits only the canonical numeric listener authority or an explicitly configured `--allowed-host` hostname; the latter ignores an absent or valid nonzero decimal request port. Matching folds ASCII case only and never consults DNS. This does not alter route/method authority, the exact numeric browser Origin, or OAuth callback construction. See [HTTP administration](administrative-control-plane.md#http-administration) for validation and security semantics.
+
+### HTTP policy dialect
+
+`HTTPPolicy`, `HTTPDecision` and the `HTTPPolicy*`, `HTTPMethodBytes`,
+`HTTPHostBytes`, `HTTPPathBytes`, `HTTPTargetBytes` and `HTTPAddressFacts`
+constants in `internal/contract/http_policy.go` define the immutable HTTP v1
+contract. The [identity chapter](identity-and-authorization.md#http-policy-version-1)
+owns its closed shapes, bounds, canonicalization, precedence and safe evidence.
+HTTP grant/default resources below persist this dialect without adding System limit occupancy or a second authentication domain. Policy dialect version is distinct from resource revision. Existing principal and MCP contracts are unchanged.
+
+### Diagnostic event contract
+
+`DiagnosticEvents`, `DiagnosticLevels`, and the `DiagnosticQueueRecords`, `DiagnosticRecordBytes`, and `DiagnosticFlushDeadline` constants own the version-one serve diagnostic inventory and bounds. Each JSON diagnostic has `schema_version`, UTC `time`, `level`, fixed `event`, and a generated `process_id`; only its event-specific typed subset may accompany these. Each definition separates required and optional fields and lists exact causes, durability stages, and conditional requirements. Execution start/result and terminal annotation require both call and acknowledged invocation IDs; successful admission requires an invocation ID, whereas unavailable/stopped pre-ack admission forbids it. Authority/storage observations require mutation IDs and the exact owner limit; non-foreign storage writers additionally require call correlation. Wait events have no cause or duration, and durability/latch events require a closed nonempty stage. Invalid and unknown data is omitted by dropping the record, never generic serialization or regex-only redaction. The [administrative control-plane chapter](administrative-control-plane.md#serve-diagnostics) owns delivery and lifecycle. These lossy stderr observations do not add HTTP/MCP fields, change public problem representations, or extend durable audit schemas.
+
+## Route ownership
+
+All administrative routes use v2. No v1 route or alias is owned; retired paths return 404 before authentication or mutation work. `/mcp` and OAuth callback identities are unchanged.
+
+Methods are lexicographically ordered and become the exact `Allow` value. `HEAD` is never inherited from `GET`.
+
+The main callback remains unchanged. A configured per-flow callback-only numeric-loopback listener admits only its exact configured path, `GET`, and exact URI authority; it has no other public route. Main hostname allowlisting and browser Origin authority are independent. Collisions fail before URL publication; temporary listeners are composition-owned and released on terminal/cancellation/expiry/supersession/shutdown paths.
+
+| Pattern                                              | Exact `Allow`        | Authority                                         |
+| ---------------------------------------------------- | -------------------- | ------------------------------------------------- |
+| `/`                                                  | `GET`                | public                                            |
+| `/assets/*`                                          | `GET`                | public                                            |
+| `/livez`                                             | `GET`                | public                                            |
+| `/readyz`                                            | `GET`                | public                                            |
+| `/mcp`                                               | `DELETE, GET, POST`  | agent                                             |
+| `/oauth/callback`                                    | `GET`                | one-time OAuth state                              |
+| `/api/v2/admin-sessions`                             | `POST`               | admin bearer                                      |
+| `/api/v2/admin-sessions/current`                     | `DELETE, POST`       | admin session                                     |
+| `/api/v2/admin-credentials`                          | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/admin-credentials/{id}`                     | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v2/admin-authority`                            | `GET`                | admin bearer                                      |
+| `/api/v2/admin-credentials/{id}/rotation-completion` | `POST`               | admin bearer                                      |
+| `/api/v2/system-status`                              | `GET`                | admin bearer or session                           |
+| `/api/v2/backups`                                    | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/backups/{id}`                               | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v2/events`                                     | `GET, POST`          | GET: admin bearer or session; POST: admin session |
+| `/api/v2/mcp/servers`                                | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}`                           | `DELETE, GET, PATCH` | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}/operations`                | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}/operations/{operation_id}` | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}/credential-replacements`   | `POST`               | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}/oauth-flows`               | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}/oauth-flows/{flow_id}`     | `DELETE, GET`        | admin bearer or session                           |
+| `/api/v2/mcp/catalog`                                | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}/descriptors`               | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/servers/{id}/descriptors/{tool_id}`     | `GET`                | admin bearer or session                           |
+| `/api/v2/principals`                                 | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/principals/{id}`                            | `GET, PATCH`         | admin bearer or session                           |
+| `/api/v2/principals/{id}/credential`                 | `DELETE, POST`       | admin bearer or session                           |
+| `/api/v2/mcp/grants`                                 | `GET, POST`          | admin bearer or session                           |
+| `/api/v2/mcp/grants/{id}`                            | `DELETE, GET, PATCH` | admin bearer or session                           |
+| `/api/v2/mcp/grant-constraints/validate`             | `POST`               | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests`                         | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests/{id}`                    | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests/{id}/approve`            | `POST`               | admin bearer or session                           |
+| `/api/v2/mcp/grant-requests/{id}/reject`             | `POST`               | admin bearer or session                           |
+| `/api/v2/mcp/invocations`                            | `GET`                | admin bearer or session                           |
+| `/api/v2/mcp/invocations/{id}`                       | `GET`                | admin bearer or session                           |
+| `/api/v2/audit-events`                               | `GET`                | admin bearer or session                           |
+| `/api/v2/audit-events/{id}`                          | `GET`                | admin bearer or session                           |
+
+`/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
+
+MCP invocation reads have moved from `/api/v2/invocations` and its item resource to `/api/v2/mcp/invocations`. Retired paths are unowned: no alias, redirect, fallback request or replay. The CLI uses `mcp invocation list/get`; the browser uses `#/mcp/invocations`. This API v2 namespace cutover preserves all public projections, filters, read mechanics and historical evidence without storage migration or rewriting IDs, credentials or backup lineage. Administrative audit remains shared at `/api/v2/audit-events`, `audit` CLI and `#/audit-log`, labeled **Audit Log** without changing attribution or filters. See the [operator cutover](../operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover) for coordinated upgrade/reload and safe recovery.
+
+The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. The invocation read service composes the sole invocation repository with the authorization-owned separately snapshotted principal-name reader; it introduces no mutation, replay, event, or mutable join into retained evidence projections.
+
 ## HTTP traffic history
 
 Administrator bearer/session bodyless GET reads use `/api/v2/http/traffic` and
@@ -59,89 +141,7 @@ All use existing administrator bearer/session authority, strict bounded JSON, no
 
 `HTTPCredentialCreate` requires `name`, `boundary`, `recipe`, and write-only `secret`; POST returns 201 plus the safe resource. PATCH `HTTPCredentialUpdate` is a complete secret-free metadata replacement requiring `name`, `boundary`, and `recipe`; it returns 200. POST rotate accepts only `HTTPCredentialRotate` with `{secret}` and returns 200. DELETE accepts `EmptyObject` and returns 204. Every mutation except create requires exact strong `If-Match: "http-credential-ID-REVISION"`; missing/stale preconditions use `precondition_required`/`stale_revision`. Resource reads and successful create/update/rotate return that ETag. Incompatible references use `conflict`; invalid recipes use `invalid_operation`, never reflected input. Secret ingress is bounded by the recipe and standard JSON body bounds; the browser validates those bounds before confirmation and clears rejected write-only input. Keyring capability/material failures use `keyring_unavailable`, not a storage latch; a joined actual storage latch retains `storage_unavailable` precedence. The [credential owner](downstream-servers.md#scoped-http-credentials) defines validation, lifecycle, containment, and failure behavior.
 
-Audience: Maintainers and contributors changing the public HTTP and data contract
-
-Authority: Normative product design
-
-This chapter owns the behavior and invariants described below. Operational procedures remain in the linked guides; exact executable contract values remain owned by `internal/contract` and must agree with this chapter.
-
-## HTTP and data contract
-
-The `internal/contract` package is the single executable source consumed by API, ingress, authorization, discovery, and composition implementations. Its returned tables are copies so callers cannot mutate the canonical contract. The tables and mechanics below document the corresponding normative closed vocabulary for principal-credential authentication, administration, discovery, and invocation. The default authority is `127.0.0.1:8210`, its canonical Origin is `http://127.0.0.1:8210`, the supported protocol versions are modern `2026-07-28` and legacy `2025-11-25`, and the media types are `application/json`, `application/problem+json`, and `text/event-stream`.
-
-`NormalizeHostname` owns the ASCII DNS hostname grammar shared by startup Host configuration and explicit CLI destinations. Early Host classification admits only the canonical numeric listener authority or an explicitly configured `--allowed-host` hostname; the latter ignores an absent or valid nonzero decimal request port. Matching folds ASCII case only and never consults DNS. This does not alter route/method authority, the exact numeric browser Origin, or OAuth callback construction. See [HTTP administration](administrative-control-plane.md#http-administration) for validation and security semantics.
-
-### HTTP policy dialect
-
-`HTTPPolicy`, `HTTPDecision` and the `HTTPPolicy*`, `HTTPMethodBytes`,
-`HTTPHostBytes`, `HTTPPathBytes`, `HTTPTargetBytes` and `HTTPAddressFacts`
-constants in `internal/contract/http_policy.go` define the immutable HTTP v1
-contract. The [identity chapter](identity-and-authorization.md#http-policy-version-1)
-owns its closed shapes, bounds, canonicalization, precedence and safe evidence.
-HTTP grant/default resources above persist this dialect without adding System limit occupancy or a second authentication domain. Policy dialect version is distinct from resource revision. Existing principal and MCP contracts are unchanged.
-
-### Diagnostic event contract
-
-`DiagnosticEvents`, `DiagnosticLevels`, and the `DiagnosticQueueRecords`, `DiagnosticRecordBytes`, and `DiagnosticFlushDeadline` constants own the version-one serve diagnostic inventory and bounds. Each JSON diagnostic has `schema_version`, UTC `time`, `level`, fixed `event`, and a generated `process_id`; only its event-specific typed subset may accompany these. Each definition separates required and optional fields and lists exact causes, durability stages, and conditional requirements. Execution start/result and terminal annotation require both call and acknowledged invocation IDs; successful admission requires an invocation ID, whereas unavailable/stopped pre-ack admission forbids it. Authority/storage observations require mutation IDs and the exact owner limit; non-foreign storage writers additionally require call correlation. Wait events have no cause or duration, and durability/latch events require a closed nonempty stage. Invalid and unknown data is omitted by dropping the record, never generic serialization or regex-only redaction. The [administrative control-plane chapter](administrative-control-plane.md#serve-diagnostics) owns delivery and lifecycle. These lossy stderr observations do not add HTTP/MCP fields, change public problem representations, or extend durable audit schemas.
-
-### Route ownership
-
-All administrative routes use v2. No v1 route or alias is owned; retired paths return 404 before authentication or mutation work. `/mcp` and OAuth callback identities are unchanged.
-
-Methods are lexicographically ordered and become the exact `Allow` value. `HEAD` is never inherited from `GET`.
-
-The main callback remains unchanged. A configured per-flow callback-only numeric-loopback listener admits only its exact configured path, `GET`, and exact URI authority; it has no other public route. Main hostname allowlisting and browser Origin authority are independent. Collisions fail before URL publication; temporary listeners are composition-owned and released on terminal/cancellation/expiry/supersession/shutdown paths.
-
-| Pattern                                              | Exact `Allow`        | Authority                                         |
-| ---------------------------------------------------- | -------------------- | ------------------------------------------------- |
-| `/`                                                  | `GET`                | public                                            |
-| `/assets/*`                                          | `GET`                | public                                            |
-| `/livez`                                             | `GET`                | public                                            |
-| `/readyz`                                            | `GET`                | public                                            |
-| `/mcp`                                               | `DELETE, GET, POST`  | agent                                             |
-| `/oauth/callback`                                    | `GET`                | one-time OAuth state                              |
-| `/api/v2/admin-sessions`                             | `POST`               | admin bearer                                      |
-| `/api/v2/admin-sessions/current`                     | `DELETE, POST`       | admin session                                     |
-| `/api/v2/admin-credentials`                          | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/admin-credentials/{id}`                     | `DELETE, GET`        | admin bearer or session                           |
-| `/api/v2/admin-authority`                            | `GET`                | admin bearer                                      |
-| `/api/v2/admin-credentials/{id}/rotation-completion` | `POST`               | admin bearer                                      |
-| `/api/v2/system-status`                              | `GET`                | admin bearer or session                           |
-| `/api/v2/backups`                                    | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/backups/{id}`                               | `DELETE, GET`        | admin bearer or session                           |
-| `/api/v2/events`                                     | `GET, POST`          | GET: admin bearer or session; POST: admin session |
-| `/api/v2/mcp/servers`                                | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}`                           | `DELETE, GET, PATCH` | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}/operations`                | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}/operations/{operation_id}` | `GET`                | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}/credential-replacements`   | `POST`               | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}/oauth-flows`               | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}/oauth-flows/{flow_id}`     | `DELETE, GET`        | admin bearer or session                           |
-| `/api/v2/mcp/catalog`                                | `GET`                | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}/descriptors`               | `GET`                | admin bearer or session                           |
-| `/api/v2/mcp/servers/{id}/descriptors/{tool_id}`     | `GET`                | admin bearer or session                           |
-| `/api/v2/principals`                                 | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/principals/{id}`                            | `GET, PATCH`         | admin bearer or session                           |
-| `/api/v2/principals/{id}/credential`                 | `DELETE, POST`       | admin bearer or session                           |
-| `/api/v2/mcp/grants`                                 | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/mcp/grants/{id}`                            | `DELETE, GET, PATCH` | admin bearer or session                           |
-| `/api/v2/mcp/grant-constraints/validate`             | `POST`               | admin bearer or session                           |
-| `/api/v2/mcp/grant-requests`                         | `GET`                | admin bearer or session                           |
-| `/api/v2/mcp/grant-requests/{id}`                    | `GET`                | admin bearer or session                           |
-| `/api/v2/mcp/grant-requests/{id}/approve`            | `POST`               | admin bearer or session                           |
-| `/api/v2/mcp/grant-requests/{id}/reject`             | `POST`               | admin bearer or session                           |
-| `/api/v2/mcp/invocations`                            | `GET`                | admin bearer or session                           |
-| `/api/v2/mcp/invocations/{id}`                       | `GET`                | admin bearer or session                           |
-| `/api/v2/audit-events`                               | `GET`                | admin bearer or session                           |
-| `/api/v2/audit-events/{id}`                          | `GET`                | admin bearer or session                           |
-
-`/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
-
-MCP invocation reads have moved from `/api/v2/invocations` and its item resource to `/api/v2/mcp/invocations`. Retired paths are unowned: no alias, redirect, fallback request or replay. The CLI uses `mcp invocation list/get`; the browser uses `#/mcp/invocations`. This API v2 namespace cutover preserves all public projections, filters, read mechanics and historical evidence without storage migration or rewriting IDs, credentials or backup lineage. Administrative audit remains shared at `/api/v2/audit-events`, `audit` CLI and `#/audit-log`, labeled **Audit Log** without changing attribution or filters. See the [operator cutover](../operators/administration.md#mcp-invocation-namespace-cutover) for coordinated upgrade/reload and safe recovery.
-
-The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. The invocation read service composes the sole invocation repository with the authorization-owned separately snapshotted principal-name reader; it introduces no mutation, replay, event, or mutable join into retained evidence projections.
-
-### Invocation history queries
+## Invocation history queries
 
 Invocation collections accept the existing singleton `limit` (default 50, 1–100), `cursor`, exact `principal_id`, `server_id`, `requested_name`, `admission_class`, `decision`, and `outcome` fields, plus optional `tool`, `principal`, and `search_locale`. Unknown, repeated, empty, invalid, or oversized members fail. Text filters contain at most 256 UTF-8 bytes without control/format characters. `search_locale` is a canonical language tag of at most 64 bytes; omission uses locale-independent casing. The browser supplies its current default locale. `decision=not_evaluated` selects null authorization evidence without adding a stored authorization decision. Every existing outcome remains selectable, including both explicit and missing-terminal `outcome_unknown`.
 
@@ -157,7 +157,7 @@ The non-mutating grant matcher validation mechanic is `GrantConstraintValidation
 
 `GrantCreate` additionally accepts optional Boolean `read_only`; request and approval `Policy` accept the same field. Omitted or false retains unrestricted behavior; null and non-Booleans are invalid. True is restricted to server-wide ALLOWs/server requests with null argument constraints, never DENY or exact-tool policy. `Grant` and agent `GrantPolicy` reads emit `read_only:true` only for restricted grants; requested/approved policies preserve it on administrator and agent reads. Legacy unrestricted representations are unchanged. The [read-only policy contract](identity-and-authorization.md#read-only-server-allows) owns descriptor trust, lifecycle, dedupe compatibility, and the approval matrix.
 
-### Independent traffic status
+## Independent traffic status
 
 The existing System/status representation adds optional `traffic` metadata:
 `ready`, `faulted`, `pressure`, `budget_bytes`, `database_bytes`, `wal_bytes`,
@@ -168,7 +168,7 @@ authority. Control readiness and latch remain independent; a traffic-only fault
 does not globally disable healthy administrative mutations. History item/list
 representations, routes, IDs, filters and one-shot CLI behavior remain unchanged.
 
-### Optional HTTP proxy status
+## Optional HTTP proxy status
 
 `http_proxy` is optional for older status producers and present in production.
 Its closed fields are `enabled`, `ready`, `ca_ready`, `connections`, `work`,
@@ -179,7 +179,7 @@ signing capability and certificate validity, not native persistence or client tr
 Readiness also requires healthy traffic/control and open lifecycle admission.
 No secret, request destination, path or principal identity appears in this status.
 
-### Control-plane audit reads
+## Control-plane audit reads
 
 `GET /api/v2/audit-events` and `GET /api/v2/audit-events/{id}` accept administrator bearer or session authority, remain bodyless and `no-store`, and have exact `Allow` value `GET`. There are no audit mutation, replay, export, or ordinary read-access-log endpoints.
 
@@ -193,7 +193,7 @@ Collection order is descending sequence. A cursor is an opaque, authenticated, f
 
 The read/store backend does not itself establish producer coverage or restore continuity. Their qualification is owned by the [administrative audit coverage matrix](administrative-control-plane.md#control-plane-audit-coverage).
 
-### Safe problems
+## Safe problems
 
 Problems normally have exactly `status`, `code`, and `title`. The `invalid_server_configuration` problem additionally has one required `context` object with exact `field` and `rule` members so every administrative client can identify the rejected configuration boundary. Both values come from closed vocabularies: fields are `configuration`, `namespace`, `display_name`, `enabled`, `transport`, `transport.kind`, `transport.executable`, `transport.arguments`, `transport.working_directory`, `transport.environment`, `transport.secret_environment`, `transport.url`, `transport.protocol_mode`, `transport.headers`, `transport.authentication`, `transport.authentication.mode`, `transport.authentication.trusted_origins`, `transport.authentication.request_offline_access`, `transport.authentication.registration`, `transport.authentication.registration.mode`, `transport.authentication.registration.issuer`, `transport.authentication.registration.client_id`, and `transport.authentication.registration.token_endpoint_auth_method`; rules are `invalid`, `required`, `maximum`, `unique`, `disjoint`, `canonical_absolute_path`, `canonical_url`, and `transport_policy`. Only one deterministic first violation is returned. Dependency messages, submitted values, paths, payloads, dynamic map keys, array positions, and other details are never added.
 
@@ -246,7 +246,7 @@ Problems normally have exactly `status`, `code`, and `title`. The `invalid_serve
 |    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                        |
 |    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                             |
 
-### Fixed numeric limits
+## Fixed numeric limits
 
 Every maximum accepts N and rejects N+1. Values below zero are invalid. These are compiled boundaries, not configuration.
 
@@ -376,17 +376,17 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 
 Credential, backup, server/catalog, and principal/grant collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. Downstream HTTP reuses the public-boundary `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
 
-#### Deadlines and defaults
+### Deadlines and defaults
 
-Fixed service deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, authority gate wait one second (within 32 outstanding authority operations, shortened by caller cancellation/deadline), invocation storage acquisition wait 250 ms (one active storage owner and up to 31 FIFO invocation waiters, shortened by caller cancellation/deadline or invocation drain), SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours. Server coordination adds a five-minute OAuth flow lifetime; connect/OAuth/initialization deadlines of 10/15/30 seconds; catalog page/traversal deadlines of 15/60 seconds; a maximum downstream call deadline of 60 seconds; stdio graceful/forced stop windows of 3/2 seconds; a five-minute catalog poll interval with at most 30 seconds jitter; and reconciliation retry delays of 1, 2, 4, 8, 16, 32, then 60 seconds.
+Fixed service deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, authority gate wait one second (within 32 outstanding authority operations, shortened by caller cancellation/deadline), legacy control-store invocation acquisition wait 250 ms (one active storage owner and up to 31 FIFO invocation waiters, shortened by caller cancellation/deadline or invocation drain), SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours. Server coordination adds a five-minute OAuth flow lifetime; connect/OAuth/initialization deadlines of 10/15/30 seconds; catalog page/traversal deadlines of 15/60 seconds; a maximum downstream call deadline of 60 seconds; stdio graceful/forced stop windows of 3/2 seconds; a five-minute catalog poll interval with at most 30 seconds jitter; and reconciliation retry delays of 1, 2, 4, 8, 16, 32, then 60 seconds.
 
-The invocation-storage deadline bounds acquisition only, before intent/SQL, not active mutation settlement. Full waiting capacity rejects immediately; foreign ordinary and recovery-bearing writers remain nonqueueing even during reserved FIFO handoff. Admission still waits after acquiring authority, so contention may delay authentication and policy changes. The internal capacity, expiry, cancellation/drain, and latch distinctions do not add public MCP errors: unacknowledged admission remains `audit_unavailable` without an invocation ID, and best-effort terminal failure cannot replace the live result. No fairness guarantee applies to nonqueueing foreign writers.
+The invocation-storage deadline bounds acquisition only, before intent/SQL, not active mutation settlement. Full waiting capacity rejects immediately; foreign ordinary and recovery-bearing writers remain nonqueueing even during reserved FIFO handoff. This control-storage FIFO is a legacy migration/test seam, not production traffic admission. Production MCP admission releases the authority gate and control read before waiting for traffic persistence, then reacquires authority to confirm the unchanged binding and policy after acknowledgment; see [admission and execution](invocation-and-ingress.md#admission-and-execution). The internal capacity, expiry, cancellation/drain, and latch distinctions do not add public MCP errors: unacknowledged admission remains `audit_unavailable` without an invocation ID, and best-effort terminal failure cannot replace the live result. No fairness guarantee applies to nonqueueing foreign writers.
 
-### Resource representations and mechanics
+## Resource representations and mechanics
 
 `AdminCredential` is exactly `{id,fingerprint,created_at,expires_at,non_expiring,status,revision}`; its creation form adds one-time `bearer`. Credential status is the closed set `active`, `revoked`, or `expired`. `Backup` is exactly `{id,created_at,installation_id,schema_version,source_revision,size_bytes,sha256}`. Collection envelopes and defaults are declared in the normalized collection contract below; filter presence never changes them.
 
-`SystemStatus` is exactly `{process,sqlite,keyring,limits,backup,protocols}`. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`.
+`SystemStatus` has required members `{process,sqlite,keyring,limits,backup,protocols}` and optional `traffic` and `http_proxy` members with the closed shapes defined above. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`.
 
 The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `server_idempotency_records`, `active_tools`, `durable_tool_identities`, `downstream_dispatch`, `principals`, `grants`, `grant_requests`, and `grant_request_evidence_bytes`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth is closed to `deny_all` and `principal_credentials`; production reports `principal_credentials` from the same composed dependency bundle that supplies its authenticator and discovery service.
 
@@ -398,7 +398,7 @@ No command polls, refetches a precondition, or replays a mutation. Server and po
 
 The event stream still has no replay mechanism. Browser streaming uses session-only `POST /api/v2/events` with exact `EmptyObject` `{}`, Origin, and CSRF, returning the same `EventStream`; inherited bearer-or-session GET and POST share one hub, frame, keepalive, limit, overflow, deadline, and closure owner.
 
-Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, and `grant_requests`.
+Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, `grant_requests`, and `http_credentials`.
 
 Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `agent_gateway_session`. The legacy `mcp_gateway_session` name is expiry-only, never authority; see the [session cutover and exact cookie scope](administrative-control-plane.md#administrative-authority-and-sessions). Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. `http_proxy_client_environment` permits only explicit client proxy-URL exports resolved at shell startup from the existing owner-private agent token file; never administrator tokens, persisted configuration or service environment. Standard output and standard error are not secret sinks.
 
@@ -498,6 +498,42 @@ Operation table cursors are bounded to 512 bytes and bind server, exact query, h
 | credential kind            | `static_credential`, `oauth_client`, `oauth_tokens`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | descriptor retired filter  | `include`, `exclude`, `only`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | public reason              | `configuration_invalid`, `resource_limit`, `connectivity`, `tls_failed`, `protocol_unsupported`, `protocol_invalid`, `authentication_rejected`, `credential_absent`, `keyring_absent`, `keyring_locked`, `keyring_interaction_required`, `keyring_unavailable`, `keyring_unsupported`, `oauth_rejected`, `oauth_expired`, `registration_expired`, `process_exited`, `output_limit`, `stop_unconfirmed`, `catalog_invalid`, `catalog_limit`, `catalog_stale`, `superseded`, `cancelled`, `interrupted`, `revocation_failed`, `revocation_unsupported`, `cleanup_pending` |
+
+## Principal and grant contract
+
+Grant and access-request operator routes belong to MCP under `/api/v2/mcp/`; principals and credentials remain shared. This is a route-only cutover: persisted rows, IDs, descriptions, policy/dedupe bytes, ETags, audit vocabulary, `authorization`/`grant_requests` invalidations, backup lineage, and `mcp_gateway` self-service names and schemas retain their identities. No migration or protocol registry is introduced. The retired unnamespaced grant/request/validation paths reject before authentication or domain work, without redirects or inferred replacement operations.
+
+| Method and pattern                          | Closed request schema | Success schema/status             | Cursor | Idempotency | Exact `If-Match` | Response ETag |
+| ------------------------------------------- | --------------------- | --------------------------------- | ------ | ----------- | ---------------- | ------------- |
+| `GET /api/v2/principals`                    | `PrincipalListQuery`  | `QueryPage<Principal>` / 200      | yes    | no          | no               | no            |
+| `POST /api/v2/principals`                   | `PrincipalCreate`     | `PrincipalCreation` / 201         | no     | no          | no               | yes           |
+| `GET /api/v2/principals/{id}`               | `None`                | `Principal` / 200                 | no     | no          | no               | yes           |
+| `PATCH /api/v2/principals/{id}`             | `PrincipalPatch`      | `Principal` / 200                 | no     | no          | yes              | yes           |
+| `POST /api/v2/principals/{id}/credential`   | `EmptyObject`         | `AgentCredentialCreation` / 201   | no     | no          | yes              | yes           |
+| `DELETE /api/v2/principals/{id}/credential` | `EmptyObject`         | `Principal` / 200                 | no     | no          | yes              | yes           |
+| `GET /api/v2/mcp/grants`                    | `GrantListQuery`      | `QueryPage<GrantTableItem>` / 200 | yes    | no          | no               | no            |
+| `POST /api/v2/mcp/grants`                   | `GrantCreate`         | `Grant` / 201                     | no     | no          | no               | yes           |
+| `GET /api/v2/mcp/grants/{id}`               | `None`                | `Grant` / 200                     | no     | no          | no               | yes           |
+| `PATCH /api/v2/mcp/grants/{id}`             | `GrantPatch`          | `Grant` / 200                     | no     | no          | yes              | yes           |
+| `DELETE /api/v2/mcp/grants/{id}`            | `None`                | `Empty` / 204                     | no     | no          | no               | no            |
+
+Principal and grant collection cursors are authenticated with a fresh process-local repository key and expire five minutes after the first page. Continuations do not extend that lifetime. Restart, expiry, or alteration makes the cursor stale; clients must start a new traversal rather than persist cursors. Every ordinary request, including one without query settings, uses the same normalized query path and count envelope.
+
+The principal collection accepts singleton nonempty `cursor`, `limit`, `name`, `state`, `visibility`, `sort`, and `direction` query members and returns no ETag. Omitted sort uses name ascending, with ID ascending ties. Principal sort keys are `name`, `id`, `state`, and `visibility`; direction is `ascending` or `descending`. The `name` filter matches display name or literal ID, and state and visibility use their closed resource values; create/read/PATCH use the sole composition-owned repository and exact strong principal ETags. Create accepts only required non-null display name and visibility and returns the principal plus its atomic ordinary default grant.
+
+PATCH accepts a nonempty non-null subset of `display_name`, `state`, `visibility`, and `http_default` (`allow` or `block`); omitted members remain unchanged. Absent, weak, wildcard, malformed, multiple, wrong-principal, or stale preconditions fail safely, and exact no-ops conflict without invalidation. One authority-before-storage transaction applies all fields, required audit and revision changes atomically. Validation, stale revision, admission/storage refusal or required audit failure commits none of them. Successful mutations publish an ID-free authorization invalidation after commit; patches containing `http_default` also publish the coalesced HTTP-credential invalidation.
+
+The singular credential route accepts exact `{}` plus the current principal ETag: POST issues or replaces the slot and returns `AgentCredentialCreation` with the raw bearer exactly once, while DELETE revokes current authority and returns the safe principal. Both advance principal and credential revisions, expose the resulting ETag, and publish only the same ID-free invalidation after an acknowledged success; failures and retries never replay a bearer.
+
+Grant list/create/read/PATCH/delete use the same sole authority and a servers-owned supplied-transaction target callback. Creation requires every legacy member, with optional Boolean `read_only` under the [read-only policy contract](identity-and-authorization.md#read-only-server-allows), including nullable `description`, `upstream_name`, `constraint`, and `expires_at`; descriptions are valid UTF-8, 1–256 bytes when present, free of control characters and surrounding whitespace, and need not be unique. PATCH accepts only `description`, requires the exact strong grant ETag, and may clear the description with null. Listing retains singleton `principal_id` and `server_id` filters and additionally accepts `identity` (description or ID), `principal` (display name or ID), `target` (server display name, scope/tool name, or server ID), `effect`, `state`, `sort`, and `direction`. Grant sort keys are `id`, `description`, `principal`, `target`, `effect`, and `state`; target ordering uses server display name. Omitted sort uses description ascending, with ID ascending ties. Every collection item is exactly `{grant,principal_display_name,server_display_name}` and supplies recognition labels without browser collection traversal. The retired `representation` query member is rejected.
+
+Text query values are valid UTF-8, at most 256 bytes, with no control or format characters. Text matching removes Unicode combining marks after NFKD normalization, lowercases, and requires every whitespace-separated token to match a substring or (for nondigit tokens of at least four characters) a word within one edit, including adjacent transposition. ID matching remains literal case-sensitive substring matching. Text sorts use normalized Unicode code-point order, with ID ascending as the deterministic tie-breaker. For both collections, `direction` requires an explicit `sort`; omitting `direction` selects ascending order. All filters are conjunctive; omitted or empty application controls impose no filter, while empty API query values are rejected.
+
+The sole operator query path scans compact recognition metadata bounded by the fixed principal/grant capacities, not full credentials or policy bodies. The servers owner supplies bounded display-name facts in the same read transaction; authorization owns principal/grant metadata, matching, ordering, and selected-page resource reads. The query response is exactly `{items,next_cursor,total_count,offset}`. `total_count` is the exact number of matching records before page slicing, and `offset` is the zero-based position of the first returned row. Both are nonnegative JSON integers derived from the same filtered snapshot and read transaction as the selected page, including when `next_cursor` is null. An empty result has zero total and offset. Computing this metadata adds no count query or full-resource hydration. This envelope also applies without filters, including grant lists using only `principal_id` or `server_id`. Its authenticated cursor binds the complete query, representation, and metadata snapshot; relevant edits, insertions/deletions, renames, or derived expiry-state changes make continuation stale instead of silently moving rows between pages. Previous navigation can reuse a prior cursor while that snapshot remains current. There is no implicit legacy operator path.
+
+Grant identity and policy are immutable and expose no idempotency surface. Create, read, and description-only PATCH return the grant ETag; PATCH requires that exact current value. Successful create, description update, and delete publish only the ID-free authorization invalidation.
+
+`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{id,display_name,state,visibility,http_default,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` is exactly `{id,description,revision,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}`. The self-service `AgentGrant` projection is exactly `{id,description,effect,policy,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`; the grant ETag is exactly `"grant-<id>-<revision>"`.
 
 ## Strict JSON
 

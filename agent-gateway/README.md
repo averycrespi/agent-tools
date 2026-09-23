@@ -34,7 +34,7 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 ### Operator-friendly
 
-Manage principals and scoped MCP/HTTP access in the browser. **MCP → Invocations** shows redacted call history; **Audit Log** includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/administration.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
+Manage principals and scoped MCP/HTTP access in the browser. **MCP → Invocations** shows redacted call history; **Audit Log** includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
 
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
@@ -52,7 +52,7 @@ From the `agent-gateway` directory:
 make install
 ```
 
-This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-safety.md#retired-executable-and-operator-cleanup). New installations use canonical paths; ambiguous legacy defaults refuse. Existing explicit roots remain supported. The migration capability is retired; follow [installation safety](docs/operators/installation-safety.md), retain tombstones, and never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/administration.md#browser-persistence-cutover) for preferences and fresh sign-in.
+This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-safety.md#retired-executable-and-operator-cleanup). New installations use canonical paths; ambiguous legacy defaults refuse. Existing explicit roots remain supported. The migration capability is retired; follow [installation safety](docs/operators/installation-safety.md), retain tombstones, and never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/upgrade-compatibility.md#browser-persistence-cutover) for preferences and fresh sign-in.
 
 ## Quick start
 
@@ -90,7 +90,7 @@ Use `agent-gateway --help` and subcommand help for exact commands. Renaming pres
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
 - [HTTP administration](docs/operators/administration.md#http-traffic-history), [CA commands](docs/operators/backup-and-recovery.md#stopped-interception-ca-commands), and [explicit proxy setup](docs/operators/http-proxy.md).
-- Use `principal`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/administration.md#mcp-permission-namespace-cutover) and [manual client configuration](docs/operators/access-control.md#configure-an-agent-client-manually).
+- Use `principal`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/upgrade-compatibility.md#mcp-permission-namespace-cutover) and [manual client configuration](docs/operators/access-control.md#configure-an-agent-client-manually).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
 - Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's **Audit Log** destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
 - Use `agent-gateway storage verify` or `agent-gateway backup restore BACKUP_ID` for stopped recovery. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.

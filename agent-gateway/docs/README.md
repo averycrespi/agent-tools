@@ -6,7 +6,8 @@ Choose documentation by the work you are doing. The same product and security co
 
 Start with the [Gateway README](../README.md) for installation and the quick start, then use the focused procedure for the task:
 
-- [Administrator CLI and local administration](operators/administration.md) — installation roots, browser preference/session migration, startup, authentication, output, confirmation, and retry discipline.
+- [Administrator CLI and local administration](operators/administration.md) — installation roots, startup, authentication, output, confirmation, and retry discipline.
+- [Upgrade and compatibility](operators/upgrade-compatibility.md) — coordinated client/service cutovers, browser preference/session migration and retained durable identities.
 - [Installation safety](operators/installation-safety.md) — existing-root selection, retained tombstones and recovery artifacts, and operator cleanup after migration retirement.
 - [Run as a macOS launchd agent](operators/launchd.md) — per-user startup, verification, graceful maintenance, and native-keyring caveats.
 - [Upstream server configuration](operators/upstream-servers.md) — servers, credentials, OAuth, operations, and catalogs.
@@ -22,14 +23,17 @@ Generated `agent-gateway --help` and subcommand help are the exact command and f
 Human maintainers and coding agents should begin with [maintainer and agent guidance](../CLAUDE.md), then use the focused workflow when applicable:
 
 - [Frontend development](maintainers/frontend-development.md) — trusted live reload, visual inspection, and focused frontend checks.
-- [Table conventions](design/administrative-control-plane.md#table-conventions) — activity/resource column order, names, sizing, identity, status, and responsive behavior.
+- [Table conventions](design/browser-control-plane.md#table-conventions) — activity/resource column order, names, sizing, identity, status, and responsive behavior.
 - [Release verification](maintainers/release-verification.md) — exact-revision acceptance evidence and report adoption for release owners.
+- [Implementation evidence](maintainers/implementation-evidence.md) — producer-test provenance and historical measurements, not current-candidate qualification.
 
 `AGENTS.md` links to `CLAUDE.md` so compatible coding agents discover the same repository-local constraints. Maintainer guides explain development procedures; product behavior remains owned by the design documentation.
 
 ## Understand product behavior
 
 [DESIGN](../DESIGN.md) is the normative architecture index. Its domain chapters under [`design/`](design/) own intended behavior, invariants, lifecycle, and failure semantics.
+
+The [browser control plane](design/browser-control-plane.md) owns normative browser behavior separately from server-side administration. The architecture index names every domain owner.
 
 Authority is divided deliberately:
 

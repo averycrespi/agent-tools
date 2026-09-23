@@ -10,14 +10,15 @@ This document is the normative architecture overview and index. The linked desig
 
 Normative behavior is divided by stable product domain:
 
-| Domain                                                                                      | Normative chapter                                                           |
-| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Public routes, problems, limits, representations, and strict JSON                           | [Public contract](docs/design/public-contract.md)                           |
-| Principals, credentials, grants, policy, and self-service requests                          | [Identity and authorization](docs/design/identity-and-authorization.md)     |
-| SQLite durability, migration, mutation recovery, backup, and restore                        | [Storage and recovery](docs/design/storage-and-recovery.md)                 |
-| Server authority, keyring cutover, runtimes, transports, OAuth, and catalogs                | [Downstream servers](docs/design/downstream-servers.md)                     |
-| Governed calls, audit evidence, protocol eras, authentication, and MCP sessions             | [Invocation and MCP ingress](docs/design/invocation-and-ingress.md)         |
-| Administrator authority, HTTP administration, browser and CLI clients, events, and shutdown | [Administrative control plane](docs/design/administrative-control-plane.md) |
+| Domain                                                                       | Normative chapter                                                           |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Public routes, problems, limits, representations, and strict JSON            | [Public contract](docs/design/public-contract.md)                           |
+| Principals, credentials, grants, policy, and self-service requests           | [Identity and authorization](docs/design/identity-and-authorization.md)     |
+| SQLite durability, migration, mutation recovery, backup, and restore         | [Storage and recovery](docs/design/storage-and-recovery.md)                 |
+| Server authority, keyring cutover, runtimes, transports, OAuth, and catalogs | [Downstream servers](docs/design/downstream-servers.md)                     |
+| Governed MCP/HTTP traffic, admission evidence, ingress and sessions          | [Invocation and ingress](docs/design/invocation-and-ingress.md)             |
+| Administrator authority, HTTP and CLI control, events and shutdown           | [Administrative control plane](docs/design/administrative-control-plane.md) |
+| Browser lifecycle, workflows, presentation and one-time sinks                | [Browser control plane](docs/design/browser-control-plane.md)               |
 
 The chapters are normative for product intent, invariants, ownership, lifecycle, and failure semantics. `internal/contract` is the executable authority for public routes, safe problems, media and protocol values, fixed limits, closed states and reasons, resource mechanics, approved secret sinks, and behavior manifests. Contract code, tests, and the owning design chapter must change together when behavior changes.
 
@@ -30,11 +31,13 @@ Operator procedures:
 - [Access control](docs/operators/access-control.md)
 - [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)
 - [Backup, restore, and recovery](docs/operators/backup-and-recovery.md)
+- [Upgrade and compatibility](docs/operators/upgrade-compatibility.md)
 
 Maintainer procedures:
 
 - [Frontend development](docs/maintainers/frontend-development.md)
 - [Release verification and acceptance evidence](docs/maintainers/release-verification.md)
+- [Implementation evidence and historical measurements](docs/maintainers/implementation-evidence.md)
 
 If summaries disagree, the owning normative chapter controls product intent and `internal/contract` controls its executable closed vocabulary. Generated CLI help and Make targets control command and target syntax respectively.
 
@@ -75,7 +78,7 @@ The official MCP SDK does not own Gateway authentication, protocol downgrade dec
 
 `agent-gateway` is the sole published executable from `cmd/agent-gateway`. A renamed current binary still exposes canonical grammar and completions; its basename never selects a different installation or authority. The repository directory and Go module are `agent-gateway`; no second composition root or additional protocol domain is introduced.
 
-The administrative contract is API v2, with MCP resources under `/api/v2/mcp/servers` and `/api/v2/mcp/catalog` and CLI groups `mcp server` and `mcp catalog`. API v1 and old top-level operator commands have no aliases. Collections use one declared default query/order/page policy independent of filters. Operator clients must upgrade with the service; see the [breaking-change matrix](docs/operators/administration.md#operator-v2-cutover).
+The administrative contract is API v2, with MCP resources under `/api/v2/mcp/servers` and `/api/v2/mcp/catalog` and CLI groups `mcp server` and `mcp catalog`. API v1 and old top-level operator commands have no aliases. Collections use one declared default query/order/page policy independent of filters. Operator clients must upgrade with the service; see the [breaking-change matrix](docs/operators/upgrade-compatibility.md#operator-v2-cutover).
 
 Executable retirement preserves explicit installation selection and process locking, credential prefixes/verifiers, native-keyring service identifiers and generation framing, database/backup lineage, ports and MCP self-service names. The installation-migration command and whole-root exchange capability are retired after rollout-owner attestation that all installations migrated. Implicit selection still refuses ambiguous legacy state and recognizes exact completed tombstones; explicit existing/custom roots remain supported. Retain tombstones and recovery artifacts according to [installation safety](docs/operators/installation-safety.md); no automatic cleanup, reinitialization or relocation is permitted. Repository-owned guest provisioning is retired. Manual client configuration retains both supported endpoint/token export pairs from one current agent authority; operators own permission checks and legacy profile/conflict reconciliation. Offline recovery uses `storage verify` and `backup restore`, with directly authored Agent Gateway guidance. Persisted idempotency identities and backup/agent-shared wire formats remain compatible rather than following operator route or JSON renames.
 

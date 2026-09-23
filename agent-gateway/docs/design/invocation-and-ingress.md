@@ -1,4 +1,4 @@
-# Invocation and MCP Ingress
+# Invocation and Ingress
 
 Audience: Maintainers and contributors changing governed invocation, retained evidence, and MCP ingress
 
@@ -122,7 +122,7 @@ clocks; trimming trailing zeros violates the traffic store's evidence contract.
 
 ## Governed invocation and audit evidence
 
-Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/administration.md#mcp-invocation-namespace-cutover).
+Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover).
 
 This is an API v2 administrative namespace change only. Public invocation JSON, filters, limits, cursors, generations, historical IDs/rows and redacted captures remain unchanged; no migration, evidence rewrite, protocol discriminator or activity store is introduced. The `invocations` event kind, admission-before-dispatch, one-shot outcomes, credential bytes, backup lineage, MCP ingress/self-service and callback identities remain unchanged. **Audit Log** remains shared administrator/system/offline-maintenance evidence at `#/audit-log`, `/api/v2/audit-events`, and `audit` CLI, produced separately from MCP invocations.
 
@@ -281,14 +281,7 @@ Gateway supplies at most one automatic attempt, not exactly-once effects: an exp
 
 ### Contention qualification
 
-The disposable race-enabled composition workload exercises 32 real ingress calls
-at concurrency four in warn, debug and stalled-diagnostic modes. A downstream HTTP
-barrier proves overlapping executions; assertions inspect retained admissions and
-terminals and the absence of control-store dual writes. A separate held-control-
-writer scenario proves traffic persistence does not join its wait queue or retain
-authority. Deterministic receipt interleavings prove revocation completes while the
-traffic writer is held and prevents later confirmation. These are correctness and
-isolation checks, not the dependent throughput qualification or latency promises.
+[Implementation evidence](../maintainers/implementation-evidence.md#contention-qualification) records correctness and isolation workloads; these are not throughput or latency qualification.
 
 ### Capability acquisition
 
