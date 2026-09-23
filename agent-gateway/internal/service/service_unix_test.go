@@ -91,7 +91,7 @@ func (f *fixture) run(_ context.Context, name string, args ...string) ([]byte, i
 			state = "running"
 			pid = "\tpid = 123456\n"
 		}
-		return []byte(fmt.Sprintf("%s = {\n\tpath = %s\n\tprogram = %s\n\tstate = %s\n%s\targuments = {\n%s\n\t}\n}\n", f.m.target(), f.m.plist(), d.Binary, state, pid, strings.Join(d.argv, "\n"))), 0, nil
+		return []byte(fmt.Sprintf("%s = {\n\tpath = %s\n\tprogram = %s\n\tstate = %s\n%s\targuments = {\n%s\n\t}\n}\n", f.m.target(), f.m.plist(), d.Binary, state, pid, "\t\t"+strings.Join(d.argv, "\n\t\t"))), 0, nil
 	}
 	f.mutations = append(f.mutations, args[0])
 	if f.fail == args[0] {

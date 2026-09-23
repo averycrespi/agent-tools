@@ -44,11 +44,15 @@ func (m *manager) observe(ctx context.Context, d definition) (job, error) {
 	if d.Binary == "" {
 		return job{Loaded: true}, nil
 	}
+	lines, err := launchServiceLines(string(data), m.target())
+	if err != nil {
+		return job{}, err
+	}
 	var path, program, state, pid []string
 	var args []string
 	inArgs := false
 	foundArgs := false
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range lines {
 		if inArgs {
 			if strings.TrimSpace(line) == "}" {
 				inArgs = false
@@ -95,6 +99,77 @@ func (m *manager) observe(ctx context.Context, d definition) (job, error) {
 	}
 	return result, nil
 }
+
+// launchServiceLines projects only direct service fields and its literal argv.
+// launchctl print is not a stable serialization format: uncertain structure must
+// refuse identity rather than promote fields from coalitions or other subobjects.
+func launchServiceLines(data, target string) ([]string, error) {
+	type block struct {
+		indent string
+		child  string
+		args   bool
+	}
+	var stack []block
+	var result []string
+	started := false
+	invalid := errors.New("ambiguous loaded service structure")
+	for _, raw := range strings.Split(data, "\n") {
+		line := strings.TrimLeft(raw, "\t ")
+		indent := raw[:len(raw)-len(line)]
+		if line == "" {
+			if len(stack) > 0 && stack[len(stack)-1].args {
+				result = append(result, "")
+			}
+			continue
+		}
+		if !started {
+			if raw != target+" = {" {
+				return nil, invalid
+			}
+			started = true
+			stack = append(stack, block{})
+			continue
+		}
+		if len(stack) == 0 {
+			return nil, invalid
+		}
+		current := &stack[len(stack)-1]
+		if line == "}" && indent == current.indent {
+			if current.args {
+				result = append(result, "}")
+			}
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if !strings.HasPrefix(indent, current.indent) || len(indent) <= len(current.indent) {
+			return nil, invalid
+		}
+		if current.child == "" {
+			current.child = indent
+		} else if indent != current.child {
+			return nil, invalid
+		}
+		if current.args {
+			result = append(result, line)
+			continue
+		}
+		if line == "}" {
+			return nil, invalid
+		}
+		top := len(stack) == 1
+		if top {
+			result = append(result, line)
+		}
+		if strings.HasSuffix(line, " = {") {
+			stack = append(stack, block{indent: indent, args: top && line == "arguments = {"})
+		}
+	}
+	if !started || len(stack) != 0 {
+		return nil, invalid
+	}
+	return result, nil
+}
+
 func (m *manager) process(ctx context.Context, pid, binary string) (processIdentity, error) {
 	p, err := m.inspectProcess(ctx, pid)
 	if err != nil || p.PID == "" {
