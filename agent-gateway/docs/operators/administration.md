@@ -10,11 +10,17 @@ Agent Gateway's `agent-gateway --help` and subcommand help are the canonical com
 
 Keep identity and credential work under `agent-gateway principal` and **Access → Principals**. Each principal has one identity/state and at most one current agent credential. Its **MCP discovery visibility** setting affects discovery only and grants no access; manage call authority through MCP grants. Principal creation also creates the ordinary **Default Gateway access** grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols.
 
-Existing `--visibility`, API `visibility`, and creation `default_grant` names remain unchanged compatibility fields, not protocol-general grants. Principal JSON and credential representations, CLI output, defaults, and one-time sinks are unchanged; no protocol selector or MCP-settings endpoint is added. See [principal creation and credential procedures](access-control.md#create-and-inspect-principals) and the [normative identity boundary](../design/identity-and-authorization.md#shared-identity-and-mcp-policy-ownership). Do not rotate credentials, reinitialize, or convert backups for this wording clarification.
+Existing `--visibility`, API `visibility`, and creation `default_grant` names remain unchanged compatibility fields, not protocol-general grants. Every Principal JSON representation now includes `http_default`; credential-slot semantics and one-time sinks are unchanged. No protocol selector or MCP-settings endpoint is added. See [principal creation and credential procedures](access-control.md#create-and-inspect-principals) and the [normative identity boundary](../design/identity-and-authorization.md#shared-identity-and-mcp-policy-ownership). Do not rotate credentials, reinitialize, or convert backups for this wording clarification.
 
 ## HTTP policy administration
 
 `agent-gateway http --help` groups scoped credentials, grants, principal HTTP defaults and policy-only Test access. Use **HTTP → Grants** or `http grant list|get|create|update|delete`; `http default get|update` operates on a principal ID without changing MCP defaults. `http test-access --file PATH` previews policy without DNS, dispatch or secret resolution. The [HTTP access-control guide](access-control.md#http-grants-and-test-access) owns complete file shapes, examples, precedence and limitations. All writes retain the same strict file, exact ETag, confirmation and no-replay mechanics below; this surface starts no production proxy.
+
+### Principal HTTP-default client cutover
+
+Upgrade service, CLI and strict clients together and reload the browser. `/api/v2/http/defaults/{id}` GET/PATCH and `http-default-*` ETags are removed, with no alias or redirect. Read `/api/v2/principals/{id}` instead; PATCH `{"http_default":"allow"}` or any combination with `display_name`, `state`, and `visibility` using that response's principal ETag. Missing/stale preconditions fail closed; an old default ETag is never valid. Lists, creation and credential-operation responses include the same new Principal field. HTTP-default CLI files use `http_default`, not `default`; JSON output is the complete Principal.
+
+In **Edit principal**, **Save principal** commits all dirty fields in one request. State/default changes share one confirmation; cancel sends no write. Conflicts preserve the draft and require review of refreshed current values before accepting their revision. Unknown outcomes are never replayed: inspect current settings and deliberately discard the uncertain draft before forming new intent. Existing stored defaults and backups need no migration, reinitialization or credential rotation.
 
 ## HTTP traffic history
 

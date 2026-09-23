@@ -429,8 +429,6 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.httpGrants(writer, request, strings.TrimPrefix(path, "/api/v2/http/grants/"))
 	case path == "/api/v2/http/access-preview" && handler.httpPolicies != nil:
 		handler.previewHTTP(writer, request)
-	case strings.HasPrefix(path, "/api/v2/http/defaults/") && handler.httpPolicies != nil:
-		handler.httpDefault(writer, request, strings.TrimPrefix(path, "/api/v2/http/defaults/"))
 	case path == "/api/v2/http/credentials" && handler.httpCredentials != nil:
 		handler.httpCredentialCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v2/http/credentials/") && handler.httpCredentials != nil:

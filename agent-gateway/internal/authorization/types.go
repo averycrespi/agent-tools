@@ -39,6 +39,7 @@ type CreatePrincipalRequest struct {
 }
 
 type PatchPrincipalRequest struct {
+	HTTPDefault      *contract.HTTPDefault
 	ExpectedRevision string
 	DisplayName      *string
 	State            *contract.PrincipalState

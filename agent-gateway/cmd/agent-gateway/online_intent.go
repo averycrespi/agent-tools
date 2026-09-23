@@ -178,7 +178,7 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	case strings.HasPrefix(path, "http grant "):
 		parts = httpGrantETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "http default "):
-		parts = httpDefaultETagPattern.FindStringSubmatch(options.etag)
+		parts = principalETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "mcp server "):
 		parts = serverETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "principal "):
@@ -289,7 +289,7 @@ func marshalIntent(value any) ([]byte, error) {
 var onlineIntentSpecs = map[string]onlineIntentSpec{
 	"http grant create":      {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
 	"http grant update":      {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
-	"http default update":    {fileMembers: []string{"default"}},
+	"http default update":    {fileMembers: []string{"http_default"}},
 	"http test-access":       {fileMembers: []string{"principal_id", "url", "method", "connect"}},
 	"http credential create": {fileMembers: []string{"name", "boundary", "recipe", "secret"}},
 	"http credential update": {fileMembers: []string{"name", "boundary", "recipe"}},
@@ -341,12 +341,12 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 	},
 	"principal update": {
 		direct: []onlineDirectFlag{
-			{name: "display-name"}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}}, {name: "state", values: []string{"active", "disabled"}},
+			{name: "display-name"}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}}, {name: "state", values: []string{"active", "disabled"}}, {name: "http-default", values: []string{"allow", "block"}},
 		},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, changed map[string]bool) ([]byte, error) {
 			body := make(map[string]any)
-			for flag, member := range map[string]string{"display-name": "display_name", "visibility": "visibility", "state": "state"} {
+			for flag, member := range map[string]string{"display-name": "display_name", "visibility": "visibility", "state": "state", "http-default": "http_default"} {
 				if changed[flag] {
 					body[member] = values[flag]
 				}

@@ -302,7 +302,7 @@ func writeStoppedMatrixHTTPFile(root, command string) string {
 	case "http credential create":
 		body = strings.TrimSuffix(body, "}") + `,"secret":"matrix-secret"}`
 	case "http default update":
-		body = `{"default":"block"}`
+		body = `{"http_default":"block"}`
 	case "http grant create", "http grant update":
 		body = `{"principal_id":"` + stoppedMatrixID + `","policy":{"version":1,"type":"block_destination","destination":{"host":"api.example.com","port":443}},"expires_at":null}`
 	case "http test-access":

@@ -36,6 +36,7 @@ type rawPrincipalCreate struct {
 }
 
 type rawPrincipalPatch struct {
+	HTTPDefault json.RawMessage `json:"http_default,omitempty"`
 	DisplayName json.RawMessage `json:"display_name,omitempty"`
 	State       json.RawMessage `json:"state,omitempty"`
 	Visibility  json.RawMessage `json:"visibility,omitempty"`
@@ -145,14 +146,15 @@ func (handler *Handler) patchPrincipal(writer http.ResponseWriter, request *http
 	if !decodeStrictBody(writer, request, &raw) {
 		return
 	}
-	if raw.DisplayName == nil && raw.State == nil && raw.Visibility == nil {
+	if raw.DisplayName == nil && raw.State == nil && raw.Visibility == nil && raw.HTTPDefault == nil {
 		writeProblem(writer, contract.ProblemInvalidPrincipal)
 		return
 	}
 	patch := authorization.PatchPrincipalRequest{}
 	if !decodePrincipalPatchMember(writer, raw.DisplayName, &patch.DisplayName) ||
 		!decodePrincipalPatchMember(writer, raw.State, &patch.State) ||
-		!decodePrincipalPatchMember(writer, raw.Visibility, &patch.Visibility) {
+		!decodePrincipalPatchMember(writer, raw.Visibility, &patch.Visibility) ||
+		!decodePrincipalPatchMember(writer, raw.HTTPDefault, &patch.HTTPDefault) {
 		return
 	}
 	revision, ok := principalPrecondition(writer, request, principalID)
@@ -166,7 +168,11 @@ func (handler *Handler) patchPrincipal(writer http.ResponseWriter, request *http
 		return
 	}
 	writer.Header().Set("ETag", contract.PrincipalETag(principal.ID, principal.Revision))
-	handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
+	if patch.HTTPDefault != nil {
+		handler.emitHTTPPolicy()
+	} else {
+		handler.emit(contract.Invalidation{Kind: contract.InvalidationAuthorization})
+	}
 	writeJSON(writer, http.StatusOK, principal)
 }
 

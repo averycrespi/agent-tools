@@ -68,7 +68,6 @@ var routes = []Route{
 	{Pattern: "/api/v2/audit-events/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/grants/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
-	{Pattern: "/api/v2/http/defaults/{id}", Methods: []string{"GET", "PATCH"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/access-preview", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/credentials", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/credentials/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},

@@ -182,51 +182,18 @@ func (r *Repository) DeleteHTTPGrant(ctx context.Context, id, revision string) e
 	return r.mapMutationError(err)
 }
 
-func httpDefaultTx(ctx context.Context, tx *sql.Tx, id string) (contract.PrincipalHTTPDefault, error) {
-	d := contract.PrincipalHTTPDefault{PrincipalID: id}
+type principalHTTPDefault struct {
+	Default  contract.HTTPDefault
+	Revision string
+}
+
+func httpDefaultTx(ctx context.Context, tx *sql.Tx, id string) (principalHTTPDefault, error) {
+	d := principalHTTPDefault{}
 	err := tx.QueryRowContext(ctx, `SELECT policy,revision FROM http_defaults WHERE principal_id=?`, id).Scan(&d.Default, &d.Revision)
 	if err == nil && (d.Default != contract.HTTPDefaultAllow && d.Default != contract.HTTPDefaultBlock || !validRevision(d.Revision)) {
 		err = ErrInvalidState
 	}
 	return d, err
-}
-
-func (r *Repository) GetHTTPDefault(ctx context.Context, id string) (d contract.PrincipalHTTPDefault, err error) {
-	if !validOpaqueID(id) {
-		return d, ErrNotFound
-	}
-	err = r.view(ctx, func(tx *sql.Tx) error { var e error; d, e = httpDefaultTx(ctx, tx, id); return e })
-	return
-}
-
-func (r *Repository) SetHTTPDefault(ctx context.Context, id, revision string, policy contract.HTTPDefault) (d contract.PrincipalHTTPDefault, err error) {
-	if !validOpaqueID(id) || !validRevision(revision) || policy != contract.HTTPDefaultAllow && policy != contract.HTTPDefaultBlock {
-		return d, ErrInvalidInput
-	}
-	err = r.mutateAuthorityTx(ctx, "", func(tx *sql.Tx) error {
-		current, e := httpDefaultTx(ctx, tx, id)
-		if e != nil {
-			return e
-		}
-		if current.Revision != revision {
-			return ErrStaleRevision
-		}
-		if current.Default == policy {
-			return ErrConflict
-		}
-		if _, e := tx.ExecContext(ctx, `UPDATE http_defaults SET policy=?,revision=revision+1 WHERE principal_id=? AND revision=?`, policy, id, revision); e != nil {
-			return e
-		}
-		if e := advanceAuthorizationRevisionTx(ctx, tx); e != nil {
-			return e
-		}
-		d, e = httpDefaultTx(ctx, tx, id)
-		if e != nil {
-			return e
-		}
-		return audit.MutationTx(ctx, tx, r.clock.Now(), "http_default", "update", contract.AuditTarget{Type: "http_default", ID: id})
-	})
-	return d, r.mapMutationError(err)
 }
 
 // ReferencesTx deliberately retains expired references: metadata edits cannot

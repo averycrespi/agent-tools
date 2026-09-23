@@ -19,8 +19,6 @@ type HTTPPolicyService interface {
 	PutHTTPGrant(context.Context, string, string, authorization.HTTPGrantInput) (contract.HTTPGrant, error)
 	DeleteHTTPGrant(context.Context, string, string) error
 	QueryHTTPGrants(context.Context, authorization.CollectionQuery, *authorization.SnapshotCursor, int) (authorization.HTTPGrantPage, error)
-	GetHTTPDefault(context.Context, string) (contract.PrincipalHTTPDefault, error)
-	SetHTTPDefault(context.Context, string, string, contract.HTTPDefault) (contract.PrincipalHTTPDefault, error)
 	PreviewHTTPAccess(context.Context, authorization.HTTPAccessInput) (contract.HTTPAccessPreview, error)
 }
 
@@ -166,47 +164,6 @@ func (h *Handler) listHTTPGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, contract.QueryCollection[contract.HTTPGrantTableItem]{Collection: contract.Collection[contract.HTTPGrantTableItem]{Items: page.Items, NextCursor: nextAuthorizationCursor(page.Next)}, CollectionRange: page.CollectionRange})
-}
-
-func (h *Handler) httpDefault(w http.ResponseWriter, r *http.Request, id string) {
-	if r.URL.RawQuery != "" {
-		writeProblem(w, contract.ProblemMalformedRequest)
-		return
-	}
-	var result contract.PrincipalHTTPDefault
-	var err error
-	if r.Method == http.MethodGet {
-		if !bodyless(r) {
-			writeProblem(w, contract.ProblemMalformedRequest)
-			return
-		}
-		result, err = h.httpPolicies.GetHTTPDefault(r.Context(), id)
-	} else {
-		revision, ok := httpPolicyPrecondition(w, r, "default", id)
-		if !ok {
-			return
-		}
-		var in struct {
-			Default *contract.HTTPDefault `json:"default"`
-		}
-		if !decodeStrictBody(w, r, &in) {
-			return
-		}
-		if in.Default == nil {
-			writeProblem(w, contract.ProblemInvalidGrant)
-			return
-		}
-		result, err = h.httpPolicies.SetHTTPDefault(r.Context(), id, revision, *in.Default)
-		if err == nil {
-			h.emitHTTPPolicy()
-		}
-	}
-	if err != nil {
-		writeGrantError(w, err)
-		return
-	}
-	w.Header().Set("ETag", httpPolicyETag("default", result.PrincipalID, result.Revision))
-	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) previewHTTP(w http.ResponseWriter, r *http.Request) {

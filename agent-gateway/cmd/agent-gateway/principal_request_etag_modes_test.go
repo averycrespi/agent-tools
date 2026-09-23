@@ -177,7 +177,7 @@ func principalETagBody(id, revision string, occupied bool) string {
 	if occupied {
 		credential = `{"id":"` + id + `","fingerprint":"sha256:test","revision":"1","created_at":"2026-08-30T00:00:00Z"}`
 	}
-	return `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"` + revision + `","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"}`
+	return `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","http_default":"block","revision":"` + revision + `","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"}`
 }
 
 func grantETagBody(id, revision, description string) string {

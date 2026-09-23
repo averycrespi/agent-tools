@@ -13,7 +13,7 @@ export async function runHTTPGrants(
 ): Promise<void> {
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-grants-"));
   const captureState = async (name: string) => {
-    if (name === "principal-default") {
+    if (name.startsWith("principal-")) {
       const skip = await page.locator(".skip-link").evaluate((node) => ({
         focused: node === document.activeElement,
         bottom: node.getBoundingClientRect().bottom,
@@ -30,7 +30,7 @@ export async function runHTTPGrants(
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    if (name === "principal-default") {
+    if (name.startsWith("principal-")) {
       await expect(page.locator(".skip-link")).not.toBeFocused();
       expect(
         await page
@@ -352,10 +352,13 @@ export async function runHTTPGrants(
   await expect(page.locator("form form")).toHaveCount(0);
   let principalWrites = 0;
   let defaultWrites = 0;
+  const principalBodies: unknown[] = [];
   page.on("request", (request) => {
     if (request.method() !== "PATCH") return;
-    if (request.url() === `${baseURL}/api/v2/principals/${principal.id}`)
+    if (request.url() === `${baseURL}/api/v2/principals/${principal.id}`) {
       principalWrites++;
+      principalBodies.push(request.postDataJSON());
+    }
     if (request.url() === `${baseURL}/api/v2/http/defaults/${principal.id}`)
       defaultWrites++;
   });
@@ -366,38 +369,100 @@ export async function runHTTPGrants(
   await editor
     .getByRole("button", { name: "Save principal", exact: true })
     .click();
+  const confirm = page.getByRole("dialog");
+  await expect(confirm).toContainText("HTTP Policy Agent renamed");
+  await expect(confirm).toContainText("allow");
+  await captureState("principal-combined-confirm");
+  await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(principalWrites).toBe(0);
+  expect(defaultWrites).toBe(0);
+  await editor
+    .getByRole("button", { name: "Save principal", exact: true })
+    .click();
+  await confirm
+    .getByRole("button", { name: "Save principal changes", exact: true })
+    .click();
   await expect(
-    page.getByText("Principal identity and MCP discovery visibility saved.", {
-      exact: true,
-    }),
+    page.getByText("Principal settings saved.", { exact: true }),
   ).toBeVisible();
   expect(principalWrites).toBe(1);
   expect(defaultWrites).toBe(0);
-  await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
-    "allow",
-  );
+  expect(principalBodies[0]).toEqual({
+    display_name: "HTTP Policy Agent renamed",
+    http_default: "allow",
+  });
+  const saved = await (
+    await api(`/api/v2/principals/${principal.id}`, undefined, "GET")
+  ).json();
+  expect(saved.http_default).toBe("allow");
+  expect(saved.display_name).toBe("HTTP Policy Agent renamed");
+  await captureState("principal-default");
+  await page.getByLabel("HTTP default", { exact: true }).selectOption("block");
+  const principalPath = `${baseURL}/api/v2/principals/${principal.id}`;
+  let concurrentWrite = false;
+  await page.route(principalPath, async (route) => {
+    if (route.request().method() === "PATCH" && !concurrentWrite) {
+      concurrentWrite = true;
+      const concurrent = await api(
+        `/api/v2/principals/${principal.id}`,
+        { display_name: "Concurrent rename" },
+        "PATCH",
+        `"principal-${principal.id}-${saved.revision}"`,
+      );
+      expect(concurrent.status()).toBe(200);
+    }
+    await route.continue();
+  });
   await editor
-    .getByLabel("Display name", { exact: true })
-    .fill("Unsubmitted principal draft");
-  await page.getByRole("button", { name: "Review HTTP default" }).click();
+    .getByRole("button", { name: "Save principal", exact: true })
+    .click();
+  const [staleResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === principalPath &&
+        response.request().method() === "PATCH",
+    ),
+    confirm
+      .getByRole("button", { name: "Save principal changes", exact: true })
+      .click(),
+  ]);
+  expect(staleResponse.status()).toBe(412);
+  await expect(
+    page.getByText("Review current principal settings", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    editor.getByRole("button", { name: "Save principal", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(
+    "block",
+  );
+  await expect(
+    page.getByText(/Current values: Concurrent rename/),
+  ).toBeVisible();
+  await captureState("principal-conflict");
+  expect(concurrentWrite).toBe(true);
+  await page.unroute(principalPath);
   await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Apply default" })
+    .getByRole("button", { name: "Use reviewed revision; keep draft" })
+    .click();
+  await editor
+    .getByRole("button", { name: "Save principal", exact: true })
+    .click();
+  await confirm
+    .getByRole("button", { name: "Save principal changes", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "Review HTTP default" }),
-  ).toBeDisabled();
-  expect(principalWrites).toBe(1);
-  expect(defaultWrites).toBe(1);
-  await expect(editor.getByLabel("Display name", { exact: true })).toHaveValue(
-    "Unsubmitted principal draft",
-  );
-  await editor
-    .getByLabel("Display name", { exact: true })
-    .fill("HTTP Policy Agent renamed");
-  await captureState("principal-default");
+    page.getByText("Principal settings saved.", { exact: true }),
+  ).toBeVisible();
+  const afterConflict = await (
+    await api(`/api/v2/principals/${principal.id}`, undefined, "GET")
+  ).json();
+  expect(afterConflict.display_name).toBe("Concurrent rename");
+  expect(afterConflict.http_default).toBe("block");
+  expect(principalBodies.at(-1)).toEqual({ http_default: "block" });
+  expect(defaultWrites).toBe(0);
   for (const fault of ["missing-etag", "wrong-etag", "wrong-principal"]) {
-    const routePath = `${baseURL}/api/v2/http/defaults/${principal.id}`;
+    const routePath = `${baseURL}/api/v2/principals/${principal.id}`;
     const previous = await page
       .getByLabel("HTTP default", { exact: true })
       .inputValue();
@@ -415,33 +480,35 @@ export async function runHTTPGrants(
       const body = await response.json();
       if (fault === "missing-etag") delete headers.etag;
       if (fault === "wrong-etag")
-        headers.etag = `"http-default-${principal.id}-999999"`;
+        headers.etag = `"principal-${principal.id}-999999"`;
       if (fault === "wrong-principal") {
-        body.principal_id = creds[0]!.id;
-        headers.etag = `"http-default-${body.principal_id}-${body.revision}"`;
+        body.id = creds[0]!.id;
+        headers.etag = `"principal-${body.id}-${body.revision}"`;
       }
       await route.fulfill({ status: 200, headers, body: JSON.stringify(body) });
     });
     await page
       .getByLabel("HTTP default", { exact: true })
       .selectOption(proposed);
-    await page.getByRole("button", { name: "Review HTTP default" }).click();
+    await editor
+      .getByRole("button", { name: "Save principal", exact: true })
+      .click();
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "Apply default" })
+      .getByRole("button", { name: "Save principal changes", exact: true })
       .click();
     await expect(
-      page.getByText("Outcome uncertain", { exact: true }),
+      page.getByText("Principal outcome is unknown", { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Review HTTP default" }),
+      editor.getByRole("button", { name: "Save principal", exact: true }),
     ).toBeDisabled();
     if (fault === "missing-etag") await captureState("default-uncertain");
     expect(submissions).toBe(1);
     const observed = await (
-      await api(`/api/v2/http/defaults/${principal.id}`, undefined, "GET")
+      await api(`/api/v2/principals/${principal.id}`, undefined, "GET")
     ).json();
-    expect(observed.default).toBe(proposed);
+    expect(observed.http_default).toBe(proposed);
     await page.unroute(routePath);
     await page.reload();
     await expect(page.getByLabel("HTTP default", { exact: true })).toHaveValue(

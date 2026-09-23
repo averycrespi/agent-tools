@@ -144,6 +144,7 @@ type AgentCredential struct {
 }
 
 type Principal struct {
+	HTTPDefault        HTTPDefault         `json:"http_default"`
 	ID                 string              `json:"id"`
 	DisplayName        string              `json:"display_name"`
 	State              PrincipalState      `json:"state"`

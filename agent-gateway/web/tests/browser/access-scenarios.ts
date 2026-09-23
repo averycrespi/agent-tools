@@ -13,24 +13,6 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-async function mockHTTPDefaults(page: Page, ids: string[]): Promise<void> {
-  await page.route("**/api/v2/http/defaults/*", async (route) => {
-    const id = new URL(route.request().url()).pathname.split("/").at(-1)!;
-    expect(ids).toContain(id);
-    expect(route.request().method()).toBe("GET");
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: { ETag: `"http-default-${id}-1"` },
-      body: JSON.stringify({
-        principal_id: id,
-        default: "block",
-        revision: "1",
-      }),
-    });
-  });
-}
-
 async function captureRequestState(page: Page, state: string): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), `request-${state}-`));
   for (const [width, height, label] of [
@@ -208,7 +190,6 @@ export async function runAccessManagementReadCanary(
   const serverID = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
   const grantID = "01ARZ3NDEKTSV4RRFFQ69G5FB0";
   const requestID = "01ARZ3NDEKTSV4RRFFQ69G5FC0";
-  await mockHTTPDefaults(page, [principalID]);
   let mutationCount = 0;
   const principal = {
     id: principalID,
@@ -216,6 +197,7 @@ export async function runAccessManagementReadCanary(
     state: "active",
     visibility: "requestable",
     revision: "7",
+    http_default: "block",
     credential_revision: "3",
     credential: {
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAD",
@@ -383,7 +365,6 @@ export async function runPrincipals(
   const firstID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
   const secondID = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
   const createdID = "01ARZ3NDEKTSV4RRFFQ69G5FA2";
-  await mockHTTPDefaults(page, [firstID, secondID, createdID]);
   const grantID = "01ARZ3NDEKTSV4RRFFQ69G5FB0";
   const principal = (
     id: string,
@@ -397,6 +378,7 @@ export async function runPrincipals(
     state,
     visibility,
     revision,
+    http_default: "block",
     credential_revision: state === "disabled" ? "2" : "1",
     credential:
       state === "active"
@@ -897,7 +879,7 @@ export async function runPrincipals(
     .getByRole("heading", { name: "Renamed agent", exact: true })
     .waitFor();
   await page
-    .getByText("Principal identity and MCP discovery visibility saved.", {
+    .getByText("Principal settings saved.", {
       exact: true,
     })
     .waitFor();
@@ -914,6 +896,12 @@ export async function runPrincipals(
     .waitFor();
   if ((await principalState.isChecked()) !== false)
     fail("principal stale refresh discarded safe draft");
+  await expect(
+    page.locator('[data-testid="principal-editor-submit"]'),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Use reviewed revision; keep draft" })
+    .click();
   await page.locator('[data-testid="principal-editor-submit"]').click();
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page
@@ -935,7 +923,6 @@ export async function runPrincipalCredentials(
 ): Promise<void> {
   const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
   const credentialID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ";
-  await mockHTTPDefaults(page, [principalID]);
   const issuedBearer = `mgw_agent_${"I".repeat(43)}`;
   const lostBearer = `mgw_agent_${"L".repeat(43)}`;
   const principal = (revision: string, credential: boolean) => ({
@@ -944,6 +931,7 @@ export async function runPrincipalCredentials(
     state: "active",
     visibility: "requestable",
     revision,
+    http_default: "block",
     credential_revision: credential ? revision : String(Number(revision) + 1),
     credential: credential
       ? {
@@ -1386,6 +1374,7 @@ export async function runGrantReadsCreate(
             display_name: "Automation agent",
             state: "active",
             visibility: "allowed-only",
+            http_default: "block",
             revision: "1",
             credential_revision: "0",
             credential: null,
@@ -2715,6 +2704,7 @@ export async function runGrantCorrection(
           state: "active",
           visibility:
             index === 7 ? "allowed-only" : index === 8 ? "requestable" : "all",
+          http_default: "block",
           revision: "1",
           credential_revision: "0",
           credential: null,
@@ -2759,6 +2749,7 @@ export async function runGrantCorrection(
       body: JSON.stringify({
         id: principalID,
         display_name: `Principal ${index}`,
+        http_default: "block",
         state: "active",
         visibility,
         revision: "1",
@@ -3278,6 +3269,7 @@ export async function runRequestReads(
           {
             id: principalID,
             display_name: "Requesting agent",
+            http_default: "block",
             state: "active",
             visibility: "all",
             revision: "1",

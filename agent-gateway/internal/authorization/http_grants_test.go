@@ -20,9 +20,9 @@ func TestHTTPDefaultsGrantsPreviewAndExpiry(t *testing.T) {
 	r, store := newRepository(t, nil)
 	principal, credential := createAdmissionCredential(t, r)
 	ctx := t.Context()
-	def, err := r.GetHTTPDefault(ctx, principal.ID)
+	def, err := r.GetPrincipal(ctx, principal.ID)
 	require.NoError(t, err)
-	require.Equal(t, contract.HTTPDefaultBlock, def.Default)
+	require.Equal(t, contract.HTTPDefaultBlock, def.HTTPDefault)
 	before, err := r.GetPrincipal(ctx, principal.ID)
 	require.NoError(t, err)
 	input := HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/private?secret=not-retained", Method: "GET"}
@@ -50,16 +50,24 @@ func TestHTTPDefaultsGrantsPreviewAndExpiry(t *testing.T) {
 	evaluation, err := r.EvaluateAdmission(ctx, pending, id(88), &ResolvedVerification{Target: accesstarget.Tool(contract.SyntheticServerID, "tool"), Arguments: mustAdmissionArguments(t, `{}`)})
 	require.NoError(t, err)
 	require.NotNil(t, evaluation.Candidate)
-	def, err = r.SetHTTPDefault(ctx, principal.ID, def.Revision, contract.HTTPDefaultAllow)
+	allow, block := contract.HTTPDefaultAllow, contract.HTTPDefaultBlock
+	def, err = r.PatchPrincipal(ctx, principal.ID, PatchPrincipalRequest{ExpectedRevision: def.Revision, HTTPDefault: &allow})
 	require.NoError(t, err)
 	_, err = r.ConfirmEvaluation(ctx, evaluation.Candidate, id(88), func(_ contract.AuthorizationResult, detach func() bool) bool { return detach() })
-	require.ErrorIs(t, err, ErrAuthorizationUnavailable)
+	require.ErrorIs(t, err, ErrAuthenticationRequired)
+	select {
+	case <-pending.Done():
+	default:
+		t.Fatal("principal settings change must cancel the old lease")
+	}
 	after, err := r.GetPrincipal(ctx, principal.ID)
 	require.NoError(t, err)
-	require.Equal(t, before, after, "HTTP defaults must not reinterpret Principal compatibility")
-	_, err = r.SetHTTPDefault(ctx, principal.ID, "1", contract.HTTPDefaultBlock)
+	require.NotEqual(t, before.Revision, after.Revision)
+	require.Equal(t, before.Credential, after.Credential)
+	require.Equal(t, contract.HTTPDefaultAllow, after.HTTPDefault)
+	_, err = r.PatchPrincipal(ctx, principal.ID, PatchPrincipalRequest{ExpectedRevision: "1", HTTPDefault: &block})
 	require.ErrorIs(t, err, ErrStaleRevision)
-	_, err = r.SetHTTPDefault(ctx, principal.ID, def.Revision, contract.HTTPDefaultBlock)
+	_, err = r.PatchPrincipal(ctx, principal.ID, PatchPrincipalRequest{ExpectedRevision: def.Revision, HTTPDefault: &block})
 	require.NoError(t, err)
 	r.clock.(*fixedClock).now = expiry
 	preview, err = r.PreviewHTTPAccess(ctx, input)

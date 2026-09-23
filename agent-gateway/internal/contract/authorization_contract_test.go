@@ -166,7 +166,7 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	constraint := json.RawMessage(`{"equals":{"/count":1.0}}`)
 	expires := "2026-08-26T00:00:00Z"
 	credential := AgentCredential{ID: "credential", Fingerprint: "fingerprint", Revision: "1", CreatedAt: "2026-08-25T00:00:00Z"}
-	principal := Principal{ID: "principal", DisplayName: "Agent", State: PrincipalActive, Visibility: VisibilityRequestable, Revision: "1", CredentialRevision: "1", Credential: &credential, CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
+	principal := Principal{HTTPDefault: HTTPDefaultBlock, ID: "principal", DisplayName: "Agent", State: PrincipalActive, Visibility: VisibilityRequestable, Revision: "1", CredentialRevision: "1", Credential: &credential, CreatedAt: "2026-08-25T00:00:00Z", UpdatedAt: "2026-08-25T00:00:00Z"}
 	description := "Example grant"
 	grant := Grant{ID: "grant", Description: &description, Revision: "1", PrincipalID: principal.ID, Effect: GrantAllow, ServerID: SyntheticServerID, UpstreamName: nil, Constraint: &constraint, ExpiresAt: &expires, State: GrantActive, CreatedAt: "2026-08-25T00:00:00Z"}
 	grantID := grant.ID
@@ -177,7 +177,7 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 	requireJSONKeys(t, QueryCollection[Grant]{}, "items", "next_cursor", "total_count", "offset")
 	requireJSONKeys(t, QueryCollection[GrantTableItem]{}, "items", "next_cursor", "total_count", "offset")
 	requireJSONKeys(t, credential, "id", "fingerprint", "revision", "created_at")
-	requireJSONKeys(t, principal, "id", "display_name", "state", "visibility", "revision", "credential_revision", "credential", "created_at", "updated_at")
+	requireJSONKeys(t, principal, "http_default", "id", "display_name", "state", "visibility", "revision", "credential_revision", "credential", "created_at", "updated_at")
 	requireJSONKeys(t, PrincipalCreation{Principal: principal, DefaultGrant: grant}, "principal", "default_grant")
 	requireJSONKeys(t, AgentCredentialCreation{Principal: principal, Bearer: "one-time"}, "principal", "bearer")
 	requireJSONKeys(t, grant, "id", "description", "revision", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at", "state", "created_at")

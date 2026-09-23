@@ -68,14 +68,18 @@ func TestIntegrationHTTPGrantsReferencesDefaultsAndPreview(t *testing.T) {
 	require.Equal(t, 201, principalResponse.Code, principalResponse.Body.String())
 	var principal contract.PrincipalCreation
 	require.NoError(t, json.Unmarshal(principalResponse.Body.Bytes(), &principal))
-	defaultPath := "/api/v2/http/defaults/" + principal.Principal.ID
+	defaultPath := "/api/v2/principals/" + principal.Principal.ID
+	for _, method := range []string{http.MethodGet, http.MethodPatch} {
+		retired := perform(handler, method, "/api/v2/http/defaults/"+principal.Principal.ID, `{"default":"allow"}`, headers)
+		require.Equal(t, http.StatusNotFound, retired.Code)
+	}
 	def := perform(handler, http.MethodGet, defaultPath, "", headers)
 	require.Equal(t, 200, def.Code)
-	require.Contains(t, def.Body.String(), `"default":"block"`)
+	require.Contains(t, def.Body.String(), `"http_default":"block"`)
 	headers["If-Match"] = def.Header().Get("ETag")
-	changed := perform(handler, http.MethodPatch, defaultPath, `{"default":"allow"}`, headers)
+	changed := perform(handler, http.MethodPatch, defaultPath, `{"http_default":"allow"}`, headers)
 	require.Equal(t, 200, changed.Code, changed.Body.String())
-	require.Equal(t, 412, perform(handler, http.MethodPatch, defaultPath, `{"default":"block"}`, headers).Code)
+	require.Equal(t, 412, perform(handler, http.MethodPatch, defaultPath, `{"http_default":"block"}`, headers).Code)
 	delete(headers, "If-Match")
 	created := perform(handler, http.MethodPost, "/api/v2/http/credentials", httpCredentialCreateBody, headers)
 	require.Equal(t, 201, created.Code, created.Body.String())

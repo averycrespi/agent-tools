@@ -33,6 +33,11 @@ func TestHTTPHistoricalSelectorsSurviveEditAndDeletion(t *testing.T) {
 	result, err := coordinator.AdmitHTTP(t.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/approved/observed-private-canary?token=query-private-canary", Method: "GET"}, httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}}, nil)
 	require.NoError(t, err)
 	require.True(t, result.DispatchAuthorized)
+	current, err := authority.GetPrincipal(t.Context(), principal.ID)
+	require.NoError(t, err)
+	allow := contract.HTTPDefaultAllow
+	_, err = authority.PatchPrincipal(t.Context(), principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: current.Revision, HTTPDefault: &allow})
+	require.NoError(t, err)
 	updated, err := authority.PutHTTPGrant(t.Context(), grant.ID, grant.Revision, authorization.HTTPGrantInput{PrincipalID: principal.ID, Policy: json.RawMessage(strings.ReplaceAll(string(policy), "/approved", "/changed"))})
 	require.NoError(t, err)
 	require.NoError(t, authority.DeleteHTTPGrant(t.Context(), updated.ID, updated.Revision))
@@ -41,6 +46,8 @@ func TestHTTPHistoricalSelectorsSurviveEditAndDeletion(t *testing.T) {
 	item, err := reader.GetHTTP(t.Context(), identity.InvocationID)
 	require.NoError(t, err)
 	require.Len(t, item.Admission.Grants, 1)
+	require.Equal(t, contract.HTTPDefaultBlock, item.Admission.Default)
+	require.EqualValues(t, 1, item.Admission.Decision.DefaultRevision)
 	assert.Equal(t, grant.ID, item.Admission.Grants[0].Reference.ID)
 	assert.EqualValues(t, 1, item.Admission.Grants[0].Reference.Revision)
 	assert.Equal(t, "/approved", item.Admission.Grants[0].Policy.Request.Path.Value)
@@ -66,10 +73,11 @@ func TestHTTPReceiptAdmissionConfirmationRaces(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
-			def, err := authority.GetHTTPDefault(ctx, principal.ID)
+			current, err := authority.GetPrincipal(ctx, principal.ID)
 			require.NoError(t, err)
 			if mode != "deny" {
-				_, err = authority.SetHTTPDefault(ctx, principal.ID, def.Revision, contract.HTTPDefaultAllow)
+				allow := contract.HTTPDefaultAllow
+				current, err = authority.PatchPrincipal(ctx, principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: current.Revision, HTTPDefault: &allow})
 				require.NoError(t, err)
 			}
 			entered, release := make(chan struct{}), make(chan struct{})
@@ -118,12 +126,11 @@ func TestHTTPReceiptAdmissionConfirmationRaces(t *testing.T) {
 			// retained across the writer barrier.
 			switch mode {
 			case "revoke":
-				_, err = authority.RevokeCredential(ctx, principal.ID, credential.Principal.Revision)
+				_, err = authority.RevokeCredential(ctx, principal.ID, current.Revision)
 				require.NoError(t, err)
 			case "policy":
-				current, readErr := authority.GetHTTPDefault(ctx, principal.ID)
-				require.NoError(t, readErr)
-				_, err = authority.SetHTTPDefault(ctx, principal.ID, current.Revision, contract.HTTPDefaultBlock)
+				block := contract.HTTPDefaultBlock
+				_, err = authority.PatchPrincipal(ctx, principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: current.Revision, HTTPDefault: &block})
 				require.NoError(t, err)
 			case "cancel":
 				cancel()

@@ -17,7 +17,6 @@ const (
 	onlineItemGrantRequest
 	onlineItemHTTPCredential
 	onlineItemHTTPGrant
-	onlineItemHTTPDefault
 )
 
 type validatedOnlineItem struct {
@@ -49,8 +48,6 @@ func validItemETag(kind onlineItemKind, id, etag string) bool {
 		parts = httpCredentialETagPattern.FindStringSubmatch(etag)
 	case onlineItemHTTPGrant:
 		parts = httpGrantETagPattern.FindStringSubmatch(etag)
-	case onlineItemHTTPDefault:
-		parts = httpDefaultETagPattern.FindStringSubmatch(etag)
 	case onlineItemServer:
 		parts = serverETagPattern.FindStringSubmatch(etag)
 	case onlineItemPrincipal:
@@ -97,8 +94,6 @@ func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 		return "/api/v2/http/credentials/" + id, true
 	case onlineItemHTTPGrant:
 		return "/api/v2/http/grants/" + id, true
-	case onlineItemHTTPDefault:
-		return "/api/v2/http/defaults/" + id, true
 	case onlineItemServer:
 		return "/api/v2/mcp/servers/" + id, true
 	case onlineItemPrincipal:
@@ -117,9 +112,6 @@ func validateOnlineItem(kind onlineItemKind, id, etag string, body []byte) bool 
 	case onlineItemHTTPGrant:
 		var g contract.HTTPGrant
 		return controlclient.DecodeExactResponse(body, &g) == nil && validHTTPGrant(g) && g.ID == id && etag == contract.HTTPGrantETag(id, g.Revision)
-	case onlineItemHTTPDefault:
-		var d contract.PrincipalHTTPDefault
-		return controlclient.DecodeExactResponse(body, &d) == nil && validHTTPDefault(d) && d.PrincipalID == id && etag == contract.HTTPDefaultETag(id, d.Revision)
 	case onlineItemHTTPCredential:
 		var resource contract.HTTPCredential
 		return controlclient.DecodeResponse(body, &resource) == nil && validHTTPCredential(resource) && resource.ID == id && etag == contract.HTTPCredentialETag(id, resource.Revision)

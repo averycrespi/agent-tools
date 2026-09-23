@@ -181,11 +181,7 @@ func newServerCredentialETagServer(t *testing.T, id string) (*httptest.Server, c
 func newPrincipalCredentialIntentServer(t *testing.T, id string, occupied bool) (*httptest.Server, chan credentialETagRequest) {
 	t.Helper()
 	requests := make(chan credentialETagRequest, 3)
-	credential := "null"
-	if occupied {
-		credential = `{"id":"` + id + `","fingerprint":"sha256:old","revision":"1","created_at":"2026-08-30T00:00:00Z"}`
-	}
-	principal := `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"7","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:00:00Z"}`
+	principal := principalETagBody(id, "7", occupied)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		_, _ = io.Copy(io.Discard, request.Body)
 		requests <- credentialETagRequest{method: request.Method, path: request.URL.Path, etag: request.Header.Get("If-Match")}
@@ -197,7 +193,7 @@ func newPrincipalCredentialIntentServer(t *testing.T, id string, occupied bool) 
 		}
 		response.Header().Set("ETag", contract.PrincipalETag(id, "8"))
 		response.WriteHeader(http.StatusCreated)
-		_, _ = response.Write([]byte(`{"principal":{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"8","credential_revision":"2","credential":{"id":"` + id + `","fingerprint":"sha256:new","revision":"2","created_at":"2026-08-30T00:01:00Z"},"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"},"bearer":"mgw_agent_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
+		_, _ = response.Write([]byte(`{"principal":{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","http_default":"block","revision":"8","credential_revision":"2","credential":{"id":"` + id + `","fingerprint":"sha256:new","revision":"2","created_at":"2026-08-30T00:01:00Z"},"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"},"bearer":"mgw_agent_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
 	}))
 	t.Cleanup(server.Close)
 	return server, requests
@@ -206,11 +202,7 @@ func newPrincipalCredentialIntentServer(t *testing.T, id string, occupied bool) 
 func newPrincipalCredentialPublicationFailureServer(t *testing.T, id string, occupied bool, secretPath string) (*httptest.Server, chan credentialETagRequest) {
 	t.Helper()
 	requests := make(chan credentialETagRequest, 2)
-	credential := "null"
-	if occupied {
-		credential = `{"id":"` + id + `","fingerprint":"sha256:old","revision":"1","created_at":"2026-08-30T00:00:00Z"}`
-	}
-	principal := `{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"7","credential_revision":"1","credential":` + credential + `,"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:00:00Z"}`
+	principal := principalETagBody(id, "7", occupied)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		_, _ = io.Copy(io.Discard, request.Body)
 		requests <- credentialETagRequest{method: request.Method, path: request.URL.Path, etag: request.Header.Get("If-Match")}
@@ -230,7 +222,7 @@ func newPrincipalCredentialPublicationFailureServer(t *testing.T, id string, occ
 		}
 		response.Header().Set("ETag", contract.PrincipalETag(id, "8"))
 		response.WriteHeader(http.StatusCreated)
-		_, _ = response.Write([]byte(`{"principal":{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","revision":"8","credential_revision":"2","credential":{"id":"` + id + `","fingerprint":"sha256:new","revision":"2","created_at":"2026-08-30T00:01:00Z"},"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"},"bearer":"mgw_agent_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
+		_, _ = response.Write([]byte(`{"principal":{"id":"` + id + `","display_name":"Agent","state":"active","visibility":"requestable","http_default":"block","revision":"8","credential_revision":"2","credential":{"id":"` + id + `","fingerprint":"sha256:new","revision":"2","created_at":"2026-08-30T00:01:00Z"},"created_at":"2026-08-30T00:00:00Z","updated_at":"2026-08-30T00:01:00Z"},"bearer":"mgw_agent_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`))
 	}))
 	t.Cleanup(server.Close)
 	return server, requests

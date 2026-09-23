@@ -106,11 +106,11 @@ func TestHTTPProxyProductionActivation(t *testing.T) {
 	require.Equal(t, 407, request(h.bearer, upstream.URL))
 	require.Equal(t, 403, request(credentialText, upstream.URL))
 	require.Zero(t, calls.Load())
-	defaultPath := "/api/v2/http/defaults/" + p.Resource.ID
+	defaultPath := "/api/v2/principals/" + p.Resource.ID
 	defaultRead := h.adminSnapshot("GET", defaultPath, nil)
 	require.Equal(t, 200, defaultRead.StatusCode)
-	require.Contains(t, string(defaultRead.Body), `"default":"block"`)
-	defaultAllow := h.adminSnapshotWithHeaders("PATCH", defaultPath, []byte(`{"default":"allow"}`), map[string]string{"If-Match": defaultRead.Header.Get("ETag")})
+	require.Contains(t, string(defaultRead.Body), `"http_default":"block"`)
+	defaultAllow := h.adminSnapshotWithHeaders("PATCH", defaultPath, []byte(`{"http_default":"allow"}`), map[string]string{"If-Match": defaultRead.Header.Get("ETag")})
 	require.Equal(t, 200, defaultAllow.StatusCode)
 	require.Equal(t, 403, request(credentialText, upstream.URL), "default allow cannot grant private-network access")
 	address := netip.MustParseAddrPort(upstream.Listener.Addr().String())
@@ -133,7 +133,7 @@ func TestHTTPProxyProductionActivation(t *testing.T) {
 	require.True(t, parsed.Traffic.Ready)
 	mcp := h.ModernList(credential.Bearer, json.RawMessage(`"mixed"`), "")
 	require.Equal(t, 200, mcp.StatusCode)
-	replacement := h.IssueCredential(credential.Principal)
+	replacement := h.IssueCredential(h.GetPrincipal(p.Resource.ID))
 	replacementText := strings.TrimPrefix(replacement.Bearer.authorizationHeader(), "Bearer ")
 	require.Equal(t, 407, request(credentialText, upstream.URL))
 	require.Equal(t, 200, request(replacementText, upstream.URL))

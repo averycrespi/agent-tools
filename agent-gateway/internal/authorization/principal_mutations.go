@@ -82,12 +82,13 @@ func (repository *Repository) CreatePrincipal(ctx context.Context, request Creat
 
 func (repository *Repository) PatchPrincipal(ctx context.Context, principalID string, request PatchPrincipalRequest) (contract.Principal, error) {
 	expectedRevision, err := parseExpectedRevision(request.ExpectedRevision)
-	if err != nil || request.DisplayName == nil && request.State == nil && request.Visibility == nil {
+	if err != nil || request.DisplayName == nil && request.State == nil && request.Visibility == nil && request.HTTPDefault == nil {
 		return contract.Principal{}, ErrInvalidInput
 	}
 	if request.DisplayName != nil && !validDisplayName(*request.DisplayName) ||
 		request.State != nil && !validPrincipalState(*request.State) ||
-		request.Visibility != nil && !validVisibility(*request.Visibility) {
+		request.Visibility != nil && !validVisibility(*request.Visibility) ||
+		request.HTTPDefault != nil && *request.HTTPDefault != contract.HTTPDefaultAllow && *request.HTTPDefault != contract.HTTPDefaultBlock {
 		return contract.Principal{}, ErrInvalidInput
 	}
 	var updated contract.Principal
@@ -113,7 +114,12 @@ func (repository *Repository) PatchPrincipal(ctx context.Context, principalID st
 		if request.Visibility != nil {
 			visibility = *request.Visibility
 		}
-		if displayName == current.DisplayName && state == current.State && visibility == current.Visibility {
+		httpDefault := current.HTTPDefault
+		if request.HTTPDefault != nil {
+			httpDefault = *request.HTTPDefault
+		}
+		defaultChanged := httpDefault != current.HTTPDefault
+		if displayName == current.DisplayName && state == current.State && visibility == current.Visibility && !defaultChanged {
 			return ErrConflict
 		}
 		stateChanged := state != current.State
@@ -136,7 +142,20 @@ func (repository *Repository) PatchPrincipal(ctx context.Context, principalID st
 		if err != nil {
 			return fmt.Errorf("update principal: %w", err)
 		}
-		if stateChanged {
+		if defaultChanged {
+			result, err := transaction.ExecContext(ctx, `UPDATE http_defaults SET policy = ?, revision = revision + 1 WHERE principal_id = ?`, httpDefault, principalID)
+			if err != nil {
+				return fmt.Errorf("update principal HTTP default: %w", err)
+			}
+			count, err := result.RowsAffected()
+			if err != nil || count != 1 {
+				return errorsInvalidState("principal HTTP default is missing")
+			}
+			if err := audit.MutationTx(ctx, transaction, repository.clock.Now(), "http_default", "update", contract.AuditTarget{Type: "http_default", ID: principalID}); err != nil {
+				return err
+			}
+		}
+		if stateChanged || defaultChanged {
 			if err := advanceAuthorizationRevisionTx(ctx, transaction); err != nil {
 				return err
 			}

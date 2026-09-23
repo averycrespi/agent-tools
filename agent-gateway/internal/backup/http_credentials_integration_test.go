@@ -82,6 +82,9 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			require.NoError(t, err)
 			grant, err := policies.PutHTTPGrant(ctx, "", "", authorization.HTTPGrantInput{PrincipalID: principal.Principal.ID, Policy: json.RawMessage(fmt.Sprintf(`{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"any":true},"path":{"kind":"any"}},"credential_id":%q}`, created.ID))})
 			require.NoError(t, err)
+			allow, block := contract.HTTPDefaultAllow, contract.HTTPDefaultBlock
+			savedPrincipal, err := policies.PatchPrincipal(ctx, principal.Principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: principal.Principal.Revision, HTTPDefault: &allow})
+			require.NoError(t, err)
 			manager, err := New(Options{Store: store, Layout: owner.Layout(), Clock: clock, Entropy: rand.Reader})
 			require.NoError(t, err)
 			artifact, _, err := manager.Create(ctx, "authority", "http-restore")
@@ -91,6 +94,8 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 				require.NoError(t, err)
 				require.NotContains(t, string(contents), "backup-http-private-canary")
 			}
+			_, err = policies.PatchPrincipal(ctx, principal.Principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: savedPrincipal.Revision, HTTPDefault: &block})
+			require.NoError(t, err)
 			if action == "rotate" {
 				_, err = service.Rotate(ctx, created.ID, created.Revision, []byte("new-http-private-canary"))
 			} else {
@@ -109,12 +114,17 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, httpcredentials.ValidateStartup(ctx, store))
 			restoredService, restoredPolicies := serviceFor(store)
+			restoredPrincipal, err := restoredPolicies.GetPrincipal(ctx, principal.Principal.ID)
+			require.NoError(t, err)
+			require.Equal(t, contract.HTTPDefaultAllow, restoredPrincipal.HTTPDefault)
 			restoredGrant, err := restoredPolicies.GetHTTPGrant(ctx, grant.ID)
 			require.NoError(t, err)
 			require.Equal(t, grant, restoredGrant)
 			preview, err := restoredPolicies.PreviewHTTPAccess(ctx, authorization.HTTPAccessInput{PrincipalID: principal.Principal.ID, URL: "https://api.example.com/", Method: "GET"})
 			require.NoError(t, err)
 			require.Equal(t, contract.HTTPReasonCredentialUnavailable, preview.Decision.Reason)
+			require.Equal(t, contract.HTTPDefaultAllow, preview.Default)
+			require.EqualValues(t, 2, preview.Decision.DefaultRevision)
 			require.False(t, preview.Decision.Allowed)
 			restored, err := restoredService.Get(ctx, created.ID)
 			require.NoError(t, err)
