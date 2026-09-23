@@ -1,60 +1,18 @@
 # Access control: principals, grants, and requests
 
-Principals and credentials are shared administration. Grants and **MCP → Requests** administer MCP permissions, not network traffic or queued calls. Use `mcp grant` and `mcp grant-request`; their API resources also belong to MCP. Upgrade clients and service together and reload browsers using the [exact namespace mappings and rejected-link recovery](administration.md#mcp-permission-namespace-cutover). Old spellings are rejected, never redirected or replayed.
+Principals and credentials are shared administration. Grants and **MCP → Requests** administer MCP permissions, not network traffic or queued calls. Use `mcp grant` and `mcp grant-request`; their API resources also belong to MCP. Upgrade clients and service together and reload browsers using the [exact namespace mappings and rejected-link recovery](upgrade-compatibility.md#mcp-permission-namespace-cutover). Old spellings are rejected, never redirected or replayed.
 
 Audience: Gateway administrators managing agent access
 
 Purpose: Manage principals, credentials, grants, and grant requests.
 
-This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](administration.md#operator-v2-cutover). HTTP grants are administered separately from MCP permissions. Generated help owns exact syntax:
+This guide owns Agent Gateway operator workflows for principal lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](upgrade-compatibility.md#operator-v2-cutover). HTTP grants are administered separately from MCP permissions. Generated help owns exact syntax:
 
 - `agent-gateway principal --help`
 - `agent-gateway mcp grant --help`
 - `agent-gateway mcp grant-request --help`
 
 See [DESIGN](../../DESIGN.md) for the system design index and [Identity and authorization](../design/identity-and-authorization.md) for normative authorization, policy evaluation, and request-state semantics. See [Administrator CLI and local administration](administration.md) for shared authentication, output, strict input, ETag, confirmation, and retry rules. These are online workflows: start `agent-gateway serve` first; a proven refused selected address reports the exact startup command.
-
-## HTTP grants and Test access
-
-Use **HTTP → Grants** for HTTP policy, and **Edit principal** for its HTTP default. New principals default to block; existing principals retain their stored allow/block value. MCP grants, visibility, credentials and self-service are unchanged. [Proxy activation](http-proxy.md) is separately opt-in. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
-
-```sh
-agent-gateway http grant list
-agent-gateway http grant get ID
-agent-gateway http grant create --file /private/grant.json --yes
-agent-gateway http grant update ID --file /private/grant.json --yes
-agent-gateway http grant delete ID --yes
-agent-gateway http default get PRINCIPAL_ID
-agent-gateway http default update PRINCIPAL_ID --file /private/default.json --yes
-agent-gateway http test-access --file /private/preview.json
-```
-
-Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and principal; it is not delete/recreate. Default files are exactly `{"http_default":"block"}` or `{"http_default":"allow"}`. These convenience commands read/write the canonical principal endpoint and return Principal JSON with its unified ETag, not a separate default resource. For a combined change, use `agent-gateway principal update PRINCIPAL_ID --display-name NAME --http-default allow --yes`. Omitted ETags get one validated read; use `--etag` to pin a reviewed principal revision. A stale or uncertain result must be inspected, never automatically replayed.
-
-Example grant policy: `{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"values":["GET"]},"path":{"kind":"segment_prefix","value":"/v1"}}}`. An optional `credential_id` must contain the entire HTTPS origin scope. Referenced credentials cannot be deleted or have their recipe changed; incompatible scope edits fail atomically. Expired grants remain visible and reference-bearing until deleted.
-
-Test access takes exactly `{"principal_id":"ID","url":"https://api.example.com/v1?x=1","method":"GET"}` or `{"principal_id":"ID","connect":{"host":"api.example.com","port":443}}`. It sends no upstream request and resolves neither DNS nor secrets. Interpret results as policy-only: network, TLS and material are unverified, and the result is not future admission authority. Submitted paths/query values are not retained in audit/events/logs. Use the same Test access form from the Grants page for readable deciding grant/default and credential-conflict explanations. Results show the policy, HTTP-default and principal revisions and revision-qualified deciding grant/credential references. They are labeled policy snapshots; policy changes require another explicit test.
-
-The vocabulary is **Block destination**, **Allow tunnel**, **Block requests** and
-**Allow requests**. A destination block wins; a matching tunnel allow makes
-CONNECT opaque and bypasses request restrictions and injection. Otherwise each
-request is intercepted and checked: request block wins, then request allow, then
-the principal's HTTP default. A plain/default allow does not override a matching
-credential requirement or permit private/loopback access. Only an applicable
-allow grant can permit private/loopback access; metadata and Gateway listeners
-remain forbidden. Do not treat GET as read-only or the cooperative proxy as
-network-enforced containment.
-
-See the [normative HTTP v1 contract](../design/identity-and-authorization.md#http-policy-version-1)
-for the deliberately restricted path grammar, explicit wildcard hosts, exact
-ports, credential containment and bounded explanations. This policy surface does not migrate Broker rules or qualify capacity or native
-credentials.
-
-## Browse principal and grant tables
-
-The browser shows up to 50 records per page. Use **Previous** and **Next** above the table to replace the displayed page. Filters and Reset sit above navigation, with the displayed range and exact total on the right, for example **Showing 51–100 of 128 grants**. Column filters and sorting search the whole collection, not only the displayed rows; with filters active, the total counts only matching records. Zero results say **No grants/principals** or **No matching grants/principals**. Loading and failure do not present an old count as current. Grant rows include principal and target names without loading every reference record.
-
-Filters and sorting are included in the URL. Browser Back/Forward restores those settings; changing them, reloading, or opening a shared link starts at the first matching page. Page cursors remain in the current browser session only. When a cursor expires or its snapshot changes, the table returns to the first page with a notice. If that read fails, use **Refresh** explicitly; there is no retry loop. Empty inventories, no matches, loading, and failures have distinct messages, and filters remain available with no rows.
 
 ## Create and inspect principals
 
@@ -171,6 +129,8 @@ agent-gateway mcp grant create --principal-id PRINCIPAL_ID --effect allow --serv
 The strict grant file accepts optional Boolean `"read_only":true` alongside the existing required members, with `upstream_name:null` and `constraint:null`. Omission or false preserves unrestricted behavior. True is invalid for DENY, exact-tool, or argument-constrained grants; direct flags (including `--read-only=false`) cannot be combined with `--file`.
 
 Only tools explicitly declaring `annotations.readOnlyHint=true` qualify, including future qualifying tools. Missing, null, or false hints do not qualify. Annotations are trusted server declarations, not side-effect isolation. This restricts one ALLOW, not the whole principal: other ALLOW grants may authorize writes, and matching DENY still wins. CLI and browser grant/request reads distinguish read-only from unrestricted server access. Browser replacement ALLOWs retain the restriction; replacement DENYs cover all tools on the server.
+
+### Author argument constraints
 
 Untagged constraints use the permanent v1 equality form `{"equals":{"/object/path":value}}`. V2 uses the closed `{"version":2,"equals":{...},"regex":{...}}` form with at least one and at most 16 total atoms. For example, a strict exact-tool grant file can combine equality and regex while retaining lexical tokens:
 
@@ -307,3 +267,45 @@ The fixed tools are `mcp_gateway.get_identity`, `mcp_gateway.list_grants`, `mcp_
 A request may target one exact external tool or one server namespace, but never the reserved `mcp_gateway` server or its tools. Their ordinary grants and local calls still work; only an administrator can restore or change that access. Exact-tool requests may include either bounded matcher version. Server-wide requests require explicit future-tools acknowledgement and cannot include a constraint. Duration is permanent when null or a canonical decimal from 60 through 2,592,000 seconds. Approval must retain every submitted operator atom exactly, may add conjunctive atoms, may narrow v1 to v2, and never narrows v2 to v1 or infers regex implication.
 
 See [Invocation evidence and unknown outcomes](invocation-evidence.md) for interpreting policy decisions and call outcomes. Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for common workflows.
+
+## HTTP grants and Test access
+
+Use **HTTP → Grants** for HTTP policy, and **Edit principal** for its HTTP default. New principals default to block; existing principals retain their stored allow/block value. MCP grants, visibility, credentials and self-service are unchanged. [Proxy activation](http-proxy.md) is separately opt-in. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
+
+```sh
+agent-gateway http grant list
+agent-gateway http grant get ID
+agent-gateway http grant create --file /private/grant.json --yes
+agent-gateway http grant update ID --file /private/grant.json --yes
+agent-gateway http grant delete ID --yes
+agent-gateway http default get PRINCIPAL_ID
+agent-gateway http default update PRINCIPAL_ID --file /private/default.json --yes
+agent-gateway http test-access --file /private/preview.json
+```
+
+Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and principal; it is not delete/recreate. Default files are exactly `{"http_default":"block"}` or `{"http_default":"allow"}`. These convenience commands read/write the canonical principal endpoint and return Principal JSON with its unified ETag, not a separate default resource. For a combined change, use `agent-gateway principal update PRINCIPAL_ID --display-name NAME --http-default allow --yes`. Omitted ETags get one validated read; use `--etag` to pin a reviewed principal revision. A stale or uncertain result must be inspected, never automatically replayed.
+
+Example grant policy: `{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"values":["GET"]},"path":{"kind":"segment_prefix","value":"/v1"}}}`. An optional `credential_id` must contain the entire HTTPS origin scope. Referenced credentials cannot be deleted or have their recipe changed; incompatible scope edits fail atomically. Expired grants remain visible and reference-bearing until deleted.
+
+Test access takes exactly `{"principal_id":"ID","url":"https://api.example.com/v1?x=1","method":"GET"}` or `{"principal_id":"ID","connect":{"host":"api.example.com","port":443}}`. It sends no upstream request and resolves neither DNS nor secrets. Interpret results as policy-only: network, TLS and material are unverified, and the result is not future admission authority. Submitted paths/query values are not retained in audit/events/logs. Use the same Test access form from the Grants page for readable deciding grant/default and credential-conflict explanations. Results show the policy, HTTP-default and principal revisions and revision-qualified deciding grant/credential references. They are labeled policy snapshots; policy changes require another explicit test.
+
+The vocabulary is **Block destination**, **Allow tunnel**, **Block requests** and
+**Allow requests**. A destination block wins; a matching tunnel allow makes
+CONNECT opaque and bypasses request restrictions and injection. Otherwise each
+request is intercepted and checked: request block wins, then request allow, then
+the principal's HTTP default. A plain/default allow does not override a matching
+credential requirement or permit private/loopback access. Only an applicable
+allow grant can permit private/loopback access; metadata and Gateway listeners
+remain forbidden. Do not treat GET as read-only or the cooperative proxy as
+network-enforced containment.
+
+See the [normative HTTP v1 contract](../design/identity-and-authorization.md#http-policy-version-1)
+for the deliberately restricted path grammar, explicit wildcard hosts, exact
+ports, credential containment and bounded explanations. This policy surface does not migrate Broker rules or qualify capacity or native
+credentials.
+
+## Browse principal and grant tables
+
+The browser shows up to 50 records per page. Use **Previous** and **Next** above the table to replace the displayed page. Filters and Reset sit above navigation, with the displayed range and exact total on the right, for example **Showing 51–100 of 128 grants**. Column filters and sorting search the whole collection, not only the displayed rows; with filters active, the total counts only matching records. Zero results say **No grants/principals** or **No matching grants/principals**. Loading and failure do not present an old count as current. Grant rows include principal and target names without loading every reference record.
+
+Filters and sorting are included in the URL. Browser Back/Forward restores those settings; changing them, reloading, or opening a shared link starts at the first matching page. Page cursors remain in the current browser session only. When a cursor expires or its snapshot changes, the table returns to the first page with a notice. If that read fails, use **Refresh** explicitly; there is no retry loop. Empty inventories, no matches, loading, and failures have distinct messages, and filters remain available with no rows.

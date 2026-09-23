@@ -4,7 +4,7 @@ Audience: Operators investigating governed tool calls
 
 Purpose: Interpret invocation evidence, redaction, and unknown outcomes.
 
-This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. Use the current `agent-gateway` executable; old standalone binaries are unsupported. [Invocation and MCP ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway mcp invocation --help` owns exact syntax.
+This guide owns Agent Gateway operator procedures for read-only invocation inspection and the response to unknown outcomes. [Invocation and ingress](../design/invocation-and-ingress.md) owns normative outcome, transport-certainty, retention, and failure semantics. Generated `agent-gateway mcp invocation --help` owns exact syntax.
 
 See [DESIGN](../../DESIGN.md) for the system design index. See [Access control](access-control.md) for principals, grants, requests, and authorization decisions, and [Administrator CLI and local administration](administration.md) for shared pagination and output behavior.
 
@@ -33,7 +33,7 @@ Collections omit argument captures and return summary evidence only. `agent-gate
 
 ## Filter browser history
 
-Open **MCP → Invocations** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/mcp/invocations` and its detail suffixes with valid filters. Old `#/invocations` and `#/activity/invocations` bookmarks are invalid and have no redirects; see the [coordinated API/CLI/browser cutover](administration.md#mcp-invocation-namespace-cutover). **Back to invocations** retains the applied query; **Audit Log** remains the separate shared administrative audit history.
+Open **MCP → Invocations** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/mcp/invocations` and its detail suffixes with valid filters. Old `#/invocations` and `#/activity/invocations` bookmarks are invalid and have no redirects; see the [coordinated API/CLI/browser cutover](upgrade-compatibility.md#mcp-invocation-namespace-cutover). **Back to invocations** retains the applied query; **Audit Log** remains the separate shared administrative audit history.
 
 Tool, Principal, Authorization and Outcome select from all retained invocations, not just the rows already loaded. Tool searches recorded names even when the resource is now unavailable. Principal searches current display names or a literal, case-sensitive recorded ID; previous display names are not retained as invocation evidence. Name searches ignore accents and tolerate one typo in words of at least four characters without digits. Multiple words and filters narrow the selection together. Not evaluated selects calls with no authorization decision.
 

@@ -1,6 +1,6 @@
 package contract
 
-const DocumentationOwnershipManifestVersion = 2
+const DocumentationOwnershipManifestVersion = 3
 
 type DocumentationGuide struct {
 	ID       string
@@ -23,6 +23,8 @@ type DocumentationSecurityContract struct {
 }
 
 var documentationGuides = []DocumentationGuide{
+	{ID: "docs.guide.upgrade.compatibility", Path: "docs/operators/upgrade-compatibility.md", Audience: "Operators upgrading Gateway and its clients", Purpose: "Coordinate client/service cutovers while preserving durable authority and resolving uncertain outcomes."},
+	{ID: "docs.guide.implementation.evidence", Path: "docs/maintainers/implementation-evidence.md", Audience: "Maintainers investigating implementation and historical measurements", Purpose: "Retain evidence provenance separately from normative product and release requirements."},
 	{ID: "docs.guide.http.proxy", Path: "docs/operators/http-proxy.md", Audience: "Gateway administrators and client operators", Purpose: "Enable proxying and configure fresh clients without migrating Broker state."},
 	{ID: "docs.guide.installation.safety", Path: "docs/operators/installation-safety.md", Audience: "Operators maintaining existing Gateway installations", Purpose: "Select the existing installation and retain post-migration safety and recovery artifacts."},
 	{ID: "docs.guide.launchd", Path: "docs/operators/launchd.md", Audience: "Gateway operators using a logged-in macOS desktop", Purpose: "Install, verify, and manage a per-user LaunchAgent"},

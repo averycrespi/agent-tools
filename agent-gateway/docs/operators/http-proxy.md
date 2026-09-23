@@ -5,8 +5,10 @@ Audience: Gateway administrators and client operators
 Purpose: Enable proxying and configure fresh clients without migrating Broker state.
 
 The proxy is opt-in and cooperative, not network-enforced egress containment.
-MCP permissions never authorize HTTP. Existing and new principals default to
-HTTP block; configure separate [HTTP grants](access-control.md#http-grants-and-test-access).
+MCP permissions never authorize HTTP. New principals, and principals backfilled
+when HTTP defaults were introduced, start at block. Existing principals retain
+their stored `http_default` (`allow` or `block`); configure separate
+[HTTP defaults and grants](access-control.md#http-grants-and-test-access).
 No HTTP self-service, automatic access request, retry or replay is provided.
 Capacity remains unqualified; deterministic tests are not a throughput guarantee.
 

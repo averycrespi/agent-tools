@@ -45,6 +45,14 @@ func testDocumentationGuideOwnership(t *testing.T) {
 		assertMarkdownLinksResolve(t, filepath.Join(root, filepath.FromSlash(guide.Path)), text)
 	}
 
+	designMatches, err := filepath.Glob(filepath.Join(root, "docs", "design", "*.md"))
+	require.NoError(t, err)
+	for _, path := range designMatches {
+		contents, readErr := os.ReadFile(path)
+		require.NoError(t, readErr)
+		assertMarkdownLinksResolve(t, path, string(contents))
+	}
+
 	operatorMatches, err := filepath.Glob(filepath.Join(root, "docs", "operators", "*.md"))
 	require.NoError(t, err)
 	maintainerMatches, err := filepath.Glob(filepath.Join(root, "docs", "maintainers", "*.md"))
@@ -125,10 +133,33 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	}
 	cli := read("docs/operators/administration.md")
 	require.Contains(t, cli, "## Installation root")
-	require.Contains(t, cli, "## Operator v2 cutover")
-	assert.Less(t, strings.Index(cli, "## Installation root"), strings.Index(cli, "## Operator v2 cutover"))
+	assert.Less(t, strings.Index(cli, "## Installation root"), strings.Index(cli, "## HTTP policy administration"))
+	compatibility := read("docs/operators/upgrade-compatibility.md")
+	for _, heading := range []string{"## Upgrade sequence", "## Operator v2 cutover", "## Browser persistence cutover", "## Browser location cutover", "## MCP invocation namespace cutover", "## MCP permission namespace cutover", "## Principal HTTP-default client cutover"} {
+		require.Contains(t, compatibility, heading)
+		assert.NotContains(t, cli, heading, "cutover mappings have one canonical owner")
+	}
+	assert.Contains(t, cli, "upgrade-compatibility.md")
+	browser := read("docs/design/browser-control-plane.md")
+	administration := read("docs/design/administrative-control-plane.md")
+	for _, heading := range []string{"## Browser development boundary", "## Browser state and workflow ownership", "### Table conventions", "### Collection pagination", "### One-time secret and URL sinks"} {
+		require.Contains(t, browser, heading)
+		assert.NotContains(t, administration, heading, "browser contracts have one canonical owner")
+	}
+	for _, task := range []struct{ path, first, later string }{
+		{"docs/operators/access-control.md", "## Create and inspect principals", "## HTTP grants and Test access"},
+		{"docs/operators/backup-and-recovery.md", "## Choose a recovery task", "## Structured results and exits"},
+		{"docs/maintainers/frontend-development.md", "npm run ui:dev", "## Demo dataset and verification"},
+	} {
+		text := read(task.path)
+		require.Contains(t, text, task.first)
+		require.Contains(t, text, task.later)
+		assert.Less(t, strings.Index(text, task.first), strings.Index(text, task.later), task.path)
+	}
 	release := read("docs/maintainers/release-verification.md")
+	require.Contains(t, release, "## Freeze the candidate")
 	require.Contains(t, release, "## Purpose-based verification DAG")
+	assert.Less(t, strings.Index(release, "## Freeze the candidate"), strings.Index(release, "## Constrained-memory linting"))
 	require.Contains(t, release, "## Developer source and tooling cutover")
 	assert.Less(t, strings.Index(release, "## Purpose-based verification DAG"), strings.Index(release, "## Developer source and tooling cutover"))
 	for _, phrase := range []string{
