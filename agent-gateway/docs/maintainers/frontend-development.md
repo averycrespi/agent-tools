@@ -185,7 +185,7 @@ A small set of UI operations reaches most populated states without a downstream 
 2. Issue its agent credential to inspect confirmation and one-time-secret behavior.
 3. Create an exact grant against Gateway self-service tools.
 4. Create a disabled, unauthenticated HTTP server with a syntactically valid non-routable endpoint such as `https://example.invalid/mcp`. This exposes the server detail tabs without initiating downstream work.
-5. Create a backup and an additional administrator credential to populate their System tables and detail panels.
+5. Create a backup and an additional administrator credential to populate their System tables. Backups retain their metadata in the table and offer confirmed Delete, without an inspection panel; use `agent-gateway backup get BACKUP_ID` for installation ID and SHA-256.
 
 Exercise sign-in failure and success, sign-out, dirty-navigation protection, destructive confirmations, filters and reset, empty and populated collections, light and dark themes, and mobile navigation. Inspect at least desktop, narrow mobile, and 320px widths.
 

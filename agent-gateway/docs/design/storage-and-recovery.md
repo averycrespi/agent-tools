@@ -217,6 +217,9 @@ idempotency window. Reads observe completed create/delete operations without a
 cache; hidden staging entries are not published records. Directory enumeration
 uses bounded batches and each metadata JSON read is limited to 8 KiB, with strict
 closed fields, duplicate rejection, identity/format checks and valid timestamps.
+An excess visible entry beyond the fixed 64-record maximum fails accounting before
+opening that entry's metadata; status never truncates an over-limit count into a
+successful saturated result.
 Descriptor-relative no-follow opens validate owner-only directories and regular
 metadata files before reading. Missing, unreadable, malformed or unsafe required
 metadata fails the status request with `storage_unavailable`, never healthy zero

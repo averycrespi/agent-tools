@@ -105,6 +105,32 @@ func TestAccountingReportsSaturationFromMetadata(t *testing.T) {
 	retryLimit, _ := contract.FixedLimitByName("idempotency_records")
 	require.Equal(t, retryLimit.Maximum, retries.Limit)
 	require.Equal(t, retries.InUse >= retries.Limit, retries.Saturated)
+
+	metadata.ID = fmt.Sprintf("%s%02d", created.ID[:24], limit.Maximum)
+	directory := filepath.Join(owner.Layout().Backups, metadata.ID)
+	require.NoError(t, os.Mkdir(directory, 0o700))
+	require.NoError(t, writeMetadata(filepath.Join(directory, metadataFile), metadata))
+	records, retries, err = manager.AccountingStatus(t.Context())
+	require.ErrorIs(t, err, ErrInvalidArtifact)
+	require.Equal(t, contract.LimitStatus{}, records)
+	require.Equal(t, contract.LimitStatus{}, retries)
+
+	// Observe filesystem enumeration order without changing the outer directory.
+	// A missing final metadata file must not be opened after the record bound;
+	// missing metadata inside the bound must still surface its filesystem error.
+	root, err := os.Open(owner.Layout().Backups)
+	require.NoError(t, err)
+	entries, err := root.ReadDir(-1)
+	require.NoError(t, err)
+	require.NoError(t, root.Close())
+	require.Len(t, entries, int(limit.Maximum)+1)
+	require.NoError(t, os.Remove(filepath.Join(owner.Layout().Backups, entries[len(entries)-1].Name(), metadataFile)))
+	_, _, err = manager.AccountingStatus(t.Context())
+	require.ErrorIs(t, err, ErrInvalidArtifact)
+	require.NotErrorIs(t, err, os.ErrNotExist)
+	require.NoError(t, os.Remove(filepath.Join(owner.Layout().Backups, entries[0].Name(), metadataFile)))
+	_, _, err = manager.AccountingStatus(t.Context())
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestAccountingRejectsUnsafeRequiredMetadata(t *testing.T) {

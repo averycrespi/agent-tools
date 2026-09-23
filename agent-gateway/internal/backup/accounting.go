@@ -45,6 +45,9 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
+			if records.InUse >= records.Limit {
+				return records, idempotency, ErrInvalidArtifact
+			}
 			if !entry.IsDir() || !backupIDPattern.MatchString(entry.Name()) {
 				return records, idempotency, ErrInvalidArtifact
 			}

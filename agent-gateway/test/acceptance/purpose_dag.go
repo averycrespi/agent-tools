@@ -54,6 +54,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	nodeFoundationDefinitions := []string{
 		"agent-gateway/web/tests/diagnostic-correlation.test.ts", "agent-gateway/web/src/diagnostic-correlation.ts",
 		"agent-gateway/web/tests/pending-requests.test.ts", "agent-gateway/web/src/pending-requests.ts",
+		"agent-gateway/web/tests/resource-utilization.test.ts", "agent-gateway/web/src/resource-utilization.ts",
 		"agent-gateway/web/tests/http-policy-response.test.ts", "agent-gateway/web/src/http-policy-response.ts",
 		"agent-gateway/web/tests/http-traffic-contract.test.ts", "agent-gateway/web/src/http-traffic-contract.ts",
 		"agent-gateway/web/tests/foundations.test.ts", "agent-gateway/web/tests/invocation-query.test.ts", "agent-gateway/web/tests/location.test.ts", "agent-gateway/web/tests/mutation-contract.test.ts",
