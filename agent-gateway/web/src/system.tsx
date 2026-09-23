@@ -785,14 +785,12 @@ function ResourceLimits({
 }
 
 function Backups({
-  session,
   backups,
   view,
   mutations,
   onRefresh,
   createMode,
 }: {
-  session: SessionClient;
   backups: Backup[] | undefined;
   view: ViewSnapshot;
   mutations: MutationCoordinator;
@@ -805,17 +803,12 @@ function Backups({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
-  const [detail, setDetail] = useState<Backup>();
   const [deleting, setDeleting] = useState<Backup>();
   const [notice, setNotice] = useState<string>();
   const createButton = useRef<HTMLButtonElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
-  useEffect(() => {
-    if (detail !== undefined && backups !== undefined)
-      setDetail(backups.find((backup) => backup.id === detail.id));
-  }, [backups]);
   const panel = view.panels.backups;
   const panelStatus = panel?.status ?? "loading";
   const disabled =
@@ -861,25 +854,6 @@ function Backups({
     controller.confirm();
   };
   const confirmCreate = () => void controller.submit().then(settle);
-  const inspect = async (backupID: string) => {
-    const value = await session.runProtected(async (context) => {
-      const response = await fetch(`/api/v2/backups/${backupID}`, {
-        method: "GET",
-        headers: { "X-CSRF-Token": context.csrfToken },
-        credentials: "same-origin",
-        redirect: "error",
-        signal: context.signal,
-      });
-      if (await context.sessionLost(response)) return undefined;
-      if (
-        response.status !== 200 ||
-        response.headers.get("Content-Type") !== "application/json"
-      )
-        throw new Error("Backup detail is unavailable.");
-      return decodeBackup((await response.json()) as unknown);
-    });
-    setDetail(value);
-  };
   const beginDelete = (backup: Backup) => {
     setNotice(undefined);
     setDeleting(backup);
@@ -1081,13 +1055,6 @@ function Backups({
               render: (backup) => (
                 <div class="inline-actions">
                   <button
-                    data-testid="backup-inspect"
-                    type="button"
-                    onClick={() => void inspect(backup.id)}
-                  >
-                    Inspect
-                  </button>
-                  <button
                     ref={deleteButton}
                     class="danger-action"
                     data-testid="backup-delete"
@@ -1102,31 +1069,6 @@ function Backups({
             },
           ]}
         />
-      )}
-      {detail !== undefined && (
-        <section class="subpanel" data-testid="backup-detail">
-          <h3>Backup {detail.id}</h3>
-          <dl class="fact-grid">
-            <div>
-              <dt>Installation</dt>
-              <dd>{detail.installationID}</dd>
-            </div>
-            <div>
-              <dt>Schema</dt>
-              <dd>{detail.schemaVersion}</dd>
-            </div>
-            <div>
-              <dt>Source revision</dt>
-              <dd>{detail.sourceRevision}</dd>
-            </div>
-            <div>
-              <dt>SHA-256</dt>
-              <dd>
-                <code>{detail.sha256}</code>
-              </dd>
-            </div>
-          </dl>
-        </section>
       )}
       <ConfirmationDialog
         id="backup-delete-confirm"
@@ -1640,7 +1582,6 @@ export function System({
         />
       ) : current === "backups" ? (
         <Backups
-          session={session}
           backups={backups}
           view={view}
           mutations={mutations}
