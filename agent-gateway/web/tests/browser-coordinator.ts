@@ -759,6 +759,13 @@ try {
           externalRequests[0] !== expectedOAuthOpen
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
+      (input.scenario === "system-status" &&
+        consoleFailures.length === 2 &&
+        consoleFailures.every((value) =>
+          value.startsWith(
+            "Failed to load resource: the server responded with a status of 503",
+          ),
+        )) ||
       (input.scenario === "http-credentials" &&
         consoleFailures.length === 2 &&
         consoleFailures.every((value) =>

@@ -698,6 +698,12 @@ export async function runAudit(
   await page.getByTestId("admin-bearer-input").fill(bearer);
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
+  // Authentication precedes the event-stream reconnect refresh; let it start
+  // before navigation so the exact item-read assertions measure this action.
+  await expect(page.getByTestId("gateway-shell")).toHaveAttribute(
+    "data-freshness",
+    "current",
+  );
   await page.evaluate((id) => {
     window.location.hash = `#/audit-log/${id}?filter_outcome=unknown`;
   }, id(3));
