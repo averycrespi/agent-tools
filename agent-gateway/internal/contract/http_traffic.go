@@ -82,7 +82,12 @@ type HTTPTrafficCompletion struct {
 	GatewayStatus  int    `json:"gateway_status,omitempty"`
 }
 
+// HTTPOutcomeInterceptionSelected describes policy selection, not CONNECT/TLS
+// acceptance, upstream dispatch, completion or connection closure.
+const HTTPOutcomeInterceptionSelected = "interception_selected"
+
 type HTTPTrafficFilters struct {
+	ConnectID   string `json:"connect_id,omitempty"`
 	PrincipalID string `json:"principal_id,omitempty"`
 	Destination string `json:"destination,omitempty"`
 	Type        string `json:"type,omitempty"`

@@ -61,6 +61,26 @@ healthy control administration remains available. Shutdown fences admissions and
 settles connection/completion owners before closing CA material and shared storage.
 Missing completion remains unknown; shutdown and restart never replay traffic.
 
+## Interpret CONNECT evidence
+
+**Interception selected** means Gateway selected local interception, not denial or
+successful connection establishment. Inner requests are authorized separately.
+Selection proves neither CONNECT acceptance, TLS establishment, upstream dispatch,
+request completion nor connection closure. The retained `allowed` bit describes
+upstream-dispatch permission; `false` alone does not mean CONNECT failed.
+**CONNECT denied** is a policy rejection. **Opaque tunnel allowed** permits opaque
+forwarding, not inspection of inner requests; missing completion remains unknown.
+
+Use the Interception selected decision/outcome filters to distinguish it from
+Not dispatched denials. Detail offers **View related inner requests**, selected
+only by recorded CONNECT ID, and inner detail links back to that recorded parent.
+The CLI equivalent is `agent-gateway http traffic list --connect-id ID`.
+Retention may remove either side, and older records lack correlation; an empty
+list or unavailable parent never proves no execution or safe replay. Historical
+interception decisions receive the same label without inventing lifecycle events.
+Upgrade the bundled CLI/browser with the service for the new
+`interception_selected` summary outcome; stored admission/completion is unchanged.
+
 ## Inspect rejected requests
 
 Open **HTTP → Traffic** to inspect retained request evidence. **Reason** explains

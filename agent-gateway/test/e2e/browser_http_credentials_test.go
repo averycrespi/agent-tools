@@ -5,11 +5,14 @@ package e2e
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -37,15 +40,17 @@ func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
 	proxy := ""
+	var ca []byte
 	if scenario == "http-traffic" {
 		harness.binary, _ = httpMaterialBinary(t)
-		createHTTPCA(t, harness)
+		ca = createHTTPCA(t, harness)
 		proxy = unusedAuthority(t)
 		harness.serveArgs = append(harness.serveArgs, "--http-proxy-listen", proxy)
 	}
 	harness.Start()
 	if proxy != "" {
 		seedBrowserHTTPRejections(t, harness, proxy)
+		seedBrowserHTTPConnect(t, harness, proxy, ca)
 	}
 	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
 	require.NoError(t, err)
@@ -86,6 +91,26 @@ func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
 	} else {
 		require.Len(t, harness.results, 2)
 	}
+}
+
+// The inner request is denied by the default policy; no upstream fixture or
+// external service is contacted. Both rows and their link are real evidence.
+func seedBrowserHTTPConnect(t *testing.T, h *gatewayHarness, proxy string, ca []byte) {
+	t.Helper()
+	principal := h.CreatePrincipal("CONNECT evidence fixture", contract.VisibilityRequestable)
+	credential := h.IssueCredential(principal)
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(ca))
+	proxyURL := &url.URL{Scheme: "http", Host: proxy, User: url.UserPassword("agent", strings.TrimPrefix(credential.Bearer.authorizationHeader(), "Bearer "))}
+	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL), TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}} //nolint:gosec // Supported TLS 1.2 with fixture CA trust.
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+	response, err := client.Get("https://" + unusedAuthority(t) + "/inner")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+	_, err = io.Copy(io.Discard, response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
 }
 
 func seedBrowserHTTPRejections(t *testing.T, h *gatewayHarness, proxy string) {

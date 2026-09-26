@@ -90,10 +90,15 @@ no-store; there is no mutation, replay or traffic-to-grant operation. Collection
 `HTTPTrafficQuery` accepts singleton nonempty `limit` (default 50, canonical 1–100), `cursor`,
 `principal_id` (exact), `destination` (exact canonical hostname/IP), `type`
 (`request`, `connect`, `invalid`), `decision` (`allow`, `block`, `intercept`,
-`invalid`), and `outcome` (`not_dispatched`, `outcome_unknown`, `succeeded`,
-`prestart_failure`, `upstream_failure`). Unknown, duplicate or malformed values
-fail. All filters combine before descending shared sequence pagination; indexed
-stored query facts avoid loading policy evidence to select a page.
+`invalid`), `outcome` (`interception_selected`, `not_dispatched`, `outcome_unknown`,
+`succeeded`, `prestart_failure`, `upstream_failure`), and `connect_id` (exact
+recorded enclosing CONNECT admission ID). Unknown, duplicate or malformed values
+fail. All filters combine before descending shared sequence pagination. Interception
+outcomes are projected from the recorded decision for both selection and filtering,
+without rewriting historical admission/completion or released storage definitions.
+`not_dispatched` excludes interception. `connect_id` selects only recorded inner
+correlations, including invalid inner requests; it never matches host/time or
+requires the parent to remain retained. Neither filter loads policy into the client.
 
 `HTTPTrafficPage` is exactly `{items,next_cursor}`. Each summary is
 `{id,admitted_at,principal_id,target,type,decision,outcome}`; target is null for

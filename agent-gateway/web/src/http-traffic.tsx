@@ -20,6 +20,9 @@ import {
   decodeTrafficPage,
   destinationLabel,
   rejectionLabel,
+  trafficOutcome,
+  trafficDecisionLabel,
+  interceptionExplanation,
   type Rejection,
   type ConnectContext,
   trafficOptions,
@@ -366,7 +369,7 @@ export function HTTPTraffic({
                 title="Refresh failed. This evidence may be stale."
               />
             )}
-            <TrafficDetail item={current.item} />
+            <TrafficDetail item={current.item} link={link} />
           </>
         )}
       </div>
@@ -475,7 +478,7 @@ export function HTTPTraffic({
                     <StatusLabel
                       state={row.decision === "allow" ? "current" : "neutral"}
                     >
-                      {sentenceCase(row.decision)}
+                      {trafficDecisionLabel(row.decision, row.type)}
                     </StatusLabel>
                     {row.type === "invalid" && (
                       <div>{rejectionLabel(row.rejection)}</div>
@@ -491,16 +494,19 @@ export function HTTPTraffic({
                   <>
                     <StatusLabel
                       state={
-                        row.outcome === "succeeded"
+                        trafficOutcome(row) === "succeeded"
                           ? "current"
-                          : row.outcome === "outcome_unknown"
+                          : trafficOutcome(row) === "outcome_unknown"
                             ? "warning"
-                            : row.outcome === "not_dispatched"
+                            : [
+                                  "not_dispatched",
+                                  "interception_selected",
+                                ].includes(trafficOutcome(row))
                               ? "neutral"
                               : "error"
                       }
                     >
-                      {sentenceCase(row.outcome)}
+                      {sentenceCase(trafficOutcome(row))}
                     </StatusLabel>
                     <div>
                       Response: {responseSourceLabel(row.response_source)}
@@ -569,6 +575,7 @@ function TrafficFilters({
       {[
         ["principal_id", "Agent ID"],
         ["destination", "Destination host"],
+        ["connect_id", "CONNECT ID"],
       ].map(([key, label]) => (
         <input
           aria-label={label}
@@ -597,7 +604,11 @@ function TrafficFilters({
         >
           <option value="">{sentenceCase(key)}: any</option>
           {values.map((value) => (
-            <option value={value}>{sentenceCase(value)}</option>
+            <option value={value}>
+              {key === "decision" && value === "intercept"
+                ? "Interception selected"
+                : sentenceCase(value)}
+            </option>
           ))}
         </select>
       ))}
@@ -626,12 +637,27 @@ function responseSourceLabel(source: unknown): string {
       ? "Upstream"
       : "Unavailable";
 }
-function TrafficDetail({ item }: { item: TrafficItem }) {
+function TrafficDetail({
+  item,
+  link,
+}: {
+  item: TrafficItem;
+  link: (id?: string) => string;
+}) {
   const a = item.admission,
     d = a.decision as Record<string, unknown> | null,
     c = item.completion,
     rejection = a.rejection as Rejection | undefined,
-    connect = a.connect as ConnectContext | undefined;
+    connect = a.connect as ConnectContext | undefined,
+    intercepted =
+      d?.transport === "intercept" && d?.reason === "intercept_required",
+    isConnect =
+      a.target !== null && (a.target as TrafficTarget).scheme === undefined;
+  const relatedLink = serializeLocation({
+    destination: "http-traffic",
+    segments: ["http-traffic"],
+    query: { filter_connect_id: String(a.id) },
+  });
   return (
     <>
       <section class="panel domain-panel">
@@ -658,7 +684,13 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
             <dd>
               {d === null
                 ? rejectionLabel(rejection)
-                : sentenceCase(String(d.reason))}
+                : intercepted
+                  ? "Interception selected"
+                  : isConnect
+                    ? d.allowed
+                      ? "Opaque tunnel allowed"
+                      : "CONNECT denied"
+                    : sentenceCase(String(d.reason))}
             </dd>
           </div>
           <div>
@@ -681,7 +713,9 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
               {connect === undefined ? (
                 "Unavailable"
               ) : (
-                <code>{connect.id}</code>
+                <a href={link(connect.id)}>
+                  <code>{connect.id}</code>
+                </a>
               )}
             </dd>
           </div>
@@ -696,6 +730,13 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
         </dl>
         {connect !== undefined && (
           <p>Connection context does not validate the inner request target.</p>
+        )}
+        {intercepted && (
+          <p>
+            <a href={relatedLink}>View related inner requests</a>. Only recorded
+            CONNECT correlations are shown; absent records do not prove no
+            requests occurred.
+          </p>
         )}
         {d?.transport === "tunnel" && (
           <p>Opaque tunnel: inner HTTP requests are not visible.</p>
@@ -719,11 +760,21 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
         {c === null ? (
           <StateNotice
             state={d?.allowed ? "warning" : "neutral"}
-            title={d?.allowed ? "Unknown outcome" : "Not dispatched"}
+            title={
+              intercepted
+                ? "Interception selected"
+                : d?.allowed
+                  ? "Unknown outcome"
+                  : isConnect
+                    ? "CONNECT denied"
+                    : "Not dispatched"
+            }
           >
-            {d?.allowed
-              ? "Missing terminal evidence does not prove nonexecution or safe retry."
-              : undefined}
+            {intercepted
+              ? interceptionExplanation
+              : d?.allowed
+                ? "Missing terminal evidence does not prove nonexecution or safe retry."
+                : undefined}
           </StateNotice>
         ) : (
           <dl class="fact-grid">

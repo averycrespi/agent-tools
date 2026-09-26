@@ -24,14 +24,14 @@ func (h *Handler) httpTrafficCollection(w http.ResponseWriter, r *http.Request) 
 		writeProblem(w, contract.ProblemMalformedRequest)
 		return
 	}
-	allowed := map[string]bool{"cursor": true, "limit": true, "principal_id": true, "destination": true, "type": true, "decision": true, "outcome": true}
+	allowed := map[string]bool{"cursor": true, "limit": true, "principal_id": true, "destination": true, "type": true, "decision": true, "outcome": true, "connect_id": true}
 	for key, values := range query {
 		if !allowed[key] || len(values) != 1 || values[0] == "" {
 			writeProblem(w, contract.ProblemMalformedRequest)
 			return
 		}
 	}
-	q := contract.HTTPTrafficQuery{Limit: contract.AdminListPageDefault, Cursor: query.Get("cursor"), Filters: contract.HTTPTrafficFilters{PrincipalID: query.Get("principal_id"), Destination: query.Get("destination"), Type: query.Get("type"), Decision: query.Get("decision"), Outcome: query.Get("outcome")}}
+	q := contract.HTTPTrafficQuery{Limit: contract.AdminListPageDefault, Cursor: query.Get("cursor"), Filters: contract.HTTPTrafficFilters{ConnectID: query.Get("connect_id"), PrincipalID: query.Get("principal_id"), Destination: query.Get("destination"), Type: query.Get("type"), Decision: query.Get("decision"), Outcome: query.Get("outcome")}}
 	if raw := query.Get("limit"); raw != "" {
 		q.Limit, err = strconv.Atoi(raw)
 		if err != nil || q.Limit < 1 || q.Limit > limitValue("admin_list_page") || strconv.Itoa(q.Limit) != raw {

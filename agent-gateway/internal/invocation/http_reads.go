@@ -15,7 +15,14 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
+// Project the recorded selection without rewriting immutable historical rows or
+// the released stored-column definition. Use the same expression for filtering.
+const httpTrafficReadOutcome = `CASE WHEN decision='intercept' THEN 'interception_selected' ELSE outcome END`
+
 func validHTTPTrafficFilters(f contract.HTTPTrafficFilters) bool {
+	if f.ConnectID != "" && !validOpaqueInvocationID(f.ConnectID) {
+		return false
+	}
 	if f.PrincipalID != "" && !validOpaqueInvocationID(f.PrincipalID) {
 		return false
 	}
@@ -25,7 +32,7 @@ func validHTTPTrafficFilters(f contract.HTTPTrafficFilters) bool {
 			return false
 		}
 	}
-	return slices.Contains([]string{"", "request", "connect", "invalid"}, f.Type) && slices.Contains([]string{"", "allow", "block", "intercept", "invalid"}, f.Decision) && slices.Contains([]string{"", "not_dispatched", "outcome_unknown", "succeeded", "prestart_failure", "upstream_failure"}, f.Outcome)
+	return slices.Contains([]string{"", "request", "connect", "invalid"}, f.Type) && slices.Contains([]string{"", "allow", "block", "intercept", "invalid"}, f.Decision) && slices.Contains([]string{"", contract.HTTPOutcomeInterceptionSelected, "not_dispatched", "outcome_unknown", "succeeded", "prestart_failure", "upstream_failure"}, f.Outcome)
 }
 
 func (s *ReadService) GetHTTP(ctx context.Context, id string) (result contract.HTTPTrafficRecord, err error) {
@@ -95,7 +102,7 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 			clauses = append(clauses, "insertion_sequence<?")
 			args = append(args, cursor.NextSequence)
 		}
-		for _, filter := range []struct{ column, value string }{{"principal_id", q.Filters.PrincipalID}, {"destination", q.Filters.Destination}, {"traffic_type", q.Filters.Type}, {"decision", q.Filters.Decision}, {"outcome", q.Filters.Outcome}} {
+		for _, filter := range []struct{ column, value string }{{"principal_id", q.Filters.PrincipalID}, {"destination", q.Filters.Destination}, {"traffic_type", q.Filters.Type}, {"decision", q.Filters.Decision}, {httpTrafficReadOutcome, q.Filters.Outcome}, {"json_extract(admission,'$.connect.id')", q.Filters.ConnectID}} {
 			if filter.value != "" {
 				clauses = append(clauses, filter.column+"=?")
 				args = append(args, filter.value)
@@ -103,7 +110,7 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 		}
 		args = append(args, q.Limit+1)
 		//nolint:gosec // Predicate columns are fixed above; every filter value is bound.
-		rows, err := tx.QueryContext(ctx, `SELECT insertion_sequence,id,json_extract(admission,'$.admitted_at'),principal_id,json_extract(admission,'$.target'),traffic_type,decision,outcome,json_extract(admission,'$.rejection'),json_extract(admission,'$.connect'),CASE WHEN json_type(admission,'$.rejection')='object' THEN 'gateway' ELSE coalesce(json_extract(completion,'$.response_source'),'') END FROM http_traffic WHERE `+strings.Join(clauses, " AND ")+` ORDER BY insertion_sequence DESC LIMIT ?`, args...)
+		rows, err := tx.QueryContext(ctx, `SELECT insertion_sequence,id,json_extract(admission,'$.admitted_at'),principal_id,json_extract(admission,'$.target'),traffic_type,decision,`+httpTrafficReadOutcome+`,json_extract(admission,'$.rejection'),json_extract(admission,'$.connect'),CASE WHEN json_type(admission,'$.rejection')='object' THEN 'gateway' ELSE coalesce(json_extract(completion,'$.response_source'),'') END FROM http_traffic WHERE `+strings.Join(clauses, " AND ")+` ORDER BY insertion_sequence DESC LIMIT ?`, args...)
 		if err != nil {
 			return err
 		}

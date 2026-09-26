@@ -5,6 +5,8 @@ import {
   decodeTrafficPage,
   validHTTPTrafficQuery,
   rejectionLabel,
+  trafficOutcome,
+  trafficDecisionLabel,
 } from "../src/http-traffic-contract.ts";
 import { parseFragment, serializeLocation } from "../src/location.ts";
 const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -57,6 +59,7 @@ test("HTTP history deep links retain closed exact filters separately from MCP", 
     { filter_type: "mcp" },
     { filter_outcome: "complete" },
     { filter_principal_id: "name" },
+    { filter_connect_id: "name" },
     { unknown: "value" },
   ])
     assert.equal(validHTTPTrafficQuery(query), false);
@@ -164,6 +167,74 @@ test("Rejection categories, CONNECT context and response provenance are closed",
       completion: { ...completed.completion, response_source: "upstream" },
     }),
   );
+});
+
+test("CONNECT selection stays separate from denial and terminal outcomes", () => {
+  const summary = {
+    id,
+    admitted_at: at,
+    principal_id: id,
+    target: { host: "example.com", port: 443 },
+    type: "connect",
+    decision: "intercept",
+    outcome: "interception_selected",
+  };
+  for (const outcome of ["interception_selected", "not_dispatched"]) {
+    const row = decodeTrafficPage({
+      items: [{ ...summary, outcome }],
+      next_cursor: null,
+    }).items[0]!;
+    assert.equal(trafficOutcome(row), "interception_selected");
+    assert.equal(
+      trafficDecisionLabel(row.decision, row.type),
+      "Interception selected",
+    );
+  }
+  for (const [decision, outcome] of [
+    ["allow", "interception_selected"],
+    ["block", "interception_selected"],
+    ["intercept", "succeeded"],
+    ["intercept", "outcome_unknown"],
+  ])
+    assert.throws(() =>
+      decodeTrafficPage({
+        items: [{ ...summary, decision, outcome }],
+        next_cursor: null,
+      }),
+    );
+  assert.equal(trafficDecisionLabel("block", "connect"), "CONNECT denied");
+  assert.equal(
+    trafficDecisionLabel("allow", "connect"),
+    "Opaque tunnel allowed",
+  );
+  const selection = item();
+  Object.assign(selection.admission, {
+    target: summary.target,
+    decision: {
+      ...selection.admission.decision,
+      transport: "intercept",
+      allowed: false,
+      reason: "intercept_required",
+    },
+  });
+  assert.deepEqual(decodeTrafficItem(selection), selection);
+  assert.throws(() =>
+    decodeTrafficItem({
+      ...selection,
+      completion: {
+        completed_at: at,
+        outcome: "interception_selected",
+        bytes_sent: 0,
+        bytes_received: 0,
+        duration_ms: 0,
+      },
+    }),
+  );
+  const location = parseFragment(
+    `#/http/traffic?filter_connect_id=${id}&filter_outcome=interception_selected`,
+  );
+  assert.equal(location?.query.filter_connect_id, id);
+  assert.equal(location?.query.filter_outcome, "interception_selected");
 });
 
 test("HTTP summary pages remain bounded without policy snapshots", () => {

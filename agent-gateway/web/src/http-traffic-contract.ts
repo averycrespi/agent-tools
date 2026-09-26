@@ -13,6 +13,7 @@ export const trafficOptions = {
   decision: ["allow", "block", "intercept", "invalid"],
   outcome: [
     "not_dispatched",
+    "interception_selected",
     "outcome_unknown",
     "succeeded",
     "prestart_failure",
@@ -23,7 +24,8 @@ export function validHTTPTrafficQuery(
   query: Readonly<Record<string, string>>,
 ): boolean {
   return Object.entries(query).every(([key, value]) => {
-    if (key === "filter_principal_id") return idPattern.test(value);
+    if (key === "filter_principal_id" || key === "filter_connect_id")
+      return idPattern.test(value);
     if (key === "filter_destination")
       return canonicalHost(value) && !value.includes("*");
     const options = trafficOptions[key.slice(7) as keyof typeof trafficOptions];
@@ -206,7 +208,7 @@ export function decodeTrafficPage(value: unknown): TrafficPage {
         : item.target === null ||
           item.decision === "invalid" ||
           (item.type === "request") !== (item.target.scheme !== undefined) ||
-          (item.decision === "allow") === (item.outcome === "not_dispatched") ||
+          !validSummaryOutcome(item.decision, item.outcome) ||
           (item.type === "request" && item.decision === "intercept")
     )
       throw new Error("Inconsistent HTTP summary.");
@@ -226,6 +228,28 @@ export function decodeTrafficPage(value: unknown): TrafficPage {
   });
   return { items, nextCursor: p.next_cursor as string | null };
 }
+function validSummaryOutcome(decision: string, outcome: string): boolean {
+  if (decision === "intercept")
+    return outcome === "interception_selected" || outcome === "not_dispatched";
+  if (decision === "block") return outcome === "not_dispatched";
+  return outcome !== "not_dispatched" && outcome !== "interception_selected";
+}
+
+// Older servers used not_dispatched for interception. The recorded decision,
+// never the allowed bit alone, supplies the honest presentation in either era.
+export function trafficOutcome(row: TrafficSummary): string {
+  return row.decision === "intercept" ? "interception_selected" : row.outcome;
+}
+export function trafficDecisionLabel(decision: string, type: string): string {
+  if (decision === "intercept") return "Interception selected";
+  if (type === "connect" && decision === "allow")
+    return "Opaque tunnel allowed";
+  if (type === "connect" && decision === "block") return "CONNECT denied";
+  return decision[0]!.toUpperCase() + decision.slice(1);
+}
+export const interceptionExplanation =
+  "Inner requests are authorized separately. Selection does not prove CONNECT acceptance, TLS establishment, upstream dispatch, request completion or connection closure.";
+
 export interface TrafficItem {
   admission: Record<string, unknown>;
   completion: Record<string, unknown> | null;
@@ -343,7 +367,12 @@ export function decodeTrafficItem(value: unknown): TrafficItem {
       ]);
       if (!d.allowed || time(c.completed_at) < String(a.evaluated_at))
         throw new Error("Invalid terminal evidence.");
-      closed(c.outcome, trafficOptions.outcome.slice(1));
+      closed(c.outcome, [
+        "outcome_unknown",
+        "succeeded",
+        "prestart_failure",
+        "upstream_failure",
+      ]);
       integer(c.bytes_sent);
       integer(c.bytes_received);
       integer(c.duration_ms);

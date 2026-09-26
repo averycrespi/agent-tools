@@ -417,7 +417,7 @@ func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.Onl
 
 func onlineCommandSpecs() []onlineCommandSpec {
 	return []onlineCommandSpec{
-		onlineSpec([]string{"http", "traffic", "list"}, "list", "http traffic list", "limit", "cursor", "principal-id", "destination", "type", "decision", "outcome"),
+		onlineSpec([]string{"http", "traffic", "list"}, "list", "http traffic list", "limit", "cursor", "principal-id", "destination", "type", "decision", "outcome", "connect-id"),
 		onlineSpec([]string{"http", "traffic", "get"}, "get ID", "http traffic get ID"),
 		onlineSpec([]string{"http", "grant", "list"}, "list", "http grant list", "limit", "cursor"),
 		onlineSpec([]string{"http", "grant", "get"}, "get ID", "http grant get ID"),

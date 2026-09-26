@@ -19,17 +19,28 @@ func validHTTPTrafficSummary(s contract.HTTPTrafficSummary) bool {
 	if _, ok := httpResponseTime(s.AdmittedAt); !ok {
 		return false
 	}
-	if !slices.Contains([]string{"allow", "block", "intercept", "invalid"}, s.Decision) || !slices.Contains([]string{"not_dispatched", "outcome_unknown", "succeeded", "prestart_failure", "upstream_failure"}, s.Outcome) {
+	if !slices.Contains([]string{"allow", "block", "intercept", "invalid"}, s.Decision) || !slices.Contains([]string{contract.HTTPOutcomeInterceptionSelected, "not_dispatched", "outcome_unknown", "succeeded", "prestart_failure", "upstream_failure"}, s.Outcome) {
 		return false
 	}
 	if s.Type == "invalid" {
 		return s.Target == nil && s.Decision == "invalid" && s.Outcome == "not_dispatched"
 	}
-	if !validHTTPTrafficTarget(s.Target) || s.Decision == "invalid" || (s.Decision != "allow" && s.Outcome != "not_dispatched") || (s.Decision == "allow" && s.Outcome == "not_dispatched") {
+	if !validHTTPTrafficTarget(s.Target) || s.Decision == "invalid" || !validHTTPSummaryOutcome(s.Decision, s.Outcome) {
 		return false
 	}
 	return (s.Type == "connect" && s.Target.Scheme == "") || (s.Type == "request" && s.Target.Scheme != "" && s.Decision != "intercept")
 }
+func validHTTPSummaryOutcome(decision, outcome string) bool {
+	switch decision {
+	case "intercept":
+		return outcome == contract.HTTPOutcomeInterceptionSelected || outcome == "not_dispatched"
+	case "block":
+		return outcome == "not_dispatched"
+	default:
+		return outcome != "not_dispatched" && outcome != contract.HTTPOutcomeInterceptionSelected
+	}
+}
+
 func validHTTPTrafficItem(item contract.HTTPTrafficRecord) bool {
 	a := item.Admission
 	raw, err := json.Marshal(a)

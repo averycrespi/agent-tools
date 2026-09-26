@@ -18,6 +18,38 @@ export async function runHTTPTraffic(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('#primary-navigation a[href="#/http/traffic"]').click();
+  // Exercise real connection correlation through proxy, durable reads and UI.
+  const realConnect = page
+    .getByRole("row")
+    .filter({ hasText: "Interception selected" });
+  await expect(realConnect).toHaveCount(1);
+  await realConnect
+    .getByRole("link", { name: /^CONNECT 127\.0\.0\.1:/ })
+    .click();
+  await expect(
+    page.getByText(/Inner requests are authorized separately/),
+  ).toBeVisible();
+  const realParent = new URL(page.url()).hash.split("/").at(-1)!;
+  await page.getByRole("link", { name: "View related inner requests" }).click();
+  await expect(page).toHaveURL(new RegExp(`filter_connect_id=${realParent}`));
+  await expect(
+    page.getByText("1 HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "GET https://127.0.0.1" })
+    .getByRole("link", { name: /^GET https:/ })
+    .click();
+  await page.getByRole("link", { name: realParent, exact: true }).click();
+  await expect(
+    page.getByText(/Inner requests are authorized separately/),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .click();
   // These three rows came through the real proxy, durable store and public API.
   for (const label of [
     "Protocol upgrades are not supported",
@@ -109,6 +141,39 @@ export async function runHTTPTraffic(
     rejection: { stage: "target", reason: "invalid_request_target" },
     connect: { id: id(2), host: "example.com", port: 443 },
   };
+  const interception = {
+    ...admission,
+    id: id(5),
+    target: { host: "example.com", port: 443 },
+    decision: {
+      ...admission.decision,
+      allowed: false,
+      transport: "intercept",
+      reason: "intercept_required",
+    },
+  };
+  const denied = {
+    ...interception,
+    id: id(6),
+    decision: {
+      ...interception.decision,
+      transport: "none",
+      reason: "destination_block",
+      grant: { id: id(12), revision: 1 },
+    },
+    grants: [
+      {
+        reference: { id: id(12), revision: 1 },
+        policy: {
+          version: 1,
+          type: "block_destination",
+          destination: { host: "example.com", port: 443 },
+        },
+      },
+    ],
+  };
+  let connectCases = false,
+    missingParent = false;
   let emptyPage = true;
   let diagnostics = false,
     legacyRejection = false,
@@ -122,6 +187,30 @@ export async function runHTTPTraffic(
     expect(request.postData()).toBeNull();
     reads++;
     const url = new URL(request.url());
+    if (
+      url.pathname.endsWith(`/${id(5)}`) ||
+      url.pathname.endsWith(`/${id(6)}`)
+    ) {
+      await route.fulfill(
+        missingParent
+          ? {
+              status: 404,
+              contentType: "application/problem+json",
+              body: JSON.stringify({ code: "not_found" }),
+            }
+          : {
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                admission: url.pathname.endsWith(`/${id(5)}`)
+                  ? interception
+                  : denied,
+                completion: null,
+              }),
+            },
+      );
+      return;
+    }
     if (url.pathname.endsWith(`/${id(4)}`)) {
       await route.fulfill({
         status: 200,
@@ -173,6 +262,40 @@ export async function runHTTPTraffic(
       return;
     }
     expect(url.pathname).toBe("/api/v2/http/traffic");
+    if (connectCases) {
+      const rows = [
+        {
+          ...summary(5),
+          type: "connect",
+          target: interception.target,
+          decision: "intercept",
+          outcome: "interception_selected",
+        },
+        {
+          ...summary(6),
+          type: "connect",
+          target: denied.target,
+          decision: "block",
+          outcome: "not_dispatched",
+        },
+        summary(2),
+      ];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: url.searchParams.has("connect_id")
+            ? []
+            : rows.filter(
+                (row) =>
+                  !url.searchParams.has("outcome") ||
+                  row.outcome === url.searchParams.get("outcome"),
+              ),
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
     if (emptyPage) {
       await route.fulfill({
         status: 200,
@@ -415,6 +538,99 @@ export async function runHTTPTraffic(
   await page.locator(`a[href*="/http/traffic/${id(3)}"]`).click();
   await expect(page.getByText("Upstream", { exact: true })).toBeVisible();
   await expect(page.getByText("200", { exact: true })).toBeVisible();
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
+  connectCases = true;
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(
+    page.getByText("3 HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("CONNECT denied", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Opaque tunnel allowed", { exact: true }),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: join(screenshots, "connect-history.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: join(screenshots, "connect-history-narrow.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page
+    .getByLabel("Outcome", { exact: true })
+    .selectOption("interception_selected");
+  await expect(
+    page.getByText("1 HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  await page.locator(`a[href*="/http/traffic/${id(5)}"]`).click();
+  await expect(
+    page.getByText(/Selection does not prove CONNECT acceptance/),
+  ).toBeVisible();
+  await expect(page.getByText("Not dispatched", { exact: true })).toHaveCount(
+    0,
+  );
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: join(screenshots, "interception-narrow.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({
+    path: join(screenshots, "interception.png"),
+    fullPage: true,
+  });
+  await page.getByRole("link", { name: "View related inner requests" }).click();
+  await expect(
+    page.getByText("No matching HTTP traffic", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("CONNECT ID", { exact: true })).toHaveValue(
+    id(5),
+  );
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .click();
+  await page.locator(`a[href*="/http/traffic/${id(6)}"]`).click();
+  await expect(page.getByText("CONNECT denied", { exact: true })).toHaveCount(
+    2,
+  );
+  await expect(
+    page.getByRole("link", { name: "View related inner requests" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
+  connectCases = false;
+  legacyRejection = false;
+  rejected.connect.id = id(5);
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
+  missingParent = true;
+  await page.getByRole("link", { name: id(5), exact: true }).click();
+  await expect(
+    page.getByText("Traffic record unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Missing evidence does not prove nonexecution/),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.screenshot({
+    path: join(screenshots, "missing-parent-320.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
     .click();

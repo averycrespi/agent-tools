@@ -47,7 +47,14 @@ retention later removes the parent row. Opaque tunnels expose no inner records;
 older rows have no reconstructed correlation or rejection details. Unauthenticated or
 unverifiable authority produces no durable HTTP row. Denials and interception
 settle the receipt without upstream dispatch; interception is not permission for
-an inner request. An acknowledged allow that loses confirmation remains unknown,
+an inner request. The public summary projects `interception_selected` from the
+recorded interception decision, including historical rows whose stored outcome is
+`not_dispatched`. This selection proves neither CONNECT acceptance, TLS establishment,
+upstream dispatch, request completion nor connection closure; no new lifecycle
+evidence is recorded. `Allowed=false` describes upstream-dispatch permission,
+not general CONNECT failure. A denied CONNECT retains `block` / `not_dispatched`;
+an allowed opaque tunnel retains `allow` and its recorded completion or unknown
+outcome. An acknowledged allow that loses confirmation remains unknown,
 not evidence of execution or a fabricated denial.
 
 HTTP shares the admission/completion queues, fairness, atomic batches, fault

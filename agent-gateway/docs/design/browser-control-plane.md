@@ -14,7 +14,7 @@ HTTP > Credentials is a distinct navigation group and operator surface at `#/htt
 
 HTTP > Traffic (`#/http/traffic` and record-ID detail) is separate from MCP
 Invocations, HTTP Grants and administrative audit. Lists use exact principal-ID,
-destination hostname, type, decision and outcome filters. The shared table shows
+destination hostname, type, decision, outcome and enclosing CONNECT-ID filters. The shared table shows
 admission time, safe destination/method, principal, type, decision, rejection reason,
 response source and outcome;
 principal labels come from the existing batched directory. Detail shows immutable
@@ -35,6 +35,14 @@ codes in a disclosure; unavailable historical details and response sources are
 explicit. Detail identifies inherited CONNECT destination and admission ID separately
 from the validated inner target. An absent context is unavailable, not a guessed
 connection; parent retention does not fabricate a surviving related record.
+Interception displays **Interception selected**, distinct from **CONNECT denied**
+and **Opaque tunnel allowed**. Selection does not establish CONNECT acceptance,
+TLS establishment, upstream dispatch, request completion or closure; inner requests
+are separately authorized. Older `not_dispatched` summaries with an interception
+decision use the same honest presentation. Intercepted CONNECT detail links to
+inner records filtered by recorded `connect.id`; inner detail links to the recorded
+parent, which may be unavailable after pruning. An empty related list never proves
+no requests occurred. Missing completion never proves nonexecution or safe replay.
 Exact filters and detail links survive Back navigation but no
 cursor or evidence is placed in the URL or browser persistence.
 
