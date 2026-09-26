@@ -10,13 +10,12 @@ import (
 	"io"
 	"net"
 	"net/http"
-
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
