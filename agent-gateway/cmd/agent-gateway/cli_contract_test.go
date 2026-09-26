@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:7eaa1e190c98127c253ce763521ecc017e29278a409c90dc462f587335e84d57", digest)
+	assert.Equal(t, "sha256:14074ead6aec4941fd5ebc8c720a97224f0abd6caba958ef1a9ada37fdda6415", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -67,10 +67,10 @@ func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
 	assert.Equal(t, contract.DefaultAuthority, serve.Flags().Lookup("listen").DefValue)
 	assert.Equal(t, "human", serve.Flags().Lookup("output").DefValue)
 	assert.Equal(t, "warn", serve.Flags().Lookup("log-level").DefValue)
-	status, _, err := root.Find([]string{"status"})
+	status, _, err := root.Find([]string{"doctor"})
 	require.NoError(t, err)
 	assert.Equal(t, controlclient.DefaultAddress, status.Flags().Lookup("address").DefValue)
-	assert.Equal(t, "human", status.Flags().Lookup("output").DefValue)
+	assert.Equal(t, "false", status.Flags().Lookup("json").DefValue)
 	assert.Contains(t, guides["docs/operators/administration.md"], contract.CanonicalOrigin)
 }
 
@@ -87,7 +87,11 @@ func TestCLIContract(t *testing.T) {
 			expected = append(expected, row.CLIUses...)
 		}
 		sort.Strings(expected)
-		actual := onlineCapabilityUses()
+		actual := append(onlineCapabilityUses(), "doctor --online")
+		doctor, rest, err := root.Find([]string{"doctor"})
+		require.NoError(t, err)
+		require.Empty(t, rest)
+		require.NotNil(t, doctor.Flags().Lookup("online"))
 		sort.Strings(actual)
 		assert.Equal(t, expected, actual)
 
@@ -112,10 +116,10 @@ func TestCLIContract(t *testing.T) {
 			use   string
 			flags []string
 		}{
-			{path: []string{"initialize"}, use: "initialize", flags: []string{"data-dir", "json", "output", "secret-output"}},
-			{path: []string{"admin", "reset"}, use: "reset", flags: []string{"data-dir", "json", "output", "secret-output"}},
-			{path: []string{"backup", "restore"}, use: "restore BACKUP_ID", flags: []string{"data-dir", "json", "output", "secret-output"}},
-			{path: []string{"storage", "verify"}, use: "verify", flags: []string{"data-dir", "json", "output", "traffic-budget-bytes"}},
+			{path: []string{"init"}, use: "init", flags: []string{"confirm", "json", "secret-output"}},
+			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
+			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
+			{path: []string{"maintenance", "verify-and-recover-storage"}, use: "verify-and-recover-storage", flags: []string{"confirm", "dry-run", "installation-id", "json", "traffic-budget-bytes"}},
 			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "data-dir", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},
 		}
 		for _, test := range cases {
@@ -138,7 +142,7 @@ func TestCLIContract(t *testing.T) {
 		command.SetOut(stdout)
 		command.SetErr(stderr)
 		dataDir := filepath.Join(t.TempDir(), "missing")
-		command.SetArgs([]string{"--data-dir", dataDir, "status", "--address", "not-a-loopback-url", "--output", "json"})
+		command.SetArgs([]string{"--data-dir", dataDir, "agent", "list", "--address", "not-a-loopback-url", "--output", "json"})
 		err := command.ExecuteContext(context.Background())
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err))

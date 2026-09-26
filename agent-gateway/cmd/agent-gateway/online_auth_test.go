@@ -34,7 +34,7 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := newRootCmd()
-			command, _, err := root.Find([]string{"status"})
+			command, _, err := root.Find([]string{"agent", "list"})
 			require.NoError(t, err)
 			require.NoError(t, command.Flags().Set("address", test.address))
 			if test.dataDir != "" {
@@ -49,7 +49,7 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 	}
 
 	root := newRootCmd()
-	command, _, err := root.Find([]string{"status"})
+	command, _, err := root.Find([]string{"agent", "list"})
 	require.NoError(t, err)
 	var stderr bytes.Buffer
 	command.SetErr(&stderr)
@@ -59,7 +59,7 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 
 	unsafeDataDir := "/tmp/quote'line\nbreak"
 	root = newRootCmd()
-	command, _, err = root.Find([]string{"status"})
+	command, _, err = root.Find([]string{"agent", "list"})
 	require.NoError(t, err)
 	require.NoError(t, root.PersistentFlags().Set("data-dir", unsafeDataDir))
 	stderr.Reset()
@@ -92,10 +92,10 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"http grant list", "http grant get ID", "http default get ID", "http test-access --file PATH",
 			"http credential list", "http credential get ID", "http traffic list", "http traffic get ID",
 			"audit list", "audit get AUDIT_EVENT_ID",
-			"status", "admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
+			"admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
 			"mcp server list", "mcp server get ID", "mcp server operation list ID", "mcp server operation get ID OPERATION_ID",
 			"mcp server auth-flow list ID", "mcp server auth-flow get ID FLOW_ID", "mcp server descriptor list ID", "mcp server descriptor get ID TOOL_ID",
-			"mcp catalog list", "principal list", "principal get ID", "mcp grant list", "mcp grant get ID",
+			"mcp catalog list", "agent list", "agent get ID", "mcp grant list", "mcp grant get ID",
 			"mcp grant-request list", "mcp grant-request get REQUEST_ID", "mcp invocation list", "mcp invocation get INVOCATION_ID",
 		},
 		"mutation": {
@@ -103,7 +103,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"http credential create --file PATH", "http credential update ID --file PATH [--etag ETAG]", "http credential rotate ID --file PATH [--etag ETAG]",
 			"backup create", "mcp server create --file PATH", "mcp server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "mcp server delete ID [--etag ETAG]",
 			"mcp server operation start ID --kind KIND [--etag ETAG]", "mcp server credential replace ID --file PATH [--etag ETAG]",
-			"principal create --display-name NAME --visibility VISIBILITY", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]", "principal credential revoke ID [--etag ETAG]",
+			"agent create --display-name NAME --visibility VISIBILITY", "agent update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]", "agent credential revoke ID [--etag ETAG]",
 			"mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "mcp grant update ID --description TEXT [--etag ETAG]", "mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
 		},
 		"no_content": {
@@ -113,7 +113,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 		},
 		"one_time_secret": {
 			"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH",
-			"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]",
+			"agent credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "agent credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]",
 		},
 		"terminal_auth_flow": {"mcp server auth-flow start ID [--etag ETAG] [--open]"},
 	}
@@ -135,7 +135,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"status", "--json", "--output", "human"})
+	command.SetArgs([]string{"agent", "list", "--json", "--output", "human"})
 	err := command.ExecuteContext(context.Background())
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
@@ -147,7 +147,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 	command = newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"status", "EXTRA", "--json"})
+	command.SetArgs([]string{"agent", "list", "EXTRA", "--json"})
 	err = command.ExecuteContext(context.Background())
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
@@ -164,7 +164,7 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 	t.Run("resolved default", func(t *testing.T) {
 		command := newRootCmd()
 		require.NoError(t, command.PersistentFlags().Set("data-dir", dataDir))
-		status, _, err := command.Find([]string{"status"})
+		status, _, err := command.Find([]string{"agent", "list"})
 		require.NoError(t, err)
 		selected, failure := acquireOnlineAdminBearer(status, &onlineOptions{})
 		require.Nil(t, failure)
@@ -177,7 +177,7 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 		require.NoError(t, os.WriteFile(explicitPath, []byte("not-a-bearer\n"), 0o600))
 		command := newRootCmd()
 		require.NoError(t, command.PersistentFlags().Set("data-dir", dataDir))
-		status, _, err := command.Find([]string{"status"})
+		status, _, err := command.Find([]string{"agent", "list"})
 		require.NoError(t, err)
 		_, failure := acquireOnlineAdminBearer(status, &onlineOptions{bearerFile: explicitPath})
 		require.NotNil(t, failure)
@@ -188,7 +188,7 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 	t.Run("stdin is selected before the default", func(t *testing.T) {
 		command := newRootCmd()
 		require.NoError(t, command.PersistentFlags().Set("data-dir", dataDir))
-		status, _, err := command.Find([]string{"status"})
+		status, _, err := command.Find([]string{"agent", "list"})
 		require.NoError(t, err)
 		status.SetIn(strings.NewReader(testAdministratorBearer + "\n"))
 		selected, failure := acquireOnlineAdminBearer(status, &onlineOptions{bearerStdin: true})
@@ -199,7 +199,7 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 
 	t.Run("conflicts fail before selection", func(t *testing.T) {
 		command := newRootCmd()
-		status, _, err := command.Find([]string{"status"})
+		status, _, err := command.Find([]string{"agent", "list"})
 		require.NoError(t, err)
 		_, failure := acquireOnlineAdminBearer(status, &onlineOptions{bearerFile: defaultPath, bearerStdin: true})
 		require.NotNil(t, failure)

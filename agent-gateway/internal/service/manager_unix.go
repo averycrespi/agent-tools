@@ -176,7 +176,7 @@ func (m *manager) execute(ctx context.Context, operation string, changes Changes
 	}
 	if operation == "start" && state.Loaded {
 		result.Message = "Already loaded; not restarted."
-		return result, nil
+		return m.awaitReadiness(ctx, result)
 	}
 	if operation == "update" && reflect.DeepEqual(proposed.Settings, d.Settings) {
 		result.Message = "Installed selections unchanged; not restarted."
@@ -290,9 +290,34 @@ func (m *manager) execute(ctx context.Context, operation string, changes Changes
 		return result, fmt.Errorf("installed settings retained; bootstrap outcome unknown: %w", err)
 	}
 	result.Launchd = "launch-accepted"
-	result.Message = "Launch accepted; readiness and credential health have not been established."
+	result.Message = "Launch accepted; credential health has not been established."
+	if operation == "start" || operation == "restart" {
+		return m.awaitReadiness(ctx, result)
+	}
 	return result, nil
 }
+
+// Readiness observations never repeat the bootstrap mutation or prove process identity.
+func (m *manager) awaitReadiness(ctx context.Context, result Result) (Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	for {
+		result.Readiness = m.probe(ctx, result.Settings.Listen)
+		if result.Readiness == "ready" {
+			result.Message += " Listener readiness confirmed; this is not upstream credential health."
+			return result, nil
+		}
+		timer := time.NewTimer(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			result.Message += " Readiness was not confirmed; no startup was replayed."
+			return result, errors.New("readiness deadline reached; check the displayed logs and run agent-gateway doctor")
+		case <-timer.C:
+		}
+	}
+}
+
 func (m *manager) install(ctx context.Context, changes Changes, result Result) (Result, error) {
 	root := filepath.Join(m.home, ".local", "share", "agent-gateway")
 	if changes.DataDir == nil && m.xdg != "" {

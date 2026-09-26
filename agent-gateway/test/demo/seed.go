@@ -65,7 +65,7 @@ func seed(ctx context.Context, c *client, root, proxy string, endpoints map[stri
 	}
 	for _, label := range labels {
 		sink := filepath.Join(root, demoAgentFile(label))
-		err := command("issue "+label, []string{"principal", "credential", "issue", principals[label], "--secret-output", sink, "--yes", "--address", "http://" + c.listen, "--admin-bearer-file", filepath.Join(root, "admin-bearer")})
+		err := command("issue "+label, []string{"agent", "credential", "issue", principals[label], "--secret-output", sink, "--yes", "--address", "http://" + c.listen, "--admin-bearer-file", filepath.Join(root, "admin-bearer")})
 		if err != nil {
 			return err
 		}

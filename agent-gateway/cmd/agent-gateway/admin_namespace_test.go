@@ -25,7 +25,7 @@ func TestCLIAdminNamespaceAndCredentialCreate(t *testing.T) {
 	require.NoError(t, err)
 	createCommand, _, err := root.Find([]string{"admin", "credential", "create"})
 	require.NoError(t, err)
-	resetCommand, _, err := root.Find([]string{"admin", "reset"})
+	resetCommand, _, err := root.Find([]string{"maintenance", "reset-admin-credentials"})
 	require.NoError(t, err)
 	assert.Contains(t, adminCommand.Short, "administrator")
 	assert.Contains(t, credentialCommand.Short, "credential")

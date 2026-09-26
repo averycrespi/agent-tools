@@ -39,14 +39,20 @@ func TestStoppedCAOwnershipAndPublicOnlyExport(t *testing.T) {
 	require.Empty(t, backend.values)
 	require.NoError(t, owner.MarkClean())
 	require.NoError(t, owner.Close())
+	refusal := errors.New("confirmation refused")
+	_, err = httpCA(ctx, root, "", "replace", clock, rand.Reader, factory, CACallbacks{Confirm: func(plan CAPlan) error {
+		require.Equal(t, id, plan.InstallationID)
+		require.False(t, plan.HadCA)
+		return refusal
+	}})
+	require.ErrorIs(t, err, refusal)
+	require.Empty(t, backend.values)
 	_, err = httpCA(ctx, root, "01ARZ3NDEKTSV4RRFFQ69G5FAW", "create", clock, rand.Reader, factory)
 	require.Error(t, err)
 	require.Empty(t, backend.values)
-	_, err = run("replace")
-	require.Error(t, err)
 	_, err = run("export")
 	require.Error(t, err)
-	cert, err := run("create")
+	cert, err := httpCA(ctx, root, "", "replace", clock, rand.Reader, factory)
 	require.NoError(t, err)
 	block, rest := pem.Decode(cert)
 	require.NotNil(t, block)
@@ -85,6 +91,18 @@ func TestStoppedCAOwnershipAndPublicOnlyExport(t *testing.T) {
 	recovered, err := run("replace")
 	require.NoError(t, err)
 	require.NotEqual(t, replacement, recovered)
+	published, err := httpCA(ctx, root, "", "replace", clock, rand.Reader, factory, CACallbacks{Publish: func(certificate, previous []byte) error {
+		require.Equal(t, recovered, previous)
+		require.NotEmpty(t, certificate)
+		return errors.New("unrelated destination")
+	}})
+	require.ErrorIs(t, err, ErrCAPublication)
+	var effect *CAEffectError
+	require.ErrorAs(t, err, &effect)
+	require.Equal(t, "changed", effect.Effect)
+	exported, err = run("export")
+	require.NoError(t, err)
+	require.Equal(t, published, exported, "publication failure must not replace authority again")
 }
 
 func TestStoppedCARejectsAbsentRootWithoutCreatingIt(t *testing.T) {

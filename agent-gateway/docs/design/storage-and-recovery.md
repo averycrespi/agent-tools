@@ -100,7 +100,7 @@ busy checkpoint refuses admission rather than growing the WAL indefinitely.
 
 The default combined database-plus-WAL budget is **4,294,967,296 bytes**; the
 `serve` and persisted service configuration accept 1 MiB–16 GiB through
-`--traffic-budget-bytes`, validated before storage mutation. File lengths, not allocated filesystem
+`--traffic-budget-bytes`, validated before storage mutation. The CLI accepts integer bytes and exact-case B/KB/MB/GB/KiB/MiB/GiB units with overflow checks; installed settings retain canonical decimal bytes. File lengths, not allocated filesystem
 blocks or logical SQLite page counts alone, are measured. For 4096-byte pages,
 64 KiB is safety headroom; at most one third of the remainder is database pages.
 Before each transaction the writer reserves `32 + (maximum_pages + 2) * 4120`
@@ -155,9 +155,9 @@ is faulted; readable history alone cannot acknowledge or resume execution.
 
 ## Installation selection after migration retirement
 
-`internal/paths` owns canonical root selection and process locks. New defaults use `agent-gateway`; legacy entries cause implicit selection to fail unless they are an exact completed tombstone bound to the original moved directory's device/inode. The current executable uses this selection and `gateway.lock` regardless of an accidental basename change. Explicit roots remain authoritative, including legacy/custom roots; there is no filesystem search, automatic relocation, merge or second owner.
+`internal/paths` owns canonical root selection and process locks. Defaults use `agent-gateway`; legacy directories, files, links and tombstones are not inspected and never affect implicit selection. Selected-root ownership, permissions, integrity and locking remain mandatory. The current executable uses this selection and `gateway.lock` regardless of an accidental basename change. Explicit roots remain authoritative, including legacy/custom roots; there is no filesystem search, automatic relocation, merge or second owner.
 
-The installation-migration CLI, stopped host inspection and atomic whole-directory exchange are retired after rollout-owner attestation that all installations migrated. Only read-only recognition of the persisted v1 tombstone remains: an owner-only regular file with the exact source, destination, device and inode record, and the original owner-only directory at the destination. Unknown, incomplete, oversized, unsafe or mismatched records refuse implicit selection. The source tombstone still blocks old binaries from recreating a root; it is not portable backup metadata.
+The installation-migration CLI, stopped host inspection and atomic whole-directory exchange are retired after rollout-owner attestation that all installations migrated. Historical v1 tombstones retain the exact source, destination, device and inode record. Neither completed nor unknown, incomplete, oversized, unsafe or mismatched records participate in implicit selection. The source tombstone still blocks old binaries from recreating a root; it is not portable backup metadata.
 
 Nothing deletes or rewrites tombstones, interrupted reservations, old plists, logs, backups or recovery markers. There is no resume or reverse-exchange command. Unexpected residual state or durability uncertainty requires operator investigation and a separately reviewed stopped plan. Binary/configuration rollback retains the same destination root. See [installation safety](../operators/installation-safety.md).
 
@@ -181,7 +181,7 @@ Durability failure and latch events classify size check, identity check, intent 
 
 ### Agent-candidate recovery
 
-`storage verify` reacquires stopped-process ownership, requires the current schema, and applies a recognized recovery action before clearing marker artifacts. Agent candidate cleanup is the sole stopped-process agent-credential SQL exception in storage: it clears only an exact current ID/revision tuple and advances principal and credential revisions once, while absent, replaced, or stale candidates are no-ops and no prior credential is restored. Unknown, mixed, disagreeing, foreign-installation, oversized, or failed recovery remains latched. The command closes SQLite before durable marker removal, emits one safe machine JSON result, and does not make the service ready; normal startup must verify the generation again.
+`maintenance verify-and-recover-storage` reacquires stopped-process ownership, requires the current schema, and applies a recognized recovery action before clearing marker artifacts. Agent candidate cleanup is the sole stopped-process agent-credential SQL exception in storage: it clears only an exact current ID/revision tuple and advances principal and credential revisions once, while absent, replaced, or stale candidates are no-ops and no prior credential is restored. Unknown, mixed, disagreeing, foreign-installation, oversized, or failed recovery remains latched. The command closes SQLite before durable marker removal, emits one safe machine JSON result, and does not make the service ready; normal startup must verify the generation again.
 
 ### Restore credential invalidation
 
@@ -189,9 +189,11 @@ Authorization separately owns general stopped-stage credential surgery on a supp
 
 ### Operator command boundary
 
-Both installed executable names expose `storage verify` and `backup restore BACKUP_ID` from one CLI implementation. Retired top-level `restore` and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink; neither offline command introduces a confirmation prompt, and existing online consequence confirmations are unchanged.
+The canonical executable exposes `maintenance verify-and-recover-storage`, `maintenance reset-admin-credentials`, `maintenance restore-backup BACKUP_ID`, and `maintenance migrate-traffic-storage`. Retired `storage`, `admin reset`, `backup restore`, top-level `restore`, and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink. Migration requires an exact installation ID; other operations accept an optional assertion.
 
-CLI success projections use `operation:"storage_verify"` or `operation:"backup_restore"`, with no `mode` member. Both retain `ok`, `installation_id`, and decimal-string `revision`; only restore has `backup_id`. This projection is separate from durable backup metadata and audit vocabulary. Exact JSON, typed exits, stopped-service prerequisites, and rollback/uncertainty procedures are published in the [operator recovery guide](../operators/backup-and-recovery.md#structured-results-and-exits). No command rename alters data-root precedence, schema support, installed service argv, installation/credential/keyring identities, lineage, or recovery markers. No automatic replay or compensation is added.
+Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery. Inspection hashes the closed database, marker slots and selected traffic evidence; restore additionally verifies artifact metadata. Execution revalidates the inspected plan under uninterrupted stopped ownership before any write. Unknown or inconsistent marker actions and preexisting restore-stage artifacts refuse. Dry runs never write audits, markers, SQLite sidecars, stages or bearer files. Domain owners remain responsible for mutation semantics and report known staging, changed-selection and uncertain effects without replay.
+
+CLI success projections use `operation:"verify-and-recover-storage"` or `operation:"restore-backup"`, with no `mode` member. Both retain `ok`, `installation_id`, and decimal-string `revision`; only restore has `backup_id`. This projection is separate from durable backup metadata and audit vocabulary. Exact JSON, typed exits, stopped-service prerequisites, and rollback/uncertainty procedures are published in the [operator recovery guide](../operators/backup-and-recovery.md#structured-results-and-exits). No command rename alters data-root precedence, schema support, installed service argv, installation/credential/keyring identities, lineage, or recovery markers. No automatic replay or compensation is added.
 
 ## Backup and generation replacement
 

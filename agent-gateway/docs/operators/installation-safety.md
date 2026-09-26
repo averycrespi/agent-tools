@@ -10,28 +10,27 @@ The installation-migration CLI and atomic path-exchange capability are retired. 
 
 The current `agent-gateway` resolves an explicit `--data-dir` first, including an existing custom or legacy root. Otherwise the selected base is absolute `XDG_DATA_HOME`, or the OS-account home plus `.local/share`; shell `HOME` is not authoritative. Relative XDG input fails unless overridden explicitly.
 
-| Selected base contains                                            | Implicit CLI selection                                                                |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Neither root                                                      | Canonical `agent-gateway`; only explicit initialization creates state                 |
-| Canonical directory only                                          | Canonical root                                                                        |
-| Legacy directory only, or both directories                        | Refuse; select the actual existing root explicitly, never merge or initialize another |
-| Unknown legacy file, link or inspection error                     | Refuse; preserve evidence and investigate                                             |
-| Valid completed tombstone plus original moved canonical directory | Canonical root                                                                        |
-| Custom root                                                       | Use explicit `--data-dir`; no filesystem search or fallback                           |
+| Selected base contains                             | Implicit CLI selection                                                |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| Neither root                                       | Canonical `agent-gateway`; only explicit initialization creates state |
+| Canonical directory only                           | Canonical root                                                        |
+| Legacy directory only, or both directories         | Canonical root; legacy locations are not inspected                    |
+| Legacy file, link, inaccessible entry or tombstone | Canonical root; legacy artifacts do not affect selection              |
+| Custom root                                        | Use explicit `--data-dir`; no filesystem search or fallback           |
 
-Default detection covers only the selected base, not every past XDG location or custom supervisor. Changing XDG settings is not relocation. An explicit root does not authorize a second installation. Preserve the actual installed root and service arguments during upgrades; do not reinitialize or rotate credentials for naming.
+Selection does not inspect legacy paths, tombstones, past XDG locations, or custom supervisors. Changing XDG settings is not relocation. An explicit root does not authorize a second installation. Preserve the actual installed root and service arguments during upgrades; do not reinitialize or rotate credentials for naming.
 
 The canonical [service manager](launchd.md) assumes naming adoption is complete: it does not inspect legacy labels or import archived plists. For an existing installation, select its exact `--data-dir` and preserve installed settings. Reconcile unexpected legacy/custom launchers separately before managing a live service.
 
 ## Retain tombstones and recovery evidence
 
-A completed migration left an owner-only `0600` regular-file tombstone at the old source path. Its persisted v1 record binds the exact source/destination paths and original directory device/inode. It permits canonical default selection only while that original owner-only directory remains at the destination. It also blocks older binaries from preparing a new root at the legacy path.
+A completed migration left an owner-only `0600` regular-file tombstone at the old source path. Its persisted v1 record binds the exact source/destination paths and original directory device/inode. It no longer controls canonical default selection. The file still blocks binaries from preparing a directory at that exact legacy path.
 
-Never delete, rename, rewrite or copy a tombstone to bypass a refusal. The record is not portable backup metadata. A copied/replaced destination, changed paths, foreign or incomplete record, or interrupted destination reservation requires investigation, not another migration invocation. The current binary cannot resume or reverse a path exchange. Keep all evidence and obtain a separately reviewed, stopped operator plan for unexpected residual state.
+Never delete, rename, rewrite or copy a tombstone as naming cleanup. The record is not portable backup metadata. A copied/replaced destination, changed paths, foreign or incomplete record, or interrupted destination reservation requires investigation, not another migration invocation. The current binary cannot resume or reverse a path exchange. Keep all evidence and obtain a separately reviewed, stopped operator plan for unexpected residual state.
 
 Retain historical backups/reports, archived plists outside automatic-load paths, logs, staging/rollback material, native-keyring generations and recovery/intent markers. Binary/configuration rollback keeps the same authoritative destination root and tombstone; never restore an archived plist's old source argument or make a runnable clone. Run only one service owner.
 
-Installation IDs, database/backup lineage, lock filenames, credential prefixes/verifiers, native-keyring identifiers and MCP identities remain compatibility contracts. Use [backup and recovery](backup-and-recovery.md) only for actual recovery: `storage verify` can clear recognized markers, while `backup restore` replaces administrator authority and invalidates agent credentials. Neither is a naming repair.
+Installation IDs, database/backup lineage, lock filenames, credential prefixes/verifiers, native-keyring identifiers and MCP identities remain compatibility contracts. Use [backup and recovery](backup-and-recovery.md) only for actual recovery: `maintenance verify-and-recover-storage` can clear recognized markers, while `maintenance restore-backup` replaces administrator authority and invalidates agent credentials. Neither is a naming repair.
 
 ## Retired executable and operator cleanup
 

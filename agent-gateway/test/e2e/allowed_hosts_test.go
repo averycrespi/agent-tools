@@ -75,7 +75,7 @@ func TestAllowedHostnameAdministrationLifecycle(t *testing.T) {
 	assert.Equal(t, 400, request("host.lima.internal", "Bearer "+sandboxBearer, "/api/v2/system-status", http.Header{"X-Forwarded-Host": {"host.lima.internal"}}).StatusCode)
 	_, port, err := net.SplitHostPort(harness.authority)
 	require.NoError(t, err)
-	cli := runCLIAt(t, harness, sandboxPath, "http://localhost:"+port, "status", "--output", "json")
+	cli := runCLIAt(t, harness, sandboxPath, "http://localhost:"+port, "agent", "list", "--output", "json")
 	require.Zero(t, cli.ExitCode, "%s", cli.Stderr)
 	assert.NotContains(t, string(cli.Stdout)+string(cli.Stderr), sandboxBearer)
 
@@ -83,7 +83,7 @@ func TestAllowedHostnameAdministrationLifecycle(t *testing.T) {
 	harness.serveArgs = baseArgs
 	harness.Start()
 	status("host.lima.internal", "Bearer "+sandboxBearer, 421)
-	runOnlineCLI(t, harness, sandboxPath, true, "status", "--output", "json")
+	runOnlineCLI(t, harness, sandboxPath, true, "agent", "list", "--output", "json")
 	harness.Stop(syscall.SIGTERM)
 	harness.serveArgs = append(append([]string(nil), baseArgs...), "--allowed-host", "host.lima.internal")
 	harness.Start()
@@ -91,6 +91,6 @@ func TestAllowedHostnameAdministrationLifecycle(t *testing.T) {
 	runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "revoke", credential.ID, "--yes", "--output", "json")
 	status("host.lima.internal", "Bearer "+sandboxBearer, 401)
 	status("host.lima.internal", "Bearer "+harness.bearer, 200)
-	runOnlineCLI(t, harness, bearerPath, true, "status", "--output", "json")
+	runOnlineCLI(t, harness, bearerPath, true, "agent", "list", "--output", "json")
 	harness.Stop(syscall.SIGTERM)
 }

@@ -15,9 +15,15 @@ func VerifyCurrent(ctx context.Context, root string) (Identity, error) {
 	return VerifyCurrentWithTraffic(ctx, root, nil)
 }
 
-func VerifyCurrentWithTraffic(ctx context.Context, root string, verifyTraffic func(context.Context, *gatewaypaths.Ownership, *Store) error) (Identity, error) {
+func VerifyCurrentWithTraffic(ctx context.Context, root string, verifyTraffic func(context.Context, *gatewaypaths.Ownership, *Store) error, approvals ...StoppedApproval) (result Identity, resultErr error) {
+	started := false
+	defer func() {
+		if resultErr != nil && started {
+			resultErr = &OperationError{Effect: "uncertain", Cause: resultErr}
+		}
+	}()
 	ctx = audit.WithOffline(ctx)
-	ownership, err := gatewaypaths.AcquireForMaintenance(root)
+	ownership, err := gatewaypaths.AcquireStoppedExisting(root)
 	if err != nil {
 		if errors.Is(err, gatewaypaths.ErrInUse) {
 			return Identity{}, fmt.Errorf("storage verify requires a stopped Gateway: %w", err)
@@ -25,6 +31,9 @@ func VerifyCurrentWithTraffic(ctx context.Context, root string, verifyTraffic fu
 		return Identity{}, fmt.Errorf("acquire stopped-process ownership: %w", err)
 	}
 	defer func() { _ = ownership.Close() }()
+	if err := ApproveStopped(ctx, ownership, approvals); err != nil {
+		return Identity{}, err
+	}
 	layout := ownership.Layout()
 	if err := gatewaypaths.ValidateOwnerOnlyFile(layout.Database); err != nil {
 		return Identity{}, fmt.Errorf("%w: database path: %w", ErrInvalidDatabase, err)
@@ -81,6 +90,7 @@ func VerifyCurrentWithTraffic(ctx context.Context, root string, verifyTraffic fu
 		_ = store.Close()
 		return Identity{}, err
 	}
+	started = true
 	if _, err := audit.AppendTx(ctx, transaction, attempt); err != nil {
 		_ = transaction.Rollback()
 		_ = store.Close()

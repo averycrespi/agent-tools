@@ -40,7 +40,7 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 		address := "http://" + listener.Addr().String()
 		require.NoError(t, listener.Close())
 
-		read := run(t, address, "status")
+		read := run(t, address, "agent", "list")
 		read.requireProblem(t, 9, "gateway_not_running", false)
 		assert.Contains(t, string(read.result.Stderr), "agent-gateway serve --listen "+listener.Addr().String())
 		mutation := run(t, address, "backup", "create", "--idempotency-key", "foundation-refusal")
@@ -56,7 +56,7 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 			_, _ = response.Write([]byte(`{"status":503,"code":"storage_unavailable","title":"Storage is unavailable."}`))
 		}))
 		defer server.Close()
-		result := run(t, server.URL, "status")
+		result := run(t, server.URL, "agent", "list")
 		result.requireProblem(t, 7, "storage_unavailable", false, http.StatusServiceUnavailable)
 		assert.Equal(t, int64(1), requests.Load())
 	})

@@ -402,7 +402,7 @@ func seedInvocationHistory(t *testing.T, root string, count int) {
 	require.NoError(t, ownership.Close())
 	runner, err := testutil.NewBinaryRunner(60*time.Second, 64*1024)
 	require.NoError(t, err)
-	result, err := runner.Run(t.Context(), gatewayBinary(t), "storage", "migrate-traffic", "--data-dir", root, "--installation-id", identity.InstallationID, "--confirm")
+	result, err := runner.Run(t.Context(), gatewayBinary(t), "maintenance", "migrate-traffic-storage", "--data-dir", root, "--installation-id", identity.InstallationID, "--confirm")
 	require.NoError(t, err, "stopped migration: %s", result.Stderr)
 	require.True(t, result.Cleanup.Reaped)
 	require.False(t, result.Cleanup.Survived)

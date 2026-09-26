@@ -46,14 +46,14 @@ func TestRecoveryCommandRefusalsPreserveGenerationRealBinary(t *testing.T) {
 	}{
 		{"retired restore", []string{"restore", corruptID, "--secret-output", secret}, 2, ""},
 		{"retired verification", []string{"restore", "--verify-current"}, 2, ""},
-		{"missing ID", []string{"backup", "restore", "--json", "--secret-output", secret}, 2, "client_invalid_input"},
-		{"invalid ID", []string{"backup", "restore", "../unsafe", "--json", "--secret-output", secret}, 2, "client_invalid_input"},
-		{"missing sink", []string{"backup", "restore", corruptID, "--json"}, 2, "client_invalid_input"},
-		{"missing backup", []string{"backup", "restore", "01ARZ3NDEKTSV4RRFFQ69G5FAX", "--json", "--secret-output", secret}, 4, "invalid_backup"},
-		{"corrupt backup", []string{"backup", "restore", corruptID, "--json", "--secret-output", secret}, 4, "invalid_backup"},
-		{"retired flag", []string{"backup", "restore", "--json", "--verify-current"}, 2, "client_invalid_input"},
-		{"verification cannot restore", []string{"storage", "verify", corruptID, "--json"}, 2, "client_invalid_input"},
-		{"unknown recovery remains latched", []string{"storage", "verify", "--json"}, 7, "storage_unavailable"},
+		{"missing ID", []string{"maintenance", "restore-backup", "--confirm", "--json", "--secret-output", secret}, 2, "client_invalid_input"},
+		{"invalid ID", []string{"maintenance", "restore-backup", "--confirm", "../unsafe", "--json", "--secret-output", secret}, 2, "client_invalid_input"},
+		{"missing sink", []string{"maintenance", "restore-backup", "--confirm", corruptID, "--json"}, 2, "client_invalid_input"},
+		{"missing backup", []string{"maintenance", "restore-backup", "--confirm", "01ARZ3NDEKTSV4RRFFQ69G5FAX", "--json", "--secret-output", secret}, 4, "invalid_backup"},
+		{"corrupt backup", []string{"maintenance", "restore-backup", "--confirm", corruptID, "--json", "--secret-output", secret}, 4, "invalid_backup"},
+		{"retired flag", []string{"maintenance", "restore-backup", "--confirm", "--json", "--verify-current"}, 2, "client_invalid_input"},
+		{"verification cannot restore", []string{"maintenance", "verify-and-recover-storage", "--confirm", corruptID, "--json"}, 2, "client_invalid_input"},
+		{"unknown recovery remains latched", []string{"maintenance", "verify-and-recover-storage", "--confirm", "--json"}, 7, "storage_latched"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			args := append([]string{"--data-dir", root}, test.args...)
@@ -78,6 +78,21 @@ func TestRecoveryCommandRefusalsPreserveGenerationRealBinary(t *testing.T) {
 			assert.ErrorIs(t, statErr, os.ErrNotExist)
 		})
 	}
+}
+
+func assertMaintenancePlan(t *testing.T, output []byte, operation string) {
+	t.Helper()
+	var plan struct {
+		Operation      string   `json:"operation"`
+		DataDir        string   `json:"data_dir"`
+		InstallationID string   `json:"installation_id"`
+		Actions        []string `json:"actions"`
+	}
+	require.NoError(t, json.Unmarshal(output, &plan))
+	assert.Equal(t, operation, plan.Operation)
+	assert.True(t, filepath.IsAbs(plan.DataDir))
+	assert.NotEmpty(t, plan.InstallationID)
+	assert.NotEmpty(t, plan.Actions)
 }
 
 func TestStorageVerifyExactCandidateRealBinary(t *testing.T) {
@@ -106,11 +121,11 @@ func TestStorageVerifyExactCandidateRealBinary(t *testing.T) {
 	marker := `{"installation_id":"` + installationID + `","state":"armed","recovery":{"action":"invalidate_agent_credential_candidate","principal_id":"` + principalID + `","credential_id":"` + credentialID + `","principal_revision":2,"credential_revision":1}}`
 	require.NoError(t, os.WriteFile(layout.MutationMarker, []byte(marker), 0o600))
 	require.NoError(t, ownership.Close())
-	result, err := runner.Run(ctx, binary, "storage", "verify", "--data-dir", root, "--json")
+	result, err := runner.Run(ctx, binary, "maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", root, "--json")
 	require.NoError(t, err, "%s", result.Stderr)
 	assertSettledResult(t, result)
-	assert.Empty(t, result.Stderr)
-	assert.JSONEq(t, `{"ok":true,"operation":"storage_verify","installation_id":"`+installationID+`","revision":"0"}`, string(result.Stdout))
+	assertMaintenancePlan(t, result.Stderr, "verify-and-recover-storage")
+	assert.JSONEq(t, `{"ok":true,"operation":"verify-and-recover-storage","installation_id":"`+installationID+`","revision":"0"}`, string(result.Stdout))
 	_, err = os.Lstat(layout.MutationMarker)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 	ownership, err = gatewaypaths.Acquire(root)

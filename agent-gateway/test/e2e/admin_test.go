@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -30,25 +31,30 @@ func TestAdminAuthorityRealBinaryIsOneTimeAndResetIsAtomic(t *testing.T) {
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
 
-	initialized, err := runner.Run(ctx, binary, "initialize", "--data-dir", root, "--secret-output", initialPath, "--output", "json")
+	initialized, err := runner.Run(ctx, binary, "init", "--confirm", "--data-dir", root, "--secret-output", initialPath, "--json")
 	require.NoError(t, err)
 	assert.Equal(t, 0, initialized.ExitCode)
-	assert.Empty(t, initialized.Stderr)
+	assert.Contains(t, string(initialized.Stderr), `"operation":"init"`)
 	var initialResult map[string]any
 	require.NoError(t, json.Unmarshal(initialized.Stdout, &initialResult))
-	assert.Equal(t, "1", initialResult["revision"])
+	initialRevision, err := strconv.ParseUint(initialResult["revision"].(string), 10, 64)
+	require.NoError(t, err)
+	assert.Positive(t, initialRevision)
 	initialBearer := readBearer(t, initialPath)
 	assert.NotContains(t, string(initialized.Stdout), initialBearer)
 
-	reset, err := runner.Run(ctx, binary, "admin", "reset", "--data-dir", root, "--secret-output", resetPath, "--output", "json")
+	reset, err := runner.Run(ctx, binary, "maintenance", "reset-admin-credentials", "--confirm", "--data-dir", root, "--secret-output", resetPath, "--json")
 	require.NoError(t, err)
 	assert.Equal(t, 0, reset.ExitCode)
-	assert.Empty(t, reset.Stderr)
+	assertMaintenancePlan(t, reset.Stderr, "reset-admin-credentials")
+	var resetResult map[string]any
+	require.NoError(t, json.Unmarshal(reset.Stdout, &resetResult))
+	assert.Equal(t, strconv.FormatUint(initialRevision+1, 10), resetResult["revision"])
 	resetBearer := readBearer(t, resetPath)
 	assert.NotEqual(t, initialBearer, resetBearer)
 	assert.NotContains(t, string(reset.Stdout), resetBearer)
 
-	failed, err := runner.Run(ctx, binary, "admin", "reset", "--data-dir", root, "--secret-output", resetPath, "--output", "json")
+	failed, err := runner.Run(ctx, binary, "maintenance", "reset-admin-credentials", "--confirm", "--data-dir", root, "--secret-output", resetPath, "--json")
 	assert.Error(t, err)
 	assert.Equal(t, 2, failed.ExitCode)
 	assert.Empty(t, failed.Stdout)
@@ -58,7 +64,7 @@ func TestAdminAuthorityRealBinaryIsOneTimeAndResetIsAtomic(t *testing.T) {
 		Uncertain bool   `json:"uncertain"`
 	}
 	require.NoError(t, json.Unmarshal(failed.Stderr, &problem))
-	assert.Equal(t, "secret_output_unavailable", problem.Code)
+	assert.Equal(t, "client_invalid_input", problem.Code)
 	assert.Equal(t, 2, problem.ExitCode)
 	assert.False(t, problem.Uncertain)
 
@@ -90,7 +96,7 @@ func assertCanaryAbsent(t *testing.T, canary, root string, results ...testutil.P
 		require.NoError(t, scanner.Scan("stdout", bytes.NewReader(result.Stdout)), "result %d", index)
 		require.NoError(t, scanner.Scan("stderr/log", bytes.NewReader(result.Stderr)), "result %d", index)
 	}
-	require.NoError(t, scanner.Scan("argv", bytes.NewBufferString("initialize admin reset --data-dir --secret-output")))
+	require.NoError(t, scanner.Scan("argv", bytes.NewBufferString("init maintenance reset-admin-credentials --data-dir --secret-output")))
 	require.NoError(t, filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || !info.Mode().IsRegular() {
 			return walkErr

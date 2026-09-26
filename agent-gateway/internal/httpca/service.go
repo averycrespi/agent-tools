@@ -92,12 +92,51 @@ func PublicCertificate(ctx context.Context, store *storage.Store) ([]byte, strin
 	return cert, strconv.FormatUint(r.revision, 10), err
 }
 
+// Inspection distinguishes a never-created CA from retained or invalidated
+// authority without touching protected material. Presence does not prove signing.
+type Inspection struct {
+	Revision    string `json:"revision"`
+	Present     bool   `json:"present"`
+	Selected    bool   `json:"selected"`
+	Unsettled   bool   `json:"unsettled"`
+	Certificate []byte `json:"-"`
+}
+
+func Inspect(ctx context.Context, store *storage.Store) (Inspection, error) {
+	var result Inspection
+	err := store.View(ctx, func(tx *sql.Tx) error { var err error; result, err = InspectTx(ctx, tx); return err })
+	return result, err
+}
+
+func InspectTx(ctx context.Context, tx *sql.Tx) (Inspection, error) {
+	r, err := read(ctx, tx)
+	if err != nil {
+		return Inspection{}, err
+	}
+	var unsettled int
+	if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM keyring_authority_fences WHERE kind='http_ca') + (SELECT count(*) FROM keyring_candidates WHERE kind='http_ca')`).Scan(&unsettled); err != nil {
+		return Inspection{}, err
+	}
+	result := Inspection{Revision: strconv.FormatUint(r.revision, 10), Present: r.certificate != nil, Selected: r.handle.Valid, Unsettled: unsettled != 0}
+	if result.Present {
+		result.Certificate, err = publicPEM(r.certificate)
+	}
+	return result, err
+}
+
 // Revision is the safe metadata precondition for an explicitly stopped mutation.
 func (s *Service) Revision(ctx context.Context) (string, error) {
 	var r record
 	err := s.store.View(ctx, func(tx *sql.Tx) error { var err error; r, err = read(ctx, tx); return err })
 	return strconv.FormatUint(r.revision, 10), err
 }
+
+// CutoverError marks entry into authority cutover. Earlier validation and entropy
+// failures leave authority unchanged; a failed cutover must not be replayed.
+type CutoverError struct{ Cause error }
+
+func (e *CutoverError) Error() string { return "CA cutover outcome uncertain" }
+func (e *CutoverError) Unwrap() error { return e.Cause }
 
 // Replace is explicit creation (expected "0") or replacement. It is never
 // called by startup, Load or recovery. The caller owns stopped installation
@@ -128,7 +167,10 @@ func (s *Service) Replace(ctx context.Context, expected string) error {
 		return err
 	}
 	_, err = s.coordinator.ReplaceFencedAfterAuthorizationSuccess(ctx, ns, payload, s.callback(expected, cert))
-	return err
+	if err != nil {
+		return &CutoverError{Cause: err}
+	}
+	return nil
 }
 
 func (s *Service) callback(expected string, cert []byte) keyring.AuthorityCallback {

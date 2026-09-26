@@ -77,7 +77,7 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 	t.Run("principal issue and rotate enforce slot intent", func(t *testing.T) {
 		emptyServer, emptyRequests := newPrincipalCredentialIntentServer(t, resourceID, false)
 		issuePath := filepath.Join(t.TempDir(), "issued")
-		output, err := executeCredentialETagCommand(t, emptyServer.URL, "principal", "credential", "issue", resourceID, "--secret-output", issuePath, "--yes")
+		output, err := executeCredentialETagCommand(t, emptyServer.URL, "agent", "credential", "issue", resourceID, "--secret-output", issuePath, "--yes")
 		require.NoError(t, err, "%s", output)
 		require.Len(t, emptyRequests, 2)
 		assert.Equal(t, http.MethodGet, (<-emptyRequests).method)
@@ -88,7 +88,7 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 
 		occupiedServer, occupiedRequests := newPrincipalCredentialIntentServer(t, resourceID, true)
 		rotatePath := filepath.Join(t.TempDir(), "rotated")
-		output, err = executeCredentialETagCommand(t, occupiedServer.URL, "principal", "credential", "rotate", resourceID, "--etag", contract.PrincipalETag(resourceID, "7"), "--secret-output", rotatePath, "--yes")
+		output, err = executeCredentialETagCommand(t, occupiedServer.URL, "agent", "credential", "rotate", resourceID, "--etag", contract.PrincipalETag(resourceID, "7"), "--secret-output", rotatePath, "--yes")
 		require.NoError(t, err, "%s", output)
 		require.Len(t, occupiedRequests, 2)
 		assert.Equal(t, http.MethodGet, (<-occupiedRequests).method)
@@ -108,7 +108,7 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 			t.Run(publication.action+" publication failure", func(t *testing.T) {
 				secretPath := filepath.Join(t.TempDir(), "publication-failure")
 				server, requests := newPrincipalCredentialPublicationFailureServer(t, resourceID, publication.occupied, secretPath)
-				output, commandErr := executeCredentialETagCommand(t, server.URL, "principal", "credential", publication.action, resourceID, "--secret-output", secretPath, "--yes")
+				output, commandErr := executeCredentialETagCommand(t, server.URL, "agent", "credential", publication.action, resourceID, "--secret-output", secretPath, "--yes")
 				require.Error(t, commandErr)
 				assert.Equal(t, 2, commandExitCode(commandErr), "%s", output)
 				assert.Contains(t, string(output), publication.expected)
@@ -133,7 +133,7 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 			t.Run(mismatch.name, func(t *testing.T) {
 				server, requests := newPrincipalCredentialIntentServer(t, resourceID, mismatch.occupied)
 				secretPath := filepath.Join(t.TempDir(), "unused")
-				args := []string{"principal", "credential", mismatch.command, resourceID, "--secret-output", secretPath, "--yes"}
+				args := []string{"agent", "credential", mismatch.command, resourceID, "--secret-output", secretPath, "--yes"}
 				if mismatch.etag != "" {
 					args = append(args, "--etag", mismatch.etag)
 				}
@@ -148,7 +148,7 @@ func TestCLICredentialAndAuthFlowETagModes(t *testing.T) {
 	})
 
 	root := newRootCmd()
-	rotate, _, err := root.Find([]string{"principal", "credential", "rotate"})
+	rotate, _, err := root.Find([]string{"agent", "credential", "rotate"})
 	require.NoError(t, err)
 	assert.NotNil(t, rotate.Flags().Lookup("etag"))
 	assert.NotNil(t, rotate.Flags().Lookup("secret-output"))

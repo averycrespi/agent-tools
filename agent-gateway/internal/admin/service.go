@@ -148,13 +148,25 @@ func (service *Service) Reset(ctx context.Context, sink SecretSink) (contract.Ad
 		candidate.metadata.Revision = revision
 		return service.insertAuditedCredential(ctx, transaction, candidate, attempt)
 	}); err != nil {
-		return contract.AdminCredential{}, err
+		return contract.AdminCredential{}, &storage.OperationError{Effect: "uncertain", Cause: err}
 	}
 	service.notifyCredentialInvalidation(nil)
 	return candidate.metadata, nil
 }
 
 func (service *Service) Authenticate(ctx context.Context, bearer string) (contract.AdminCredential, error) {
+	var matched contract.AdminCredential
+	err := service.store.View(ctx, func(tx *sql.Tx) error {
+		var err error
+		matched, err = AuthenticateTx(ctx, tx, bearer, service.clock.Now())
+		return err
+	})
+	return matched, err
+}
+
+// AuthenticateTx permits immutable setup inspection to verify the selected bearer
+// without granting a writable Store or projecting verifier material.
+func AuthenticateTx(ctx context.Context, transaction *sql.Tx, bearer string, now time.Time) (contract.AdminCredential, error) {
 	if strings.HasPrefix(bearer, contract.AgentBearerPrefix) {
 		return contract.AdminCredential{}, ErrCredentialDomainMismatch
 	}
@@ -164,7 +176,7 @@ func (service *Service) Authenticate(ctx context.Context, bearer string) (contra
 	verifier := verifierForBearer(bearer)
 	var matched contract.AdminCredential
 	found := false
-	err := service.store.View(ctx, func(transaction *sql.Tx) error {
+	err := func() error {
 		rows, err := transaction.QueryContext(ctx, `
 			SELECT id, verifier, fingerprint, created_at, expires_at, status, revision
 			FROM admin_credentials WHERE status = 'active'`)
@@ -172,7 +184,6 @@ func (service *Service) Authenticate(ctx context.Context, bearer string) (contra
 			return fmt.Errorf("read active admin credentials: %w", err)
 		}
 		defer func() { _ = rows.Close() }()
-		now := service.clock.Now()
 		for rows.Next() {
 			record, err := scanCredential(rows, now)
 			if err != nil {
@@ -185,7 +196,7 @@ func (service *Service) Authenticate(ctx context.Context, bearer string) (contra
 			}
 		}
 		return rows.Err()
-	})
+	}()
 	if err != nil {
 		return contract.AdminCredential{}, err
 	}
@@ -196,14 +207,22 @@ func (service *Service) Authenticate(ctx context.Context, bearer string) (contra
 }
 
 func (service *Service) hasCredentials(ctx context.Context) (bool, error) {
-	var count int
+	var initialized bool
 	err := service.store.View(ctx, func(transaction *sql.Tx) error {
-		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM admin_credentials`).Scan(&count); err != nil {
-			return fmt.Errorf("count admin credentials: %w", err)
-		}
-		return nil
+		var err error
+		initialized, err = InitializedTx(ctx, transaction)
+		return err
 	})
-	return count != 0, err
+	return initialized, err
+}
+
+// InitializedTx includes retired credentials and never reads secret material.
+func InitializedTx(ctx context.Context, transaction *sql.Tx) (bool, error) {
+	var count int
+	if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM admin_credentials`).Scan(&count); err != nil {
+		return false, fmt.Errorf("count admin credentials: %w", err)
+	}
+	return count != 0, nil
 }
 
 func (service *Service) prepareCredential(expiresAt *time.Time) (credentialCandidate, error) {

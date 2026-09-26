@@ -33,20 +33,20 @@ func TestCLIFirstRun(t *testing.T) {
 	t.Setenv("HOME", ambientHome)
 	t.Setenv("XDG_DATA_HOME", "")
 
-	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "initialize")
+	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)
 	root := filepath.Join(home, ".local", "share", gatewaypaths.InstallationName)
 	bearerPath := filepath.Join(root, gatewaypaths.AdminBearerName)
 	bearer := assertDefaultBearer(t, bearerPath)
 	assertMode(t, root, 0o700)
-	assert.Contains(t, string(initialized.Stdout), "Gateway initialized successfully.")
+	assert.Contains(t, string(initialized.Stdout), "Gateway setup is complete.")
 	assert.Contains(t, string(initialized.Stdout), root)
 	assert.Contains(t, string(initialized.Stdout), bearerPath)
 	assert.Contains(t, string(initialized.Stdout), "agent-gateway serve")
 	assert.NotContains(t, string(initialized.Stdout), strings.TrimSpace(string(bearer)))
 	assert.NotContains(t, string(initialized.Stderr), strings.TrimSpace(string(bearer)))
-	assert.Empty(t, initialized.Stderr)
+	assert.Contains(t, string(initialized.Stderr), "Target:")
 	assertDirectoryEntries(t, ambientHome, nil)
 	assertDirectoryEntries(t, home, []string{".local"})
 
@@ -67,7 +67,7 @@ func TestCLIFirstRun(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("default serve did not acknowledge startup")
 	}
-	status, err := runner.Run(t.Context(), gatewayBinary(t), "status")
+	status, err := runner.Run(t.Context(), gatewayBinary(t), "doctor", "--online")
 	require.NoError(t, err, "default status: %s", status.Stderr)
 	assertSettledResult(t, status)
 	assert.Contains(t, string(status.Stdout), "principal_credentials")
@@ -87,7 +87,7 @@ func TestCLIFirstRun(t *testing.T) {
 func TestCLIAutomaticBearerSelection(t *testing.T) {
 	runner := firstRunRunner(t)
 	root := filepath.Join(t.TempDir(), "selected", "gateway")
-	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "initialize", "--data-dir", root, "--output", "json")
+	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm", "--data-dir", root, "--json")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)
 	bearer := assertDefaultBearer(t, filepath.Join(root, gatewaypaths.AdminBearerName))
@@ -111,7 +111,7 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 		t.Fatal("serve did not acknowledge startup")
 	}
 
-	status, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "status", "--address", "http://"+authority, "--output", "json")
+	status, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "agent", "list", "--address", "http://"+authority, "--output", "json")
 	require.NoError(t, err, "status without bearer flag: %s", status.Stderr)
 	assertSettledResult(t, status)
 	assert.Empty(t, status.Stderr)
@@ -122,13 +122,13 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 	explicitBearer := filepath.Join(t.TempDir(), "explicit-bearer")
 	require.NoError(t, os.WriteFile(explicitBearer, bearer, 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, gatewaypaths.AdminBearerName), []byte("malformed\n"), 0o600))
-	explicit, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "status", "--address", "http://"+authority, "--admin-bearer-file", explicitBearer, "--output", "json")
+	explicit, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "agent", "list", "--address", "http://"+authority, "--admin-bearer-file", explicitBearer, "--output", "json")
 	require.NoError(t, err, "status with explicit bearer file: %s", explicit.Stderr)
 	assertSettledResult(t, explicit)
 	assert.True(t, json.Valid(explicit.Stdout))
 	assert.NotContains(t, string(explicit.Stdout), strings.TrimSpace(string(bearer)))
 
-	stdinProcess, input, err := runner.StartWithInputPipe(t.Context(), gatewayBinary(t), "--data-dir", root, "status", "--address", "http://"+authority, "--admin-bearer-stdin", "--output", "json")
+	stdinProcess, input, err := runner.StartWithInputPipe(t.Context(), gatewayBinary(t), "--data-dir", root, "agent", "list", "--address", "http://"+authority, "--admin-bearer-stdin", "--output", "json")
 	require.NoError(t, err)
 	_, err = input.Write(bearer)
 	require.NoError(t, err)
@@ -156,7 +156,7 @@ func TestCLIXDGAndOverrides(t *testing.T) {
 		require.NoError(t, os.Mkdir(xdg, 0o700))
 		t.Setenv(e2eAccountHomeEnvironment, home)
 		t.Setenv("XDG_DATA_HOME", xdg)
-		result, err := runner.Run(t.Context(), gatewayBinary(t), "initialize", "--output", "json")
+		result, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm", "--json")
 		require.NoError(t, err, "initialize XDG: %s", result.Stderr)
 		assertSettledResult(t, result)
 		root := filepath.Join(xdg, gatewaypaths.InstallationName)
@@ -170,7 +170,7 @@ func TestCLIXDGAndOverrides(t *testing.T) {
 		secret := filepath.Join(t.TempDir(), "selected-secret")
 		t.Setenv(e2eAccountHomeEnvironment, "")
 		t.Setenv("XDG_DATA_HOME", "relative-invalid")
-		result, err := runner.Run(t.Context(), gatewayBinary(t), "initialize", "--data-dir", explicit, "--secret-output", secret, "--output", "json")
+		result, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm", "--data-dir", explicit, "--secret-output", secret, "--json")
 		require.NoError(t, err, "initialize explicit: %s", result.Stderr)
 		assertSettledResult(t, result)
 		bearer := assertDefaultBearer(t, secret)
@@ -185,7 +185,7 @@ func TestCLIXDGAndOverrides(t *testing.T) {
 		require.NoError(t, os.Mkdir(home, 0o700))
 		t.Setenv(e2eAccountHomeEnvironment, home)
 		t.Setenv("XDG_DATA_HOME", "relative-invalid")
-		invalid, err := runner.Run(t.Context(), gatewayBinary(t), "initialize", "--output", "json")
+		invalid, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm", "--json")
 		require.Error(t, err)
 		assertSettledResult(t, invalid)
 		assert.Empty(t, invalid.Stdout)
@@ -194,7 +194,7 @@ func TestCLIXDGAndOverrides(t *testing.T) {
 
 		t.Setenv(e2eAccountHomeEnvironment, "")
 		t.Setenv("XDG_DATA_HOME", "")
-		unavailable, err := runner.Run(t.Context(), gatewayBinary(t), "initialize", "--output", "json")
+		unavailable, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm", "--json")
 		require.Error(t, err)
 		assertSettledResult(t, unavailable)
 		assert.Empty(t, unavailable.Stdout)
@@ -207,7 +207,7 @@ func TestCLIServeOutputLifecycle(t *testing.T) {
 	runner := firstRunRunner(t)
 	root := filepath.Join(t.TempDir(), "gateway")
 	secret := filepath.Join(t.TempDir(), "secret")
-	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "initialize", "--data-dir", root, "--secret-output", secret, "--output", "json")
+	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm", "--data-dir", root, "--secret-output", secret, "--json")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)
 
@@ -262,7 +262,7 @@ func TestCLIServeOutputLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &diagnostic))
 	require.Equal(t, "lifecycle_failure", diagnostic.Event)
 	require.NoError(t, json.Unmarshal([]byte(lines[1]), &problem))
-	assert.Equal(t, "storage_unavailable", problem.Code)
+	assert.Equal(t, "not_initialized", problem.Code)
 }
 
 func firstRunRunner(t *testing.T) *testutil.BinaryRunner {

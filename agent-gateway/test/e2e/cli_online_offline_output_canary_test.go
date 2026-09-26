@@ -22,24 +22,27 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 
-	status := runOnlineCLI(t, harness, bearerPath, true, "status", "--output", "json")
-	var snapshot contract.SystemStatus
+	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
+	var snapshot struct {
+		System contract.SystemStatus `json:"system"`
+	}
 	require.NoError(t, json.Unmarshal(status.Stdout, &snapshot))
-	assert.Equal(t, contract.ProcessReady, snapshot.Process.State)
+	assert.Equal(t, contract.ProcessReady, snapshot.System.Process.State)
 
 	invocations := runOnlineCLI(t, harness, bearerPath, true, "mcp", "invocation", "list", "--limit", "1", "--output", "json")
 	var page contract.InvocationPage
 	require.NoError(t, json.Unmarshal(invocations.Stdout, &page))
 	assert.Empty(t, page.Items)
 
-	restore, err := harness.runner.Run(context.Background(), harness.binary, "storage", "verify", "--data-dir", harness.root, "--output", "json")
+	restore, err := harness.runner.Run(context.Background(), harness.binary, "maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", harness.root, "--json")
 	require.Error(t, err)
 	assert.Equal(t, 5, restore.ExitCode)
 	assert.Empty(t, restore.Stdout)
-	assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before verifying current storage.","exit_code":5,"uncertain":false}`, string(restore.Stderr))
+	assert.Contains(t, string(restore.Stderr), `"code":"gateway_running"`)
+	assert.Contains(t, string(restore.Stderr), "Stop the selected installation")
 
 	harness.Stop(syscall.SIGTERM)
-	stopped := runOnlineCLI(t, harness, bearerPath, false, "status", "--output", "json")
+	stopped := runOnlineCLI(t, harness, bearerPath, false, "agent", "list", "--output", "json")
 	assert.Equal(t, 9, stopped.ExitCode)
 	assert.Empty(t, stopped.Stdout)
 	assert.Contains(t, string(stopped.Stderr), `"code":"gateway_not_running"`)

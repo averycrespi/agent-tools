@@ -40,20 +40,32 @@ type RestoreOptions struct {
 	Sink     admin.SecretSink
 	Clock    admin.Clock
 	Entropy  io.Reader
+	Before   storage.StoppedApproval
 	fault    func(restoreFaultPoint) error
 }
 
 // Restore validates and rekeys one complete backup generation while holding stopped-process ownership.
-func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, error) {
+func Restore(ctx context.Context, options RestoreOptions) (result storage.Identity, resultErr error) {
+	effect := "unchanged"
+	defer func() {
+		if resultErr != nil && effect != "unchanged" {
+			resultErr = &storage.OperationError{Effect: effect, Cause: resultErr}
+		}
+	}()
 	ctx = audit.WithOffline(ctx)
 	if options.Sink == nil || options.Clock == nil || options.Entropy == nil || !backupIDPattern.MatchString(options.BackupID) {
 		return storage.Identity{}, ErrInvalidArtifact
 	}
-	ownership, err := gatewaypaths.AcquireForMaintenance(options.Root)
+	ownership, err := gatewaypaths.AcquireStoppedExisting(options.Root)
 	if err != nil {
 		return storage.Identity{}, fmt.Errorf("acquire stopped-process ownership: %w", err)
 	}
 	defer func() { _ = ownership.Close() }()
+	if options.Before != nil {
+		if err := options.Before(ctx, ownership); err != nil {
+			return storage.Identity{}, err
+		}
+	}
 	layout := ownership.Layout()
 	manager := &Manager{layout: layout}
 	artifact, err := manager.readArtifact(ctx, filepath.Join(layout.Backups, options.BackupID), options.BackupID)
@@ -85,9 +97,13 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	}
 	defer releaseSpace()
 	staged := layout.Database + ".restore"
-	_ = os.Remove(staged)
-	_ = os.Remove(staged + "-wal")
-	_ = os.Remove(staged + "-shm")
+	if err := verifyNoRestoreStaging(layout); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := requireClosedArtifact(filepath.Join(layout.Backups, options.BackupID)); err != nil {
+		return storage.Identity{}, err
+	}
+	effect = "staged"
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -195,9 +211,11 @@ func Restore(ctx context.Context, options RestoreOptions) (storage.Identity, err
 	if err := injectRestoreFault(options.fault, restoreFaultBeforeInstall); err != nil {
 		return storage.Identity{}, err
 	}
+	effect = "uncertain"
 	if err := storage.InstallReplacement(ownership, staged); err != nil {
 		return storage.Identity{}, err
 	}
+	effect = "changed"
 	cleanup = false
 	if err := injectRestoreFault(options.fault, restoreFaultAfterInstall); err != nil {
 		return storage.Identity{}, err

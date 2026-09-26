@@ -24,17 +24,21 @@ func TestCLIStatusInvocations(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 
-	statusJSON := runOnlineCLI(t, harness, bearerPath, true, "status", "--output", "json")
+	statusJSON := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
 	statusAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
-	assert.JSONEq(t, string(statusAPI.Body), string(statusJSON.Stdout), "JSON mode must preserve the exact API projection")
+	var checklist struct {
+		System json.RawMessage `json:"system"`
+	}
+	require.NoError(t, json.Unmarshal(statusJSON.Stdout, &checklist))
+	assert.JSONEq(t, string(statusAPI.Body), string(checklist.System), "Doctor must preserve the public API projection inside its checklist")
 	var status contract.SystemStatus
-	require.NoError(t, json.Unmarshal(statusJSON.Stdout, &status))
+	require.NoError(t, json.Unmarshal(checklist.System, &status))
 	assert.Equal(t, contract.ProcessReady, status.Process.State)
 	assert.True(t, status.Process.Ready)
 	assert.Equal(t, contract.SQLiteReady, status.SQLite.State)
 	assert.Empty(t, statusJSON.Stderr)
 
-	statusTable := runOnlineCLI(t, harness, bearerPath, true, "status")
+	statusTable := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--data-dir", harness.root)
 	assert.Contains(t, string(statusTable.Stdout), "process")
 	assert.Contains(t, string(statusTable.Stdout), "ready")
 	assert.Contains(t, string(statusTable.Stdout), "sqlite")

@@ -181,7 +181,7 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 		parts = principalETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "mcp server "):
 		parts = serverETagPattern.FindStringSubmatch(options.etag)
-	case strings.HasPrefix(path, "principal "):
+	case strings.HasPrefix(path, "agent "):
 		parts = principalETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "mcp grant "):
 		parts = grantETagPattern.FindStringSubmatch(options.etag)
@@ -228,13 +228,13 @@ func validatePreparedFileIntent(command *cobra.Command, spec onlineCommandSpec, 
 		}
 		_, canonical, err := validateCredentialReplacementInput(body)
 		return canonical, err
-	case "principal create":
+	case "agent create":
 		body, members, err := readPrincipalInput(command, &prepared, true)
 		if err != nil || !members["display_name"] || !members["visibility"] || len(members) != 2 {
 			return nil, controlclient.ErrInvalidInput
 		}
 		return body, nil
-	case "principal update":
+	case "agent update":
 		body, members, err := readPrincipalInput(command, &prepared, false)
 		if err != nil || len(members) == 0 {
 			return nil, controlclient.ErrInvalidInput
@@ -332,14 +332,14 @@ var onlineIntentSpecs = map[string]onlineIntentSpec{
 		},
 	},
 	"mcp server credential replace": {fileMembers: []string{"kind", "expected_revision", "values", "client_secret"}},
-	"principal create": {
+	"agent create": {
 		direct:        []onlineDirectFlag{{name: "display-name", required: true}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}, required: true}},
 		defaultDirect: true,
 		buildBody: func(values map[string]string, _ map[string]bool, _ map[string]bool) ([]byte, error) {
 			return marshalIntent(map[string]any{"display_name": values["display-name"], "visibility": values["visibility"]})
 		},
 	},
-	"principal update": {
+	"agent update": {
 		direct: []onlineDirectFlag{
 			{name: "display-name"}, {name: "visibility", values: []string{"requestable", "allowed-only", "all"}}, {name: "state", values: []string{"active", "disabled"}}, {name: "http-default", values: []string{"allow", "block"}},
 		},

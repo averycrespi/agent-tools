@@ -124,7 +124,6 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	children = children[:0]
 	env := []string{"PATH=/usr/bin:/bin", "HOME=" + home, "TMPDIR=" + root, "XDG_CONFIG_HOME=" + filepath.Join(home, "config"), "XDG_DATA_HOME=" + filepath.Join(home, "data"), "AGENT_GATEWAY_E2E_ACCOUNT_HOME=" + home}
 	env = append(env, opts.childEnv...)
-	var commandOutput []byte
 	command := func(label string, args []string) error {
 		if ctx.Err() != nil {
 			return errors.New("interrupted before " + label)
@@ -139,23 +138,10 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 		if finishErr := c.finish(ctx, 15*time.Second, true); finishErr != nil {
 			return finishErr
 		}
-		commandOutput = c.stdout.bytes()
 		children = children[:len(children)-1]
 		return nil
 	}
-	if err = command("initialize", []string{"initialize", "--secret-output", filepath.Join(root, "admin-bearer")}); err != nil {
-		return err
-	}
-	if err = command("installation identity", []string{"storage", "verify", "--json"}); err != nil {
-		return err
-	}
-	var identity struct {
-		InstallationID string `json:"installation_id"`
-	}
-	if json.Unmarshal(commandOutput, &identity) != nil || identity.InstallationID == "" {
-		return errors.New("installation identity unavailable")
-	}
-	if err = command("disposable HTTP CA", []string{"http", "ca", "create", "--installation-id", identity.InstallationID, "--confirm"}); err != nil {
+	if err = command("initialize", []string{"init", "--confirm", "--secret-output", filepath.Join(root, "admin-bearer")}); err != nil {
 		return err
 	}
 	proxyProbe, err := net.Listen("tcp4", "127.0.0.1:0")

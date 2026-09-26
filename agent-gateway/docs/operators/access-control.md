@@ -10,11 +10,11 @@ Purpose: Manage agents, credentials, grants, and grant requests.
 
 An **agent** is a persistent Gateway identity with its own access policies and at most one current credential. It does not represent a running process or session.
 
-Technical interfaces continue to call this identity a **principal**: CLI commands and flags (`principal`, `--principal-id`), [API routes and fields](../design/public-contract.md) (including `principal_id`), JSON representations, ETags, error codes, audit identifiers, MCP contracts, and the browser route `#/principals` are unchanged. Raw technical values and user-authored names are shown verbatim; retained documentation anchors keep existing links working. Administrator identities and credentials remain separate.
+CLI commands use **agent** (`agent list`, `agent credential issue`); the old `principal` namespace has no alias. Technical interfaces continue to call the durable identity a **principal**: retained flags (`--principal-id`), [API routes and fields](../design/public-contract.md) (including `principal_id`), JSON representations, ETags, error codes, audit identifiers, MCP contracts, and the browser route `#/principals` are unchanged. Raw technical values and user-authored names are shown verbatim; retained documentation anchors keep existing links working. Administrator identities and credentials remain separate.
 
 This guide owns Agent Gateway operator workflows for agent lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](upgrade-compatibility.md#operator-v2-cutover). HTTP grants are administered separately from MCP permissions. Generated help owns exact syntax:
 
-- `agent-gateway principal --help`
+- `agent-gateway agent --help`
 - `agent-gateway mcp grant --help`
 - `agent-gateway mcp grant-request --help`
 
@@ -27,9 +27,9 @@ See [DESIGN](../../DESIGN.md) for the system design index and [Identity and auth
 List or inspect permanent agents before changing policy:
 
 ```bash
-agent-gateway principal list
-agent-gateway principal get PRINCIPAL_ID
-agent-gateway principal create --display-name NAME --visibility VISIBILITY
+agent-gateway agent list
+agent-gateway agent get PRINCIPAL_ID
+agent-gateway agent create --display-name NAME --visibility VISIBILITY
 ```
 
 Creation requires a display name and one MCP discovery visibility mode. The browser labels the create/edit control, detail, column, and filter **MCP discovery visibility**; the API and CLI retain `visibility` and `--visibility`:
@@ -51,8 +51,8 @@ The agent ID/state and single credential slot remain shared identity, not per-pr
 Submit a nonempty direct patch; omit `--etag` for one validated current-item preflight, or supply it to pin an already observed exact value and skip that convenience read:
 
 ```bash
-agent-gateway principal update PRINCIPAL_ID --display-name NAME
-agent-gateway principal update PRINCIPAL_ID --etag ETAG --state disabled --yes
+agent-gateway agent update PRINCIPAL_ID --display-name NAME
+agent-gateway agent update PRINCIPAL_ID --etag ETAG --state disabled --yes
 ```
 
 Changing state requires consequence confirmation. Disabling an agent clears its current credential and sessions. Re-enabling does not restore authority, a prior credential, or deleted grants. Display-name and visibility-only updates do not prompt. The CLI never refreshes a stale precondition or replays a patch automatically.
@@ -62,10 +62,10 @@ Changing state requires consequence confirmation. Disabling an agent clears its 
 An agent has at most one current non-expiring `mgw_agent_` bearer. `issue` requires an empty slot; `rotate` requires an occupied slot and atomically replaces its authority:
 
 ```bash
-agent-gateway principal credential issue PRINCIPAL_ID \
+agent-gateway agent credential issue PRINCIPAL_ID \
   --secret-output /safe/new/agent-bearer \
   --yes
-agent-gateway principal credential rotate PRINCIPAL_ID \
+agent-gateway agent credential rotate PRINCIPAL_ID \
   --secret-output /safe/new/rotated-agent-bearer \
   --yes
 ```
@@ -75,8 +75,8 @@ Both commands always read the agent once to enforce slot intent. An optional exp
 Revoke with an automatic or explicit current agent ETag:
 
 ```bash
-agent-gateway principal credential revoke PRINCIPAL_ID --yes
-agent-gateway principal credential revoke PRINCIPAL_ID --etag ETAG --yes
+agent-gateway agent credential revoke PRINCIPAL_ID --yes
+agent-gateway agent credential revoke PRINCIPAL_ID --etag ETAG --yes
 ```
 
 Issue, rotate, revoke, and disable never replay automatically. On an uncertain result, read the agent and review its credential revision before deciding what to do. A lost bearer cannot be recovered and is not evidence that rotation failed. After Gateway acknowledges issue, lost output may leave the singular slot occupied even though no bearer can be recovered from metadata. After acknowledged rotation, the replacement may be current and the prior bearer may already be invalid. In either case, explicitly rotate or revoke the observed current credential instead of replaying the original operation.
@@ -293,7 +293,7 @@ agent-gateway http default update PRINCIPAL_ID --file /private/default.json --ye
 agent-gateway http test-access --file /private/preview.json
 ```
 
-Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and agent; it is not delete/recreate. Default files are exactly `{"http_default":"block"}` or `{"http_default":"allow"}`. These convenience commands read/write the canonical identity endpoint and return `Principal` JSON with its unified ETag, not a separate default resource. For a combined change, use `agent-gateway principal update PRINCIPAL_ID --display-name NAME --http-default allow --yes`. Omitted ETags get one validated read; use `--etag` to pin a reviewed agent revision. A stale or uncertain result must be inspected, never automatically replayed.
+Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and agent; it is not delete/recreate. Default files are exactly `{"http_default":"block"}` or `{"http_default":"allow"}`. These convenience commands read/write the canonical identity endpoint and return `Principal` JSON with its unified ETag, not a separate default resource. For a combined change, use `agent-gateway agent update PRINCIPAL_ID --display-name NAME --http-default allow --yes`. Omitted ETags get one validated read; use `--etag` to pin a reviewed agent revision. A stale or uncertain result must be inspected, never automatically replayed.
 
 Example grant policy: `{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"values":["GET"]},"path":{"kind":"segment_prefix","value":"/v1"}}}`. An optional `credential_id` must contain the entire HTTPS origin scope. Referenced credentials cannot be deleted or have their recipe changed; incompatible scope edits fail atomically. Expired grants remain visible and reference-bearing until deleted.
 

@@ -15,24 +15,24 @@ Capacity remains unqualified; deterministic tests are not a throughput guarantee
 ## Host setup
 
 Retain the existing initialized installation and singular agent credential.
-Stop the selected Gateway before explicitly creating its interception CA using
+Stop the selected Gateway before completing missing CA setup with `init` or explicitly replacing its CA using
 [stopped CA commands](backup-and-recovery.md#stopped-interception-ca-commands).
-These commands require the exact installation ID; never export a private key.
-For a new CA only:
+Installation-ID assertions are optional for these operations; never export a private key.
+For missing setup:
 
 ```sh
-agent-gateway http ca create --installation-id INSTALLATION_ID --confirm
+agent-gateway init --confirm
 mkdir -p "$HOME/.config/agent-gateway"
 chmod 700 "$HOME/.config/agent-gateway"
 umask 077
-agent-gateway http ca export --installation-id INSTALLATION_ID > "$HOME/.config/agent-gateway/http-ca.pem"
+agent-gateway http ca export --output "$HOME/.config/agent-gateway/http-ca.pem"
 agent-gateway serve --http-proxy-listen 127.0.0.1:8212
 ```
 
 Supply the same explicit `--data-dir` to each command for a custom installation.
 Export is public metadata only: it proves neither signing readiness nor client trust.
-Inspect an export failure rather than trusting an empty output file. Create refuses
-an existing CA; replacement is a distinct deliberate stopped operation.
+Inspect an export failure rather than trusting an incomplete output file. Init preserves
+an existing CA; replacement is a distinct deliberate stopped operation. Public output defaults to `<data-dir>/http-ca.pem`; `--stdout` explicitly streams PEM.
 
 Administration/MCP stays at `127.0.0.1:8210`; `8212` is the recommended separate
 proxy port. Both listeners accept only canonical numeric IPv4 loopback addresses.
@@ -52,7 +52,7 @@ selection; `service update --clear-http-proxy-listen` disables it. Restart prese
 installed values. See [launchd management](launchd.md); do not run these mutations
 as a smoke test against a live installation.
 
-`status` and **System → Status** report enablement, selected address, loaded CA,
+`doctor --online` and **System → Status** report enablement, selected address, loaded CA,
 proxy readiness, active request/stream and tunnel counts, connection/work occupancy,
 and the shared traffic pressure, quota and fault facts. Loaded CA means current
 process signing capability, not native-keyring health or installed client trust.
@@ -111,7 +111,7 @@ hosts to make requests succeed. Proxy environment variables do not enforce egres
 
 Token rotation requires securely refreshing the private client file and restarting
 client processes; existing environments retain old bytes. CA replacement, key loss
-and **every backup restore** require explicit new CA replacement, public export and
+and **every maintenance restore-backup** require explicit new CA replacement, public export and
 manual client trust refresh. Ordinary restarts retain the selected CA; missing
 signing material never regenerates or revives an old backup handle. Rebuild the
 client bundle when the public CA changes and retire old client trust explicitly;

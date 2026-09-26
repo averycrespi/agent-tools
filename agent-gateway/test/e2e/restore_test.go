@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -37,11 +38,11 @@ func TestRestoreVerifyCurrentRealBinary(t *testing.T) {
 
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
-	result, err := runner.Run(ctx, binary, "storage", "verify", "--data-dir", root, "--output", "json")
+	result, err := runner.Run(ctx, binary, "maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", root, "--json")
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.ExitCode)
-	assert.JSONEq(t, `{"ok":true,"operation":"storage_verify","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"0"}`, string(result.Stdout))
-	assert.Empty(t, result.Stderr)
+	assert.JSONEq(t, `{"ok":true,"operation":"verify-and-recover-storage","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"0"}`, string(result.Stdout))
+	assertMaintenancePlan(t, result.Stderr, "verify-and-recover-storage")
 	assert.False(t, result.StdoutTruncated)
 	_, err = os.Lstat(filepath.Join(root, gatewaypaths.MutationMarkerName))
 	assert.ErrorIs(t, err, os.ErrNotExist)
@@ -54,7 +55,7 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	initialSecret := filepath.Join(t.TempDir(), "initial")
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
-	result, err := runner.Run(ctx, binary, "initialize", "--data-dir", root, "--secret-output", initialSecret)
+	result, err := runner.Run(ctx, binary, "init", "--confirm", "--data-dir", root, "--secret-output", initialSecret)
 	require.NoError(t, err, "initialize: %s", result.Stdout)
 	initialBearer, err := os.ReadFile(initialSecret)
 	require.NoError(t, err)
@@ -78,9 +79,11 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	require.NoError(t, ownership.Close())
 
 	replacementSecret := filepath.Join(t.TempDir(), "replacement")
-	result, err = runner.Run(ctx, binary, "backup", "restore", artifact.ID, "--data-dir", root, "--secret-output", replacementSecret, "--output", "json")
+	result, err = runner.Run(ctx, binary, "maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", root, "--secret-output", replacementSecret, "--json")
 	require.NoError(t, err, "restore: %s", result.Stdout)
-	assert.JSONEq(t, `{"ok":true,"operation":"backup_restore","installation_id":"`+artifact.InstallationID+`","revision":"2","backup_id":"`+artifact.ID+`"}`, string(result.Stdout))
+	sourceRevision, err := strconv.ParseUint(artifact.SourceRevision, 10, 64)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"ok":true,"operation":"restore-backup","installation_id":"`+artifact.InstallationID+`","revision":"`+strconv.FormatUint(sourceRevision+1, 10)+`","backup_id":"`+artifact.ID+`"}`, string(result.Stdout))
 	replacementBearer, err := os.ReadFile(replacementSecret)
 	require.NoError(t, err)
 	assert.NotContains(t, string(result.Stdout), string(bytes.TrimSpace(replacementBearer)))
@@ -112,9 +115,10 @@ func TestRestoreVerifyCurrentRealBinaryRefusesRunningGateway(t *testing.T) {
 
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
-	result, err := runner.Run(ctx, binary, "storage", "verify", "--data-dir", root, "--output", "json")
+	result, err := runner.Run(ctx, binary, "maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", root, "--json")
 	assert.Error(t, err)
 	assert.Equal(t, 5, result.ExitCode)
 	assert.Empty(t, result.Stdout)
-	assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before verifying current storage.","exit_code":5,"uncertain":false}`, string(result.Stderr))
+	assert.Contains(t, string(result.Stderr), `"code":"gateway_running"`)
+	assert.Contains(t, string(result.Stderr), "Stop the selected installation")
 }

@@ -35,7 +35,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			writer.Header().Set("Content-Type", contract.MediaTypeJSON)
 			writer.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(writer).Encode(backup)
-		case request.Method == http.MethodGet && request.URL.Path == "/api/v2/system-status":
+		case request.Method == http.MethodGet && request.URL.Path == "/api/v2/principals":
 			writer.Header().Set("Content-Type", contract.MediaTypeProblemJSON)
 			writer.WriteHeader(http.StatusNotFound)
 			_, _ = writer.Write([]byte(`{"status":404,"code":"not_found","title":"The selected resource was not found."}`))
@@ -75,7 +75,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 	assert.Empty(t, jsonNoContent.Stderr)
 
 	for _, mode := range []string{"human", "json"} {
-		args := []string{"status"}
+		args := []string{"agent", "list"}
 		if mode == "json" {
 			args = append(args, "--json")
 		}
@@ -96,7 +96,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 
 	unavailable := "http://" + unusedAuthority(t)
 	for _, mode := range []string{"human", "json"} {
-		args := []string{"status"}
+		args := []string{"agent", "list"}
 		if mode == "json" {
 			args = append(args, "--json")
 		}
@@ -111,7 +111,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 		}
 	}
 
-	conflict := runCLIAt(t, harness, bearerPath, server.URL, "status", "--json", "--output", "human")
+	conflict := runCLIAt(t, harness, bearerPath, server.URL, "agent", "list", "--json", "--output", "human")
 	results = append(results, conflict)
 	assert.Equal(t, 2, conflict.ExitCode)
 	assert.Empty(t, conflict.Stdout)
@@ -125,7 +125,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 	}))
 	defer redirect.Close()
 	for _, mode := range []string{"human", "json"} {
-		args := []string{"status"}
+		args := []string{"agent", "list"}
 		if mode == "json" {
 			args = append(args, "--json")
 		}

@@ -37,7 +37,7 @@ func TestHTTPProxyRestoreAndKeyLossRequireExplicitCAReprovisioning(t *testing.T)
 	h.RevokeCredential(credential.Principal)
 	h.Stop(syscall.SIGTERM)
 	secret := filepath.Join(t.TempDir(), "restored-admin")
-	restored, err := h.runner.Run(h.ctx, binary, "backup", "restore", artifact.ID, "--data-dir", h.root, "--secret-output", secret, "--json")
+	restored, err := h.runner.Run(h.ctx, binary, "maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", h.root, "--secret-output", secret, "--json")
 	require.NoError(t, err, "restore: %s", restored.Stderr)
 	h.bearer = readBearer(t, secret)
 	// Old physical fixture keys remain, but restored handles are not authority.

@@ -44,7 +44,7 @@ func newServiceOperation(verb string) *cobra.Command {
 		command.Flags().StringVar(&listen, "listen", "", "exact numeric IPv4 loopback authority")
 		command.Flags().StringVar(&proxyListen, "http-proxy-listen", "", "enable proxy on a separate numeric IPv4 loopback authority; requires an existing CA")
 		command.Flags().BoolVar(&clearProxy, "clear-http-proxy-listen", false, "disable the installed HTTP proxy listener")
-		command.Flags().Int64Var(&trafficBudget, "traffic-budget-bytes", 0, "persist combined traffic database/WAL budget; omitted updates preserve installed selection")
+		storageSizeFlag(command.Flags(), &trafficBudget, 0, "persist combined traffic database/WAL budget; omitted updates preserve installed selection")
 		command.Flags().StringVar(&level, "log-level", "", "persist serve diagnostics: warn, info, or debug")
 		command.Flags().StringArrayVar(&hosts, "allowed-host", nil, "replace the complete installed hostname list (repeatable)")
 		command.Flags().BoolVar(&clear, "clear-allowed-hosts", false, "clear all installed allowed hostnames")
@@ -101,7 +101,7 @@ func newServiceOperation(verb string) *cobra.Command {
 		}
 		result, err := service.Execute(c.Context(), verb, changes)
 		if err != nil {
-			title := fmt.Sprintf("Service %s refused: %s. Launchd: %s. %s Inspect service status before another operation.", verb, controlclient.TerminalSafePath(err.Error()), result.Launchd, controlclient.TerminalSafePath(result.Message))
+			title := fmt.Sprintf("Service %s failed: %s. Launchd: %s; readiness: %s. %s Logs: %s, %s. Run agent-gateway doctor and agent-gateway service status before another operation.", verb, controlclient.TerminalSafePath(err.Error()), result.Launchd, result.Readiness, controlclient.TerminalSafePath(result.Message), controlclient.TerminalSafePath(result.Stdout), controlclient.TerminalSafePath(result.Stderr))
 			return writeOfflineProblem(c, options.Output, &controlclient.Problem{Code: "service_unavailable", Title: title, Exit: 7})
 		}
 		return writeServiceResult(c, options.Output, verb, result)
@@ -166,7 +166,7 @@ func writeServiceResult(c *cobra.Command, mode controlclient.OutputMode, verb st
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(&text, "\nWarning: %s\n", controlclient.TerminalSafePath(warning))
 	}
-	if result.Launchd == "launch-accepted" {
+	if result.Launchd == "launch-accepted" && result.Readiness != "ready" {
 		text.WriteString("Run `agent-gateway service status` to check readiness.\n")
 	}
 	_, err := fmt.Fprint(c.OutOrStdout(), text.String())

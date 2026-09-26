@@ -78,10 +78,14 @@ func TestCLIExecutableNames(t *testing.T) {
 			assert.Contains(t, string(rootCompletions.Stdout), "mcp\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "\nserver\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "\ncatalog\t")
-			assert.Contains(t, string(rootCompletions.Stdout), "storage\t")
+			assert.Contains(t, string(rootCompletions.Stdout), "maintenance\t")
+			assert.Contains(t, string(rootCompletions.Stdout), "doctor\t")
+			assert.Contains(t, string(rootCompletions.Stdout), "agent\t")
+			assert.NotContains(t, string(rootCompletions.Stdout), "principal\t")
+			assert.NotContains(t, string(rootCompletions.Stdout), "storage\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "\nrestore\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "installation\t")
-			for _, family := range []struct{ name, leaf string }{{"storage", "verify"}, {"backup", "restore"}} {
+			for _, family := range []struct{ name, leaf string }{{"maintenance", "verify-and-recover-storage"}, {"maintenance", "restore-backup"}} {
 				leaves, leafErr := runner.Run(t.Context(), filepath.Join(directory, name), "__complete", family.name, "")
 				require.NoError(t, leafErr)
 				assert.Contains(t, string(leaves.Stdout), family.leaf+"\t")
@@ -106,7 +110,7 @@ func TestCLIExecutableNames(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", xdg)
 	root := filepath.Join(xdg, "agent-gateway")
 	for _, selection := range []string{"legacy-only", "both"} {
-		t.Run(selection+" refuses implicit initialization", func(t *testing.T) {
+		t.Run(selection+" ignores legacy state during implicit initialization", func(t *testing.T) {
 			base := t.TempDir()
 			t.Setenv("XDG_DATA_HOME", base)
 			require.NoError(t, os.Mkdir(filepath.Join(base, "mcp-gateway"), 0o700))
@@ -114,18 +118,15 @@ func TestCLIExecutableNames(t *testing.T) {
 				require.NoError(t, os.Mkdir(filepath.Join(base, "agent-gateway"), 0o700))
 			}
 			for _, binary := range []string{preferred, legacy} {
-				refused, runErr := runner.Run(t.Context(), binary, "initialize", "--json")
-				require.Error(t, runErr)
-				assert.Empty(t, refused.Stdout)
-				assert.Contains(t, string(refused.Stderr), "installation-safety.md")
-				assert.Contains(t, string(refused.Stderr), "--data-dir")
-				assert.NotContains(t, string(refused.Stderr), "installation migrate")
-				_, statErr := os.Lstat(filepath.Join(base, "agent-gateway", "gateway.db"))
-				assert.ErrorIs(t, statErr, os.ErrNotExist)
+				initialized, runErr := runner.Run(t.Context(), binary, "init", "--confirm", "--json")
+				require.NoError(t, runErr, "%s", initialized.Stderr)
+				assert.True(t, json.Valid(initialized.Stdout))
+				assert.FileExists(t, filepath.Join(base, "agent-gateway", "gateway.db"))
+				assertDirectoryEntries(t, filepath.Join(base, "mcp-gateway"), nil)
 			}
 		})
 	}
-	initialized, err := runner.Run(t.Context(), legacy, "initialize", "--json")
+	initialized, err := runner.Run(t.Context(), legacy, "init", "--confirm", "--json")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)
 	assert.True(t, json.Valid(initialized.Stdout))
@@ -133,10 +134,10 @@ func TestCLIExecutableNames(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"serve", "EXTRA", "--json"},
-		{"initialize", "--unknown", "--output", "json"},
+		{"init", "--unknown", "--json"},
 		{"admin", "unknown"},
 		{"status", "--output", "invalid"},
-		{"initialize", "--json"},
+		{"principal", "list", "--json"},
 	} {
 		oldResult, oldErr := runner.Run(t.Context(), legacy, args...)
 		newResult, newErr := runner.Run(t.Context(), preferred, args...)
@@ -170,7 +171,7 @@ func TestCLIExecutableNames(t *testing.T) {
 			}
 			var statusJSON []byte
 			for _, binary := range []string{names[0], names[1]} {
-				status, statusErr := runner.Run(t.Context(), binary, "--data-dir", root, "status", "--address", "http://"+authority, "--json")
+				status, statusErr := runner.Run(t.Context(), binary, "--data-dir", root, "doctor", "--online", "--address", "http://"+authority, "--json")
 				require.NoError(t, statusErr, "status: %s", status.Stderr)
 				assertSettledResult(t, status)
 				assert.Empty(t, status.Stderr)
@@ -182,21 +183,23 @@ func TestCLIExecutableNames(t *testing.T) {
 					assert.JSONEq(t, string(statusJSON), string(status.Stdout))
 				}
 			}
-			blocked, blockedErr := runner.Run(t.Context(), names[1], "storage", "verify", "--json")
+			blocked, blockedErr := runner.Run(t.Context(), names[1], "maintenance", "verify-and-recover-storage", "--confirm", "--json")
 			require.Error(t, blockedErr)
 			assertSettledResult(t, blocked)
 			assert.Empty(t, blocked.Stdout)
 			assert.Equal(t, 5, blocked.ExitCode)
-			assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before verifying current storage.","exit_code":5,"uncertain":false}`, string(blocked.Stderr))
+			assert.Contains(t, string(blocked.Stderr), `"code":"gateway_running"`)
+			assert.Contains(t, string(blocked.Stderr), "Stop the selected installation")
 			created, createErr := runner.Run(t.Context(), names[0], "backup", "create", "--address", "http://"+authority, "--json")
 			require.NoError(t, createErr, "%s", created.Stderr)
 			require.NoError(t, json.Unmarshal(created.Stdout, &artifact))
 			unusedSecret := filepath.Join(t.TempDir(), "blocked-replacement")
-			refused, restoreErr := runner.Run(t.Context(), names[1], "backup", "restore", artifact.ID, "--secret-output", unusedSecret, "--json")
+			refused, restoreErr := runner.Run(t.Context(), names[1], "maintenance", "restore-backup", "--confirm", artifact.ID, "--secret-output", unusedSecret, "--json")
 			require.Error(t, restoreErr)
 			assert.Equal(t, 5, refused.ExitCode)
 			assert.Empty(t, refused.Stdout)
-			assert.JSONEq(t, `{"status":null,"code":"gateway_running","title":"The Gateway is running. Stop it before restoring a backup.","exit_code":5,"uncertain":false}`, string(refused.Stderr))
+			assert.Contains(t, string(refused.Stderr), `"code":"gateway_running"`)
+			assert.Contains(t, string(refused.Stderr), "Stop the selected installation")
 			_, statErr := os.Lstat(unusedSecret)
 			assert.ErrorIs(t, statErr, os.ErrNotExist)
 			require.NoError(t, process.Signal(syscall.SIGTERM))
@@ -205,7 +208,7 @@ func TestCLIExecutableNames(t *testing.T) {
 			require.NoError(t, waitErr, "serve: %s", served.Stderr)
 			assertSettledResult(t, served)
 			assert.True(t, json.Valid(served.Stdout))
-			verified, verifyErr := runner.Run(t.Context(), names[1], "storage", "verify", "--json")
+			verified, verifyErr := runner.Run(t.Context(), names[1], "maintenance", "verify-and-recover-storage", "--confirm", "--json")
 			require.NoError(t, verifyErr, "verify after owner exit: %s", verified.Stderr)
 			assertSettledResult(t, verified)
 			assert.True(t, json.Valid(verified.Stdout))
@@ -213,14 +216,14 @@ func TestCLIExecutableNames(t *testing.T) {
 	}
 	for _, binary := range []string{preferred, legacy} {
 		secret := filepath.Join(t.TempDir(), "replacement")
-		restored, restoreErr := runner.Run(t.Context(), binary, "backup", "restore", artifact.ID, "--secret-output", secret, "--json")
+		restored, restoreErr := runner.Run(t.Context(), binary, "maintenance", "restore-backup", "--confirm", artifact.ID, "--secret-output", secret, "--json")
 		require.NoError(t, restoreErr, "%s", restored.Stderr)
 		assertSettledResult(t, restored)
-		assert.Empty(t, restored.Stderr)
+		assertMaintenancePlan(t, restored.Stderr, "restore-backup")
 		var result map[string]any
 		require.NoError(t, json.Unmarshal(restored.Stdout, &result))
 		assert.Len(t, result, 5)
-		assert.Equal(t, "backup_restore", result["operation"])
+		assert.Equal(t, "restore-backup", result["operation"])
 		assert.Equal(t, artifact.InstallationID, result["installation_id"])
 		assert.Equal(t, artifact.ID, result["backup_id"])
 	}
@@ -231,7 +234,7 @@ func TestCLIExecutableNames(t *testing.T) {
 	assert.True(t, string(bearer) == string(preserved), "original bearer must remain unchanged")
 
 	t.Setenv("XDG_DATA_HOME", "")
-	accountInitialized, err := runner.Run(t.Context(), preferred, "initialize", "--json")
+	accountInitialized, err := runner.Run(t.Context(), preferred, "init", "--confirm", "--json")
 	require.NoError(t, err, "initialize account default: %s", accountInitialized.Stderr)
 	assertSettledResult(t, accountInitialized)
 	assertDefaultBearer(t, filepath.Join(home, ".local", "share", "agent-gateway", "admin-bearer"))
