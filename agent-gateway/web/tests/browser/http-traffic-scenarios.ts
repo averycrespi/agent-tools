@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,9 +18,28 @@ export async function runHTTPTraffic(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('#primary-navigation a[href="#/http/traffic"]').click();
+  // These three rows came through the real proxy, durable store and public API.
+  for (const label of [
+    "Protocol upgrades are not supported",
+    "Absolute-form HTTP request required",
+    "Request target failed validation",
+  ]) {
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+  }
+  await page
+    .getByRole("row")
+    .filter({ hasText: "Request target failed validation" })
+    .getByRole("link", { name: "Not parsed", exact: true })
+    .click();
   await expect(
-    page.getByText("No HTTP traffic yet", { exact: true }),
+    page.getByText("Request target failed validation", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByText("Gateway", { exact: true })).toBeVisible();
+  expect(await page.content()).not.toContain("path-secret");
+  expect(await page.content()).not.toContain("query-secret");
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
   const id = (n: number) => String(n).padStart(26, "0"),
     at = "2026-09-21T00:00:00.000000000Z",
     principal = id(10);
@@ -79,6 +99,20 @@ export async function runHTTPTraffic(
       },
     ],
   };
+  const rejected = {
+    ...admission,
+    id: id(4),
+    class: "invalid_request",
+    default: "",
+    target: null,
+    decision: null,
+    rejection: { stage: "target", reason: "invalid_request_target" },
+    connect: { id: id(2), host: "example.com", port: 443 },
+  };
+  let emptyPage = true;
+  let diagnostics = false,
+    legacyRejection = false,
+    responseEvidence = false;
   let stale = false,
     malformed = false,
     reads = 0;
@@ -88,6 +122,19 @@ export async function runHTTPTraffic(
     expect(request.postData()).toBeNull();
     reads++;
     const url = new URL(request.url());
+    if (url.pathname.endsWith(`/${id(4)}`)) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          admission: legacyRejection
+            ? { ...rejected, rejection: undefined, connect: undefined }
+            : rejected,
+          completion: null,
+        }),
+      });
+      return;
+    }
     if (url.pathname.endsWith(`/${id(2)}`)) {
       await route.fulfill({
         status: 200,
@@ -110,12 +157,30 @@ export async function runHTTPTraffic(
                 },
               }
             : admission,
-          completion: null,
+          completion: responseEvidence
+            ? {
+                completed_at: at,
+                outcome: "succeeded",
+                status: 200,
+                bytes_sent: 0,
+                bytes_received: 1,
+                duration_ms: 1,
+                response_source: "upstream",
+              }
+            : null,
         }),
       });
       return;
     }
     expect(url.pathname).toBe("/api/v2/http/traffic");
+    if (emptyPage) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [], next_cursor: null }),
+      });
+      return;
+    }
     if (url.searchParams.has("cursor") && stale) {
       await route.fulfill({
         status: 409,
@@ -130,10 +195,34 @@ export async function runHTTPTraffic(
       body: JSON.stringify(
         url.searchParams.has("cursor")
           ? { items: [summary(1)], next_cursor: null }
-          : { items: [summary(3), summary(2)], next_cursor: "older" },
+          : diagnostics
+            ? {
+                items: [
+                  {
+                    id: id(4),
+                    admitted_at: at,
+                    principal_id: principal,
+                    target: null,
+                    type: "invalid",
+                    decision: "invalid",
+                    outcome: "not_dispatched",
+                    rejection: rejected.rejection,
+                    connect: rejected.connect,
+                    response_source: "gateway",
+                  },
+                  summary(3),
+                ],
+                next_cursor: null,
+              }
+            : { items: [summary(3), summary(2)], next_cursor: "older" },
       ),
     });
   });
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(
+    page.getByText("No HTTP traffic yet", { exact: true }),
+  ).toBeVisible();
+  emptyPage = false;
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect(
     page.getByText("2 HTTP traffic records loaded", { exact: true }),
@@ -235,6 +324,100 @@ export async function runHTTPTraffic(
   expect(await page.getByRole("button", { name: /Create grant/ }).count()).toBe(
     0,
   );
+  diagnostics = true;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(
+    page.getByText("Request target failed validation", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Response: Gateway", { exact: true }),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: join(screenshots, "rejection-history.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: join(screenshots, "rejection-history-narrow.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
+  await expect(
+    page.getByText("Request target failed validation", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Destination inherited from CONNECT", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Not parsed", { exact: true })).toBeVisible();
+  await page.getByText("Rejection codes", { exact: true }).click();
+  await expect(
+    page.getByText("target · invalid_request_target", { exact: true }),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: join(screenshots, "rejection-detail-narrow.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({
+    path: join(screenshots, "rejection-detail.png"),
+    fullPage: true,
+  });
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
+  for (const [stage, reason, label] of [
+    ["headers", "invalid_headers", "Invalid headers"],
+    [
+      "request_form",
+      "origin_form_required",
+      "Origin-form request required inside CONNECT",
+    ],
+  ]) {
+    rejected.rejection = { stage: stage!, reason: reason! };
+    await page.getByRole("button", { name: "Refresh current view" }).click();
+    await expect(page.getByText(label!, { exact: true })).toBeVisible();
+    await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
+    await expect(page.getByText(label!, { exact: true })).toBeVisible();
+    await page
+      .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+      .click();
+  }
+  legacyRejection = true;
+  await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
+  await expect(
+    page.getByText("Rejection details unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Unavailable", { exact: true })).toHaveCount(2);
+  await expect(
+    page.getByText("Destination inherited from CONNECT", { exact: true }),
+  ).toHaveCount(0);
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.screenshot({
+    path: join(screenshots, "legacy-detail-320.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
+  responseEvidence = true;
+  await page.locator(`a[href*="/http/traffic/${id(3)}"]`).click();
+  await expect(page.getByText("Upstream", { exact: true })).toBeVisible();
+  await expect(page.getByText("200", { exact: true })).toBeVisible();
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
   malformed = true;
   await page.locator(`a[href*="/http/traffic/${id(3)}"]`).click();
   await expect(

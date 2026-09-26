@@ -19,6 +19,9 @@ import {
   decodeTrafficItem,
   decodeTrafficPage,
   destinationLabel,
+  rejectionLabel,
+  type Rejection,
+  type ConnectContext,
   trafficOptions,
   validHTTPTrafficQuery,
   type TrafficItem,
@@ -371,7 +374,7 @@ export function HTTPTraffic({
   return (
     <section
       class="panel domain-panel"
-      aria-label="HTTP Traffic"
+      aria-label="HTTP traffic history"
       data-testid="http-traffic-view"
     >
       <div class="collection-toolbar live-collection-toolbar">
@@ -408,7 +411,7 @@ export function HTTPTraffic({
         <>
           <p>{current.items.length} HTTP traffic records loaded</p>
           <CollectionTable
-            caption="HTTP traffic"
+            caption="HTTP traffic records"
             layout="activity"
             rowHeaderKey="destination"
             rowKey={(row) => row.id}
@@ -465,14 +468,19 @@ export function HTTPTraffic({
               },
               {
                 key: "decision",
-                role: "status",
+                role: "text",
                 label: "Decision",
                 render: (row) => (
-                  <StatusLabel
-                    state={row.decision === "allow" ? "current" : "neutral"}
-                  >
-                    {sentenceCase(row.decision)}
-                  </StatusLabel>
+                  <>
+                    <StatusLabel
+                      state={row.decision === "allow" ? "current" : "neutral"}
+                    >
+                      {sentenceCase(row.decision)}
+                    </StatusLabel>
+                    {row.type === "invalid" && (
+                      <div>{rejectionLabel(row.rejection)}</div>
+                    )}
+                  </>
                 ),
               },
               {
@@ -480,19 +488,24 @@ export function HTTPTraffic({
                 role: "status",
                 label: "Outcome",
                 render: (row) => (
-                  <StatusLabel
-                    state={
-                      row.outcome === "succeeded"
-                        ? "current"
-                        : row.outcome === "outcome_unknown"
-                          ? "warning"
-                          : row.outcome === "not_dispatched"
-                            ? "neutral"
-                            : "error"
-                    }
-                  >
-                    {sentenceCase(row.outcome)}
-                  </StatusLabel>
+                  <>
+                    <StatusLabel
+                      state={
+                        row.outcome === "succeeded"
+                          ? "current"
+                          : row.outcome === "outcome_unknown"
+                            ? "warning"
+                            : row.outcome === "not_dispatched"
+                              ? "neutral"
+                              : "error"
+                      }
+                    >
+                      {sentenceCase(row.outcome)}
+                    </StatusLabel>
+                    <div>
+                      Response: {responseSourceLabel(row.response_source)}
+                    </div>
+                  </>
                 ),
               },
             ]}
@@ -606,10 +619,19 @@ function TrafficFilters({
     </div>
   );
 }
+function responseSourceLabel(source: unknown): string {
+  return source === "gateway"
+    ? "Gateway"
+    : source === "upstream"
+      ? "Upstream"
+      : "Unavailable";
+}
 function TrafficDetail({ item }: { item: TrafficItem }) {
   const a = item.admission,
     d = a.decision as Record<string, unknown> | null,
-    c = item.completion;
+    c = item.completion,
+    rejection = a.rejection as Rejection | undefined,
+    connect = a.connect as ConnectContext | undefined;
   return (
     <>
       <section class="panel domain-panel">
@@ -634,7 +656,9 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
           <div>
             <dt>Reason</dt>
             <dd>
-              {sentenceCase(d === null ? "invalid_request" : String(d.reason))}
+              {d === null
+                ? rejectionLabel(rejection)
+                : sentenceCase(String(d.reason))}
             </dd>
           </div>
           <div>
@@ -642,12 +666,56 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
             <dd>{d === null ? "None" : sentenceCase(String(d.transport))}</dd>
           </div>
         </dl>
+        {rejection !== undefined && (
+          <details>
+            <summary>Rejection codes</summary>
+            <p>
+              {rejection.stage} · {rejection.reason}
+            </p>
+          </details>
+        )}
+        <dl class="fact-grid">
+          <div>
+            <dt>CONNECT context</dt>
+            <dd>
+              {connect === undefined ? (
+                "Unavailable"
+              ) : (
+                <code>{connect.id}</code>
+              )}
+            </dd>
+          </div>
+          {connect !== undefined && (
+            <div>
+              <dt>Destination inherited from CONNECT</dt>
+              <dd>
+                {destinationLabel({ host: connect.host, port: connect.port })}
+              </dd>
+            </div>
+          )}
+        </dl>
+        {connect !== undefined && (
+          <p>Connection context does not validate the inner request target.</p>
+        )}
         {d?.transport === "tunnel" && (
           <p>Opaque tunnel: inner HTTP requests are not visible.</p>
         )}
       </section>
       <section class="panel domain-panel">
         <h2>Outcome</h2>
+        <dl class="fact-grid">
+          <div>
+            <dt>Response source</dt>
+            <dd>
+              {responseSourceLabel(
+                rejection === undefined ? c?.response_source : "gateway",
+              )}
+            </dd>
+          </div>
+        </dl>
+        {rejection !== undefined && (
+          <p>Gateway rejection. Response delivery is not recorded.</p>
+        )}
         {c === null ? (
           <StateNotice
             state={d?.allowed ? "warning" : "neutral"}
@@ -659,18 +727,20 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
           </StateNotice>
         ) : (
           <dl class="fact-grid">
-            {Object.entries(c).map(([key, value]) => (
-              <div>
-                <dt>{sentenceCase(key)}</dt>
-                <dd>
-                  {key === "completed_at" ? (
-                    <UserTime value={String(value)} />
-                  ) : (
-                    sentenceCase(String(value))
-                  )}
-                </dd>
-              </div>
-            ))}
+            {Object.entries(c)
+              .filter(([key]) => key !== "response_source")
+              .map(([key, value]) => (
+                <div>
+                  <dt>{sentenceCase(key)}</dt>
+                  <dd>
+                    {key === "completed_at" ? (
+                      <UserTime value={String(value)} />
+                    ) : (
+                      sentenceCase(String(value))
+                    )}
+                  </dd>
+                </div>
+              ))}
           </dl>
         )}
       </section>

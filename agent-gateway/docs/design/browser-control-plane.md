@@ -15,7 +15,8 @@ HTTP > Credentials is a distinct navigation group and operator surface at `#/htt
 HTTP > Traffic (`#/http/traffic` and record-ID detail) is separate from MCP
 Invocations, HTTP Grants and administrative audit. Lists use exact principal-ID,
 destination hostname, type, decision and outcome filters. The shared table shows
-only admission time, safe destination/method, principal, type, decision and outcome;
+admission time, safe destination/method, principal, type, decision, rejection reason,
+response source and outcome;
 principal labels come from the existing batched directory. Detail shows immutable
 admission-time references, default, selected material generation and expandable
 matched selectors, never a reconstruction from current authority. Opaque tunnels
@@ -29,7 +30,12 @@ Live off persists only in memory until session loss. Manual refresh replaces the
 loaded window without enabling Live. Expired shared cursors restart at newest
 with an explicit notice; other read failures preserve prior evidence with a stale
 warning. HTTP uses existing coalesced System traffic invalidations rather than a
-per-record stream. Exact filters and detail links survive Back navigation but no
+per-record stream. Rejection details use fixed readable labels with closed technical
+codes in a disclosure; unavailable historical details and response sources are
+explicit. Detail identifies inherited CONNECT destination and admission ID separately
+from the validated inner target. An absent context is unavailable, not a guessed
+connection; parent retention does not fabricate a surviving related record.
+Exact filters and detail links survive Back navigation but no
 cursor or evidence is placed in the URL or browser persistence.
 
 ## HTTP grant administration

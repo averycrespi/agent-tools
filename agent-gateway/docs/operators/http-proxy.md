@@ -61,6 +61,32 @@ healthy control administration remains available. Shutdown fences admissions and
 settles connection/completion owners before closing CA material and shared storage.
 Missing completion remains unknown; shutdown and restart never replay traffic.
 
+## Inspect rejected requests
+
+Open **HTTP → Traffic** to inspect retained request evidence. **Reason** explains
+Gateway pre-dispatch rejection; detail includes the stable stage/reason codes.
+Header failures distinguish invalid/oversized headers, unsupported trailers or
+upgrades, and proxy credentials sent inside CONNECT. Request-form failures
+identify nested/body-bearing CONNECT, missing origin form inside CONNECT, or
+missing absolute HTTP form outside it. Target failures identify request versus
+CONNECT validation; consult the compatibility table below rather than assuming an
+upstream service rejected the request.
+
+**Response source** separates Gateway-generated responses from upstream responses.
+Rejection admission records Gateway validation, not the final live status or
+confirmed delivery to the client. A persistence failure can require a different
+Gateway error. Completion `status` is an upstream status; `gateway_status` records
+a separately generated Gateway error. Neither a response source nor a status
+makes an unknown outcome safe to retry.
+
+**CONNECT context** is the actual enclosing connection's admission ID and inherited
+canonical destination, shared only by that connection's H1 requests/H2 streams.
+It is not validation of the inner target. Retention can remove the parent record;
+missing historical context or rejection details remain unavailable, with no
+backfill or time-based matching. No raw errors, authorization headers, bodies,
+queries, URLs or path fragments are captured to explain a rejection. Parser-level
+framing errors before authentication have no authenticated traffic record.
+
 ## Request-target compatibility
 
 Parsing support does not grant forwarding permission. Accepted targets still need

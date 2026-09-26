@@ -35,6 +35,19 @@ func validHTTPAdmission(a contract.HTTPTrafficAdmission) bool {
 	if !ok || !valid || evaluated.Before(admitted) || !validOpaqueInvocationID(a.ID) || !validHTTPRef(a.Principal) || !validHTTPRef(a.AgentCredential) || !validFingerprint(a.CredentialFingerprint, 16) || a.Grants == nil || len(a.Grants) > contract.HTTPTrafficGrantFacts {
 		return false
 	}
+	if a.Rejection != nil && (a.Class != "invalid_request" || !a.Rejection.Valid()) {
+		return false
+	}
+	if a.Connect != nil {
+		c := a.Connect
+		d, err := httppolicy.NewDestination(c.Host, c.Port)
+		if !validOpaqueInvocationID(c.ID) || c.ID == a.ID || err != nil || d.Host() != c.Host {
+			return false
+		}
+		if a.Target != nil && (a.Target.Scheme != "https" || a.Target.Host != c.Host || a.Target.Port != c.Port) {
+			return false
+		}
+	}
 	if a.Class == "invalid_request" {
 		return a.Default == "" && a.Target == nil && a.Decision == nil && len(a.Grants) == 0 && a.Material == nil
 	}
@@ -112,6 +125,18 @@ func encodeHTTPCompletion(a contract.HTTPTrafficAdmission, c contract.HTTPTraffi
 		return "", ErrInvalidInput
 	}
 	if !slices.Contains([]string{"succeeded", "prestart_failure", "upstream_failure", "outcome_unknown"}, c.Outcome) {
+		return "", ErrInvalidInput
+	}
+	if c.ResponseSource != "" && c.ResponseSource != "gateway" && c.ResponseSource != "upstream" {
+		return "", ErrInvalidInput
+	}
+	if c.GatewayStatus != 0 && (c.ResponseSource != "gateway" || c.GatewayStatus < 400 || c.GatewayStatus > 599) {
+		return "", ErrInvalidInput
+	}
+	if c.ResponseSource == "gateway" && (c.GatewayStatus == 0 || c.Status != 0) {
+		return "", ErrInvalidInput
+	}
+	if c.ResponseSource == "upstream" && c.Status == 0 {
 		return "", ErrInvalidInput
 	}
 	if c.Status != 0 && (c.Status < 100 || c.Status > 599 || a.Decision.Transport != contract.HTTPTransportRequest) {
