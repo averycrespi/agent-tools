@@ -194,7 +194,10 @@ func canonicalPath(raw string) (string, error) {
 			b = byte(n)
 			i += 2
 		}
-		if !unreserved(b) && b != '/' {
+		// A literal @ is path data, not userinfo (which is rejected in the
+		// authority). Keep escaped reserved bytes rejected: decoding those
+		// could change the resource understood by an upstream router.
+		if !unreserved(b) && b != '/' && b != '@' {
 			return "", ErrInvalid
 		}
 		out.WriteByte(b)
