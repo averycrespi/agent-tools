@@ -78,6 +78,24 @@ func TestDoctorCompactOutputAndVerboseDetails(t *testing.T) {
 	require.Contains(t, verbose, "  no keyring probe\n")
 }
 
+func TestDoctorHealthyChecksKeepCaveatsOutOfActions(t *testing.T) {
+	for _, state := range []string{"ok", "present", "running", "stopped"} {
+		t.Run(state, func(t *testing.T) {
+			const caveat = "Full mutation-time validation remains mandatory."
+			result := doctorResult{DataDir: "/private/gateway", Checks: []doctorCheck{
+				{Name: "storage inspection", State: state, Detail: "Verified", Next: caveat},
+			}}
+			compact := renderDoctorChecks(result, false)
+			require.NotContains(t, compact, "Next:")
+			require.NotContains(t, compact, caveat)
+			verbose := renderDoctorChecks(result, true)
+			require.NotContains(t, verbose, "Next:")
+			require.Contains(t, verbose, "  "+caveat+"\n")
+			require.Equal(t, caveat, result.Checks[0].Next, "rendering must preserve structured facts")
+		})
+	}
+}
+
 func TestOrdinaryPathCommandsUseShellQuoting(t *testing.T) {
 	for _, path := range []string{"/tmp/plain", "/tmp/space and 'quote", `/tmp/$(touch unsafe);back\slash`, "/tmp/café"} {
 		got, err := renderPathFlagCommand("agent-gateway doctor", "--data-dir", "data_dir", path)

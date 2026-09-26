@@ -47,8 +47,15 @@ func renderDoctorChecks(result doctorResult, verbose bool) string {
 			fmt.Fprintf(&out, "  %s\n", check.Detail)
 		}
 		if check.Next != "" && !shownActions[check.Next] {
-			fmt.Fprintf(&out, "  Next: %s\n", check.Next)
-			shownActions[check.Next] = true
+			switch check.State {
+			case "ok", "present", "running", "stopped":
+				if verbose {
+					fmt.Fprintf(&out, "  %s\n", check.Next)
+				}
+			default:
+				fmt.Fprintf(&out, "  Next: %s\n", check.Next)
+				shownActions[check.Next] = true
+			}
 		}
 	}
 	if s := result.Service; s != nil && s.Installed {
