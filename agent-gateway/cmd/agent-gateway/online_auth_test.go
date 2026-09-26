@@ -28,8 +28,8 @@ func TestCLIStartupGuidanceAndFailureProjection(t *testing.T) {
 		{name: "defaults", address: controlclient.DefaultAddress, expected: "Agent Gateway is not running. Start it with: agent-gateway serve.\n"},
 		{name: "alternate port", address: "http://127.0.0.1:9000", expected: "Agent Gateway is not running. Start it with: agent-gateway serve --listen 127.0.0.1:9000.\n"},
 		{name: "alternate loopback", address: "http://127.2.3.4:8210", expected: "Agent Gateway is not running. Start it with: agent-gateway serve --listen 127.2.3.4:8210.\n"},
-		{name: "data directory", address: controlclient.DefaultAddress, dataDir: "/tmp/custom gateway", expected: "Agent Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; agent-gateway serve --data-dir \"$data_dir\".\n"},
-		{name: "combined", address: "http://127.2.3.4:9000", dataDir: "/tmp/custom gateway", expected: "Agent Gateway is not running. Start it with: data_dir=$(printf '%b_' '/tmp/custom gateway'); data_dir=${data_dir%_}; agent-gateway serve --listen 127.2.3.4:9000 --data-dir \"$data_dir\".\n"},
+		{name: "data directory", address: controlclient.DefaultAddress, dataDir: "/tmp/custom gateway", expected: "Agent Gateway is not running. Start it with: agent-gateway serve --data-dir '/tmp/custom gateway'.\n"},
+		{name: "combined", address: "http://127.2.3.4:9000", dataDir: "/tmp/custom gateway", expected: "Agent Gateway is not running. Start it with: agent-gateway serve --listen 127.2.3.4:9000 --data-dir '/tmp/custom gateway'.\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

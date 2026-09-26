@@ -11,7 +11,7 @@ import (
 )
 
 func newServiceCmd() *cobra.Command {
-	command := &cobra.Command{Use: "service", Short: "Manage the canonical logged-in user's macOS LaunchAgent", Long: "Manage only dev.agent-tools.agent-gateway in the logged-in user's gui domain. No storage initialization, credentials, binary upgrades, custom labels or migration. Installed plist selections persist; restart never changes them."}
+	command := &cobra.Command{Use: "service", Short: "Manage the macOS background service", Long: "Manage only dev.agent-tools.agent-gateway in the logged-in user's gui domain. No storage initialization, credentials, binary upgrades, custom labels or migration. Installed plist selections persist; restart never changes them."}
 	configureNamespaceCommand(command)
 	for _, verb := range []string{"install", "start", "stop", "restart", "update", "status", "uninstall"} {
 		command.AddCommand(newServiceOperation(verb))
@@ -19,13 +19,14 @@ func newServiceCmd() *cobra.Command {
 	return command
 }
 func newServiceOperation(verb string) *cobra.Command {
-	descriptions := map[string]string{"install": "Create the private plist and logs without starting Gateway", "start": "Load the installed definition unless already loaded", "stop": "Gracefully unload and confirm process exit", "restart": "Gracefully restart with unchanged installed selections", "update": "Persist explicit settings, preserving omitted selections", "status": "Read installed settings, launchd state and separate readiness", "uninstall": "Confirm stop and remove only the canonical plist"}
+	descriptions := map[string]string{"install": "Install the background service", "start": "Start the background service", "stop": "Stop the background service", "restart": "Restart the background service", "update": "Update background service settings", "status": "Show background service status", "uninstall": "Uninstall the background service"}
+	details := map[string]string{"install": "Create the private plist and logs without starting Gateway.", "start": "Load the installed definition unless already loaded; check readiness without repeating startup.", "stop": "Gracefully unload and confirm process exit.", "restart": "Gracefully restart with unchanged installed settings.", "update": "Preserve omitted settings; changed settings may restart a loaded service.", "status": "Read installed settings, launchd state and listener readiness separately.", "uninstall": "Confirm stop and remove only the service plist; retain data and logs."}
 	var binary, dataDir, listen, proxyListen, level, output string
 	var jsonOutput bool
 	var hosts []string
 	var clear, clearProxy bool
 	var trafficBudget int64
-	command := &cobra.Command{Use: verb, Short: descriptions[verb], Example: "  agent-gateway service " + verb}
+	command := &cobra.Command{Use: verb, Short: descriptions[verb], Long: descriptions[verb] + ". " + details[verb], Example: "  agent-gateway service " + verb}
 	usage := "agent-gateway service " + verb
 	fail := func(c *cobra.Command, message string) error {
 		return writeOfflineProblem(c, selectedOutputMode(c, output, jsonOutput), offlineUsageProblem(message, usage))

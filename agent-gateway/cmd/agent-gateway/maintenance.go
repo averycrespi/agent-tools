@@ -22,7 +22,7 @@ import (
 var errDryRun = errors.New("read-only plan completed")
 
 func newMaintenanceCmd(dependencies offlineDependencies) *cobra.Command {
-	command := &cobra.Command{Use: "maintenance", Short: "Plan and perform exceptional stopped-installation recovery", Long: "Choose an operation, inspect its --dry-run plan, then use --confirm for noninteractive consent. Running maintenance alone only shows help."}
+	command := &cobra.Command{Use: "maintenance", Short: "Inspect and recover stopped installations", Long: "Choose an operation, inspect its --dry-run plan, then use --confirm for noninteractive consent. Running maintenance alone only shows help."}
 	configureNamespaceCommand(command)
 	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials", "restore-backup", "migrate-traffic-storage"} {
 		command.AddCommand(newMaintenanceOperation(operation, dependencies))
@@ -46,6 +46,12 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 	var confirm, dryRun, jsonOutput bool
 	var budget int64
 	descriptions := map[string]string{
+		"verify-and-recover-storage": "Verify and recover storage",
+		"reset-admin-credentials":    "Reset all administrator credentials",
+		"restore-backup":             "Restore an installation backup",
+		"migrate-traffic-storage":    "Migrate traffic to separate storage",
+	}
+	details := map[string]string{
 		"verify-and-recover-storage": "Validate storage, write audit evidence and apply recognized marker recovery",
 		"reset-admin-credentials":    "Replace all administrator authority, retaining product state",
 		"restore-backup":             "Replace current state from a verified backup and invalidate restored credentials",
@@ -59,7 +65,7 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 	if operation == "reset-admin-credentials" || operation == "restore-backup" {
 		usage += " --secret-output NEW_PATH"
 	}
-	command := &cobra.Command{Use: use, Short: descriptions[operation], Example: "  " + usage + " --dry-run", Long: descriptions[operation] + ". Requires stopped ownership. Inspect the plan with --dry-run; execution requires default-no confirmation or --confirm. No automatic retry or fallback."}
+	command := &cobra.Command{Use: use, Short: descriptions[operation], Example: "  " + usage + " --dry-run", Long: details[operation] + ". Requires stopped ownership. Inspect the plan with --dry-run; execution requires default-no confirmation or --confirm. No automatic retry or fallback."}
 	if operation == "reset-admin-credentials" || operation == "restore-backup" {
 		command.Long += " The replacement bearer is written once to a new 0600 file; it cannot be recovered or displayed again."
 	}
@@ -307,6 +313,9 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 	case errors.Is(err, os.ErrNotExist):
 		code, title, exit = "not_initialized", "The selected installation or required file is absent. Only init creates a new installation.", 4
 	}
+	if detail := pathValidationDetail(err); detail != "" {
+		title = "Cannot inspect " + detail
+	}
 	var effect *storage.OperationError
 	uncertain := false
 	if errors.As(err, &effect) {
@@ -320,7 +329,7 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 			uncertain = true
 		}
 	}
-	next, renderErr := renderPathFlagCommand("agent-gateway doctor", "--data-dir", "data_dir", root)
+	next, renderErr := renderInstallationCommand("agent-gateway doctor", root)
 	if renderErr == nil {
 		title += " Next: " + next
 	}

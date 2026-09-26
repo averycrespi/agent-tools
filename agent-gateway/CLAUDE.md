@@ -117,6 +117,9 @@ Follow the [serve diagnostic contract](docs/design/administrative-control-plane.
 
 ### Browser and CLI
 
+- Follow the root CLI conventions throughout nested commands. Keep `serve` (foreground) distinct from `service` (macOS background management), and `init` (ordinary setup) distinct from `maintenance` (exceptional stopped recovery). Doctor defaults to aligned one-line checks and relevant relative paths under its displayed data directory; `--verbose` adds diagnostic detail without changing checks, while JSON keeps the structured evidence. Do not suggest next actions for healthy conditions. Preserve typed filesystem causes after terminal escaping; never print arbitrary wrapped errors.
+- SQLite WAL/SHM validation accepts owner-owned regular single-link files with mode 0600 plus optional group/other read bits (through 0644), only inside a verified owner-only 0700 directory. Do not relax database, credential, journal, or recovery-marker permissions or treat accepted sidecar permissions as proof that active WAL data is safe for immutable inspection.
+
 - Every sentence earns its place: default to labels, values, actionable errors. Helper text only clarifies non-obvious choices or prevents concrete mistakes. Put implementation details/general caveats in docs, secondary diagnostics in accessible disclosures, warnings at the risk. Scope trust distinctions once; don't repeat headings/statuses or just shorten redundant prose.
 
 - Build web source deterministically to the exact `internal/api/static` allowlist. Build/test-only Node/Vite code must neither enter production imports nor write production assets.

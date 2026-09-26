@@ -26,7 +26,7 @@ func TestAgentLanguagePreservesCLIGrammar(t *testing.T) {
 		{"agent", "Manage agents"},
 		{"agent list", "List agents"},
 		{"agent create", "Create an agent"},
-		{"agent update", "Atomically update agent settings"},
+		{"agent update", "Update an agent"},
 		{"http default", "Manage agent HTTP defaults"},
 	} {
 		command, rest, err := root.Find(strings.Fields(test.path))

@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -57,6 +58,27 @@ func offlineFlagMessage(err error) string {
 		return "The --" + missing.GetFlag().Name + " value is required."
 	}
 	return "A flag is not recognized; see --help."
+}
+
+// Only typed filesystem facts may cross this diagnostic boundary. Never render
+// an arbitrary wrapped error, which may contain credential or database content.
+func pathValidationDetail(err error) string {
+	var validation *gatewaypaths.ValidationError
+	if errors.As(err, &validation) {
+		return controlclient.TerminalSafePath(validation.Path) + ": " + controlclient.TerminalSafePath(validation.Reason) + "."
+	}
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		reason := "filesystem inspection failed"
+		switch {
+		case errors.Is(err, os.ErrPermission):
+			reason = "permission denied"
+		case errors.Is(err, os.ErrNotExist):
+			reason = "path does not exist"
+		}
+		return controlclient.TerminalSafePath(pathErr.Path) + ": " + reason + "."
+	}
+	return ""
 }
 
 func offlineMode(jsonOutput bool) controlclient.OutputMode {
