@@ -134,6 +134,28 @@ func TestTrafficFailureDiagnosticsReadAndRestartValidation(t *testing.T) {
 	}
 }
 
+func TestTrafficAcceptsPrivateDirectorySidecarsAcrossReopen(t *testing.T) {
+	s, owner := trafficFixture(t, nil, nil)
+	for _, suffix := range []string{"-wal", "-shm"} {
+		require.NoError(t, os.Chmod(s.path+suffix, 0644))
+	}
+	require.NoError(t, trafficFiles(s.path, s.config))
+	require.NoError(t, s.Close())
+	// SQLite may remove sidecars on close. Retained empty files model restart
+	// without changing the selected database or broadening database permissions.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		require.NoError(t, os.WriteFile(s.path+suffix, nil, 0600))
+		require.NoError(t, os.Chmod(s.path+suffix, 0644))
+	}
+	reopened, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), s.config)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	require.NoError(t, trafficFiles(s.path, s.config))
+	require.NoError(t, os.Chmod(s.path+"-wal", 0666))
+	require.Error(t, trafficFiles(s.path, s.config))
+	require.NoError(t, os.Chmod(s.path+"-wal", 0644))
+}
+
 func TestTrafficGenerationOwnershipBoundsAndPrivacy(t *testing.T) {
 	s, owner := trafficFixture(t, nil, nil)
 	_, err := CreateTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(91), s.config)

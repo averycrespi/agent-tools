@@ -176,7 +176,7 @@ func trafficDatabase(ctx context.Context, path string, c TrafficConfig, read, cr
 			if err == nil {
 				err = file.Close()
 			} else if errors.Is(err, os.ErrExist) {
-				err = gatewaypaths.ValidateOwnerOnlyFile(path + suffix)
+				err = gatewaypaths.ValidateSQLiteSidecar(path + suffix)
 			}
 			if err != nil {
 				return nil, err
@@ -228,7 +228,11 @@ func trafficFiles(path string, c TrafficConfig) error {
 				continue
 			}
 		}
-		if err := gatewaypaths.ValidateOwnerOnlyFile(candidate); err != nil {
+		validate := gatewaypaths.ValidateOwnerOnlyFile
+		if suffix != "" {
+			validate = gatewaypaths.ValidateSQLiteSidecar
+		}
+		if err := validate(candidate); err != nil {
 			return err
 		}
 		info, err := os.Stat(candidate)

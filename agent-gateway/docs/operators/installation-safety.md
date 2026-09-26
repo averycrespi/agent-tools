@@ -22,6 +22,12 @@ Selection does not inspect legacy paths, tombstones, past XDG locations, or cust
 
 The canonical [service manager](launchd.md) assumes naming adoption is complete: it does not inspect legacy labels or import archived plists. For an existing installation, select its exact `--data-dir` and preserve installed settings. Reconcile unexpected legacy/custom launchers separately before managing a live service.
 
+## SQLite sidecar permissions
+
+The selected installation directory must be owned by your account with permissions `0700`. SQLite's `-wal` and `-shm` files may be `0600` or include group/other read bits up to `0644` inside that private directory. They must remain owned by your account, regular files with one link, and not writable by other users. Supported modes need no manual chmod. Databases, credentials, rollback journals and recovery markers retain their stricter owner-only permissions.
+
+A permissions error identifies the affected path and expected condition. Do not delete files to bypass it. Nonempty WAL or journal files are a separate inspection constraint: they can contain committed data, and read-only closed-generation inspection will refuse to ignore them even when permissions are valid. Stop Gateway cleanly before setup changes; preserve sidecars after an unsuccessful stop.
+
 ## Retain tombstones and recovery evidence
 
 A completed migration left an owner-only `0600` regular-file tombstone at the old source path. Its persisted v1 record binds the exact source/destination paths and original directory device/inode. It no longer controls canonical default selection. The file still blocks binaries from preparing a directory at that exact legacy path.

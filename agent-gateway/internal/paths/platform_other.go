@@ -17,6 +17,10 @@ func PublishCertificate(string, []byte, []byte) error {
 	return fmt.Errorf("certificate publication is unsupported on this platform")
 }
 
+func ValidateSQLiteSidecar(string) error {
+	return fmt.Errorf("SQLite sidecar validation is unsupported on this platform")
+}
+
 func ProbeOwnership(string) (bool, error) {
 	return false, fmt.Errorf("ownership inspection is unsupported on this platform")
 }
