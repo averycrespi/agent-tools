@@ -90,12 +90,19 @@ transport operation, never a request-method selector. Path is `{kind:"any"}`,
 Segment prefix includes the named path and slash-delimited descendants, not
 lexical siblings; a trailing prefix slash is normalized away except at root.
 
-The v1 path grammar deliberately admits only slash and ASCII unreserved bytes.
+The v1 path grammar admits slash, ASCII unreserved bytes and literal `@` (for
+example, `/@anthropic-ai/sdk/-/sdk-0.124.0.tgz`). Literal `@` is path data,
+not authority userinfo, and is preserved through policy matching and forwarding.
 Unreserved percent escapes decode once; empty URI path becomes `/`. Encoded
-separators, percent/double escaping, reserved delimiters, controls, non-ASCII
-paths, repeated separators and literal/encoded dot segments reject rather than
-being matched one way and forwarded another. This conservative subset is not a
-claim to accept every legal URI. Fragments, userinfo and opaque URLs reject.
+separators, percent/double escaping, escaped reserved bytes (including `%40`),
+other literal reserved delimiters, controls, non-ASCII paths, repeated separators
+and literal/encoded dot segments reject rather than being matched one way and
+forwarded another. Reserved escapes are not generally equivalent to their literal
+spelling for an upstream router. In particular, scoped npm metadata paths such
+as `/@scope%2fpkg` remain unsupported: decoding the slash changes segment policy,
+while preserving it would require an explicit escaped-resource policy contract.
+This conservative subset is not a claim to accept every legal URI or all npm
+operations. Fragments, userinfo and opaque URLs reject.
 Query remains bounded, syntactically valid opaque forwarding data, never policy
 or decision evidence; headers and bodies are not selectors.
 

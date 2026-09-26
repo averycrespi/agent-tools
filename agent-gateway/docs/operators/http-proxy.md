@@ -61,6 +61,38 @@ healthy control administration remains available. Shutdown fences admissions and
 settles connection/completion owners before closing CA material and shared storage.
 Missing completion remains unknown; shutdown and restart never replay traffic.
 
+## Request-target compatibility
+
+Parsing support does not grant forwarding permission. Accepted targets still need
+HTTP authorization, safe resolved addresses and (for HTTPS) verified upstream TLS.
+The [canonical selector contract](../design/identity-and-authorization.md#canonical-selectors-and-forwarding)
+owns normalization and policy semantics.
+
+| Request form                                                                               | Status                | Behavior or limit                                                                                                              |
+| ------------------------------------------------------------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Absolute-form `http://host/path`                                                           | Supported             | Mandatory Host must agree, including the effective port                                                                        |
+| CONNECT `host:443` or `[IPv6]:443`                                                         | Supported             | Explicit canonical port and matching Host; interception is not request permission                                              |
+| Origin-form `/path` inside intercepted H1/H2                                               | Supported             | HTTPS authority comes only from CONNECT; Host and supplied SNI must agree                                                      |
+| Absolute HTTPS on the plain proxy listener; origin-form outside CONNECT; `OPTIONS *`       | Unsupported           | No inferred authority or alternate ingress form                                                                                |
+| `/word-wrap/-/word-wrap-1.2.5.tgz` and `/@anthropic-ai/sdk/-/sdk-0.124.0.tgz`              | Supported             | Literal `@` is path data, not userinfo                                                                                         |
+| `/@scope%2fpkg` scoped npm metadata; escaped `%40`                                         | Deliberately rejected | Reserved escaping can change upstream resource/segment interpretation; tarball support does not qualify a complete npm install |
+| Unreserved escapes such as `/%61pi/~user`                                                  | Supported             | Normalize once to `/api/~user`; grants and forwarding use the same path                                                        |
+| Other reserved path characters, such as `:`, `;`, `+`, and their escapes                   | Unsupported           | Conservative path subset; no general URI-path compatibility claim                                                              |
+| Unicode path bytes, literal or escaped                                                     | Unsupported           | ASCII path subset; Unicode host support is separate                                                                            |
+| Unicode/IDNA DNS hosts, mixed-case DNS, canonical IPv4/IPv6                                | Supported             | Lowercase IDNA A-labels and normalized IPs; mapped IPv6 becomes IPv4                                                           |
+| Trailing-dot hosts, IPv6 zones, alternate numeric IPs, userinfo                            | Deliberately rejected | Avoid authority and resolver interpretation differences                                                                        |
+| Omitted HTTP/HTTPS port; explicit decimal 1–65535                                          | Supported             | Effective 80/443 when omitted; leading zeros, zero and empty ports reject                                                      |
+| Empty URL path; query including duplicate keys, escaped reserved data and empty `?`        | Supported             | Path becomes `/`; query stays opaque and is forwarded unchanged, never matched by policy                                       |
+| Dot segments, repeated slashes, encoded separators, percent/double escaping, path controls | Deliberately rejected | No traversal, second decoding or alternate segment interpretation                                                              |
+| Fragments, malformed escaping, Host/CONNECT/SNI disagreement                               | Deliberately rejected | Fail before upstream dispatch                                                                                                  |
+| WebSockets/upgrades and HTTP/3                                                             | Unsupported           | No automatic opaque-tunnel or TLS-error fallback                                                                               |
+
+Targets are bounded to 8,192 bytes and paths to 4,096 bytes. A supported syntax
+row is not a live-client qualification: deterministic controlled-upstream tests
+do not prove an installed Gateway or an entire package-manager workflow. Do not
+weaken grants, disable TLS verification or switch to a broad tunnel as an automatic
+workaround for a rejected target.
+
 ## Client authentication and trust
 
 Use the existing `mgw_agent_` credential, never an administrator bearer. Standard
