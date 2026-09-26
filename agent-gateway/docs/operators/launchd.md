@@ -16,7 +16,7 @@ Never put secrets in plist values, argv, environment variables or logs. Service 
 
 Prerequisites for **installed management**: the native macOS `agent-gateway` executable and macOS system utilities. No Python, Go toolchain or checkout is needed. Building/installing the executable is a separate [installation](../../README.md#installation) step; service commands never upgrade binaries.
 
-For a **new installation only**, initialize the intended unused data root separately with `agent-gateway initialize`. For an existing installation, retain its data and authority; never initialize another root to resolve a service error.
+For a **new installation only**, initialize the intended unused data root separately with `agent-gateway init`. For an existing installation, retain its data and authority; never initialize another root to resolve a service error.
 
 ```bash
 agent-gateway service install
@@ -79,7 +79,7 @@ agent-gateway service update --clear-allowed-hosts
 ```
 
 `--traffic-budget-bytes` is a persisted serve setting for install/update (default
-4294967296; supported range 1048576–17179869184). Omitted values retain the installed
+4294967296; supported range 1048576–17179869184). CLI size values also accept integer units such as `256MiB` or `4GiB`; installed definitions retain decimal bytes. Omitted values retain the installed
 selection, including legacy definitions that omit the flag and imply the default.
 Use the same selected value for stopped storage verification. Reducing a budget
 below existing traffic requirements refuses readiness rather than discarding

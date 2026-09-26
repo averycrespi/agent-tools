@@ -339,19 +339,19 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 	if err := validateDirectory(directory); err != nil {
 		return artifactMetadata{}, err
 	}
-	contents, err := os.ReadFile(filepath.Join(directory, metadataFile))
+	parent, err := openAccountingDirectory(filepath.Dir(directory))
 	if err != nil {
 		return artifactMetadata{}, err
 	}
-	var metadata artifactMetadata
-	decoder := json.NewDecoder(strings.NewReader(string(contents)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&metadata); err != nil || decoder.Decode(new(any)) != io.EOF || metadata.ID != id ||
-		len(metadata.AuthorityHash) != sha256.Size*2 || len(metadata.KeyHash) != sha256.Size*2 || len(metadata.InputHash) != sha256.Size*2 {
-		return artifactMetadata{}, ErrInvalidArtifact
+	metadata, readErr := readAccountingMetadata(parent, id)
+	if err := errors.Join(readErr, parent.Close()); err != nil {
+		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 	}
 	if _, err := time.Parse(time.RFC3339Nano, metadata.CreatedAt); err != nil {
 		return artifactMetadata{}, ErrInvalidArtifact
+	}
+	if err := requireClosedArtifact(directory); err != nil {
+		return artifactMetadata{}, err
 	}
 	databasePath := filepath.Join(directory, databaseFile)
 	identity, err := storage.VerifyBackup(ctx, databasePath)
@@ -389,6 +389,9 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 		if err := invocation.VerifyLegacyEvidence(ctx, databasePath, identity.SchemaVersion); err != nil {
 			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 		}
+	}
+	if err := requireClosedArtifact(directory); err != nil {
+		return artifactMetadata{}, err
 	}
 	return metadata, nil
 }

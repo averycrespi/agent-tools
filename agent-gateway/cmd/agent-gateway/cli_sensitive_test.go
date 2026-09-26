@@ -18,7 +18,7 @@ func TestCLISensitiveSinks(t *testing.T) {
 	for _, spec := range onlineCommandSpecs() {
 		joined := strings.Join(spec.Path, " ")
 		if contains(spec.Flags, "secret-output") {
-			assert.Contains(t, []string{"admin credential create", "admin credential rotate", "principal credential issue", "principal credential rotate"}, joined)
+			assert.Contains(t, []string{"admin credential create", "admin credential rotate", "agent credential issue", "agent credential rotate"}, joined)
 		}
 		if contains(spec.Flags, "yes") {
 			assert.NotContains(t, []string{"status", "mcp server get", "mcp invocation get"}, joined)

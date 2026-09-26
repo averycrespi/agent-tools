@@ -25,10 +25,10 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 	credentialPath := filepath.Join(dir, "agent-bearer")
 	results := make([]testutil.ProcessResult, 0, 12)
 
-	status := runOnlineCLI(t, harness, bearerPath, true, "status", "--output", "json")
+	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
 	admins := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "list", "--limit", "10", "--output", "json")
 	backupResult := runOnlineCLI(t, harness, bearerPath, true, "backup", "create", "--idempotency-key", "m10-backup", "--output", "json")
-	principalResult := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--display-name", "M10 principal", "--visibility", "all", "--output", "json")
+	principalResult := runOnlineCLI(t, harness, bearerPath, true, "agent", "create", "--display-name", "M10 principal", "--visibility", "all", "--output", "json")
 	results = append(results, status, admins, backupResult, principalResult)
 	var backup contract.Backup
 	var principalCreation contract.PrincipalCreation
@@ -37,7 +37,7 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 	principalID := principalCreation.Principal.ID
 	principalETag := contract.PrincipalETag(principalID, principalCreation.Principal.Revision)
 
-	issued := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "issue", principalID, "--etag", principalETag, "--secret-output", credentialPath, "--yes", "--output", "json")
+	issued := runOnlineCLI(t, harness, bearerPath, true, "agent", "credential", "issue", principalID, "--etag", principalETag, "--secret-output", credentialPath, "--yes", "--output", "json")
 	results = append(results, issued)
 	var principal contract.Principal
 	require.NoError(t, json.Unmarshal(issued.Stdout, &principal))
@@ -61,7 +61,7 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 	assert.Contains(t, string(requests.Stdout), `"items":[]`)
 
 	grantDeleted := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "delete", grant.ID, "--yes", "--output", "json")
-	credentialRevoked := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "revoke", principalID, "--etag", principalETag, "--yes", "--output", "json")
+	credentialRevoked := runOnlineCLI(t, harness, bearerPath, true, "agent", "credential", "revoke", principalID, "--etag", principalETag, "--yes", "--output", "json")
 	backupDeleted := runOnlineCLI(t, harness, bearerPath, true, "backup", "delete", backup.ID, "--yes", "--output", "json")
 	results = append(results, grantDeleted, credentialRevoked, backupDeleted)
 

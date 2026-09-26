@@ -46,14 +46,14 @@ func TestCLIETagMatrix(t *testing.T) {
 		{name: "mcp server credential replace", resource: "server", args: func(*testing.T) []string {
 			return []string{"mcp", "server", "credential", "replace", id, "--file", credentialInput, "--yes"}
 		}},
-		{name: "principal update", resource: "principal", args: func(*testing.T) []string { return []string{"principal", "update", id, "--display-name", "Renamed"} }},
+		{name: "principal update", resource: "principal", args: func(*testing.T) []string { return []string{"agent", "update", id, "--display-name", "Renamed"} }},
 		{name: "principal issue", resource: "principal", explicitStillGET: true, args: func(t *testing.T) []string {
-			return []string{"principal", "credential", "issue", id, "--secret-output", filepath.Join(t.TempDir(), "issued"), "--yes"}
+			return []string{"agent", "credential", "issue", id, "--secret-output", filepath.Join(t.TempDir(), "issued"), "--yes"}
 		}},
 		{name: "principal rotate", resource: "principal", explicitStillGET: true, occupied: true, args: func(t *testing.T) []string {
-			return []string{"principal", "credential", "rotate", id, "--secret-output", filepath.Join(t.TempDir(), "rotated"), "--yes"}
+			return []string{"agent", "credential", "rotate", id, "--secret-output", filepath.Join(t.TempDir(), "rotated"), "--yes"}
 		}},
-		{name: "principal revoke", resource: "principal", occupied: true, args: func(*testing.T) []string { return []string{"principal", "credential", "revoke", id, "--yes"} }},
+		{name: "principal revoke", resource: "principal", occupied: true, args: func(*testing.T) []string { return []string{"agent", "credential", "revoke", id, "--yes"} }},
 		{name: "grant request approve", resource: "grant-request", explicitStillGET: true, args: func(*testing.T) []string {
 			return []string{"mcp", "grant-request", "approve", id, "--file", approveInput, "--yes"}
 		}},

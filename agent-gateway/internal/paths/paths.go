@@ -13,6 +13,7 @@ const (
 	InstallationName       = "agent-gateway"
 	LegacyInstallationName = "mcp-gateway"
 	AdminBearerName        = "admin-bearer"
+	PublicCertificateName  = "http-ca.pem"
 	DatabaseName           = "gateway.db"
 	LockName               = "gateway.lock"
 	RunMarkerName          = "run.unclean"
@@ -76,16 +77,6 @@ func resolveInstallation(explicitRoot, xdgDataHome string, home func() (string, 
 		}
 		root = filepath.Join(filepath.Clean(homeDirectory), ".local", "share", InstallationName)
 	}
-	if explicitRoot == "" {
-		legacy := filepath.Join(filepath.Dir(root), LegacyInstallationName)
-		if _, err := os.Lstat(legacy); err == nil {
-			if !relocationCompleted(legacy, root) {
-				return Layout{}, ErrExplicitSelectionRequired
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return Layout{}, ErrExplicitSelectionRequired
-		}
-	}
 	return layoutForRoot(root), nil
 }
 
@@ -137,8 +128,47 @@ func Acquire(root string) (*Ownership, error) {
 	return ownership, nil
 }
 
+// AcquireExisting starts a run without implicitly creating an installation.
+func AcquireExisting(root string) (*Ownership, error) {
+	// Startup retains the ordinary storage owner's WAL-aware validation. The
+	// stricter immutable-maintenance tree gate would reject crash-left SQLite
+	// sidecars before that owner can inspect the selected generation.
+	ownership, err := acquireExistingOwnership(root, false)
+	if err != nil {
+		return nil, err
+	}
+	if err := ownership.establishRunMarker(); err != nil {
+		_ = ownership.Close()
+		return nil, err
+	}
+	return ownership, nil
+}
+
 func AcquireForMaintenance(root string) (*Ownership, error) {
 	return Acquire(root)
+}
+
+// InspectRoot checks only the selected directory, without following a final
+// symlink or creating state. Independent diagnostic checks can still continue.
+func InspectRoot(root string) error {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	return validateOwnerOnlyDirectory(info, root)
+}
+
+// ValidateOutputDirectory permits owner-controlled read/traverse access but
+// never shared write access for a new private output file.
+func ValidateOutputDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 {
+		return ErrUnsafePath
+	}
+	return validateOwner(info)
 }
 
 func ValidateOwnerOnlyFile(path string) error {

@@ -12,13 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAgentNamespaceHasNoPrincipalAlias(t *testing.T) {
+	root := newRootCmd()
+	root.SetOut(new(bytes.Buffer))
+	root.SetErr(new(bytes.Buffer))
+	root.SetArgs([]string{"principal", "list"})
+	require.Error(t, root.ExecuteContext(t.Context()))
+}
+
 func TestAgentLanguagePreservesCLIGrammar(t *testing.T) {
 	root := newRootCmd()
 	for _, test := range []struct{ path, description string }{
-		{"principal", "Manage agents"},
-		{"principal list", "List agents"},
-		{"principal create", "Create an agent"},
-		{"principal update", "Atomically update agent settings"},
+		{"agent", "Manage agents"},
+		{"agent list", "List agents"},
+		{"agent create", "Create an agent"},
+		{"agent update", "Atomically update agent settings"},
 		{"http default", "Manage agent HTTP defaults"},
 	} {
 		command, rest, err := root.Find(strings.Fields(test.path))
@@ -41,9 +49,9 @@ func TestAgentLanguagePreservesProblemJSON(t *testing.T) {
 		{"The principal ID is invalid.", "The agent ID is invalid."},
 		{"The current principal revision is required.", "The current agent revision is required."},
 		{"The explicit principal ETag does not match the loaded principal.", "The explicit agent ETag does not match the loaded agent."},
-		{"The principal update outcome is uncertain. Inspect principal get ID.", "The agent update outcome is uncertain. Inspect principal get ID."},
+		{"The agent update outcome is uncertain. Inspect agent get ID.", "The agent update outcome is uncertain. Inspect agent get ID."},
 		{"Principal credential issue does not match the current credential slot state.", "Agent credential issue does not match the current credential slot state."},
-		{"Usage: agent-gateway principal get ID", "Usage: agent-gateway principal get ID"},
+		{"Usage: agent-gateway agent get ID", "Usage: agent-gateway agent get ID"},
 		{"principal_default", "principal_default"},
 		{"Principal investigator", "Principal investigator"},
 	} {

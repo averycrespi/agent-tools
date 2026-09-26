@@ -22,7 +22,7 @@ func runPrincipalCredentialRotate(command *cobra.Command, options *onlineOptions
 
 func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptions, args []string, rotate bool) error {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The agent ID is invalid."))
 	}
 	principalID := args[0]
 	action := "issue"
@@ -41,14 +41,14 @@ func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptio
 		return writeOnlineFailure(command, options.output, failure)
 	}
 	if options.etag != "" && options.etag != item.ETag {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The explicit principal ETag does not match the loaded principal."))
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The explicit agent ETag does not match the loaded agent."))
 	}
 	var current contract.Principal
 	if controlclient.DecodeResponse(item.Body, &current) != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyRequestError(controlclient.ErrResponseInvalid, controlclient.RequestPhasePreflight))
 	}
 	if (!rotate && current.Credential != nil) || (rotate && current.Credential == nil) {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("Principal credential "+action+" does not match the current credential slot state."))
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("Agent credential "+action+" does not match the current credential slot state."))
 	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
@@ -89,7 +89,7 @@ func runPrincipalCredentialMutation(command *cobra.Command, options *onlineOptio
 
 func runPrincipalCredentialRevoke(command *cobra.Command, options *onlineOptions, args []string) error {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The agent ID is invalid."))
 	}
 	principalID := args[0]
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Revoke this agent's singular bearer and close its sessions, streams, and admitted leases? No bearer will remain."}); err != nil {
@@ -150,13 +150,13 @@ func principalCredentialPublicationFailureTitle(action, id string) string {
 	if action == "rotate" {
 		consequence = "The replacement may now be current and the prior bearer may already be invalid. Do not replay rotation."
 	}
-	return "The principal credential was " + action + "d, but its one-time bearer could not be published or recovered from metadata. " + consequence + " Inspect principal get " + id + ", then explicitly rotate or revoke the observed current credential."
+	return "The agent credential was " + action + "d, but its one-time bearer could not be published or recovered from metadata. " + consequence + " Inspect agent get " + id + ", then explicitly rotate or revoke the observed current credential."
 }
 
 func principalCredentialMutationUncertainTitle(action, id string) string {
-	return "The principal credential " + action + " outcome is uncertain. Nothing was replayed. Inspect principal get " + id + "; metadata may show a new credential but cannot recover its bearer or prove publication."
+	return "The agent credential " + action + " outcome is uncertain. Nothing was replayed. Inspect agent get " + id + "; metadata may show a new credential but cannot recover its bearer or prove publication."
 }
 
 func principalCredentialRevokeUncertainTitle(id string) string {
-	return "The principal credential revoke outcome is uncertain. Nothing was replayed. Inspect principal get " + id + "; only current metadata can guide a new explicit ETag action."
+	return "The agent credential revoke outcome is uncertain. Nothing was replayed. Inspect agent get " + id + "; only current metadata can guide a new explicit ETag action."
 }

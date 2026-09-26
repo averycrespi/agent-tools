@@ -40,7 +40,7 @@ func TestCLICredentialFailureProblems(t *testing.T) {
 		humanSnippet string
 		prepare      func(*testing.T, string)
 	}{
-		{name: "missing", code: "client_bearer_missing", exit: 2, humanSnippet: "Run agent-gateway initialize"},
+		{name: "missing", code: "client_bearer_missing", exit: 2, humanSnippet: "Run agent-gateway doctor"},
 		{name: "symlink", code: "client_bearer_symlink", exit: 2, humanSnippet: "regular owner-only bearer file", prepare: func(t *testing.T, path string) {
 			target := filepath.Join(t.TempDir(), "target")
 			require.NoError(t, os.WriteFile(target, []byte(usabilityTestBearer+"\n"), 0o600))
@@ -72,7 +72,7 @@ func TestCLICredentialFailureProblems(t *testing.T) {
 				if test.prepare != nil {
 					test.prepare(t, bearerPath)
 				}
-				result, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "status", "--address", server.URL, "--output", mode)
+				result, err := runner.Run(t.Context(), gatewayBinary(t), "--data-dir", root, "agent", "list", "--address", server.URL, "--output", mode)
 				require.Error(t, err)
 				assert.Equal(t, test.exit, result.ExitCode)
 				assert.Empty(t, result.Stdout)
@@ -108,13 +108,13 @@ func TestCLICommandErrors(t *testing.T) {
 	assert.Equal(t, "client_invalid_input", problem.Code)
 	assert.Contains(t, problem.Title, "Usage: agent-gateway mcp server get ID")
 
-	humanResult, err := runner.Run(t.Context(), gatewayBinary(t), "status", "--output", "human", "--definitely-invalid")
+	humanResult, err := runner.Run(t.Context(), gatewayBinary(t), "agent", "list", "--output", "human", "--definitely-invalid")
 	require.Error(t, err)
 	assert.Equal(t, 2, humanResult.ExitCode)
 	assert.Empty(t, humanResult.Stdout)
 	assertSettledResult(t, humanResult)
 	assert.Contains(t, string(humanResult.Stderr), "flag is invalid or incomplete")
-	assert.Contains(t, string(humanResult.Stderr), "Usage: agent-gateway status")
+	assert.Contains(t, string(humanResult.Stderr), "Usage: agent-gateway agent list")
 }
 
 func TestCLIHelpTree(t *testing.T) {
@@ -123,7 +123,7 @@ func TestCLIHelpTree(t *testing.T) {
 	require.NoError(t, err, "%s", root.Stderr)
 	assertSettledResult(t, root)
 	assert.Empty(t, root.Stderr)
-	for _, example := range []string{"agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "Only agent-gateway is published"} {
+	for _, example := range []string{"agent-gateway init", "agent-gateway serve", "agent-gateway doctor", "Only agent-gateway is published"} {
 		assert.Contains(t, string(root.Stdout), example)
 	}
 	assert.NotContains(t, string(root.Stdout), "Online Gateway control commands")

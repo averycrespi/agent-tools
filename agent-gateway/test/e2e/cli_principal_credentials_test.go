@@ -27,7 +27,7 @@ func TestCLIAgentCredentialIntent(t *testing.T) {
 	dir := t.TempDir()
 	results := make([]testutil.ProcessResult, 0, 10)
 
-	created := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--display-name", "Credential principal", "--visibility", "all", "--output", "json")
+	created := runOnlineCLI(t, harness, bearerPath, true, "agent", "create", "--display-name", "Credential principal", "--visibility", "all", "--output", "json")
 	results = append(results, created)
 	var creation contract.PrincipalCreation
 	require.NoError(t, json.Unmarshal(created.Stdout, &creation))
@@ -35,13 +35,13 @@ func TestCLIAgentCredentialIntent(t *testing.T) {
 	originalETag := contract.PrincipalETag(principalID, creation.Principal.Revision)
 
 	refusedPath := filepath.Join(dir, "refused")
-	refused := runOnlineCLI(t, harness, bearerPath, false, "principal", "credential", "issue", principalID, "--etag", originalETag, "--secret-output", refusedPath, "--output", "json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "agent", "credential", "issue", principalID, "--etag", originalETag, "--secret-output", refusedPath, "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
 	assert.NoFileExists(t, refusedPath)
 
 	firstPath := filepath.Join(dir, "first")
-	issued := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "issue", principalID, "--etag", originalETag, "--secret-output", firstPath, "--yes", "--output", "json")
+	issued := runOnlineCLI(t, harness, bearerPath, true, "agent", "credential", "issue", principalID, "--etag", originalETag, "--secret-output", firstPath, "--yes", "--output", "json")
 	results = append(results, issued)
 	var principal contract.Principal
 	require.NoError(t, json.Unmarshal(issued.Stdout, &principal))
@@ -54,13 +54,13 @@ func TestCLIAgentCredentialIntent(t *testing.T) {
 	etag := contract.PrincipalETag(principalID, principal.Revision)
 
 	stalePath := filepath.Join(dir, "stale")
-	stale := runOnlineCLI(t, harness, bearerPath, false, "principal", "credential", "issue", principalID, "--etag", originalETag, "--secret-output", stalePath, "--yes", "--output", "json")
+	stale := runOnlineCLI(t, harness, bearerPath, false, "agent", "credential", "issue", principalID, "--etag", originalETag, "--secret-output", stalePath, "--yes", "--output", "json")
 	results = append(results, stale)
 	assert.Equal(t, 2, stale.ExitCode)
 	assert.NoFileExists(t, stalePath)
 
 	secondPath := filepath.Join(dir, "second")
-	replaced := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "rotate", principalID, "--etag", etag, "--secret-output", secondPath, "--yes", "--output", "json")
+	replaced := runOnlineCLI(t, harness, bearerPath, true, "agent", "credential", "rotate", principalID, "--etag", etag, "--secret-output", secondPath, "--yes", "--output", "json")
 	results = append(results, replaced)
 	require.NoError(t, json.Unmarshal(replaced.Stdout, &principal))
 	secondRaw, err := os.ReadFile(secondPath)
@@ -71,10 +71,10 @@ func TestCLIAgentCredentialIntent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, harness.ModernDiscover(secondBearer, json.RawMessage(`2`)).StatusCode)
 	etag = contract.PrincipalETag(principalID, principal.Revision)
 
-	revokeRefused := runOnlineCLI(t, harness, bearerPath, false, "principal", "credential", "revoke", principalID, "--etag", etag, "--output", "json")
+	revokeRefused := runOnlineCLI(t, harness, bearerPath, false, "agent", "credential", "revoke", principalID, "--etag", etag, "--output", "json")
 	results = append(results, revokeRefused)
 	assert.Equal(t, 2, revokeRefused.ExitCode)
-	revoked := runOnlineCLI(t, harness, bearerPath, true, "principal", "credential", "revoke", principalID, "--etag", etag, "--yes", "--output", "json")
+	revoked := runOnlineCLI(t, harness, bearerPath, true, "agent", "credential", "revoke", principalID, "--etag", etag, "--yes", "--output", "json")
 	results = append(results, revoked)
 	require.NoError(t, json.Unmarshal(revoked.Stdout, &principal))
 	assert.Nil(t, principal.Credential)
@@ -95,7 +95,7 @@ func TestCLIAgentCredentialIntent(t *testing.T) {
 	}))
 	defer fake.Close()
 	uncertainPath := filepath.Join(dir, "uncertain")
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "principal", "credential", "issue", principalID, "--etag", contract.PrincipalETag(principalID, principal.Revision), "--secret-output", uncertainPath, "--yes", "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "agent", "credential", "issue", principalID, "--etag", contract.PrincipalETag(principalID, principal.Revision), "--secret-output", uncertainPath, "--yes", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Equal(t, int64(2), attempts.Load())

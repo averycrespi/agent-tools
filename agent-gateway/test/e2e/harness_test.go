@@ -105,7 +105,7 @@ func newGatewayHarnessContext(t *testing.T, ctx context.Context) *gatewayHarness
 		authority: unusedAuthority(t), runner: runner, client: &http.Client{Timeout: 3 * time.Second},
 	}
 	secretPath := filepath.Join(t.TempDir(), "admin")
-	harness.initializationArgs = []string{"initialize", "--data-dir", harness.root, "--secret-output", secretPath}
+	harness.initializationArgs = []string{"init", "--confirm", "--data-dir", harness.root, "--secret-output", secretPath}
 	harness.serveArgs = []string{"serve", "--data-dir", harness.root, "--listen", harness.authority}
 	initialized, err := runner.Run(ctx, harness.binary, harness.initializationArgs...)
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)

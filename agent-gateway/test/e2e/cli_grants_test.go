@@ -24,7 +24,7 @@ func runCLIGrantInputMatrix(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	dir := t.TempDir()
-	principalResult := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--display-name", "Grant principal", "--visibility", "allowed-only", "--output", "json")
+	principalResult := runOnlineCLI(t, harness, bearerPath, true, "agent", "create", "--display-name", "Grant principal", "--visibility", "allowed-only", "--output", "json")
 	var principalCreation contract.PrincipalCreation
 	require.NoError(t, json.Unmarshal(principalResult.Stdout, &principalCreation))
 	principalID := principalCreation.Principal.ID

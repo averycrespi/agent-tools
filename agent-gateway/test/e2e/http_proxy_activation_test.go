@@ -47,18 +47,12 @@ func createHTTPCA(t *testing.T, h *gatewayHarness) []byte {
 	response := h.AdminJSON("GET", "/api/v2/system-status", "", nil, &status)
 	require.Equal(t, 200, response.StatusCode)
 	require.NoError(t, response.Body.Close())
-	// The installation ID is exposed by the public health representation.
 	h.Stop(syscall.SIGTERM)
-	result, err := h.runner.Run(h.ctx, h.binary, "storage", "verify", "--data-dir", h.root, "--json")
+	// Init used process-local material; deliberately select material owned by
+	// this test's link-time persistent fixture before enabling interception.
+	_, err := h.runner.Run(h.ctx, h.binary, "http", "ca", "replace", "--data-dir", h.root, "--confirm")
 	require.NoError(t, err)
-	var identity struct {
-		InstallationID string `json:"installation_id"`
-	}
-	require.NoError(t, json.Unmarshal(result.Stdout, &identity))
-	require.NotEmpty(t, identity.InstallationID)
-	_, err = h.runner.Run(h.ctx, h.binary, "http", "ca", "create", "--data-dir", h.root, "--installation-id", identity.InstallationID, "--confirm")
-	require.NoError(t, err)
-	exported, err := h.runner.Run(h.ctx, h.binary, "http", "ca", "export", "--data-dir", h.root, "--installation-id", identity.InstallationID)
+	exported, err := h.runner.Run(h.ctx, h.binary, "http", "ca", "export", "--data-dir", h.root, "--stdout")
 	require.NoError(t, err)
 	return exported.Stdout
 }

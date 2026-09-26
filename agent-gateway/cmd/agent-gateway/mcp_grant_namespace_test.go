@@ -27,7 +27,8 @@ func TestMCPGrantNamespaceCompletion(t *testing.T) {
 		return names
 	}
 	root := complete("")
-	require.Contains(t, root, "principal")
+	require.Contains(t, root, "agent")
+	require.NotContains(t, root, "principal")
 	require.NotContains(t, root, "grant")
 	require.NotContains(t, root, "grant-request")
 	require.NotContains(t, root, "invocation")

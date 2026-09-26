@@ -12,9 +12,10 @@ import (
 
 func TestHTTPCASafeGrammarAndFailures(t *testing.T) {
 	for _, args := range [][]string{
-		{"create"}, {"replace", "--installation-id", "01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+		{"create"}, {"replace", "--installation-id", "invalid"},
 		{"create", "--confirm", "--installation-id", "invalid"}, {"export", "unexpected"},
 		{"export", "--confirm"}, {"create", "--unknown"},
+		{"export", "--stdout", "--json"}, {"export", "--stdout", "--output", "file"},
 	} {
 		command := newRootCmd()
 		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
@@ -35,5 +36,7 @@ func TestHTTPCASafeGrammarAndFailures(t *testing.T) {
 		} else {
 			require.Equal(t, 7, problem.Exit)
 		}
+		require.Contains(t, problem.Title, "unchanged")
+		require.NotContains(t, problem.Title, "uncertain")
 	}
 }

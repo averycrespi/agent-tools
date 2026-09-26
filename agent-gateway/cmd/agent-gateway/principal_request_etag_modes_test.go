@@ -30,8 +30,8 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 		args []string
 		etag string
 	}{
-		{name: "principal update", args: []string{"principal", "update", id, "--display-name", "Renamed"}, etag: contract.PrincipalETag(id, "7")},
-		{name: "principal credential revoke", args: []string{"principal", "credential", "revoke", id, "--yes"}, etag: contract.PrincipalETag(id, "7")},
+		{name: "agent update", args: []string{"agent", "update", id, "--display-name", "Renamed"}, etag: contract.PrincipalETag(id, "7")},
+		{name: "agent credential revoke", args: []string{"agent", "credential", "revoke", id, "--yes"}, etag: contract.PrincipalETag(id, "7")},
 		{name: "mcp grant update", args: []string{"mcp", "grant", "update", id, "--description", "Updated access"}, etag: contract.GrantETag(id, "1")},
 		{name: "grant request approve", args: []string{"mcp", "grant-request", "approve", id, "--description", "Approved access", "--scope", "tool", "--target", "example_tool", "--yes"}, etag: contract.GrantRequestETag(id, "1")},
 		{name: "grant request reject", args: []string{"mcp", "grant-request", "reject", id, "--reason", "not_approved", "--yes"}, etag: contract.GrantRequestETag(id, "1")},

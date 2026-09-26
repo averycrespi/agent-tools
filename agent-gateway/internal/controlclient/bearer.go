@@ -97,7 +97,7 @@ func ProjectBearerProblem(err error, path string) *Problem {
 
 	switch {
 	case errors.Is(err, ErrBearerMissing):
-		return &Problem{Code: "client_bearer_missing", Title: fmt.Sprintf("%s does not exist. Run agent-gateway initialize or select an existing owner-only bearer file.", capitalize(label)), Exit: 2}
+		return &Problem{Code: "client_bearer_missing", Title: fmt.Sprintf("%s does not exist. Run agent-gateway doctor to inspect setup, or select an existing owner-only bearer file; do not reset merely because this file is missing.", capitalize(label)), Exit: 2}
 	case errors.Is(err, ErrBearerSymlink):
 		return &Problem{Code: "client_bearer_symlink", Title: fmt.Sprintf("%s is a symlink. Select a regular owner-only bearer file instead.", capitalize(label)), Exit: 2}
 	case errors.Is(err, ErrBearerNotRegular):

@@ -94,7 +94,7 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"mcp", "server", "update", id, "--etag", `"server-` + id + `-1"`, "--file", patch, "--display-name", "other"}), "either direct input flags or --file")
 	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"mcp", "server", "operation", "start", id, "--kind", "invented"}), "--kind value is invalid")
-	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"principal", "create", "--visibility", "requestable"}), "--display-name flag is required")
+	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"agent", "create", "--visibility", "requestable"}), "--display-name flag is required")
 	assert.Contains(t, assertRejectedBeforeAuthority(t, []string{"mcp", "server", "get", "not-an-id"}), "resource ID is invalid")
 
 	stdinConflict := &countingReader{reader: bytes.NewBufferString(`{"namespace":"x"}`)}
@@ -113,8 +113,8 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 		"admin credential create":    {"expires-at"},
 		"mcp server update":          {"display-name", "enable", "disable"},
 		"mcp server operation start": {"kind"},
-		"principal create":           {"display-name", "visibility"},
-		"principal update":           {"display-name", "visibility", "state"},
+		"agent create":               {"display-name", "visibility"},
+		"agent update":               {"display-name", "visibility", "state"},
 		"mcp grant create":           {"description", "principal-id", "effect", "server-id", "upstream-name", "expires-at"},
 		"mcp grant-request approve":  {"description", "scope", "target", "duration-seconds", "acknowledge-future-tools"},
 		"mcp grant-request reject":   {"reason"},
@@ -128,7 +128,7 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 		}
 	}
 
-	principalSpec := onlineIntentSpecs["principal create"]
+	principalSpec := onlineIntentSpecs["agent create"]
 	body, err := principalSpec.buildBody(map[string]string{"display-name": "Agent", "visibility": "requestable"}, nil, map[string]bool{"display-name": true, "visibility": true})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"display_name":"Agent","visibility":"requestable"}`, string(body))

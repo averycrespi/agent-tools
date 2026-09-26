@@ -12,26 +12,26 @@ For a new installation, follow **Installation root → Start and inspect → Adm
 
 `make install` installs only `agent-gateway` from one implementation. Root and lock selection remain independent of executable basename. Credential prefixes, keyring identifiers, ports, and `mcp_gateway.*` self-service tools are unchanged; administrative API clients use the [v2 compatibility contract](upgrade-compatibility.md#operator-v2-cutover). Existing explicit-root commands remain supported. New installation defaults are canonical; preserve existing roots and follow the [post-migration selection and safety guidance](installation-safety.md), never reinitialize or rotate credentials for naming. The migration capability is retired; tombstones and explicit custom-root support remain. Manual client configuration has its own [migration and consumer qualification gate](access-control.md#existing-sandbox-migration-and-conflicts).
 
-`--data-dir` has highest precedence. Without it, Gateway uses `$XDG_DATA_HOME/agent-gateway` when `XDG_DATA_HOME` is an absolute path. Otherwise it resolves the operating-system account home and uses `~/.local/share/agent-gateway`. A relative XDG value is rejected, and the `$HOME` environment variable is not an authority source. A legacy `mcp-gateway` entry in that selected base causes a nonsecret selection refusal, whether the canonical root also exists or not. Only an exact completed migration tombstone bound to the moved directory is accepted; unknown files/links and inspection errors refuse. No automatic relocation, fallback search or merge occurs. Recover custom service selections explicitly before changing XDG settings or starting a new process.
+`--data-dir` has highest precedence. Without it, Gateway uses `$XDG_DATA_HOME/agent-gateway` when `XDG_DATA_HOME` is an absolute path. Otherwise it resolves the operating-system account home and uses `~/.local/share/agent-gateway`. A relative XDG value is rejected, and the `$HOME` environment variable is not an authority source. Legacy `mcp-gateway` paths, files, links and tombstones do not affect implicit selection and are not inspected. The selected root still requires safe ownership, permissions, integrity and exclusive ownership for mutations. No automatic relocation, fallback search or merge occurs. Recover custom service selections explicitly before changing XDG settings or starting a new process.
 
 Use the same data directory for initialization, service startup, stopped-process recovery, and online commands:
 
 ```bash
-agent-gateway initialize --data-dir /path/to/gateway-data
+agent-gateway init --data-dir /path/to/gateway-data --confirm
 agent-gateway serve --data-dir /path/to/gateway-data
-agent-gateway --data-dir /path/to/gateway-data status
+agent-gateway --data-dir /path/to/gateway-data doctor
 ```
 
-The zero-argument installation uses the default root and stores its administrator bearer at `<effective-data-dir>/admin-bearer`. `initialize` creates owner-only paths, never overwrites an existing secret output, and prints safe next steps without printing the bearer.
+The zero-argument installation uses the default root and stores its administrator bearer at `<effective-data-dir>/admin-bearer`. `init` inspects and confirms missing setup, creates owner-only storage and initial administrator authority, prepares the initial CA, and writes its public certificate to `<root>/http-ca.pem`. Existing state, credentials and CA are preserved. `initialize` remains a quiet alias. Missing existing credential material never triggers a reset. Noninteractive changes require `--confirm`; no service, proxy or client trust changes occur. Interrupted setup resumes only demonstrably missing work. Unresolved markers, protected-generation evidence or nonempty WAL/journal state refuse rather than replay. A fully configured idle running installation may return an inspection-only no-op; changes require stopped ownership.
 
 Exact syntax and defaults:
 
-- `agent-gateway initialize --help`
+- `agent-gateway init --help`
 - `agent-gateway serve --help`
-- `agent-gateway status --help`
+- `agent-gateway doctor --help`
 - `agent-gateway admin --help`
 - `agent-gateway admin credential --help`
-- `agent-gateway admin reset --help`
+- `agent-gateway maintenance reset-admin-credentials --help`
 - `agent-gateway http credential --help`
 
 ## Start and inspect Gateway
@@ -39,15 +39,15 @@ Exact syntax and defaults:
 The default service authority is `http://127.0.0.1:8210`:
 
 ```bash
-agent-gateway initialize
+agent-gateway init --confirm
 agent-gateway serve
 # In another terminal:
-agent-gateway status
+agent-gateway doctor --online
 ```
 
 `serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts a canonical numeric `127/8` HTTP URL or an explicitly trusted hostname HTTP URL with a canonical decimal port (1–65535). Wildcard and non-loopback numeric destinations, URL userinfo, paths (including a trailing slash), queries, fragments, forwarding headers, redirects, ambient proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `agent-gateway serve` command for the selected address and explicit data directory. A hostname refusal instead directs you to check forwarding and the numeric-loopback service; a hostname is never a valid `--listen` value.
 
-`GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. Detailed `status` requires administrator authentication.
+`GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. `doctor` replaces the old top-level `status` (no alias). It reports independent checks as verified, failed, presence-only, absent, stopped or not checked; an unreachable listener is not proof of a stopped process. It displays absolute selected paths and selection source, with installed service/log paths when safely available. File presence proves neither authority nor signing usability. `doctor --verify-storage` opts into expensive stopped, closed-generation inspection without recovery. `doctor --online` adds authenticated public-API status using `--admin-bearer-file` or the selected default. Protected keyring material is not probed. A partial checklist never claims whole-installation readiness.
 
 ## Administrator authentication
 
@@ -63,7 +63,7 @@ For a replacement bearer created by reset or restore, select it explicitly:
 
 ```bash
 agent-gateway --data-dir /path/to/gateway-data \
-  status --admin-bearer-file /safe/new/admin-bearer
+  doctor --online --admin-bearer-file /safe/new/admin-bearer
 ```
 
 See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-authority workflows.
@@ -72,7 +72,7 @@ See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-auth
 
 Commands with irreversible or authority-changing consequences require a controlling terminal confirmation unless `--yes` is explicitly supported and selected. Confirmation never implies automatic replay.
 
-Administrator credential creation and agent credential issue or rotation can publish a one-time bearer to a prepared controlling terminal or a newly created non-symlink `0600` owner-only `--secret-output` file. Administrator rotation requires a fresh owner-only `--secret-output` file so it can durably reopen and authenticate the replacement before revocation. `principal credential issue` accepts only an empty credential slot; `principal credential rotate` accepts only an occupied slot and atomically invalidates the prior agent authority without overlap. Normal stdout contains only safe metadata and guidance; JSON contains only metadata. Neither contains the bearer. Server credential input is write-only. OAuth authorization URLs are shown once through a prepared terminal and may be opened only by explicit request. Metadata reads cannot recover a lost bearer, submitted secret, or authorization URL.
+Administrator credential creation and agent credential issue or rotation can publish a one-time bearer to a prepared controlling terminal or a newly created non-symlink `0600` owner-only `--secret-output` file. Administrator rotation requires a fresh owner-only `--secret-output` file so it can durably reopen and authenticate the replacement before revocation. `agent credential issue` accepts only an empty credential slot; `agent credential rotate` accepts only an occupied slot and atomically invalidates the prior agent authority without overlap. Normal stdout contains only safe metadata and guidance; JSON contains only metadata. Neither contains the bearer. Server credential input is write-only. OAuth authorization URLs are shown once through a prepared terminal and may be opened only by explicit request. Metadata reads cannot recover a lost bearer, submitted secret, or authorization URL.
 
 A bearer-sink preparation failure occurs before credential mutation submission: choose a new output path, or a controlling terminal where supported, and submit deliberately. A failure after Gateway acknowledges credential creation is different: the credential may be active while its bearer is permanently lost. Read current metadata and explicitly rotate or revoke; never replay the original mutation merely because the one-time value was not published.
 
@@ -92,14 +92,14 @@ Use the online routine rotation command while Gateway is running:
 agent-gateway admin credential rotate OLD_CREDENTIAL_ID \
   --secret-output /safe/new/admin-bearer \
   --yes
-agent-gateway status --admin-bearer-file /safe/new/admin-bearer
+agent-gateway doctor --online --admin-bearer-file /safe/new/admin-bearer
 ```
 
 Rotation conditionally creates one non-expiring replacement, durably publishes and securely reopens the file, verifies its metadata and authentication, and only then conditionally revokes the named old credential. It never promotes the replacement into the default bearer path. If completion is uncertain, do not replay: retain the replacement file and use the rendered metadata command to inspect the old and new records. Before replacement verification, workflow-owned failures preserve old authority; after verified publication, an incomplete workflow may intentionally leave both credentials active.
 
 If durable publication itself fails after creation, the output path may contain unverified secret material but must not be trusted or used as credential input; secure or remove it. This workflow does not revoke the old credential, but expiration or concurrent administrator action may still make it unusable. An active replacement record without a durably verified bearer may also exist. If the pre-rotation credential remains active, use it to inspect metadata; otherwise use another active administrator credential. Explicitly revoke an unusable replacement if present, and perform any later rotation as a fresh deliberate operation.
 
-Use stopped-process `agent-gateway admin reset` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `admin reset` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
+Use stopped-process `agent-gateway maintenance reset-admin-credentials` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `maintenance reset-admin-credentials` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
 
 For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](backup-and-recovery.md).
 
@@ -127,7 +127,7 @@ agent-gateway admin credential create --secret-output /safe/new/sandbox-admin
 Retain the credential ID from the safe metadata output. Securely transfer only that owner-only bearer file into the sandbox, not Gateway's database or installation root. Then select the destination and credential explicitly inside the sandbox (use the port exposed by your forwarding setup):
 
 ```bash
-agent-gateway status --address http://host.lima.internal:8210 \
+agent-gateway doctor --online --address http://host.lima.internal:8210 \
   --admin-bearer-file /safe/sandbox-admin
 ```
 
@@ -143,7 +143,7 @@ Also remove the `--allowed-host` entry and restart Gateway to block new requests
 
 ## Shared agent administration and MCP policy
 
-Keep identity and credential work under `agent-gateway principal` and **Agents**. Each agent has one identity/state and at most one current agent credential. Its **MCP discovery visibility** setting affects discovery only and grants no access; manage call authority through MCP grants. Agent creation also creates the ordinary **Default Gateway access** grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols.
+Keep identity and credential work under `agent-gateway agent` and **Agents**. Each agent has one identity/state and at most one current agent credential. Its **MCP discovery visibility** setting affects discovery only and grants no access; manage call authority through MCP grants. Agent creation also creates the ordinary **Default Gateway access** grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols.
 
 Existing `--visibility`, API `visibility`, and creation `default_grant` names remain unchanged compatibility fields, not protocol-general grants. Every `Principal` JSON representation now includes `http_default`; credential-slot semantics and one-time sinks are unchanged. No protocol selector or MCP-settings endpoint is added. See [agent creation and credential procedures](access-control.md#create-and-inspect-principals) and the [normative identity boundary](../design/identity-and-authorization.md#shared-identity-and-mcp-policy-ownership). Do not rotate credentials, reinitialize, or convert backups for this wording clarification.
 
@@ -195,7 +195,7 @@ On ordinary startup, existing selected traffic-schema-1 stores are fully validat
 and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
 pair is needed. Backups remain paired and restore both evidence domains. The stopped
-`storage migrate-traffic` command still rejects an already selected pair.
+`maintenance migrate-traffic-storage` command still rejects an already selected pair.
 [Proxy activation and fresh client setup](http-proxy.md) are explicit and separate from control administration.
 
 ## Control-plane audit history
@@ -281,17 +281,19 @@ Logs omit credentials, headers, URLs, authorization codes, OAuth state/PKCE, too
 
 ## Output and failures
 
-Human output is the default. Use `--output json` or the `--json` shorthand for the exact JSON projection. Conflicting output selectors fail before work begins.
+Human output is the default. Online resource commands and service commands accept `--output json` or `--json`; conflicting selectors fail before work begins. `init`, `doctor`, maintenance and CA commands use `--json`. CA `--output` is a certificate file path, never a format selector; `--stdout` explicitly streams public PEM and conflicts with JSON.
+
+Stopped mutations display their safe plan on stderr before consent and mutation, including with `--confirm`. With `--json`, stderr is a diagnostic JSON-lines stream: a plan may precede a terminal problem. Successful finite results alone use stdout; errors leave stdout empty. Dry-run plans are results on stdout and need no confirmation. Doctor emits one partial checklist, with authenticated public status under `system` when `--online` succeeds; individual failed checks remain visible rather than being suppressed by a single global status.
 
 Finite successes write to stdout. Finite and pre-start failures leave stdout empty and write one bounded problem to stderr; serve may additionally emit the separate diagnostic lines described above. Problems retain stable codes and typed exit classes so automation can distinguish invalid input, authentication, conflict, unavailable storage, and uncertain outcomes without parsing prose.
 
 Lists return one page and use command-scoped `--limit`, `--cursor`, and filter flags. When another page exists, human output ends with `NEXT_CURSOR`; JSON retains the exact `next_cursor` member. Supply that cursor explicitly for the next page. Closed JSON requests reject duplicate, unknown, missing, or trailing values. Command input is intentionally split:
 
-| Input mode                                  | Commands                                                                                                                                        |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Direct flags only                           | `admin credential create`, `principal create`, `principal update`, `mcp server operation start`, `mcp grant update`, `mcp grant-request reject` |
-| Strict `--file` only                        | `mcp server create`, `mcp server credential replace`                                                                                            |
-| Direct flags or strict `--file`, never both | `mcp server update`, `mcp grant create`, `mcp grant-request approve`                                                                            |
+| Input mode                                  | Commands                                                                                                                                |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Direct flags only                           | `admin credential create`, `agent create`, `agent update`, `mcp server operation start`, `mcp grant update`, `mcp grant-request reject` |
+| Strict `--file` only                        | `mcp server create`, `mcp server credential replace`                                                                                    |
+| Direct flags or strict `--file`, never both | `mcp server update`, `mcp grant create`, `mcp grant-request approve`                                                                    |
 
 Use `--file PATH` or `--file -` for the strict file form. `--file -` conflicts with `--admin-bearer-stdin`. Constrained grant and approval shapes require the file form; their direct forms cover the ordinary unconstrained case. Strict files accept permanent v1 `{"equals":{...}}` constraints and closed v2 `{"version":2,"equals":{...},"regex":{...}}` constraints, validate them against the matcher compiler's grammar and limits, and preserve lexical number and regex bytes through submission. Table output identifies `v1 equals` or the v2 equality/regex atom counts. Both grant creation and approval forms accept an optional human-readable `description` (`--description` in direct mode). Grant descriptions are display metadata; `mcp grant update` changes or clears only that metadata under an exact ETag. Credential issue, rotate, and revoke commands have no request-document input.
 
@@ -303,14 +305,14 @@ Use generated help rather than copying a full command inventory into documentati
 agent-gateway --help
 agent-gateway mcp server --help
 agent-gateway mcp catalog --help
-agent-gateway principal --help
+agent-gateway agent --help
 agent-gateway mcp grant --help
 agent-gateway mcp grant-request --help
 agent-gateway mcp invocation --help
 agent-gateway audit --help
 agent-gateway backup --help
 agent-gateway admin credential --help
-agent-gateway admin reset --help
+agent-gateway maintenance reset-admin-credentials --help
 ```
 
 Focused workflow ownership:

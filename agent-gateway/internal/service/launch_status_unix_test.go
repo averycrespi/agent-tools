@@ -94,7 +94,7 @@ func TestServiceStatusNestedLaunchFields(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, result.Installed)
 			require.Equal(t, tc.want, result.Launchd, "%+v", result)
-			require.Equal(t, "not-ready", result.Readiness)
+			require.Equal(t, "ready", result.Readiness)
 			if tc.want == "unknown" {
 				_, err = f.m.execute(t.Context(), "restart", Changes{})
 				require.Error(t, err)

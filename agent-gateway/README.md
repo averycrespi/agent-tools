@@ -52,31 +52,31 @@ From the `agent-gateway` directory:
 make install
 ```
 
-This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-safety.md#retired-executable-and-operator-cleanup). New installations use canonical paths; ambiguous legacy defaults refuse. Existing explicit roots remain supported. The migration capability is retired; follow [installation safety](docs/operators/installation-safety.md), retain tombstones, and never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/upgrade-compatibility.md#browser-persistence-cutover) for preferences and fresh sign-in.
+This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-safety.md#retired-executable-and-operator-cleanup). New installations use canonical paths; legacy files and tombstones do not affect default selection and remain untouched. Existing explicit roots remain supported. The migration capability is retired; follow [installation safety](docs/operators/installation-safety.md), retain tombstones, and never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/upgrade-compatibility.md#browser-persistence-cutover) for preferences and fresh sign-in.
 
 ## Quick start
 
 Initialize the default owner-only installation and start the loopback service:
 
 ```bash
-agent-gateway initialize
+agent-gateway init
 agent-gateway serve
 ```
 
 In another terminal, verify the running Gateway:
 
 ```bash
-agent-gateway status
+agent-gateway doctor --online
 ```
 
-`initialize` creates a new administrator bearer file and prints safe next steps, never the bearer value. `status` reads that default bearer and uses the public loopback control API. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
+`init` confirms and completes missing storage, initial administrator authority and CA setup, publishing the public certificate at `<data-dir>/http-ca.pem`. Repeating it preserves existing credentials and CA; `initialize` remains an alias. Use `--confirm` for noninteractive setup. No service, proxy or client trust is configured. `doctor` is a read-only partial checklist; `--online` additionally reads authenticated public-API status. The former top-level `status` is removed. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
 
 For a checkout-only sandbox with tools, agents, grants and invocation history,
 use `make -C agent-gateway serve-demo`. It avoids the normal installation and native
 keyring. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway)
 for dataset/listener selection, protected credentials, Vite and cleanup.
 
-Traffic storage defaults to 4 GiB (`--traffic-budget-bytes`). Existing installations
+Traffic storage defaults to 4 GiB (`--traffic-budget-bytes`), accepting integer bytes or units such as `256MiB` and `4GiB`. Existing installations
 require [stopped migration](docs/operators/backup-and-recovery.md#migrate-existing-invocation-storage).
 
 Use `agent-gateway serve --log-level debug` for bounded, payload-free lifecycle and contention diagnostics on stderr. The default `warn` level includes warnings/errors; `info` adds lifecycle summaries. See [safe serve diagnostics](docs/operators/administration.md#safe-serve-diagnostics) for JSON filtering, correlation, and loss semantics.
@@ -90,10 +90,10 @@ Use `agent-gateway --help` and subcommand help for exact commands. Renaming pres
 - Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
 - Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
 - [HTTP administration](docs/operators/administration.md#http-traffic-history), [CA commands](docs/operators/backup-and-recovery.md#stopped-interception-ca-commands), and [explicit proxy setup](docs/operators/http-proxy.md).
-- Use `principal`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/upgrade-compatibility.md#mcp-permission-namespace-cutover) and [manual client configuration](docs/operators/access-control.md#configure-an-agent-client-manually).
+- Use `agent`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/upgrade-compatibility.md#mcp-permission-namespace-cutover) and [manual client configuration](docs/operators/access-control.md#configure-an-agent-client-manually).
 - Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
 - Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's **Audit Log** destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
-- Use `agent-gateway storage verify` or `agent-gateway backup restore BACKUP_ID` for stopped recovery. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.
+- Use `agent-gateway maintenance verify-and-recover-storage` or `agent-gateway maintenance restore-backup BACKUP_ID` for stopped recovery. Preview each maintenance operation with `--dry-run`; mutations require default-no confirmation or `--confirm`. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.
 
 Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.
 

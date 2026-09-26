@@ -7,12 +7,12 @@ Purpose: Create backups and perform restore or stopped-process recovery safely.
 This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. [Installation safety](installation-safety.md) owns executable retirement and retained identities. Renaming a binary never bypasses the installation lock. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
 
 - `agent-gateway backup --help`
-- `agent-gateway backup restore --help`
-- `agent-gateway storage --help`
-- `agent-gateway storage verify --help`
-- `agent-gateway admin reset --help`
+- `agent-gateway maintenance restore-backup --help`
+- `agent-gateway maintenance --help`
+- `agent-gateway maintenance verify-and-recover-storage --help`
+- `agent-gateway maintenance reset-admin-credentials --help`
 
-Gateway must be stopped for `backup restore`, `storage verify`, and `admin reset`. Backup list/get/create/delete require a running Gateway; restore remains offline and never acquires an online administrator bearer.
+Gateway must be stopped for `maintenance restore-backup`, `maintenance verify-and-recover-storage`, and `maintenance reset-admin-credentials`. Backup list/get/create/delete require a running Gateway; restore remains offline and never acquires an online administrator bearer.
 
 ## Choose a recovery task
 
@@ -26,6 +26,8 @@ Gateway must be stopped for `backup restore`, `storage verify`, and `admin reset
 | Create or replace interception signing authority             | Stopped       | [CA commands](#stopped-interception-ca-commands)                            |
 
 Stop service supervisors as well as Gateway before offline work; obtain authorization before disrupting a live service. Unknown outcomes require inspection, not replay.
+
+All four `maintenance` operations support `--dry-run`, `--confirm`, and `--json`. A dry run takes existing stopped ownership, inspects identity, closed storage, recognized marker actions and applicable backup metadata, and writes no installation files, audit records or recovery markers. Nonempty WAL/journal state prevents a proven immutable read: preserve it and obtain a qualified WAL-aware recovery plan, never delete it or checkpoint it merely to make a preview pass. Execution shows the target and consequences, requires default-no interactive consent or explicit noninteractive `--confirm`, then revalidates the plan under the same lock. Dry-run output is not later authority. Unknown recovery actions refuse. No confirmation bypasses safety checks.
 
 ## Create and manage backups
 
@@ -54,12 +56,12 @@ Creation generates an idempotency key unless one is supplied. If the response is
 After stopping every Gateway process that owns the installation, verify storage and clear a recoverable latch without replacing the database:
 
 ```bash
-agent-gateway storage verify \
+agent-gateway maintenance verify-and-recover-storage \
   --data-dir /path/to/gateway-data \
-  --output json
+  --json --confirm
 ```
 
-`storage verify` accepts neither a backup ID nor `--secret-output`. Supply the
+`maintenance verify-and-recover-storage` accepts neither a backup ID nor `--secret-output`. Supply the
 installation's `--traffic-budget-bytes` value when it differs from 4 GiB. It fully
 validates the selected traffic generation as well as control storage, without
 manufacturing missing traffic or requiring a persistent traffic-only latch. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
@@ -75,7 +77,7 @@ agent-gateway serve --data-dir /path/to/gateway-data
 While Gateway is running, use `backup list` and `backup get BACKUP_ID` to select a published backup from the same installation and inspect its schema, revision, size, and digest. Retain that exact ID; there is no implicit latest-backup selection. Stop every owner (and any service supervisor that would restart it), then select a fresh owner-only output path for replacement administrator authority. Obtain authorization before stopping a live service:
 
 ```bash
-agent-gateway backup restore BACKUP_ID \
+agent-gateway maintenance restore-backup BACKUP_ID \
   --data-dir /path/to/gateway-data \
   --secret-output /safe/new/restored-admin-bearer
 ```
@@ -89,7 +91,7 @@ signing key; surviving retired keyring items cannot reactivate a backed-up CA.
 Key loss likewise requires a new CA. See [stopped CA management](#stopped-interception-ca-commands)
 and [proxy activation](http-proxy.md); restore neither selects a proxy nor installs client trust.
 
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. It accepts schemas 3 through the current schema 21, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `storage verify` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
+Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. Both backup databases must be closed: nonempty WAL/journal files refuse inspection, revalidation and restore. A CLI restore plan may replace missing or corrupt current traffic only when bounded closed-file evidence can be captured; it explicitly reports that current traffic integrity is unverified. That evidence (including absence) is compared again after consent, so a changed target refuses before staging or bearer publication. It accepts schemas 3 through the current schema 21, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `maintenance verify-and-recover-storage` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
 
 Format-2 restore verifies both stores before selecting a fresh traffic generation.
 Accepted legacy single-database backups receive staged extraction; pre-invocation
@@ -116,7 +118,7 @@ Issue fresh agent credentials after reviewing restored agent and policy state.
 With Gateway stopped, publish replacement administrator authority to a fresh path:
 
 ```bash
-agent-gateway admin reset \
+agent-gateway maintenance reset-admin-credentials \
   --data-dir /path/to/gateway-data \
   --secret-output /safe/new/replacement-admin-bearer
 ```
@@ -126,35 +128,34 @@ A successful reset revokes every prior administrator bearer and activates the pu
 ```bash
 agent-gateway serve --data-dir /path/to/gateway-data
 # In another terminal:
-agent-gateway status --admin-bearer-file /safe/new/replacement-admin-bearer
+agent-gateway doctor --online --admin-bearer-file /safe/new/replacement-admin-bearer
 ```
 
-Use reset for stopped-process all-authority recovery without replacing durable product state. Use online `admin credential rotate` for routine replacement-first rollover of one named administrator credential. Use `backup restore` only for a verified backup generation, and use `storage verify` only to validate and recover the current stopped generation. Neither offline command adds a confirmation prompt or supports `--yes`; restore requires an explicit backup ID and fresh `--secret-output`. Existing online backup deletion still requires consequence confirmation (`--yes` for automation).
+Use reset for stopped-process all-authority recovery without replacing durable product state. Use online `admin credential rotate` for routine replacement-first rollover of one named administrator credential. Use `maintenance restore-backup` only for a verified backup generation, and use `maintenance verify-and-recover-storage` only to validate and recover the current stopped generation. Maintenance uses `--confirm`, not `--yes`; restore requires an explicit backup ID and fresh `--secret-output`. Inspect first with `--dry-run`. Without `--confirm`, noninteractive execution refuses without prompting. Existing online backup deletion still requires consequence confirmation (`--yes` for automation).
 
 ## Stopped interception CA commands
 
 See `agent-gateway http ca --help`. Disable every service launcher and stop Gateway
-before using these commands. They require an existing installation, exclusive
-process ownership and its exact installation ID (from initialization or status).
+before using these commands. They require an existing installation and exclusive
+process ownership. `--installation-id` is an optional identity assertion.
 They do not enable the proxy, install trust, or export a private key.
 
 ```bash
-agent-gateway http ca create --data-dir /path/to/gateway-data \
-  --installation-id ID --confirm
+agent-gateway init --data-dir /path/to/gateway-data --confirm
 agent-gateway http ca export --data-dir /path/to/gateway-data \
-  --installation-id ID > /safe/path/gateway-ca.pem
-# Explicit rotation, key loss, or after EVERY backup restore:
+  --output /safe/path/gateway-ca.pem
+# Explicit rotation, key loss, or after EVERY maintenance restore-backup:
 agent-gateway http ca replace --data-dir /path/to/gateway-data \
   --installation-id ID --confirm
 ```
 
-`create` is first-use only; it cannot replace an existing or restored CA.
-`replace` selects new protected signing material and a new public certificate.
-After creation or replacement, export again and explicitly update client trust
-before interception. Ordinary restart never calls either mutation. The native
+`http ca create` is removed. `init` owns first creation and never replaces an existing or restored CA.
+`replace` supports verified absence or selects new protected signing material and a new public certificate.
+Creation/replacement writes `<data-dir>/http-ca.pem` and reports its SHA-256 fingerprint.
+Replacement updates that managed file only when it matches the previously selected certificate; unrelated files are retained and publication failure is reported separately from authority change. Explicitly update client trust before interception. Ordinary restart never calls either mutation. The native
 keyring must be available; there is no plaintext fallback.
 
-`export` writes only public PEM to stdout and never reads the keyring. Its success
+`export` writes `<data-dir>/http-ca.pem` by default, accepts `--output PATH` as a file destination, or streams only public PEM with `--stdout`. Identical re-export is safe; different existing files and links are refused. `--json` selects structured results, not the certificate destination; it cannot be combined with `--stdout`. Export never reads the keyring. Its success
 is not proof that signing material is available or that client trust is installed;
 restored historical public metadata can still be exported. Errors are bounded,
 redacted stderr with typed exits: usage 2, installation in use 5, unavailable 7.
@@ -170,11 +171,11 @@ Retain an existing verified backup and confirm the exact installation ID and roo
 Do not run this procedure against a live user installation as a test.
 
 ```bash
-agent-gateway storage migrate-traffic \
+agent-gateway maintenance migrate-traffic-storage \
   --data-dir /path/to/gateway-data \
   --installation-id INSTALLATION_ID --confirm \
   --traffic-budget-bytes 4294967296
-agent-gateway storage verify --data-dir /path/to/gateway-data \
+agent-gateway maintenance verify-and-recover-storage --data-dir /path/to/gateway-data \
   --traffic-budget-bytes 4294967296
 ```
 
@@ -188,7 +189,7 @@ is retained as `gateway.db.previous-*`; interrupted stages and old traffic remai
 These are recovery evidence, not automatically selected backups.
 
 Released schema 17 is a supported single-store migration source; traffic selection
-metadata is introduced only in schema 18. Run `storage verify` after migration,
+metadata is introduced only in schema 18. Run `maintenance verify-and-recover-storage` after migration,
 not as a pre-migration schema upgrade. Do not manually remove `run.unclean`, the
 installation lock, or SQLite WAL/SHM files to bypass a refusal.
 
@@ -203,14 +204,14 @@ foreign or corrupt selected traffic fails closed. Diagnose and use an explicitly
 selected verified backup where necessary. Restart with the same budget and restore
 service supervision only after stopped verification succeeds. Fresh initialization
 creates a matching pair directly and needs no legacy migration. If first-run setup
-stops before any administrator credential exists, a deliberate `initialize` retry
+stops before any administrator credential exists, a deliberate `init --confirm` attempt
 completes or validates the pair before publishing authority, retaining abandoned
 stages. Any historical administrator credential distinguishes an installed service
 and prevents this first-run recovery path from backfilling legacy traffic.
 
 ## Failure handling
 
-Failed commands leave stdout empty and emit one bounded human or JSON problem on stderr with a stable typed exit class.
+Failed commands leave stdout empty and emit one bounded human or JSON problem on stderr with a stable typed exit class. A displayed plan can precede that problem; in JSON mode, parse stderr as JSON lines rather than one object.
 
 - `gateway_running` means another process still owns the installation. Stop it; do not bypass the process lock.
 - `secret_output_unavailable` means the one-time replacement sink was not completed. Do not assume new authority is active.
@@ -224,34 +225,36 @@ See [Administrator CLI and local administration](administration.md) for path res
 
 ## Structured results and exits
 
-`storage verify` and `backup restore` default to human output; `--output json` or `--json` selects one safe result on stdout. The old `operation:"restore"` and `mode:"verify_current"`/`mode:"backup"` projection is retired. `mode` is absent; operation is now unambiguous. The exact success members are:
+Maintenance defaults to human output; `--json` selects one safe result on stdout. Execution plans and errors use stderr; dry-run plans are results on stdout. The old `operation:"restore"` and `mode:"verify_current"`/`mode:"backup"` projection is retired. `mode` is absent; operation is now unambiguous. The exact success members are:
 
 ```json
-{"ok":true,"operation":"storage_verify","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"0"}
-{"ok":true,"operation":"backup_restore","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"2","backup_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}
+{"ok":true,"operation":"verify-and-recover-storage","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"0"}
+{"ok":true,"operation":"restore-backup","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"2","backup_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}
 ```
 
 IDs and decimal-string revisions above are illustrative. Verification omits `backup_id`; neither result contains secret values or paths. These are CLI-only projections: backup files and API backup representations retain their existing fields, as do durable audit category/action pairs.
 
-Success exits 0. Invalid arguments/output/flags and unusable replacement sinks exit 2 (`client_invalid_input` / `secret_output_unavailable`); missing, invalid, corrupt, or foreign backups exit 4 (`invalid_backup`); a running owner exits 5 (`gateway_running`); other recovery/storage failures exit 7 (`storage_unavailable`). Output delivery failure exits 1 and can leave incomplete output after work already occurred. JSON problems have exactly `status` (null), `code`, `title`, `exit_code`, and `uncertain` (false for these offline problems). For example:
+Success exits 0. Invalid arguments/output/flags and unusable replacement sinks exit 2 (`client_invalid_input` / `secret_output_unavailable`); missing, invalid, corrupt, or foreign backups exit 4 (`invalid_backup`); a running owner exits 5 (`gateway_running`); other recovery/storage failures exit 7 (including `storage_latched`, `inspection_unavailable`, or `maintenance_unavailable`). Output delivery failure exits 1 and can leave incomplete output after work already occurred. JSON problems have exactly `status` (null), `code`, `title`, `exit_code`, and `uncertain` (true when the owner cannot establish a mutation or selection outcome). For example:
 
 ```json
 {
   "status": null,
   "code": "gateway_running",
-  "title": "The Gateway is running. Stop it before verifying current storage.",
+  "title": "No maintenance changes made. Stop the selected installation and its launchers first. Next: agent-gateway doctor --data-dir /path/to/gateway-data",
   "exit_code": 5,
   "uncertain": false
 }
 ```
 
-Restore's corresponding title is `The Gateway is running. Stop it before restoring a backup.` The offline `uncertain:false` field is not proof of rollback: exit 7 or output loss can occur after generation installation or marker work. Nothing is replayed or compensated automatically.
+Error titles distinguish unchanged authority, retained staging, completed selection with a later failure, and uncertain mutation. An output-delivery failure can still occur after completed work; never infer rollback from missing output. Nothing is replayed or compensated automatically.
 
 ## Recovery command cutover
 
-| Retired command                              | Replacement in the current executable               |
-| -------------------------------------------- | --------------------------------------------------- |
-| `restore --verify-current`                   | `storage verify`                                    |
-| `restore BACKUP_ID --secret-output NEW_PATH` | `backup restore BACKUP_ID --secret-output NEW_PATH` |
+| Retired command                                   | Replacement in the current executable                           |
+| ------------------------------------------------- | --------------------------------------------------------------- |
+| `storage verify` or `restore --verify-current`    | `maintenance verify-and-recover-storage`                        |
+| `admin reset`                                     | `maintenance reset-admin-credentials --secret-output NEW_PATH`  |
+| `backup restore BACKUP_ID` or `restore BACKUP_ID` | `maintenance restore-backup BACKUP_ID --secret-output NEW_PATH` |
+| `storage migrate-traffic`                         | `maintenance migrate-traffic-storage --installation-id ID`      |
 
 The retired top-level `restore` and `--verify-current` flag have no execution aliases or completions. Update scripts and use the matching binary's help when rolling operator tooling back. This command-only cutover changes no database schema, backup metadata, credential/keyring identity, root, process lock, service argv, or installed executable path. Switching binaries does not reinitialize or recover an installation. Older binaries must still reject schemas newer than they support; never force a downgrade or edit durable metadata to make one work. Historical acceptance reports are not current qualification.

@@ -29,7 +29,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
 		},
 		"../../docs/operators/backup-and-recovery.md": {
-			"Gateway must be stopped", "agent-gateway storage verify", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
+			"Gateway must be stopped", "agent-gateway maintenance verify-and-recover-storage", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
 			"Every restore invalidates interception CA authority.",
 		},
 		"../../DESIGN.md": {
@@ -76,7 +76,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	require.NotEqual(t, -1, quickStart)
 	require.NotEqual(t, -1, commonWorkflows)
 	require.Less(t, quickStart, commonWorkflows)
-	for _, phrase := range []string{"make install", "agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "only `agent-gateway`"} {
+	for _, phrase := range []string{"make install", "agent-gateway init", "agent-gateway serve", "agent-gateway doctor", "only `agent-gateway`"} {
 		require.Contains(t, readme, phrase)
 	}
 	for _, detailed := range []string{"XDG_DATA_HOME", "--admin-bearer-stdin", "--verify-current", "schema 10"} {
@@ -95,7 +95,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	recoveryBytes, err := os.ReadFile("../../docs/operators/backup-and-recovery.md")
 	require.NoError(t, err)
 	recovery := string(recoveryBytes)
-	for _, phrase := range []string{"agent-gateway storage verify", "does not rewrite the default `admin-bearer`", "--admin-bearer-file"} {
+	for _, phrase := range []string{"agent-gateway maintenance verify-and-recover-storage", "does not rewrite the default `admin-bearer`", "--admin-bearer-file"} {
 		require.Contains(t, recovery, phrase)
 	}
 	for _, phrase := range []string{
@@ -112,7 +112,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	require.NoError(t, err)
 	design := string(designBytes)
 	for _, phrase := range []string{
-		"Zero-argument `initialize`",
+		"`init` (with quiet `initialize` alias)",
 		"resolved default `<root>/admin-bearer`",
 		"there is no prompt, argv, or environment fallback",
 		"use the public HTTP API at a canonical numeric-loopback or explicitly selected hostname destination",

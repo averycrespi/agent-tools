@@ -17,18 +17,18 @@ var principalETagPattern = regexp.MustCompile(`^"principal-([0-7][0-9A-HJKMNP-TV
 func runPrincipalCreate(command *cobra.Command, options *onlineOptions) error {
 	body, members, err := readPrincipalInput(command, options, true)
 	if err != nil || !members["display_name"] || !members["visibility"] || len(members) != 2 {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal create input is invalid."))
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The agent create input is invalid."))
 	}
 	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPost, path: "/api/v2/principals", body: body, create: true})
 }
 
 func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []string) error {
 	if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The agent ID is invalid."))
 	}
 	body, members, err := readPrincipalInput(command, options, false)
 	if err != nil || len(members) == 0 {
-		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal update input is invalid."))
+		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The agent update input is invalid."))
 	}
 	if members["state"] || members["http_default"] {
 		if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change this agent's authority? Disabling clears credential authority and sessions; re-enabling restores neither credentials nor deleted grants. HTTP default allow grants no credential, tunnel or private-network permission."}); err != nil {
@@ -165,9 +165,9 @@ func runPrincipalMutation(command *cobra.Command, options *onlineOptions, reques
 
 func principalUncertainTitle(request principalMutationRequest) string {
 	if request.create {
-		return "The principal create outcome is uncertain. Nothing was replayed. Inspect principal list; reads cannot prove rollback or safely recover an unknown new intent."
+		return "The agent create outcome is uncertain. Nothing was replayed. Inspect agent list; reads cannot prove rollback or safely recover an unknown new intent."
 	}
-	return "The principal update outcome is uncertain. Nothing was replayed or overwritten. Inspect principal get " + request.principalID + " before deciding on a new explicit ETag and input."
+	return "The agent update outcome is uncertain. Nothing was replayed or overwritten. Inspect agent get " + request.principalID + " before deciding on a new explicit ETag and input."
 }
 
 func validPrincipal(principal contract.Principal) bool {

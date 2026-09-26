@@ -130,26 +130,26 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, catalogTable)
-	case "principal list":
+	case "agent list":
 		path, err := controlclient.BuildListPath("/api/v2/principals", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
 		if err != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 		}
 		return runOnlineRead(command, options, path, principalListTable)
-	case "principal get":
+	case "agent get":
 		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
-			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The principal ID is invalid."))
+			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The agent ID is invalid."))
 		}
 		return runOnlineItemRead(command, options, onlineItemPrincipal, args[0], principalItemTable)
-	case "principal create":
+	case "agent create":
 		return runPrincipalCreate(command, options)
-	case "principal update":
+	case "agent update":
 		return runPrincipalUpdate(command, options, args)
-	case "principal credential issue":
+	case "agent credential issue":
 		return runPrincipalCredentialIssue(command, options, args)
-	case "principal credential rotate":
+	case "agent credential rotate":
 		return runPrincipalCredentialRotate(command, options, args)
-	case "principal credential revoke":
+	case "agent credential revoke":
 		return runPrincipalCredentialRevoke(command, options, args)
 	case "mcp grant list":
 		path, err := grantListPath(options)

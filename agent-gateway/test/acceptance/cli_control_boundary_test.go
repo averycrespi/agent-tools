@@ -27,8 +27,8 @@ func TestCLIControlBoundary(t *testing.T) {
 	}
 	for _, owner := range []string{
 		`onlineSpec([]string{"admin", "credential", "create"}`,
-		`onlineSpec([]string{"principal", "create"}`,
-		`onlineSpec([]string{"principal", "update"}`,
+		`onlineSpec([]string{"agent", "create"}`,
+		`onlineSpec([]string{"agent", "update"}`,
 		`onlineSpec([]string{"mcp", "server", "operation", "start"}`,
 		`onlineSpec([]string{"mcp", "grant-request", "reject"}`,
 	} {
@@ -39,7 +39,12 @@ func TestCLIControlBoundary(t *testing.T) {
 
 	rootSource, err := os.ReadFile(filepath.Join(commandRoot, "root.go"))
 	require.NoError(t, err)
-	assert.Contains(t, string(rootSource), `newAdminAuthorityCmd("reset", dependencies)`)
+	assert.Contains(t, string(rootSource), `newMaintenanceCmd(dependencies)`)
+	maintenanceSource, err := os.ReadFile(filepath.Join(commandRoot, "maintenance.go"))
+	require.NoError(t, err)
+	assert.Contains(t, string(maintenanceSource), `case "reset-admin-credentials":`)
+	assert.Contains(t, string(maintenanceSource), `executeAdminAuthority(ctx, "reset", layout.Root, admin.NewFileSecretSink(secretOutput), dependencies, approval)`)
+	assert.NotContains(t, source, `onlineSpec([]string{"maintenance"`)
 	assert.NotContains(t, source, `onlineSpec([]string{"admin", "reset"}`)
 }
 

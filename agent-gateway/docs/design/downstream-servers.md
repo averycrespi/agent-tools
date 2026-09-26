@@ -51,13 +51,19 @@ Metadata edits and deletion run in the shared control transaction. `ReferenceIns
 ## Installation interception CA
 
 `internal/httpca` owns a stable installation-scoped P-256 CA. This delivery supplies
-composition-owned lifecycle and stopped `http ca create`, `http ca replace`, and
-`http ca export` commands, not production proxy activation, a trust installer, or a
-hidden runtime switch. All require exclusive existing installation ownership and
-an exact installation ID. Mutations also require explicit confirmation. Creation
-uses expected revision `0`; replacement reads the current nonzero revision under
-the same stopped lock and requires client trust updates. Export reads public
-metadata without constructing a keyring provider. Commands hold ownership through
+composition-owned lifecycle, first-time CA setup through `init`, and stopped
+`http ca replace` and `http ca export` commands, not a trust installer or hidden
+runtime switch. CA commands require exclusive existing installation ownership;
+`--installation-id` is an optional identity assertion. Replacement requires
+explicit confirmation and supports verified absence as well as an existing CA.
+First creation uses expected revision `0`; replacement reads the current revision
+under the same stopped lock and existing-CA replacement requires client trust
+updates. Export reads public metadata without constructing a keyring provider.
+Public output defaults to `<data-dir>/http-ca.pem`; export supports `--output PATH`
+or explicit `--stdout` streaming. Identical exports are idempotent. Replacement
+updates only the managed file matching the previously selected certificate;
+unrelated files are never silently overwritten. Authority mutation and later
+certificate-publication failure are reported separately. Commands hold ownership through
 storage closure, never replay uncertain failure, and do not start the serving graph. Startup/load never generates, rotates, scans old handles or
 falls back to plaintext. Missing, mismatched, expired, fenced or unavailable material
 fails interception closed. Key loss requires a new CA, not portable recovery.

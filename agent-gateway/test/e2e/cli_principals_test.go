@@ -25,10 +25,10 @@ func runCLIPrincipalInputMatrix(t *testing.T) {
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 	results := make([]testutil.ProcessResult, 0, 10)
 
-	invalid := runOnlineCLI(t, harness, bearerPath, false, "principal", "create", "--file", filepath.Join(t.TempDir(), "removed.json"), "--output", "json")
+	invalid := runOnlineCLI(t, harness, bearerPath, false, "agent", "create", "--file", filepath.Join(t.TempDir(), "removed.json"), "--output", "json")
 	results = append(results, invalid)
 	assert.Equal(t, 2, invalid.ExitCode)
-	created := runOnlineCLI(t, harness, bearerPath, true, "principal", "create", "--display-name", "CLI principal", "--visibility", "requestable", "--output", "json")
+	created := runOnlineCLI(t, harness, bearerPath, true, "agent", "create", "--display-name", "CLI principal", "--visibility", "requestable", "--output", "json")
 	results = append(results, created)
 	var creation contract.PrincipalCreation
 	require.NoError(t, json.Unmarshal(created.Stdout, &creation))
@@ -37,13 +37,13 @@ func runCLIPrincipalInputMatrix(t *testing.T) {
 	assert.Equal(t, contract.GrantAllow, creation.DefaultGrant.Effect)
 	etag := contract.PrincipalETag(principalID, creation.Principal.Revision)
 
-	listed := runOnlineCLI(t, harness, bearerPath, true, "principal", "list", "--limit", "10", "--output", "json")
-	got := runOnlineCLI(t, harness, bearerPath, true, "principal", "get", principalID)
+	listed := runOnlineCLI(t, harness, bearerPath, true, "agent", "list", "--limit", "10", "--output", "json")
+	got := runOnlineCLI(t, harness, bearerPath, true, "agent", "get", principalID)
 	results = append(results, listed, got)
 	assert.Contains(t, string(listed.Stdout), principalID)
 	assert.Contains(t, string(got.Stdout), "CLI principal")
 
-	updated := runOnlineCLI(t, harness, bearerPath, true, "principal", "update", principalID, "--display-name", "CLI principal updated", "--http-default", "allow", "--yes", "--output", "json")
+	updated := runOnlineCLI(t, harness, bearerPath, true, "agent", "update", principalID, "--display-name", "CLI principal updated", "--http-default", "allow", "--yes", "--output", "json")
 	results = append(results, updated)
 	var principal contract.Principal
 	require.NoError(t, json.Unmarshal(updated.Stdout, &principal))
@@ -69,17 +69,17 @@ func runCLIPrincipalInputMatrix(t *testing.T) {
 	oldETag := etag
 	etag = contract.PrincipalETag(principalID, principal.Revision)
 
-	refused := runOnlineCLI(t, harness, bearerPath, false, "principal", "update", principalID, "--etag", etag, "--state", "disabled", "--output", "json")
+	refused := runOnlineCLI(t, harness, bearerPath, false, "agent", "update", principalID, "--etag", etag, "--state", "disabled", "--output", "json")
 	results = append(results, refused)
 	assert.Equal(t, 2, refused.ExitCode)
-	disabled := runOnlineCLI(t, harness, bearerPath, true, "principal", "update", principalID, "--etag", etag, "--state", "disabled", "--yes", "--output", "json")
+	disabled := runOnlineCLI(t, harness, bearerPath, true, "agent", "update", principalID, "--etag", etag, "--state", "disabled", "--yes", "--output", "json")
 	results = append(results, disabled)
 	require.NoError(t, json.Unmarshal(disabled.Stdout, &principal))
 	assert.Equal(t, contract.PrincipalDisabled, principal.State)
 	etag = contract.PrincipalETag(principalID, principal.Revision)
 
-	stale := runOnlineCLI(t, harness, bearerPath, false, "principal", "update", principalID, "--etag", oldETag, "--display-name", "stale", "--output", "json")
-	noOp := runOnlineCLI(t, harness, bearerPath, false, "principal", "update", principalID, "--etag", etag, "--state", "disabled", "--yes", "--output", "json")
+	stale := runOnlineCLI(t, harness, bearerPath, false, "agent", "update", principalID, "--etag", oldETag, "--display-name", "stale", "--output", "json")
+	noOp := runOnlineCLI(t, harness, bearerPath, false, "agent", "update", principalID, "--etag", etag, "--state", "disabled", "--yes", "--output", "json")
 	results = append(results, stale, noOp)
 	assert.Equal(t, 5, stale.ExitCode)
 	assert.Equal(t, 5, noOp.ExitCode)
@@ -92,14 +92,14 @@ func runCLIPrincipalInputMatrix(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"status":503,"code":"storage_unavailable","title":"Storage is unavailable."}`))
 	}))
 	defer fake.Close()
-	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "principal", "update", principalID, "--etag", etag, "--display-name", "uncertain", "--output", "json")
+	uncertain := runCLIAt(t, harness, bearerPath, fake.URL, "agent", "update", principalID, "--etag", etag, "--display-name", "uncertain", "--output", "json")
 	results = append(results, uncertain)
 	assert.Equal(t, 8, uncertain.ExitCode)
 	assert.Equal(t, int64(1), attempts.Load())
 	assert.Contains(t, string(uncertain.Stderr), "Nothing was replayed or overwritten")
 
 	harness.Stop(syscall.SIGTERM)
-	preHandoff := runOnlineCLI(t, harness, bearerPath, false, "principal", "get", principalID, "--output", "json")
+	preHandoff := runOnlineCLI(t, harness, bearerPath, false, "agent", "get", principalID, "--output", "json")
 	results = append(results, preHandoff)
 	assert.Equal(t, 9, preHandoff.ExitCode)
 	for _, result := range results {

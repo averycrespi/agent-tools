@@ -127,18 +127,18 @@ func TestCLICompleteStoppedGatewayMatrix(t *testing.T) {
 		})
 	}
 	assert.Contains(t, seen, "admin credential rotate")
-	assert.Contains(t, seen, "principal credential rotate")
+	assert.Contains(t, seen, "agent credential rotate")
 
 	t.Run("default address and data directory guidance", func(t *testing.T) {
 		listener, err := net.Listen("tcp4", "127.0.0.1:8210")
 		require.NoError(t, err, "the default address must be free for stopped-Gateway coverage")
 		require.NoError(t, listener.Close())
-		result, err := runner.Run(t.Context(), binary, "status", "--admin-bearer-file", bearerPath)
+		result, err := runner.Run(t.Context(), binary, "agent", "list", "--admin-bearer-file", bearerPath)
 		require.Error(t, err)
 		assert.Equal(t, 9, result.ExitCode)
 		assert.Equal(t, "Agent Gateway is not running. Start it with: agent-gateway serve.\n", string(result.Stderr))
 		dataDir := filepath.Join(root, "default address data")
-		result, err = runner.Run(t.Context(), binary, "--data-dir", dataDir, "status", "--admin-bearer-file", bearerPath)
+		result, err = runner.Run(t.Context(), binary, "--data-dir", dataDir, "agent", "list", "--admin-bearer-file", bearerPath)
 		require.Error(t, err)
 		assert.Equal(t, 9, result.ExitCode)
 		assert.Contains(t, string(result.Stderr), "agent-gateway serve")
@@ -160,7 +160,7 @@ func TestCLICompleteStoppedGatewayMatrix(t *testing.T) {
 		for _, test := range cases {
 			t.Run(test.name, func(t *testing.T) {
 				selected := refusedAddress(t, test.bind)
-				args := []string{"status", "--admin-bearer-file", bearerPath, "--address", "http://" + selected}
+				args := []string{"agent", "list", "--admin-bearer-file", bearerPath, "--address", "http://" + selected}
 				if test.dataDir != "" {
 					args = append([]string{"--data-dir", test.dataDir}, args...)
 				}
@@ -182,7 +182,8 @@ func discoverOnlineLeaves(t *testing.T, runner *testutil.BinaryRunner, binary st
 	result, err := runner.Run(t.Context(), binary, args...)
 	require.NoError(t, err, "%v: %s", args, result.Stderr)
 	help := string(result.Stdout)
-	if strings.Contains(help, "--address string") {
+	// Doctor has a separate partial-checklist contract, not online resource output.
+	if strings.Contains(help, "--address string") && strings.Contains(help, "--output string") {
 		marker := "Examples:\n"
 		start := strings.Index(help, marker)
 		require.NotEqual(t, -1, start, "%v", path)
@@ -243,7 +244,7 @@ func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, 
 		}
 	}
 	switch name {
-	case "mcp server update", "principal update":
+	case "mcp server update", "agent update":
 		args = append(args, "--display-name", "stopped-matrix")
 	case "mcp grant-request approve":
 		args = append(args, "--acknowledge-future-tools")

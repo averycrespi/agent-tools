@@ -41,15 +41,11 @@ func TestDefaultSelectionLegacyMatrix(t *testing.T) {
 			before, err := os.ReadDir(parent)
 			require.NoError(t, err)
 			layout, err := resolveInstallation(explicit, parent, nil)
-			if mode == "canonical-only" || mode == "neither" || explicit != "" {
-				require.NoError(t, err)
-				if explicit != "" {
-					require.Equal(t, explicit, layout.Root)
-				} else {
-					require.Equal(t, canonical, layout.Root)
-				}
+			require.NoError(t, err)
+			if explicit != "" {
+				require.Equal(t, explicit, layout.Root)
 			} else {
-				require.ErrorIs(t, err, ErrExplicitSelectionRequired)
+				require.Equal(t, canonical, layout.Root)
 			}
 			after, err := os.ReadDir(parent)
 			require.NoError(t, err)
@@ -112,13 +108,13 @@ func TestCompletedTombstoneSelection(t *testing.T) {
 				require.NoError(t, os.Rename(legacy+"-record", canonical))
 			}
 			layout, err := resolveInstallation("", parent, nil)
+			require.NoError(t, err)
+			require.Equal(t, canonical, layout.Root)
+			// Historical recognition no longer controls implicit selection.
+			require.Equal(t, mode == "completed", relocationCompleted(legacy, canonical))
 			if mode == "completed" {
-				require.NoError(t, err)
-				require.Equal(t, canonical, layout.Root)
 				_, err = Prepare(legacy)
-				require.ErrorIs(t, err, ErrUnsafePath, "tombstone must still fence legacy initialization")
-			} else {
-				require.ErrorIs(t, err, ErrExplicitSelectionRequired)
+				require.ErrorIs(t, err, ErrUnsafePath, "selected-root safety still rejects a tombstone")
 			}
 			recordPath := legacy
 			if mode == "reservation" {

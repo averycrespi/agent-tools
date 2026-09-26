@@ -38,7 +38,7 @@ func newFixture(t *testing.T) *fixture {
 	binary := filepath.Join(home, "gateway & binary")
 	require.NoError(t, os.WriteFile(binary, []byte("fixture"), 0700))
 	f := &fixture{}
-	f.m = manager{home: home, uid: os.Getuid(), executable: binary, publish: publish, probe: func(context.Context, string) string { return "not-ready" }}
+	f.m = manager{home: home, uid: os.Getuid(), executable: binary, publish: publish, probe: func(context.Context, string) string { return "ready" }}
 	f.m.run = f.run
 	return f
 }

@@ -30,7 +30,7 @@ func TestServeAllowedHostValidationBeforeInstallation(t *testing.T) {
 
 func TestHostnameRefusalGuidanceAndHelp(t *testing.T) {
 	root := newRootCmd()
-	cmd, _, err := root.Find([]string{"status"})
+	cmd, _, err := root.Find([]string{"agent", "list"})
 	require.NoError(t, err)
 	require.NoError(t, cmd.Flags().Set("address", "http://host.lima.internal:18210"))
 	problem := projectOnlineFailure(cmd, &controlclient.OnlineError{Code: "gateway_not_running", Exit: 9})

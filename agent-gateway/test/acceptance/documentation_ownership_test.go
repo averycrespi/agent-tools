@@ -99,7 +99,7 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	for _, heading := range []string{"## Installation", "## Quick start", "## Common workflows", "## Security", "## Documentation", "## Development"} {
 		assert.Contains(t, readme, heading)
 	}
-	for _, command := range []string{"make install", "agent-gateway initialize", "agent-gateway serve", "agent-gateway status", "only `agent-gateway`"} {
+	for _, command := range []string{"make install", "agent-gateway init", "agent-gateway serve", "agent-gateway doctor", "only `agent-gateway`"} {
 		assert.Contains(t, readme, command)
 	}
 	assertMarkdownLinksResolve(t, filepath.Join(root, "README.md"), readme)
@@ -199,7 +199,7 @@ func testOperationalGuidesCoverBehaviorManifest(t *testing.T) {
 		"product.server_catalog.one_time_oauth_url":         "one-time authorization URL",
 		"product.server_catalog.active_vs_durable_catalog":  "evidence, not a callability claim",
 		"product.server_catalog.deletion_and_disconnect":    "Deletion is permanent",
-		"product.access_policy.principal_inventory":         "agent-gateway principal list",
+		"product.access_policy.principal_inventory":         "agent-gateway agent list",
 		"product.access_policy.principal_creation_defaults": "synthetic default grant",
 		"product.access_policy.agent_credential_rotation":   "old bearer never overlaps",
 		"product.access_policy.immutable_grants":            "Grants are immutable",

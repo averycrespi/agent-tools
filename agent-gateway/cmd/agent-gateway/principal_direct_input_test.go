@@ -62,7 +62,7 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 		return stdout.Bytes(), nil
 	}
 
-	output, err := execute("principal", "create", "--display-name", "Direct agent", "--visibility", "requestable")
+	output, err := execute("agent", "create", "--display-name", "Direct agent", "--visibility", "requestable")
 	require.NoError(t, err, "%s", output)
 	created := <-requests
 	assert.Equal(t, http.MethodPost, created.method)
@@ -72,7 +72,7 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 	assert.JSONEq(t, `{"display_name":"Direct agent","visibility":"requestable"}`, string(created.body))
 
 	etag := contract.PrincipalETag(principalID, "1")
-	output, err = execute("principal", "update", principalID, "--etag", etag, "--display-name", "Renamed")
+	output, err = execute("agent", "update", principalID, "--etag", etag, "--display-name", "Renamed")
 	require.NoError(t, err, "%s", output)
 	updated := <-requests
 	assert.Equal(t, http.MethodPatch, updated.method)
@@ -80,12 +80,12 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 	assert.Equal(t, etag, updated.etag)
 	assert.JSONEq(t, `{"display_name":"Renamed"}`, string(updated.body))
 
-	output, err = execute("principal", "update", principalID, "--etag", etag, "--visibility", "allowed-only")
+	output, err = execute("agent", "update", principalID, "--etag", etag, "--visibility", "allowed-only")
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"visibility":"allowed-only"}`, string((<-requests).body))
 	assert.JSONEq(t, principalBody, string(output))
 
-	output, err = execute("principal", "update", principalID, "--etag", etag, "--state", "disabled", "--yes")
+	output, err = execute("agent", "update", principalID, "--etag", etag, "--state", "disabled", "--yes")
 	require.NoError(t, err, "%s", output)
 	assert.JSONEq(t, `{"state":"disabled"}`, string((<-requests).body))
 
@@ -93,11 +93,11 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "create missing required flag", args: []string{"principal", "create", "--visibility", "requestable"}},
-		{name: "create old file", args: []string{"principal", "create", "--file", filepath.Join(dir, "old.json")}},
-		{name: "update empty", args: []string{"principal", "update", principalID, "--etag", etag}},
-		{name: "update invalid visibility", args: []string{"principal", "update", principalID, "--etag", etag, "--visibility", "private"}},
-		{name: "update state unconfirmed", args: []string{"principal", "update", principalID, "--etag", etag, "--state", "disabled"}},
+		{name: "create missing required flag", args: []string{"agent", "create", "--visibility", "requestable"}},
+		{name: "create old file", args: []string{"agent", "create", "--file", filepath.Join(dir, "old.json")}},
+		{name: "update empty", args: []string{"agent", "update", principalID, "--etag", etag}},
+		{name: "update invalid visibility", args: []string{"agent", "update", principalID, "--etag", etag, "--visibility", "private"}},
+		{name: "update state unconfirmed", args: []string{"agent", "update", principalID, "--etag", etag, "--state", "disabled"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := execute(test.args...)
@@ -108,9 +108,9 @@ func TestCLIPrincipalDirectInput(t *testing.T) {
 	}
 
 	root := newRootCmd()
-	create, _, err := root.Find([]string{"principal", "create"})
+	create, _, err := root.Find([]string{"agent", "create"})
 	require.NoError(t, err)
-	update, _, err := root.Find([]string{"principal", "update"})
+	update, _, err := root.Find([]string{"agent", "update"})
 	require.NoError(t, err)
 	assert.NotNil(t, create.Flags().Lookup("display-name"))
 	assert.NotNil(t, create.Flags().Lookup("visibility"))

@@ -113,7 +113,7 @@ func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(restoreResult.Stdout, &restoredCommand))
 	assert.True(t, restoredCommand.OK)
-	assert.Equal(t, "backup_restore", restoredCommand.Operation)
+	assert.Equal(t, "restore-backup", restoredCommand.Operation)
 	assert.Equal(t, artifact.InstallationID, restoredCommand.InstallationID)
 	assert.Equal(t, artifact.ID, restoredCommand.BackupID)
 	sourceRevision, err := strconv.Atoi(artifact.SourceRevision)

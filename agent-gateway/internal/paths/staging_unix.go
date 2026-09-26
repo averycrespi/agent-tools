@@ -66,6 +66,10 @@ func ReserveHeadroom(root string, bytes int64) (func(), error) {
 // AcquireStoppedExisting never creates a directory, lock, or run marker. The
 // existing installation lock serializes explicit stopped storage migration.
 func AcquireStoppedExisting(root string) (*Ownership, error) {
+	return acquireExistingOwnership(root, true)
+}
+
+func acquireExistingOwnership(root string, inspectTree bool) (*Ownership, error) {
 	layout, err := Resolve(root)
 	if err != nil {
 		return nil, err
@@ -77,9 +81,7 @@ func AcquireStoppedExisting(root string) (*Ownership, error) {
 	if err = validateOwnerOnlyDirectory(info, layout.Root); err != nil {
 		return nil, err
 	}
-	if err = inspectStagingTree(layout.Root, info); err != nil {
-		return nil, err
-	}
+	rootInfo := info
 	fd, err := unix.Open(layout.Lock, unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_RDWR, 0)
 	if err != nil {
 		return nil, err
@@ -99,7 +101,44 @@ func AcquireStoppedExisting(root string) (*Ownership, error) {
 		}
 		return nil, err
 	}
+	if inspectTree {
+		if err = inspectStagingTree(layout.Root, rootInfo); err != nil {
+			return nil, errors.Join(err, releaseFileLock(lock))
+		}
+	}
 	return &Ownership{layout: layout, lock: lock}, nil
+}
+
+// ProbeOwnership observes the existing lock without creating files or markers.
+// A free lock means stopped at this instant, not readiness or a clean shutdown.
+func ProbeOwnership(root string) (bool, error) {
+	layout, err := Resolve(root)
+	if err != nil {
+		return false, err
+	}
+	if err = InspectRoot(layout.Root); err != nil {
+		return false, err
+	}
+	fd, err := unix.Open(layout.Lock, unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_RDONLY, 0)
+	if err != nil {
+		return false, err
+	}
+	file := os.NewFile(uintptr(fd), layout.Lock)
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return false, err
+	}
+	if err = validateOwnerOnlyFile(info, layout.Lock); err != nil {
+		return false, err
+	}
+	if err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); errors.Is(err, unix.EWOULDBLOCK) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, unix.Flock(fd, unix.LOCK_UN)
 }
 
 func inspectStagingTree(root string, rootInfo os.FileInfo) error {

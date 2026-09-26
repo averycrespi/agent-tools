@@ -208,9 +208,9 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
-	case "principal create":
+	case "agent create":
 		return spec.Short + ". Agents and their singular credential slot remain shared administration. Creation also adds Default Gateway access: an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Human output shows agent metadata; JSON retains principal and default_grant. Issue the credential separately; configure downstream MCP grants separately. Discovery visibility grants no access; MCP grants remain authoritative."
-	case "principal update":
+	case "agent update":
 		return spec.Short + ". Agents and credentials remain shared administration. --visibility changes MCP discovery only and grants no access; MCP grants remain authoritative. Disabling clears the current credential and invalidates admitted authority; re-enabling restores neither credentials nor deleted grants."
 	case "mcp grant create", "mcp grant-request approve":
 		return spec.Short + ". --read-only restricts server ALLOW access to current and future tools explicitly declaring readOnlyHint=true. Hints are trusted server declarations, not side-effect isolation. Other ALLOW grants may authorize writes; matching DENY still wins. Read-only requests must retain --read-only and server scope; --acknowledge-future-tools remains required for server approval. Approval reads the submitted restriction before mutation, even with an explicit ETag, and never refreshes that ETag or replays a mutation. Direct flags and --file are mutually exclusive."
@@ -220,7 +220,7 @@ func onlineLongDescription(spec onlineCommandSpec) string {
 		return spec.Short + ". Strict --file transport.authentication OAuth configuration accepts optional callback_uri (for example http://localhost:3118/callback), auth_server_metadata_url (exact HTTPS metadata location, not issuer identity), and scopes (initial tokens replacing metadata defaults). Omit or use null to restore defaults in a complete transport replacement; [] requests no initial scopes. request_offline_access separately adds advertised offline_access. Exact callback ports must be free; temporary callback-only listeners close when the flow ends. Credentials use only server credential replace. See docs/operators/upstream-servers.md for a complete example."
 	case "mcp server auth-flow start":
 		return spec.Short + ". A configured callback_uri must exactly match the provider registration. Gateway acquires its loopback callback port before publishing the authorization URL; a collision fails without choosing another port. Stop the conflicting listener and start a new flow. Temporary listeners close on terminal state, expiry, supersession, or shutdown. Main allowed-host settings do not grant callback authority."
-	case "admin credential create", "principal credential issue", "principal credential rotate":
+	case "admin credential create", "agent credential issue", "agent credential rotate":
 		return spec.Short + ". The bearer is published once to a new non-symlink 0600 owner-only file, or to a controlling terminal when --secret-output is omitted. It is never written to stdout or JSON and cannot be recovered after publication."
 	case "admin credential rotate":
 		return spec.Short + ". --secret-output is required and must name a new non-symlink 0600 owner-only replacement-bearer file. The replacement does not overwrite the default bearer file. The bearer is never written to stdout or JSON and cannot be recovered after publication."
@@ -425,7 +425,6 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"http", "credential", "update"}, "update ID", "http credential update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
 		onlineSpec([]string{"http", "credential", "rotate"}, "rotate ID", "http credential rotate ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
 		onlineSpec([]string{"http", "credential", "delete"}, "delete ID", "http credential delete ID [--etag ETAG]", "etag", "yes"),
-		onlineSpec([]string{"status"}, "status", "status"),
 		onlineSpec([]string{"audit", "list"}, "list", "audit list", "limit", "cursor", "generation", "actor-type", "credential-id", "category", "action", "target-type", "target-id", "outcome", "correlation-id", "from", "until"),
 		onlineSpec([]string{"audit", "get"}, "get AUDIT_EVENT_ID", "audit get AUDIT_EVENT_ID", "generation"),
 		onlineSpec([]string{"admin", "credential", "list"}, "list", "admin credential list", "limit", "cursor"),
@@ -453,13 +452,13 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"mcp", "server", "descriptor", "list"}, "list ID", "mcp server descriptor list ID", "limit", "cursor", "retired"),
 		onlineSpec([]string{"mcp", "server", "descriptor", "get"}, "get ID TOOL_ID", "mcp server descriptor get ID TOOL_ID"),
 		onlineSpec([]string{"mcp", "catalog", "list"}, "list", "mcp catalog list", "limit", "cursor"),
-		onlineSpec([]string{"principal", "list"}, "list", "principal list", "limit", "cursor"),
-		onlineSpec([]string{"principal", "get"}, "get ID", "principal get ID"),
-		onlineSpec([]string{"principal", "create"}, "create", "principal create --display-name NAME --visibility VISIBILITY", "display-name", "visibility"),
-		onlineSpec([]string{"principal", "update"}, "update ID", "principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]", "etag", "display-name", "visibility", "state", "http-default", "yes"),
-		onlineSpec([]string{"principal", "credential", "issue"}, "issue ID", "principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
-		onlineSpec([]string{"principal", "credential", "rotate"}, "rotate ID", "principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
-		onlineSpec([]string{"principal", "credential", "revoke"}, "revoke ID", "principal credential revoke ID [--etag ETAG]", "etag", "yes"),
+		onlineSpec([]string{"agent", "list"}, "list", "agent list", "limit", "cursor"),
+		onlineSpec([]string{"agent", "get"}, "get ID", "agent get ID"),
+		onlineSpec([]string{"agent", "create"}, "create", "agent create --display-name NAME --visibility VISIBILITY", "display-name", "visibility"),
+		onlineSpec([]string{"agent", "update"}, "update ID", "agent update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]", "etag", "display-name", "visibility", "state", "http-default", "yes"),
+		onlineSpec([]string{"agent", "credential", "issue"}, "issue ID", "agent credential issue ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
+		onlineSpec([]string{"agent", "credential", "rotate"}, "rotate ID", "agent credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]", "etag", "secret-output", "yes"),
+		onlineSpec([]string{"agent", "credential", "revoke"}, "revoke ID", "agent credential revoke ID [--etag ETAG]", "etag", "yes"),
 		onlineSpec([]string{"mcp", "grant", "list"}, "list", "mcp grant list", "limit", "cursor", "principal-id", "server-id"),
 		onlineSpec([]string{"mcp", "grant", "get"}, "get ID", "mcp grant get ID"),
 		onlineSpec([]string{"mcp", "grant", "create"}, "create", "mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "description", "principal-id", "effect", "server-id", "upstream-name", "expires-at", "read-only", "file"),
@@ -498,8 +497,8 @@ var onlineGroupDescriptions = map[string]string{
 	"mcp server auth-flow":  "Manage server OAuth authorization flows",
 	"mcp server descriptor": "Inspect discovered server tools",
 	"mcp catalog":           "Inspect published Gateway tools",
-	"principal":             "Manage agents",
-	"principal credential":  "Issue, rotate, and revoke agent credentials",
+	"agent":                 "Manage agents",
+	"agent credential":      "Issue, rotate, and revoke agent credentials",
 	"mcp grant":             "Manage MCP authorization grants",
 	"mcp grant-request":     "Review MCP permission approval requests",
 	"mcp invocation":        "Inspect recorded MCP invocations",
@@ -540,25 +539,25 @@ var onlineLeafDescriptions = map[string]string{
 	"mcp server get ID":             "Show MCP server details and the current mutation ETag",
 	"mcp server create --file PATH": "Create an MCP server configuration",
 	"mcp server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]": "Update an MCP server configuration",
-	"mcp server delete ID [--etag ETAG]":                           "Delete an MCP server configuration",
-	"mcp server operation list ID":                                 "List operations for a server",
-	"mcp server operation get ID OPERATION_ID":                     "Look up current server operation state by ID",
-	"mcp server operation start ID --kind KIND [--etag ETAG]":      "Request a server operation",
-	"mcp server credential replace ID --file PATH [--etag ETAG]":   "Replace a server credential",
-	"mcp server auth-flow list ID":                                 "List OAuth flows for a server",
-	"mcp server auth-flow get ID FLOW_ID":                          "Look up current server OAuth flow state by ID",
-	"mcp server auth-flow start ID [--etag ETAG] [--open]":         "Start server OAuth authorization",
-	"mcp server auth-flow cancel ID FLOW_ID":                       "Cancel server OAuth authorization",
-	"mcp server descriptor list ID":                                "List discovered tools for a server",
-	"mcp server descriptor get ID TOOL_ID":                         "Look up a discovered server tool by ID",
-	"mcp catalog list":                                             "List published Gateway tools",
-	"principal list":                                               "List agents",
-	"principal get ID":                                             "Show agent details and the current mutation ETag",
-	"principal create --display-name NAME --visibility VISIBILITY": "Create an agent",
-	"principal update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]": "Atomically update agent settings",
-	"principal credential issue ID [--etag ETAG] [--secret-output NEW_PATH]":                                                    "Issue an agent credential into an empty slot",
-	"principal credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]":                                                   "Rotate an occupied agent credential atomically",
-	"principal credential revoke ID [--etag ETAG]":                                                                              "Revoke an agent credential",
+	"mcp server delete ID [--etag ETAG]":                         "Delete an MCP server configuration",
+	"mcp server operation list ID":                               "List operations for a server",
+	"mcp server operation get ID OPERATION_ID":                   "Look up current server operation state by ID",
+	"mcp server operation start ID --kind KIND [--etag ETAG]":    "Request a server operation",
+	"mcp server credential replace ID --file PATH [--etag ETAG]": "Replace a server credential",
+	"mcp server auth-flow list ID":                               "List OAuth flows for a server",
+	"mcp server auth-flow get ID FLOW_ID":                        "Look up current server OAuth flow state by ID",
+	"mcp server auth-flow start ID [--etag ETAG] [--open]":       "Start server OAuth authorization",
+	"mcp server auth-flow cancel ID FLOW_ID":                     "Cancel server OAuth authorization",
+	"mcp server descriptor list ID":                              "List discovered tools for a server",
+	"mcp server descriptor get ID TOOL_ID":                       "Look up a discovered server tool by ID",
+	"mcp catalog list":                                           "List published Gateway tools",
+	"agent list":                                                 "List agents",
+	"agent get ID":                                               "Show agent details and the current mutation ETag",
+	"agent create --display-name NAME --visibility VISIBILITY":   "Create an agent",
+	"agent update ID [--etag ETAG] [--display-name NAME] [--visibility VISIBILITY] [--state STATE] [--http-default POLICY]": "Atomically update agent settings",
+	"agent credential issue ID [--etag ETAG] [--secret-output NEW_PATH]":                                                    "Issue an agent credential into an empty slot",
+	"agent credential rotate ID [--etag ETAG] [--secret-output NEW_PATH]":                                                   "Rotate an occupied agent credential atomically",
+	"agent credential revoke ID [--etag ETAG]":                                                                              "Revoke an agent credential",
 	"mcp grant list":   "List authorization grants",
 	"mcp grant get ID": "Look up an authorization grant by ID",
 	"mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]": "Create an authorization grant",

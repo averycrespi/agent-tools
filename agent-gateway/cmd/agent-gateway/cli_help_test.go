@@ -48,15 +48,15 @@ func TestCLIHelpTree(t *testing.T) {
 	assert.Equal(t, "agent-gateway", root.Name())
 	assert.Contains(t, root.Long, "Agent Gateway")
 	assert.Contains(t, root.Long, "Only agent-gateway is published")
-	assert.Contains(t, root.Example, "agent-gateway initialize")
+	assert.Contains(t, root.Example, "agent-gateway init")
 	assert.Contains(t, root.Example, "agent-gateway serve")
-	assert.Contains(t, root.Example, "agent-gateway status")
+	assert.Contains(t, root.Example, "agent-gateway doctor")
 	for _, command := range root.Commands() {
 		assert.NotEqual(t, "installation", command.Name())
 	}
 	initialize, _, err := root.Find([]string{"initialize"})
 	require.NoError(t, err)
-	reset, _, err := root.Find([]string{"admin", "reset"})
+	reset, _, err := root.Find([]string{"maintenance", "reset-admin-credentials"})
 	require.NoError(t, err)
 	assert.NotEqual(t, initialize.Short, reset.Short)
 	credentialGet, _, err := root.Find([]string{"admin", "credential", "get"})
@@ -85,7 +85,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:03eea51dca78be26b4912e6235bd7c76b9403dd03aef822b5df0f623c6425236", digest)
+	assert.Equal(t, "sha256:48292f5920b39743ca636c1480c69ca43d92c1cc6bbbd20682ea93d4241efb1e", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -100,7 +100,7 @@ func TestCLIOAuthCompatibilityHelp(t *testing.T) {
 
 func TestCLIPrincipalHelpDistinguishesMCPPolicy(t *testing.T) {
 	for _, action := range []string{"create", "update"} {
-		command, _, err := newRootCmd().Find([]string{"principal", action})
+		command, _, err := newRootCmd().Find([]string{"agent", action})
 		require.NoError(t, err)
 		output := new(bytes.Buffer)
 		command.SetOut(output)
@@ -124,12 +124,12 @@ func TestCLICredentialHelpExplainsOneTimeOutput(t *testing.T) {
 	}{
 		{path: []string{"admin", "credential", "create"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
 		{path: []string{"admin", "credential", "rotate"}, expected: []string{"required", "0600", "cannot be recovered", "default bearer"}},
-		{path: []string{"principal", "credential", "issue"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
-		{path: []string{"principal", "credential", "rotate"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
+		{path: []string{"agent", "credential", "issue"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
+		{path: []string{"agent", "credential", "rotate"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
 		{path: []string{"initialize"}, expected: []string{"0600", "cannot be recovered"}},
-		{path: []string{"admin", "reset"}, expected: []string{"0600", "cannot be recovered"}},
-		{path: []string{"backup", "restore"}, expected: []string{"0600", "cannot be recovered"}},
-		{path: []string{"storage", "verify"}, expected: []string{"recognized recovery", "without replacing"}},
+		{path: []string{"maintenance", "reset-admin-credentials"}, expected: []string{"0600", "cannot be recovered"}},
+		{path: []string{"maintenance", "restore-backup"}, expected: []string{"0600", "cannot be recovered"}},
+		{path: []string{"maintenance", "verify-and-recover-storage"}, expected: []string{"recognized recovery", "without replacing"}},
 	} {
 		root := newRootCmd()
 		command, remaining, err := root.Find(test.path)
@@ -226,16 +226,16 @@ func testCLICommandErrors(t *testing.T) {
 		args  []string
 		usage string
 	}{
-		{name: "initialize arguments", args: []string{"initialize", "EXTRA", "--json"}, usage: "agent-gateway initialize"},
-		{name: "initialize flag", args: []string{"initialize", "--json", "--definitely-invalid"}, usage: "agent-gateway initialize"},
-		{name: "admin reset arguments", args: []string{"admin", "reset", "EXTRA", "--json"}, usage: "agent-gateway admin reset --secret-output NEW_PATH"},
-		{name: "admin reset required flag", args: []string{"admin", "reset", "--json"}, usage: "agent-gateway admin reset --secret-output NEW_PATH"},
-		{name: "admin reset flag", args: []string{"admin", "reset", "--json", "--definitely-invalid"}, usage: "agent-gateway admin reset --secret-output NEW_PATH"},
-		{name: "restore arguments", args: []string{"backup", "restore", "--json"}, usage: "agent-gateway backup restore BACKUP_ID"},
-		{name: "restore required flag", args: []string{"backup", "restore", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--json"}, usage: "agent-gateway backup restore BACKUP_ID --secret-output NEW_PATH"},
-		{name: "restore flag", args: []string{"backup", "restore", "--json", "--definitely-invalid"}, usage: "agent-gateway backup restore BACKUP_ID"},
-		{name: "verify arguments", args: []string{"storage", "verify", "unexpected", "--json"}, usage: "agent-gateway storage verify"},
-		{name: "verify secret flag", args: []string{"storage", "verify", "--json", "--secret-output", "unused"}, usage: "agent-gateway storage verify"},
+		{name: "initialize arguments", args: []string{"initialize", "EXTRA", "--json"}, usage: "agent-gateway init"},
+		{name: "initialize flag", args: []string{"initialize", "--json", "--definitely-invalid"}, usage: "agent-gateway init"},
+		{name: "admin reset arguments", args: []string{"maintenance", "reset-admin-credentials", "EXTRA", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
+		{name: "admin reset required flag", args: []string{"maintenance", "reset-admin-credentials", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
+		{name: "admin reset flag", args: []string{"maintenance", "reset-admin-credentials", "--json", "--definitely-invalid"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
+		{name: "restore arguments", args: []string{"maintenance", "restore-backup", "--json"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID"},
+		{name: "restore required flag", args: []string{"maintenance", "restore-backup", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--json"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID --secret-output NEW_PATH"},
+		{name: "restore flag", args: []string{"maintenance", "restore-backup", "--json", "--definitely-invalid"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID"},
+		{name: "verify arguments", args: []string{"maintenance", "verify-and-recover-storage", "unexpected", "--json"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
+		{name: "verify secret flag", args: []string{"maintenance", "verify-and-recover-storage", "--json", "--secret-output", "unused"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
 		{name: "serve arguments", args: []string{"serve", "EXTRA", "--json"}, usage: "agent-gateway serve"},
 		{name: "serve flag", args: []string{"serve", "--json", "--definitely-invalid"}, usage: "agent-gateway serve"},
 	}

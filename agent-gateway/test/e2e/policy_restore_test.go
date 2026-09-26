@@ -88,7 +88,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 	initialAdmin := harness.bearer
 	processResults = append(processResults, harness.Stop(syscall.SIGTERM))
 	resetSecret := filepath.Join(t.TempDir(), "reset-admin")
-	resetArgs := []string{"admin", "reset", "--data-dir", harness.root, "--secret-output", resetSecret}
+	resetArgs := []string{"maintenance", "reset-admin-credentials", "--confirm", "--data-dir", harness.root, "--secret-output", resetSecret}
 	appendArgumentEvidence(t, &evidence, resetArgs)
 	resetResult, err := harness.runner.Run(harness.ctx, harness.binary, resetArgs...)
 	require.NoError(t, err, string(resetResult.Stderr))
@@ -113,7 +113,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 
 	processResults = append(processResults, harness.Stop(syscall.SIGTERM))
 	restoreSecret := filepath.Join(t.TempDir(), "restore-admin")
-	restoreArgs := []string{"backup", "restore", artifact.ID, "--data-dir", harness.root, "--secret-output", restoreSecret, "--output", "json"}
+	restoreArgs := []string{"maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", harness.root, "--secret-output", restoreSecret, "--json"}
 	appendArgumentEvidence(t, &evidence, restoreArgs)
 	restoreResult, err := harness.runner.Run(harness.ctx, harness.binary, restoreArgs...)
 	require.NoError(t, err, string(restoreResult.Stderr))
@@ -130,7 +130,7 @@ func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(restoreResult.Stdout, &restoredCommand))
 	assert.True(t, restoredCommand.OK)
-	assert.Equal(t, "backup_restore", restoredCommand.Operation)
+	assert.Equal(t, "restore-backup", restoredCommand.Operation)
 	assert.Equal(t, artifact.InstallationID, restoredCommand.InstallationID)
 	assert.Equal(t, artifact.ID, restoredCommand.BackupID)
 	sourceRevision, err := strconv.Atoi(artifact.SourceRevision)
