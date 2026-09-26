@@ -4,6 +4,7 @@ import {
   decodeTrafficItem,
   decodeTrafficPage,
   validHTTPTrafficQuery,
+  rejectionLabel,
 } from "../src/http-traffic-contract.ts";
 import { parseFragment, serializeLocation } from "../src/location.ts";
 const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -92,6 +93,79 @@ test("HTTP history rejects unknown fields and contradictory evidence", () => {
   Object.assign(completed.completion, { upstream_error: "private" });
   assert.throws(() => decodeTrafficItem(completed));
 });
+test("Rejection categories, CONNECT context and response provenance are closed", () => {
+  const legacy = item();
+  Object.assign(legacy.admission, {
+    class: "invalid_request",
+    default: "",
+    target: null,
+    decision: null,
+  });
+  assert.deepEqual(decodeTrafficItem(legacy), legacy);
+  assert.equal(rejectionLabel(undefined), "Rejection details unavailable");
+  const current = structuredClone(legacy);
+  Object.assign(current.admission, {
+    rejection: { stage: "target", reason: "invalid_request_target" },
+    connect: {
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      host: "example.com",
+      port: 443,
+    },
+  });
+  assert.deepEqual(decodeTrafficItem(current), current);
+  for (const patch of [
+    { rejection: { stage: "headers", reason: "invalid_request_target" } },
+    { rejection: { stage: "target", reason: "secret".repeat(1000) } },
+    { rejection: { stage: "target", reason: "<script>secret</script>" } },
+    {
+      rejection: {
+        stage: "target",
+        reason: "invalid_request_target",
+        error: "secret",
+      },
+    },
+    { connect: { id, host: "example.com", port: 443 } },
+    {
+      connect: {
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        host: "example.com/private",
+        port: 443,
+      },
+    },
+  ])
+    assert.throws(() =>
+      decodeTrafficItem({
+        ...current,
+        admission: { ...current.admission, ...patch },
+      }),
+    );
+  const completed = {
+    ...item(),
+    completion: {
+      completed_at: at,
+      outcome: "outcome_unknown",
+      bytes_sent: 0,
+      bytes_received: 0,
+      duration_ms: 0,
+      response_source: "gateway",
+      gateway_status: 502,
+    },
+  };
+  assert.deepEqual(decodeTrafficItem(completed), completed);
+  assert.throws(() =>
+    decodeTrafficItem({
+      ...completed,
+      completion: { ...completed.completion, status: 502 },
+    }),
+  );
+  assert.throws(() =>
+    decodeTrafficItem({
+      ...completed,
+      completion: { ...completed.completion, response_source: "upstream" },
+    }),
+  );
+});
+
 test("HTTP summary pages remain bounded without policy snapshots", () => {
   const summary = {
     id,

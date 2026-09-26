@@ -149,6 +149,15 @@ type intercepted struct {
 	bearer      string
 	binding     authorization.CredentialBinding
 	sni         string
+	connect     contract.HTTPConnectContext
+}
+
+func admissionContext(inside *intercepted) authorization.HTTPAdmissionContext {
+	if inside == nil {
+		return authorization.HTTPAdmissionContext{}
+	}
+	copy := inside.connect
+	return authorization.HTTPAdmissionContext{Connect: &copy}
 }
 
 func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercepted) {
@@ -173,10 +182,6 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		}
 	} else {
 		bearer = inside.bearer
-		if len(r.Header.Values("Proxy-Authorization")) != 0 {
-			reject(w, http.StatusBadRequest)
-			return
-		}
 	}
 	lease, err := e.options.Authority.Authenticate(r.Context(), bearer)
 	if err != nil {
@@ -201,13 +206,29 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		return
 	}
 	defer e.release(binding.PrincipalID)
-	if remote.ValidateProxyHeaders(r.Header) != nil || len(r.Trailer) != 0 || r.Header.Get("Upgrade") != "" || hasConnectionToken(r.Header, "upgrade") {
-		e.rejectInvalid(w, r, lease)
+	if inside != nil && len(r.Header.Values("Proxy-Authorization")) != 0 {
+		e.rejectInvalid(w, r, lease, inside, "headers", "inner_proxy_authorization")
+		return
+	}
+	if remote.ValidateProxyHeaders(r.Header) != nil {
+		e.rejectInvalid(w, r, lease, inside, "headers", "invalid_headers")
+		return
+	}
+	if len(r.Trailer) != 0 {
+		e.rejectInvalid(w, r, lease, inside, "headers", "trailers_unsupported")
+		return
+	}
+	if r.Header.Get("Upgrade") != "" || hasConnectionToken(r.Header, "upgrade") {
+		e.rejectInvalid(w, r, lease, inside, "headers", "upgrade_unsupported")
 		return
 	}
 	if r.Method == http.MethodConnect {
-		if inside != nil || r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
-			e.rejectInvalid(w, r, lease)
+		if inside != nil {
+			e.rejectInvalid(w, r, lease, inside, "request_form", "nested_connect")
+			return
+		}
+		if r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
+			e.rejectInvalid(w, r, lease, inside, "request_form", "connect_body")
 			return
 		}
 		e.connect(w, r, lease, bearer)
@@ -224,17 +245,17 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		destination = &inside.destination
 		sni = inside.sni
 		if r.URL.IsAbs() || !strings.HasPrefix(raw, "/") {
-			e.rejectInvalid(w, r, lease)
+			e.rejectInvalid(w, r, lease, inside, "request_form", "origin_form_required")
 			return
 		}
 		raw = "https://" + destination.Authority() + raw
 	} else if r.URL.Scheme != "http" {
-		e.rejectInvalid(w, r, lease)
+		e.rejectInvalid(w, r, lease, inside, "request_form", "absolute_http_required")
 		return
 	}
 	target, err := httppolicy.ParseRequest(raw, r.Method, r.Host, sni, destination)
 	if err != nil {
-		e.rejectInvalid(w, r, lease)
+		e.rejectInvalid(w, r, lease, inside, "target", "invalid_request_target")
 		return
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), target.Destination(), e.options.Listeners)
@@ -247,24 +268,29 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		reject(w, http.StatusServiceUnavailable)
 		return
 	}
-	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: binding.PrincipalID, URL: target.URL().String(), Method: target.Method()}, address.Facts(), e.options.Materials)
+	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: binding.PrincipalID, URL: target.URL().String(), Method: target.Method()}, address.Facts(), e.options.Materials, admissionContext(inside))
 	if err != nil || !result.DispatchAuthorized {
 		reject(w, http.StatusForbidden)
 		return
 	}
 	completion := contract.HTTPTrafficCompletion{Outcome: "prestart_failure"}
 	defer func() { e.complete(result, identity, completion) }()
+	rejectResponse := func(status int) {
+		completion.ResponseSource = "gateway"
+		completion.GatewayStatus = status
+		reject(w, status)
+	}
 	header := r.Header.Clone()
 	if result.Material != nil {
 		header, err = result.Material.Headers(target, header)
 		if err != nil {
-			reject(w, http.StatusBadGateway)
+			rejectResponse(http.StatusBadGateway)
 			return
 		}
 	}
 	stripHopHeaders(header)
 	if remote.ValidateProxyHeaders(header) != nil {
-		reject(w, http.StatusBadRequest)
+		rejectResponse(http.StatusBadRequest)
 		return
 	}
 	controller := http.NewResponseController(w)
@@ -272,7 +298,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		// Otherwise net/http locks/drains the unread upload before flushing an
 		// early upstream response, deadlocking against the transport's reader.
 		if err := controller.EnableFullDuplex(); err != nil {
-			reject(w, http.StatusBadGateway)
+			rejectResponse(http.StatusBadGateway)
 			return
 		}
 	}
@@ -285,7 +311,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	completion.Outcome = "outcome_unknown"
 	response, err := address.ProxyExchange(r.Context(), target, header, outgoingBody, r.ContentLength, result.Evidence.Decision.PrivateGrant != nil, e.roots)
 	if err != nil {
-		reject(w, http.StatusBadGateway)
+		rejectResponse(http.StatusBadGateway)
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
@@ -294,6 +320,8 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		w.Header()[name] = values
 	}
 	w.WriteHeader(response.StatusCode)
+	completion.ResponseSource = "upstream"
+	completion.Status = response.StatusCode
 	writer := &streamWriter{writer: w, controller: controller}
 	if _, err := writer.Write(nil); err != nil {
 		panic(http.ErrAbortHandler)
@@ -307,10 +335,12 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	completion.Outcome = "succeeded"
 }
 
-func (e *Engine) rejectInvalid(w http.ResponseWriter, r *http.Request, lease *authorization.Lease) {
+func (e *Engine) rejectInvalid(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, inside *intercepted, stage, reason string) {
+	metadata := admissionContext(inside)
+	metadata.Rejection = &contract.HTTPRejection{Stage: stage, Reason: reason}
 	identity, err := e.options.Evidence.PrepareIdentity()
 	if err == nil {
-		_, err = e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID}, httppolicy.AddressFacts{}, e.options.Materials)
+		_, err = e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID}, httppolicy.AddressFacts{}, e.options.Materials, metadata)
 	}
 	if err != nil {
 		reject(w, http.StatusServiceUnavailable)

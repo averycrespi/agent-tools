@@ -29,7 +29,30 @@ type HTTPEvaluation struct {
 	Candidate *HTTPEvaluationCandidate
 }
 
-func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id, admittedAt string, in HTTPAccessInput, facts httppolicy.AddressFacts) (out HTTPEvaluation, err error) {
+// HTTPAdmissionContext is engine-owned evidence, never part of access-test input.
+type HTTPAdmissionContext struct {
+	Rejection *contract.HTTPRejection
+	Connect   *contract.HTTPConnectContext
+}
+
+func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id, admittedAt string, in HTTPAccessInput, facts httppolicy.AddressFacts, contexts ...HTTPAdmissionContext) (out HTTPEvaluation, err error) {
+	if len(contexts) > 1 {
+		return out, ErrInvalidInput
+	}
+	var metadata HTTPAdmissionContext
+	if len(contexts) == 1 {
+		metadata = contexts[0]
+	}
+	if metadata.Rejection != nil && (!metadata.Rejection.Valid() || in.URL != "" || in.Method != "" || in.Connect != nil) {
+		return out, ErrInvalidInput
+	}
+	if metadata.Connect != nil {
+		c := metadata.Connect
+		d, err := httppolicy.NewDestination(c.Host, c.Port)
+		if !validOpaqueID(c.ID) || c.ID == id || err != nil || d.Host() != c.Host || in.Connect != nil {
+			return out, ErrInvalidInput
+		}
+	}
 	if !validOpaqueID(id) || lease == nil || in.PrincipalID != lease.binding.PrincipalID {
 		return out, ErrInvalidInput
 	}
@@ -57,6 +80,14 @@ func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id
 				return err
 			}
 			evidence := contract.HTTPTrafficAdmission{ID: id, AdmittedAt: admittedAt, Principal: contract.HTTPRevisionRef{ID: lease.binding.PrincipalID, Revision: principalRevision}, AgentCredential: contract.HTTPRevisionRef{ID: lease.binding.CredentialID, Revision: credentialRevision}, CredentialFingerprint: lease.binding.CredentialFingerprint, Class: "invalid_request", EvaluatedAt: binding.EvaluatedAt, Grants: []contract.HTTPTrafficGrant{}}
+			if metadata.Connect != nil {
+				copy := *metadata.Connect
+				evidence.Connect = &copy
+			}
+			if metadata.Rejection != nil {
+				copy := *metadata.Rejection
+				evidence.Rejection = &copy
+			}
 			if parseErr != nil {
 				out.Evidence = evidence
 				return nil

@@ -3,8 +3,15 @@
 package e2e
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"os"
 	"strings"
 	"testing"
@@ -30,7 +37,17 @@ func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
 	t.Helper()
 	assertBrowserEnvironmentManifest(t)
 	harness := newGatewayHarness(t)
+	proxy := ""
+	if scenario == "http-traffic" {
+		harness.binary, _ = httpMaterialBinary(t)
+		createHTTPCA(t, harness)
+		proxy = unusedAuthority(t)
+		harness.serveArgs = append(harness.serveArgs, "--http-proxy-listen", proxy)
+	}
 	harness.Start()
+	if proxy != "" {
+		seedBrowserHTTPRejections(t, harness, proxy)
+	}
 	runner, err := testutil.NewBinaryRunner(75*time.Second, 32*1024)
 	require.NoError(t, err)
 	process, input, err := runner.StartWithInputPipe(context.Background(), "node", browserBridgePath(t))
@@ -65,5 +82,44 @@ func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
 	require.NotEmpty(t, event.Screenshots)
 	t.Logf("HTTP credential screenshots: %s", event.Screenshots)
 	harness.Stop(os.Interrupt)
-	require.Len(t, harness.results, 1)
+	if proxy == "" {
+		require.Len(t, harness.results, 1)
+	} else {
+		require.Len(t, harness.results, 2)
+	}
+}
+
+func seedBrowserHTTPRejections(t *testing.T, h *gatewayHarness, proxy string) {
+	t.Helper()
+	principal := h.CreatePrincipal("HTTP diagnostics fixture", contract.VisibilityRequestable)
+	credential := h.IssueCredential(principal)
+	for _, request := range []struct{ line, header string }{
+		{"GET http://example.com/path-secret?query-secret", "Upgrade: private-upgrade\r\n"},
+		{"GET /path-secret?query-secret", ""},
+		{"GET http://example.com/%2fpath-secret?query-secret", ""},
+	} {
+		conn, err := net.DialTimeout("tcp", proxy, 3*time.Second)
+		require.NoError(t, err)
+		require.NoError(t, conn.SetDeadline(time.Now().Add(3*time.Second)))
+		_, err = fmt.Fprintf(conn, "%s HTTP/1.1\r\nHost: example.com\r\nProxy-Authorization: %s\r\n%s\r\n", request.line, credential.Bearer.authorizationHeader(), request.header)
+		require.NoError(t, err)
+		response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "GET"})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusBadRequest, response.StatusCode)
+		_, err = io.Copy(io.Discard, response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.NoError(t, conn.Close())
+	}
+	page := h.adminSnapshot("GET", "/api/v2/http/traffic", nil)
+	require.Equal(t, 200, page.StatusCode)
+	require.NotContains(t, string(page.Body), "secret")
+	credential.Bearer.assertAbsent(t, "HTTP rejection history", strings.NewReader(string(page.Body)))
+	var traffic contract.HTTPTrafficPage
+	require.NoError(t, json.Unmarshal(page.Body, &traffic))
+	require.Len(t, traffic.Items, 3)
+	for _, item := range traffic.Items {
+		require.NotNil(t, item.Rejection)
+		require.Equal(t, "gateway", item.ResponseSource)
+	}
 }

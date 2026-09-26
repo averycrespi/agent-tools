@@ -46,6 +46,9 @@ func TestHTTPCompletionTimestampPrecision(t *testing.T) {
 			require.NoError(t, err)
 			completion := history.Records[0].Completion
 			require.Equal(t, "succeeded", completion.Outcome)
+			require.Equal(t, "upstream", completion.ResponseSource)
+			require.Equal(t, http.StatusOK, completion.Status)
+			require.Zero(t, completion.GatewayStatus)
 			require.Equal(t, completed.Format("2006-01-02T15:04:05.000000000Z07:00"), completion.CompletedAt)
 		})
 	}
