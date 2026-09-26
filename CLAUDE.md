@@ -65,6 +65,10 @@ Keep each tool as an independent Go module. Prefer copying small local interface
 
 ## CLI Conventions
 
+Command descriptions at every depth use concise, verb-led phrases, sentence case, and no trailing period. Describe the user outcome, not implementation machinery. Use **Manage** for administrative namespaces, **View** for history/read-only namespaces, **List/Get** for resource reads, **Create/Update/Delete** for ordinary mutations, and **Export** for output. Use specific lifecycle verbs where appropriate. Keep prerequisites, confirmation consequences, internal terminology, and output details in long help or flag descriptions, not the command summary. Include practical, consistently indented examples. Flag descriptions are concise lowercase phrases without trailing periods, preserving proper names and literal values. Check the whole help tree when changing command descriptions, including generated help/completion commands; test mechanical conventions without treating a snapshot hash as a clarity review.
+
+Human diagnostics lead with the actual blocker, identify the relevant path or input, distinguish known effects from uncertainty, and give one useful next action. Never expose secrets or arbitrary internal errors. Ordinary command suggestions use simple shell quoting; reserve encoding for paths that cannot be displayed safely. Diagnostic summaries use one line per condition with indented actionable details; verbose output may explain successful checks. Machine output retains structured facts independently of presentation.
+
 For Cobra commands, avoid exposing generic argument validation errors such as `accepts 2 arg(s), received 0`.
 Prefer command-specific `Args` functions that name missing arguments and include the command usage or a short example when quoting/order matters.
 Let Cobra print execution errors once; don't wrap `Execute()` with a second stderr print unless `SilenceErrors` is enabled.

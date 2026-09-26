@@ -19,8 +19,9 @@ func TestExistingStartupPreservesCrashSidecarsForStorageOwner(t *testing.T) {
 	sidecar := filepath.Join(root, DatabaseName) + "-shm"
 	require.NoError(t, os.WriteFile(sidecar, []byte("crash-sidecar"), 0644))
 	require.NoError(t, os.Chmod(sidecar, 0644))
-	_, err = AcquireStoppedExisting(root)
-	require.ErrorIs(t, err, ErrUnsafePath)
+	owner, err = AcquireStoppedExisting(root)
+	require.NoError(t, err)
+	require.NoError(t, owner.Close())
 	owner, err = AcquireExisting(root)
 	require.NoError(t, err)
 	require.NoError(t, owner.Close())

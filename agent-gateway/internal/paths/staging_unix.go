@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -141,6 +142,39 @@ func ProbeOwnership(root string) (bool, error) {
 	return false, unix.Flock(fd, unix.LOCK_UN)
 }
 
+// ValidateSQLiteSidecar accepts SQLite's ambient read permissions only inside
+// an owner-only directory. Shared writes, links and foreign owners still refuse.
+// This is not an integrity check and never makes active WAL safe to ignore.
+func ValidateSQLiteSidecar(path string) error {
+	if !strings.HasSuffix(path, "-wal") && !strings.HasSuffix(path, "-shm") {
+		return &ValidationError{path, "expected a SQLite WAL or SHM path"}
+	}
+	if err := InspectRoot(filepath.Dir(path)); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return &ValidationError{path, "expected a regular SQLite sidecar, not a symlink or another file type"}
+	}
+	if mode := info.Mode().Perm(); mode & ^os.FileMode(0644) != 0 || mode&0600 != 0600 {
+		return &ValidationError{path, fmt.Sprintf("permissions are %04o; expected owner read/write with optional group/other read access (0600–0644)", mode)}
+	}
+	if err := validateOwner(info); err != nil {
+		return &ValidationError{path, "SQLite sidecar must be owned by the current user"}
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
+		return &ValidationError{path, "SQLite sidecar must have exactly one hard link"}
+	}
+	return nil
+}
+
+func isSQLiteSidecar(path string) bool {
+	return strings.HasSuffix(path, ".db-wal") || strings.HasSuffix(path, ".db-shm")
+}
+
 func inspectStagingTree(root string, rootInfo os.FileInfo) error {
 	device := rootInfo.Sys().(*syscall.Stat_t).Dev
 	count := 0
@@ -158,13 +192,16 @@ func inspectStagingTree(root string, rootInfo os.FileInfo) error {
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok || stat.Dev != device {
-			return fmt.Errorf("%w: migration tree crosses a filesystem", ErrUnsafePath)
+			return &ValidationError{path, "installation tree crosses a filesystem"}
 		}
 		if entry.IsDir() {
 			return validateOwnerOnlyDirectory(info, path)
 		}
 		if stat.Nlink != 1 {
-			return fmt.Errorf("%w: migration refuses hard-linked files", ErrUnsafePath)
+			return &ValidationError{path, "installation file must have exactly one hard link"}
+		}
+		if isSQLiteSidecar(path) {
+			return ValidateSQLiteSidecar(path)
 		}
 		return validateOwnerOnlyFile(info, path)
 	})

@@ -84,7 +84,7 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 	cmd := newTestRootCmd(t)
 
 	require.Equal(t, "agent-gateway", cmd.Use)
-	require.Contains(t, cmd.Short, "deny-by-default")
+	require.Equal(t, "Run and manage Agent Gateway", cmd.Short)
 	for _, path := range [][]string{{"maintenance", "reset-admin-credentials"}, {"init"}, {"maintenance", "restore-backup"}, {"maintenance", "verify-and-recover-storage"}, {"doctor"}, {"serve"}} {
 		command, _, err := cmd.Find(path)
 		require.NoError(t, err)
@@ -148,8 +148,8 @@ func TestInitializePersistentDataDirRendersMatchingServeCommand(t *testing.T) {
 	command.SetErr(new(bytes.Buffer))
 	command.SetArgs([]string{"--data-dir", root, "init", "--confirm"})
 	require.NoError(t, command.ExecuteContext(context.Background()))
-	assert.Contains(t, stdout.String(), "data_dir=$(printf '%b_' '"+root+"')")
-	assert.Contains(t, stdout.String(), "agent-gateway serve --data-dir \"$data_dir\"")
+	assert.NotContains(t, stdout.String(), "printf")
+	assert.Contains(t, stdout.String(), "agent-gateway serve --data-dir '"+root+"'")
 }
 
 func TestRootCompositionFailurePreventsStartupOutput(t *testing.T) {
@@ -360,7 +360,8 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	require.NoError(t, command.ExecuteContext(ctx))
 	assert.Contains(t, stdout.String(), "--admin-bearer-file")
 	assert.Contains(t, stdout.String(), "cannot be shown again")
-	assert.Contains(t, stdout.String(), "printf '%b_'")
+	assert.Contains(t, stdout.String(), "--admin-bearer-file '"+guidanceSecret+"'")
+	assert.NotContains(t, stdout.String(), "printf")
 	guidanceBearer, err := os.ReadFile(guidanceSecret)
 	require.NoError(t, err)
 	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(guidanceBearer)))

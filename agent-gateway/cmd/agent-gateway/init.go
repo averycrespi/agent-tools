@@ -70,7 +70,7 @@ func (expected initInspection) revalidate(ctx context.Context, owner *gatewaypat
 func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 	var confirm, jsonOutput bool
 	var secretOutput string
-	command := &cobra.Command{Use: "init", Aliases: []string{"initialize"}, Short: "Prepare missing storage, administrator authority and public CA output", Long: "Preserve existing credentials, configuration and CA. Inspect proposed changes before consent; --confirm permits noninteractive setup. Does not recover storage, reset authority, change services, enable interception or install trust. Initial bearer publication uses a new 0600 file; it cannot be recovered or displayed again.", Example: "  agent-gateway init --confirm"}
+	command := &cobra.Command{Use: "init", Aliases: []string{"initialize"}, Short: "Initialize or complete local setup", Long: "Preserve existing credentials, configuration and CA. Inspect proposed changes before consent; --confirm permits noninteractive setup. Does not recover storage, reset authority, change services, enable interception or install trust. Initial bearer publication uses a new 0600 file; it cannot be recovered or displayed again.", Example: "  agent-gateway init --confirm"}
 	fail := func(message string) error {
 		return writeOfflineProblem(command, offlineMode(jsonOutput), offlineUsageProblem(message, "agent-gateway init --confirm"))
 	}
@@ -118,7 +118,14 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 			}
 		}
 		if err != nil {
-			return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
+			problem := maintenanceProblem(err, layout.Root)
+			if running && errors.Is(err, storage.ErrInspectionUnavailable) {
+				next, _ := renderInstallationCommand("agent-gateway init", layout.Root)
+				problem = &controlclient.Problem{Code: "setup_inspection_blocked", Title: "Cannot verify setup while Gateway has active WAL or journal data. Nothing changed. Stop the selected Gateway, then run: " + next, Exit: 5}
+			} else {
+				problem.Title += " No setup changes made."
+			}
+			return writeOfflineProblem(command, offlineMode(jsonOutput), problem)
 		}
 		if !fresh && inspection.Admin {
 			bearer, bearerErr := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: bearerPath})

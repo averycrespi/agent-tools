@@ -61,7 +61,11 @@ func RequireClosedGeneration(path string) error {
 		if err != nil {
 			return errors.Join(ErrInspectionUnavailable, err)
 		}
-		if err := gatewaypaths.ValidateOwnerOnlyFile(path + suffix); err != nil {
+		validate := gatewaypaths.ValidateOwnerOnlyFile
+		if suffix == "-wal" {
+			validate = gatewaypaths.ValidateSQLiteSidecar
+		}
+		if err := validate(path + suffix); err != nil {
 			return err
 		}
 		if info.Size() != 0 {

@@ -54,7 +54,7 @@ func newRootCmd() *cobra.Command {
 func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "agent-gateway",
-		Short:         "Run and administer the local deny-by-default Agent Gateway",
+		Short:         "Run and manage Agent Gateway",
 		Example:       "  agent-gateway init --confirm\n  agent-gateway serve\n  agent-gateway doctor",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -75,7 +75,24 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		command.AddCommand(online)
 	}
 	command.Long = command.Short + ".\n\nOnly agent-gateway is published. Renaming a current binary does not change\nits commands, installation, credentials, or process lock. Operator clients\nmust upgrade with the service for the API v2 and mcp command namespaces."
+	configureBuiltInHelp(command)
 	return command
+}
+
+func configureBuiltInHelp(root *cobra.Command) {
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	for _, command := range root.Commands() {
+		switch command.Name() {
+		case "help":
+			command.Short = "Show command help"
+		case "completion":
+			command.Short = "Generate shell completion scripts"
+			for _, shell := range command.Commands() {
+				shell.Short = "Generate " + shell.Name() + " completion scripts"
+			}
+		}
+	}
 }
 
 func installationSelectionProblem(err error) *controlclient.OnlineError {
@@ -92,7 +109,7 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	var jsonOutput bool
 	command := &cobra.Command{
 		Use:     "serve",
-		Short:   "Start the local Gateway service",
+		Short:   "Run Gateway in the foreground",
 		Example: "  agent-gateway serve",
 		Args: func(command *cobra.Command, args []string) error {
 			if len(args) != 0 {

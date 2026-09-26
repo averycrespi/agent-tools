@@ -54,7 +54,7 @@ func TestMaintenanceInspectionRefusesUncheckpointedState(t *testing.T) {
 	store, err := Initialize(t.Context(), owner, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
-	require.NoError(t, os.Chmod(owner.Layout().Database+"-wal", 0600))
+	require.NoError(t, os.Chmod(owner.Layout().Database+"-wal", 0644))
 	_, err = InspectMaintenance(t.Context(), owner, nil)
 	require.ErrorIs(t, err, ErrInspectionUnavailable)
 }

@@ -130,9 +130,8 @@ func Acquire(root string) (*Ownership, error) {
 
 // AcquireExisting starts a run without implicitly creating an installation.
 func AcquireExisting(root string) (*Ownership, error) {
-	// Startup retains the ordinary storage owner's WAL-aware validation. The
-	// stricter immutable-maintenance tree gate would reject crash-left SQLite
-	// sidecars before that owner can inspect the selected generation.
+	// Startup delegates selected-generation and WAL validation to storage,
+	// rather than applying the stopped tree scan to every retained artifact.
 	ownership, err := acquireExistingOwnership(root, false)
 	if err != nil {
 		return nil, err
@@ -346,28 +345,39 @@ func prepareRoot(root string) (string, error) {
 	}
 }
 
+// ValidationError exposes only filesystem metadata, never file contents.
+// Callers may render Path and Reason after terminal escaping instead of losing
+// the actionable cause behind ErrUnsafePath.
+type ValidationError struct {
+	Path   string
+	Reason string
+}
+
+func (e *ValidationError) Error() string { return e.Path + ": " + e.Reason }
+func (e *ValidationError) Unwrap() error { return ErrUnsafePath }
+
 func validateOwnerOnlyDirectory(info os.FileInfo, path string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("%w: %s is not a real directory", ErrUnsafePath, path)
+		return &ValidationError{path, "expected a real directory, not a symlink or another file type"}
 	}
 	if info.Mode().Perm() != 0o700 {
-		return fmt.Errorf("%w: %s permissions are %04o, want 0700", ErrUnsafePath, path, info.Mode().Perm())
+		return &ValidationError{path, fmt.Sprintf("permissions are %04o; expected 0700", info.Mode().Perm())}
 	}
 	if err := validateOwner(info); err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrUnsafePath, path, err)
+		return &ValidationError{path, "directory must be owned by the current user"}
 	}
 	return nil
 }
 
 func validateOwnerOnlyFile(info os.FileInfo, path string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("%w: %s is not a regular file", ErrUnsafePath, path)
+		return &ValidationError{path, "expected a regular file, not a symlink or another file type"}
 	}
 	if info.Mode().Perm() != 0o600 {
-		return fmt.Errorf("%w: %s permissions are %04o, want 0600", ErrUnsafePath, path, info.Mode().Perm())
+		return &ValidationError{path, fmt.Sprintf("permissions are %04o; expected 0600", info.Mode().Perm())}
 	}
 	if err := validateOwner(info); err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrUnsafePath, path, err)
+		return &ValidationError{path, "file must be owned by the current user"}
 	}
 	return nil
 }

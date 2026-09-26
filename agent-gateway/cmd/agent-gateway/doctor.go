@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,9 +36,9 @@ type doctorResult struct {
 }
 
 func newDoctorCmd() *cobra.Command {
-	var jsonOutput, verifyStorage, online bool
+	var jsonOutput, verifyStorage, online, verbose bool
 	var address, bearerFile string
-	command := &cobra.Command{Use: "doctor", Short: "Read a partial installation checklist and actionable diagnostics", Long: "Never initializes, recovers, rotates authority or changes services. Presence is not usability. --verify-storage performs expensive stopped, closed-generation inspection; --online reads authenticated live status. Protected keyring access is not performed.", Example: "  agent-gateway doctor\n  agent-gateway doctor --verify-storage --json"}
+	command := &cobra.Command{Use: "doctor", Short: "Check setup and diagnose problems", Long: "Never initializes, recovers, rotates authority or changes services. Presence is not usability. --verify-storage performs expensive stopped, closed-generation inspection; --online reads authenticated live status. Protected keyring access is not performed.", Example: "  agent-gateway doctor\n  agent-gateway doctor --verify-storage --json"}
 	fail := func(message string) error {
 		return writeOfflineProblem(command, offlineMode(jsonOutput), offlineUsageProblem(message, "agent-gateway doctor"))
 	}
@@ -61,7 +60,7 @@ func newDoctorCmd() *cobra.Command {
 		} else if os.Getenv("XDG_DATA_HOME") != "" {
 			result.Selection = "XDG_DATA_HOME default"
 		}
-		next, _ := renderPathFlagCommand("agent-gateway init", "--data-dir", "data_dir", layout.Root)
+		next, _ := renderInstallationCommand("agent-gateway init", layout.Root)
 		add := func(name, state, path, detail, action string) {
 			result.Checks = append(result.Checks, doctorCheck{name, state, path, detail, action})
 		}
@@ -71,7 +70,11 @@ func newDoctorCmd() *cobra.Command {
 		} else if errors.Is(err, os.ErrNotExist) {
 			add("installation", "absent", layout.Root, "No installation directory.", next)
 		} else {
-			add("installation", "failed", layout.Root, "Root ownership, permissions or type could not be verified.", "Preserve this path; verify its owner and permissions before changing it.")
+			detail := pathValidationDetail(err)
+			if detail == "" {
+				detail = "Root ownership, permissions or type could not be verified."
+			}
+			add("installation", "failed", layout.Root, detail, "Correct the reported path issue; do not delete installation files.")
 		}
 		presence := func(name, path string) {
 			if rootErr != nil && !errors.Is(rootErr, os.ErrNotExist) && filepath.Dir(path) == layout.Root {
@@ -83,13 +86,22 @@ func newDoctorCmd() *cobra.Command {
 			case err == nil:
 				add(name, "present", path, "Owner-only file present; contents and usability not established.", "")
 			case errors.Is(err, os.ErrNotExist):
-				add(name, "absent", path, "File is absent.", next)
+				action := next
+				if name == "administrator credential" && rootErr == nil {
+					action = "Select a known --admin-bearer-file; missing material does not authorize a credential reset."
+				}
+				add(name, "absent", path, "File is absent.", action)
 			default:
-				add(name, "failed", path, "File is inaccessible or unsafe; contents were not displayed.", "Preserve this file and correct the selected path or permissions.")
+				detail := pathValidationDetail(err)
+				if detail == "" {
+					detail = "File is inaccessible or unsafe; contents were not displayed."
+				}
+				add(name, "failed", path, detail, "Correct the reported path issue; do not delete the file.")
 			}
 		}
 		presence("storage", layout.Database)
-		if running, err := gatewaypaths.ProbeOwnership(layout.Root); err == nil {
+		running, ownershipErr := gatewaypaths.ProbeOwnership(layout.Root)
+		if ownershipErr == nil {
 			state := "stopped"
 			if running {
 				state = "running"
@@ -108,6 +120,9 @@ func newDoctorCmd() *cobra.Command {
 		}
 		presence("administrator credential", bearerFile)
 		presence("public CA certificate", filepath.Join(layout.Root, gatewaypaths.PublicCertificateName))
+		if last := &result.Checks[len(result.Checks)-1]; last.State == "absent" && running {
+			last.Next = "Stop the selected Gateway, then run: " + next
+		}
 		add("protected CA signing material", "not-checked", "", "No protected-keyring probe was performed. Public certificate presence does not establish signing capability.", "")
 		if verifyStorage {
 			owner, openErr := gatewaypaths.AcquireStoppedExisting(layout.Root)
@@ -123,19 +138,35 @@ func newDoctorCmd() *cobra.Command {
 					}
 					add("CA metadata", state, "", "Public metadata inspected without keyring access; signing was not checked.", "")
 				} else {
-					add("storage inspection", "failed", layout.Database, "Read-only inspection could not establish a healthy closed generation; no recovery was attempted.", "Retain WAL, journal and marker files; obtain a qualified stopped recovery plan.")
+					detail := pathValidationDetail(errors.Join(inspectErr, closeErr))
+					if detail == "" {
+						detail = "Read-only inspection could not establish a healthy closed generation; no recovery was attempted."
+					}
+					add("storage inspection", "failed", layout.Database, detail, "Retain WAL, journal and marker files; obtain a qualified stopped recovery plan.")
 				}
 			case errors.Is(openErr, gatewaypaths.ErrInUse):
 				add("storage inspection", "not-checked", layout.Database, "Installation is running; offline inspection refused.", "Use --online for authenticated live status.")
 			default:
-				add("storage inspection", "failed", layout.Database, "Stopped ownership is unavailable.", "Check the installation and lock path without deleting either.")
+				detail := pathValidationDetail(openErr)
+				if detail == "" {
+					detail = "Stopped ownership is unavailable."
+				}
+				add("storage inspection", "failed", layout.Database, detail, "Check the reported path without deleting installation files.")
 			}
 		}
 		ctx, cancel := context.WithTimeout(command.Context(), 3*time.Second)
 		defer cancel()
 		readiness := doctorReadiness(ctx, address)
 		detail := "Listener readiness is not process identity, clean storage or upstream credential health."
-		add("runtime readiness", readiness, "", detail, "Use service status and its log paths for an installed service; otherwise run serve explicitly.")
+		readinessNext := ""
+		if readiness != "ok" && rootErr == nil {
+			readinessNext = "Check the running Gateway's address and logs."
+			if ownershipErr == nil && !running {
+				serve, _ := renderInstallationCommand("agent-gateway serve", layout.Root)
+				readinessNext = "Start Gateway when setup is complete: " + serve
+			}
+		}
+		add("runtime readiness", readiness, "", detail, readinessNext)
 		serviceResult, serviceErr := service.Execute(ctx, "status", service.Changes{})
 		if serviceErr == nil {
 			result.Service = &serviceResult
@@ -154,17 +185,7 @@ func newDoctorCmd() *cobra.Command {
 			}
 		}
 		var human strings.Builder
-		fmt.Fprintf(&human, "Data directory: %s\nSelection: %s\n", controlclient.TerminalSafePath(layout.Root), result.Selection)
-		for _, check := range result.Checks {
-			fmt.Fprintf(&human, "\n[%s] %s", check.State, check.Name)
-			if check.Path != "" {
-				fmt.Fprintf(&human, ": %s", controlclient.TerminalSafePath(check.Path))
-			}
-			fmt.Fprintf(&human, "\n  %s\n", check.Detail)
-			if check.Next != "" {
-				fmt.Fprintf(&human, "  Next: %s\n", check.Next)
-			}
-		}
+		human.WriteString(renderDoctorChecks(result, verbose))
 		if result.System != nil {
 			body, marshalErr := json.Marshal(result.System)
 			if marshalErr != nil {
@@ -178,12 +199,10 @@ func newDoctorCmd() *cobra.Command {
 				return err
 			}
 		}
-		if result.Service != nil {
-			fmt.Fprintf(&human, "\nService plist: %s\nLogs: %s, %s\n", controlclient.TerminalSafePath(result.Service.Plist), controlclient.TerminalSafePath(result.Service.Stdout), controlclient.TerminalSafePath(result.Service.Stderr))
-		}
 		return offlineResult(command, jsonOutput, result, human.String())
 	}
 	command.Flags().BoolVar(&jsonOutput, "json", false, "structured checklist and errors")
+	command.Flags().BoolVar(&verbose, "verbose", false, "show details for every check")
 	command.Flags().BoolVar(&verifyStorage, "verify-storage", false, "perform expensive read-only stopped storage inspection")
 	command.Flags().BoolVar(&online, "online", false, "read authenticated live status using the selected administrator bearer")
 	command.Flags().StringVar(&address, "address", controlclient.DefaultAddress, "public control API address")

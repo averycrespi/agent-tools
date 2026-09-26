@@ -19,7 +19,7 @@ import (
 )
 
 func newHTTPCACmd(dependencies offlineDependencies) *cobra.Command {
-	command := &cobra.Command{Use: "ca", Short: "Export or replace the installation's public interception CA"}
+	command := &cobra.Command{Use: "ca", Short: "Manage the interception CA"}
 	configureNamespaceCommand(command)
 	for _, operation := range []string{"replace", "export"} {
 		command.AddCommand(newHTTPCAOperation(operation, dependencies))
@@ -33,7 +33,7 @@ func newHTTPCAOperation(operation string, dependencies offlineDependencies) *cob
 	usage := "agent-gateway http ca " + operation
 	command := &cobra.Command{
 		Use:     operation,
-		Short:   map[string]string{"replace": "Create or replace the stopped installation CA", "export": "Write the public certificate without changing authority"}[operation],
+		Short:   map[string]string{"replace": "Create or replace the interception CA", "export": "Export the public CA certificate"}[operation],
 		Long:    "Requires a stopped installation. Writes public PEM to <data-dir>/http-ca.pem by default; never exports private keys, installs trust or enables interception.",
 		Example: "  " + usage,
 	}
@@ -182,6 +182,9 @@ func httpCAProblem(err error) *controlclient.Problem {
 		code, title = "storage_invalid", "Selected storage failed integrity or identity validation. Preserve the installation and diagnose it before changes."
 	case errors.Is(err, storage.ErrStorageLatched):
 		code, title = "storage_latched", "Storage requires stopped maintenance inspection before CA changes."
+	}
+	if detail := pathValidationDetail(err); detail != "" {
+		title += " Cannot inspect " + detail
 	}
 	switch effect {
 	case "changed":

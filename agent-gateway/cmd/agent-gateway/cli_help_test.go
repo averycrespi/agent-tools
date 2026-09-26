@@ -61,10 +61,11 @@ func TestCLIHelpTree(t *testing.T) {
 	assert.NotEqual(t, initialize.Short, reset.Short)
 	credentialGet, _, err := root.Find([]string{"admin", "credential", "get"})
 	require.NoError(t, err)
-	assert.Contains(t, credentialGet.Short, "by ID")
+	assert.Equal(t, "Get an administrator credential", credentialGet.Short)
 	invocationGet, _, err := root.Find([]string{"mcp", "invocation", "get"})
 	require.NoError(t, err)
-	assert.Contains(t, invocationGet.Short, "JSON")
+	assert.Equal(t, "Get an MCP invocation", invocationGet.Short)
+	assert.Contains(t, invocationGet.Long, "JSON includes retained redacted arguments")
 
 	var snapshot strings.Builder
 	var walk func(*cobra.Command)
@@ -85,7 +86,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:48292f5920b39743ca636c1480c69ca43d92c1cc6bbbd20682ea93d4241efb1e", digest)
+	assert.Equal(t, "sha256:08be87a38e055c31cd221d735fe2f2c648f8944d509d0f4cee82e4d3d04c0455", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
