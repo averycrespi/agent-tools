@@ -60,6 +60,7 @@ func TestHTTPTrafficReadsSeparateDomainsAndBindCursors(t *testing.T) {
 	require.NotNil(t, item.Completion)
 	assert.Equal(t, 200, item.Completion.Status)
 	query.Filters.Destination = "example.com/private?secret"
-	_, err = reader.ListHTTP(t.Context(), query)
-	assert.ErrorIs(t, err, ErrInvalidInput)
+	filtered, err = reader.ListHTTP(t.Context(), query)
+	require.NoError(t, err)
+	assert.Empty(t, filtered.Items, "destination searches only retained host, never paths")
 }

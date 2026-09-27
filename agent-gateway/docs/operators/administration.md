@@ -184,9 +184,22 @@ agent-gateway http traffic list --destination example.com --type request --outco
 agent-gateway http traffic get TRAFFIC_ID
 ```
 
-Optional exact filters are `--principal-id`, `--destination` (canonical hostname,
-not a URL), `--type`, `--decision`, and `--outcome`. Lists accept the usual
-`--limit`, `--cursor`, and `--output json` controls. Detail preserves historical
+`--destination` searches a case-insensitive literal hostname/IP substring:
+`github` matches `api.github.com`. It never searches paths or interprets wildcard
+or regex syntax. Exact filters remain `--principal-id`, `--connect-id`, `--type`,
+`--decision`, and `--outcome`. Lists accept the usual `--limit`, `--cursor`, and
+`--output json` controls.
+
+In the browser, **Agent** searches current display names using the same accent/case
+and limited typo tolerance as MCP Invocations, or a literal recorded agent-ID
+substring. Missing current names do not erase recorded IDs; names are recognition,
+not admission-time authority. Existing exact-ID diagnostic links stay exact and
+show a removable **Exact agent ID** constraint. Agent and Destination host text
+applies after a short pause; both accept up to 256 UTF-8 bytes without control
+characters. **Clear filters** removes all constraints. Searches combine with the
+other filters, including recorded CONNECT ID, across available history before
+pagination. Applied filters stay in the URL through reload and Back navigation;
+changing them starts a fresh matching traversal, not a filter of loaded rows. Detail preserves historical
 policy selectors and credential-generation references even after grants change;
 they are not current authority. Request paths, queries, headers, bodies and secrets
 are never traffic evidence. CONNECT tunnels expose no inner requests. An allowed

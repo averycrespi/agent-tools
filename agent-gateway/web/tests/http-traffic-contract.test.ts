@@ -43,19 +43,26 @@ function item() {
     completion: null,
   };
 }
-test("HTTP history deep links retain closed exact filters separately from MCP", () => {
+test("HTTP history deep links retain search and exact diagnostic filters separately from MCP", () => {
   const location = {
     destination: "http-traffic",
     segments: ["http-traffic", id],
-    query: { filter_destination: "example.com", filter_type: "request" },
+    query: {
+      filter_destination: "GiTHuB",
+      filter_principal: "Café investigator",
+      filter_principal_id: id,
+      filter_type: "request",
+    },
   } as const;
   const parsed = parseFragment(
     serializeLocation({ ...location, segments: [...location.segments] }),
   );
   assert.deepEqual({ ...parsed, query: { ...parsed?.query } }, location);
   for (const query of [
-    { filter_destination: "*.example.com" },
-    { filter_destination: "https://example.com/path?token=1" },
+    { filter_destination: "a".repeat(257) },
+    { filter_principal: "é".repeat(129) },
+    { filter_destination: "a\u0000" },
+    { filter_principal: "a\u200b" },
     { filter_type: "mcp" },
     { filter_outcome: "complete" },
     { filter_principal_id: "name" },
@@ -63,6 +70,22 @@ test("HTTP history deep links retain closed exact filters separately from MCP", 
     { unknown: "value" },
   ])
     assert.equal(validHTTPTrafficQuery(query), false);
+  for (const text of [
+    "%",
+    "_",
+    "*",
+    "*.example.com",
+    "github/path",
+    "é".repeat(128),
+  ]) {
+    assert.equal(
+      validHTTPTrafficQuery({
+        filter_destination: text,
+        filter_principal: text,
+      }),
+      true,
+    );
+  }
   assert.equal(
     parseFragment("#/http/traffic?filter_destination=a&filter_destination=b"),
     undefined,

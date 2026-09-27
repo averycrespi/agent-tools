@@ -49,6 +49,7 @@ func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
 	}
 	harness.Start()
 	if proxy != "" {
+		seedBrowserHTTPSearch(t, harness, proxy)
 		seedBrowserHTTPRejections(t, harness, proxy)
 		seedBrowserHTTPConnect(t, harness, proxy, ca)
 	}
@@ -90,6 +91,34 @@ func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
 		require.Len(t, harness.results, 1)
 	} else {
 		require.Len(t, harness.results, 2)
+	}
+}
+
+// Search matches sit outside the initial 50-row page. Every row uses real proxy
+// admission with default denial, so no external host is contacted.
+func seedBrowserHTTPSearch(t *testing.T, h *gatewayHarness, proxy string) {
+	t.Helper()
+	for _, fixture := range []struct {
+		name, host string
+		count      int
+	}{
+		{"Café Investigator", "api.github.com", 2},
+		{"Unrelated fixture", "example.com", 52},
+	} {
+		principal := h.CreatePrincipal(fixture.name, contract.VisibilityRequestable)
+		credential := h.IssueCredential(principal)
+		proxyURL := &url.URL{Scheme: "http", Host: proxy, User: url.UserPassword("agent", strings.TrimPrefix(credential.Bearer.authorizationHeader(), "Bearer "))}
+		transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+		client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+		for range fixture.count {
+			response, err := client.Get("http://" + fixture.host + "/not-retained")
+			require.NoError(t, err)
+			require.Equal(t, http.StatusForbidden, response.StatusCode)
+			_, err = io.Copy(io.Discard, response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+		}
+		transport.CloseIdleConnections()
 	}
 }
 
@@ -141,8 +170,8 @@ func seedBrowserHTTPRejections(t *testing.T, h *gatewayHarness, proxy string) {
 	credential.Bearer.assertAbsent(t, "HTTP rejection history", strings.NewReader(string(page.Body)))
 	var traffic contract.HTTPTrafficPage
 	require.NoError(t, json.Unmarshal(page.Body, &traffic))
-	require.Len(t, traffic.Items, 3)
-	for _, item := range traffic.Items {
+	require.GreaterOrEqual(t, len(traffic.Items), 3)
+	for _, item := range traffic.Items[:3] {
 		require.NotNil(t, item.Rejection)
 		require.Equal(t, "gateway", item.ResponseSource)
 	}

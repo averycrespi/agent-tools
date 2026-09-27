@@ -112,6 +112,8 @@ function listPath(
   const params = new URLSearchParams({ limit: "50" });
   for (const [key, value] of Object.entries(query))
     params.set(key.slice(7), value);
+  if (query.filter_principal)
+    params.set("search_locale", Intl.DateTimeFormat().resolvedOptions().locale);
   if (cursor !== null) params.set("cursor", cursor);
   return `/api/v2/http/traffic?${params}`;
 }
@@ -409,8 +411,10 @@ export function HTTPTraffic({
           Previously loaded traffic may be stale.
         </StateNotice>
       )}
-      {!current.loaded && !current.error && panel?.status !== "error" ? (
-        <StateNotice state="loading" title="Loading HTTP traffic…" />
+      {!current.loaded ? (
+        !current.error && panel?.status !== "error" ? (
+          <StateNotice state="loading" title="Loading HTTP traffic…" />
+        ) : null
       ) : (
         <>
           <CollectionTable
@@ -589,11 +593,12 @@ function TrafficFilters({
       aria-label="HTTP traffic filters"
     >
       {[
-        ["principal_id", "Agent ID"],
+        ["principal", "Agent"],
         ["destination", "Destination host"],
         ["connect_id", "CONNECT ID"],
       ].map(([key, label]) => (
         <input
+          type="search"
           aria-label={label}
           placeholder={label}
           value={draft[`filter_${key}`] ?? ""}
@@ -605,6 +610,22 @@ function TrafficFilters({
           }
         />
       ))}
+      {query.filter_principal_id && (
+        <span class="inline-actions">
+          Exact agent ID: <code>{query.filter_principal_id}</code>
+          <button
+            type="button"
+            onClick={() => {
+              const next = { ...draft };
+              delete next.filter_principal_id;
+              setDraft(next);
+              apply(next);
+            }}
+          >
+            Remove exact agent filter
+          </button>
+        </span>
+      )}
       {Object.entries(trafficOptions).map(([key, values]) => (
         <select
           aria-label={sentenceCase(key)}
@@ -640,7 +661,7 @@ function TrafficFilters({
       {error && (
         <StateNotice
           state="error"
-          title="Use an exact agent or CONNECT ID, or a canonical destination hostname."
+          title="Use an exact CONNECT ID and searches of at most 256 UTF-8 bytes without control characters."
         />
       )}
     </div>

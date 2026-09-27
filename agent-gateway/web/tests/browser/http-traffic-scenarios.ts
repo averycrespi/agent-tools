@@ -18,6 +18,119 @@ export async function runHTTPTraffic(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('#primary-navigation a[href="#/http/traffic"]').click();
+  // Real history search must find records beyond the initial loaded window.
+  const searchRequests: URL[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/v2/http/traffic") searchRequests.push(url);
+  });
+  const agentSearch = page.getByRole("searchbox", {
+    name: "Agent",
+    exact: true,
+  });
+  const destinationSearch = page.getByRole("searchbox", {
+    name: "Destination host",
+    exact: true,
+  });
+  await expect(page.getByRole("table")).not.toContainText("Café Investigator");
+  await agentSearch.fill("Ca");
+  await agentSearch.fill("CAFE");
+  await expect(
+    page.getByText("2 matching HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(agentSearch).toBeFocused();
+  expect(
+    searchRequests.some((url) => url.searchParams.get("principal") === "Ca"),
+  ).toBe(false);
+  expect(searchRequests.at(-1)!.searchParams.get("search_locale")).toBeTruthy();
+  await page.keyboard.press("Tab");
+  await expect(destinationSearch).toBeFocused();
+  await destinationSearch.fill("GiTHuB");
+  await expect(page).toHaveURL(/filter_destination=GiTHuB/);
+  await expect(page.getByRole("table")).toContainText("api.github.com");
+  await expect(page.getByRole("table")).toContainText("Café Investigator");
+  await page.screenshot({
+    path: join(screenshots, "search-desktop.png"),
+    fullPage: true,
+  });
+  // 640 CSS pixels is the repository's 200% reference reflow at 1280px.
+  for (const width of [640, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(agentSearch).toBeVisible();
+    await expect(destinationSearch).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    for (const control of [agentSearch, destinationSearch]) {
+      const box = await control.boundingBox();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    }
+    await page.screenshot({
+      path: join(screenshots, `search-${width}.png`),
+      fullPage: true,
+    });
+  }
+  const searchAxe = await new AxeBuilder({ page }).analyze();
+  expect(
+    searchAxe.violations.filter((v) =>
+      ["serious", "critical"].includes(v.impact ?? ""),
+    ),
+  ).toEqual([]);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  await waitForLifecycle(page, "authenticated");
+  await expect(agentSearch).toHaveValue("CAFE");
+  await expect(destinationSearch).toHaveValue("GiTHuB");
+  await expect(
+    page.getByText("2 matching HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  await destinationSearch.fill("%");
+  await expect(
+    page.getByText("No matching HTTP traffic", { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: join(screenshots, "search-empty.png"),
+    fullPage: true,
+  });
+  await page.goBack();
+  await expect(destinationSearch).toHaveValue("GiTHuB");
+  await expect(
+    page.getByText("2 matching HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  const exactID = await page
+    .getByRole("table")
+    .getByRole("link", { name: "Café Investigator", exact: true })
+    .first()
+    .getAttribute("href");
+  await page.goto(
+    `${baseURL}/#/http/traffic?filter_principal_id=${exactID!.split("/").at(-1)}`,
+  );
+  await expect(
+    page.getByText("Exact agent ID:", { exact: false }),
+  ).toBeVisible();
+  await expect(agentSearch).toHaveValue("");
+  await expect(
+    page.getByText("2 matching HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  expect(searchRequests.at(-1)!.searchParams.has("principal")).toBe(false);
+  await page.getByRole("button", { name: "Remove exact agent filter" }).click();
+  await expect(page).toHaveURL(/#\/http\/traffic$/);
+  await expect(
+    page.getByRole("button", { name: "Load older", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  await expect(page.getByRole("table")).toContainText("Café Investigator");
+  await destinationSearch.fill("GiTHuB");
+  await expect(
+    page.getByText("2 matching HTTP traffic records loaded", { exact: true }),
+  ).toBeVisible();
+  expect(searchRequests.at(-1)!.searchParams.has("cursor")).toBe(false);
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .click();
+  await expect(page).toHaveURL(/#\/http\/traffic$/);
+  await page.getByRole("button", { name: "Resume live", exact: true }).click();
   // Exercise real connection correlation through proxy, durable reads and UI.
   const realConnect = page
     .getByRole("row")
@@ -35,6 +148,15 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("1 matching HTTP traffic record loaded", { exact: true }),
   ).toBeVisible();
+  await agentSearch.fill("connect evidence");
+  await destinationSearch.fill("127.0");
+  await expect(page).toHaveURL(/filter_principal=connect%20evidence/);
+  await expect(
+    page.getByText("1 matching HTTP traffic record loaded", { exact: true }),
+  ).toBeVisible();
+  expect(searchRequests.at(-1)!.searchParams.get("connect_id")).toBe(
+    realParent,
+  );
   await page
     .getByRole("row")
     .filter({ hasText: "GET https://127.0.0.1" })
@@ -182,6 +304,7 @@ export async function runHTTPTraffic(
     failHistory = false,
     malformed = false,
     reads = 0;
+  let releaseLoading: (() => void) | undefined;
   await context.route(`${baseURL}/api/v2/http/traffic**`, async (route) => {
     const request = route.request();
     expect(request.method()).toBe("GET");
@@ -297,7 +420,19 @@ export async function runHTTPTraffic(
       });
       return;
     }
-    if (failHistory) {
+    if (url.searchParams.get("principal") === "loading") {
+      await new Promise<void>((resolve, reject) => {
+        const deadline = setTimeout(
+          () => reject(new Error("Loading fixture was not released")),
+          5000,
+        );
+        releaseLoading = () => {
+          clearTimeout(deadline);
+          resolve();
+        };
+      });
+    }
+    if (failHistory || url.searchParams.get("principal") === "unavailable") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -420,6 +555,73 @@ export async function runHTTPTraffic(
     .getByLabel("Destination host", { exact: true })
     .fill("example.com");
   await expect(page).toHaveURL(/filter_destination=example.com/);
+  await agentSearch.fill("fixture");
+  await expect(page).toHaveURL(/filter_principal=fixture/);
+  await expect(historySummary).toHaveText(
+    "2 matching HTTP traffic records loaded",
+  );
+  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  await expect(historySummary).toHaveText(
+    "3 matching HTTP traffic records loaded",
+  );
+  expect(searchRequests.at(-1)!.searchParams.get("principal")).toBe("fixture");
+  expect(searchRequests.at(-1)!.searchParams.get("destination")).toBe(
+    "example.com",
+  );
+  expect(searchRequests.at(-1)!.searchParams.get("cursor")).toBe("older");
+  await page
+    .getByRole("button", { name: "Return to newest", exact: true })
+    .click();
+  await expect(historySummary).toHaveText(
+    "2 matching HTTP traffic records loaded",
+  );
+  failHistory = true;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(historySummary).toHaveText(
+    "2 matching HTTP traffic records loaded (stale)",
+  );
+  await page.screenshot({
+    path: join(screenshots, "search-stale.png"),
+    fullPage: true,
+  });
+  failHistory = false;
+  try {
+    await agentSearch.fill("loading");
+    await expect(
+      page.getByText("Loading HTTP traffic…", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No matching HTTP traffic", { exact: true }),
+    ).toHaveCount(0);
+    await expect(historySummary).toHaveCount(0);
+    await expect(agentSearch).toBeFocused();
+    await page.screenshot({
+      path: join(screenshots, "search-loading.png"),
+      fullPage: true,
+    });
+    await expect.poll(() => releaseLoading !== undefined).toBe(true);
+  } finally {
+    releaseLoading?.();
+  }
+  await expect(historySummary).toHaveText(
+    "2 matching HTTP traffic records loaded",
+  );
+  await agentSearch.fill("unavailable");
+  await expect(
+    page.getByText("HTTP traffic unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("No matching HTTP traffic", { exact: true }),
+  ).toHaveCount(0);
+  await expect(historySummary).toHaveCount(0);
+  await page.screenshot({
+    path: join(screenshots, "search-error.png"),
+    fullPage: true,
+  });
+  await agentSearch.fill("");
+  await expect(historySummary).toHaveText(
+    "2 matching HTTP traffic records loaded",
+  );
   await page.screenshot({
     path: join(screenshots, "history.png"),
     fullPage: true,

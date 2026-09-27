@@ -88,7 +88,9 @@ Administrator bearer/session bodyless GET reads use `/api/v2/http/traffic` and
 `/api/v2/http/traffic/{id}`, independently of MCP invocations. Responses are
 no-store; there is no mutation, replay or traffic-to-grant operation. Collection
 `HTTPTrafficQuery` accepts singleton nonempty `limit` (default 50, canonical 1–100), `cursor`,
-`principal_id` (exact), `destination` (exact canonical hostname/IP), `type`
+`principal_id` (exact diagnostic identity), `principal` (Agent recognition),
+`search_locale` (canonical language tag), `destination` (case-insensitive literal
+hostname/IP substring), `type`
 (`request`, `connect`, `invalid`), `decision` (`allow`, `block`, `intercept`,
 `invalid`), `outcome` (`interception_selected`, `not_dispatched`, `outcome_unknown`,
 `succeeded`, `prestart_failure`, `upstream_failure`), and `connect_id` (exact
@@ -100,6 +102,19 @@ without rewriting historical admission/completion or released storage definition
 correlations, including invalid inner requests; it never matches host/time or
 requires the parent to remain retained. Neither filter loads policy into the client.
 
+Agent recognition follows [MCP invocation search](#invocation-history-queries):
+current display-name fuzzy matching OR a literal case-sensitive recorded-ID substring.
+Names are fetched once from the bounded authorization-owned directory before the
+traffic read; unavailable names fail the search, while absent names leave recorded
+ID matches available. `principal_id` never uses names and intersects any recognition
+query. `principal` and `destination` accept at most 256 UTF-8 bytes without control
+or format characters. Destination uses ASCII case folding against the retained host
+only, never paths, ports, inherited CONNECT context or policy selectors. All characters
+(including `%`, `_`, `*` and regex punctuation) are literal; there is no wildcard,
+regex or exact-mode switch. Selection is parameterized SQL before the page limit,
+under the existing bounded traffic reader lifetime and retained capacity. No new
+sensitive data or per-row resource lookup is introduced.
+
 `HTTPTrafficPage` is exactly `{items,next_cursor}`. Each summary is
 `{id,admitted_at,principal_id,target,type,decision,outcome}`; target is null for
 unparseable requests, `{host,port}` for CONNECT, or `{host,port,scheme,method}`
@@ -110,7 +125,9 @@ No current-resource lookup reconstructs their meaning. Missing completion is
 unknown for an allow, including confirmation failure, not permission to replay.
 
 HTTP cursors use a distinct authenticated version with the shared process-local
-key, binding complete filters, generation, shared pruning, upper and next sequence.
+key, binding complete filters, current-name digest when searched, generation,
+shared pruning, upper and next sequence. Changed names invalidate a name-search
+continuation; exact-ID-only reads do not depend on the directory.
 They are at most 512 bytes. Later insertions are excluded; any shared pruning or
 generation replacement invalidates continuation. Like MCP, completion predicates
 are coherent per page, not a frozen terminal snapshot; counts describe loaded

@@ -26,8 +26,11 @@ export function validHTTPTrafficQuery(
   return Object.entries(query).every(([key, value]) => {
     if (key === "filter_principal_id" || key === "filter_connect_id")
       return idPattern.test(value);
-    if (key === "filter_destination")
-      return canonicalHost(value) && !value.includes("*");
+    if (key === "filter_destination" || key === "filter_principal")
+      return (
+        new TextEncoder().encode(value).byteLength <= 256 &&
+        !/[\p{Cc}\p{Cf}]/u.test(value)
+      );
     const options = trafficOptions[key.slice(7) as keyof typeof trafficOptions];
     return (
       key.startsWith("filter_") &&

@@ -87,12 +87,14 @@ type HTTPTrafficCompletion struct {
 const HTTPOutcomeInterceptionSelected = "interception_selected"
 
 type HTTPTrafficFilters struct {
-	ConnectID   string `json:"connect_id,omitempty"`
-	PrincipalID string `json:"principal_id,omitempty"`
-	Destination string `json:"destination,omitempty"`
-	Type        string `json:"type,omitempty"`
-	Decision    string `json:"decision,omitempty"`
-	Outcome     string `json:"outcome,omitempty"`
+	Principal    string `json:"principal,omitempty"`
+	SearchLocale string `json:"search_locale,omitempty"`
+	ConnectID    string `json:"connect_id,omitempty"`
+	PrincipalID  string `json:"principal_id,omitempty"`
+	Destination  string `json:"destination,omitempty"`
+	Type         string `json:"type,omitempty"`
+	Decision     string `json:"decision,omitempty"`
+	Outcome      string `json:"outcome,omitempty"`
 }
 
 type HTTPTrafficQuery struct {

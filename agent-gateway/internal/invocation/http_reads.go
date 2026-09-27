@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -26,11 +25,8 @@ func validHTTPTrafficFilters(f contract.HTTPTrafficFilters) bool {
 	if f.PrincipalID != "" && !validOpaqueInvocationID(f.PrincipalID) {
 		return false
 	}
-	if f.Destination != "" {
-		d, err := httppolicy.NewDestination(f.Destination, 443)
-		if err != nil || d.Host() != f.Destination {
-			return false
-		}
+	if !validSearchText(f.Principal) || !validSearchText(f.Destination) || !validSearchLocale(f.SearchLocale) {
+		return false
 	}
 	return slices.Contains([]string{"", "request", "connect", "invalid"}, f.Type) && slices.Contains([]string{"", "allow", "block", "intercept", "invalid"}, f.Decision) && slices.Contains([]string{"", contract.HTTPOutcomeInterceptionSelected, "not_dispatched", "outcome_unknown", "succeeded", "prestart_failure", "upstream_failure"}, f.Outcome)
 }
@@ -63,7 +59,7 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 	if s.repository.traffic == nil {
 		return page, ErrInvalidState
 	}
-	cursor := invocationCursor{Version: 4, Epoch: s.repository.cursorEpoch(), QueryDigest: searchDigest(q.Filters)}
+	cursor := invocationCursor{Version: 5, Epoch: s.repository.cursorEpoch(), QueryDigest: searchDigest(q.Filters)}
 	if q.Cursor != "" {
 		if len(q.Cursor) > 512 {
 			return page, ErrInvalidCursor
@@ -72,7 +68,7 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 		if decodeErr != nil || base64.RawURLEncoding.EncodeToString(raw) != q.Cursor || strictjson.Decode(raw, &cursor, strictjson.Options{MaxBytes: 512, MaxDepth: 2, RejectUnknownMembers: true}) != nil {
 			return page, ErrInvalidCursor
 		}
-		if cursor.Version != 4 || cursor.Epoch != s.repository.cursorEpoch() {
+		if cursor.Version != 5 || cursor.Epoch != s.repository.cursorEpoch() {
 			return page, ErrStaleCursor
 		}
 		if cursor.UpperSequence <= 0 || cursor.NextSequence <= 0 || cursor.NextSequence > cursor.UpperSequence || !hmac.Equal([]byte(cursor.MAC), []byte(s.repository.cursorMAC(cursor))) {
@@ -82,6 +78,31 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 			return page, ErrStaleCursor
 		}
 	}
+	// Resolve current recognition names once, outside the traffic snapshot. Names
+	// never reconstruct historical authority; exact principal_id bypasses them.
+	names := map[string]string{}
+	if q.Filters.Principal != "" {
+		if s.names == nil {
+			return page, ErrStorageUnavailable
+		}
+		names, err = s.names.PrincipalDisplayNames(ctx)
+		if err != nil {
+			return page, errors.Join(ErrStorageUnavailable, err)
+		}
+	}
+	namesDigest := searchDigest(names)
+	if q.Cursor != "" && cursor.NamesDigest != namesDigest {
+		return page, ErrStaleCursor
+	}
+	cursor.NamesDigest = namesDigest
+	principalSearch := newHistorySearch(q.Filters.Principal, q.Filters.SearchLocale)
+	matchingIDs := []string{}
+	for id, name := range names {
+		if principalSearch.matches(name) {
+			matchingIDs = append(matchingIDs, id)
+		}
+	}
+	slices.Sort(matchingIDs)
 	page.Items = []contract.HTTPTrafficSummary{}
 	err = s.repository.traffic.view(ctx, func(tx *sql.Tx) error {
 		var generation string
@@ -102,11 +123,26 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 			clauses = append(clauses, "insertion_sequence<?")
 			args = append(args, cursor.NextSequence)
 		}
-		for _, filter := range []struct{ column, value string }{{"principal_id", q.Filters.PrincipalID}, {"destination", q.Filters.Destination}, {"traffic_type", q.Filters.Type}, {"decision", q.Filters.Decision}, {httpTrafficReadOutcome, q.Filters.Outcome}, {"json_extract(admission,'$.connect.id')", q.Filters.ConnectID}} {
+		for _, filter := range []struct{ column, value string }{{"principal_id", q.Filters.PrincipalID}, {"traffic_type", q.Filters.Type}, {"decision", q.Filters.Decision}, {httpTrafficReadOutcome, q.Filters.Outcome}, {"json_extract(admission,'$.connect.id')", q.Filters.ConnectID}} {
 			if filter.value != "" {
 				clauses = append(clauses, filter.column+"=?")
 				args = append(args, filter.value)
 			}
+		}
+		if q.Filters.Destination != "" {
+			clauses = append(clauses, "instr(lower(destination),lower(?))>0")
+			args = append(args, q.Filters.Destination)
+		}
+		if len(principalSearch.tokens) != 0 {
+			predicate := "instr(principal_id,?)>0"
+			args = append(args, strings.TrimSpace(q.Filters.Principal))
+			if len(matchingIDs) != 0 {
+				predicate += " OR principal_id IN (" + strings.TrimSuffix(strings.Repeat("?,", len(matchingIDs)), ",") + ")"
+				for _, id := range matchingIDs {
+					args = append(args, id)
+				}
+			}
+			clauses = append(clauses, "("+predicate+")")
 		}
 		args = append(args, q.Limit+1)
 		//nolint:gosec // Predicate columns are fixed above; every filter value is bound.

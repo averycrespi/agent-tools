@@ -13,8 +13,13 @@ HTTP > Credentials is a distinct navigation group and operator surface at `#/htt
 ## HTTP traffic history
 
 HTTP > Traffic (`#/http/traffic` and record-ID detail) is separate from MCP
-Invocations, HTTP Grants and administrative audit. Lists use exact principal-ID,
-destination hostname, type, decision, outcome and enclosing CONNECT-ID filters. The shared table shows
+Invocations, HTTP Grants and administrative audit. Agent search uses the same
+server-side current-name recognition as MCP Invocations; Destination host uses
+case-insensitive literal substring matching without wildcard/regex syntax or an
+exact-match toggle. Both apply after the shared 300 ms debounce across available
+history, not loaded rows. Exact principal-ID diagnostic links remain distinct,
+visible and removable; they never broaden into name recognition. These searches
+intersect type, decision, outcome and exact enclosing CONNECT-ID filters. The shared table shows
 admission time, safe destination/method, principal, type, decision, rejection reason,
 response source and outcome;
 principal labels come from the existing batched directory. Detail shows immutable
@@ -43,7 +48,10 @@ decision use the same honest presentation. Intercepted CONNECT detail links to
 inner records filtered by recorded `connect.id`; inner detail links to the recorded
 parent, which may be unavailable after pruning. An empty related list never proves
 no requests occurred. Missing completion never proves nonexecution or safe replay.
-Exact filters and detail links survive Back navigation but no
+Applied searches, exact filters and detail links survive reload and Back navigation;
+changing or clearing filters restarts the newest matching page without changing
+Live preference or older-reading pause. Clear filters removes all query constraints.
+No
 cursor or evidence is placed in the URL or browser persistence.
 
 ## HTTP grant administration
