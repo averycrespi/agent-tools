@@ -387,6 +387,10 @@ export async function runBackups(
     "Backup",
   );
   const inventory = page.locator('[data-testid="backups-view"]');
+  await expect(
+    inventory.locator(".panel-heading .status-label.current"),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "backups-current");
   const rows = inventory.locator('[data-testid="backup-row"]');
   const assertSimplifiedInventory = async () => {
     await expect(
@@ -630,6 +634,12 @@ export async function runAdminCredentials(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
+  await expect(
+    page
+      .getByTestId("admin-credentials-view")
+      .locator(".panel-heading .status-label.current"),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "admin-credentials-current");
   const inventoryCopy =
     (await page
       .locator('[data-testid="admin-credentials-view"]')

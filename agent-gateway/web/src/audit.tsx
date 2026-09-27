@@ -1051,8 +1051,7 @@ export function Audit({
             <p>
               Credential attribution does not identify a named human. Pending or
               unknown outcomes do not prove success, rollback, or permission to
-              replay. Only allowlisted safe detail is retained, never secrets,
-              raw errors or invocation payloads.
+              replay.
             </p>
             <details>
               <summary>Technical details</summary>

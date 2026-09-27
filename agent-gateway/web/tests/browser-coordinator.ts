@@ -767,10 +767,18 @@ try {
           ),
         )) ||
       (input.scenario === "http-grants" &&
-        consoleFailures.length === 1 &&
-        /^Failed to load resource: the server responded with a status of 412(?: \(Precondition Failed\))?$/.test(
-          consoleFailures[0]!,
+        consoleFailures.length === 2 &&
+        [409, 412].every(
+          (status) =>
+            consoleFailures.filter((value) =>
+              new RegExp(
+                `^Failed to load resource: the server responded with a status of ${status}(?: \\(.*\\))?$`,
+              ).test(value),
+            ).length === 1,
         )) ||
+      (input.scenario === "auth-flows" &&
+        consoleFailures.length === 1 &&
+        consoleFailures[0] === "Failed to load resource: net::ERR_FAILED") ||
       (input.scenario === "system-status" &&
         consoleFailures.length === 4 &&
         consoleFailures.every((value) =>
@@ -779,13 +787,13 @@ try {
           ),
         )) ||
       (input.scenario === "http-credentials" &&
-        consoleFailures.length === 4 &&
+        consoleFailures.length === 6 &&
         consoleFailures.filter((value) =>
           value.includes("server responded with a status of 400"),
         ).length === 3 &&
         consoleFailures.filter(
           (value) => value === "Failed to load resource: net::ERR_FAILED",
-        ).length === 1) ||
+        ).length === 3) ||
       (input.scenario === "server-create-update" &&
         consoleFailures.length === 4 &&
         consoleFailures.every((value) =>

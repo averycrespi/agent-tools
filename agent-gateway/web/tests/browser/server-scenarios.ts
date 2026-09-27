@@ -1465,6 +1465,7 @@ export async function runServerOperations(
   )
     fail("catalog refresh inherited a misleading confirmation");
   await page.getByText("Operation start outcome unknown").waitFor();
+  await captureStateFeedback(page, "operation-unknown");
   await page.locator('[data-testid="operation-start-replay"]').click();
   await page.locator('[data-testid="operation-detail"]').waitFor();
   if (
@@ -2147,6 +2148,10 @@ export async function runAuthFlows(
         fail("auth flow start added idempotency authority");
       if ((route.request().postData() ?? "") !== "{}")
         fail("auth flow start body changed");
+      if (starts === 4) {
+        await route.abort("failed");
+        return;
+      }
       if (starts === 3) await thirdStartBarrier;
       await route.fulfill({
         status: 201,
@@ -2184,6 +2189,13 @@ export async function runAuthFlows(
   }, serverID);
   const authorizationAction = page.locator('[data-testid="start-auth-flow"]');
   await authorizationAction.waitFor();
+  await expect(
+    page.getByText(
+      "Starting again invalidates any previous pending authorization link.",
+      { exact: true },
+    ),
+  ).toHaveCount(1);
+  await captureStateFeedback(page, "oauth-start");
   if (
     ((await page.locator("body").textContent()) ?? "").includes(
       "If the authorization page is lost",
@@ -2303,6 +2315,25 @@ export async function runAuthFlows(
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
+  await page.evaluate((id) => {
+    window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
+  }, serverID);
+  await page.getByTestId("start-auth-flow").click();
+  await expect(
+    page.getByText("Flow start outcome unknown", { exact: true }),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "Dismiss and clear" }).click();
+  await expect(
+    page.getByText(
+      "Inspect refreshed flow history before starting again. This start cannot be replayed.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/The flow start outcome is unknown\./),
+  ).toHaveCount(0);
+  expect(starts).toBe(4);
+  await captureStateFeedback(page, "oauth-start-unknown");
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE6"}`;
@@ -2344,9 +2375,7 @@ export async function runAuthFlows(
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
   }, serverID);
-  await page
-    .getByText("An OAuth authorization is already in progress.")
-    .waitFor();
+  await page.getByText("Authorization in progress", { exact: true }).waitFor();
   await page.locator('[data-testid="auth-flow-list"]').waitFor();
   if ((await page.locator('[data-testid="auth-flow-row"]').count()) !== 2)
     fail("authentication omitted OAuth activity history");
@@ -2358,6 +2387,10 @@ export async function runAuthFlows(
   ).toBeVisible();
   if ((await page.locator('[data-testid="start-auth-flow"]').count()) !== 0)
     fail("authentication offered a second active OAuth flow");
+  await expect(
+    page.getByText("OAuth is unavailable", { exact: true }),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "oauth-exchanging");
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE7"}`;
@@ -2620,6 +2653,15 @@ export async function runServerCredentials(
       fail(`credential field ${fieldID} was not blank and write-only`);
   };
   await assertEligible("credential-slot-primary");
+  await page.getByTestId("credential-replacement-submit").click();
+  await expect(
+    page.getByText("Enter every credential again; the fields were cleared.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(replacements).toBe(0);
+  await captureStateFeedback(page, "server-credential-cleared");
   let eligibilityModes = 1;
 
   currentServer = {
@@ -3502,6 +3544,17 @@ export async function runServerCatalogReads(
     fail(
       "descriptor detail omitted structured evidence or contextual navigation",
     );
+
+  await expect(
+    page.getByRole("heading", { name: "Server hints", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Schema summary", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("No additional constraints.", { exact: true }),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "tool-schema-summary");
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=tools`;

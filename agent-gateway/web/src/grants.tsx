@@ -422,7 +422,7 @@ function GrantCreate({
       ) as HTMLInputElement;
       if (!expiryInput.validity.valid)
         throw new Error(
-          "Choose a complete expiry date and time, or clear it for permanent access.",
+          "Choose a complete expiry date and time, or clear it for no expiry.",
         );
       if (
         expiresAt !== "" &&
@@ -471,7 +471,6 @@ function GrantCreate({
       <section class="panel domain-panel" aria-labelledby="grant-create-title">
         <div class="panel-heading">
           <div>
-            <span class="panel-code">IMMUTABLE POLICY</span>
             <h2 id="grant-create-title">Create MCP Grant</h2>
           </div>
         </div>
@@ -485,12 +484,7 @@ function GrantCreate({
             void review();
           }}
         >
-          <FormField
-            id="grant-description"
-            label="Description"
-            hint="Display metadata; it does not change authorization policy."
-            optional
-          >
+          <FormField id="grant-description" label="Description" optional>
             {(attributes) => (
               <input
                 {...attributes}
@@ -691,7 +685,7 @@ function GrantCreate({
           <FormField
             id="grant-expiry"
             label="Expires"
-            hint="Choose a future date and time in your local timezone. Leave blank for permanent access."
+            hint="Choose a future date and time in your local timezone. Leave blank for no expiry."
             optional
           >
             {(attributes) => (
@@ -802,7 +796,7 @@ function GrantCreate({
                   <dt>Expires</dt>
                   <dd>
                     {expiresAt === "" ? (
-                      "Permanent"
+                      "No expiry"
                     ) : (
                       <UserTime
                         value={
@@ -919,7 +913,6 @@ function GrantDescriptionEditor({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">DISPLAY METADATA</span>
           <h2 id="grant-description-title">Description</h2>
         </div>
       </div>
@@ -929,12 +922,7 @@ function GrantDescriptionEditor({
           void submit();
         }}
       >
-        <FormField
-          id="grant-description-edit"
-          label="Description"
-          hint="Editing this field does not change authorization policy."
-          optional
-        >
+        <FormField id="grant-description-edit" label="Description" optional>
           {(attributes) => (
             <input
               {...attributes}
@@ -1113,7 +1101,6 @@ function GrantActions({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">POLICY CHANGE</span>
           <h2 id="grant-actions-title">Delete or replace this grant</h2>
         </div>
       </div>
@@ -1449,7 +1436,7 @@ export function Grants({
             <div>
               <dt>Expires</dt>
               <dd>
-                <UserTime value={detail.expiresAt} fallback="Permanent" />
+                <UserTime value={detail.expiresAt} fallback="No expiry" />
               </dd>
             </div>
             <div>

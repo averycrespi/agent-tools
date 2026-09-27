@@ -767,7 +767,13 @@ function App() {
                     ? "MCP Grant details"
                     : isRequestDetail
                       ? "MCP Access Request details"
-                      : "Audit event details"}
+                      : destination === "http-credentials"
+                        ? "HTTP Credential details"
+                        : destination === "http-grants"
+                          ? "HTTP Grant details"
+                          : destination === "http-traffic"
+                            ? "HTTP Traffic details"
+                            : "Audit event details"}
             </span>
           ) : (
             <h1
@@ -893,7 +899,6 @@ function App() {
             <section class="panel" aria-labelledby="foundation-title">
               <div class="panel-heading">
                 <div>
-                  <span class="panel-code">SESSION-01</span>
                   <h2 id="foundation-title">Session established</h2>
                 </div>
                 <span class="classification">IN MEMORY</span>

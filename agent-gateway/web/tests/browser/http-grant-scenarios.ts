@@ -20,7 +20,11 @@ export async function runHTTPGrants(
       await dialog.evaluate((node) => {
         node.scrollTop = 0;
       });
-    if (name.startsWith("principal-") || modal) {
+    if (
+      name.startsWith("principal-") ||
+      modal ||
+      name === "grant-conflict-title"
+    ) {
       const skip = await page.locator(".skip-link").evaluate((node) => ({
         focused: node === document.activeElement,
         bottom: node.getBoundingClientRect().bottom,
@@ -37,7 +41,11 @@ export async function runHTTPGrants(
       fullPage: !modal,
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    if (name.startsWith("principal-") || modal) {
+    if (
+      name.startsWith("principal-") ||
+      modal ||
+      name === "grant-conflict-title"
+    ) {
       await expect(page.locator(".skip-link")).not.toBeFocused();
       expect(
         await page
@@ -815,6 +823,39 @@ export async function runHTTPGrants(
     .getByRole("dialog")
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
+  await expect(page.locator("#page-title")).toHaveText("HTTP Grant details");
+  let conflictCalls = 0;
+  await page.route(editPath, async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    conflictCalls++;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      json: {
+        status: 409,
+        code: "conflict",
+        title: "Credential is referenced.",
+      },
+    });
+  });
+  await page
+    .getByRole("button", { name: "Review changes", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Apply grant", exact: true })
+    .click();
+  await expect(
+    page.getByText("Credential is referenced.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/Policy changed\. Refresh/)).toHaveCount(0);
+  expect(conflictCalls).toBe(1);
+  await captureState("grant-conflict-title");
+  await page.unroute(editPath);
+  await page.reload();
+  await expect(page.getByLabel("Description (optional)")).toBeVisible();
+  await page.getByLabel("Description (optional)").fill("Retained local draft");
+  await page.getByLabel("Grant type").selectOption("block_destination");
   for (const fault of [
     "identity",
     "reversed-times",

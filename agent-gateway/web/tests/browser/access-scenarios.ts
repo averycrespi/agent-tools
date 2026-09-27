@@ -33,6 +33,7 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
     if (
       [
         "exact-tool-approved",
+        "server-to-tool-approved",
         "grant-delete-first",
         "synthetic-exact-table",
       ].includes(state)
@@ -353,8 +354,7 @@ export async function runAccessManagementReadCanary(
   for (const phrase of [
     "Submitted: no descriptor evidence",
     "Current target",
-    "Approval grants the selected authority",
-    "it does not execute or retry a call",
+    "Approval does not execute or retry a call",
   ])
     if (!body.includes(phrase))
       fail(`Access management read canary omitted ${phrase}`);
@@ -752,8 +752,8 @@ export async function runPrincipals(
   });
   await page.locator('[data-testid="principal-create-view"]').waitFor();
   await expect(
-    page.getByTestId("principal-create-view").locator(".panel-code").first(),
-  ).toHaveText("AGENT NEW");
+    page.getByTestId("principal-create-view").locator(".panel-code"),
+  ).toHaveCount(0);
   body = (await page.locator("body").textContent()) ?? "";
   if (
     (await page
@@ -830,11 +830,8 @@ export async function runPrincipals(
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page.locator('[data-testid="principal-detail"]').waitFor();
   await expect(
-    page
-      .getByTestId("principal-detail")
-      .locator(".panel-code")
-      .filter({ hasText: /^(?:AGENT|PRINCIPAL)(?: EDIT)?$/ }),
-  ).toHaveText(["AGENT", "AGENT EDIT"]);
+    page.getByTestId("principal-detail").locator(".panel-code"),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("heading", {
       level: 1,
@@ -848,8 +845,7 @@ export async function runPrincipals(
   await page
     .getByTestId("toast")
     .filter({
-      hasText:
-        "Agent created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
+      hasText: "Agent created.",
     })
     .waitFor();
 
@@ -2226,7 +2222,7 @@ export async function runGrantReadsCreate(
   )
     fail("missing server reported a catalog/schema load that never started");
   await page
-    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .getByRole("button", { name: "Remove condition 1", exact: true })
     .click();
   await page.locator('[data-testid="grant-server"]').selectOption(serverID);
   const toolInput = page.getByRole("combobox", {
@@ -2403,12 +2399,19 @@ export async function runGrantReadsCreate(
   if ((await page.getByRole("listbox").count()) !== 0)
     fail("moving focus outside a combobox left stale suggestions open");
   await operator.selectOption("regex");
+  await expect(
+    page.getByLabel("Full-string RE2 pattern", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add condition", exact: true }),
+  ).toBeVisible();
   if (
     (await scalarType.inputValue()) !== "string" ||
     !(await scalarType.isDisabled()) ||
     (await scalarValue.inputValue()) !== ""
   )
     fail("MATCHES did not lock String and clear the equality token");
+  await captureStateFeedback(page, "matcher-full-string");
   const regexWarning = page.getByText(
     /Schema suggests number; only string runtime values can match/,
   );
@@ -2582,7 +2585,7 @@ export async function runGrantReadsCreate(
   )
     fail("server switch or unavailable catalog rewrote constraint rows");
   await page
-    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .getByRole("button", { name: "Remove condition 1", exact: true })
     .click();
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
@@ -2633,7 +2636,7 @@ export async function runGrantReadsCreate(
   await page
     .getByTestId("grant-create-view")
     .getByText(
-      "Choose a complete expiry date and time, or clear it for permanent access.",
+      "Choose a complete expiry date and time, or clear it for no expiry.",
       { exact: true },
     )
     .waitFor();
@@ -4199,7 +4202,36 @@ export async function runRequestAdjudication(
           !raw.includes('"/literal":"<>&"'))
       )
         fail("v1 approval without additions did not retain exact atoms in v2");
-      states.set(id, detail(id, submitted, "approved", approved));
+      const settled = detail(id, submitted, "approved", approved);
+      states.set(
+        id,
+        id === ids[0]
+          ? {
+              ...settled,
+              approved_evidence: {
+                server_id: serverID,
+                tool_id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+                namespace: "demo",
+                upstream_name: "safe",
+                external_name: "demo.safe",
+                catalog_revision: "1",
+                fingerprint: "approved-fingerprint",
+                durable_state: "current",
+                descriptor: { name: "safe", inputSchema: {}, annotations: {} },
+                captured_at: "2026-08-28T13:00:00Z",
+              },
+              current_target: {
+                scope: "tool",
+                target_state: "extant",
+                active_state: "current",
+                durable_state: "current",
+                catalog_revision: "1",
+                fingerprint: "approved-fingerprint",
+                descriptor: { name: "safe", inputSchema: {}, annotations: {} },
+              },
+            }
+          : settled,
+      );
     } else {
       rejections += 1;
       const body = JSON.parse(route.request().postData() ?? "null") as Record<
@@ -4402,7 +4434,34 @@ export async function runRequestAdjudication(
   ]) {
     await expect(terminalComparison).toContainText(phrase);
   }
+  await expect(
+    page.getByText("demo.safe — Unchanged since approval", { exact: true }),
+  ).toBeVisible();
   await captureRequestState(page, "server-to-tool-approved");
+  const approvedNarrowing = states.get(ids[0]!)!;
+  states.set(ids[0]!, {
+    ...approvedNarrowing,
+    current_target: {
+      ...(approvedNarrowing.current_target as object),
+      fingerprint: "changed-fingerprint",
+    },
+  });
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText(
+      "demo.safe — Changed since approval — inspect approved and current definitions",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  states.set(ids[0]!, { ...approvedNarrowing, approved_evidence: null });
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText(
+      "demo.safe — Comparison unavailable — missing tool definition",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  states.set(ids[0]!, approvedNarrowing);
 
   await navigate(ids[1]!);
   await page

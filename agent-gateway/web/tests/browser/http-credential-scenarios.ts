@@ -77,6 +77,12 @@ export async function runHTTPCredentials(
     await expect(
       page.getByRole("alert").filter({ hasText: "Check credential fields" }),
     ).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText(
+      "HTTPS destination host must be nonempty and at most 253 bytes, excluding *.",
+    );
+    await expect(page.getByRole("alert")).toContainText(
+      "Enter the secret again; it was cleared.",
+    );
     await expect(page.getByLabel("Secret", { exact: true })).toHaveValue("");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(credentialMutations).toBe(0);
@@ -113,6 +119,42 @@ export async function runHTTPCredentials(
   ).toBeVisible();
   await expect(page.getByLabel("Secret", { exact: true })).toHaveValue("");
   expect(credentialMutations).toBe(0);
+  await expect(page.getByRole("alert")).toContainText(
+    "Secret and fixed prefix must total at most 4096 characters.",
+  );
+  await captureStateFeedback(page, "http-credential-invalid");
+  for (const [label, invalid, valid, message] of [
+    [
+      "Name",
+      "x".repeat(257),
+      "Example HTTP credential",
+      "Name must be nonempty and at most 256 bytes.",
+    ],
+    [
+      "Header name",
+      "Invalid header",
+      "Host",
+      "Header name must contain 1–128 HTTP token characters.",
+    ],
+    [
+      "Fixed prefix (optional)",
+      "é",
+      "Bearer ",
+      "Fixed prefix must contain at most 128 printable ASCII characters.",
+    ],
+    ["Secret", "é", "", "Secret must contain only printable ASCII characters."],
+  ]) {
+    await page.getByLabel("Secret", { exact: true }).fill("validation-canary");
+    await page.getByLabel(label!, { exact: true }).fill(invalid!);
+    await page
+      .getByRole("button", { name: "Review and create", exact: true })
+      .click();
+    await expect(page.getByRole("alert")).toContainText(message!);
+    await expect(page.getByLabel("Secret", { exact: true })).toHaveValue("");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(credentialMutations).toBe(0);
+    await page.getByLabel(label!, { exact: true }).fill(valid!);
+  }
   await page
     .getByLabel("Secret", { exact: true })
     .fill("http-credential-rejected-canary");
@@ -142,6 +184,9 @@ export async function runHTTPCredentials(
     page.getByRole("heading", { name: "Example HTTP credential", exact: true }),
   ).toBeVisible();
   await expect(page.locator('input[type="password"]')).toHaveValue("");
+  await expect(page.locator("#page-title")).toHaveText(
+    "HTTP Credential details",
+  );
   const id = new URL(page.url()).hash.split("/").at(-1)!;
   const response = await fetch(`${baseURL}/api/v2/http/credentials/${id}`, {
     headers: { Authorization: `Bearer ${bearer}` },
@@ -156,7 +201,7 @@ export async function runHTTPCredentials(
     .getByLabel("Secret", { exact: true })
     .fill("http-credential-rotate-canary");
   await page
-    .getByRole("button", { name: "Review rotate", exact: true })
+    .getByRole("button", { name: "Review rotation", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toContainText(
     "Once replacement starts, failure may leave this credential unavailable; replacement does not fall back to the old secret.",
@@ -224,7 +269,7 @@ export async function runHTTPCredentials(
   await page.reload();
   await waitForLifecycle(page, "authenticated");
   await expect(
-    page.getByRole("button", { name: "Review delete", exact: true }),
+    page.getByRole("button", { name: "Review deletion", exact: true }),
   ).toBeDisabled();
   await expect(page.getByLabel("Header name")).toHaveAttribute("readonly", "");
   await expect(page.getByLabel("Fixed prefix (optional)")).toHaveAttribute(
@@ -236,13 +281,16 @@ export async function runHTTPCredentials(
   ).toBeVisible();
   await expect(page.getByLabel("HTTPS destination host")).toBeEditable();
   await expect(page.getByLabel("Port", { exact: true })).toBeEditable();
+  await expect(
+    page.getByRole("heading", { name: "Edit boundary", exact: true }),
+  ).toBeVisible();
   await page.getByLabel("Name", { exact: true }).fill("Referenced credential");
   await page
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Edit boundary and recipe", exact: true })
+    .getByRole("button", { name: "Edit boundary", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Referenced credential", exact: true }),
@@ -285,7 +333,7 @@ export async function runHTTPCredentials(
       .getByLabel("Secret", { exact: true })
       .fill("rotation-outcome-canary");
     await page
-      .getByRole("button", { name: "Review rotate", exact: true })
+      .getByRole("button", { name: "Review rotation", exact: true })
       .click();
     await page
       .getByRole("dialog")
@@ -303,7 +351,7 @@ export async function runHTTPCredentials(
     await expect(page.getByText("Configured", { exact: true })).toBeVisible();
     if (outcome === "unknown") {
       await expect(
-        page.getByRole("button", { name: "Review rotate", exact: true }),
+        page.getByRole("button", { name: "Review rotation", exact: true }),
       ).toBeDisabled();
       await captureStateFeedback(page, "rotation-unknown");
     }
@@ -311,10 +359,27 @@ export async function runHTTPCredentials(
   expect(rotationAttempts).toBe(2);
   await page.unroute(`**/api/v2/http/credentials/${id}/rotate`);
   await page.unroute(`**/api/v2/http/credentials/${id}`);
+  await page.route(`**/api/v2/http/credentials/${id}`, async (route) => {
+    if (route.request().method() === "GET") await route.abort("failed");
+    else await route.continue();
+  });
+  await page.reload();
+  await waitForLifecycle(page, "authenticated");
+  await expect(
+    page.getByText("HTTP credential data unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Refresh to load the credential.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Do not replay an uncertain mutation/),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "http-credential-read-error");
+  await page.unroute(`**/api/v2/http/credentials/${id}`);
   await page.reload();
   await waitForLifecycle(page, "authenticated");
   await page
-    .getByRole("button", { name: "Review delete", exact: true })
+    .getByRole("button", { name: "Review deletion", exact: true })
     .click();
   await page
     .getByRole("dialog")

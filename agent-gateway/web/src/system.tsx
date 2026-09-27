@@ -1043,12 +1043,13 @@ function Backups({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">DURABLE RECOVERY</span>
           <h2 id="backups-title">Backups</h2>
         </div>
-        <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {sentenceCase(panelStatus)}
-        </StatusLabel>
+        {panelStatus !== "current" && (
+          <StatusLabel state={panelStatus}>
+            {sentenceCase(panelStatus)}
+          </StatusLabel>
+        )}
       </div>
       <div class="collection-toolbar collection-toolbar-after-copy">
         <a
@@ -1444,12 +1445,13 @@ function AdminCredentials({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">ADMIN AUTHORITY</span>
           <h2 id="admin-credentials-title">Admin credentials</h2>
         </div>
-        <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {sentenceCase(panelStatus)}
-        </StatusLabel>
+        {panelStatus !== "current" && (
+          <StatusLabel state={panelStatus}>
+            {sentenceCase(panelStatus)}
+          </StatusLabel>
+        )}
       </div>
       <div class="collection-toolbar collection-toolbar-after-copy">
         <a
@@ -1680,7 +1682,6 @@ export function System({
         <section class="panel" aria-labelledby="system-later-title">
           <div class="panel-heading">
             <div>
-              <span class="panel-code">SYSTEM-LATER</span>
               <h2 id="system-later-title">Workflow not yet available</h2>
             </div>
             <StatusLabel state="unavailable">Unavailable</StatusLabel>

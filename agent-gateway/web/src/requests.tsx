@@ -564,21 +564,26 @@ function descriptorComparison(detail: RequestDetail): string {
           : "";
   if (policy.scope === "server")
     return `${posture}Not applicable to server-wide authority`;
-  const evidence =
-    detail.approvedPolicy !== null && detail.requestedPolicy.scope === "server"
-      ? detail.approvedEvidence
-      : detail.submittedEvidence;
+  const sinceApproval =
+    detail.approvedPolicy !== null && detail.requestedPolicy.scope === "server";
+  const evidence = sinceApproval
+    ? detail.approvedEvidence
+    : detail.submittedEvidence;
+  const baseline = sinceApproval ? "approval" : "submission";
+  const captured = sinceApproval ? "approved" : "submitted";
+  const target = sinceApproval ? `${policy.target} — ` : "";
   if (
     evidence === null ||
     detail.currentTarget.fingerprint === null ||
     detail.currentTarget.descriptor === null
   )
-    return `${posture}Comparison unavailable — missing tool definition`;
+    return `${posture}${target}Comparison unavailable — missing tool definition`;
   return (
     posture +
+    target +
     (evidence.fingerprint === detail.currentTarget.fingerprint
-      ? "Unchanged since submission"
-      : "Changed since submission — inspect submitted and current definitions")
+      ? `Unchanged since ${baseline}`
+      : `Changed since ${baseline} — inspect ${captured} and current definitions`)
   );
 }
 
@@ -1257,16 +1262,8 @@ function RequestActions({
           <h2 id="request-actions-title">Choose a decision</h2>
         </div>
       </div>
-      <p>
-        Approval grants the selected authority; it does not execute or retry a
-        call. Rejection records your reason without granting access.
-      </p>
-      <FormField
-        id="approval-description"
-        label="Grant description"
-        optional
-        hint="Display metadata only; does not change authority."
-      >
+      <p>Approval does not execute or retry a call.</p>
+      <FormField id="approval-description" label="Grant description" optional>
         {(attributes) => (
           <input
             {...attributes}
@@ -1480,7 +1477,7 @@ function RequestActions({
             label="Approved duration"
             hint={
               submitted.durationSeconds === null
-                ? "Enter a whole number and choose its unit, from 1 minute to 30 days. Leave blank for permanent access."
+                ? "Enter a whole number and choose its unit, from 1 minute to 30 days. Leave blank for no expiry."
                 : "Enter a whole number and choose its unit, from 1 minute to 30 days. The duration cannot exceed the request; temporary access cannot become permanent."
             }
             optional={submitted.durationSeconds === null}

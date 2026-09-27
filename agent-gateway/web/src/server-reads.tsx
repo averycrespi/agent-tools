@@ -1646,13 +1646,6 @@ function SchemaNode({ value, depth = 0 }: { value: unknown; depth?: number }) {
       {typeof schema.$ref === "string" && (
         <span class="schema-constraint">Reference: {schema.$ref}</span>
       )}
-      {Object.keys(properties).length === 0 &&
-        constraints.length === 0 &&
-        schema.items === undefined &&
-        combinations.length === 0 &&
-        schema.$ref === undefined && (
-          <p class="bounded-note">No additional constraints.</p>
-        )}
     </>
   );
 }
@@ -2295,7 +2288,11 @@ export function ServerReads({
                         </dd>
                       </div>
                     </dl>
-                    <div class="tool-annotations" aria-label="Tool behavior">
+                    <h3 id="server-hints-title">Server hints</h3>
+                    <div
+                      class="tool-annotations"
+                      aria-labelledby="server-hints-title"
+                    >
                       <span>
                         {annotations.readOnlyHint ? "Read only" : "May write"}
                       </span>
@@ -2315,6 +2312,7 @@ export function ServerReads({
                           : "Closed world"}
                       </span>
                     </div>
+                    <h2>Schema summary</h2>
                     <div class="tool-schema-grid">
                       <ToolSchema
                         label="Input schema"
@@ -2444,9 +2442,6 @@ export function ServerReads({
                       >
                         <div class="operator-status-section-heading">
                           <h3 id="server-issues-title">Needs attention</h3>
-                          {(hasPrimaryIssue || saturated.length > 0) && (
-                            <span>Operator action may be required</span>
-                          )}
                         </div>
                         {server.desiredState === "deleted" && (
                           <StateNotice state="unavailable" title="Deleted">

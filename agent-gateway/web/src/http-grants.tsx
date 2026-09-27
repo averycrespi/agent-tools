@@ -237,11 +237,10 @@ function MutationNotice({ state }: { state: MutationSnapshot }) {
   if (state.state === "rejected")
     return (
       <StateNotice state="error" title="Change not applied">
-        <p>
-          {state.requiresRefresh
-            ? "Policy changed. Refresh, inspect the current revision and review again."
-            : (state.problem?.title ?? "Check the proposed policy.")}
-        </p>
+        <p>{state.problem?.title ?? "Check the proposed policy."}</p>
+        {state.requiresRefresh && (
+          <p>Inspect refreshed policy before reviewing again.</p>
+        )}
       </StateNotice>
     );
   return null;

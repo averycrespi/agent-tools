@@ -971,6 +971,9 @@ function TrafficDetail({
               ))}
           </dl>
         )}
+        {!isConnect && c?.outcome === "outcome_unknown" && (
+          <p>The request may have taken effect. Retrying may repeat effects.</p>
+        )}
       </section>
       <section class="panel domain-panel">
         <h2>Admission-time authority</h2>

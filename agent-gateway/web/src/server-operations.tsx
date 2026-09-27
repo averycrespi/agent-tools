@@ -380,8 +380,8 @@ function OperationStarter({
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Operation start outcome unknown">
           <p>
-            Inspect operation history. The exact same start may be replayed
-            explicitly only while this in-memory recovery tuple remains live.
+            Inspect operation history before using Replay this same operation
+            start.
           </p>
         </StateNotice>
       )}
@@ -487,13 +487,6 @@ export function ServerOperations({
               </dd>
             </div>
           </dl>
-          {!operationIsTerminal(operation) && (
-            <p class="bounded-note">
-              This nonterminal record polls every two seconds while visible.
-              Events only trigger authoritative snapshot reads and never prove
-              completion.
-            </p>
-          )}
         </section>
       </>
     );

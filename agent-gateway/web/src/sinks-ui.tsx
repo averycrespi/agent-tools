@@ -196,7 +196,6 @@ function OneTimeDisplay({
         coordinator.dismiss(generation);
       }}
     >
-      <span class="panel-code">ONE-TIME VALUE</span>
       <h2 id="one-time-display-title">{label || "One-time bearer"}</h2>
       <p id="one-time-display-warning" class="sensitive-warning">
         This bearer cannot be recovered or shown again. Copying leaves it in the
@@ -349,7 +348,6 @@ function OAuthDisplay({
         coordinator.dismiss(generation);
       }}
     >
-      <span class="panel-code">ONE-TIME URL</span>
       <h2 id="oauth-display-title">{label || "Authorization URL"}</h2>
       <p id="oauth-display-warning" class="sensitive-warning">
         Open this URL only when you are ready to continue authorization. It is

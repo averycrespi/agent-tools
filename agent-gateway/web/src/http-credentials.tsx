@@ -156,10 +156,7 @@ export function HTTPCredentials(props: Props) {
   if (error)
     return (
       <StateNotice state="error" title="HTTP credential data unavailable">
-        <p>
-          Refresh to inspect current authority. Do not replay an uncertain
-          mutation.
-        </p>
+        <p>Refresh to load the credential.</p>
       </StateNotice>
     );
   if (detail?.id !== selected)
@@ -347,7 +344,7 @@ function CredentialEditor({
   );
   const [confirming, setConfirming] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [inputError, setInputError] = useState(false);
+  const [inputError, setInputError] = useState<string>();
   const [blockedVersion, setBlockedVersion] = useState<number>();
   const [expectedETag, setExpectedETag] = useState(() =>
     credential === undefined ? null : etag(credential),
@@ -393,7 +390,9 @@ function CredentialEditor({
     mode === "create"
       ? "Create HTTP credential"
       : mode === "edit"
-        ? "Edit boundary and recipe"
+        ? recipeReadOnly
+          ? "Edit boundary"
+          : "Edit boundary and recipe"
         : mode === "rotate"
           ? "Rotate secret"
           : "Delete credential";
@@ -401,37 +400,51 @@ function CredentialEditor({
     secret.clear();
     setDirty(false);
   };
-  const validInput = () => {
-    const element = document.getElementById(inputID);
-    return (
-      (!metadata ||
-        (name.trim() !== "" &&
-          new TextEncoder().encode(name).byteLength <= 256 &&
-          host !== "" &&
-          new TextEncoder().encode(host.startsWith("*.") ? host.slice(2) : host)
-            .byteLength <= 253 &&
-          /^[1-9][0-9]*$/.test(port) &&
-          Number(port) <= 65535 &&
-          /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(header) &&
-          /^[\x20-\x7e]{0,128}$/.test(prefix))) &&
-      (!material ||
-        (element instanceof HTMLInputElement &&
-          element.value !== "" &&
-          element.value.length + prefix.length <= 4096 &&
-          /^[\x20-\x7e]+$/.test(element.value)))
+  const validationError = (): string | undefined => {
+    if (metadata) {
+      if (name.trim() === "" || new TextEncoder().encode(name).byteLength > 256)
+        return "Name must be nonempty and at most 256 bytes.";
+      if (
+        host === "" ||
+        new TextEncoder().encode(host.startsWith("*.") ? host.slice(2) : host)
+          .byteLength > 253
+      )
+        return "HTTPS destination host must be nonempty and at most 253 bytes, excluding *.";
+      if (!/^[1-9][0-9]*$/.test(port) || Number(port) > 65535)
+        return "Port must be a whole number from 1 to 65535.";
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(header))
+        return "Header name must contain 1–128 HTTP token characters.";
+      if (!/^[\x20-\x7e]{0,128}$/.test(prefix))
+        return "Fixed prefix must contain at most 128 printable ASCII characters.";
+    }
+    if (material) {
+      const element = document.getElementById(inputID);
+      if (!(element instanceof HTMLInputElement) || element.value === "")
+        return "Secret must be nonempty.";
+      if (element.value.length + prefix.length > 4096)
+        return "Secret and fixed prefix must total at most 4096 characters.";
+      if (!/^[\x20-\x7e]+$/.test(element.value))
+        return "Secret must contain only printable ASCII characters.";
+    }
+    return undefined;
+  };
+  const reportInvalid = (message: string) => {
+    secret.clear();
+    setInputError(
+      material ? `${message} Enter the secret again; it was cleared.` : message,
     );
   };
   const review = () => {
-    const valid = validInput();
-    setInputError(!valid);
-    if (valid) setConfirming(true);
-    else secret.clear();
+    const error = validationError();
+    setInputError(undefined);
+    if (error === undefined) setConfirming(true);
+    else reportInvalid(error);
   };
   const submit = () => {
     setConfirming(false);
-    if (!validInput()) {
-      clear();
-      setInputError(true);
+    const error = validationError();
+    if (error !== undefined) {
+      reportInvalid(error);
       return;
     }
     const element = document.getElementById(inputID);
@@ -468,7 +481,11 @@ function CredentialEditor({
       });
     } catch {
       clear();
-      setInputError(true);
+      setInputError(
+        material
+          ? "Credential change could not be prepared. Enter the secret again; it was cleared."
+          : "Credential change could not be prepared. Refresh before reviewing again.",
+      );
       return;
     }
     const pending = controller.submit();
@@ -592,8 +609,10 @@ function CredentialEditor({
           (credential?.referencing_grants.length ?? 0) > 0 && (
             <p>Remove referencing grants before deleting this credential.</p>
           )}
-        {inputError && (
-          <StateNotice state="error" title="Check credential fields" />
+        {inputError !== undefined && (
+          <StateNotice state="error" title="Check credential fields">
+            <p>{inputError}</p>
+          </StateNotice>
         )}
         {mutation.problem !== undefined && (
           <StateNotice state="error" title={mutation.problem.title} />
@@ -621,7 +640,7 @@ function CredentialEditor({
         >
           {mode === "create"
             ? "Review and create"
-            : `Review ${mode === "edit" ? "changes" : mode}`}
+            : `Review ${mode === "edit" ? "changes" : mode === "rotate" ? "rotation" : "deletion"}`}
         </button>
       </form>
       <ConfirmationDialog

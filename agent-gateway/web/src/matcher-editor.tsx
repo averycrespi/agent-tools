@@ -220,7 +220,7 @@ export function MatcherAtomEditor({
             </FormField>
             <FormField
               id={`${idPrefix}-value-${index}`}
-              label={regex ? "RE2 pattern" : "Scalar value"}
+              label={regex ? "Full-string RE2 pattern" : "Scalar value"}
             >
               {(attributes) =>
                 !regex && atom.type === "boolean" ? (
@@ -269,13 +269,13 @@ export function MatcherAtomEditor({
             <button
               class="matcher-remove"
               type="button"
-              aria-label={`Remove constraint ${index + 1}`}
+              aria-label={`Remove condition ${index + 1}`}
               disabled={disabled}
               onClick={() =>
                 onChange(atoms.filter((_, position) => position !== index))
               }
             >
-              Remove
+              Remove condition
             </button>
             {guidance && (
               <p id={hintID} class="field-hint matcher-guidance" role="status">
@@ -296,7 +296,7 @@ export function MatcherAtomEditor({
           ])
         }
       >
-        Add constraint
+        Add condition
       </button>
     </div>
   );

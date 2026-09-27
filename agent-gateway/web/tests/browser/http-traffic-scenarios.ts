@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { captureStateFeedback } from "./state-feedback.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -305,6 +306,7 @@ export async function runHTTPTraffic(
   let diagnostics = false,
     legacyRejection = false,
     responseEvidence = false;
+  let recordedUnknown = false;
   let stale = false,
     failHistory = false,
     malformed = false,
@@ -357,7 +359,16 @@ export async function runHTTPTraffic(
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ admission: tunnel, completion: null }),
+        body: JSON.stringify({
+          admission: tunnel,
+          completion: {
+            completed_at: at,
+            outcome: "outcome_unknown",
+            bytes_sent: 0,
+            bytes_received: 1,
+            duration_ms: 1,
+          },
+        }),
       });
       return;
     }
@@ -378,7 +389,7 @@ export async function runHTTPTraffic(
           completion: responseEvidence
             ? {
                 completed_at: at,
-                outcome: "succeeded",
+                outcome: recordedUnknown ? "outcome_unknown" : "succeeded",
                 status: 200,
                 bytes_sent: 0,
                 bytes_received: 1,
@@ -665,6 +676,12 @@ export async function runHTTPTraffic(
       exact: true,
     }),
   ).toBeVisible();
+  await expect(
+    page.getByText(
+      "The request may have taken effect. Retrying may repeat effects.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: join(screenshots, "tunnel-narrow.png"),
@@ -782,6 +799,17 @@ export async function runHTTPTraffic(
   await page.locator(`a[href*="/http/traffic/${id(3)}"]`).click();
   await expect(page.getByText("Upstream", { exact: true })).toBeVisible();
   await expect(page.getByText("200", { exact: true })).toBeVisible();
+  await expect(page.locator("#page-title")).toHaveText("HTTP Traffic details");
+  const duplicateCaution = page.getByText(
+    "The request may have taken effect. Retrying may repeat effects.",
+    { exact: true },
+  );
+  await expect(duplicateCaution).toHaveCount(0);
+  recordedUnknown = true;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(duplicateCaution).toBeVisible();
+  await expect(page.getByText("200", { exact: true })).toBeVisible();
+  await captureStateFeedback(page, "http-request-recorded-unknown");
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
     .click();

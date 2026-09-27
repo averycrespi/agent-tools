@@ -1783,14 +1783,14 @@ export function ServerEditor({
             {mutation.requiresRefresh && !create && (
               <p>
                 A current server reload was requested. Your safe nonsecret draft
-                is preserved; review it after the refreshed ETag arrives.
+                is preserved; review it after the reload succeeds.
               </p>
             )}
           </StateNotice>
         )}
         {waitingForFreshETag && (
           <p class="session-message" role="status">
-            Waiting for a fresh server ETag before another submission.
+            Waiting for a refreshed server revision before another submission.
           </p>
         )}
         {mutation.state === "uncertain" && (
@@ -1856,7 +1856,6 @@ export function ServerEditor({
       <section class="panel domain-panel" aria-labelledby="server-editor-title">
         <div class="panel-heading">
           <div>
-            <span class="panel-code">NEW SERVER</span>
             <h2 id="server-editor-title">Create MCP Server</h2>
           </div>
         </div>
