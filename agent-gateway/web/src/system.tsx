@@ -554,9 +554,6 @@ function StatusPanel({
                   title={`${saturatedLimits.length} resource ${saturatedLimits.length === 1 ? "limit is" : "limits are"} saturated`}
                 >
                   <p>New work using saturated capacity cannot be admitted.</p>
-                  <a href="#/system?tab=resource-limits">
-                    View resource limits
-                  </a>
                 </StateNotice>
               )}
             </section>
@@ -612,9 +609,6 @@ function StatusPanel({
                           requests/streams · {status.httpProxy.activeTunnels}{" "}
                           opaque tunnels
                         </span>
-                        <a href="#/system?tab=resource-limits">
-                          View resource limits
-                        </a>
                       </>
                     )}
                   </dd>
@@ -658,9 +652,6 @@ function StatusPanel({
                       {status.traffic.quotaRefusals} quota refusals ·{" "}
                       {status.traffic.prunedRecords} pruned records
                     </span>
-                    <a href="#/system?tab=resource-limits">
-                      View resource limits
-                    </a>
                   </dd>
                 </div>
               )}

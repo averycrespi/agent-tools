@@ -15,6 +15,7 @@ import {
   useDebouncedInput,
 } from "./primitives";
 import { UserTime } from "./time";
+import { RelatedHistory, RelatedHistoryChanged } from "./related-history";
 import { parseAuditJSON } from "./audit-contract";
 import {
   decodeTrafficItem,
@@ -118,6 +119,7 @@ function listPath(
   return `/api/v2/http/traffic?${params}`;
 }
 export class HTTPTrafficController {
+  readonly related: RelatedHistory<TrafficSummary>;
   private value = empty();
   private serial = 0;
   private continuation: string | null = null;
@@ -126,6 +128,34 @@ export class HTTPTrafficController {
     session: SessionClient,
     private views: ViewCoordinator,
   ) {
+    this.related = new RelatedHistory(
+      session,
+      views,
+      "http-related",
+      "http-traffic",
+      async (context, cursor) => {
+        const id = parseFragment(context.viewKey)!.segments[1];
+        const item = decodeTrafficItem(
+          await json(await get(context, `/api/v2/http/traffic/${id}`)),
+        );
+        if (item.admission.id !== id) throw new Error("Mismatched parent");
+        const decision = item.admission.decision as Record<
+          string,
+          unknown
+        > | null;
+        if (decision?.transport !== "intercept")
+          return { items: [], next: null };
+        const response = await get(
+          context,
+          listPath({ filter_connect_id: id! }, cursor),
+        );
+        if (await stale(response)) throw new RelatedHistoryChanged();
+        const page = decodeTrafficPage(await json(response));
+        if (page.items.some((row) => row.connect?.id !== id))
+          throw new Error("Mismatched connection");
+        return { items: page.items, next: page.nextCursor };
+      },
+    );
     views.registerPanel({
       id: "http-traffic",
       matches: (key) => parseFragment(key)?.destination === "http-traffic",
@@ -373,6 +403,14 @@ export function HTTPTraffic({
               />
             )}
             <TrafficDetail item={current.item} link={link} />
+            {(current.item.admission.decision as Record<string, unknown> | null)
+              ?.transport === "intercept" && (
+              <RelatedTraffic
+                controller={controller.related}
+                view={view}
+                link={link}
+              />
+            )}
           </>
         )}
       </div>
@@ -484,7 +522,7 @@ export function HTTPTraffic({
                     >
                       {trafficDecisionLabel(row.decision, row.type)}
                     </StatusLabel>
-                    {row.type === "invalid" && (
+                    {row.type === "invalid" && row.rejection !== undefined && (
                       <div>{rejectionLabel(row.rejection)}</div>
                     )}
                   </>
@@ -510,11 +548,10 @@ export function HTTPTraffic({
                               : "error"
                       }
                     >
-                      {sentenceCase(trafficOutcome(row))}
+                      {row.decision === "intercept"
+                        ? "—"
+                        : sentenceCase(trafficOutcome(row))}
                     </StatusLabel>
-                    <div>
-                      Response: {responseSourceLabel(row.response_source)}
-                    </div>
                   </>
                 ),
               },
@@ -593,9 +630,8 @@ function TrafficFilters({
       aria-label="HTTP traffic filters"
     >
       {[
-        ["principal", "Agent"],
         ["destination", "Destination host"],
-        ["connect_id", "CONNECT ID"],
+        ["principal", "Agent"],
       ].map(([key, label]) => (
         <input
           type="search"
@@ -610,6 +646,31 @@ function TrafficFilters({
           }
         />
       ))}
+      {query.filter_connect_id && (
+        <span class="inline-actions">
+          Related to CONNECT{" "}
+          <a
+            href={serializeLocation({
+              destination: "http-traffic",
+              segments: ["http-traffic", query.filter_connect_id],
+              query: {},
+            })}
+          >
+            <code>{query.filter_connect_id}</code>
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              const next = { ...draft };
+              delete next.filter_connect_id;
+              setDraft(next);
+              apply(next);
+            }}
+          >
+            Remove connection filter
+          </button>
+        </span>
+      )}
       {query.filter_principal_id && (
         <span class="inline-actions">
           Exact agent ID: <code>{query.filter_principal_id}</code>
@@ -661,10 +722,102 @@ function TrafficFilters({
       {error && (
         <StateNotice
           state="error"
-          title="Use an exact CONNECT ID and searches of at most 256 UTF-8 bytes without control characters."
+          title="Use searches of at most 256 UTF-8 bytes without control characters."
         />
       )}
     </div>
+  );
+}
+function RelatedTraffic({
+  controller,
+  view,
+  link,
+}: {
+  controller: RelatedHistory<TrafficSummary>;
+  view: ViewSnapshot;
+  link: (id?: string) => string;
+}) {
+  const [value, setValue] = useState(controller.snapshot());
+  useEffect(() => controller.subscribe(setValue), [controller]);
+  const current = value.key === view.viewKey ? value : undefined;
+  return (
+    <section
+      class="panel domain-panel"
+      aria-label="Requests on this connection"
+    >
+      <div class="panel-heading">
+        <h2>Requests on this connection</h2>
+        <button
+          type="button"
+          disabled={current?.loading}
+          onClick={() => controller.refresh()}
+        >
+          Refresh requests
+        </button>
+      </div>
+      {current?.notice && (
+        <StateNotice state="warning" title={current.notice} />
+      )}
+      {current?.error && (
+        <StateNotice state="error" title="Related requests unavailable">
+          Previously loaded requests may be stale. Refresh to try again.
+        </StateNotice>
+      )}
+      {!current?.loaded && !current?.error && (
+        <StateNotice state="loading" title="Loading related requests…" />
+      )}
+      {current?.loaded && (
+        <CollectionTable
+          caption="Related HTTP requests"
+          layout="activity"
+          rowHeaderKey="request"
+          rowKey={(row) => row.id}
+          items={current.items}
+          emptyTitle="No related requests recorded"
+          columns={[
+            {
+              key: "time",
+              label: "Admitted",
+              role: "time",
+              render: (row) => <UserTime value={row.admitted_at} />,
+            },
+            {
+              key: "request",
+              label: "Request",
+              role: "identity",
+              render: (row) => (
+                <a href={link(row.id)}>{destinationLabel(row.target)}</a>
+              ),
+            },
+            {
+              key: "decision",
+              label: "Decision",
+              role: "status",
+              render: (row) => trafficDecisionLabel(row.decision, row.type),
+            },
+            {
+              key: "outcome",
+              label: "Outcome",
+              role: "status",
+              render: (row) => sentenceCase(trafficOutcome(row)),
+            },
+          ]}
+        />
+      )}
+      <p class="muted">
+        Only recorded associations are shown; missing records do not prove no
+        requests occurred.
+      </p>
+      {current?.next && current.items.length < 500 && (
+        <button
+          type="button"
+          disabled={current.loading}
+          onClick={() => controller.more()}
+        >
+          Load more requests
+        </button>
+      )}
+    </section>
   );
 }
 function responseSourceLabel(source: unknown): string {
@@ -690,11 +843,6 @@ function TrafficDetail({
       d?.transport === "intercept" && d?.reason === "intercept_required",
     isConnect =
       a.target !== null && (a.target as TrafficTarget).scheme === undefined;
-  const relatedLink = serializeLocation({
-    destination: "http-traffic",
-    segments: ["http-traffic"],
-    query: { filter_connect_id: String(a.id) },
-  });
   return (
     <>
       <section class="panel domain-panel">
@@ -743,37 +891,33 @@ function TrafficDetail({
             </p>
           </details>
         )}
-        <dl class="fact-grid">
-          <div>
-            <dt>CONNECT context</dt>
-            <dd>
-              {connect === undefined ? (
-                "Unavailable"
-              ) : (
-                <a href={link(connect.id)}>
-                  <code>{connect.id}</code>
-                </a>
-              )}
-            </dd>
-          </div>
-          {connect !== undefined && (
+        {!isConnect && (
+          <dl class="fact-grid">
             <div>
-              <dt>Destination inherited from CONNECT</dt>
+              <dt>Connection</dt>
               <dd>
-                {destinationLabel({ host: connect.host, port: connect.port })}
+                {connect === undefined ? (
+                  "Unavailable"
+                ) : (
+                  <a href={link(connect.id)}>
+                    CONNECT {connect.host}:{connect.port} ·{" "}
+                    <code>{connect.id}</code>
+                  </a>
+                )}
               </dd>
             </div>
-          )}
-        </dl>
+            {connect !== undefined && (
+              <div>
+                <dt>Destination inherited from CONNECT</dt>
+                <dd>
+                  {destinationLabel({ host: connect.host, port: connect.port })}
+                </dd>
+              </div>
+            )}
+          </dl>
+        )}
         {connect !== undefined && (
           <p>Connection context does not validate the inner request target.</p>
-        )}
-        {intercepted && (
-          <p>
-            <a href={relatedLink}>View related inner requests</a>. Only recorded
-            CONNECT correlations are shown; absent records do not prove no
-            requests occurred.
-          </p>
         )}
         {d?.transport === "tunnel" && (
           <p>Opaque tunnel: inner HTTP requests are not visible.</p>

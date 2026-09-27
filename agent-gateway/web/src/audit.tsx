@@ -30,6 +30,7 @@ import {
 } from "./primitives";
 import { parseProblem, type SessionClient } from "./session";
 import { UserTime } from "./time";
+import { RelatedHistory, RelatedHistoryChanged } from "./related-history";
 import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 
 const replacementNotice =
@@ -148,6 +149,7 @@ function listPath(
   return `/api/v2/audit-events?${values.toString()}`;
 }
 export class AuditController {
+  readonly related: RelatedHistory<AuditSummary>;
   private value = empty();
   private readonly listeners = new Set<(value: AuditSnapshot) => void>();
   private continuation: string | null = null;
@@ -157,6 +159,48 @@ export class AuditController {
     session: SessionClient,
     private readonly views: ViewCoordinator,
   ) {
+    this.related = new RelatedHistory(
+      session,
+      views,
+      "audit-related",
+      "audit",
+      async (context, cursor, generation) => {
+        const id = parseFragment(context.viewKey)!.segments[1];
+        const expected = generation ?? this.knownGeneration;
+        const parent = await readResponse(
+          context,
+          `/api/v2/audit-events/${id}${expected ? `?generation=${expected}` : ""}`,
+        );
+        if (parent.problem === "audit_history_replaced")
+          throw new RelatedHistoryChanged();
+        if (parent.problem) throw new Error("Related history unavailable");
+        const item = decodeAuditItem(parent.value);
+        if (item.event.id !== id) throw new Error("Mismatched parent");
+        const result = await readResponse(
+          context,
+          listPath(
+            { filter_correlation_id: item.event.correlation_id },
+            cursor,
+            item.history.generation,
+          ),
+        );
+        if (result.problem) throw new RelatedHistoryChanged();
+        const page = decodeAuditPage(result.value);
+        if (page.history.generation !== item.history.generation)
+          throw new RelatedHistoryChanged();
+        if (
+          page.items.some(
+            (row) => row.correlation_id !== item.event.correlation_id,
+          )
+        )
+          throw new Error("Mismatched correlation");
+        return {
+          items: [...page.items],
+          next: page.next_cursor,
+          generation: page.history.generation,
+        };
+      },
+    );
     views.registerPanel({
       id: "audit",
       matches: (key) => parseFragment(key)?.destination === "audit",
@@ -468,9 +512,9 @@ function localAuditTime(value: string): string {
     .toISOString()
     .slice(0, 19);
 }
-const primaryFilters = ["category", "action", "outcome", "from", "until"];
+const primaryFilters = ["from", "until", "category", "action", "outcome"];
 const optionalFilters = auditFilterKeys.filter(
-  (key) => !primaryFilters.includes(key),
+  (key) => !primaryFilters.includes(key) && key !== "correlation_id",
 );
 const filterLabel = (key: string) => sentenceCase(key).replace(/\bid\b/g, "ID");
 const idFilters = ["credential_id", "target_id", "correlation_id"];
@@ -662,27 +706,47 @@ function Filters({
       aria-label="Filter audit history"
       onSubmit={(event) => event.preventDefault()}
     >
+      {resolved.location.query.filter_correlation_id && (
+        <div class="inline-actions">
+          Related events:{" "}
+          <code>{resolved.location.query.filter_correlation_id}</code>
+          <button
+            type="button"
+            onClick={() => {
+              setDraft({ ...draft, filter_correlation_id: "" });
+              apply({ filter_correlation_id: "" });
+            }}
+          >
+            Remove correlation filter
+          </button>
+        </div>
+      )}
       <div class="audit-filter-grid">
-        {primaryFilters.map(field)}
-        {selectedFilters.map((key) => (
-          <div class="audit-optional-filter" key={key}>
-            {field(key)}
-            <button
-              type="button"
-              aria-label={`Remove ${filterLabel(key)} filter`}
-              onClick={() => {
-                focusTarget.current = "audit-add-filter";
-                setSelectedFilters(
-                  selectedFilters.filter((selected) => selected !== key),
-                );
-                setDraft({ ...draft, [`filter_${key}`]: "" });
-                apply({ [`filter_${key}`]: "" });
-              }}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
+        {primaryFilters.filter((key) => key !== "outcome").map(field)}
+        {selectedFilters
+          .toSorted(
+            (a, b) => optionalFilters.indexOf(a) - optionalFilters.indexOf(b),
+          )
+          .map((key) => (
+            <div class="audit-optional-filter" key={key}>
+              {field(key)}
+              <button
+                type="button"
+                aria-label={`Remove ${filterLabel(key)} filter`}
+                onClick={() => {
+                  focusTarget.current = "audit-add-filter";
+                  setSelectedFilters(
+                    selectedFilters.filter((selected) => selected !== key),
+                  );
+                  setDraft({ ...draft, [`filter_${key}`]: "" });
+                  apply({ [`filter_${key}`]: "" });
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        {field("outcome")}
       </div>
       {pending && (
         <p role="status">
@@ -733,6 +797,139 @@ function Filters({
         </p>
       </div>
     </form>
+  );
+}
+function RelatedAudit({
+  controller,
+  resolved,
+  view,
+  selected,
+}: {
+  controller: RelatedHistory<AuditSummary>;
+  selected: AuditEvent;
+  resolved: ResolvedLocation;
+  view: ViewSnapshot;
+}) {
+  const [value, setValue] = useState(controller.snapshot());
+  useEffect(() => controller.subscribe(setValue), [controller]);
+  const current = value.key === view.viewKey ? value : undefined;
+  return (
+    <section aria-label="Related events" class="related-history">
+      <div class="panel-heading">
+        <h2>Related events</h2>
+        <button
+          type="button"
+          disabled={current?.loading}
+          onClick={() => controller.refresh()}
+        >
+          Refresh related events
+        </button>
+      </div>
+      {current?.error && (
+        <StateNotice state="error" title="Related events unavailable">
+          Previously loaded events may be stale. Refresh to try again.
+        </StateNotice>
+      )}
+      {current?.notice && (
+        <StateNotice state="warning" title={current.notice} />
+      )}
+      {!current?.loaded && !current?.error && (
+        <StateNotice state="loading" title="Loading related events…" />
+      )}
+      {current?.loaded && (
+        <CollectionTable
+          caption="Related control-plane events"
+          layout="activity"
+          rowHeaderKey="event"
+          rowKey={(row) => row.id}
+          items={(current.items.some((row) => row.id === selected.id)
+            ? current.items
+            : [...current.items, selected]
+          ).toSorted((a, b) =>
+            BigInt(a.sequence) > BigInt(b.sequence)
+              ? -1
+              : BigInt(a.sequence) < BigInt(b.sequence)
+                ? 1
+                : 0,
+          )}
+          emptyTitle="No related events recorded"
+          columns={[
+            {
+              key: "sequence",
+              label: "Sequence",
+              role: "count",
+              render: (row) => row.sequence,
+            },
+            {
+              key: "time",
+              label: "Time",
+              role: "time",
+              render: (row) => <UserTime value={row.timestamp} />,
+            },
+            {
+              key: "event",
+              label: "Event",
+              role: "identity",
+              render: (row) => (
+                <>
+                  <a
+                    aria-current={
+                      row.id === resolved.location.segments[1]
+                        ? "page"
+                        : undefined
+                    }
+                    href={serializeLocation({
+                      ...resolved.location,
+                      segments: ["audit", row.id],
+                    })}
+                  >
+                    {row.category}.{row.action}
+                  </a>
+                  {row.id === resolved.location.segments[1] && (
+                    <div class="muted">Selected event</div>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: "actor",
+              label: "Performer",
+              role: "text",
+              render: (row) => sentenceCase(row.actor.type),
+            },
+            {
+              key: "phase",
+              label: "Phase",
+              role: "text",
+              render: (row) => sentenceCase(row.phase),
+            },
+            {
+              key: "outcome",
+              label: "Outcome",
+              role: "status",
+              render: (row) => (
+                <StatusLabel state={outcomeState(row.outcome)}>
+                  {sentenceCase(row.outcome)}
+                </StatusLabel>
+              ),
+            },
+          ]}
+        />
+      )}
+      <p class="muted">
+        Newest recorded sequence first. Retention may omit related events; this
+        is not a complete transaction trace.
+      </p>
+      {current?.next && current.items.length < 500 && (
+        <button
+          type="button"
+          disabled={current.loading}
+          onClick={() => controller.more()}
+        >
+          Load more related events
+        </button>
+      )}
+    </section>
   );
 }
 export function Audit({
@@ -847,16 +1044,6 @@ export function Audit({
                 </dd>
               </div>
               <div>
-                <dt>Correlation ID</dt>
-                <dd>
-                  <a
-                    href={`#/audit-log?filter_correlation_id=${snapshot.item.correlation_id}`}
-                  >
-                    {snapshot.item.correlation_id}
-                  </a>
-                </dd>
-              </div>
-              <div>
                 <dt>Reason</dt>
                 <dd>{snapshot.item.detail.reason ?? "None recorded"}</dd>
               </div>
@@ -871,6 +1058,21 @@ export function Audit({
               replay. Only allowlisted safe detail is retained, never secrets,
               raw errors or invocation payloads.
             </p>
+            <details>
+              <summary>Technical details</summary>
+              <dl>
+                <dt>Correlation ID</dt>
+                <dd>
+                  <code>{snapshot.item.correlation_id}</code>
+                </dd>
+              </dl>
+            </details>
+            <RelatedAudit
+              controller={controller.related}
+              selected={snapshot.item}
+              resolved={resolved}
+              view={view}
+            />
             {snapshot.targetUnavailable && (
               <StateNotice state="warning" title="Current target unavailable">
                 <p>

@@ -384,8 +384,13 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     if (
       segments.length === 1 &&
       authorizationCollectionQuery(query, "principals")
-    )
+    ) {
+      if (query.sort === "visibility") {
+        query.sort = "name";
+        query.direction = "ascending";
+      }
       return location("principals", segments, query);
+    }
     if (segments.length === 2 && second === "new" && noQuery)
       return location("principals", segments, query);
     if (

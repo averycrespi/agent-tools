@@ -321,6 +321,32 @@ export async function runAudit(
   await expect(
     page.getByText("Initiating credential (not performer)", { exact: true }),
   ).toBeVisible();
+  const related = page.getByRole("region", {
+    name: "Related events",
+    exact: true,
+  });
+  await expect(related.getByRole("table")).toContainText("Selected event");
+  await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
+  await related
+    .getByRole("button", { name: "Load more related events" })
+    .click();
+  await expect(related.getByRole("row")).toHaveCount(4);
+  expect(queries.at(-1)?.get("cursor")).toBe("opaque-page-2");
+  mode = "failure";
+  await related.getByRole("button", { name: "Refresh related events" }).click();
+  await expect(
+    related.getByText("Related events unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: `Audit event ${id(3)}` }),
+  ).toBeVisible();
+  await expect(related.getByRole("row")).toHaveCount(4);
+  mode = "normal";
+  await related.getByRole("button", { name: "Refresh related events" }).click();
+  await expect(
+    related.getByText("Related events unavailable", { exact: true }),
+  ).toHaveCount(0);
+  await expect(related.getByRole("row")).toHaveCount(3);
   await capture("desktop-detail", 1440);
   await capture("narrow-detail", 390);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -489,7 +515,6 @@ export async function runAudit(
     ["credential_id", "Credential ID"],
     ["target_type", "Target type"],
     ["target_id", "Target ID"],
-    ["correlation_id", "Correlation ID"],
   ]) {
     await addFilter(key!, label!);
   }
@@ -509,20 +534,26 @@ export async function runAudit(
   await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
   await page.getByLabel("Target type", { exact: true }).selectOption("server");
   await page.getByLabel("Target ID", { exact: true }).fill(id(7));
+  await expect.poll(() => queries.at(-1)?.get("target_id")).toBe(id(7));
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
-  await page.getByLabel("Correlation ID", { exact: true }).fill(id(8));
+  await page.evaluate((correlation) => {
+    location.hash += `&filter_correlation_id=${correlation}`;
+  }, id(8));
   await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
   await page
-    .getByRole("button", { name: "Remove Correlation ID filter", exact: true })
+    .getByRole("button", { name: "Remove correlation filter", exact: true })
     .click();
   await expect.poll(() => queries.at(-1)?.has("correlation_id")).toBe(false);
   await expect(page.getByLabel("Correlation ID", { exact: true })).toHaveCount(
     0,
   );
   await page.goBack();
-  await expect(page.getByLabel("Correlation ID", { exact: true })).toHaveValue(
-    id(8),
-  );
+  await expect(
+    page.getByRole("button", {
+      name: "Remove correlation filter",
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
   await from.fill("2026-09-03T20:00");
   mode = "loading";
@@ -600,7 +631,7 @@ export async function runAudit(
         labels.map((label) => label.getAttribute("data-state")),
       ),
   ).toEqual(["neutral", "current", "error", "neutral", "warning"]);
-  for (const route of ["principals", "mcp/grants", "mcp/access-requests"])
+  for (const route of ["agents", "mcp/grants", "mcp/access-requests"])
     await expect(page.locator(`a[href="#/${route}/${id(7)}"]`)).toBeVisible();
   await expect(
     page.getByTestId("audit-row").nth(0).locator('[data-label="Target"] a'),
