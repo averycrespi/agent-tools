@@ -227,7 +227,7 @@ Explicit refresh attaches its one durable operation to exact in-flight poll work
 
 The attached operation remains running across refresh, withdrawal, verified stop, and fresh first-page traversal; independent desired, authority, lifecycle, or drain changes supersede it. Fresh completion alone schedules one next strict-grid poll from the then-current clock.
 
-Healthy nonchallenge failures retain one stale safe issue and the old immutable snapshot, while withdrawal/drain cancels work and timers. Runtime-losing traversal failures return synchronously to the coordinator so it persists and withdraws the failed catalog before handing runtime failure to reconciliation; the request seam does not race that ownership through a second failure report. The traverser has no SDK list cache/subscription path.
+Healthy nonchallenge failures retain one stale safe issue and the old immutable snapshot, while withdrawal/drain cancels work and timers. Runtime-losing traversal failures return synchronously to the coordinator so it persists and withdraws the failed catalog before handing runtime failure to reconciliation; the request seam does not race that ownership through a second failure report. Scheduled polls deliver non-OAuth runtime loss after singleflight removal through the same exact-candidate failure owner as explicit refresh. Concurrent poll/refresh reports consume the failed runtime only once. Verified stop precedes the existing classified retry/backoff and resource admission; unconfirmed cleanup blocks replacement. A healthy replacement restores a fresh catalog for future calls without replaying failed or uncertain invocations. The traverser has no SDK list cache/subscription path.
 
 ### Capability publication and cleanup
 

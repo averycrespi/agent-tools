@@ -156,7 +156,7 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 	complete := coordinator.complete
 	operationID := cloneOperationID(current.operationID)
 	coordinator.mu.Unlock()
-	if !stopped && intent == runtimes.CatalogTraversalPoll && result.OAuthChallenge != nil && complete != nil {
+	if !stopped && intent == runtimes.CatalogTraversalPoll && (result.OAuthChallenge != nil || result.RuntimeFailure != nil) && complete != nil {
 		complete(candidate, result, operationID)
 	}
 	if !stopped && result.RuntimeHealth != runtimes.CatalogRuntimeLost && result.OAuthChallenge == nil && coordinator.live(candidate) {

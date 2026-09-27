@@ -481,6 +481,7 @@ type constructorHooks struct {
 	provider         func(string) (*keyring.Provider, error)
 	startStdio       runtimes.StdioStarter
 	newCoordinator   runtimes.CoordinatorFactory
+	scheduler        runtimes.Scheduler
 	startHooks       startHooks
 }
 
@@ -776,6 +777,10 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("catalog_coordinator"); err != nil {
 		return nil, err
 	}
+	scheduler := hooks.scheduler
+	if scheduler == nil {
+		scheduler = systemScheduler{}
+	}
 	built.catalog, err = catalog.NewCoordinator(catalog.CoordinatorOptions{
 		Diagnostics:         options.Diagnostics,
 		DiagnosticReference: references.reference,
@@ -784,7 +789,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		Active:              built.activeCatalog,
 		Traverser:           built.traverser,
 		Clock:               options.Clock,
-		Scheduler:           systemScheduler{},
+		Scheduler:           scheduler,
 		Client:              built.callbacks.client,
 		Current: func(candidate runtimes.Candidate) bool {
 			return built.publisher.current(candidate) && built.callbacks.current(candidate)
@@ -844,6 +849,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		OAuthStepUp:         built.flows,
 		Invalidate:          options.Invalidate,
 		Publisher:           built.publisher,
+		Scheduler:           scheduler,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("construct manager: %w", err)

@@ -617,6 +617,12 @@ func (manager *Manager) refreshCatalogOperation(serverID string, generation uint
 }
 
 func (manager *Manager) HandleCatalogCompletion(candidate Candidate, outcome CatalogOutcome, operationID *string) bool {
+	if outcome.OAuthChallenge == nil && outcome.RuntimeFailure != nil {
+		// Poll and an attached explicit refresh can both report the loss. The
+		// runtime failure owner consumes the exact candidate only once; the
+		// coordinator retains ownership of non-OAuth poll diagnostics.
+		return manager.ReportRuntimeFailure(candidate, *outcome.RuntimeFailure)
+	}
 	manager.observeCatalog(candidate, outcome)
 	if outcome.OAuthChallenge == nil {
 		return false
@@ -1733,7 +1739,9 @@ func (manager *Manager) ReportRuntimeFailure(candidate Candidate, failure Failur
 	manager.mu.Lock()
 	serverID := candidate.Server.ID
 	current := manager.entries[serverID]
-	if current == nil || manager.draining {
+	// A trigger can retain the old active handle while replacement/retirement
+	// waits for admission. Its newer generation already owns that handle's stop.
+	if current == nil || manager.draining || current.generation != candidate.Generation || current.pending || manager.drainEpoch != candidate.DrainEpoch {
 		manager.mu.Unlock()
 		return false
 	}
