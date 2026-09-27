@@ -926,6 +926,7 @@ function AccessPreview(props: Props) {
   const [connect, setConnect] = useState(false);
   const [url, setURL] = useState("");
   const [method, setMethod] = useState("GET");
+  const [customMethod, setCustomMethod] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("443");
   const [result, setResult] = useState<ReturnType<typeof decodePreview>>();
@@ -970,7 +971,10 @@ function AccessPreview(props: Props) {
                 principal_id: principal,
                 ...(connect
                   ? { connect: { host, port: Number(port) } }
-                  : { url, method }),
+                  : {
+                      url,
+                      method: method === "custom" ? customMethod : method,
+                    }),
               });
               const response = await fetch("/api/v2/http/access-preview", {
                 method: "POST",
@@ -1068,15 +1072,45 @@ function AccessPreview(props: Props) {
             </FormField>
             <FormField id="preview-method" label="Method">
               {(a) => (
-                <input
+                <select
                   {...a}
-                  required
-                  maxLength={32}
                   value={method}
-                  onInput={(e) => setMethod(e.currentTarget.value)}
-                />
+                  onChange={(e) => setMethod(e.currentTarget.value)}
+                >
+                  {[
+                    "GET",
+                    "HEAD",
+                    "POST",
+                    "PUT",
+                    "PATCH",
+                    "DELETE",
+                    "OPTIONS",
+                    "TRACE",
+                  ].map((value) => (
+                    <option value={value}>{value}</option>
+                  ))}
+                  <option value="custom">Custom</option>
+                </select>
               )}
             </FormField>
+            {method === "custom" && (
+              <FormField
+                id="preview-custom-method"
+                label="Custom method"
+                hint="Use an uppercase HTTP method token. For CONNECT, select CONNECT destination above."
+              >
+                {(a) => (
+                  <input
+                    {...a}
+                    required
+                    maxLength={32}
+                    pattern={"(?!CONNECT$)[A-Z0-9!#$%&'*+.^_`\\|~\\-]+"}
+                    value={customMethod}
+                    onInput={(e) => setCustomMethod(e.currentTarget.value)}
+                  />
+                )}
+              </FormField>
+            )}
           </>
         )}
         <button class="form-submit-action" disabled={pending}>

@@ -1354,6 +1354,12 @@ function PrincipalCollection({
               sortValue: (principal) => principal.visibility,
               render: (principal) => visibilityText(principal.visibility),
             },
+            {
+              key: "http-default",
+              label: "HTTP default",
+              role: "status",
+              render: (principal) => httpDefaultText(principal.httpDefault),
+            },
           ]}
         />
       </section>

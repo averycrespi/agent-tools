@@ -33,7 +33,7 @@ export async function runHTTPTraffic(
   await page.getByRole("link", { name: "View related inner requests" }).click();
   await expect(page).toHaveURL(new RegExp(`filter_connect_id=${realParent}`));
   await expect(
-    page.getByText("1 HTTP traffic records loaded", { exact: true }),
+    page.getByText("1 matching HTTP traffic record loaded", { exact: true }),
   ).toBeVisible();
   await page
     .getByRole("row")
@@ -179,6 +179,7 @@ export async function runHTTPTraffic(
     legacyRejection = false,
     responseEvidence = false;
   let stale = false,
+    failHistory = false,
     malformed = false,
     reads = 0;
   await context.route(`${baseURL}/api/v2/http/traffic**`, async (route) => {
@@ -296,6 +297,14 @@ export async function runHTTPTraffic(
       });
       return;
     }
+    if (failHistory) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "{}",
+      });
+      return;
+    }
     if (emptyPage) {
       await route.fulfill({
         status: 200,
@@ -345,11 +354,39 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("No HTTP traffic yet", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.locator('.history-continuation output[aria-live="polite"]'),
+  ).toHaveText("0 HTTP traffic records loaded");
   emptyPage = false;
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect(
     page.getByText("2 HTTP traffic records loaded", { exact: true }),
   ).toBeVisible();
+  const historySummary = page.locator(
+    '.history-continuation output[aria-live="polite"]',
+  );
+  await expect(historySummary).toHaveCount(1);
+  expect(
+    await historySummary.evaluate(
+      (el) =>
+        !!(
+          document.querySelector("table")!.compareDocumentPosition(el) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+        ),
+    ),
+  ).toBe(true);
+  failHistory = true;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(historySummary).toHaveText(
+    "2 HTTP traffic records loaded (stale)",
+  );
+  await page.screenshot({
+    path: join(screenshots, "stale-history.png"),
+    fullPage: true,
+  });
+  failHistory = false;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(historySummary).toHaveText("2 HTTP traffic records loaded");
   await page.getByRole("button", { name: "Load older", exact: true }).click();
   await expect(
     page.getByText("3 HTTP traffic records loaded", { exact: true }),
@@ -442,7 +479,7 @@ export async function runHTTPTraffic(
     ),
   ).toBeVisible();
   await expect(
-    page.getByText("2 HTTP traffic records loaded", { exact: true }),
+    page.getByText("2 matching HTTP traffic records loaded", { exact: true }),
   ).toBeVisible();
   expect(await page.getByRole("button", { name: /Create grant/ }).count()).toBe(
     0,
@@ -570,7 +607,7 @@ export async function runHTTPTraffic(
     .getByLabel("Outcome", { exact: true })
     .selectOption("interception_selected");
   await expect(
-    page.getByText("1 HTTP traffic records loaded", { exact: true }),
+    page.getByText("1 matching HTTP traffic record loaded", { exact: true }),
   ).toBeVisible();
   await page.locator(`a[href*="/http/traffic/${id(5)}"]`).click();
   await expect(

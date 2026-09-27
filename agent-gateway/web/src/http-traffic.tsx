@@ -6,6 +6,7 @@ import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 import {
   BinaryToggle,
   CollectionTable,
+  LoadedHistorySummary,
   TableIdentity,
   StateNotice,
   StatusLabel,
@@ -412,7 +413,6 @@ export function HTTPTraffic({
         <StateNotice state="loading" title="Loading HTTP traffic…" />
       ) : (
         <>
-          <p>{current.items.length} HTTP traffic records loaded</p>
           <CollectionTable
             caption="HTTP traffic records"
             layout="activity"
@@ -515,11 +515,27 @@ export function HTTPTraffic({
                 ),
               },
             ]}
-            hasMore={current.next !== null && current.items.length < 500}
-            loadingMore={current.loadingOlder}
-            onLoadMore={() => void controller.older()}
-            loadMoreLabel="Load older"
           />
+          <div class="history-continuation">
+            {current.loaded && (
+              <LoadedHistorySummary
+                count={current.items.length}
+                singular="HTTP traffic record"
+                plural="HTTP traffic records"
+                matching={Object.keys(query).length > 0}
+                stale={current.error || panel?.status === "error"}
+              />
+            )}
+            {current.next !== null && current.items.length < 500 && (
+              <button
+                type="button"
+                disabled={current.loadingOlder}
+                onClick={() => void controller.older()}
+              >
+                {current.loadingOlder ? "Loading…" : "Load older"}
+              </button>
+            )}
+          </div>
           {current.olderError && (
             <StateNotice state="error" title="Older traffic unavailable">
               Loaded records are retained. Use Load older to try this read
@@ -624,7 +640,7 @@ function TrafficFilters({
       {error && (
         <StateNotice
           state="error"
-          title="Use an exact agent ID or canonical destination hostname."
+          title="Use an exact agent or CONNECT ID, or a canonical destination hostname."
         />
       )}
     </div>

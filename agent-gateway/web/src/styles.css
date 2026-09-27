@@ -2098,9 +2098,18 @@ button.sort-button:not(:disabled):hover {
   font-size: 12px;
 }
 
+.history-continuation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
 .operator-status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   margin: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -2108,13 +2117,17 @@ button.sort-button:not(:disabled):hover {
 }
 
 .operator-status-grid > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
   min-width: 0;
-  padding: 14px;
-  border-left: 1px solid var(--line);
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
 }
 
 .operator-status-grid > div:first-child {
-  border-left: 0;
+  border-top: 0;
 }
 
 .operator-status-grid dt,
@@ -2129,7 +2142,7 @@ button.sort-button:not(:disabled):hover {
 .operator-status-grid dd {
   display: grid;
   gap: 4px;
-  margin: 7px 0 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
@@ -2149,7 +2162,7 @@ button.sort-button:not(:disabled):hover {
 
 .technical-details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 14px 24px;
   margin: 0;
   padding: 14px;
@@ -2715,6 +2728,8 @@ button.sort-button:not(:disabled):hover {
   }
 
   .operator-status-grid > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
     border-top: 1px solid var(--line);
     border-left: 0;
   }

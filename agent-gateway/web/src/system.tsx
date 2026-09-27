@@ -23,6 +23,18 @@ import { UserTime } from "./time";
 import { resourceUtilization } from "./resource-utilization";
 import type { ViewCoordinator, ViewSnapshot } from "./view";
 
+function formatStorageBytes(bytes: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+  const index =
+    bytes === 0
+      ? 0
+      : Math.min(
+          Math.floor(Math.log(bytes) / Math.log(1024)),
+          units.length - 1,
+        );
+  return `${(bytes / 1024 ** index).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[index]}`;
+}
+
 type Listener = (status: StatusView | undefined) => void;
 type CredentialListener = (credentials: AdminCredential[] | undefined) => void;
 type BackupListener = (backups: Backup[] | undefined) => void;
@@ -476,76 +488,79 @@ function StatusPanel({
         <StateNotice state="loading" title="Loading system status" />
       ) : status !== undefined ? (
         <div class="operator-status-stack">
-          <section
-            class="operator-status-section"
-            aria-labelledby="system-issues-title"
-            data-testid="system-status-issues"
-          >
-            <div class="operator-status-section-heading">
-              <h3 id="system-issues-title">Needs attention</h3>
-              {!healthy && <span>Operator action may be required</span>}
-            </div>
-            {!status.ready && (
-              <StateNotice state="warning" title="Gateway is not ready">
-                <p>
-                  The process is {sentenceCase(status.processState)}. Review the
-                  remaining health checks before restoring traffic.
-                </p>
-              </StateNotice>
-            )}
-            {status.latched && (
-              <StateNotice
-                state="error"
-                title="Storage mutations are unavailable"
-              >
-                <p>
-                  Reads can remain available, but only the documented
-                  stopped-process recovery procedure can clear this condition.
-                </p>
-              </StateNotice>
-            )}
-            {status.traffic &&
-              (!status.traffic.ready ||
-                status.traffic.faulted ||
-                status.traffic.pressure) && (
-                <StateNotice
-                  state="warning"
-                  title="Shared traffic persistence needs attention"
-                >
+          {!healthy && (
+            <section
+              class="operator-status-section"
+              aria-labelledby="system-issues-title"
+              data-testid="system-status-issues"
+            >
+              <div class="operator-status-section-heading">
+                <h3 id="system-issues-title">Needs attention</h3>
+                {!healthy && <span>Operator action may be required</span>}
+              </div>
+              {!status.ready && (
+                <StateNotice state="warning" title="Gateway is not ready">
                   <p>
-                    {status.traffic.faulted
-                      ? "New MCP dispatch and HTTP forwarding are blocked. Healthy control storage remains available for inspection and revocation; restart requires full traffic validation."
-                      : "Traffic capacity is pressured or temporarily unavailable. Missing completion remains unknown; never automatically replay calls."}
+                    The process is {sentenceCase(status.processState)}. Review
+                    the remaining health checks before restoring traffic.
                   </p>
                 </StateNotice>
               )}
-            {status.httpProxy?.enabled && !status.httpProxy.ready && (
-              <StateNotice state="warning" title="HTTP proxy is unavailable">
-                <p>
-                  Check the loaded CA, shared traffic storage and lifecycle
-                  state. Client trust must be configured separately.
-                </p>
-              </StateNotice>
-            )}
-            {status.keyring !== "ready" && (
-              <StateNotice
-                state="warning"
-                title="Credential storage is unavailable"
-              >
-                <p>{keyringGuidance(status.keyring)}</p>
-              </StateNotice>
-            )}
-            {saturatedLimits.length > 0 && (
-              <StateNotice
-                state="warning"
-                title={`${saturatedLimits.length} resource ${saturatedLimits.length === 1 ? "limit is" : "limits are"} saturated`}
-              >
-                <p>New work using saturated capacity cannot be admitted.</p>
-                <a href="#/system?tab=resource-limits">View resource limits</a>
-              </StateNotice>
-            )}
-            {healthy && <p>No current issues require operator action.</p>}
-          </section>
+              {status.latched && (
+                <StateNotice
+                  state="error"
+                  title="Storage mutations are unavailable"
+                >
+                  <p>
+                    Reads can remain available, but only the documented
+                    stopped-process recovery procedure can clear this condition.
+                  </p>
+                </StateNotice>
+              )}
+              {status.traffic &&
+                (!status.traffic.ready ||
+                  status.traffic.faulted ||
+                  status.traffic.pressure) && (
+                  <StateNotice
+                    state="warning"
+                    title="Shared traffic persistence needs attention"
+                  >
+                    <p>
+                      {status.traffic.faulted
+                        ? "New MCP dispatch and HTTP forwarding are blocked. Healthy control storage remains available for inspection and revocation; restart requires full traffic validation."
+                        : "Traffic capacity is pressured or temporarily unavailable. Missing completion remains unknown; never automatically replay calls."}
+                    </p>
+                  </StateNotice>
+                )}
+              {status.httpProxy?.enabled && !status.httpProxy.ready && (
+                <StateNotice state="warning" title="HTTP proxy is unavailable">
+                  <p>
+                    Check the loaded CA, shared traffic storage and lifecycle
+                    state. Client trust must be configured separately.
+                  </p>
+                </StateNotice>
+              )}
+              {status.keyring !== "ready" && (
+                <StateNotice
+                  state="warning"
+                  title="Credential storage is unavailable"
+                >
+                  <p>{keyringGuidance(status.keyring)}</p>
+                </StateNotice>
+              )}
+              {saturatedLimits.length > 0 && (
+                <StateNotice
+                  state="warning"
+                  title={`${saturatedLimits.length} resource ${saturatedLimits.length === 1 ? "limit is" : "limits are"} saturated`}
+                >
+                  <p>New work using saturated capacity cannot be admitted.</p>
+                  <a href="#/system?tab=resource-limits">
+                    View resource limits
+                  </a>
+                </StateNotice>
+              )}
+            </section>
+          )}
 
           <section
             class="operator-status-section"
@@ -558,7 +573,7 @@ function StatusPanel({
                 <dt>Process</dt>
                 <dd>
                   <strong>{sentenceCase(status.processState)}</strong>
-                  <span>{status.ready ? "Ready" : "Not ready"}</span>
+                  {!status.ready && <span>Not ready</span>}
                   <span>
                     Started <UserTime value={status.startedAt} />
                   </span>
@@ -597,12 +612,9 @@ function StatusPanel({
                           requests/streams · {status.httpProxy.activeTunnels}{" "}
                           opaque tunnels
                         </span>
-                        <span>
-                          {status.httpProxy.connections.inUse} /{" "}
-                          {status.httpProxy.connections.limit} connections ·{" "}
-                          {status.httpProxy.work.inUse} /{" "}
-                          {status.httpProxy.work.limit} work owners
-                        </span>
+                        <a href="#/system?tab=resource-limits">
+                          View resource limits
+                        </a>
                       </>
                     )}
                   </dd>
@@ -625,24 +637,30 @@ function StatusPanel({
                         : "Within capacity"}
                     </span>
                     <span>
-                      {status.traffic.databaseBytes + status.traffic.walBytes} /{" "}
-                      {status.traffic.budgetBytes} bytes (database + WAL)
+                      {formatStorageBytes(
+                        status.traffic.databaseBytes + status.traffic.walBytes,
+                      )}{" "}
+                      / {formatStorageBytes(status.traffic.budgetBytes)} ·{" "}
+                      {resourceUtilization(
+                        status.traffic.databaseBytes + status.traffic.walBytes,
+                        status.traffic.budgetBytes,
+                      )}{" "}
+                      used
+                    </span>
+                    <span class="muted">
+                      {(
+                        status.traffic.databaseBytes + status.traffic.walBytes
+                      ).toLocaleString()}{" "}
+                      / {status.traffic.budgetBytes.toLocaleString()} bytes
+                      (database + WAL)
                     </span>
                     <span>
                       {status.traffic.quotaRefusals} quota refusals ·{" "}
                       {status.traffic.prunedRecords} pruned records
                     </span>
-                    <span>
-                      Rolling history; a missing completion is unknown, not
-                      proof of execution.
-                    </span>
-                    {status.traffic.faulted && (
-                      <span>
-                        Healthy control storage remains available for inspection
-                        and revocation. Restart requires full traffic
-                        validation.
-                      </span>
-                    )}
+                    <a href="#/system?tab=resource-limits">
+                      View resource limits
+                    </a>
                   </dd>
                 </div>
               )}

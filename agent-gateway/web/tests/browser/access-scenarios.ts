@@ -434,7 +434,10 @@ export async function runPrincipals(
     const search = query.get("name") ?? "";
     const items = [
       current,
-      principal(secondID, "Disabled agent", "disabled", "all", "4"),
+      {
+        ...principal(secondID, "Disabled agent", "disabled", "all", "4"),
+        http_default: "allow",
+      },
     ].filter((item) =>
       search === "Build agnt"
         ? item.id === firstID
@@ -624,10 +627,23 @@ export async function runPrincipals(
   )
     fail(`principals did not default to Name ascending: ${principalNames}`);
   if (staleListRestarted) fail("principal list traversed without navigation");
+  await expect(
+    page
+      .getByTestId("principal-row")
+      .filter({ hasText: "Build agent" })
+      .locator('[data-label="HTTP default"]'),
+  ).toHaveText("Block requests");
+  await expect(
+    page
+      .getByTestId("principal-row")
+      .filter({ hasText: "Disabled agent" })
+      .locator('[data-label="HTTP default"]'),
+  ).toHaveText("Allow requests");
+  expect(detailReads).toBe(0);
   await assertTableConventions(
     page,
     "Agent identities",
-    ["Agent", "Status", "MCP discovery visibility"],
+    ["Agent", "Status", "MCP discovery visibility", "HTTP default"],
     "Agent",
   );
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
@@ -681,7 +697,7 @@ export async function runPrincipals(
   if (
     principalHeaders
       .map((value) => value.replace(/\s?[↑↓↕]$/, ""))
-      .join("|") !== "Agent|Status|MCP discovery visibility"
+      .join("|") !== "Agent|Status|MCP discovery visibility|HTTP default"
   )
     fail(`principal columns drifted: ${principalHeaders.join("|")}`);
   if (

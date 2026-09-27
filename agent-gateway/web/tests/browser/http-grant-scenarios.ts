@@ -341,6 +341,9 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("heading", { name: "Test access", level: 1, exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "Method", exact: true }),
+  ).toHaveValue("GET");
   for (const policy of ["block", "allow"]) {
     await page
       .getByLabel("Agent", { exact: true })
@@ -363,6 +366,43 @@ export async function runHTTPGrants(
   await page
     .getByLabel("URL", { exact: true })
     .fill("https://api.example.com/v1?preview-private-canary=1");
+  const methodSelect = page.getByRole("combobox", {
+    name: "Method",
+    exact: true,
+  });
+  for (const method of ["POST", "PATCH", "PROPFIND", "M-SEARCH", "X|TOKEN"]) {
+    const custom = !["POST", "PATCH"].includes(method);
+    await methodSelect.selectOption(custom ? "custom" : method);
+    if (custom)
+      await page.getByLabel("Custom method", { exact: true }).fill(method);
+    const sent = page.waitForRequest(
+      (r) =>
+        r.url() === `${baseURL}/api/v2/http/access-preview` &&
+        r.method() === "POST",
+    );
+    await page
+      .getByRole("button", { name: "Test access", exact: true })
+      .click();
+    expect((await sent).postDataJSON().method).toBe(method);
+    await expect(
+      page.getByRole("button", { name: "Test access", exact: true }),
+    ).toBeEnabled();
+  }
+  await methodSelect.selectOption("custom");
+  for (const invalid of ["CONNECT", "get", "BAD METHOD"]) {
+    await page.getByLabel("Custom method", { exact: true }).fill(invalid);
+    expect(
+      await page
+        .getByLabel("Custom method", { exact: true })
+        .evaluate((el) => (el as HTMLInputElement).checkValidity()),
+    ).toBe(false);
+  }
+  await page.getByLabel("Custom method", { exact: true }).fill("PROPFIND");
+  await captureState("preview-custom-method");
+  await methodSelect.focus();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Tab");
+  await expect(methodSelect).toHaveValue("GET");
   const firstPreviewResponse = page.waitForResponse(
     (r) =>
       r.url() === `${baseURL}/api/v2/http/access-preview` &&
@@ -463,7 +503,12 @@ export async function runHTTPGrants(
       r.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Test access", exact: true }).click();
-  const connectEvidence = await (await connectResponse).json();
+  const connectReply = await connectResponse;
+  expect(connectReply.request().postDataJSON()).toEqual({
+    principal_id: principal.id,
+    connect: { host: "tunnel.example.com", port: 443 },
+  });
+  const connectEvidence = await connectReply.json();
   expect(connectEvidence.decision.reason).toBe("intercept_required");
   await expect(
     page.getByRole("heading", {

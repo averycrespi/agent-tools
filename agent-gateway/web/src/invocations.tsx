@@ -5,6 +5,7 @@ import type { PrincipalDirectory } from "./principals";
 import {
   BinaryToggle,
   CollectionTable,
+  LoadedHistorySummary,
   TableIdentity,
   useDebouncedInput,
   InertJSON,
@@ -1169,30 +1170,34 @@ function InvocationList({
           ]}
         />
       )}
-      {snapshot.successful && (
-        <output class="table-filter-summary" aria-live="polite">
-          {snapshot.items.length} {Object.keys(query).length ? "matching " : ""}
-          {snapshot.items.length === 1 ? "invocation" : "invocations"} loaded
-          {snapshot.refreshError ? " (stale)" : ""}
-        </output>
-      )}
-      {snapshot.nextCursor !== null && (
-        <div class="inline-actions">
-          <button
-            type="button"
-            onClick={loadOlder}
-            disabled={snapshot.loadingOlder || panel?.refreshing === true}
-          >
-            Load older invocations
-          </button>
-          {snapshot.olderError && (
-            <span role="alert">
-              Older results unavailable. Loaded rows were retained; use Load
-              older invocations to retry.
-            </span>
-          )}
-        </div>
-      )}
+      <div class="history-continuation">
+        {snapshot.successful && (
+          <LoadedHistorySummary
+            count={snapshot.items.length}
+            singular="invocation"
+            plural="invocations"
+            matching={Object.keys(query).length > 0}
+            stale={snapshot.refreshError}
+          />
+        )}
+        {snapshot.nextCursor !== null && (
+          <div class="inline-actions">
+            <button
+              type="button"
+              onClick={loadOlder}
+              disabled={snapshot.loadingOlder || panel?.refreshing === true}
+            >
+              Load older invocations
+            </button>
+            {snapshot.olderError && (
+              <span role="alert">
+                Older results unavailable. Loaded rows were retained; use Load
+                older invocations to retry.
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

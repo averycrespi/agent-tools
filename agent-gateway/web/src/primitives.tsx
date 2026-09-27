@@ -21,6 +21,27 @@ export function useDebouncedInput<T>(
   }, [value]);
 }
 
+export function LoadedHistorySummary({
+  count,
+  singular,
+  plural,
+  matching,
+  stale,
+}: {
+  count: number;
+  singular: string;
+  plural: string;
+  matching: boolean;
+  stale: boolean;
+}) {
+  return (
+    <output class="table-filter-summary" aria-live="polite">
+      {count} {matching ? "matching " : ""}
+      {count === 1 ? singular : plural} loaded{stale ? " (stale)" : ""}
+    </output>
+  );
+}
+
 export function containsControlCharacters(value: string): boolean {
   return /\p{Cc}/u.test(value);
 }
