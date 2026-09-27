@@ -350,7 +350,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			trafficStatus := runtime.Traffic().Status(context.Background())
 			trafficStatus.Ready = trafficStatus.Ready && !store.Latched() && !draining.Load()
 			status.Traffic = &trafficStatus
-			status.Endpoints = controlEndpointsStatus(authority, ready.Load(), runtimeStarted.Load(), store.Latched(), draining.Load(), agentIngress.AuthMode, trafficStatus)
+			status.Endpoints = controlEndpointsStatus(authority, ready.Load(), runtimeStarted.Load(), store.Latched(), draining.Load(), status.Protocols.AgentAuth, trafficStatus)
 			proxyStatus := runtime.HTTPProxyStatus()
 			proxyStatus.Ready = proxyStatus.Ready && trafficStatus.Ready
 			status.HTTPProxy = &proxyStatus
