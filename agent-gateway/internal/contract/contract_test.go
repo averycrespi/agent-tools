@@ -252,6 +252,9 @@ func TestSafeResourceJSONShapesAreExact(t *testing.T) {
 	requireJSONKeys(t, CreatedAdminCredential{AdminCredential: credential, Bearer: "one-time"}, "id", "fingerprint", "created_at", "expires_at", "non_expiring", "status", "revision", "bearer")
 	requireJSONKeys(t, backup, "id", "created_at", "installation_id", "schema_version", "source_revision", "size_bytes", "sha256")
 	requireJSONKeys(t, status, "process", "sqlite", "keyring", "limits", "backup", "protocols")
+	status.Endpoints = &ControlEndpointsStatus{Authority: "127.0.0.1:8210", API: EndpointReadOnly, MCP: EndpointUnavailable}
+	requireJSONKeys(t, status, "process", "sqlite", "keyring", "limits", "backup", "protocols", "endpoints")
+	requireJSONKeys(t, status.Endpoints, "authority", "api", "mcp")
 	requireJSONKeys(t, status.Limits,
 		"http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions",
 		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",

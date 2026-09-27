@@ -77,6 +77,7 @@ export interface HTTPProxyView {
   activeTunnels: number;
 }
 export interface StatusView {
+  endpoints?: { authority: string; api: string; mcp: string };
   httpProxy?: HTTPProxyView;
   traffic?: TrafficView;
   processState: string;
@@ -189,7 +190,10 @@ export function decodeStatus(value: unknown): StatusView {
     value !== null && typeof value === "object" && "traffic" in value;
   const hasProxy =
     value !== null && typeof value === "object" && "http_proxy" in value;
+  const hasEndpoints =
+    value !== null && typeof value === "object" && "endpoints" in value;
   const root = record(value, [
+    ...(hasEndpoints ? ["endpoints"] : []),
     ...(hasProxy ? ["http_proxy"] : []),
     ...(hasTraffic ? ["traffic"] : []),
     "process",
@@ -199,6 +203,21 @@ export function decodeStatus(value: unknown): StatusView {
     "backup",
     "protocols",
   ]);
+  let endpoints: StatusView["endpoints"];
+  if (hasEndpoints) {
+    const item = record(root.endpoints, ["authority", "api", "mcp"]);
+    endpoints = {
+      authority: stringValue(item.authority),
+      api: closed(item.api, ["starting", "ready", "read_only", "draining"]),
+      mcp: closed(item.mcp, [
+        "starting",
+        "ready",
+        "disabled",
+        "unavailable",
+        "draining",
+      ]),
+    };
+  }
   let traffic: TrafficView | undefined;
   if (hasTraffic) {
     const item = record(root.traffic, [
@@ -269,6 +288,7 @@ export function decodeStatus(value: unknown): StatusView {
   const backup = record(root.backup, ["state", "last_completed_at"]);
   const protocols = record(root.protocols, ["modern", "legacy", "agent_auth"]);
   return {
+    ...(endpoints ? { endpoints } : {}),
     ...(traffic ? { traffic } : {}),
     ...(httpProxy ? { httpProxy } : {}),
     processState: closed(process.state, [

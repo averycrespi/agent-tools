@@ -233,7 +233,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	}
 	eventHub := events.New()
 	defer eventHub.Shutdown()
-	var ready, draining atomic.Bool
+	var ready, draining, runtimeStarted atomic.Bool
 	newComposition := dependencies.newComposition
 	if newComposition == nil {
 		newComposition = composition.New
@@ -350,6 +350,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			trafficStatus := runtime.Traffic().Status(context.Background())
 			trafficStatus.Ready = trafficStatus.Ready && !store.Latched() && !draining.Load()
 			status.Traffic = &trafficStatus
+			status.Endpoints = controlEndpointsStatus(authority, ready.Load(), runtimeStarted.Load(), store.Latched(), draining.Load(), agentIngress.AuthMode, trafficStatus)
 			proxyStatus := runtime.HTTPProxyStatus()
 			proxyStatus.Ready = proxyStatus.Ready && trafficStatus.Ready
 			status.HTTPProxy = &proxyStatus
@@ -471,6 +472,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		stopBeforeAcknowledgement()
 		return false, err
 	}
+	runtimeStarted.Store(true)
 	select {
 	case err := <-serveDone:
 		ready.Store(false)
@@ -586,6 +588,34 @@ func baseSystemStatus(
 		Keyring: contract.KeyringStatus{Capability: capability}, Limits: limits, Backup: contract.BackupStatus{State: contract.BackupIdle},
 		Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: agentAuth},
 	}
+}
+
+// These are admission capabilities, not proof of client reachability or tool health.
+func controlEndpointsStatus(authority string, serving, started, latched, draining bool, auth contract.AgentAuthMode, traffic contract.TrafficStatus) *contract.ControlEndpointsStatus {
+	status := &contract.ControlEndpointsStatus{Authority: authority, API: contract.EndpointStarting, MCP: contract.EndpointStarting}
+	if draining {
+		status.API, status.MCP = contract.EndpointDraining, contract.EndpointDraining
+		return status
+	}
+	if !serving {
+		return status
+	}
+	status.API = contract.EndpointReady
+	if latched {
+		status.API = contract.EndpointReadOnly
+	}
+	if !started {
+		return status
+	}
+	switch {
+	case auth == contract.AgentAuthDenyAll:
+		status.MCP = contract.EndpointDisabled
+	case latched || !traffic.Ready || traffic.Faulted:
+		status.MCP = contract.EndpointUnavailable
+	default:
+		status.MCP = contract.EndpointReady
+	}
+	return status
 }
 
 func fixedStatus(name string, inUse int64) contract.LimitStatus {
