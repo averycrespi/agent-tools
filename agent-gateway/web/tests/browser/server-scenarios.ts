@@ -1,5 +1,6 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { captureStateFeedback } from "./state-feedback.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1559,13 +1560,25 @@ export async function runServerOperations(
       state: "degraded",
       reason: "connectivity",
     },
+    credential_state: "cleanup_pending",
   };
+  await page.evaluate((id) => {
+    window.location.hash = `#/mcp/servers/${id}`;
+  }, serverID);
+  await expect(
+    page.getByText("Cleanup needs attention", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("Connecting", { exact: true })).toHaveCount(0);
+  await captureStateFeedback(page, "cleanup-attention");
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=operations`;
   }, serverID);
   await page.locator('[data-testid="operation-list"]').waitFor();
   await page.locator('[data-testid="manual-refresh"]').click();
   await page.locator('[data-testid="start-operation-retry"]').waitFor();
+  await expect(page.getByTestId("start-operation-retry")).toHaveText(
+    "Retry server operation",
+  );
   await page.locator('[data-testid="start-operation-retry"]').click();
   if (
     await page

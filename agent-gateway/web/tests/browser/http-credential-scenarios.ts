@@ -1,3 +1,4 @@
+import { captureStateFeedback } from "./state-feedback.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -157,6 +158,10 @@ export async function runHTTPCredentials(
   await page
     .getByRole("button", { name: "Review rotate", exact: true })
     .click();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Once replacement starts, failure may leave this credential unavailable; replacement does not fall back to the old secret.",
+  );
+  await captureStateFeedback(page, "rotation-review");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Rotate secret", exact: true })
@@ -204,8 +209,8 @@ export async function runHTTPCredentials(
   await expect(
     page.getByRole("heading", { name: "Renamed HTTP credential", exact: true }),
   ).toBeVisible();
-  // Projection-only reference fixture: real transactional deletion refusal is
-  // covered by the SQLite/keyring owner. No HTTP grant administration exists yet.
+  // Projection-only reference fixture: transactional reference enforcement
+  // remains covered by the SQLite owner.
   await page.route(`**/api/v2/http/credentials/${id}`, async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue();
@@ -221,6 +226,28 @@ export async function runHTTPCredentials(
   await expect(
     page.getByRole("button", { name: "Review delete", exact: true }),
   ).toBeDisabled();
+  await expect(page.getByLabel("Header name")).toHaveAttribute("readonly", "");
+  await expect(page.getByLabel("Fixed prefix (optional)")).toHaveAttribute(
+    "readonly",
+    "",
+  );
+  await expect(
+    page.getByText("Header recipe is fixed while referenced."),
+  ).toBeVisible();
+  await expect(page.getByLabel("HTTPS destination host")).toBeEditable();
+  await expect(page.getByLabel("Port", { exact: true })).toBeEditable();
+  await page.getByLabel("Name", { exact: true }).fill("Referenced credential");
+  await page
+    .getByRole("button", { name: "Review changes", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Edit boundary and recipe", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Referenced credential", exact: true }),
+  ).toBeVisible();
+  await captureStateFeedback(page, "referenced-credential");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
     path: join(screenshots, "desktop.png"),
@@ -236,6 +263,53 @@ export async function runHTTPCredentials(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+  let rotationAttempts = 0;
+  await page.route(`**/api/v2/http/credentials/${id}/rotate`, async (route) => {
+    rotationAttempts += 1;
+    if (rotationAttempts === 1) {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/problem+json",
+        json: {
+          status: 400,
+          code: "invalid_operation",
+          title: "The operation is invalid.",
+        },
+      });
+    } else {
+      await route.abort("failed");
+    }
+  });
+  for (const outcome of ["rejected", "unknown"]) {
+    await page
+      .getByLabel("Secret", { exact: true })
+      .fill("rotation-outcome-canary");
+    await page
+      .getByRole("button", { name: "Review rotate", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Rotate secret", exact: true })
+      .click();
+    await expect(page.getByLabel("Secret", { exact: true })).toHaveValue("");
+    await expect(
+      page.getByText(
+        outcome === "rejected"
+          ? "The operation is invalid."
+          : "Credential change outcome unknown",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(page.getByText("Configured", { exact: true })).toBeVisible();
+    if (outcome === "unknown") {
+      await expect(
+        page.getByRole("button", { name: "Review rotate", exact: true }),
+      ).toBeDisabled();
+      await captureStateFeedback(page, "rotation-unknown");
+    }
+  }
+  expect(rotationAttempts).toBe(2);
+  await page.unroute(`**/api/v2/http/credentials/${id}/rotate`);
   await page.unroute(`**/api/v2/http/credentials/${id}`);
   await page.reload();
   await waitForLifecycle(page, "authenticated");

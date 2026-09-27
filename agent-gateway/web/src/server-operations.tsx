@@ -74,7 +74,7 @@ function label(kind: OperationKind): string {
     case "reload":
       return "Reload server";
     case "retry":
-      return "Retry connection";
+      return "Retry server operation";
     case "refresh_catalog":
       return "Refresh tools";
     case "credential_replace":
@@ -143,7 +143,7 @@ export function OperationRows({
           options: [
             { value: "activate", label: "Connect server" },
             { value: "reload", label: "Reload server" },
-            { value: "retry", label: "Retry connection" },
+            { value: "retry", label: "Retry server operation" },
             { value: "refresh_catalog", label: "Refresh tools" },
             { value: "credential_replace", label: "Replace credential" },
             { value: "disable", label: "Disable server" },

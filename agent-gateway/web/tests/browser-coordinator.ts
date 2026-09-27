@@ -772,17 +772,20 @@ try {
           consoleFailures[0]!,
         )) ||
       (input.scenario === "system-status" &&
-        consoleFailures.length === 2 &&
+        consoleFailures.length === 4 &&
         consoleFailures.every((value) =>
           value.startsWith(
             "Failed to load resource: the server responded with a status of 503",
           ),
         )) ||
       (input.scenario === "http-credentials" &&
-        consoleFailures.length === 2 &&
-        consoleFailures.every((value) =>
+        consoleFailures.length === 4 &&
+        consoleFailures.filter((value) =>
           value.includes("server responded with a status of 400"),
-        )) ||
+        ).length === 3 &&
+        consoleFailures.filter(
+          (value) => value === "Failed to load resource: net::ERR_FAILED",
+        ).length === 1) ||
       (input.scenario === "server-create-update" &&
         consoleFailures.length === 4 &&
         consoleFailures.every((value) =>
@@ -800,13 +803,25 @@ try {
           value.includes("server responded with a status of 412"),
         ).length === 1) ||
       (input.scenario === "principal-credentials" &&
-        consoleFailures.length === 1 &&
-        consoleFailures.some((value) =>
+        consoleFailures.length === 3 &&
+        consoleFailures.filter((value) =>
           value.includes("server responded with a status of 412"),
-        )) ||
+        ).length === 1 &&
+        consoleFailures.filter((value) =>
+          value.includes("server responded with a status of 503"),
+        ).length === 2) ||
       (input.scenario === "grant-reads-create" &&
-        consoleFailures.length >= 3 &&
-        consoleFailures.length <= 4 &&
+        consoleFailures.length >= 6 &&
+        consoleFailures.length <= 7 &&
+        consoleFailures.every(
+          (value) =>
+            value === "Failed to load resource: net::ERR_FAILED" ||
+            [400, 409, 503].some((status) =>
+              value.startsWith(
+                `Failed to load resource: the server responded with a status of ${status}`,
+              ),
+            ),
+        ) &&
         [400, 409, 503].every((status) =>
           consoleFailures.some((value) =>
             value.includes(`server responded with a status of ${status}`),
@@ -826,17 +841,27 @@ try {
           value.includes("server responded with a status of 409"),
         )) ||
       (input.scenario === "backups" &&
-        consoleFailures.length === 2 &&
-        consoleFailures.some((value) =>
+        consoleFailures.length === 3 &&
+        consoleFailures.filter((value) =>
           value.includes("server responded with a status of 503"),
-        )) ||
+        ).length === 1 &&
+        consoleFailures.filter(
+          (value) => value === "Failed to load resource: net::ERR_FAILED",
+        ).length === 2) ||
       (input.scenario === "admin-credentials" &&
         consoleFailures.length === 1 &&
         consoleFailures.some((value) =>
           value.includes("server responded with a status of 409"),
         )) ||
       (input.scenario === "request-adjudication" &&
-        consoleFailures.length === 3 &&
+        consoleFailures.length === 5 &&
+        consoleFailures.every((value) =>
+          [400, 412, 503].some((status) =>
+            value.startsWith(
+              `Failed to load resource: the server responded with a status of ${status}`,
+            ),
+          ),
+        ) &&
         [400, 412, 503].every((status) =>
           consoleFailures.some((value) =>
             value.includes(`server responded with a status of ${status}`),

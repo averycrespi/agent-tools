@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -45,6 +46,11 @@ func TestCallbackAuditFencesExchangeAndPreservesInitiator(t *testing.T) {
 				assert.Equal(t, CallbackSucceeded, result.Outcome)
 			} else {
 				assert.Equal(t, CallbackTransient, result.Outcome)
+				response := httptest.NewRecorder()
+				WriteCallbackResponse(response, result.Outcome)
+				assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+				assert.Contains(t, response.Body.String(), "Return to Gateway and check the authorization flow.")
+				assert.NotContains(t, response.Body.String(), "Retry")
 			}
 			if refusedPhase == "attempt" {
 				assert.Empty(t, requester.requests)

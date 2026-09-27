@@ -22,5 +22,5 @@ func WriteCallbackResponse(writer http.ResponseWriter, outcome CallbackOutcome) 
 const (
 	callbackSucceededHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorization complete</title></head><body>Authorization complete. You may close this window.</body></html>\n"
 	callbackFailedHTML    = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorization failed</title></head><body>Authorization failed. Return to Gateway and start a new authorization flow.</body></html>\n"
-	callbackTransientHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Gateway unavailable</title></head><body>Gateway is temporarily unavailable. Retry the authorization callback.</body></html>\n"
+	callbackTransientHTML = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Authorization unconfirmed</title></head><body>Authorization could not be confirmed. Return to Gateway and check the authorization flow.</body></html>\n"
 )

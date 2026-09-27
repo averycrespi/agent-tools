@@ -16,6 +16,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestInventoryCleanupRequiresAttention(t *testing.T) {
+	for _, desired := range []contract.DesiredServerState{contract.DesiredServerEnabled, contract.DesiredServerDisabled, contract.DesiredServerDeleted} {
+		for _, runtime := range []contract.RuntimeState{contract.RuntimeActive, contract.RuntimeDegraded, contract.RuntimeRetryWait} {
+			server := contract.Server{DesiredState: desired, CredentialState: contract.ServerCredentialCleanupPending}
+			server.Runtime.State = runtime
+			server.Catalog.ActiveState = contract.ActiveCatalogCurrent
+			want := "needs_attention"
+			if desired != contract.DesiredServerEnabled {
+				want = string(desired)
+			}
+			assert.Equal(t, want, inventoryStatus(server), "%s/%s", desired, runtime)
+		}
+	}
+}
+
 type inventoryResponseRow struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`

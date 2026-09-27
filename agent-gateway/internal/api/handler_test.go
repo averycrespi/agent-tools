@@ -299,7 +299,7 @@ func TestOAuthCallbackUsesFixedNonreflectingHTML(t *testing.T) {
 		{name: "default deny", status: http.StatusBadRequest, content: "Authorization failed"},
 		{name: "success", result: oauth.CallbackResult{Outcome: oauth.CallbackSucceeded, ServerID: testID, FlowID: "01ARZ3NDEKTSV4RRFFQ69G5FAA"}, status: http.StatusOK, content: "Authorization complete"},
 		{name: "invalid", result: oauth.CallbackResult{Outcome: oauth.CallbackInvalid}, status: http.StatusBadRequest, content: "Authorization failed"},
-		{name: "transient", result: oauth.CallbackResult{Outcome: oauth.CallbackTransient}, status: http.StatusServiceUnavailable, content: "Gateway is temporarily unavailable"},
+		{name: "transient", result: oauth.CallbackResult{Outcome: oauth.CallbackTransient}, status: http.StatusServiceUnavailable, content: "Authorization could not be confirmed. Return to Gateway and check the authorization flow."},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -320,6 +320,7 @@ func TestOAuthCallbackUsesFixedNonreflectingHTML(t *testing.T) {
 			response := perform(boundary, http.MethodGet, "/oauth/callback?state=canary-secret&code=also-secret&error_description=dependency-secret", "", nil)
 			require.Equal(t, test.status, response.Code, response.Body.String())
 			assert.Contains(t, response.Body.String(), test.content)
+			assert.NotContains(t, response.Body.String(), "Retry the authorization callback")
 			if test.result.ServerID != "" {
 				assert.Equal(t, &credential, triggered.Initiator)
 				assert.Equal(t, credential.ID, triggered.CorrelationID)

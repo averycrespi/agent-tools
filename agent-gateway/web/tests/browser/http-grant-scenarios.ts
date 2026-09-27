@@ -614,7 +614,7 @@ export async function runHTTPGrants(
     "block",
   );
   await expect(
-    page.getByText(/Current values: Concurrent rename/),
+    page.getByText(/Last loaded values: Concurrent rename/),
   ).toBeVisible();
   await captureState("principal-conflict");
   expect(concurrentWrite).toBe(true);

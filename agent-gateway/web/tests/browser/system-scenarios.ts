@@ -1,3 +1,4 @@
+import { captureStateFeedback } from "./state-feedback.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -353,6 +354,10 @@ export async function runBackups(
       )
         fail("backup delete changed shape");
       items = items.filter((item) => item.id !== id);
+      if (deletes === 2) {
+        await route.abort("failed");
+        return;
+      }
       await route.fulfill({ status: 204, body: "" });
       return;
     }
@@ -458,6 +463,13 @@ export async function runBackups(
   await expect(rows.first()).toContainText(ids[0]!);
   await page.locator('[data-testid="backup-delete"]').click();
   await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
+  await expect(
+    inventory.getByText("Refresh backups before taking another action."),
+  ).toBeVisible();
+  await expect(page.getByTestId("backup-replay")).toHaveCount(0);
+  await captureStateFeedback(page, "backup-delete-unknown");
+  expect(deletes).toBe(2);
+  await page.getByTestId("manual-refresh").click();
   await expect(
     inventory.getByText("No backups", { exact: true }),
   ).toBeVisible();
@@ -2679,6 +2691,30 @@ export async function runSystemStatus(
   )
     fail("System healthy status repeated its conclusion");
 
+  failStatus = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(statusPanel).toHaveAttribute("data-panel-status", "error");
+  await expect(
+    statusPanel.getByText("Refresh failed — last known status", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(statusPanel.getByText("Healthy", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    statusPanel.getByText("Gateway API", { exact: true }),
+  ).toBeVisible();
+  await captureStateFeedback(page, "system-stale");
+  failStatus = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(statusPanel.getByText("Healthy", { exact: true })).toBeVisible();
+  await expect(
+    statusPanel.getByText("Refresh failed — last known status", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+
   for (const faulted of [false, true]) {
     currentStatus = {
       ...currentStatus,
@@ -2877,6 +2913,17 @@ export async function runSystemStatus(
     page.locator('[data-testid="system-limits-view"]'),
   ).toHaveAttribute("data-panel-status", "error");
   expect(await rowContents()).toEqual(expectedCells);
+  await expect(
+    page
+      .getByTestId("system-limits-view")
+      .getByText("Refresh failed — last known limits", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId("system-limits-view")
+      .locator(".panel-heading .status-label"),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "limits-stale");
   await page.screenshot({
     path: join(trafficScreenshots, "resources-error-1280.png"),
     fullPage: true,

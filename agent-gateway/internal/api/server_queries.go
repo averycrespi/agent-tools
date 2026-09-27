@@ -98,7 +98,10 @@ func inventoryStatus(server contract.Server) string {
 	if slices.Contains([]string{"locked", "interaction_required", "unavailable", "unsupported"}, credential) {
 		return "authentication_unavailable"
 	}
-	if slices.Contains([]string{"activating", "retry_wait"}, string(server.Runtime.State)) || slices.Contains([]string{"refreshing", "disconnecting", "cleanup_pending"}, credential) {
+	if credential == "cleanup_pending" {
+		return "needs_attention"
+	}
+	if slices.Contains([]string{"activating", "retry_wait"}, string(server.Runtime.State)) || slices.Contains([]string{"refreshing", "disconnecting"}, credential) {
 		return "connecting"
 	}
 	saturated := server.Runtime.Reconciliation.Saturated || server.Runtime.Dispatch.Saturated || server.Catalog.Traversal.Saturated

@@ -1324,12 +1324,18 @@ function serverPresentation(server: ServerView): ServerPresentation {
       action: "Manage credentials",
       href: `${root}?tab=authentication`,
     };
+  if (server.credentialState === "cleanup_pending")
+    return {
+      label: "Cleanup needs attention",
+      state: "warning",
+      action: "View operations",
+      href: `${root}?tab=operations`,
+    };
   if (
     server.runtimeState === "activating" ||
     server.runtimeState === "retry_wait" ||
     server.credentialState === "refreshing" ||
-    server.credentialState === "disconnecting" ||
-    server.credentialState === "cleanup_pending"
+    server.credentialState === "disconnecting"
   )
     return {
       label: "Connecting",

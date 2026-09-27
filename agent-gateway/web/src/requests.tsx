@@ -1642,8 +1642,8 @@ function RequestActions({
         <StateNotice state="error" title={problemTitle(mutation.problem)}>
           {mutation.requiresRefresh && (
             <p>
-              The current request was reloaded. Review its terminal state and
-              revision; nothing was replayed.
+              Refresh the request and review its state before taking another
+              action.
             </p>
           )}
         </StateNotice>

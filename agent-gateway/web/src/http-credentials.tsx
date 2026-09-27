@@ -381,6 +381,8 @@ function CredentialEditor({
   );
   const metadata = mode === "create" || mode === "edit";
   const material = mode === "create" || mode === "rotate";
+  const recipeReadOnly =
+    mode === "edit" && (credential?.referencing_grants.length ?? 0) > 0;
   const blocked =
     mutation.state === "submitting" ||
     mutation.state === "uncertain" ||
@@ -551,11 +553,13 @@ function CredentialEditor({
                 />
               )}
             </FormField>
+            {recipeReadOnly && <p>Header recipe is fixed while referenced.</p>}
             <FormField id={`http-header-${mode}`} label="Header name">
               {(attributes) => (
                 <input
                   {...attributes}
                   required
+                  readOnly={recipeReadOnly}
                   value={header}
                   onInput={(e) => setHeader(e.currentTarget.value)}
                 />
@@ -568,6 +572,7 @@ function CredentialEditor({
               {(attributes) => (
                 <input
                   {...attributes}
+                  readOnly={recipeReadOnly}
                   value={prefix}
                   onInput={(e) => setPrefix(e.currentTarget.value)}
                 />
@@ -628,7 +633,7 @@ function CredentialEditor({
             ? `HTTPS ${host}:${port}; replace ${header} with ${prefix}[secret]. Every referencing grant must remain contained.`
             : mode === "delete"
               ? "Permanently retire this unreferenced credential. Stored material cannot be restored from a backup."
-              : "Replace the current secret. Future admissions use the new generation; a failed or uncertain rotation leaves authority unavailable."
+              : "Once replacement starts, failure may leave this credential unavailable; replacement does not fall back to the old secret."
         }
         confirmLabel={title}
         destructive={mode !== "create"}

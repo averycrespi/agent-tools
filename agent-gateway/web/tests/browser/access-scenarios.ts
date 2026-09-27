@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { captureStateFeedback } from "./state-feedback.ts";
 import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
@@ -989,6 +990,7 @@ export async function runPrincipalCredentials(
     updated_at: "2026-08-28T13:00:00Z",
   });
   let current = principal("1", true);
+  let credentialReadFails = false;
   let issues = 0;
   let revokes = 0;
   let releaseLost: (() => void) | undefined;
@@ -1000,6 +1002,14 @@ export async function runPrincipalCredentials(
   await page.route("**/api/v2/principals/*", async (route) => {
     if (route.request().method() !== "GET") {
       await route.fallback();
+      return;
+    }
+    if (credentialReadFails) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        json: { status: 503, code: "unavailable", title: "Unavailable" },
+      });
       return;
     }
     await route.fulfill({
@@ -1022,6 +1032,7 @@ export async function runPrincipalCredentials(
       if (request.method() === "POST") {
         issues += 1;
         if (issues === 1) {
+          credentialReadFails = true;
           current = principal("2", true);
           await route.fulfill({
             status: 412,
@@ -1140,6 +1151,21 @@ export async function runPrincipalCredentials(
   await page
     .getByText("The agent revision is stale.", { exact: true })
     .waitFor();
+  await expect(
+    page.getByText("Current agent data unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/was reloaded/)).toHaveCount(0);
+  await expect(page.getByText(/Last loaded values:/)).toBeVisible();
+  await captureStateFeedback(page, "agent-reload-failed");
+  credentialReadFails = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Current agent data unavailable", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("principal-credential-actions")).toContainText(
+    "2",
+  );
+  await expect(page.getByText(/was reloaded/)).toHaveCount(0);
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
     .locator('[data-testid="principal-credential-confirm-submit"]')
@@ -1400,12 +1426,22 @@ export async function runGrantReadsCreate(
   let attempts = 0;
   let creates = 0;
   let descriptionPatches = 0;
+  let descriptionOutcome: "success" | "rejected" | "unknown" = "success";
+  let optionsUnavailable = false;
   let descriptorRequests = 0;
   const expectedExpiry = await page.evaluate(() =>
     new Date("2030-01-01T12:34:56").toISOString(),
   );
 
   await page.route("**/api/v2/principals?*", async (route) => {
+    if (optionsUnavailable) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        json: { status: 503, code: "unavailable", title: "Unavailable" },
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1716,6 +1752,22 @@ export async function runGrantReadsCreate(
       )
         fail("grant description PATCH body changed");
       descriptionPatches += 1;
+      if (descriptionOutcome === "rejected") {
+        await route.fulfill({
+          status: 400,
+          contentType: "application/problem+json",
+          json: {
+            status: 400,
+            code: "invalid_operation",
+            title: "The operation is invalid.",
+          },
+        });
+        return;
+      }
+      if (descriptionOutcome === "unknown") {
+        await route.abort("failed");
+        return;
+      }
       active.description = patch.description as string | null;
       active.revision = String(Number(active.revision) + 1);
       await route.fulfill({
@@ -1827,6 +1879,24 @@ export async function runGrantReadsCreate(
   await page.waitForFunction(
     () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
   );
+  optionsUnavailable = true;
+  await page.evaluate(() => {
+    window.location.hash = "#/mcp/grants/new";
+  });
+  await expect(
+    page.getByText("Grant options unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Loading grant options", { exact: true }),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "grant-options-unavailable");
+  optionsUnavailable = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(page.getByTestId("grant-description")).toBeVisible();
+  await page.evaluate(() => {
+    window.location.hash = "#/mcp/grants";
+  });
+  await waitForCollectionRows(page, "grant", 2);
   let body = (await page.locator("body").textContent()) ?? "";
   if (staleRestarted) fail("grant list traversed without navigation");
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
@@ -1964,6 +2034,22 @@ export async function runGrantReadsCreate(
   await page.waitForTimeout(100);
   if (descriptionPatches !== 2)
     fail("grant description save and clear did not both reach the API");
+  descriptionOutcome = "rejected";
+  await descriptionEditor.fill("Updated reporting access");
+  await saveDescription.click();
+  await expect(
+    page.getByText("Description not saved", { exact: true }),
+  ).toBeVisible();
+  await expect(descriptionEditor).toHaveValue("Updated reporting access");
+  await captureStateFeedback(page, "description-rejected");
+  descriptionOutcome = "unknown";
+  await saveDescription.click();
+  await expect(
+    page.getByText("Save outcome unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(saveDescription).toBeDisabled();
+  await captureStateFeedback(page, "description-unknown");
+  expect(descriptionPatches).toBe(4);
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/grants/${id}`;
@@ -3894,6 +3980,7 @@ export async function runRequestAdjudication(
     },
   );
 
+  let requestReadFails = false;
   await page.route("**/api/v2/mcp/grant-requests/**", async (route) => {
     const parts = new URL(route.request().url()).pathname.split("/");
     const action = parts.at(-1)!;
@@ -3902,6 +3989,14 @@ export async function runRequestAdjudication(
     const item = states.get(id);
     if (item === undefined) fail("unknown adjudication fixture");
     if (route.request().method() === "GET") {
+      if (requestReadFails) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/problem+json",
+          json: { status: 503, code: "unavailable", title: "Unavailable" },
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -3921,6 +4016,7 @@ export async function runRequestAdjudication(
     )
       fail("request adjudication precondition changed shape");
     if (id === ids[6]) {
+      requestReadFails = true;
       states.set(
         id,
         detail(
@@ -4573,6 +4669,15 @@ export async function runRequestAdjudication(
   await navigate(ids[6]!);
   await reviewApproval();
   await confirm();
+  await expect(
+    page.getByText(
+      "Refresh the request and review its state before taking another action.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(/was reloaded/)).toHaveCount(0);
+  await captureStateFeedback(page, "request-reload-failed");
+  requestReadFails = false;
+  await page.getByTestId("manual-refresh").click();
   await page
     .getByText("Request adjudication is closed", { exact: true })
     .waitFor();

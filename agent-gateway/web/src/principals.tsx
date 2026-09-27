@@ -617,7 +617,7 @@ function PrincipalEditor({
         detail !== undefined && (
           <StateNotice state="warning" title="Review current agent settings">
             <p>
-              Your draft is preserved. Current values:{" "}
+              Your draft is preserved. Last loaded values:{" "}
               {detail.principal.displayName}; {detail.principal.state};{" "}
               {visibilityText(detail.principal.visibility)}; HTTP default{" "}
               {httpDefaultText(detail.principal.httpDefault)}.
@@ -981,8 +981,8 @@ function PrincipalCredentialActions({
         <StateNotice state="error" title={problemTitle(mutation.problem)}>
           {mutation.requiresRefresh && (
             <p>
-              The current agent revision was reloaded. Review current authority
-              before trying a new explicit action.
+              Refresh the agent and review its current authority before trying a
+              new action.
             </p>
           )}
         </StateNotice>

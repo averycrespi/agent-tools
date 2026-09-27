@@ -977,11 +977,29 @@ function GrantDescriptionEditor({
             <p>{error}</p>
           </StateNotice>
         )}
+        {mutation.state === "rejected" && (
+          <StateNotice state="error" title="Description not saved">
+            <p>
+              {mutation.problem === undefined
+                ? "Refresh the grant before trying again."
+                : problemTitle(mutation.problem)}
+            </p>
+          </StateNotice>
+        )}
+        {mutation.state === "uncertain" && (
+          <StateNotice state="warning" title="Save outcome unknown">
+            <p>
+              Refresh the grant to inspect its description before taking another
+              action.
+            </p>
+          </StateNotice>
+        )}
         <button
           class="button-safe form-submit-action"
           type="submit"
           disabled={
             mutation.state === "submitting" ||
+            mutation.state === "uncertain" ||
             mutation.availability === "storage_latched"
           }
         >
@@ -1377,6 +1395,15 @@ export function Grants({
     };
   }, [resolved.canonicalFragment, view.generation]);
   if (create) {
+    if (
+      error !== undefined &&
+      (principals === undefined || servers === undefined)
+    )
+      return (
+        <StateNotice state="error" title="Grant options unavailable">
+          <p>{error}</p>
+        </StateNotice>
+      );
     if (principals === undefined || servers === undefined)
       return <StateNotice state="loading" title="Loading grant options" />;
     return (
