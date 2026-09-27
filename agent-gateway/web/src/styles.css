@@ -2098,6 +2098,10 @@ button.sort-button:not(:disabled):hover {
   font-size: 12px;
 }
 
+.related-history {
+  margin-top: 24px;
+}
+
 .history-continuation {
   display: flex;
   align-items: center;

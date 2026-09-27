@@ -836,6 +836,9 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("No related requests recorded", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText(/Only recorded associations are shown/),
+  ).toHaveCount(0);
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
     .click();

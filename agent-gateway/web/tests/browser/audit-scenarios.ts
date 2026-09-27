@@ -326,6 +326,17 @@ export async function runAudit(
     exact: true,
   });
   await expect(related.getByRole("table")).toContainText("Selected event");
+  await expect(related.getByText(/Newest recorded sequence first/)).toHaveCount(
+    0,
+  );
+  const technical = page.getByText("Technical details", { exact: true });
+  const technicalBox = await technical.boundingBox();
+  const relatedBox = await related
+    .getByRole("heading", { name: "Related events", exact: true })
+    .boundingBox();
+  expect(
+    relatedBox!.y - (technicalBox!.y + technicalBox!.height),
+  ).toBeGreaterThanOrEqual(24);
   await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
   await related
     .getByRole("button", { name: "Load more related events" })

@@ -804,10 +804,6 @@ function RelatedTraffic({
           ]}
         />
       )}
-      <p class="muted">
-        Only recorded associations are shown; missing records do not prove no
-        requests occurred.
-      </p>
       {current?.next && current.items.length < 500 && (
         <button
           type="button"

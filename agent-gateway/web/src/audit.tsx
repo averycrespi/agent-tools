@@ -916,10 +916,6 @@ function RelatedAudit({
           ]}
         />
       )}
-      <p class="muted">
-        Newest recorded sequence first. Retention may omit related events; this
-        is not a complete transaction trace.
-      </p>
       {current?.next && current.items.length < 500 && (
         <button
           type="button"
