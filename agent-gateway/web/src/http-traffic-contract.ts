@@ -13,6 +13,7 @@ export const trafficOptions = {
   decision: ["allow", "block", "intercept", "invalid"],
   outcome: [
     "not_dispatched",
+    "interception_selected",
     "outcome_unknown",
     "succeeded",
     "prestart_failure",
@@ -23,9 +24,13 @@ export function validHTTPTrafficQuery(
   query: Readonly<Record<string, string>>,
 ): boolean {
   return Object.entries(query).every(([key, value]) => {
-    if (key === "filter_principal_id") return idPattern.test(value);
-    if (key === "filter_destination")
-      return canonicalHost(value) && !value.includes("*");
+    if (key === "filter_principal_id" || key === "filter_connect_id")
+      return idPattern.test(value);
+    if (key === "filter_destination" || key === "filter_principal")
+      return (
+        new TextEncoder().encode(value).byteLength <= 256 &&
+        !/[\p{Cc}\p{Cf}]/u.test(value)
+      );
     const options = trafficOptions[key.slice(7) as keyof typeof trafficOptions];
     return (
       key.startsWith("filter_") &&
@@ -85,6 +90,71 @@ function target(value: unknown): TrafficTarget | null {
     throw new Error("Invalid HTTP request evidence.");
   return t as unknown as TrafficTarget;
 }
+export interface Rejection {
+  stage: string;
+  reason: string;
+}
+export interface ConnectContext {
+  id: string;
+  host: string;
+  port: number;
+}
+const rejectionReasons: Record<string, Record<string, string>> = {
+  headers: {
+    invalid_headers: "Invalid headers",
+    trailers_unsupported: "Trailers are not supported",
+    upgrade_unsupported: "Protocol upgrades are not supported",
+    inner_proxy_authorization: "Proxy credentials inside CONNECT",
+  },
+  request_form: {
+    connect_body: "CONNECT must not carry a body",
+    nested_connect: "Nested CONNECT is not supported",
+    origin_form_required: "Origin-form request required inside CONNECT",
+    absolute_http_required: "Absolute-form HTTP request required",
+  },
+  target: {
+    invalid_request_target: "Request target failed validation",
+    invalid_connect_target: "CONNECT target failed validation",
+  },
+};
+export function rejectionLabel(value: Rejection | undefined): string {
+  return value === undefined
+    ? "Rejection details unavailable"
+    : (rejectionReasons[value.stage]?.[value.reason] ??
+        "Rejection details unavailable");
+}
+function rejection(value: unknown): Rejection {
+  const r = exact(value, ["stage", "reason"]);
+  if (
+    typeof r.stage !== "string" ||
+    typeof r.reason !== "string" ||
+    !Object.hasOwn(rejectionReasons, r.stage) ||
+    !Object.hasOwn(rejectionReasons[r.stage]!, r.reason)
+  )
+    throw new Error("Invalid rejection evidence.");
+  return r as unknown as Rejection;
+}
+function connect(
+  value: unknown,
+  ownID: string,
+  t: TrafficTarget | null,
+): ConnectContext {
+  const c = exact(value, ["id", "host", "port"]);
+  const inherited = target({ host: c.host, port: c.port })!;
+  if (
+    id(c.id) === ownID ||
+    (t !== null &&
+      (t.scheme !== "https" ||
+        t.host !== inherited.host ||
+        t.port !== inherited.port))
+  )
+    throw new Error("Invalid CONNECT context.");
+  return c as unknown as ConnectContext;
+}
+function optionalKeys(value: unknown, keys: string[]): string[] {
+  const v = object(value);
+  return keys.filter((key) => Object.hasOwn(v, key));
+}
 export interface TrafficSummary {
   id: string;
   admitted_at: string;
@@ -93,6 +163,9 @@ export interface TrafficSummary {
   type: string;
   decision: string;
   outcome: string;
+  rejection?: Rejection;
+  connect?: ConnectContext;
+  response_source?: string;
 }
 export interface TrafficPage {
   items: TrafficSummary[];
@@ -119,8 +192,9 @@ export function decodeTrafficPage(value: unknown): TrafficPage {
       "type",
       "decision",
       "outcome",
+      ...optionalKeys(value, ["rejection", "connect", "response_source"]),
     ]);
-    const item = {
+    const item: TrafficSummary = {
       id: id(r.id),
       admitted_at: time(r.admitted_at),
       principal_id: id(r.principal_id),
@@ -137,16 +211,48 @@ export function decodeTrafficPage(value: unknown): TrafficPage {
         : item.target === null ||
           item.decision === "invalid" ||
           (item.type === "request") !== (item.target.scheme !== undefined) ||
-          (item.decision === "allow") === (item.outcome === "not_dispatched") ||
+          !validSummaryOutcome(item.decision, item.outcome) ||
           (item.type === "request" && item.decision === "intercept")
     )
       throw new Error("Inconsistent HTTP summary.");
+    if (r.rejection !== undefined) {
+      item.rejection = rejection(r.rejection);
+      if (item.type !== "invalid") throw new Error("Invalid rejection class.");
+    }
+    if (r.connect !== undefined)
+      item.connect = connect(r.connect, item.id, item.target);
+    if (r.response_source !== undefined)
+      item.response_source = closed(r.response_source, ["gateway", "upstream"]);
+    if (item.rejection !== undefined && item.response_source !== "gateway")
+      throw new Error("Invalid rejection source.");
     if (seen.has(item.id)) throw new Error("Duplicate HTTP traffic record.");
     seen.add(item.id);
     return item;
   });
   return { items, nextCursor: p.next_cursor as string | null };
 }
+function validSummaryOutcome(decision: string, outcome: string): boolean {
+  if (decision === "intercept")
+    return outcome === "interception_selected" || outcome === "not_dispatched";
+  if (decision === "block") return outcome === "not_dispatched";
+  return outcome !== "not_dispatched" && outcome !== "interception_selected";
+}
+
+// Older servers used not_dispatched for interception. The recorded decision,
+// never the allowed bit alone, supplies the honest presentation in either era.
+export function trafficOutcome(row: TrafficSummary): string {
+  return row.decision === "intercept" ? "interception_selected" : row.outcome;
+}
+export function trafficDecisionLabel(decision: string, type: string): string {
+  if (decision === "intercept") return "Interception selected";
+  if (type === "connect" && decision === "allow")
+    return "Opaque tunnel allowed";
+  if (type === "connect" && decision === "block") return "CONNECT denied";
+  return decision[0]!.toUpperCase() + decision.slice(1);
+}
+export const interceptionExplanation =
+  "Inner requests are authorized separately. Selection does not prove CONNECT acceptance, TLS establishment, upstream dispatch, request completion or connection closure.";
+
 export interface TrafficItem {
   admission: Record<string, unknown>;
   completion: Record<string, unknown> | null;
@@ -166,6 +272,7 @@ export function decodeTrafficItem(value: unknown): TrafficItem {
     "decision",
     "grants",
     "material",
+    ...optionalKeys(item.admission, ["rejection", "connect"]),
   ]);
   id(a.id);
   time(a.admitted_at);
@@ -181,6 +288,12 @@ export function decodeTrafficItem(value: unknown): TrafficItem {
   )
     throw new Error("Invalid HTTP evidence.");
   const t = target(a.target);
+  if (a.rejection !== undefined) {
+    rejection(a.rejection);
+    if (a.class !== "invalid_request")
+      throw new Error("Invalid rejection class.");
+  }
+  if (a.connect !== undefined) connect(a.connect, String(a.id), t);
   if (a.class === "invalid_request") {
     if (
       a.default !== "" ||
@@ -253,11 +366,16 @@ export function decodeTrafficItem(value: unknown): TrafficItem {
         "bytes_sent",
         "bytes_received",
         "duration_ms",
-        ...(Object.hasOwn(c, "status") ? ["status"] : []),
+        ...optionalKeys(c, ["status", "response_source", "gateway_status"]),
       ]);
       if (!d.allowed || time(c.completed_at) < String(a.evaluated_at))
         throw new Error("Invalid terminal evidence.");
-      closed(c.outcome, trafficOptions.outcome.slice(1));
+      closed(c.outcome, [
+        "outcome_unknown",
+        "succeeded",
+        "prestart_failure",
+        "upstream_failure",
+      ]);
       integer(c.bytes_sent);
       integer(c.bytes_received);
       integer(c.duration_ms);
@@ -266,6 +384,21 @@ export function decodeTrafficItem(value: unknown): TrafficItem {
         (integer(c.status, 100) > 599 || d.transport !== "request")
       )
         throw new Error("Invalid HTTP status.");
+      if (c.response_source !== undefined)
+        closed(c.response_source, ["gateway", "upstream"]);
+      if (
+        c.gateway_status !== undefined &&
+        (c.response_source !== "gateway" ||
+          integer(c.gateway_status, 400) > 599)
+      )
+        throw new Error("Invalid Gateway response.");
+      if (
+        c.response_source === "gateway" &&
+        (c.gateway_status === undefined || c.status !== undefined)
+      )
+        throw new Error("Invalid response source.");
+      if (c.response_source === "upstream" && c.status === undefined)
+        throw new Error("Missing upstream status.");
       if (
         c.outcome === "prestart_failure" &&
         (c.status !== undefined || c.bytes_sent !== 0 || c.bytes_received !== 0)

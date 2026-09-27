@@ -20,16 +20,19 @@ func runHTTPTrafficRead(command *cobra.Command, options *onlineOptions, args []s
 		return runOnlineRead(command, options, "/api/v2/http/traffic/"+args[0], httpTrafficItemTable)
 	}
 	filters := map[string]string{}
-	for _, key := range []string{"principal-id", "destination", "type", "decision", "outcome"} {
+	for _, key := range []string{"principal-id", "destination", "type", "decision", "outcome", "connect-id"} {
 		if value := options.filters[key]; value != nil && *value != "" {
 			apiKey := key
-			if key == "principal-id" {
+			switch key {
+			case "principal-id":
 				apiKey = "principal_id"
+			case "connect-id":
+				apiKey = "connect_id"
 			}
 			filters[apiKey] = *value
 		}
 	}
-	path, err := controlclient.BuildListPath("/api/v2/http/traffic", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"principal_id", "destination", "type", "decision", "outcome"}})
+	path, err := controlclient.BuildListPath("/api/v2/http/traffic", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor, Filters: filters, AllowedFilters: []string{"principal_id", "destination", "type", "decision", "outcome", "connect_id"}})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
@@ -68,6 +71,9 @@ func httpTrafficListTable(body []byte) (controlclient.Table, error) {
 			return controlclient.Table{}, controlclient.ErrResponseInvalid
 		}
 		seen[item.ID] = true
+		if item.Decision == "intercept" {
+			item.Outcome = contract.HTTPOutcomeInterceptionSelected
+		}
 		table.Rows = append(table.Rows, []string{item.AdmittedAt, httpTrafficDestination(item.Target), item.PrincipalID, item.Type, item.Decision, item.Outcome, item.ID})
 	}
 	return table, nil
@@ -85,7 +91,7 @@ func httpTrafficItemTable(body []byte) (controlclient.Table, error) {
 	table := controlclient.Table{Headers: []string{"FIELD", "VALUE"}, Rows: [][]string{{"ID", a.ID}, {"Admitted", a.AdmittedAt}, {"Destination", httpTrafficDestination(a.Target)}, {"Agent", fmt.Sprintf("%s revision %d", a.Principal.ID, a.Principal.Revision)}, {"Agent credential", fmt.Sprintf("%s revision %d", a.AgentCredential.ID, a.AgentCredential.Revision)}, {"Evaluated", a.EvaluatedAt}, {"Evidence", "Policy and material references describe admission time, not current authority."}}}
 	if a.Decision != nil {
 		d := a.Decision
-		table.Rows = append(table.Rows, []string{"Decision", fmt.Sprintf("allowed=%t; %s; policy revision %d; default revision %d", d.Allowed, d.Reason, d.PolicyRevision, d.DefaultRevision)}, []string{"Transport", string(d.Transport)})
+		table.Rows = append(table.Rows, []string{"Decision", fmt.Sprintf("upstream dispatch allowed=%t; %s; policy revision %d; default revision %d", d.Allowed, d.Reason, d.PolicyRevision, d.DefaultRevision)}, []string{"Transport", string(d.Transport)})
 		if d.Transport == contract.HTTPTransportTunnel {
 			table.Rows = append(table.Rows, []string{"Visibility", "Opaque tunnel; no inner-request visibility."})
 		}
@@ -100,11 +106,15 @@ func httpTrafficItemTable(body []byte) (controlclient.Table, error) {
 	if a.Material != nil {
 		table.Rows = append(table.Rows, []string{"Admission-time injection credential", fmt.Sprintf("%s revision %d generation %s", a.Material.Credential.ID, a.Material.Credential.Revision, a.Material.Generation)})
 	}
-	if c := item.Completion; c != nil {
+	c := item.Completion
+	switch {
+	case c != nil:
 		table.Rows = append(table.Rows, []string{"Outcome", c.Outcome}, []string{"Completed", c.CompletedAt}, []string{"HTTP status", strconv.Itoa(c.Status)}, []string{"Bytes sent/received", fmt.Sprintf("%d / %d", c.BytesSent, c.BytesReceived)}, []string{"Duration (ms)", strconv.FormatInt(c.DurationMS, 10)})
-	} else if a.Decision != nil && a.Decision.Allowed {
+	case a.Decision != nil && a.Decision.Transport == contract.HTTPTransportIntercept:
+		table.Rows = append(table.Rows, []string{"Outcome", "Interception selected"}, []string{"Evidence boundary", "Inner requests are authorized separately. Selection does not prove CONNECT acceptance, TLS establishment, upstream dispatch, request completion or connection closure."})
+	case a.Decision != nil && a.Decision.Allowed:
 		table.Rows = append(table.Rows, []string{"Outcome", "Unknown: missing terminal evidence does not prove nonexecution or safe retry."})
-	} else {
+	default:
 		table.Rows = append(table.Rows, []string{"Outcome", "Not dispatched"})
 	}
 	return table, nil

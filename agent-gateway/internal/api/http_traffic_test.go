@@ -34,11 +34,11 @@ func TestHTTPTrafficReadAPI(t *testing.T) {
 	bearer := map[string]string{"Authorization": "Bearer " + testBearer}
 	session := map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin}
 	path := "/api/v2/http/traffic"
-	response := perform(handler, http.MethodGet, path+"?limit=1&principal_id="+testID+"&destination=example.com&type=request&decision=allow&outcome=succeeded&cursor=opaque", "", bearer)
+	response := perform(handler, http.MethodGet, path+"?limit=1&principal_id="+testID+"&principal=Cafe&search_locale=en-US&destination=GiTHuB&type=request&decision=allow&outcome=succeeded&connect_id="+testID+"&cursor=opaque", "", bearer)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	assert.JSONEq(t, `{"items":[],"next_cursor":null}`, response.Body.String())
-	assert.Equal(t, contract.HTTPTrafficQuery{Limit: 1, Cursor: "opaque", Filters: contract.HTTPTrafficFilters{PrincipalID: testID, Destination: "example.com", Type: "request", Decision: "allow", Outcome: "succeeded"}}, reader.query)
+	assert.Equal(t, contract.HTTPTrafficQuery{Limit: 1, Cursor: "opaque", Filters: contract.HTTPTrafficFilters{ConnectID: testID, PrincipalID: testID, Principal: "Cafe", SearchLocale: "en-US", Destination: "GiTHuB", Type: "request", Decision: "allow", Outcome: "succeeded"}}, reader.query)
 	for _, target := range []string{path, path + "/" + testID} {
 		assert.Equal(t, 401, perform(handler, http.MethodGet, target, "", nil).Code)
 		assert.Equal(t, 403, perform(handler, http.MethodGet, target, "", map[string]string{"Cookie": contract.SessionCookieName + "=session"}).Code)
@@ -47,7 +47,7 @@ func TestHTTPTrafficReadAPI(t *testing.T) {
 		assert.Equal(t, 405, perform(handler, http.MethodPost, target, "", bearer).Code)
 	}
 	assert.Equal(t, testID, reader.id)
-	for _, query := range []string{"?secret=x", "?limit=01", "?limit=101", "?limit=1&limit=2", "?destination=", "?type=request&type=connect"} {
+	for _, query := range []string{"?secret=x", "?limit=01", "?limit=101", "?limit=1&limit=2", "?destination=", "?type=request&type=connect", "?connect_id=", "?connect_id=a&connect_id=b", "?principal=", "?principal=a&principal=b", "?search_locale=", "?search_locale=en&search_locale=tr"} {
 		assert.Equal(t, 400, perform(handler, http.MethodGet, path+query, "", bearer).Code, query)
 	}
 	assert.Equal(t, 400, perform(handler, http.MethodGet, path+"/"+testID+"?limit=1", "", bearer).Code)

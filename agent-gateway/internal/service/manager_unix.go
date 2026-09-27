@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
 )
 
@@ -326,7 +327,7 @@ func (m *manager) install(ctx context.Context, changes Changes, result Result) (
 		}
 		root = filepath.Join(m.xdg, "agent-gateway")
 	}
-	d := definition{Settings: apply(Settings{Binary: m.executable, DataDir: root, Listen: "127.0.0.1:8210", TrafficBudgetBytes: 4294967296}, changes), Stdout: filepath.Join(m.logs(), "stdout.log"), Stderr: filepath.Join(m.logs(), "stderr.log")}
+	d := definition{Settings: apply(Settings{Binary: m.executable, DataDir: root, Listen: contract.DefaultAuthority, HTTPProxyListen: contract.DefaultHTTPProxyAuthority, TrafficBudgetBytes: 4294967296}, changes), Stdout: filepath.Join(m.logs(), "stdout.log"), Stderr: filepath.Join(m.logs(), "stderr.log")}
 	if _, err := os.Lstat(m.plist()); !errors.Is(err, os.ErrNotExist) {
 		return result, errors.New("canonical plist already exists or is inaccessible; use service update")
 	}

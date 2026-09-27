@@ -58,12 +58,12 @@ func createHTTPCA(t *testing.T, h *gatewayHarness) []byte {
 }
 
 func TestHTTPProxyProductionActivation(t *testing.T) {
-	h := newGatewayHarness(t)
-	h.binary, _ = httpMaterialBinary(t)
-	certificate := createHTTPCA(t, h)
-	require.NotEmpty(t, certificate)
-	proxyAuthority := unusedAuthority(t)
-	h.serveArgs = append(h.serveArgs, "--http-proxy-listen", proxyAuthority)
+	binary, _ := httpMaterialBinary(t)
+	h := newGatewayHarnessBinary(t, t.Context(), binary)
+	proxyAuthority := contract.DefaultHTTPProxyAuthority
+	// Normal init creates signing material. Omit the proxy address to exercise
+	// the foreground default rather than a configured mock or explicit override.
+	h.serveArgs = h.serveArgs[:len(h.serveArgs)-1]
 	h.Start()
 	defer func() {
 		if h.process != nil {
@@ -150,11 +150,13 @@ func TestHTTPProxyProductionActivation(t *testing.T) {
 
 func TestHTTPProxyStartupFailureCleansPartialBinds(t *testing.T) {
 	h := newGatewayHarness(t)
-	proxy := unusedAuthority(t)
-	args := append(append([]string(nil), h.serveArgs...), "--http-proxy-listen", proxy)
+	proxy := contract.DefaultHTTPProxyAuthority
+	args := append(append([]string(nil), h.serveArgs...), "--clear-http-proxy-listen=false")
 	result, err := h.runner.Run(context.Background(), h.binary, args...)
 	require.Error(t, err)
 	require.Empty(t, result.Stdout)
+	require.Contains(t, string(result.Stderr), "CA signing material")
+	require.Contains(t, string(result.Stderr), "--clear-http-proxy-listen")
 	for _, authority := range []string{h.authority, proxy} {
 		listener, err := net.Listen("tcp4", authority)
 		require.NoError(t, err)
@@ -169,6 +171,8 @@ func TestHTTPProxyStartupFailureCleansPartialBinds(t *testing.T) {
 	result, err = h.runner.Run(context.Background(), h.binary, args...)
 	require.Error(t, err)
 	require.Empty(t, result.Stdout)
+	require.Contains(t, string(result.Stderr), "could not be bound")
+	require.Contains(t, string(result.Stderr), proxy)
 	listener, err := net.Listen("tcp4", h.authority)
 	require.NoError(t, err)
 	require.NoError(t, listener.Close())

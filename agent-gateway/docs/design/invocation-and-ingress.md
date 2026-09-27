@@ -27,17 +27,48 @@ rotation, fence activation and deletion share a nonqueueing material guard held
 only for metadata revalidation and final detachment, never keyring I/O. Registry
 drain, control health, original cancellation and traffic health fence detachment.
 Failed admission or confirmation never dispatches, reevaluates, retries or falls
-back to uninjected access. Unparseable authenticated requests retain only binding,
-identity/time and `invalid_request`, with no target or policy. Unauthenticated or
+back to uninjected access. Unparseable authenticated requests retain binding,
+identity/time and `invalid_request`, with no inner target or policy. New engine
+rejections additionally carry a closed `rejection` stage/reason pair: `headers`
+(`invalid_headers`, `trailers_unsupported`, `upgrade_unsupported`,
+`inner_proxy_authorization`), `request_form` (`connect_body`, `nested_connect`,
+`origin_form_required`, `absolute_http_required`), or `target`
+(`invalid_request_target`, `invalid_connect_target`). These categories describe
+rules, never offending input or parser error strings; their encoded object is at
+most 128 bytes. No partly parsed destination or unvalidated method is retained.
+
+Inner requests carry optional `connect` context: the actual enclosing CONNECT
+admission ID and its canonical host/port, captured in that connection's handler
+closure after acknowledged interception. Every H1 request and concurrent H2 stream
+reauthenticates and verifies the original principal/credential binding before
+recording this context. It is inherited connection evidence, not validated inner
+target evidence, authority, or a timestamp-based join. It remains meaningful if
+retention later removes the parent row. Opaque tunnels expose no inner records;
+older rows have no reconstructed correlation or rejection details. Unauthenticated or
 unverifiable authority produces no durable HTTP row. Denials and interception
 settle the receipt without upstream dispatch; interception is not permission for
-an inner request. An acknowledged allow that loses confirmation remains unknown,
+an inner request. The public summary projects `interception_selected` from the
+recorded interception decision, including historical rows whose stored outcome is
+`not_dispatched`. This selection proves neither CONNECT acceptance, TLS establishment,
+upstream dispatch, request completion nor connection closure; no new lifecycle
+evidence is recorded. `Allowed=false` describes upstream-dispatch permission,
+not general CONNECT failure. A denied CONNECT retains `block` / `not_dispatched`;
+an allowed opaque tunnel retains `allow` and its recorded completion or unknown
+outcome. An acknowledged allow that loses confirmation remains unknown,
 not evidence of execution or a fabricated denial.
 
 HTTP shares the admission/completion queues, fairness, atomic batches, fault
 boundary, active pins and budget with MCP. One synchronous best-effort completion
 attempt records only completion time, closed outcome, optional 100–599 request
-status, nonnegative byte counts and elapsed milliseconds. Outcomes are `succeeded`,
+status, nonnegative byte counts and elapsed milliseconds. New request completions
+also distinguish `response_source` (`gateway` or `upstream`); `status` remains an
+upstream status and `gateway_status` is a separate Gateway-generated 400–599
+response. This records response selection, not confirmed delivery. A selected
+upstream status can survive an interrupted body with an unknown outcome. Rejection
+admission identifies Gateway validation, not an upstream response or proof of
+response delivery. It does not record the final live status: persistence uncertainty
+can require a different Gateway error. Missing source on historical or incomplete evidence
+remains unavailable; it is never inferred from outcome alone. Outcomes are `succeeded`,
 `prestart_failure`, `upstream_failure`, or `outcome_unknown`. Missing terminal
 remains unknown for an allow and never overrides a known live result. Both kinds
 of queued completion reserve 640 bytes, including the full 512-byte payload;
@@ -48,12 +79,15 @@ No background terminal retry or replay is introduced.
 
 `internal/httpproxy` consumes the sole composition-owned authenticator, authority,
 receipt coordinator, HTTP material service, CA signer, remote factory and lifecycle.
-It accepts a dedicated composition-selected listener only with explicit
-`serve --http-proxy-listen` configuration. Omission leaves HTTP disabled without
-loading CA signing material; existing MCP operation remains independent. The
-selected authority must be canonical numeric IPv4 loopback, nonzero and distinct
-from administration/MCP. Both binds and CA load must succeed before startup
-acknowledgement; explicit selection never silently falls back to MCP-only.
+It accepts a dedicated composition-selected listener. Bare `serve` defaults to
+`127.0.0.1:8212`; `serve --http-proxy-listen` overrides the address and
+`--clear-http-proxy-listen` explicitly disables it without loading CA signing
+material. These selections are mutually exclusive. Canonical macOS managed
+launches preserve omitted legacy HTTP configuration as disabled; new installs
+persist the enabled address explicitly. The selected authority must be canonical
+numeric IPv4 loopback, nonzero and distinct from administration/MCP. Both binds
+and CA load must succeed before startup acknowledgement; default or explicit
+enablement never silently falls back to MCP-only.
 Administration, MCP routes and temporary OAuth callbacks are never proxy routes
 or permitted upstream destinations, even with private-address permission.
 
@@ -119,6 +153,20 @@ One completion attempt carries only safe status, byte counts and outcome; interr
 or uncertain dispatch remains unknown and is never replayed. Completion timestamps
 use canonical UTC with exactly nine fractional digits, including on lower-precision
 clocks; trimming trailing zeros violates the traffic store's evidence contract.
+
+Bodyless responses retain status and permitted end-to-end metadata without synthetic
+body writes. Initial header flushing is distinct from streaming body writes: even
+an empty write is invalid for 204/304 on the H2 server. HEAD retains representation
+metadata, including Content-Length, and leaves finalization to the HTTP server under
+a checked finite write deadline. Its `succeeded` completion records a complete
+upstream response and prepared downstream headers, not acknowledged client delivery;
+later server-owned finalization errors cannot revise that completion. Observed
+cancellation or transport errors remain failures/unknown outcomes, never ignored
+normal-closure error strings or replay triggers. H1 retains Go's existing suppression
+of 304 Content-Length (and Content-Type); 304 status, ETag and body absence remain
+preserved. H2 can retain legal 304 representation length, which describes the selected
+representation rather than bytes to be sent. This does not promise that every client
+library interprets that metadata correctly.
 
 ## Governed invocation and audit evidence
 

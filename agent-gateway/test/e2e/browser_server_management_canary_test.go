@@ -65,7 +65,7 @@ func TestBrowserServerManagementCanary(t *testing.T) {
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
 	assert.Equal(t, 7, event.Destinations)
-	require.Len(t, event.Screenshots, 4)
+	require.Len(t, event.Screenshots, 7)
 	t.Logf("diagnostic correlation screenshots: %v", event.Screenshots)
 
 	harness.Stop(os.Interrupt)

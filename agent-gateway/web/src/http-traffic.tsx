@@ -6,6 +6,7 @@ import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 import {
   BinaryToggle,
   CollectionTable,
+  LoadedHistorySummary,
   TableIdentity,
   StateNotice,
   StatusLabel,
@@ -19,6 +20,12 @@ import {
   decodeTrafficItem,
   decodeTrafficPage,
   destinationLabel,
+  rejectionLabel,
+  trafficOutcome,
+  trafficDecisionLabel,
+  interceptionExplanation,
+  type Rejection,
+  type ConnectContext,
   trafficOptions,
   validHTTPTrafficQuery,
   type TrafficItem,
@@ -105,6 +112,8 @@ function listPath(
   const params = new URLSearchParams({ limit: "50" });
   for (const [key, value] of Object.entries(query))
     params.set(key.slice(7), value);
+  if (query.filter_principal)
+    params.set("search_locale", Intl.DateTimeFormat().resolvedOptions().locale);
   if (cursor !== null) params.set("cursor", cursor);
   return `/api/v2/http/traffic?${params}`;
 }
@@ -363,7 +372,7 @@ export function HTTPTraffic({
                 title="Refresh failed. This evidence may be stale."
               />
             )}
-            <TrafficDetail item={current.item} />
+            <TrafficDetail item={current.item} link={link} />
           </>
         )}
       </div>
@@ -371,7 +380,7 @@ export function HTTPTraffic({
   return (
     <section
       class="panel domain-panel"
-      aria-label="HTTP Traffic"
+      aria-label="HTTP traffic history"
       data-testid="http-traffic-view"
     >
       <div class="collection-toolbar live-collection-toolbar">
@@ -402,13 +411,14 @@ export function HTTPTraffic({
           Previously loaded traffic may be stale.
         </StateNotice>
       )}
-      {!current.loaded && !current.error && panel?.status !== "error" ? (
-        <StateNotice state="loading" title="Loading HTTP traffic…" />
+      {!current.loaded ? (
+        !current.error && panel?.status !== "error" ? (
+          <StateNotice state="loading" title="Loading HTTP traffic…" />
+        ) : null
       ) : (
         <>
-          <p>{current.items.length} HTTP traffic records loaded</p>
           <CollectionTable
-            caption="HTTP traffic"
+            caption="HTTP traffic records"
             layout="activity"
             rowHeaderKey="destination"
             rowKey={(row) => row.id}
@@ -465,14 +475,19 @@ export function HTTPTraffic({
               },
               {
                 key: "decision",
-                role: "status",
+                role: "text",
                 label: "Decision",
                 render: (row) => (
-                  <StatusLabel
-                    state={row.decision === "allow" ? "current" : "neutral"}
-                  >
-                    {sentenceCase(row.decision)}
-                  </StatusLabel>
+                  <>
+                    <StatusLabel
+                      state={row.decision === "allow" ? "current" : "neutral"}
+                    >
+                      {trafficDecisionLabel(row.decision, row.type)}
+                    </StatusLabel>
+                    {row.type === "invalid" && (
+                      <div>{rejectionLabel(row.rejection)}</div>
+                    )}
+                  </>
                 ),
               },
               {
@@ -480,27 +495,51 @@ export function HTTPTraffic({
                 role: "status",
                 label: "Outcome",
                 render: (row) => (
-                  <StatusLabel
-                    state={
-                      row.outcome === "succeeded"
-                        ? "current"
-                        : row.outcome === "outcome_unknown"
-                          ? "warning"
-                          : row.outcome === "not_dispatched"
-                            ? "neutral"
-                            : "error"
-                    }
-                  >
-                    {sentenceCase(row.outcome)}
-                  </StatusLabel>
+                  <>
+                    <StatusLabel
+                      state={
+                        trafficOutcome(row) === "succeeded"
+                          ? "current"
+                          : trafficOutcome(row) === "outcome_unknown"
+                            ? "warning"
+                            : [
+                                  "not_dispatched",
+                                  "interception_selected",
+                                ].includes(trafficOutcome(row))
+                              ? "neutral"
+                              : "error"
+                      }
+                    >
+                      {sentenceCase(trafficOutcome(row))}
+                    </StatusLabel>
+                    <div>
+                      Response: {responseSourceLabel(row.response_source)}
+                    </div>
+                  </>
                 ),
               },
             ]}
-            hasMore={current.next !== null && current.items.length < 500}
-            loadingMore={current.loadingOlder}
-            onLoadMore={() => void controller.older()}
-            loadMoreLabel="Load older"
           />
+          <div class="history-continuation">
+            {current.loaded && (
+              <LoadedHistorySummary
+                count={current.items.length}
+                singular="HTTP traffic record"
+                plural="HTTP traffic records"
+                matching={Object.keys(query).length > 0}
+                stale={current.error || panel?.status === "error"}
+              />
+            )}
+            {current.next !== null && current.items.length < 500 && (
+              <button
+                type="button"
+                disabled={current.loadingOlder}
+                onClick={() => void controller.older()}
+              >
+                {current.loadingOlder ? "Loading…" : "Load older"}
+              </button>
+            )}
+          </div>
           {current.olderError && (
             <StateNotice state="error" title="Older traffic unavailable">
               Loaded records are retained. Use Load older to try this read
@@ -554,10 +593,12 @@ function TrafficFilters({
       aria-label="HTTP traffic filters"
     >
       {[
-        ["principal_id", "Agent ID"],
+        ["principal", "Agent"],
         ["destination", "Destination host"],
+        ["connect_id", "CONNECT ID"],
       ].map(([key, label]) => (
         <input
+          type="search"
           aria-label={label}
           placeholder={label}
           value={draft[`filter_${key}`] ?? ""}
@@ -569,6 +610,22 @@ function TrafficFilters({
           }
         />
       ))}
+      {query.filter_principal_id && (
+        <span class="inline-actions">
+          Exact agent ID: <code>{query.filter_principal_id}</code>
+          <button
+            type="button"
+            onClick={() => {
+              const next = { ...draft };
+              delete next.filter_principal_id;
+              setDraft(next);
+              apply(next);
+            }}
+          >
+            Remove exact agent filter
+          </button>
+        </span>
+      )}
       {Object.entries(trafficOptions).map(([key, values]) => (
         <select
           aria-label={sentenceCase(key)}
@@ -584,7 +641,11 @@ function TrafficFilters({
         >
           <option value="">{sentenceCase(key)}: any</option>
           {values.map((value) => (
-            <option value={value}>{sentenceCase(value)}</option>
+            <option value={value}>
+              {key === "decision" && value === "intercept"
+                ? "Interception selected"
+                : sentenceCase(value)}
+            </option>
           ))}
         </select>
       ))}
@@ -600,16 +661,40 @@ function TrafficFilters({
       {error && (
         <StateNotice
           state="error"
-          title="Use an exact agent ID or canonical destination hostname."
+          title="Use an exact CONNECT ID and searches of at most 256 UTF-8 bytes without control characters."
         />
       )}
     </div>
   );
 }
-function TrafficDetail({ item }: { item: TrafficItem }) {
+function responseSourceLabel(source: unknown): string {
+  return source === "gateway"
+    ? "Gateway"
+    : source === "upstream"
+      ? "Upstream"
+      : "Unavailable";
+}
+function TrafficDetail({
+  item,
+  link,
+}: {
+  item: TrafficItem;
+  link: (id?: string) => string;
+}) {
   const a = item.admission,
     d = a.decision as Record<string, unknown> | null,
-    c = item.completion;
+    c = item.completion,
+    rejection = a.rejection as Rejection | undefined,
+    connect = a.connect as ConnectContext | undefined,
+    intercepted =
+      d?.transport === "intercept" && d?.reason === "intercept_required",
+    isConnect =
+      a.target !== null && (a.target as TrafficTarget).scheme === undefined;
+  const relatedLink = serializeLocation({
+    destination: "http-traffic",
+    segments: ["http-traffic"],
+    query: { filter_connect_id: String(a.id) },
+  });
   return (
     <>
       <section class="panel domain-panel">
@@ -634,7 +719,15 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
           <div>
             <dt>Reason</dt>
             <dd>
-              {sentenceCase(d === null ? "invalid_request" : String(d.reason))}
+              {d === null
+                ? rejectionLabel(rejection)
+                : intercepted
+                  ? "Interception selected"
+                  : isConnect
+                    ? d.allowed
+                      ? "Opaque tunnel allowed"
+                      : "CONNECT denied"
+                    : sentenceCase(String(d.reason))}
             </dd>
           </div>
           <div>
@@ -642,35 +735,100 @@ function TrafficDetail({ item }: { item: TrafficItem }) {
             <dd>{d === null ? "None" : sentenceCase(String(d.transport))}</dd>
           </div>
         </dl>
+        {rejection !== undefined && (
+          <details>
+            <summary>Rejection codes</summary>
+            <p>
+              {rejection.stage} · {rejection.reason}
+            </p>
+          </details>
+        )}
+        <dl class="fact-grid">
+          <div>
+            <dt>CONNECT context</dt>
+            <dd>
+              {connect === undefined ? (
+                "Unavailable"
+              ) : (
+                <a href={link(connect.id)}>
+                  <code>{connect.id}</code>
+                </a>
+              )}
+            </dd>
+          </div>
+          {connect !== undefined && (
+            <div>
+              <dt>Destination inherited from CONNECT</dt>
+              <dd>
+                {destinationLabel({ host: connect.host, port: connect.port })}
+              </dd>
+            </div>
+          )}
+        </dl>
+        {connect !== undefined && (
+          <p>Connection context does not validate the inner request target.</p>
+        )}
+        {intercepted && (
+          <p>
+            <a href={relatedLink}>View related inner requests</a>. Only recorded
+            CONNECT correlations are shown; absent records do not prove no
+            requests occurred.
+          </p>
+        )}
         {d?.transport === "tunnel" && (
           <p>Opaque tunnel: inner HTTP requests are not visible.</p>
         )}
       </section>
       <section class="panel domain-panel">
         <h2>Outcome</h2>
+        <dl class="fact-grid">
+          <div>
+            <dt>Response source</dt>
+            <dd>
+              {responseSourceLabel(
+                rejection === undefined ? c?.response_source : "gateway",
+              )}
+            </dd>
+          </div>
+        </dl>
+        {rejection !== undefined && (
+          <p>Gateway rejection. Response delivery is not recorded.</p>
+        )}
         {c === null ? (
           <StateNotice
             state={d?.allowed ? "warning" : "neutral"}
-            title={d?.allowed ? "Unknown outcome" : "Not dispatched"}
+            title={
+              intercepted
+                ? "Interception selected"
+                : d?.allowed
+                  ? "Unknown outcome"
+                  : isConnect
+                    ? "CONNECT denied"
+                    : "Not dispatched"
+            }
           >
-            {d?.allowed
-              ? "Missing terminal evidence does not prove nonexecution or safe retry."
-              : undefined}
+            {intercepted
+              ? interceptionExplanation
+              : d?.allowed
+                ? "Missing terminal evidence does not prove nonexecution or safe retry."
+                : undefined}
           </StateNotice>
         ) : (
           <dl class="fact-grid">
-            {Object.entries(c).map(([key, value]) => (
-              <div>
-                <dt>{sentenceCase(key)}</dt>
-                <dd>
-                  {key === "completed_at" ? (
-                    <UserTime value={String(value)} />
-                  ) : (
-                    sentenceCase(String(value))
-                  )}
-                </dd>
-              </div>
-            ))}
+            {Object.entries(c)
+              .filter(([key]) => key !== "response_source")
+              .map(([key, value]) => (
+                <div>
+                  <dt>{sentenceCase(key)}</dt>
+                  <dd>
+                    {key === "completed_at" ? (
+                      <UserTime value={String(value)} />
+                    ) : (
+                      sentenceCase(String(value))
+                    )}
+                  </dd>
+                </div>
+              ))}
           </dl>
         )}
       </section>

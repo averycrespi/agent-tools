@@ -25,6 +25,7 @@ var administratorBearerFilePattern = regexp.MustCompile(`^mgw_admin_[A-Za-z0-9_-
 
 func TestCLIFirstRun(t *testing.T) {
 	runner := firstRunRunner(t)
+	binary, _ := httpMaterialBinary(t)
 	home := filepath.Join(t.TempDir(), "account-home")
 	require.NoError(t, os.Mkdir(home, 0o700))
 	ambientHome := filepath.Join(t.TempDir(), "ambient-home-decoy")
@@ -33,7 +34,7 @@ func TestCLIFirstRun(t *testing.T) {
 	t.Setenv("HOME", ambientHome)
 	t.Setenv("XDG_DATA_HOME", "")
 
-	initialized, err := runner.Run(t.Context(), gatewayBinary(t), "init", "--confirm")
+	initialized, err := runner.Run(t.Context(), binary, "init", "--confirm")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)
 	root := filepath.Join(home, ".local", "share", gatewaypaths.InstallationName)
@@ -53,7 +54,7 @@ func TestCLIFirstRun(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:8210")
 	require.NoError(t, err, "default listener must be free for first-run evidence")
 	require.NoError(t, listener.Close())
-	process, err := runner.Start(t.Context(), gatewayBinary(t), "serve")
+	process, err := runner.Start(t.Context(), binary, "serve")
 	require.NoError(t, err)
 	running := true
 	t.Cleanup(func() {
@@ -96,7 +97,7 @@ func TestCLIAutomaticBearerSelection(t *testing.T) {
 	require.NoError(t, os.Mkdir(decoyXDG, 0o700))
 	t.Setenv("XDG_DATA_HOME", decoyXDG)
 	authority := unusedAuthority(t)
-	process, err := runner.Start(t.Context(), gatewayBinary(t), "serve", "--data-dir", root, "--listen", authority, "--output", "json")
+	process, err := runner.Start(t.Context(), gatewayBinary(t), "serve", "--clear-http-proxy-listen", "--data-dir", root, "--listen", authority, "--output", "json")
 	require.NoError(t, err)
 	running := true
 	t.Cleanup(func() {
@@ -214,7 +215,7 @@ func TestCLIServeOutputLifecycle(t *testing.T) {
 	for _, mode := range []string{"human", "json"} {
 		t.Run(mode, func(t *testing.T) {
 			authority := unusedAuthority(t)
-			process, err := runner.Start(t.Context(), gatewayBinary(t), "serve", "--data-dir", root, "--listen", authority, "--output", mode)
+			process, err := runner.Start(t.Context(), gatewayBinary(t), "serve", "--clear-http-proxy-listen", "--data-dir", root, "--listen", authority, "--output", mode)
 			require.NoError(t, err)
 			select {
 			case <-process.StdoutReady():

@@ -89,7 +89,7 @@ func (l *singleListener) Addr() net.Addr { return l.conn.LocalAddr() }
 func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, bearer string) {
 	destination, err := httppolicy.ParseConnect(r.RequestURI, r.Host)
 	if err != nil {
-		e.rejectInvalid(w, r, lease)
+		e.rejectInvalid(w, r, lease, nil, "target", "invalid_connect_target")
 		return
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), destination, e.options.Listeners)
@@ -183,7 +183,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	}
 	_ = client.SetDeadline(time.Time{})
 	state := tlsConn.ConnectionState()
-	inside := &intercepted{destination: destination, bearer: bearer, binding: lease.Binding(), sni: state.ServerName}
+	inside := &intercepted{destination: destination, bearer: bearer, binding: lease.Binding(), sni: state.ServerName, connect: contract.HTTPConnectContext{ID: identity.InvocationID, Host: destination.Host(), Port: destination.Port()}}
 	// CONNECT authentication is not retained as a pending lease or inner-stream
 	// entitlement. Every stream uses the original bearer and pins its identity.
 	lease.Release()

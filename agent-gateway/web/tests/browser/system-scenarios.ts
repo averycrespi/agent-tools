@@ -2643,8 +2643,10 @@ export async function runSystemStatus(
   await page.getByText("Healthy", { exact: true }).waitFor();
   body = (await statusPanel.textContent()) ?? "";
   if (
-    (body.match(/No current issues require operator action\./g) ?? [])
-      .length !== 1 ||
+    (await statusPanel
+      .locator('[data-testid="system-status-issues"]')
+      .count()) !== 0 ||
+    body.includes("No current issues require operator action.") ||
     body.includes("No action required") ||
     body.includes("Gateway is operating normally")
   )
@@ -2664,9 +2666,7 @@ export async function runSystemStatus(
     await page.locator('[data-testid="manual-refresh"]').click();
     await page
       .getByText(
-        faulted
-          ? "Shared traffic persistence needs attention"
-          : "No current issues require operator action.",
+        faulted ? "Shared traffic persistence needs attention" : "Healthy",
         { exact: true },
       )
       .waitFor();
@@ -2680,6 +2680,14 @@ export async function runSystemStatus(
       page.getByText("Shared traffic storage", { exact: true }),
     ).toBeVisible();
     await expect(page.getByText("HTTP proxy", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("1.1 MiB / 4 GiB · 0% used", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("1,114,112 / 4,294,967,296 bytes (database + WAL)", {
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(
       page.getByText("2 active requests/streams · 1 opaque tunnels", {
         exact: true,

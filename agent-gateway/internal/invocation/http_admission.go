@@ -20,7 +20,7 @@ type HTTPAdmissionResult struct {
 // AdmitHTTP uses the existing authenticator, authority gate and selected traffic
 // writer. It supplies no listener or forwarding implementation. Only a confirmed
 // result authorizes one immediate dispatch; a readable row never substitutes.
-func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, input authorization.HTTPAccessInput, facts httppolicy.AddressFacts, materials *httpcredentials.Service) (result HTTPAdmissionResult, err error) {
+func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, input authorization.HTTPAccessInput, facts httppolicy.AddressFacts, materials *httpcredentials.Service, contexts ...authorization.HTTPAdmissionContext) (result HTTPAdmissionResult, err error) {
 	if c == nil || c.audits.traffic == nil || !validAdmissionIdentity(identity) {
 		return result, ErrInvalidInput
 	}
@@ -30,7 +30,7 @@ func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorizati
 	}
 	defer traffic.admissionGate.RUnlock()
 	defer c.audits.publishTrafficStatus()
-	evaluation, err := c.authority.EvaluateHTTPAdmission(ctx, lease, identity.InvocationID, identity.AdmittedAt, input, facts)
+	evaluation, err := c.authority.EvaluateHTTPAdmission(ctx, lease, identity.InvocationID, identity.AdmittedAt, input, facts, contexts...)
 	if err != nil {
 		return result, authorization.ErrAdmissionUnavailable
 	}

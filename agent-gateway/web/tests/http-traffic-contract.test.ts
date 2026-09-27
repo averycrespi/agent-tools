@@ -4,6 +4,9 @@ import {
   decodeTrafficItem,
   decodeTrafficPage,
   validHTTPTrafficQuery,
+  rejectionLabel,
+  trafficOutcome,
+  trafficDecisionLabel,
 } from "../src/http-traffic-contract.ts";
 import { parseFragment, serializeLocation } from "../src/location.ts";
 const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -40,25 +43,49 @@ function item() {
     completion: null,
   };
 }
-test("HTTP history deep links retain closed exact filters separately from MCP", () => {
+test("HTTP history deep links retain search and exact diagnostic filters separately from MCP", () => {
   const location = {
     destination: "http-traffic",
     segments: ["http-traffic", id],
-    query: { filter_destination: "example.com", filter_type: "request" },
+    query: {
+      filter_destination: "GiTHuB",
+      filter_principal: "Café investigator",
+      filter_principal_id: id,
+      filter_type: "request",
+    },
   } as const;
   const parsed = parseFragment(
     serializeLocation({ ...location, segments: [...location.segments] }),
   );
   assert.deepEqual({ ...parsed, query: { ...parsed?.query } }, location);
   for (const query of [
-    { filter_destination: "*.example.com" },
-    { filter_destination: "https://example.com/path?token=1" },
+    { filter_destination: "a".repeat(257) },
+    { filter_principal: "é".repeat(129) },
+    { filter_destination: "a\u0000" },
+    { filter_principal: "a\u200b" },
     { filter_type: "mcp" },
     { filter_outcome: "complete" },
     { filter_principal_id: "name" },
+    { filter_connect_id: "name" },
     { unknown: "value" },
   ])
     assert.equal(validHTTPTrafficQuery(query), false);
+  for (const text of [
+    "%",
+    "_",
+    "*",
+    "*.example.com",
+    "github/path",
+    "é".repeat(128),
+  ]) {
+    assert.equal(
+      validHTTPTrafficQuery({
+        filter_destination: text,
+        filter_principal: text,
+      }),
+      true,
+    );
+  }
   assert.equal(
     parseFragment("#/http/traffic?filter_destination=a&filter_destination=b"),
     undefined,
@@ -92,6 +119,147 @@ test("HTTP history rejects unknown fields and contradictory evidence", () => {
   Object.assign(completed.completion, { upstream_error: "private" });
   assert.throws(() => decodeTrafficItem(completed));
 });
+test("Rejection categories, CONNECT context and response provenance are closed", () => {
+  const legacy = item();
+  Object.assign(legacy.admission, {
+    class: "invalid_request",
+    default: "",
+    target: null,
+    decision: null,
+  });
+  assert.deepEqual(decodeTrafficItem(legacy), legacy);
+  assert.equal(rejectionLabel(undefined), "Rejection details unavailable");
+  const current = structuredClone(legacy);
+  Object.assign(current.admission, {
+    rejection: { stage: "target", reason: "invalid_request_target" },
+    connect: {
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      host: "example.com",
+      port: 443,
+    },
+  });
+  assert.deepEqual(decodeTrafficItem(current), current);
+  for (const patch of [
+    { rejection: { stage: "headers", reason: "invalid_request_target" } },
+    { rejection: { stage: "target", reason: "secret".repeat(1000) } },
+    { rejection: { stage: "target", reason: "<script>secret</script>" } },
+    {
+      rejection: {
+        stage: "target",
+        reason: "invalid_request_target",
+        error: "secret",
+      },
+    },
+    { connect: { id, host: "example.com", port: 443 } },
+    {
+      connect: {
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+        host: "example.com/private",
+        port: 443,
+      },
+    },
+  ])
+    assert.throws(() =>
+      decodeTrafficItem({
+        ...current,
+        admission: { ...current.admission, ...patch },
+      }),
+    );
+  const completed = {
+    ...item(),
+    completion: {
+      completed_at: at,
+      outcome: "outcome_unknown",
+      bytes_sent: 0,
+      bytes_received: 0,
+      duration_ms: 0,
+      response_source: "gateway",
+      gateway_status: 502,
+    },
+  };
+  assert.deepEqual(decodeTrafficItem(completed), completed);
+  assert.throws(() =>
+    decodeTrafficItem({
+      ...completed,
+      completion: { ...completed.completion, status: 502 },
+    }),
+  );
+  assert.throws(() =>
+    decodeTrafficItem({
+      ...completed,
+      completion: { ...completed.completion, response_source: "upstream" },
+    }),
+  );
+});
+
+test("CONNECT selection stays separate from denial and terminal outcomes", () => {
+  const summary = {
+    id,
+    admitted_at: at,
+    principal_id: id,
+    target: { host: "example.com", port: 443 },
+    type: "connect",
+    decision: "intercept",
+    outcome: "interception_selected",
+  };
+  for (const outcome of ["interception_selected", "not_dispatched"]) {
+    const row = decodeTrafficPage({
+      items: [{ ...summary, outcome }],
+      next_cursor: null,
+    }).items[0]!;
+    assert.equal(trafficOutcome(row), "interception_selected");
+    assert.equal(
+      trafficDecisionLabel(row.decision, row.type),
+      "Interception selected",
+    );
+  }
+  for (const [decision, outcome] of [
+    ["allow", "interception_selected"],
+    ["block", "interception_selected"],
+    ["intercept", "succeeded"],
+    ["intercept", "outcome_unknown"],
+  ])
+    assert.throws(() =>
+      decodeTrafficPage({
+        items: [{ ...summary, decision, outcome }],
+        next_cursor: null,
+      }),
+    );
+  assert.equal(trafficDecisionLabel("block", "connect"), "CONNECT denied");
+  assert.equal(
+    trafficDecisionLabel("allow", "connect"),
+    "Opaque tunnel allowed",
+  );
+  const selection = item();
+  Object.assign(selection.admission, {
+    target: summary.target,
+    decision: {
+      ...selection.admission.decision,
+      transport: "intercept",
+      allowed: false,
+      reason: "intercept_required",
+    },
+  });
+  assert.deepEqual(decodeTrafficItem(selection), selection);
+  assert.throws(() =>
+    decodeTrafficItem({
+      ...selection,
+      completion: {
+        completed_at: at,
+        outcome: "interception_selected",
+        bytes_sent: 0,
+        bytes_received: 0,
+        duration_ms: 0,
+      },
+    }),
+  );
+  const location = parseFragment(
+    `#/http/traffic?filter_connect_id=${id}&filter_outcome=interception_selected`,
+  );
+  assert.equal(location?.query.filter_connect_id, id);
+  assert.equal(location?.query.filter_outcome, "interception_selected");
+});
+
 test("HTTP summary pages remain bounded without policy snapshots", () => {
   const summary = {
     id,

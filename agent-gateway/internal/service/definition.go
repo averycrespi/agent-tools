@@ -88,6 +88,8 @@ func (s Settings) arguments() []string {
 	}
 	if s.HTTPProxyListen != "" {
 		args = append(args, "--http-proxy-listen", s.HTTPProxyListen)
+	} else {
+		args = append(args, "--clear-http-proxy-listen")
 	}
 	if s.LogLevel != "" {
 		args = append(args, "--log-level", s.LogLevel)
@@ -121,6 +123,9 @@ func parseArguments(args []string) (Settings, error) {
 			s.JSON = true
 			continue
 		}
+		if flag == "--clear-http-proxy-listen" {
+			continue
+		}
 		i++
 		if i >= len(args) {
 			return s, errors.New("incomplete service selection")
@@ -146,6 +151,9 @@ func parseArguments(args []string) (Settings, error) {
 		default:
 			return s, errors.New("unknown service argument; reconcile the installed plist explicitly")
 		}
+	}
+	if seen["--http-proxy-listen"] && seen["--clear-http-proxy-listen"] {
+		return s, errors.New("conflicting HTTP proxy selections")
 	}
 	return s, s.validate()
 }

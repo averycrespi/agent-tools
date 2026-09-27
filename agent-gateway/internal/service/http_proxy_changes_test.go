@@ -18,6 +18,7 @@ func TestHTTPProxyServiceUpdatePreservesOrExplicitlyClears(t *testing.T) {
 	changed = apply(selected, Changes{HTTPProxyListen: &cleared})
 	require.Empty(t, changed.HTTPProxyListen)
 	require.NotContains(t, changed.arguments(), "--http-proxy-listen")
+	require.Contains(t, changed.arguments(), "--clear-http-proxy-listen")
 	require.True(t, observationFlag("--http-proxy-listen", replacement))
 	require.False(t, observationFlag("--http-proxy-listen", "0.0.0.0:8212"))
 }

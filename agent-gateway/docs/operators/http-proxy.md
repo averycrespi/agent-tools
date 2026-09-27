@@ -4,7 +4,8 @@ Audience: Gateway administrators and client operators
 
 Purpose: Enable proxying and configure fresh clients without migrating Broker state.
 
-The proxy is opt-in and cooperative, not network-enforced egress containment.
+The listener is enabled by default for bare `serve` and new managed installs.
+Client proxy use remains cooperative, not network-enforced egress containment.
 MCP permissions never authorize HTTP. New agents, and agents backfilled
 when HTTP defaults were introduced, start at block. Existing agents retain
 their stored `http_default` (`allow` or `block`); configure separate
@@ -26,7 +27,7 @@ mkdir -p "$HOME/.config/agent-gateway"
 chmod 700 "$HOME/.config/agent-gateway"
 umask 077
 agent-gateway http ca export --output "$HOME/.config/agent-gateway/http-ca.pem"
-agent-gateway serve --http-proxy-listen 127.0.0.1:8212
+agent-gateway serve
 ```
 
 Supply the same explicit `--data-dir` to each command for a custom installation.
@@ -34,23 +35,29 @@ Export is public metadata only: it proves neither signing readiness nor client t
 Inspect an export failure rather than trusting an incomplete output file. Init preserves
 an existing CA; replacement is a distinct deliberate stopped operation. Public output defaults to `<data-dir>/http-ca.pem`; `--stdout` explicitly streams PEM.
 
-Administration/MCP stays at `127.0.0.1:8210`; `8212` is the recommended separate
-proxy port. Both listeners accept only canonical numeric IPv4 loopback addresses.
+Administration/MCP stays at `127.0.0.1:8210`; HTTP defaults separately to
+`127.0.0.1:8212`. Use `--http-proxy-listen 127.0.0.1:8213` for a custom address. Both listeners accept only canonical numeric IPv4 loopback addresses.
 The proxy has no administrative routes. Gateway-owned destinations, including
 its temporary OAuth callbacks, are forbidden even with private-network permission.
 A trusted VM forwarding path must be supplied separately; do not expose either
 listener to an untrusted network. Plain proxy authentication is not encrypted on
 the client-to-proxy hop.
 
-Omitting `--http-proxy-listen` keeps MCP-only startup independent of CA availability.
-Explicit selection requires usable signing material and both listener binds;
-any failure prevents successful startup acknowledgement and cleans up the partial
-start. No CA is generated implicitly. For installed macOS management, persist
-`service install --http-proxy-listen 127.0.0.1:8212` or
-`service update --http-proxy-listen 127.0.0.1:8212`. Omitted updates preserve the
-selection; `service update --clear-http-proxy-listen` disables it. Restart preserves
-installed values. See [launchd management](launchd.md); do not run these mutations
-as a smoke test against a live installation.
+Use `serve --clear-http-proxy-listen` for MCP-only startup independent of CA
+availability. Opt-out cannot accompany an explicit proxy address; an empty address
+is rejected. Default and custom enabled selections require usable signing material
+and both listener binds; any failure prevents startup acknowledgement and cleans
+up the partial start. Occupied ports do not select another port or silently disable
+HTTP. No CA is generated during serve and no TLS verification is bypassed.
+
+New macOS `service install` persists the default address; use
+`service install --clear-http-proxy-listen` to opt out. Omitted updates and restart
+preserve existing settings, including legacy missing flags meaning disabled.
+`service update --http-proxy-listen 127.0.0.1:8212` deliberately enables it;
+`service update --clear-http-proxy-listen` disables it. Canonical launchd context
+preserves legacy omission without rewriting old plists; it is not authentication.
+See [launchd management](launchd.md) and [upgrade guidance](upgrade-compatibility.md#http-listener-default-cutover);
+do not run these mutations as a smoke test against a live installation.
 
 `doctor --online` and **System → Status** report enablement, selected address, loaded CA,
 proxy readiness, active request/stream and tunnel counts, connection/work occupancy,
@@ -60,6 +67,84 @@ A traffic persistence fault blocks new MCP dispatch and HTTP forwarding while
 healthy control administration remains available. Shutdown fences admissions and
 settles connection/completion owners before closing CA material and shared storage.
 Missing completion remains unknown; shutdown and restart never replay traffic.
+
+## Interpret CONNECT evidence
+
+**Interception selected** means Gateway selected local interception, not denial or
+successful connection establishment. Inner requests are authorized separately.
+Selection proves neither CONNECT acceptance, TLS establishment, upstream dispatch,
+request completion nor connection closure. The retained `allowed` bit describes
+upstream-dispatch permission; `false` alone does not mean CONNECT failed.
+**CONNECT denied** is a policy rejection. **Opaque tunnel allowed** permits opaque
+forwarding, not inspection of inner requests; missing completion remains unknown.
+
+Use the Interception selected decision/outcome filters to distinguish it from
+Not dispatched denials. Detail offers **View related inner requests**, selected
+only by recorded CONNECT ID, and inner detail links back to that recorded parent.
+The CLI equivalent is `agent-gateway http traffic list --connect-id ID`.
+Retention may remove either side, and older records lack correlation; an empty
+list or unavailable parent never proves no execution or safe replay. Historical
+interception decisions receive the same label without inventing lifecycle events.
+Upgrade the bundled CLI/browser with the service for the new
+`interception_selected` summary outcome; stored admission/completion is unchanged.
+
+## Inspect rejected requests
+
+Open **HTTP → Traffic** to inspect retained request evidence. **Reason** explains
+Gateway pre-dispatch rejection; detail includes the stable stage/reason codes.
+Header failures distinguish invalid/oversized headers, unsupported trailers or
+upgrades, and proxy credentials sent inside CONNECT. Request-form failures
+identify nested/body-bearing CONNECT, missing origin form inside CONNECT, or
+missing absolute HTTP form outside it. Target failures identify request versus
+CONNECT validation; consult the compatibility table below rather than assuming an
+upstream service rejected the request.
+
+**Response source** separates Gateway-generated responses from upstream responses.
+Rejection admission records Gateway validation, not the final live status or
+confirmed delivery to the client. A persistence failure can require a different
+Gateway error. Completion `status` is an upstream status; `gateway_status` records
+a separately generated Gateway error. Neither a response source nor a status
+makes an unknown outcome safe to retry.
+
+**CONNECT context** is the actual enclosing connection's admission ID and inherited
+canonical destination, shared only by that connection's H1 requests/H2 streams.
+It is not validation of the inner target. Retention can remove the parent record;
+missing historical context or rejection details remain unavailable, with no
+backfill or time-based matching. No raw errors, authorization headers, bodies,
+queries, URLs or path fragments are captured to explain a rejection. Parser-level
+framing errors before authentication have no authenticated traffic record.
+
+## Request-target compatibility
+
+Parsing support does not grant forwarding permission. Accepted targets still need
+HTTP authorization, safe resolved addresses and (for HTTPS) verified upstream TLS.
+The [canonical selector contract](../design/identity-and-authorization.md#canonical-selectors-and-forwarding)
+owns normalization and policy semantics.
+
+| Request form                                                                               | Status                | Behavior or limit                                                                                                              |
+| ------------------------------------------------------------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Absolute-form `http://host/path`                                                           | Supported             | Mandatory Host must agree, including the effective port                                                                        |
+| CONNECT `host:443` or `[IPv6]:443`                                                         | Supported             | Explicit canonical port and matching Host; interception is not request permission                                              |
+| Origin-form `/path` inside intercepted H1/H2                                               | Supported             | HTTPS authority comes only from CONNECT; Host and supplied SNI must agree                                                      |
+| Absolute HTTPS on the plain proxy listener; origin-form outside CONNECT; `OPTIONS *`       | Unsupported           | No inferred authority or alternate ingress form                                                                                |
+| `/word-wrap/-/word-wrap-1.2.5.tgz` and `/@anthropic-ai/sdk/-/sdk-0.124.0.tgz`              | Supported             | Literal `@` is path data, not userinfo                                                                                         |
+| `/@scope%2fpkg` scoped npm metadata; escaped `%40`                                         | Deliberately rejected | Reserved escaping can change upstream resource/segment interpretation; tarball support does not qualify a complete npm install |
+| Unreserved escapes such as `/%61pi/~user`                                                  | Supported             | Normalize once to `/api/~user`; grants and forwarding use the same path                                                        |
+| Other reserved path characters, such as `:`, `;`, `+`, and their escapes                   | Unsupported           | Conservative path subset; no general URI-path compatibility claim                                                              |
+| Unicode path bytes, literal or escaped                                                     | Unsupported           | ASCII path subset; Unicode host support is separate                                                                            |
+| Unicode/IDNA DNS hosts, mixed-case DNS, canonical IPv4/IPv6                                | Supported             | Lowercase IDNA A-labels and normalized IPs; mapped IPv6 becomes IPv4                                                           |
+| Trailing-dot hosts, IPv6 zones, alternate numeric IPs, userinfo                            | Deliberately rejected | Avoid authority and resolver interpretation differences                                                                        |
+| Omitted HTTP/HTTPS port; explicit decimal 1–65535                                          | Supported             | Effective 80/443 when omitted; leading zeros, zero and empty ports reject                                                      |
+| Empty URL path; query including duplicate keys, escaped reserved data and empty `?`        | Supported             | Path becomes `/`; query stays opaque and is forwarded unchanged, never matched by policy                                       |
+| Dot segments, repeated slashes, encoded separators, percent/double escaping, path controls | Deliberately rejected | No traversal, second decoding or alternate segment interpretation                                                              |
+| Fragments, malformed escaping, Host/CONNECT/SNI disagreement                               | Deliberately rejected | Fail before upstream dispatch                                                                                                  |
+| WebSockets/upgrades and HTTP/3                                                             | Unsupported           | No automatic opaque-tunnel or TLS-error fallback                                                                               |
+
+Targets are bounded to 8,192 bytes and paths to 4,096 bytes. A supported syntax
+row is not a live-client qualification: deterministic controlled-upstream tests
+do not prove an installed Gateway or an entire package-manager workflow. Do not
+weaken grants, disable TLS verification or switch to a broad tunnel as an automatic
+workaround for a rejected target.
 
 ## Client authentication and trust
 

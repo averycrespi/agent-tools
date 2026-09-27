@@ -45,6 +45,13 @@ agent-gateway serve
 agent-gateway doctor --online
 ```
 
+`serve` also enables HTTP proxying at `127.0.0.1:8212` by default. Select a custom
+address with `--http-proxy-listen`, or use `--clear-http-proxy-listen` for MCP-only
+startup; these selections conflict. Missing CA signing material or a failed bind
+prevents readiness. Existing managed disabled/custom selections remain unchanged;
+see [HTTP listener upgrade guidance](upgrade-compatibility.md#http-listener-default-cutover)
+and [manual proxy/client trust setup](http-proxy.md).
+
 `serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts a canonical numeric `127/8` HTTP URL or an explicitly trusted hostname HTTP URL with a canonical decimal port (1–65535). Wildcard and non-loopback numeric destinations, URL userinfo, paths (including a trailing slash), queries, fragments, forwarding headers, redirects, ambient proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `agent-gateway serve` command for the selected address and explicit data directory. A hostname refusal instead directs you to check forwarding and the numeric-loopback service; a hostname is never a valid `--listen` value.
 
 `GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. `doctor` replaces the old top-level `status` (no alias). It reports independent checks as verified, failed, presence-only, absent, stopped or not checked; an unreachable listener is not proof of a stopped process. It shows one line per condition, with additional indented diagnostics only when needed. The absolute data directory and selection source appear once; paths inside it are relative, while external paths remain absolute. Installed service and log paths appear separately when safely available. `doctor --verbose` adds explanations for every check without running extra checks; `--json` retains structured details regardless of verbosity. File presence proves neither authority nor signing usability. `doctor --verify-storage` opts into expensive stopped, closed-generation inspection without recovery. `doctor --online` adds authenticated public-API status using `--admin-bearer-file` or the selected default. Protected keyring material is not probed. A partial checklist never claims whole-installation readiness.
@@ -177,9 +184,22 @@ agent-gateway http traffic list --destination example.com --type request --outco
 agent-gateway http traffic get TRAFFIC_ID
 ```
 
-Optional exact filters are `--principal-id`, `--destination` (canonical hostname,
-not a URL), `--type`, `--decision`, and `--outcome`. Lists accept the usual
-`--limit`, `--cursor`, and `--output json` controls. Detail preserves historical
+`--destination` searches a case-insensitive literal hostname/IP substring:
+`github` matches `api.github.com`. It never searches paths or interprets wildcard
+or regex syntax. Exact filters remain `--principal-id`, `--connect-id`, `--type`,
+`--decision`, and `--outcome`. Lists accept the usual `--limit`, `--cursor`, and
+`--output json` controls.
+
+In the browser, **Agent** searches current display names using the same accent/case
+and limited typo tolerance as MCP Invocations, or a literal recorded agent-ID
+substring. Missing current names do not erase recorded IDs; names are recognition,
+not admission-time authority. Existing exact-ID diagnostic links stay exact and
+show a removable **Exact agent ID** constraint. Agent and Destination host text
+applies after a short pause; both accept up to 256 UTF-8 bytes without control
+characters. **Clear filters** removes all constraints. Searches combine with the
+other filters, including recorded CONNECT ID, across available history before
+pagination. Applied filters stay in the URL through reload and Back navigation;
+changing them starts a fresh matching traversal, not a filter of loaded rows. Detail preserves historical
 policy selectors and credential-generation references even after grants change;
 they are not current authority. Request paths, queries, headers, bodies and secrets
 are never traffic evidence. CONNECT tunnels expose no inner requests. An allowed
@@ -196,7 +216,7 @@ and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
 pair is needed. Backups remain paired and restore both evidence domains. The stopped
 `maintenance migrate-traffic-storage` command still rejects an already selected pair.
-[Proxy activation and fresh client setup](http-proxy.md) are explicit and separate from control administration.
+[Proxy listener selection and manual client setup](http-proxy.md) remain separate from control administration.
 
 ## Control-plane audit history
 

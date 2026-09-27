@@ -13,9 +13,15 @@ HTTP > Credentials is a distinct navigation group and operator surface at `#/htt
 ## HTTP traffic history
 
 HTTP > Traffic (`#/http/traffic` and record-ID detail) is separate from MCP
-Invocations, HTTP Grants and administrative audit. Lists use exact principal-ID,
-destination hostname, type, decision and outcome filters. The shared table shows
-only admission time, safe destination/method, principal, type, decision and outcome;
+Invocations, HTTP Grants and administrative audit. Agent search uses the same
+server-side current-name recognition as MCP Invocations; Destination host uses
+case-insensitive literal substring matching without wildcard/regex syntax or an
+exact-match toggle. Both apply after the shared 300 ms debounce across available
+history, not loaded rows. Exact principal-ID diagnostic links remain distinct,
+visible and removable; they never broaden into name recognition. These searches
+intersect type, decision, outcome and exact enclosing CONNECT-ID filters. The shared table shows
+admission time, safe destination/method, principal, type, decision, rejection reason,
+response source and outcome;
 principal labels come from the existing batched directory. Detail shows immutable
 admission-time references, default, selected material generation and expandable
 matched selectors, never a reconstruction from current authority. Opaque tunnels
@@ -29,7 +35,23 @@ Live off persists only in memory until session loss. Manual refresh replaces the
 loaded window without enabling Live. Expired shared cursors restart at newest
 with an explicit notice; other read failures preserve prior evidence with a stale
 warning. HTTP uses existing coalesced System traffic invalidations rather than a
-per-record stream. Exact filters and detail links survive Back navigation but no
+per-record stream. Rejection details use fixed readable labels with closed technical
+codes in a disclosure; unavailable historical details and response sources are
+explicit. Detail identifies inherited CONNECT destination and admission ID separately
+from the validated inner target. An absent context is unavailable, not a guessed
+connection; parent retention does not fabricate a surviving related record.
+Interception displays **Interception selected**, distinct from **CONNECT denied**
+and **Opaque tunnel allowed**. Selection does not establish CONNECT acceptance,
+TLS establishment, upstream dispatch, request completion or closure; inner requests
+are separately authorized. Older `not_dispatched` summaries with an interception
+decision use the same honest presentation. Intercepted CONNECT detail links to
+inner records filtered by recorded `connect.id`; inner detail links to the recorded
+parent, which may be unavailable after pruning. An empty related list never proves
+no requests occurred. Missing completion never proves nonexecution or safe replay.
+Applied searches, exact filters and detail links survive reload and Back navigation;
+changing or clearing filters restarts the newest matching page without changing
+Live preference or older-reading pause. Clear filters removes all query constraints.
+No
 cursor or evidence is placed in the URL or browser persistence.
 
 ## HTTP grant administration
@@ -38,7 +60,7 @@ HTTP > Grants (`#/http/grants`) uses the shared authoritative table filters/sort
 
 One adaptive form edits all four explicit types: principal, description, destination and expiry are common; request types add scheme, method rows and path match; allow types expose local/private consequences; only request allows offer whole-scope-compatible HTTPS credentials. Tunnel selection prominently warns of opaque request-policy and injection bypass. No wizard, HTTP self-service request, traffic shortcut or agent-first MCP redesign exists. Drafts/previews are bounded, session-local and never browser-persisted. Exact ETag conflicts require fresh inspection and explicit reconfirmation; uncertain changes have no replay path.
 
-Test access selects principal and request URL/method or explicit CONNECT host/port, calls the actual policy evaluator once, and displays deciding default/grants, transport, credential conflicts and local-access requirements. Network/TLS/material are explicitly unverified; the response confers no future admission authority. Preview targets never enter browser locations, audit, events or logs.
+Test access selects principal and request URL/method or explicit CONNECT host/port. Method is a native dropdown, initially GET, with common methods and a Custom uppercase token input for supported extension methods; CONNECT stays in its separate destination mode. It calls the actual policy evaluator once, and displays deciding default/grants, transport, credential conflicts and local-access requirements. Network/TLS/material are explicitly unverified; the response confers no future admission authority. Preview targets never enter browser locations, audit, events or logs.
 
 ## Browser development boundary
 
@@ -91,7 +113,7 @@ The column inventory is:
 | Servers           | Server, Namespace, Status, Active tools                                            |
 | Available tools   | Tool, Server, Status                                                               |
 | Server tools      | Tool, Status, Last seen                                                            |
-| Agents            | Agent, Status, Visibility                                                          |
+| Agents            | Agent, Status, MCP discovery visibility, HTTP default                              |
 | Grants            | Grant, Agent, Target, Effect, Status, Conditions, Expires                          |
 | Requests          | Submitted, Request, Agent, Target, Status, Requested duration, Conditions, Actions |
 | Invocations       | Admitted, Invocation, Agent, Authorization, Outcome                                |
@@ -146,7 +168,7 @@ Live preference and older-reading pause are independent session-local state. At 
 
 Detail links carry only the applied query, not cursors. Returning or browser Back/Forward revalidates the newest matching page with the same Live/off/paused context and explicitly reports that the previous traversal was discarded. Direct detail entry returns to an unfiltered newest page unless its link supplies a valid query. Session replacement clears all data, preference/pause and traversal state; no opaque cursor, authority, or persistent history cache enters URLs or browser storage. Focus stays in controls during query refresh and compatible content remains during background reads.
 
-A failed continuation retains valid loaded rows and a local read-only retry/error beside Load older. Failed fresh/live reads retain only compatible query data, explicitly stale, and never show false empty success. A stale cursor discards the incompatible traversal before one fresh read; failure retains the restart notice, not old-snapshot pages. Counts say how many invocations are loaded, not an implied history total. Clear filters and Resume live are separate actions.
+A failed continuation retains valid loaded rows and a local read-only retry/error beside Load older. Failed fresh/live reads retain only compatible query data, explicitly stale, and never show false empty success. A stale cursor discards the incompatible traversal before one fresh read; failure retains the restart notice, not old-snapshot pages. HTTP Traffic and MCP Invocations share one polite loaded-history summary below the table beside continuation controls. Counts use singular/plural, matching-query and stale qualifiers and say how many records are loaded, not an implied history total. Clear filters and Resume live are separate actions.
 
 ### Audit clients
 
@@ -204,7 +226,7 @@ CLI `--visibility` help and principal creation output guidance make the same dis
 
 ### Presentation and accessibility
 
-The browser presentation is a compact operational interface rather than a decorative control-plane simulation. Every visible string, surface, divider, and gap must identify state, explain a consequential distinction, prevent an operator mistake, or enable an action; ambient trust slogans, internal card codes, repeated status, and ornamental labels are omitted. A heading, status label, explanation, empty-state message, and action each contribute distinct information rather than restating one conclusion. Shared resource context carries identity and at most one concise status; status destinations own diagnosis and remediation, while task destinations own their controls and do not repeat status guidance or generic links to sibling tabs. Security guidance appears at the decision or input it affects instead of becoming global chrome. Layouts use available space efficiently, reserve cards for meaningful boundaries, prefer aligned tables and grouped fields for operational data, and progressively disclose lengthy healthy detail or advanced controls without hiding exceptions. Core Server Status and System Status technical facts remain directly visible; stable identity or facts needed for copying and diagnosis do not depend on opening a disclosure. Shared typography, spacing, controls, empty states, tables, forms, and responsive navigation make the compact path the default. Narrow layouts preserve every action and state distinction without clipping tabs or relying on unexplained horizontal overflow, while minimum targets, focus, reflow, and non-color semantics remain mandatory.
+The browser presentation is a compact operational interface rather than a decorative control-plane simulation. Every visible string, surface, divider, and gap must identify state, explain a consequential distinction, prevent an operator mistake, or enable an action; ambient trust slogans, internal card codes, repeated status, and ornamental labels are omitted. A heading, status label, explanation, empty-state message, and action each contribute distinct information rather than restating one conclusion. Shared resource context carries identity and at most one concise status; status destinations own diagnosis and remediation, while task destinations own their controls and do not repeat status guidance or generic links to sibling tabs. Security guidance appears at the decision or input it affects instead of becoming global chrome. Layouts use available space efficiently, reserve cards for meaningful boundaries, prefer aligned tables and grouped fields for operational data, and progressively disclose lengthy healthy detail or advanced controls without hiding exceptions. Healthy status omits empty Needs attention sections and duplicate reassurance. Operational facts use aligned rows; storage shows readable binary units and utilization with exact byte values as secondary detail, and routine capacity links to Resource limits. Core Server Status and System Status technical facts remain directly visible; stable identity or facts needed for copying and diagnosis do not depend on opening a disclosure. Shared typography, spacing, controls, empty states, tables, forms, and responsive navigation make the compact path the default. Narrow layouts preserve every action and state distinction without clipping tabs or relying on unexplained horizontal overflow, while minimum targets, focus, reflow, and non-color semantics remain mandatory.
 
 Form controls reflect the operator's task and the structure of the data. Optional does not mean advanced: ordinary applicable settings stay visible, while disclosure is reserved for genuinely advanced or infrequently needed controls. Headings must add meaning rather than repeat optional labels. Conditional fields and their guidance appear immediately after the controlling choice, before unrelated fields. Use consistent add/remove controls for zero-or-more values rather than asking operators to encode lists with line breaks or delimiters. Helper text explains what belongs in a field, where to obtain it, or what leaving it blank does when that information is needed; it uses concrete operator language without weakening exact security restrictions. Guidance matches create versus edit context, selected options, and the actual next action. Advanced-form disclosures use explicit Show/Hide labels and accessible expanded state, initially reveal configured overrides, and reveal validation errors; collapsing a section never clears its values. Classify advanced fields by normal usage, not technical importance. Name actions by domain object rather than UI structure or storage internals. Distinct tasks have distinct names and follow prerequisite order; when a prerequisite is authoritatively known to be missing, keep subsequent tasks visible with corrective guidance rather than guessing readiness. Approval and rejection have separate labeled control/action groups. Review and submit actions use shared 16px form-action spacing, including credential and error states. Browser expiry controls accept local date/time and serialize UTC instants; review uses the shared localized time presentation. Request approval durations use a whole-number amount and explicit unit, preserving exact seconds and the submitted upper bound in the API. Neither readable inputs nor labels change policy or credential semantics.
 

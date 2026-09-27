@@ -75,7 +75,7 @@ func TestHTTPProxyInterceptedStreamingRotationAndFourPriorities(t *testing.T) {
 	t.Setenv("SSL_CERT_FILE", trust)
 	ca := createHTTPCA(t, h)
 	proxyAuthority := unusedAuthority(t)
-	h.serveArgs = append(h.serveArgs, "--http-proxy-listen", proxyAuthority)
+	h.serveArgs = append(h.serveArgs, "--clear-http-proxy-listen=false", "--http-proxy-listen", proxyAuthority)
 	h.Start()
 	defer func() {
 		finish()

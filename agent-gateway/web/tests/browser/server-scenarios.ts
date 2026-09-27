@@ -218,6 +218,36 @@ export async function runServerManagementCanary(
     await page.screenshot({ path });
     diagnosticScreenshots.push(path);
   }
+  Object.assign(server.runtime, {
+    state: "active",
+    reason: null,
+    runtime_id: "0123456789abcdef0123456789abcdef",
+    dispatch: { in_use: 0, limit: 4, saturated: false },
+  });
+  server.credential_state = "ready";
+  server.catalog.active_state = "current";
+  server.catalog.active_revision = "7";
+  await page.reload();
+  await expect(
+    serverStatus.getByRole("button", { name: "Copy runtime ID" }),
+  ).toBeVisible();
+  await expect(serverStatus.getByTestId("server-status-issues")).toHaveCount(0);
+  await expect(
+    page.getByTestId("server-context").getByText("Ready", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    serverStatus.getByText("No runtime issue reported", { exact: true }),
+  ).toHaveCount(0);
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(width);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    const path = join(screenshotRoot, `healthy-${width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    diagnosticScreenshots.push(path);
+  }
   await page.setViewportSize({ width: 1280, height: 900 });
   await serverStatus.getByRole("button", { name: "Copy server ID" }).click();
   await page.waitForFunction(() => {

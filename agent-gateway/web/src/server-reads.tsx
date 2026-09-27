@@ -2428,63 +2428,64 @@ export function ServerReads({
                 const hasPrimaryIssue = presentation.action !== undefined;
                 return (
                   <div class="operator-status-stack">
-                    <section
-                      class="operator-status-section"
-                      aria-labelledby="server-issues-title"
-                      data-testid="server-status-issues"
-                    >
-                      <div class="operator-status-section-heading">
-                        <h3 id="server-issues-title">Needs attention</h3>
-                        {(hasPrimaryIssue || saturated.length > 0) && (
-                          <span>Operator action may be required</span>
-                        )}
-                      </div>
-                      {server.desiredState === "deleted" && (
-                        <StateNotice state="unavailable" title="Deleted">
-                          <p>{serverExplanation(presentation, server)}</p>
-                          {server.deletedAt !== null && (
-                            <p>
-                              Deleted <UserTime value={server.deletedAt} />
-                            </p>
+                    {(hasPrimaryIssue ||
+                      saturated.length > 0 ||
+                      server.desiredState === "deleted") && (
+                      <section
+                        class="operator-status-section"
+                        aria-labelledby="server-issues-title"
+                        data-testid="server-status-issues"
+                      >
+                        <div class="operator-status-section-heading">
+                          <h3 id="server-issues-title">Needs attention</h3>
+                          {(hasPrimaryIssue || saturated.length > 0) && (
+                            <span>Operator action may be required</span>
                           )}
-                        </StateNotice>
-                      )}
-                      {hasPrimaryIssue && (
-                        <StateNotice
-                          state={
-                            presentation.state === "current"
-                              ? "warning"
-                              : presentation.state
-                          }
-                          title={presentation.label}
-                        >
-                          <p>{serverExplanation(presentation, server)}</p>
-                          {presentation.href !== undefined &&
-                            presentation.href !==
-                              `#/mcp/servers/${server.id}` && (
-                              <a href={presentation.href}>
-                                {presentation.action}
-                              </a>
+                        </div>
+                        {server.desiredState === "deleted" && (
+                          <StateNotice state="unavailable" title="Deleted">
+                            <p>{serverExplanation(presentation, server)}</p>
+                            {server.deletedAt !== null && (
+                              <p>
+                                Deleted <UserTime value={server.deletedAt} />
+                              </p>
                             )}
-                        </StateNotice>
-                      )}
-                      {saturated.map(([label, capacity]) => (
-                        <StateNotice
-                          key={label}
-                          state="warning"
-                          title={`${label} capacity is saturated`}
-                        >
-                          <p>
-                            {capacity.inUse} of {capacity.limit} slots are in
-                            use. New work cannot be admitted until capacity is
-                            released.
-                          </p>
-                        </StateNotice>
-                      ))}
-                      {!hasPrimaryIssue && saturated.length === 0 && (
-                        <p>No current issues require operator action.</p>
-                      )}
-                    </section>
+                          </StateNotice>
+                        )}
+                        {hasPrimaryIssue && (
+                          <StateNotice
+                            state={
+                              presentation.state === "current"
+                                ? "warning"
+                                : presentation.state
+                            }
+                            title={presentation.label}
+                          >
+                            <p>{serverExplanation(presentation, server)}</p>
+                            {presentation.href !== undefined &&
+                              presentation.href !==
+                                `#/mcp/servers/${server.id}` && (
+                                <a href={presentation.href}>
+                                  {presentation.action}
+                                </a>
+                              )}
+                          </StateNotice>
+                        )}
+                        {saturated.map(([label, capacity]) => (
+                          <StateNotice
+                            key={label}
+                            state="warning"
+                            title={`${label} capacity is saturated`}
+                          >
+                            <p>
+                              {capacity.inUse} of {capacity.limit} slots are in
+                              use. New work cannot be admitted until capacity is
+                              released.
+                            </p>
+                          </StateNotice>
+                        ))}
+                      </section>
+                    )}
 
                     <section
                       class="operator-status-section"
@@ -2500,11 +2501,11 @@ export function ServerReads({
                             <span>
                               Desired {sentenceCase(server.desiredState)}
                             </span>
-                            <span>
-                              {server.runtimeReason === null
-                                ? "No runtime issue reported"
-                                : `Reason: ${sentenceCase(server.runtimeReason)}`}
-                            </span>
+                            {server.runtimeReason !== null && (
+                              <span>
+                                Reason: {sentenceCase(server.runtimeReason)}
+                              </span>
+                            )}
                           </dd>
                         </div>
                         <div>
@@ -2590,9 +2591,18 @@ export function ServerReads({
                             )}
                           </dd>
                         </div>
-                        <div>
+                        <div class="technical-details-wide">
                           <dt>Runtime ID</dt>
-                          <dd>{server.runtimeID ?? "—"}</dd>
+                          <dd>
+                            {server.runtimeID === null ? (
+                              "—"
+                            ) : (
+                              <CopyableValue
+                                value={server.runtimeID}
+                                label="runtime ID"
+                              />
+                            )}
+                          </dd>
                         </div>
                         <div>
                           <dt>Desired revision</dt>

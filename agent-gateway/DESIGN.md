@@ -43,7 +43,7 @@ If summaries disagree, the owning normative chapter controls product intent and 
 
 ## Security model
 
-- Bind administration/MCP to one configured numeric IPv4 loopback authority and opt-in HTTP proxying to a distinct loopback authority. Optional per-server OAuth callbacks use composition-owned temporary numeric-loopback callback-only listeners, never additional main-service routes. Reject wildcard and non-loopback binds, unlisted Host authorities, forwarding headers, trusted proxies, and CORS. Explicit hostname-only `--allowed-host` entries grant reachability through trusted local forwarding, never credentials or additional browser Origin trust.
+- Bind administration/MCP to one configured numeric IPv4 loopback authority and default-on HTTP proxying to a distinct loopback authority. Optional per-server OAuth callbacks use composition-owned temporary numeric-loopback callback-only listeners, never additional main-service routes. Reject wildcard and non-loopback binds, unlisted Host authorities, forwarding headers, trusted proxies, and CORS. Explicit hostname-only `--allowed-host` entries grant reachability through trusted local forwarding, never credentials or additional browser Origin trust.
 - Own every route and method explicitly. Authenticate production MCP requests before reading or classifying their bodies.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation paths separate. Raw secrets may appear only at approved one-time sinks.
 - Treat SQLite availability and integrity as security state. Security-critical writes fail closed, uncertain durability latches storage, and recovery is stopped-process only.
@@ -84,7 +84,7 @@ Executable retirement preserves explicit installation selection and process lock
 
 The executable exposes stopped-process initialization, administrator reset, current-generation verification, and verified backup replacement. The serving process provides the verified HTTP/control composition, embedded browser application, online CLI API, server reconciliation, and production MCP ingress.
 
-Before acknowledging readiness, composition validates one complete authority graph and all explicitly selected listeners. Optional HTTP selection also requires existing CA signing material; missing material or partial binding fails with cleanup rather than a false readiness acknowledgement. Readiness begins before downstream runtime reconstruction so a server-specific failure remains isolated.
+Before acknowledging readiness, composition validates one complete authority graph and all selected listeners. Bare `serve` and new managed installations default HTTP to `127.0.0.1:8212`; explicit opt-out and existing managed disabled selections remain supported. Enabled HTTP requires existing CA signing material; missing material or partial binding fails with cleanup rather than a false readiness acknowledgement. Readiness begins before downstream runtime reconstruction so a server-specific failure remains isolated.
 
 Product compatibility includes public HTTP and MCP JSON, CLI domain command spellings, durable schema and backup lineage, fixed limits, and runtime behavior. Supported restore lineages and MCP protocol eras are defined in their owning chapters. Maintainer acceptance reports and external sidecars are definition-bound evidence artifacts rather than product interfaces; the release verification guide owns their procedures and compatibility rules.
 
