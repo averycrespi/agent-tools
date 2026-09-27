@@ -81,10 +81,23 @@ export class RelatedHistory<T> {
               notice:
                 "History changed. Refresh the page before reading related evidence.",
             };
+          const combined = cursor
+            ? [...previous.items, ...page.items]
+            : page.items;
+          const capped =
+            combined.length > 500 ||
+            (combined.length === 500 && page.next !== null);
           return {
             ...page,
             key: context.viewKey,
-            items: cursor ? [...this.value.items, ...page.items] : page.items,
+            items: combined.slice(0, 500),
+            next: capped ? null : page.next,
+            ...(capped
+              ? {
+                  notice:
+                    "Showing the first 500 related records. Refresh to restart at the newest evidence.",
+                }
+              : {}),
             loaded: true,
             loading: false,
             error: false,
