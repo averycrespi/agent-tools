@@ -130,10 +130,56 @@ async function grantResponse(response: Response): Promise<Grant> {
 function destination(p: Policy): Destination {
   return p.destination ?? p.request!.origin;
 }
-function summary(p: Policy): string {
+function PolicyFacts({ policy: p }: { policy: Policy }) {
   const d = destination(p);
   const r = p.request;
-  return `${labels[p.type]} · ${r === undefined ? "" : r.origin.scheme + "://"}${d.host}:${d.port}${r === undefined ? "" : ` · ${r.methods.any ? "Any method" : r.methods.values!.join(", ")} · ${r.path.kind === "any" ? "Any path" : r.path.kind === "exact" ? r.path.value : r.path.value + " and descendants"}`}`;
+  return (
+    <>
+      <div>
+        <dt>Type</dt>
+        <dd>{labels[p.type]}</dd>
+      </div>
+      <div>
+        <dt>Destination</dt>
+        <dd>
+          {r === undefined ? "" : r.origin.scheme + "://"}
+          {d.host}:{d.port}
+        </dd>
+      </div>
+      {r !== undefined && (
+        <>
+          <div>
+            <dt>Methods</dt>
+            <dd>
+              {r.methods.any ? "Any method" : r.methods.values!.join(", ")}
+            </dd>
+          </div>
+          <div>
+            <dt>Path</dt>
+            <dd>
+              {r.path.kind === "any"
+                ? "Any path"
+                : r.path.kind === "exact"
+                  ? r.path.value
+                  : r.path.value + " and descendants"}
+            </dd>
+          </div>
+        </>
+      )}
+      {(p.type === "allow_requests" || p.type === "allow_tunnel") && (
+        <div>
+          <dt>Local/private access</dt>
+          <dd>{p.allow_private ? "Enabled" : "Disabled"}</dd>
+        </div>
+      )}
+      {p.type === "allow_requests" && (
+        <div>
+          <dt>Credential</dt>
+          <dd>{p.credential_id ?? "No credential"}</dd>
+        </div>
+      )}
+    </>
+  );
 }
 interface Props {
   session: SessionClient;
@@ -258,16 +304,27 @@ export function HTTPGrants(props: Props) {
       </header>
       <section class="panel domain-panel">
         <h2>Current policy</h2>
-        <p>{summary(detail.policy)}</p>
-        <p>
-          <a href={`#/agents/${detail.principal_id}`}>
-            Agent {detail.principal_id}
-          </a>
-        </p>
-        <p class="technical-value">{detail.id}</p>
-        <p>
-          Expires: <UserTime value={detail.expires_at} fallback="No expiry" />
-        </p>
+        <dl class="fact-grid">
+          <PolicyFacts policy={detail.policy} />
+          <div>
+            <dt>Agent</dt>
+            <dd>
+              <a href={`#/agents/${detail.principal_id}`}>
+                Agent {detail.principal_id}
+              </a>
+            </dd>
+          </div>
+          <div>
+            <dt>Grant ID</dt>
+            <dd>{detail.id}</dd>
+          </div>
+          <div>
+            <dt>Expires</dt>
+            <dd>
+              <UserTime value={detail.expires_at} fallback="No expiry" />
+            </dd>
+          </div>
+        </dl>
       </section>
       <GrantEditor {...props} grant={detail} />
     </div>
@@ -555,7 +612,10 @@ function GrantEditor(props: Props & { grant?: Grant }) {
           principal_id: principal,
           description: description || null,
           policy,
-          expires_at: expiry === "" ? null : new Date(expiry).toISOString(),
+          expires_at:
+            expiry === ""
+              ? null
+              : new Date(expiry).toISOString().replace(/\.000Z$/, "Z"),
         });
     void mutation.submit(
       {
@@ -795,7 +855,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                 <FormField
                   id="http-grant-path"
                   label="Path"
-                  hint="Slash and unreserved characters only; query, header and body matching are not supported."
+                  hint="Slash, literal @ and unreserved characters only; query, header and body matching are not supported."
                 >
                   {(a) => (
                     <input
@@ -902,13 +962,32 @@ function GrantEditor(props: Props & { grant?: Grant }) {
         open={confirm !== undefined}
         title={confirm === "delete" ? "Delete HTTP grant" : "Apply HTTP grant"}
         consequence={
-          confirm === "delete"
-            ? "Remove this grant. Other grants and the agent default still apply."
-            : summary(policy) +
-              (privateAccess && allow
-                ? " · Local/private access enabled"
-                : "") +
-              (policy.credential_id ? " · Credential injection required" : "")
+          confirm === "delete" ? (
+            "Remove this grant. Other grants and the agent default still apply."
+          ) : (
+            <dl class="fact-grid">
+              <div>
+                <dt>Agent</dt>
+                <dd>
+                  {principals.find((p) => p.id === principal)?.displayName ??
+                    "Agent"}{" "}
+                  · {principal}
+                </dd>
+              </div>
+              <PolicyFacts policy={policy} />
+              <div>
+                <dt>Expires</dt>
+                <dd>
+                  <UserTime
+                    value={
+                      expiry === "" ? null : new Date(expiry).toISOString()
+                    }
+                    fallback="No expiry"
+                  />
+                </dd>
+              </div>
+            </dl>
+          )
         }
         confirmLabel={confirm === "delete" ? "Delete grant" : "Apply grant"}
         destructive={confirm === "delete"}

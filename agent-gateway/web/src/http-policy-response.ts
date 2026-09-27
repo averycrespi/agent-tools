@@ -238,7 +238,7 @@ export function validatePolicy(value: unknown): void {
         typeof path.value !== "string" ||
         path.value.length > 4096 ||
         !path.value.startsWith("/") ||
-        !/^[A-Za-z0-9/._~-]+$/.test(path.value) ||
+        !/^[A-Za-z0-9/._~@-]+$/.test(path.value) ||
         path.value.includes("//") ||
         path.value
           .split("/")

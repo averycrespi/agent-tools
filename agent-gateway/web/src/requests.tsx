@@ -100,6 +100,8 @@ interface TargetComparison {
 }
 export interface RequestDetail extends RequestSummary {
   submittedConstraintSource: string | null;
+  approvedConstraintSource: string | null;
+  approvedPolicySource: string | null;
   resolvedServerID: string;
   resolvedUpstreamName: string | null;
   submittedEvidence: DescriptorEvidence | null;
@@ -269,7 +271,7 @@ function decodeTarget(value: unknown): TargetComparison {
 export function decodeRequestDetail(
   value: unknown,
   etag: string,
-  submittedConstraintSource?: string | null,
+  source: string,
 ): RequestDetail {
   const keys = [
     ...summaryKeys,
@@ -286,12 +288,15 @@ export function decodeRequestDetail(
   const resolvedUpstreamName = nullableText(item.resolved_upstream_name);
   return {
     ...summary,
-    submittedConstraintSource:
-      submittedConstraintSource === undefined
-        ? summary.requestedPolicy.constraint === null
-          ? null
-          : JSON.stringify(summary.requestedPolicy.constraint)
-        : submittedConstraintSource,
+    submittedConstraintSource: requestedConstraintSource(source),
+    approvedConstraintSource: requestedConstraintSource(
+      source,
+      "approved_policy",
+    ),
+    approvedPolicySource:
+      summary.approvedPolicy === null
+        ? null
+        : jsonMemberSource(source, "approved_policy")!,
     resolvedServerID: id(item.resolved_server_id),
     resolvedUpstreamName,
     submittedEvidence:
@@ -356,9 +361,13 @@ function jsonMemberSource(source: string, key: string): string | undefined {
     else throw new Error("invalid response");
   }
 }
-function requestedConstraintSource(source: string): string | null {
-  const policy = jsonMemberSource(source, "requested_policy");
+function requestedConstraintSource(
+  source: string,
+  member = "requested_policy",
+): string | null {
+  const policy = jsonMemberSource(source, member);
   if (policy === undefined) throw new Error("invalid response");
+  if (policy === "null") return null;
   const constraint = jsonMemberSource(policy, "constraint");
   if (constraint === undefined) throw new Error("invalid response");
   return constraint === "null" ? null : constraint;
@@ -449,11 +458,7 @@ async function readRequest(
       `"grant-request-${requestID}-${(result.value as JSONRecord).revision}"`
   )
     throw new Error("The current request revision is unavailable.");
-  return decodeRequestDetail(
-    result.value,
-    etag,
-    requestedConstraintSource(result.source),
-  );
+  return decodeRequestDetail(result.value, etag, result.source);
 }
 function readableDuration(seconds: string | null): string {
   if (seconds === null) return "No expiry";
@@ -480,12 +485,17 @@ function Conditions({
       <div>
         <ul class="request-conditions">
           {(["equals", "regex"] as const).flatMap((operator) =>
-            Object.entries(shape[operator]).map(([pointer, value]) => (
+            Object.keys(shape[operator]).map((pointer) => (
               <li>
                 {locked && <strong>Locked · </strong>}
                 <code>{pointer}</code>{" "}
                 {operator === "equals" ? "equals" : "matches"}{" "}
-                <code>{JSON.stringify(value)}</code>
+                <code>
+                  {jsonMemberSource(
+                    jsonMemberSource(source, operator)!,
+                    pointer,
+                  )}
+                </code>
               </li>
             )),
           )}
@@ -930,7 +940,7 @@ function RequestActions({
     const value = JSON.parse(source) as unknown;
     const etag = response.headers.get("ETag");
     if (etag === null) throw new Error("invalid response");
-    return decodeRequestDetail(value, etag, requestedConstraintSource(source));
+    return decodeRequestDetail(value, etag, source);
   };
   const selectedApprovalDescriptorSummary = approvalDescriptors?.find(
     (descriptor) => descriptor.externalName === target,
@@ -2137,20 +2147,17 @@ export function Requests({
                   <h4>Requested conditions</h4>
                   <Conditions source={detail.submittedConstraintSource} />
                   <h4>Approved conditions</h4>
-                  <Conditions
-                    source={
-                      detail.approvedPolicy.constraint === null
-                        ? null
-                        : JSON.stringify(detail.approvedPolicy.constraint)
-                    }
-                  />
+                  <Conditions source={detail.approvedConstraintSource} />
                 </section>
                 <details>
                   <summary>Approved serialized policy</summary>
-                  <InertJSON
-                    value={detail.approvedPolicy}
-                    label="Approved policy"
-                  />
+                  <pre
+                    class="inert-json"
+                    tabindex={0}
+                    aria-label="Approved policy"
+                  >
+                    {detail.approvedPolicySource}
+                  </pre>
                 </details>
               </>
             )}

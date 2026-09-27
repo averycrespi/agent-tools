@@ -794,6 +794,27 @@ export async function runServerCreateUpdate(
   await page.getByText("Enter an OAuth network origin.").waitFor();
   if ((await origin.getAttribute("aria-invalid")) !== "true")
     fail("normalized OAuth origin error was not associated with its row");
+  for (const invalid of [
+    "http://login.internal.example",
+    "https://127.0.0.1",
+    "https://[::1]",
+    "https://login.internal.example:443",
+    "https://Login.internal.example",
+    "https://bad_host.example",
+    "https://login.internal.example/",
+  ]) {
+    await origin.fill(invalid);
+    await page.getByTestId("server-editor-submit").click();
+    await expect(
+      page.getByText(
+        "Use a lowercase DNS origin without an IP address, path, or default port.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(origin).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByTestId("server-creation-review")).not.toBeVisible();
+  }
+  await captureStateFeedback(page, "oauth-origin-invalid");
   await origin.fill("  https://login.internal.example  ");
   await page.locator("#server-offline-access").check();
   await page.locator("#server-namespace").fill("trim-probe");

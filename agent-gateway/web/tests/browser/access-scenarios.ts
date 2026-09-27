@@ -30,6 +30,21 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
       fail(`Request ${state} overflows at ${label}`);
     const dialog = page.locator("dialog[open]");
     const modal = (await dialog.count()) > 0;
+    if (
+      [
+        "exact-tool-approved",
+        "grant-delete-first",
+        "synthetic-exact-table",
+      ].includes(state)
+    ) {
+      const skip = await page.locator(".skip-link").evaluate((node) => ({
+        focused: node === document.activeElement,
+        bottom: node.getBoundingClientRect().bottom,
+      }));
+      expect(skip.focused).toBe(false);
+      expect(skip.bottom).toBeLessThan(0);
+      await page.screenshot({ path: join(directory, `${label}-viewport.png`) });
+    }
     await page.screenshot({
       path: join(directory, `${label}.png`),
       fullPage: !modal,
@@ -2784,7 +2799,7 @@ export async function runGrantCorrection(
     principal_id: principalID,
     effect,
     server_id: target,
-    upstream_name: null,
+    upstream_name: null as string | null,
     constraint: null,
     expires_at: state === "expired" ? "2026-08-28T12:30:00Z" : null,
     state,
@@ -2808,6 +2823,16 @@ export async function runGrantCorrection(
     [grantIDs[8]!, grant(grantIDs[8]!, principalIDs[8]!, "allow", zero)],
     [grantIDs[9]!, grant(grantIDs[9]!, principalIDs[9]!, "allow", zero)],
   ]);
+  const retainedAllowID = "01ARZ3NDEKTSV4RRFFQ69G5FZZ";
+  const syntheticExactID = "01ARZ3NDEKTSV4RRFFQ69G5FZY";
+  grants.set(
+    retainedAllowID,
+    grant(retainedAllowID, principalIDs[1]!, "allow"),
+  );
+  grants.set(syntheticExactID, {
+    ...grant(syntheticExactID, principalIDs[7]!, "deny", zero),
+    upstream_name: "get_identity",
+  });
   const replacements = new Map<string, string>();
   let creates = 0;
   let deletes = 0;
@@ -3038,7 +3063,11 @@ export async function runGrantCorrection(
   await page.getByTestId("correction-effect").selectOption("allow");
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByText(/replacement now overlaps/).waitFor();
+  await page
+    .getByText("Replacement grant created; original grant not yet deleted.", {
+      exact: true,
+    })
+    .waitFor();
   if (Number(creates) !== 1 || Number(deletes) !== 0)
     fail("create-first auto-submitted deletion");
   await page.locator('[data-testid="grant-correction-step"]').click();
@@ -3051,7 +3080,11 @@ export async function runGrantCorrection(
   await page.locator('[data-testid="grant-correct"]').click();
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByText(/replacement now overlaps/).waitFor();
+  await page
+    .getByText("Replacement grant created; original grant not yet deleted.", {
+      exact: true,
+    })
+    .waitFor();
   const reloadDeletes = Number(deletes);
   await navigate(grantIDs[3]!);
   await navigate(grantIDs[6]!);
@@ -3068,7 +3101,16 @@ export async function runGrantCorrection(
     .selectOption("delete_first");
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByText(/Authorization is absent/).waitFor();
+  await page
+    .getByText("Original grant deleted; replacement not yet created.", {
+      exact: true,
+    })
+    .waitFor();
+  await expect(page.getByTestId("grant-actions")).not.toContainText(
+    "Authorization is absent",
+  );
+  await captureRequestState(page, "grant-delete-first");
+  expect(grants.has(retainedAllowID)).toBe(true);
   const beforeCreate = Number(creates);
   if (Number(deletes) !== reloadDeletes + 1)
     fail("delete-first step one was not isolated");
@@ -3084,7 +3126,7 @@ export async function runGrantCorrection(
   await confirmAction();
   await page.getByText("The grant is invalid.", { exact: true }).waitFor();
   const rejectedDeletes = Number(deletes);
-  if ((await page.getByText(/replacement now overlaps/).count()) !== 0)
+  if ((await page.getByText(/Replacement grant created/).count()) !== 0)
     fail("rejected correction advanced to step two");
 
   await navigate(grantIDs[3]!);
@@ -3097,14 +3139,25 @@ export async function runGrantCorrection(
   if (Number(deletes) !== rejectedDeletes)
     fail("stale correction submitted deletion");
 
-  const defaultWarnings: Array<[string, string]> = [
-    [grantIDs[7]!, "removes the agent's access to Gateway self-service tools"],
-    [grantIDs[8]!, "removes the agent's access to Gateway self-service tools"],
-    [grantIDs[9]!, "removes the agent's access to Gateway self-service tools"],
-  ];
-  for (const [grantID, phrase] of defaultWarnings) {
+  for (const grantID of [grantIDs[7]!, grantIDs[8]!, grantIDs[9]!]) {
     await navigate(grantID);
-    await page.getByText(new RegExp(phrase)).waitFor();
+    await expect(
+      page.getByText("This shortcut does not replace default-shaped grants.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByTestId("grant-actions")).not.toContainText(
+      "removes the agent's access",
+    );
+    await page.getByTestId("grant-delete").click();
+    await expect(page.getByRole("dialog")).toContainText(
+      "Remaining grants still apply, with matching Deny taking precedence.",
+    );
+    await captureRequestState(page, "default-delete-confirmation");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
     if (
       (await page.locator('[data-testid="grant-correct"]').isDisabled()) !==
       true
@@ -3121,6 +3174,12 @@ export async function runGrantCorrection(
   await page.locator('[data-testid="grant-delete"]').click();
   await confirmAction();
   await page.locator('[data-testid="grants-view"]').waitFor();
+  await expect(
+    page.getByTestId("grant-row").filter({
+      has: page.locator(`a[href="#/mcp/grants/${syntheticExactID}"]`),
+    }),
+  ).toContainText("Gateway self-service tools — get_identity");
+  await captureRequestState(page, "synthetic-exact-table");
 
   await navigate(grantIDs[4]!);
   await page.locator('[data-testid="grant-correct"]').click();
@@ -3132,7 +3191,7 @@ export async function runGrantCorrection(
   await page
     .getByText("Grant mutation outcome is unknown", { exact: true })
     .waitFor();
-  if ((await page.getByText(/Authorization is absent/).count()) !== 0)
+  if ((await page.getByText(/Original grant deleted/).count()) !== 0)
     fail("uncertain correction advanced to step two");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -3829,6 +3888,13 @@ export async function runRequestAdjudication(
           : null,
     },
   });
+  const exactFixtureJSON = (value: unknown) =>
+    JSON.stringify(value)
+      .replaceAll('"/attempt":1', '"/attempt":1.0')
+      .replaceAll('"/extra":1', '"/extra":1.0')
+      .replaceAll('"/exponent":100', '"/exponent":1e+02')
+      .replaceAll('"/upper":1000', '"/upper":1E3')
+      .replaceAll('"/integer":9007199254740992', '"/integer":9007199254740993');
   states.set(ids[0]!, detail(ids[0]!, policy("server", "demo", null, "1200")));
   states.set(
     ids[1]!,
@@ -3839,7 +3905,14 @@ export async function runRequestAdjudication(
         "demo.safe",
         {
           version: 2,
-          equals: { "/mode": "safe", "/attempt": 1 },
+          equals: {
+            "/mode": "safe",
+            "/attempt": 1,
+            "/one": 1,
+            "/exponent": 100,
+            "/upper": 1000,
+            "/integer": 9007199254740992,
+          },
           regex: { "/resource": "item[<>&]-\\d+" },
         },
         "600",
@@ -4003,7 +4076,7 @@ export async function runRequestAdjudication(
         headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
         body:
           id === ids[1] || id === ids[10]
-            ? JSON.stringify(item).replace('"/attempt":1', '"/attempt":1.0')
+            ? exactFixtureJSON(item)
             : JSON.stringify(item),
       });
       return;
@@ -4143,7 +4216,10 @@ export async function runRequestAdjudication(
       status: 200,
       contentType: "application/json",
       headers: { ETag: `"grant-request-${id}-2"` },
-      body: JSON.stringify(result),
+      body:
+        id === ids[1] || id === ids[10]
+          ? exactFixtureJSON(result)
+          : JSON.stringify(result),
     });
   });
 
@@ -4449,6 +4525,36 @@ export async function runRequestAdjudication(
   ]) {
     await expect(terminalComparison).toContainText(phrase);
   }
+  const lexicalConditions = [
+    "/attempt equals 1.0",
+    "/one equals 1",
+    "/exponent equals 1e+02",
+    "/upper equals 1E3",
+    "/integer equals 9007199254740993",
+  ];
+  for (const list of await terminalComparison
+    .locator(".request-conditions")
+    .all()) {
+    for (const condition of lexicalConditions)
+      await expect(list.locator("li")).toContainText([condition]);
+  }
+  for (const source of await terminalComparison
+    .getByLabel("Exact condition source", { exact: true })
+    .all()) {
+    for (const token of [
+      '"/attempt":1.0',
+      '"/exponent":1e+02',
+      '"/upper":1E3',
+      '"/integer":9007199254740993',
+    ])
+      await expect(source).toHaveValue(
+        new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      );
+  }
+  await page.getByText("Approved serialized policy", { exact: true }).click();
+  await expect(
+    page.getByLabel("Approved policy", { exact: true }),
+  ).toContainText("9007199254740993");
   await captureRequestState(page, "exact-tool-approved");
 
   await navigate(ids[10]!, false);

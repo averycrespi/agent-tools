@@ -1,5 +1,6 @@
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { validOAuthOrigin } from "./oauth-origin";
 import { useUnsavedChanges } from "./navigation";
 import type {
   MutationController,
@@ -404,26 +405,10 @@ function transportFromDraft(draft: Draft): unknown {
           "Enter an OAuth network origin.",
           item.id,
         );
-      let parsedOrigin: URL;
-      try {
-        parsedOrigin = new URL(origin);
-      } catch {
+      if (!validOAuthOrigin(origin))
         throw new DraftValidationError(
           "origin",
-          "OAuth network origin must be an absolute HTTP or HTTPS origin.",
-          item.id,
-        );
-      }
-      if (
-        (parsedOrigin.protocol !== "https:" &&
-          parsedOrigin.protocol !== "http:") ||
-        parsedOrigin.username !== "" ||
-        parsedOrigin.password !== "" ||
-        parsedOrigin.origin !== origin
-      )
-        throw new DraftValidationError(
-          "origin",
-          "OAuth network origin must contain only an HTTP or HTTPS scheme, host, and optional port.",
+          "Use a lowercase DNS origin without an IP address, path, or default port.",
           item.id,
         );
       if (seenOrigins.has(origin))

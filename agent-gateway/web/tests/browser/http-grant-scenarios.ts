@@ -14,7 +14,13 @@ export async function runHTTPGrants(
 ): Promise<void> {
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-grants-"));
   const captureState = async (name: string) => {
-    if (name.startsWith("principal-")) {
+    const dialog = page.locator("dialog[open]");
+    const modal = (await dialog.count()) > 0;
+    if (modal)
+      await dialog.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+    if (name.startsWith("principal-") || modal) {
       const skip = await page.locator(".skip-link").evaluate((node) => ({
         focused: node === document.activeElement,
         bottom: node.getBoundingClientRect().bottom,
@@ -28,10 +34,10 @@ export async function runHTTPGrants(
     }
     await page.screenshot({
       path: join(screenshots, `${name}.png`),
-      fullPage: true,
+      fullPage: !modal,
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    if (name.startsWith("principal-")) {
+    if (name.startsWith("principal-") || modal) {
       await expect(page.locator(".skip-link")).not.toBeFocused();
       expect(
         await page
@@ -44,8 +50,17 @@ export async function runHTTPGrants(
     }
     await page.screenshot({
       path: join(screenshots, `${name}-narrow.png`),
-      fullPage: true,
+      fullPage: !modal,
     });
+    if (modal) {
+      const action = dialog.getByRole("button").last();
+      await action.focus();
+      const box = await action.boundingBox();
+      expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+      await page.screenshot({
+        path: join(screenshots, `${name}-narrow-actions.png`),
+      });
+    }
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(390);
@@ -265,6 +280,7 @@ export async function runHTTPGrants(
         page.getByLabel("Credential (optional)").locator("option"),
       ).toHaveCount(3);
       await page.getByLabel("Credential (optional)").selectOption(creds[0]!.id);
+      await page.getByLabel("Expires (optional)").fill("2030-01-01T12:00");
     }
     await page.screenshot({
       path: join(screenshots, `${kind}-desktop.png`),
@@ -284,6 +300,20 @@ export async function runHTTPGrants(
     await page
       .getByRole("button", { name: "Review and create", exact: true })
       .click();
+    const grantReview = page.getByRole("dialog");
+    await expect(grantReview).toContainText(
+      `HTTP Policy Agent · ${principal.id}`,
+    );
+    if (kind === "allow_requests") {
+      await expect(grantReview).toContainText(creds[0]!.id);
+      await expect(grantReview.locator("time")).toHaveAttribute(
+        "datetime",
+        await page.evaluate(() => new Date("2030-01-01T12:00").toISOString()),
+      );
+      await expect(grantReview).toContainText("Local/private accessDisabled");
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await captureState("grant-complete-confirmation");
+    }
     const response = page.waitForResponse(
       (r) =>
         r.url() === `${baseURL}/api/v2/http/grants` &&
@@ -294,7 +324,14 @@ export async function runHTTPGrants(
       .getByRole("button", { name: "Apply grant", exact: true })
       .click();
     const r = await response;
-    expect(r.status()).toBe(201);
+    expect(r.status(), await r.text()).toBe(201);
+    if (kind === "allow_requests") {
+      expect((await r.json()).expires_at).toBe(
+        await page.evaluate(() =>
+          new Date("2030-01-01T12:00").toISOString().replace("Z", "000000Z"),
+        ),
+      );
+    }
     grants.push((await r.json()) as { id: string; revision: string });
     await expect(
       page.getByRole("heading", { name: "Current policy", exact: true }),
@@ -726,14 +763,23 @@ export async function runHTTPGrants(
     undefined,
     "GET",
   );
-  const current = await currentResponse.json();
   await api(
     `/api/v2/http/grants/${grants[0]!.id}`,
     {
       principal_id: principal.id,
       description: "Concurrent edit",
-      policy: current.policy,
-      expires_at: null,
+      policy: {
+        version: 1,
+        type: "allow_requests",
+        allow_private: true,
+        credential_id: creds[1]!.id,
+        request: {
+          origin: { scheme: "https", host: "api.example.com", port: 443 },
+          methods: { values: ["GET"] },
+          path: { kind: "exact", value: "/@scope/pkg" },
+        },
+      },
+      expires_at: "2030-02-01T12:00:00Z",
     },
     "PATCH",
     currentResponse.headers().etag,
@@ -745,8 +791,30 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("button", { name: "Review changes", exact: true }),
   ).toBeDisabled();
+  const currentPolicy = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Current policy", exact: true }),
+  });
+  await expect(currentPolicy).toContainText(creds[1]!.id);
+  await expect(currentPolicy).toContainText("Local/private accessEnabled");
+  await expect(currentPolicy).toContainText("/@scope/pkg");
+  await expect(currentPolicy.locator("time")).toHaveAttribute(
+    "datetime",
+    /^2030-02-01T12:00:00(?:\.0+)?Z$/,
+  );
   await captureState("detail-stale");
   await page.getByRole("button", { name: "Use current revision" }).click();
+  await expect(currentPolicy).toContainText(creds[1]!.id);
+  await expect(page.getByLabel("Grant type")).toHaveValue("block_destination");
+  await page
+    .getByRole("button", { name: "Review changes", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText("Block destination");
+  await expect(page.getByRole("dialog")).toContainText("No expiry");
+  await captureState("retained-draft-confirmation");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
   for (const fault of [
     "identity",
     "reversed-times",

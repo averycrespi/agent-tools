@@ -34,6 +34,30 @@ function grant(): Grant {
     },
   };
 }
+test("HTTP paths preserve literal @ but reject encoded reserved bytes", () => {
+  for (const kind of ["exact", "segment_prefix"] as const) {
+    const g = grant();
+    g.policy.request!.path = {
+      kind,
+      value: "/@anthropic-ai/sdk/-/sdk-0.124.0.tgz",
+    };
+    assert.equal(
+      decodeGrant(g).policy.request!.path.value,
+      g.policy.request!.path.value,
+    );
+    for (const value of [
+      "/%40scope/pkg",
+      "/@scope%2fpkg",
+      "/%2F",
+      "/%25",
+      "/x?y",
+      "/x#y",
+    ]) {
+      g.policy.request!.path.value = value;
+      assert.throws(() => decodeGrant(g), /Invalid path/, value);
+    }
+  }
+});
 function preview() {
   return {
     decision: {
