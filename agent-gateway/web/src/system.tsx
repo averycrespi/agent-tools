@@ -457,6 +457,8 @@ function StatusPanel({
     status.ready &&
     !status.latched &&
     status.keyring === "ready" &&
+    (!status.endpoints ||
+      (status.endpoints.api === "ready" && status.endpoints.mcp === "ready")) &&
     (!status.httpProxy?.enabled || status.httpProxy.ready) &&
     (!status.traffic ||
       (status.traffic.ready &&
@@ -498,6 +500,19 @@ function StatusPanel({
                 <h3 id="system-issues-title">Needs attention</h3>
                 {!healthy && <span>Operator action may be required</span>}
               </div>
+              {status.endpoints &&
+                (status.endpoints.api !== "ready" ||
+                  status.endpoints.mcp !== "ready") && (
+                  <StateNotice
+                    state="warning"
+                    title="Gateway endpoints need attention"
+                  >
+                    <p>
+                      Review Gateway API and MCP endpoint admission states
+                      below.
+                    </p>
+                  </StateNotice>
+                )}
               {!status.ready && (
                 <StateNotice state="warning" title="Gateway is not ready">
                   <p>
@@ -554,9 +569,6 @@ function StatusPanel({
                   title={`${saturatedLimits.length} resource ${saturatedLimits.length === 1 ? "limit is" : "limits are"} saturated`}
                 >
                   <p>New work using saturated capacity cannot be admitted.</p>
-                  <a href="#/system?tab=resource-limits">
-                    View resource limits
-                  </a>
                 </StateNotice>
               )}
             </section>
@@ -577,6 +589,46 @@ function StatusPanel({
                   <span>
                     Started <UserTime value={status.startedAt} />
                   </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Gateway API</dt>
+                <dd>
+                  <strong>
+                    {status.endpoints
+                      ? sentenceCase(status.endpoints.api)
+                      : "Not reported"}
+                  </strong>
+                  {status.endpoints && (
+                    <span>{status.endpoints.authority}</span>
+                  )}
+                  {status.endpoints?.api === "read_only" && (
+                    <span>
+                      Inspection remains available; control mutations are
+                      blocked.
+                    </span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>MCP endpoint</dt>
+                <dd>
+                  <strong>
+                    {status.endpoints
+                      ? sentenceCase(status.endpoints.mcp)
+                      : "Not reported"}
+                  </strong>
+                  {status.endpoints && (
+                    <span>{status.endpoints.authority}/mcp</span>
+                  )}
+                  {status.endpoints?.mcp === "unavailable" && (
+                    <span>
+                      New dispatch is blocked by control or traffic storage.
+                    </span>
+                  )}
+                  {status.endpoints?.mcp === "disabled" && (
+                    <span>Agent authentication is disabled.</span>
+                  )}
                 </dd>
               </div>
               <div>
@@ -612,9 +664,6 @@ function StatusPanel({
                           requests/streams · {status.httpProxy.activeTunnels}{" "}
                           opaque tunnels
                         </span>
-                        <a href="#/system?tab=resource-limits">
-                          View resource limits
-                        </a>
                       </>
                     )}
                   </dd>
@@ -658,9 +707,6 @@ function StatusPanel({
                       {status.traffic.quotaRefusals} quota refusals ·{" "}
                       {status.traffic.prunedRecords} pruned records
                     </span>
-                    <a href="#/system?tab=resource-limits">
-                      View resource limits
-                    </a>
                   </dd>
                 </div>
               )}

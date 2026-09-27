@@ -79,8 +79,8 @@ upstream-dispatch permission; `false` alone does not mean CONNECT failed.
 forwarding, not inspection of inner requests; missing completion remains unknown.
 
 Use the Interception selected decision/outcome filters to distinguish it from
-Not dispatched denials. Detail offers **View related inner requests**, selected
-only by recorded CONNECT ID, and inner detail links back to that recorded parent.
+Not dispatched denials. Detail embeds **Requests on this connection**, selected
+only by recorded CONNECT ID, with manual refresh and Load more. Inner detail links back to that recorded parent. The normal traffic filter bar has no CONNECT-ID input; existing bookmarked filters remain visible and removable.
 The CLI equivalent is `agent-gateway http traffic list --connect-id ID`.
 Retention may remove either side, and older records lack correlation; an empty
 list or unavailable parent never proves no execution or safe replay. Historical

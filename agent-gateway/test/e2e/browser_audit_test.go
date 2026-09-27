@@ -58,7 +58,7 @@ func TestBrowserAudit(t *testing.T) {
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.True(t, event.RealAPI)
 	assert.GreaterOrEqual(t, event.ListReads, 10)
-	assert.Equal(t, 8, event.ItemReads)
+	assert.Equal(t, 19, event.ItemReads) // Detail and independently fenced related-history panels
 	assert.Len(t, event.Screenshots, 16)
 	t.Logf("Audit visual artifacts: %v", event.Screenshots)
 	harness.Stop(os.Interrupt)

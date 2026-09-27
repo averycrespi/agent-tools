@@ -760,9 +760,11 @@ try {
         : externalRequests.length !== 0;
     const expectedConsoleFailures =
       (input.scenario === "http-traffic" &&
-        consoleFailures.length === 1 &&
-        /^Failed to load resource: the server responded with a status of 404(?: \(Not Found\))?$/.test(
-          consoleFailures[0]!,
+        consoleFailures.length === 2 &&
+        consoleFailures.every((message) =>
+          /^Failed to load resource: the server responded with a status of 404(?: \(Not Found\))?$/.test(
+            message,
+          ),
         )) ||
       (input.scenario === "http-grants" &&
         consoleFailures.length === 1 &&

@@ -301,15 +301,33 @@ type HTTPProxyStatus struct {
 	ActiveTunnels int64       `json:"active_tunnels"`
 }
 
+type EndpointState string
+
+const (
+	EndpointStarting    EndpointState = "starting"
+	EndpointReady       EndpointState = "ready"
+	EndpointReadOnly    EndpointState = "read_only"
+	EndpointDraining    EndpointState = "draining"
+	EndpointUnavailable EndpointState = "unavailable"
+	EndpointDisabled    EndpointState = "disabled"
+)
+
+type ControlEndpointsStatus struct {
+	Authority string        `json:"authority"`
+	API       EndpointState `json:"api"`
+	MCP       EndpointState `json:"mcp"`
+}
+
 type SystemStatus struct {
-	HTTPProxy *HTTPProxyStatus `json:"http_proxy,omitempty"`
-	Traffic   *TrafficStatus   `json:"traffic,omitempty"`
-	Process   ProcessStatus    `json:"process"`
-	SQLite    SQLiteStatus     `json:"sqlite"`
-	Keyring   KeyringStatus    `json:"keyring"`
-	Limits    LimitsStatus     `json:"limits"`
-	Backup    BackupStatus     `json:"backup"`
-	Protocols ProtocolStatus   `json:"protocols"`
+	Endpoints *ControlEndpointsStatus `json:"endpoints,omitempty"`
+	HTTPProxy *HTTPProxyStatus        `json:"http_proxy,omitempty"`
+	Traffic   *TrafficStatus          `json:"traffic,omitempty"`
+	Process   ProcessStatus           `json:"process"`
+	SQLite    SQLiteStatus            `json:"sqlite"`
+	Keyring   KeyringStatus           `json:"keyring"`
+	Limits    LimitsStatus            `json:"limits"`
+	Backup    BackupStatus            `json:"backup"`
+	Protocols ProtocolStatus          `json:"protocols"`
 }
 
 type AdminSessionBootstrap struct {

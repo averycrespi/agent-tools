@@ -43,7 +43,7 @@ export async function runHTTPTraffic(
     searchRequests.some((url) => url.searchParams.get("principal") === "Ca"),
   ).toBe(false);
   expect(searchRequests.at(-1)!.searchParams.get("search_locale")).toBeTruthy();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
   await expect(destinationSearch).toBeFocused();
   await destinationSearch.fill("GiTHuB");
   await expect(page).toHaveURL(/filter_destination=GiTHuB/);
@@ -143,8 +143,11 @@ export async function runHTTPTraffic(
     page.getByText(/Inner requests are authorized separately/),
   ).toBeVisible();
   const realParent = new URL(page.url()).hash.split("/").at(-1)!;
-  await page.getByRole("link", { name: "View related inner requests" }).click();
-  await expect(page).toHaveURL(new RegExp(`filter_connect_id=${realParent}`));
+  await expect(
+    page.getByRole("region", { name: "Requests on this connection" }),
+  ).toContainText("GET https://127.0.0.1");
+  // Legacy table links still apply exact correlation, without an ID entry field.
+  await page.goto(`${baseURL}/#/http/traffic?filter_connect_id=${realParent}`);
   await expect(
     page.getByText("1 matching HTTP traffic record loaded", { exact: true }),
   ).toBeVisible();
@@ -162,7 +165,9 @@ export async function runHTTPTraffic(
     .filter({ hasText: "GET https://127.0.0.1" })
     .getByRole("link", { name: /^GET https:/ })
     .click();
-  await page.getByRole("link", { name: realParent, exact: true }).click();
+  await page
+    .getByRole("link", { name: new RegExp(`CONNECT .*${realParent}`) })
+    .click();
   await expect(
     page.getByText(/Inner requests are authorized separately/),
   ).toBeVisible();
@@ -693,7 +698,7 @@ export async function runHTTPTraffic(
   ).toBeVisible();
   await expect(
     page.getByText("Response: Gateway", { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
     path: join(screenshots, "rejection-history.png"),
@@ -828,13 +833,15 @@ export async function runHTTPTraffic(
     path: join(screenshots, "interception.png"),
     fullPage: true,
   });
-  await page.getByRole("link", { name: "View related inner requests" }).click();
   await expect(
-    page.getByText("No matching HTTP traffic", { exact: true }),
+    page.getByText("No related requests recorded", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("CONNECT ID", { exact: true })).toHaveValue(
-    id(5),
-  );
+  await expect(
+    page.getByText(/Only recorded associations are shown/),
+  ).toHaveCount(0);
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Clear filters", exact: true })
     .click();
@@ -854,7 +861,9 @@ export async function runHTTPTraffic(
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
   missingParent = true;
-  await page.getByRole("link", { name: id(5), exact: true }).click();
+  await page
+    .getByRole("link", { name: new RegExp(`CONNECT .*${id(5)}`) })
+    .click();
   await expect(
     page.getByText("Traffic record unavailable", { exact: true }),
   ).toBeVisible();

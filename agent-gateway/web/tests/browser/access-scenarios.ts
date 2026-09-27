@@ -646,6 +646,14 @@ export async function runPrincipals(
     ["Agent", "Status", "MCP discovery visibility", "HTTP default"],
     "Agent",
   );
+  await expect(
+    page
+      .getByRole("columnheader", {
+        name: "MCP discovery visibility",
+        exact: true,
+      })
+      .getByRole("button"),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page
     .getByText(

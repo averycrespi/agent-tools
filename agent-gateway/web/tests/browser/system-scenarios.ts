@@ -2449,6 +2449,11 @@ export async function runSystemStatus(
   let eventStreams = 0;
   let currentStatus = {
     ...overviewStatusFixture(),
+    endpoints: {
+      authority: "127.0.0.1:8210",
+      api: "read_only",
+      mcp: "unavailable",
+    },
     http_proxy: {
       enabled: true,
       ready: false,
@@ -2626,8 +2631,30 @@ export async function runSystemStatus(
   )
     fail("System did not close mutation admission for latched storage");
 
+  await expect(
+    statusPanel.getByText("Gateway API", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    statusPanel.getByText("MCP endpoint", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    statusPanel.getByText("Read only", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    statusPanel.getByText(
+      "New dispatch is blocked by control or traffic storage.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    statusPanel.getByRole("link", {
+      name: "View resource limits",
+      exact: true,
+    }),
+  ).toHaveCount(0);
   currentStatus = {
     ...currentStatus,
+    endpoints: { ...currentStatus.endpoints, api: "ready", mcp: "ready" },
     process: { ...currentStatus.process, state: "ready", ready: true },
     http_proxy: { ...currentStatus.http_proxy, ready: true },
     sqlite: { ...currentStatus.sqlite, state: "ready", latched: false },

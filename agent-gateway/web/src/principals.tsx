@@ -1351,7 +1351,6 @@ function PrincipalCollection({
               key: "visibility",
               label: "MCP discovery visibility",
               role: "status",
-              sortValue: (principal) => principal.visibility,
               render: (principal) => visibilityText(principal.visibility),
             },
             {
