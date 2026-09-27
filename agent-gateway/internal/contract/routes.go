@@ -4,8 +4,9 @@ package contract
 import "strings"
 
 const (
-	DefaultAuthority = "127.0.0.1:8210"
-	CanonicalOrigin  = "http://127.0.0.1:8210"
+	DefaultAuthority          = "127.0.0.1:8210"
+	DefaultHTTPProxyAuthority = "127.0.0.1:8212"
+	CanonicalOrigin           = "http://127.0.0.1:8210"
 )
 
 type CredentialAuthority string

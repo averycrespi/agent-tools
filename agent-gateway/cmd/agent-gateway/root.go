@@ -27,6 +27,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	serverdomain "github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/service"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -148,7 +149,8 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	storageSizeFlag(command.Flags(), &budget, composition.DefaultTrafficBudget, "combined traffic database/WAL budget (1 MiB–16 GiB)")
 	command.Flags().StringVar(&logLevel, "log-level", "warn", "serve diagnostic level: warn, info, or debug (JSON stderr)")
 	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
-	command.Flags().String("http-proxy-listen", "", "enable HTTP proxy on a separate numeric IPv4 loopback authority (for example 127.0.0.1:8212); requires an existing CA")
+	command.Flags().String("http-proxy-listen", contract.DefaultHTTPProxyAuthority, "HTTP proxy numeric IPv4 loopback authority; requires an existing CA")
+	command.Flags().Bool("clear-http-proxy-listen", false, "disable the HTTP proxy for MCP-only startup")
 	command.Flags().StringArrayVar(&allowedHosts, "allowed-host", nil, "additional exact ASCII DNS hostname for trusted local forwarding (repeatable; no port; does not trust browser Origins)")
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "shorthand for --output json")
@@ -198,12 +200,9 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			return false, controlclient.NewInputError("Each --allowed-host must be an ASCII DNS hostname without a port or trailing dot.")
 		}
 	}
-	proxyAuthority := ""
-	if command.Flags().Lookup("http-proxy-listen") != nil {
-		proxyAuthority, _ = command.Flags().GetString("http-proxy-listen")
-		if command.Flags().Changed("http-proxy-listen") && proxyAuthority == "" {
-			return false, controlclient.NewInputError("Provide a nonempty --http-proxy-listen authority, or omit the flag to disable HTTP.")
-		}
+	proxyAuthority, selectionErr := selectedHTTPProxy(command, service.LegacyHTTPDisabled())
+	if selectionErr != nil {
+		return false, selectionErr
 	}
 	if err := httpboundary.ValidateAuthority(authority); err != nil {
 		return false, err
@@ -432,12 +431,12 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	if proxyAuthority != "" {
 		proxyListener, _, bindErr := httpboundary.OpenListener(ctx, proxyAuthority, nil)
 		if bindErr != nil {
-			return false, bindErr
+			return false, &controlclient.Problem{Code: "http_proxy_unavailable", Title: "The HTTP proxy listener at " + proxyAuthority + " could not be bound. Stop the conflicting listener, choose --http-proxy-listen, or use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
 		}
 		defer func() { _ = proxyListener.Close() }()
 		proxy, prepareErr := runtime.PrepareHTTPProxy(ctx, netip.MustParseAddrPort(authority), netip.MustParseAddrPort(proxyAuthority))
 		if prepareErr != nil {
-			return false, prepareErr
+			return false, &controlclient.Problem{Code: "http_proxy_unavailable", Title: "The HTTP proxy could not load usable CA signing material or prepare safely. Inspect agent-gateway doctor and stopped CA recovery guidance; after restore or key loss, replace the CA explicitly and refresh client trust. Use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
 		}
 		proxyDone = make(chan error, 1)
 		go func() { proxyDone <- proxy.Serve(proxyListener) }()

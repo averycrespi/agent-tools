@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:b0e4b9c30af8f462b2b987a0cac9f4315f3c6096dabf157403f48a0617185b75", digest)
+	assert.Equal(t, "sha256:63f98f2a71da631648e6b8ce38cb79d3e7d422f5f5049f80a4a2b583c7ed5369", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -120,7 +120,7 @@ func TestCLIContract(t *testing.T) {
 			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
 			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
 			{path: []string{"maintenance", "verify-and-recover-storage"}, use: "verify-and-recover-storage", flags: []string{"confirm", "dry-run", "installation-id", "json", "traffic-budget-bytes"}},
-			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "data-dir", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},
+			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "clear-http-proxy-listen", "data-dir", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},
 		}
 		for _, test := range cases {
 			name := strings.Join(test.path, " ")

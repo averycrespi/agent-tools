@@ -11,6 +11,32 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 3. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
 4. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
 
+## HTTP listener default cutover
+
+Bare `serve` and new `service install` default HTTP to `127.0.0.1:8212`, separate
+from administration/MCP at `127.0.0.1:8210`. Normal `init` already creates the
+initial interception CA. Select `--http-proxy-listen` for a custom numeric-loopback
+address or `--clear-http-proxy-listen` for MCP-only operation; do not combine them.
+
+Existing managed settings remain authoritative: custom addresses stay unchanged,
+explicit disabled settings stay disabled, and legacy absent HTTP flags still mean
+disabled under the canonical macOS launchd label. The exact `XPC_SERVICE_NAME`
+launch context suppresses only an omitted listener; it is not process identity or
+credential authority. New definitions persist their intent explicitly. Restart and
+unchanged updates do not rewrite old definitions; a changed update preserves
+omitted values and renders disabled intent explicitly. No live migration occurs.
+Custom supervisors and foreground scripts that previously omitted HTTP must now
+select `--clear-http-proxy-listen` if they require MCP-only operation.
+
+Missing/invalidated CA keys or occupied/conflicting listeners fail startup without
+readiness, fallback, replacement or TLS bypass. After restore, use explicit
+MCP-only recovery or deliberately replace the CA while stopped and refresh client
+trust. Listener enablement changes no agent HTTP defaults (new agents remain
+blocked), grants, credentials, private-network/tunnel authority or client trust.
+Follow [proxy setup](http-proxy.md), [service management](launchd.md) and
+[restore guidance](backup-and-recovery.md). Fixtures do not qualify native
+launchd/Keychain behavior or authorize installed-resource mutation.
+
 ## Browser persistence cutover
 
 After upgrading, reload open tabs to load the bundled Agent Gateway client. Old `mcp_gateway_session` browser sessions require fresh sign-in; they are not converted to `agent_gateway_session` authority. Exact-origin sign-in, session bootstrap and logout responses expire the supplied old host-only cookie. When both names exist, only the canonical cookie can select a session. Service restart still invalidates all in-memory sessions; this cutover does not rotate administrator credentials or migrate host state.

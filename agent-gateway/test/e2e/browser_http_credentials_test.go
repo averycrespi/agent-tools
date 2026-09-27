@@ -45,7 +45,7 @@ func runHTTPBrowserScenario(t *testing.T, scenario, eventName string) {
 		harness.binary, _ = httpMaterialBinary(t)
 		ca = createHTTPCA(t, harness)
 		proxy = unusedAuthority(t)
-		harness.serveArgs = append(harness.serveArgs, "--http-proxy-listen", proxy)
+		harness.serveArgs = append(harness.serveArgs, "--clear-http-proxy-listen=false", "--http-proxy-listen", proxy)
 	}
 	harness.Start()
 	if proxy != "" {

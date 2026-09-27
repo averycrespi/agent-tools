@@ -155,7 +155,7 @@ func TestCLIExecutableNames(t *testing.T) {
 	for _, names := range [][2]string{{preferred, legacy}, {legacy, preferred}} {
 		t.Run(filepath.Base(names[0])+" owns", func(t *testing.T) {
 			authority := unusedAuthority(t)
-			process, startErr := runner.Start(t.Context(), names[0], "serve", "--listen", authority, "--json")
+			process, startErr := runner.Start(t.Context(), names[0], "serve", "--clear-http-proxy-listen", "--listen", authority, "--json")
 			require.NoError(t, startErr)
 			running := true
 			t.Cleanup(func() {

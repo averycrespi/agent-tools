@@ -4,7 +4,8 @@ Audience: Gateway administrators and client operators
 
 Purpose: Enable proxying and configure fresh clients without migrating Broker state.
 
-The proxy is opt-in and cooperative, not network-enforced egress containment.
+The listener is enabled by default for bare `serve` and new managed installs.
+Client proxy use remains cooperative, not network-enforced egress containment.
 MCP permissions never authorize HTTP. New agents, and agents backfilled
 when HTTP defaults were introduced, start at block. Existing agents retain
 their stored `http_default` (`allow` or `block`); configure separate
@@ -26,7 +27,7 @@ mkdir -p "$HOME/.config/agent-gateway"
 chmod 700 "$HOME/.config/agent-gateway"
 umask 077
 agent-gateway http ca export --output "$HOME/.config/agent-gateway/http-ca.pem"
-agent-gateway serve --http-proxy-listen 127.0.0.1:8212
+agent-gateway serve
 ```
 
 Supply the same explicit `--data-dir` to each command for a custom installation.
@@ -34,23 +35,29 @@ Export is public metadata only: it proves neither signing readiness nor client t
 Inspect an export failure rather than trusting an incomplete output file. Init preserves
 an existing CA; replacement is a distinct deliberate stopped operation. Public output defaults to `<data-dir>/http-ca.pem`; `--stdout` explicitly streams PEM.
 
-Administration/MCP stays at `127.0.0.1:8210`; `8212` is the recommended separate
-proxy port. Both listeners accept only canonical numeric IPv4 loopback addresses.
+Administration/MCP stays at `127.0.0.1:8210`; HTTP defaults separately to
+`127.0.0.1:8212`. Use `--http-proxy-listen 127.0.0.1:8213` for a custom address. Both listeners accept only canonical numeric IPv4 loopback addresses.
 The proxy has no administrative routes. Gateway-owned destinations, including
 its temporary OAuth callbacks, are forbidden even with private-network permission.
 A trusted VM forwarding path must be supplied separately; do not expose either
 listener to an untrusted network. Plain proxy authentication is not encrypted on
 the client-to-proxy hop.
 
-Omitting `--http-proxy-listen` keeps MCP-only startup independent of CA availability.
-Explicit selection requires usable signing material and both listener binds;
-any failure prevents successful startup acknowledgement and cleans up the partial
-start. No CA is generated implicitly. For installed macOS management, persist
-`service install --http-proxy-listen 127.0.0.1:8212` or
-`service update --http-proxy-listen 127.0.0.1:8212`. Omitted updates preserve the
-selection; `service update --clear-http-proxy-listen` disables it. Restart preserves
-installed values. See [launchd management](launchd.md); do not run these mutations
-as a smoke test against a live installation.
+Use `serve --clear-http-proxy-listen` for MCP-only startup independent of CA
+availability. Opt-out cannot accompany an explicit proxy address; an empty address
+is rejected. Default and custom enabled selections require usable signing material
+and both listener binds; any failure prevents startup acknowledgement and cleans
+up the partial start. Occupied ports do not select another port or silently disable
+HTTP. No CA is generated during serve and no TLS verification is bypassed.
+
+New macOS `service install` persists the default address; use
+`service install --clear-http-proxy-listen` to opt out. Omitted updates and restart
+preserve existing settings, including legacy missing flags meaning disabled.
+`service update --http-proxy-listen 127.0.0.1:8212` deliberately enables it;
+`service update --clear-http-proxy-listen` disables it. Canonical launchd context
+preserves legacy omission without rewriting old plists; it is not authentication.
+See [launchd management](launchd.md) and [upgrade guidance](upgrade-compatibility.md#http-listener-default-cutover);
+do not run these mutations as a smoke test against a live installation.
 
 `doctor --online` and **System → Status** report enablement, selected address, loaded CA,
 proxy readiness, active request/stream and tunnel counts, connection/work occupancy,

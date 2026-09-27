@@ -33,6 +33,7 @@ Install creates the private plist and log destinations, but **does not load the 
 | Executable  | Absolute path of the currently executing binary, not GOPATH                                        |
 | Data root   | Absolute `$XDG_DATA_HOME/agent-gateway`, otherwise OS-account home + `/.local/share/agent-gateway` |
 | Listener    | `127.0.0.1:8210`                                                                                   |
+| HTTP proxy  | `127.0.0.1:8212`                                                                                   |
 | Plist       | OS-account home + `/Library/LaunchAgents/dev.agent-tools.agent-gateway.plist`                      |
 | Logs        | OS-account home + `/Library/Logs/agent-gateway/{stdout,stderr}.log`                                |
 | Diagnostics | `warn`                                                                                             |
@@ -41,15 +42,28 @@ Install refuses an existing plist, loaded canonical job, unsafe permissions/owne
 
 The [example plist](../../examples/launchd/agent-gateway.plist) illustrates the Go-owned definition, not a runtime template dependency. XML-aware serialization preserves literal arguments, including spaces and XML characters. Generated XML includes the standard plist declaration and self-closing boolean elements for launchd compatibility; passing `plutil -lint` alone does not prove launchd will accept a definition. launchd runs the selected executable directly: no shell expansion, profile sourcing, or wrapper. `RunAtLoad` and `KeepAlive` retain launchd supervision; `ExitTimeOut=30` leaves room for Gateway's ten-second drain plus best-effort diagnostic flush. The utility PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, not a shell/version-manager environment. Managed stdio servers have their own clean configured environments.
 
-### Optional HTTP proxy
+### HTTP proxy selection
 
-HTTP is disabled by default. Install/update may persist
-`--http-proxy-listen 127.0.0.1:8212`, a distinct numeric IPv4 loopback authority.
-Omitted updates preserve it; `--clear-http-proxy-listen` explicitly disables it
-and cannot accompany a replacement value. Both binds and existing CA signing
-material must be available for configured readiness. Complete the separate
-[proxy and client setup](http-proxy.md) first; service management never creates
-CA material or installs trust. MCP-only operation does not load signing material.
+New installs persist `127.0.0.1:8212` by default. Use
+`service install --clear-http-proxy-listen` for MCP-only operation, or
+`--http-proxy-listen 127.0.0.1:8213` for a custom distinct numeric IPv4 loopback
+address. Update preserves omitted selections; `--clear-http-proxy-listen`
+explicitly disables HTTP and cannot accompany a replacement address.
+
+Existing disabled definitions remain disabled, including older plists with no
+HTTP flag. Restart and unchanged update retain their original bytes; changed
+updates render disabled intent explicitly. The canonical launchd label's
+`XPC_SERVICE_NAME` context preserves legacy omission even during an automatic
+restart after binary replacement; this is only an opt-out hint, not process
+identity or credential authority. Custom launchers must explicitly select their
+intended HTTP setting. No automatic plist migration is performed.
+
+Both binds and existing CA signing material must be available for readiness.
+Normal `init` creates the initial CA; service management never creates CA
+material or installs trust. Complete separate [client setup](http-proxy.md).
+Explicit MCP-only operation does not load signing material. After restore or
+key loss, enabled configurations fail until explicit stopped CA replacement;
+there is no automatic replacement or silent MCP-only fallback.
 
 ### Custom paths
 

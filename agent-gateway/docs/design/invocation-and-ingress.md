@@ -79,12 +79,15 @@ No background terminal retry or replay is introduced.
 
 `internal/httpproxy` consumes the sole composition-owned authenticator, authority,
 receipt coordinator, HTTP material service, CA signer, remote factory and lifecycle.
-It accepts a dedicated composition-selected listener only with explicit
-`serve --http-proxy-listen` configuration. Omission leaves HTTP disabled without
-loading CA signing material; existing MCP operation remains independent. The
-selected authority must be canonical numeric IPv4 loopback, nonzero and distinct
-from administration/MCP. Both binds and CA load must succeed before startup
-acknowledgement; explicit selection never silently falls back to MCP-only.
+It accepts a dedicated composition-selected listener. Bare `serve` defaults to
+`127.0.0.1:8212`; `serve --http-proxy-listen` overrides the address and
+`--clear-http-proxy-listen` explicitly disables it without loading CA signing
+material. These selections are mutually exclusive. Canonical macOS managed
+launches preserve omitted legacy HTTP configuration as disabled; new installs
+persist the enabled address explicitly. The selected authority must be canonical
+numeric IPv4 loopback, nonzero and distinct from administration/MCP. Both binds
+and CA load must succeed before startup acknowledgement; default or explicit
+enablement never silently falls back to MCP-only.
 Administration, MCP routes and temporary OAuth callbacks are never proxy routes
 or permitted upstream destinations, even with private-address permission.
 

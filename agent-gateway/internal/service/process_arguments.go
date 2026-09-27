@@ -126,7 +126,7 @@ func relevantCommand(command string, d definition) (bool, error) {
 			}
 			continue
 		}
-		if flag == "--json" && state.serve {
+		if (flag == "--json" || flag == "--clear-http-proxy-listen") && state.serve {
 			if equals && value != "true" && value != "false" {
 				continue
 			}

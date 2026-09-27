@@ -71,6 +71,10 @@ agent-gateway doctor --online
 
 `init` confirms and completes missing storage, initial administrator authority and CA setup, publishing the public certificate at `<data-dir>/http-ca.pem`. Repeating it preserves existing credentials and CA; `initialize` remains an alias. Use `--confirm` for noninteractive setup. No service, proxy or client trust is configured. `doctor` is a read-only partial checklist; `--online` additionally reads authenticated public-API status. The former top-level `status` is removed. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
 
+HTTP defaults to `127.0.0.1:8212`; opt out with `--clear-http-proxy-listen`.
+[Proxy setup](docs/operators/http-proxy.md) covers custom addresses, preserved
+managed settings and manual client trust.
+
 For a checkout-only sandbox with tools, agents, grants and invocation history,
 use `make -C agent-gateway serve-demo`. It avoids the normal installation and native
 keyring. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway)

@@ -98,15 +98,21 @@ func newGatewayHarness(t *testing.T) *gatewayHarness {
 
 func newGatewayHarnessContext(t *testing.T, ctx context.Context) *gatewayHarness {
 	t.Helper()
+	return newGatewayHarnessBinary(t, ctx, gatewayBinary(t))
+}
+
+func newGatewayHarnessBinary(t *testing.T, ctx context.Context, binary string) *gatewayHarness {
+	t.Helper()
 	runner, err := testutil.NewBinaryRunner(gatewayHarnessProcessDeadline, 128*1024)
 	require.NoError(t, err)
 	harness := &gatewayHarness{
-		t: t, ctx: ctx, binary: gatewayBinary(t), root: filepath.Join(t.TempDir(), "gateway"),
+		t: t, ctx: ctx, binary: binary, root: filepath.Join(t.TempDir(), "gateway"),
 		authority: unusedAuthority(t), runner: runner, client: &http.Client{Timeout: 3 * time.Second},
 	}
 	secretPath := filepath.Join(t.TempDir(), "admin")
 	harness.initializationArgs = []string{"init", "--confirm", "--data-dir", harness.root, "--secret-output", secretPath}
-	harness.serveArgs = []string{"serve", "--data-dir", harness.root, "--listen", harness.authority}
+	// Ordinary fixtures use process-local CA material and exercise MCP only.
+	harness.serveArgs = []string{"serve", "--data-dir", harness.root, "--listen", harness.authority, "--clear-http-proxy-listen"}
 	initialized, err := runner.Run(ctx, harness.binary, harness.initializationArgs...)
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	require.False(t, initialized.StdoutTruncated)

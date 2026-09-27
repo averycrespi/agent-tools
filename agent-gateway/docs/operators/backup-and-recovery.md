@@ -82,9 +82,11 @@ agent-gateway maintenance restore-backup BACKUP_ID \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Every restore invalidates interception CA authority. Starting with
-`--http-proxy-listen` before explicit stopped CA replacement fails; starting without
-it leaves the proxy disabled. Replace the CA, export its public certificate and
+Every restore invalidates interception CA authority. Bare `serve` now enables
+HTTP by default and fails before readiness until explicit stopped CA replacement.
+Use `serve --clear-http-proxy-listen` for MCP-only recovery. Managed services retain
+their installed selection, including legacy omission meaning disabled; restore
+never rewrites that selection. Replace the CA, export its public certificate and
 manually update client trust before using interception again. Ordinary restarts
 preserve the CA. Backups contain public certificate metadata, never its protected
 signing key; surviving retired keyring items cannot reactivate a backed-up CA.
@@ -102,10 +104,10 @@ rollback generations; the traffic database/WAL budget is not a total disk quota.
 
 A successful restore preserves safe agents, grants, requests, request evidence, server configuration, and compatible history. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
 
-Restore does not rewrite the default `admin-bearer`. Start the verified replacement generation, then explicitly select its replacement authority for online recovery:
+Restore does not rewrite the default `admin-bearer`. Start the verified replacement generation in MCP-only mode, then explicitly select its replacement authority for online recovery:
 
 ```bash
-agent-gateway serve --data-dir /path/to/gateway-data
+agent-gateway serve --clear-http-proxy-listen --data-dir /path/to/gateway-data
 # In another terminal:
 agent-gateway --data-dir /path/to/gateway-data \
   status --admin-bearer-file /safe/new/restored-admin-bearer
