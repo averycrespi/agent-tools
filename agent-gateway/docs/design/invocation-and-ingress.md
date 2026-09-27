@@ -154,6 +154,20 @@ or uncertain dispatch remains unknown and is never replayed. Completion timestam
 use canonical UTC with exactly nine fractional digits, including on lower-precision
 clocks; trimming trailing zeros violates the traffic store's evidence contract.
 
+Bodyless responses retain status and permitted end-to-end metadata without synthetic
+body writes. Initial header flushing is distinct from streaming body writes: even
+an empty write is invalid for 204/304 on the H2 server. HEAD retains representation
+metadata, including Content-Length, and leaves finalization to the HTTP server under
+a checked finite write deadline. Its `succeeded` completion records a complete
+upstream response and prepared downstream headers, not acknowledged client delivery;
+later server-owned finalization errors cannot revise that completion. Observed
+cancellation or transport errors remain failures/unknown outcomes, never ignored
+normal-closure error strings or replay triggers. H1 retains Go's existing suppression
+of 304 Content-Length (and Content-Type); 304 status, ETag and body absence remain
+preserved. H2 can retain legal 304 representation length, which describes the selected
+representation rather than bytes to be sent. This does not promise that every client
+library interprets that metadata correctly.
+
 ## Governed invocation and audit evidence
 
 Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover).

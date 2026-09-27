@@ -322,8 +322,20 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	w.WriteHeader(response.StatusCode)
 	completion.ResponseSource = "upstream"
 	completion.Status = response.StatusCode
+	if r.Method == http.MethodHead {
+		// H2 HEAD headers end the stream; explicitly flushing can report its
+		// normal closure as an error. Leave bounded finalization to the server.
+		if err := controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
+			panic(http.ErrAbortHandler)
+		}
+		if r.Context().Err() != nil {
+			panic(http.ErrAbortHandler)
+		}
+		completion.Outcome = "succeeded"
+		return
+	}
 	writer := &streamWriter{writer: w, controller: controller}
-	if _, err := writer.Write(nil); err != nil {
+	if err := writer.Flush(); err != nil {
 		panic(http.ErrAbortHandler)
 	}
 	n, err := io.CopyBuffer(writer, response.Body, make([]byte, contract.HTTPProxyBufferBytes))
@@ -450,6 +462,16 @@ func (b *countedBody) Close() error {
 type streamWriter struct {
 	writer     http.ResponseWriter
 	controller *http.ResponseController
+}
+
+func (w *streamWriter) Flush() error {
+	if err := w.controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
+		return err
+	}
+	if err := w.controller.Flush(); err != nil {
+		return err
+	}
+	return w.controller.SetWriteDeadline(time.Time{})
 }
 
 func (w *streamWriter) Write(p []byte) (int, error) {
