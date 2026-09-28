@@ -88,6 +88,11 @@ func fixture(t *testing.T) *proxyFixture {
 
 func fixtureWithCompletionClock(t *testing.T, completionNow func() time.Time) *proxyFixture {
 	t.Helper()
+	return fixtureWithListener(t, completionNow, nil)
+}
+
+func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func(net.Listener) net.Listener) *proxyFixture {
+	t.Helper()
 	ctx := audit.WithSystem(t.Context())
 	const installation = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	owner, err := gatewaypaths.Acquire(filepath.Join(t.TempDir(), "gateway"))
@@ -137,6 +142,9 @@ func fixtureWithCompletionClock(t *testing.T, completionNow func() time.Time) *p
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+	if wrap != nil {
+		listener = wrap(listener)
+	}
 	done := make(chan error, 1)
 	go func() { done <- engine.Serve(listener) }()
 	t.Cleanup(func() {

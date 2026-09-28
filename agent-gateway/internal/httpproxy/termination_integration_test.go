@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -112,11 +113,43 @@ func TestIntegrationTransferOperationFailuresPersist(t *testing.T) {
 	}
 }
 
+type terminationDeadlineListener struct {
+	net.Listener
+	pending *atomic.Bool
+}
+
+func (l *terminationDeadlineListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &terminationDeadlineConn{Conn: c, pending: l.pending}, nil
+}
+
+type terminationDeadlineConn struct {
+	net.Conn
+	pending *atomic.Bool
+}
+
+func (c *terminationDeadlineConn) SetWriteDeadline(deadline time.Time) error {
+	if !deadline.IsZero() {
+		c.pending.Store(true)
+	}
+	err := c.Conn.SetWriteDeadline(deadline)
+	if deadline.IsZero() && err == nil {
+		c.pending.Store(false)
+	}
+	return err
+}
+
 func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 	for _, protocol := range []string{"http/1.1", "h2"} {
 		for _, drain := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/drain=%t", protocol, drain), func(t *testing.T) {
-				f := fixture(t)
+				var pendingWrite atomic.Bool
+				f := fixtureWithListener(t, nil, func(l net.Listener) net.Listener {
+					return &terminationDeadlineListener{Listener: l, pending: &pendingWrite}
+				})
 				var calls atomic.Int64
 				releaseUpstream := make(chan struct{})
 				const event = "data: {\"type\":\"response.completed\"}\n\n"
@@ -167,6 +200,12 @@ func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, event, string(got))
 				require.Equal(t, 200, response.StatusCode)
+				if protocol == "http/1.1" {
+					// Receiving flushed bytes can precede the writer's deadline reset.
+					// Cancel only after that operation succeeds: otherwise closing the
+					// connection correctly records a deadline failure, not a read cancellation.
+					require.Eventually(t, func() bool { return !pendingWrite.Load() }, 3*time.Second, 10*time.Millisecond)
+				}
 				if drain {
 					f.engine.BeginDrain()
 				} else {
