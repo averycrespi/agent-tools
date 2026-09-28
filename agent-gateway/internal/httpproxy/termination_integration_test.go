@@ -118,23 +118,28 @@ func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/drain=%t", protocol, drain), func(t *testing.T) {
 				f := fixture(t)
 				var calls atomic.Int64
-				stopped := make(chan struct{})
+				releaseUpstream := make(chan struct{})
 				const event = "data: {\"type\":\"response.completed\"}\n\n"
 				upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					calls.Add(1)
-					defer close(stopped)
 					// Consume the empty H2 POST's chunked upstream framing so net/http
 					// can observe peer closure while the response handler is blocked.
 					_, _ = io.Copy(io.Discard, r.Body)
 					w.Header().Set("Content-Type", "text/event-stream")
 					_, _ = io.WriteString(w, event)
 					_ = http.NewResponseController(w).Flush()
+					// Do not let upstream cancellation return a normal chunked EOF
+					// that can race Gateway's canceled read into clean completion.
+					// The test releases finalization only after retained evidence.
 					select {
-					case <-r.Context().Done():
+					case <-releaseUpstream:
 					case <-time.After(5 * time.Second):
+						t.Error("upstream evidence barrier expired")
+						panic(http.ErrAbortHandler)
 					}
 				}))
 				defer upstream.Close()
+				defer close(releaseUpstream)
 				f.engine.roots = x509.NewCertPool()
 				f.engine.roots.AddCert(upstream.Certificate())
 				f.allow(t, upstream.URL, "allow_requests", "", "")
@@ -168,11 +173,6 @@ func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 					require.NoError(t, conn.Close())
 				}
 				_ = response.Body.Close()
-				select {
-				case <-stopped:
-				case <-time.After(5 * time.Second):
-					t.Fatal("upstream not joined")
-				}
 				assertTermination(t, f, contract.HTTPTermination{Stage: "upstream_read", Condition: "cancelled", Context: "cancelled"}, "outcome_unknown")
 				require.EqualValues(t, 1, calls.Load())
 			})
@@ -182,15 +182,19 @@ func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 
 func TestIntegrationTransferContextDeadlinePersists(t *testing.T) {
 	f := fixture(t)
+	releaseUpstream := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "data: response.completed\n\n")
 		_ = http.NewResponseController(w).Flush()
 		select {
-		case <-r.Context().Done():
+		case <-releaseUpstream:
 		case <-time.After(5 * time.Second):
+			t.Error("upstream evidence barrier expired")
+			panic(http.ErrAbortHandler)
 		}
 	}))
 	defer upstream.Close()
+	defer close(releaseUpstream)
 	f.allow(t, upstream.URL, "allow_requests", "", "")
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()

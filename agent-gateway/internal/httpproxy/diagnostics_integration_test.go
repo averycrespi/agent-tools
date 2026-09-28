@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -197,8 +198,25 @@ func TestIntegrationConcurrentH2RejectionsUseActualConnect(t *testing.T) {
 			}()
 		}
 	}
+	// Rejections intentionally close their connection. Admit every concurrent
+	// stream to its handler before any response can send graceful GOAWAY; a
+	// scheduling-dependent rejected new stream is not correlation evidence.
+	var entered atomic.Int32
+	allEntered := make(chan struct{})
+	f.engine.options.Ready = func() bool {
+		if entered.Add(1) == 18 {
+			close(allEntered)
+		}
+		select {
+		case <-allEntered:
+			return true
+		case <-time.After(5 * time.Second):
+			return false
+		}
+	}
 	close(start)
 	wg.Wait()
+	require.EqualValues(t, 18, entered.Load())
 	close(failures)
 	for err := range failures {
 		require.NoError(t, err)
