@@ -257,8 +257,12 @@ func TestServeDemoLifecycle(t *testing.T) {
 	t.Run("bootstrap from absent output directory", func(t *testing.T) {
 		checkout := t.TempDir()
 		module := defaultOptions().module
-		sources, err := filepath.Glob(filepath.Join(module, "test", "demo", "*.go"))
-		require.NoError(t, err)
+		var sources []string
+		for _, directory := range []string{"test/demo", "internal/contract", "internal/strictjson"} {
+			files, err := filepath.Glob(filepath.Join(module, filepath.FromSlash(directory), "*.go"))
+			require.NoError(t, err)
+			sources = append(sources, files...)
+		}
 		sources = append(sources, filepath.Join(module, "go.mod"), filepath.Join(module, "go.sum"), filepath.Join(module, "scripts", "serve-demo.sh"))
 		for _, source := range sources {
 			if strings.HasSuffix(source, "_test.go") {
