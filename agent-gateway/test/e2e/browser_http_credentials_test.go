@@ -149,7 +149,7 @@ func seedBrowserHTTPRejections(t *testing.T, h *gatewayHarness, proxy string) {
 	for _, request := range []struct{ line, header string }{
 		{"GET http://example.com/path-secret?query-secret", "Upgrade: private-upgrade\r\n"},
 		{"GET /path-secret?query-secret", ""},
-		{"GET http://example.com/%2fpath-secret?query-secret", ""},
+		{"GET http://example.com/%5cpath-secret?query-secret", ""},
 	} {
 		conn, err := net.DialTimeout("tcp", proxy, 3*time.Second)
 		require.NoError(t, err)

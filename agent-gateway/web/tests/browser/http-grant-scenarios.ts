@@ -4,6 +4,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertSecretAbsent, waitForLifecycle } from "./shared.ts";
+import { exerciseGrantDetails } from "./http-grant-details.ts";
 
 export async function runHTTPGrants(
   context: BrowserContext,
@@ -11,10 +12,21 @@ export async function runHTTPGrants(
   baseURL: string,
   bearer: string,
   requestCount: () => number,
-): Promise<void> {
+): Promise<number[]> {
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-grants-"));
   const captureState = async (name: string) => {
-    if (name.startsWith("principal-")) {
+    const dialog = page.locator("dialog[open]");
+    const modal = (await dialog.count()) > 0;
+    if (modal)
+      await dialog.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+    if (
+      name.startsWith("principal-") ||
+      name.startsWith("detail-") ||
+      modal ||
+      name === "grant-conflict-title"
+    ) {
       const skip = await page.locator(".skip-link").evaluate((node) => ({
         focused: node === document.activeElement,
         bottom: node.getBoundingClientRect().bottom,
@@ -28,10 +40,15 @@ export async function runHTTPGrants(
     }
     await page.screenshot({
       path: join(screenshots, `${name}.png`),
-      fullPage: true,
+      fullPage: !modal,
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    if (name.startsWith("principal-")) {
+    if (
+      name.startsWith("principal-") ||
+      name.startsWith("detail-") ||
+      modal ||
+      name === "grant-conflict-title"
+    ) {
       await expect(page.locator(".skip-link")).not.toBeFocused();
       expect(
         await page
@@ -44,8 +61,17 @@ export async function runHTTPGrants(
     }
     await page.screenshot({
       path: join(screenshots, `${name}-narrow.png`),
-      fullPage: true,
+      fullPage: !modal,
     });
+    if (modal) {
+      const action = dialog.getByRole("button").last();
+      await action.focus();
+      const box = await action.boundingBox();
+      expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+      await page.screenshot({
+        path: join(screenshots, `${name}-narrow-actions.png`),
+      });
+    }
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(390);
@@ -77,7 +103,8 @@ export async function runHTTPGrants(
     display_name: "HTTP Policy Agent",
     visibility: "all",
   });
-  const principal = (await created.json()).principal as { id: string };
+  const createdAgent = await created.json();
+  const principal = createdAgent.principal as { id: string };
   const creds: { id: string }[] = [];
   for (const name of [
     "Compatible credential",
@@ -260,11 +287,16 @@ export async function runHTTPGrants(
       await expect(
         page.getByText("Opaque tunnel bypass", { exact: true }),
       ).toBeVisible();
+    if (kind === "block_requests")
+      await page
+        .getByRole("button", { name: "Add method", exact: true })
+        .click();
     if (kind === "allow_requests") {
       await expect(
         page.getByLabel("Credential (optional)").locator("option"),
       ).toHaveCount(3);
       await page.getByLabel("Credential (optional)").selectOption(creds[0]!.id);
+      await page.getByLabel("Expires (optional)").fill("2030-01-01T12:00");
     }
     await page.screenshot({
       path: join(screenshots, `${kind}-desktop.png`),
@@ -284,6 +316,20 @@ export async function runHTTPGrants(
     await page
       .getByRole("button", { name: "Review and create", exact: true })
       .click();
+    const grantReview = page.getByRole("dialog");
+    await expect(grantReview).toContainText(
+      `HTTP Policy Agent · ${principal.id}`,
+    );
+    if (kind === "allow_requests") {
+      await expect(grantReview).toContainText(creds[0]!.id);
+      await expect(grantReview.locator("time")).toHaveAttribute(
+        "datetime",
+        await page.evaluate(() => new Date("2030-01-01T12:00").toISOString()),
+      );
+      await expect(grantReview).toContainText("Local/private accessDisabled");
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await captureState("grant-complete-confirmation");
+    }
     const response = page.waitForResponse(
       (r) =>
         r.url() === `${baseURL}/api/v2/http/grants` &&
@@ -294,11 +340,33 @@ export async function runHTTPGrants(
       .getByRole("button", { name: "Apply grant", exact: true })
       .click();
     const r = await response;
-    expect(r.status()).toBe(201);
+    expect(r.status(), await r.text()).toBe(201);
+    if (kind === "allow_requests") {
+      expect((await r.json()).expires_at).toBe(
+        await page.evaluate(() =>
+          new Date("2030-01-01T12:00").toISOString().replace("Z", "000000Z"),
+        ),
+      );
+    }
     grants.push((await r.json()) as { id: string; revision: string });
     await expect(
-      page.getByRole("heading", { name: "Current policy", exact: true }),
+      page.getByRole("heading", { name: "Grant details", exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Edit HTTP grant", exact: true }),
+    ).toHaveCount(0);
+    const facts = page.getByRole("region", {
+      name: "Grant details",
+      exact: true,
+    });
+    await expect(
+      facts.getByRole("link", { name: "HTTP Policy Agent", exact: true }),
+    ).toHaveAttribute("href", `#/agents/${principal.id}`);
+    await expect(facts).toContainText(principal.id);
+    await expect(facts).toContainText("Created");
+    await expect(facts).toContainText("Active");
+    await captureState(`detail-${kind}`);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.getByRole("link", { name: "Back to HTTP grants" }).click();
   }
   await page.screenshot({
@@ -614,7 +682,7 @@ export async function runHTTPGrants(
     "block",
   );
   await expect(
-    page.getByText(/Current values: Concurrent rename/),
+    page.getByText(/Last loaded values: Concurrent rename/),
   ).toBeVisible();
   await captureState("principal-conflict");
   expect(concurrentWrite).toBe(true);
@@ -700,6 +768,15 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("link", { name: "Test allow_requests", exact: true }),
   ).toBeVisible();
+  const injectedFailures = await exerciseGrantDetails(
+    page,
+    baseURL,
+    grants[2]!.id,
+    createdAgent.default_grant.id,
+    creds[0]!.id,
+    captureState,
+  );
+  await page.goto(`${baseURL}/#/http/grants`);
   const editPath = `${baseURL}/api/v2/http/grants/${grants[0]!.id}`;
   await page.route(editPath, (route) =>
     route.fulfill({
@@ -717,23 +794,45 @@ export async function runHTTPGrants(
   await captureState("detail-error");
   await page.unroute(editPath);
   await page.reload();
+  await page.getByRole("button", { name: "Edit grant", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Edit HTTP grant" }),
   ).toBeVisible();
+  const actionBounds = await page
+    .locator("#http-grant-editor .form-actions")
+    .last()
+    .locator("button")
+    .evaluateAll((buttons) =>
+      buttons.map((button) => ({
+        height: button.getBoundingClientRect().height,
+        y: button.getBoundingClientRect().y,
+      })),
+    );
+  expect(actionBounds[2]!.height).toBe(actionBounds[0]!.height);
+  expect(actionBounds[2]!.y).toBe(actionBounds[0]!.y);
   await page.getByLabel("Description (optional)").fill("Retained local draft");
   const currentResponse = await api(
     `/api/v2/http/grants/${grants[0]!.id}`,
     undefined,
     "GET",
   );
-  const current = await currentResponse.json();
   await api(
     `/api/v2/http/grants/${grants[0]!.id}`,
     {
       principal_id: principal.id,
       description: "Concurrent edit",
-      policy: current.policy,
-      expires_at: null,
+      policy: {
+        version: 1,
+        type: "allow_requests",
+        allow_private: true,
+        credential_id: creds[1]!.id,
+        request: {
+          origin: { scheme: "https", host: "api.example.com", port: 443 },
+          methods: { values: ["GET"] },
+          path: { kind: "exact", value: "/@scope/pkg" },
+        },
+      },
+      expires_at: "2030-02-01T12:00:00Z",
     },
     "PATCH",
     currentResponse.headers().etag,
@@ -745,8 +844,103 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("button", { name: "Review changes", exact: true }),
   ).toBeDisabled();
+  const currentPolicy = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Grant details", exact: true }),
+  });
+  await expect(currentPolicy).toContainText(creds[1]!.id);
+  await expect(currentPolicy).toContainText("Local/private accessEnabled");
+  await expect(currentPolicy).toContainText("/@scope/pkg");
+  await expect(
+    currentPolicy
+      .locator("div")
+      .filter({ has: page.locator("dt", { hasText: /^Expires$/ }) })
+      .locator("time"),
+  ).toHaveAttribute("datetime", /^2030-02-01T12:00:00(?:\.0+)?Z$/);
   await captureState("detail-stale");
   await page.getByRole("button", { name: "Use current revision" }).click();
+  await expect(page.getByText("Policy changed", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(currentPolicy).toContainText(creds[1]!.id);
+  await expect(page.getByLabel("Grant type")).toHaveValue("block_destination");
+  await page
+    .getByRole("button", { name: "Review changes", exact: true })
+    .click();
+  expect(
+    await page
+      .locator("#http-grant-editor > form")
+      .evaluate((form) => (form as HTMLFormElement).checkValidity()),
+  ).toBe(true);
+  await expect(page.getByRole("dialog")).toContainText("Block destination");
+  await expect(page.getByRole("dialog")).toContainText("No expiry");
+  await captureState("retained-draft-confirmation");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await expect(page.locator("#page-title")).toHaveText("HTTP Grant details");
+  let conflictCalls = 0;
+  await page.route(editPath, async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    conflictCalls++;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      json: {
+        status: 409,
+        code: "conflict",
+        title: "Credential is referenced.",
+      },
+    });
+  });
+  await page
+    .getByRole("button", { name: "Review changes", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Apply grant", exact: true })
+    .click();
+  await expect(
+    page.getByText("Credential is referenced.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/Policy changed\. Refresh/)).toHaveCount(0);
+  expect(conflictCalls).toBe(1);
+  await captureState("grant-conflict-title");
+  await page.unroute(editPath);
+  await expect(
+    page.getByRole("button", { name: "Review changes", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Use current revision", exact: true })
+    .click();
+  await expect(page.getByText("Policy changed", { exact: true })).toHaveCount(
+    0,
+  );
+  await page
+    .getByRole("button", { name: "Review changes", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Current grant", exact: true }),
+  ).toContainText("Concurrent edit");
+  await expect(
+    page.getByRole("region", { name: "Proposed grant", exact: true }),
+  ).toContainText("Retained local draft");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Apply grant", exact: true })
+    .click();
+  await expect(page.getByTestId("toast")).toContainText("Grant saved");
+  await expect(
+    page.getByRole("heading", { name: "Retained local draft", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("#http-grant-editor")).toHaveCount(0);
+  await captureState("detail-conflict-reviewed-save");
+  await page.getByRole("button", { name: "Edit grant", exact: true }).click();
+  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await expect(page.getByLabel("Description (optional)")).toBeVisible();
+  await page.getByLabel("Description (optional)").fill("Retained local draft");
+  await page.getByLabel("Grant type").selectOption("block_destination");
   for (const fault of [
     "identity",
     "reversed-times",
@@ -756,14 +950,21 @@ export async function runHTTPGrants(
   ]) {
     const draft =
       fault === "identity" ? "Retained local draft" : `Retained draft ${fault}`;
-    if (fault !== "identity") {
-      await page.reload();
-      await expect(page.getByLabel("Description (optional)")).toBeVisible();
-      await page.getByLabel("Description (optional)").fill(draft);
-    }
+    // Isolate each acknowledgement fault from the previous save's pending
+    // invalidation reads, which intentionally disable mutation controls.
+    await page.reload();
+    await page.getByRole("button", { name: "Edit grant", exact: true }).click();
+    await expect(page.getByLabel("Description (optional)")).toBeVisible();
+    await page.getByLabel("Description (optional)").fill(draft);
     let editCalls = 0;
+    let failUnknownRead = false;
     await page.route(editPath, async (route) => {
       if (route.request().method() !== "PATCH") {
+        if (failUnknownRead) {
+          injectedFailures.push(503);
+          await route.fulfill({ status: 503, body: "" });
+          return;
+        }
         await route.continue();
         return;
       }
@@ -808,6 +1009,17 @@ export async function runHTTPGrants(
       page.getByRole("heading", { name: draft, exact: true }),
     ).toBeVisible();
     expect(editCalls).toBe(1);
+    await expect(page.getByTestId("toast")).toHaveCount(0);
+    await expect(
+      page
+        .locator("#http-grant-editor")
+        .getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeDisabled();
+    await page.getByRole("button", { name: "Edit grant", exact: true }).click();
+    await expect(
+      page.getByText("Outcome uncertain", { exact: true }),
+    ).toBeVisible();
+    expect(editCalls).toBe(1);
     const observed = await (
       await api(`/api/v2/http/grants/${grants[0]!.id}`, undefined, "GET")
     ).json();
@@ -815,6 +1027,28 @@ export async function runHTTPGrants(
     await captureState(
       fault === "identity" ? "detail-uncertain" : `detail-${fault}-uncertain`,
     );
+    if (fault === "identity") {
+      failUnknownRead = true;
+      await page.getByRole("button", { name: "Refresh current view" }).click();
+      await expect(
+        page.getByText("Grant details are stale", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Grant saved; refresh unavailable", { exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByText("Outcome uncertain", { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Description (optional)")).toHaveValue(
+        draft,
+      );
+      await expect(
+        page.getByRole("button", { name: "Review changes", exact: true }),
+      ).toBeDisabled();
+      await expect(page.getByTestId("toast")).toHaveCount(0);
+      expect(editCalls).toBe(1);
+      await captureState("detail-unknown-read-failed");
+    }
     await page.unroute(editPath);
   }
   await assertSecretAbsent(
@@ -838,4 +1072,5 @@ export async function runHTTPGrants(
       screenshots,
     }),
   );
+  return [412, 409, ...injectedFailures];
 }

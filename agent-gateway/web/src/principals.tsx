@@ -418,9 +418,7 @@ function PrincipalEditor({
       setHTTPDefault(saved.httpDefault);
       setExpected(`"principal-${saved.id}-${saved.revision}"`);
       if (create) {
-        notify(
-          "Agent created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
-        );
+        notify("Agent created.");
         navigate(`#/agents/${saved.id}`, true);
       } else {
         setNotice("Agent settings saved.");
@@ -514,7 +512,6 @@ function PrincipalEditor({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">{create ? "AGENT NEW" : "AGENT EDIT"}</span>
           <h2 id="principal-editor-title">
             {create ? "Agent configuration" : "Edit agent"}
           </h2>
@@ -617,7 +614,7 @@ function PrincipalEditor({
         detail !== undefined && (
           <StateNotice state="warning" title="Review current agent settings">
             <p>
-              Your draft is preserved. Current values:{" "}
+              Your draft is preserved. Last loaded values:{" "}
               {detail.principal.displayName}; {detail.principal.state};{" "}
               {visibilityText(detail.principal.visibility)}; HTTP default{" "}
               {httpDefaultText(detail.principal.httpDefault)}.
@@ -939,7 +936,6 @@ function PrincipalCredentialActions({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">AGENT AUTHORITY</span>
           <h2 id="principal-credential-title">Agent credential</h2>
         </div>
         <StatusLabel state={principal.hasCredential ? "current" : "empty"}>
@@ -981,8 +977,8 @@ function PrincipalCredentialActions({
         <StateNotice state="error" title={problemTitle(mutation.problem)}>
           {mutation.requiresRefresh && (
             <p>
-              The current agent revision was reloaded. Review current authority
-              before trying a new explicit action.
+              Refresh the agent and review its current authority before trying a
+              new action.
             </p>
           )}
         </StateNotice>
@@ -1157,7 +1153,6 @@ export function Principals({
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
             <div>
-              <span class="panel-code">AGENT</span>
               <h1 id="principal-page-title" tabindex={-1}>
                 {principal.displayName}
               </h1>
@@ -1167,7 +1162,6 @@ export function Principals({
         <section class="panel domain-panel" aria-labelledby="principal-title">
           <div class="panel-heading">
             <div>
-              <span class="panel-code">PERMANENT IDENTITY</span>
               <h2 id="principal-title">Agent details</h2>
             </div>
             <StatusLabel

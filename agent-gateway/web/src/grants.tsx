@@ -422,7 +422,7 @@ function GrantCreate({
       ) as HTMLInputElement;
       if (!expiryInput.validity.valid)
         throw new Error(
-          "Choose a complete expiry date and time, or clear it for permanent access.",
+          "Choose a complete expiry date and time, or clear it for no expiry.",
         );
       if (
         expiresAt !== "" &&
@@ -471,7 +471,6 @@ function GrantCreate({
       <section class="panel domain-panel" aria-labelledby="grant-create-title">
         <div class="panel-heading">
           <div>
-            <span class="panel-code">IMMUTABLE POLICY</span>
             <h2 id="grant-create-title">Create MCP Grant</h2>
           </div>
         </div>
@@ -485,12 +484,7 @@ function GrantCreate({
             void review();
           }}
         >
-          <FormField
-            id="grant-description"
-            label="Description"
-            hint="Display metadata; it does not change authorization policy."
-            optional
-          >
+          <FormField id="grant-description" label="Description" optional>
             {(attributes) => (
               <input
                 {...attributes}
@@ -691,7 +685,7 @@ function GrantCreate({
           <FormField
             id="grant-expiry"
             label="Expires"
-            hint="Choose a future date and time in your local timezone. Leave blank for permanent access."
+            hint="Choose a future date and time in your local timezone. Leave blank for no expiry."
             optional
           >
             {(attributes) => (
@@ -802,7 +796,7 @@ function GrantCreate({
                   <dt>Expires</dt>
                   <dd>
                     {expiresAt === "" ? (
-                      "Permanent"
+                      "No expiry"
                     ) : (
                       <UserTime
                         value={
@@ -860,34 +854,6 @@ type GrantActionResult =
   | { kind: "deleted" };
 type GrantAction = "delete" | "create";
 type CorrectionPhase = "configure" | "create_second" | "delete_second";
-
-async function principalVisibility(
-  session: SessionClient,
-  principalID: string,
-): Promise<"requestable" | "allowed-only" | "all" | undefined> {
-  const result = await requestJSON(
-    session,
-    `/api/v2/principals/${principalID}`,
-  );
-  if (result === undefined || !result.response.ok) return undefined;
-  const value = record(result.value, [
-    "id",
-    "display_name",
-    "state",
-    "visibility",
-    "http_default",
-    "revision",
-    "credential_revision",
-    "credential",
-    "created_at",
-    "updated_at",
-  ]);
-  return value.visibility === "requestable" ||
-    value.visibility === "allowed-only" ||
-    value.visibility === "all"
-    ? value.visibility
-    : undefined;
-}
 
 function GrantDescriptionEditor({
   mutations,
@@ -947,7 +913,6 @@ function GrantDescriptionEditor({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">DISPLAY METADATA</span>
           <h2 id="grant-description-title">Description</h2>
         </div>
       </div>
@@ -957,12 +922,7 @@ function GrantDescriptionEditor({
           void submit();
         }}
       >
-        <FormField
-          id="grant-description-edit"
-          label="Description"
-          hint="Editing this field does not change authorization policy."
-          optional
-        >
+        <FormField id="grant-description-edit" label="Description" optional>
           {(attributes) => (
             <input
               {...attributes}
@@ -977,11 +937,29 @@ function GrantDescriptionEditor({
             <p>{error}</p>
           </StateNotice>
         )}
+        {mutation.state === "rejected" && (
+          <StateNotice state="error" title="Description not saved">
+            <p>
+              {mutation.problem === undefined
+                ? "Refresh the grant before trying again."
+                : problemTitle(mutation.problem)}
+            </p>
+          </StateNotice>
+        )}
+        {mutation.state === "uncertain" && (
+          <StateNotice state="warning" title="Save outcome unknown">
+            <p>
+              Refresh the grant to inspect its description before taking another
+              action.
+            </p>
+          </StateNotice>
+        )}
         <button
           class="button-safe form-submit-action"
           type="submit"
           disabled={
             mutation.state === "submitting" ||
+            mutation.state === "uncertain" ||
             mutation.availability === "storage_latched"
           }
         >
@@ -1018,9 +996,6 @@ function GrantActions({
   const [replacementID, setReplacementID] = useState<string>();
   const [action, setAction] = useState<GrantAction>("delete");
   const [confirming, setConfirming] = useState(false);
-  const [visibility, setVisibility] = useState<
-    "requestable" | "allowed-only" | "all"
-  >();
   const [notice, setNotice] = useState<string>();
   const actionButton = useRef<HTMLButtonElement>(null);
   const defaultGrant =
@@ -1032,16 +1007,6 @@ function GrantActions({
     grant.expiresAt === null;
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
-  useEffect(() => {
-    if (!defaultGrant) return;
-    let current = true;
-    void principalVisibility(session, grant.principalID).then((value) => {
-      if (current) setVisibility(value);
-    });
-    return () => {
-      current = false;
-    };
-  }, [grant.principalID, defaultGrant]);
 
   const createSpec = (): MutationSpec<GrantActionResult> => {
     const readOnly = grant.readOnly && replacementEffect === "allow";
@@ -1101,14 +1066,10 @@ function GrantActions({
       if (outcome.value.kind === "created") {
         setReplacementID(outcome.value.grant.id);
         setPhase("delete_second");
-        setNotice(
-          "Step one was acknowledged and policy was refreshed. The replacement now overlaps until you explicitly confirm deletion as step two.",
-        );
+        setNotice("Replacement grant created; original grant not yet deleted.");
       } else {
         setPhase("create_second");
-        setNotice(
-          "Step one was acknowledged and policy was refreshed. Authorization is absent until you explicitly confirm replacement creation as step two.",
-        );
+        setNotice("Original grant deleted; replacement not yet created.");
       }
       return;
     }
@@ -1129,10 +1090,6 @@ function GrantActions({
     setReplacementID(undefined);
     setNotice(undefined);
   };
-  const defaultWarning =
-    visibility === undefined
-      ? "Deleting this default grant removes the agent's access to Gateway self-service tools. It is not restored automatically."
-      : `Deleting this default grant removes the agent's access to Gateway self-service tools. The agent's ${visibility} visibility does not restore authorization.`;
   const disabled =
     mutation.state === "submitting" ||
     mutation.availability === "storage_latched";
@@ -1144,14 +1101,12 @@ function GrantActions({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">POLICY CHANGE</span>
           <h2 id="grant-actions-title">Delete or replace this grant</h2>
         </div>
       </div>
       {defaultGrant && (
-        <StateNotice state="warning" title="Default Gateway access consequence">
-          <p>{defaultWarning}</p>
-          <p>Default Gateway access can be deleted but not replaced.</p>
+        <StateNotice state="neutral" title="Replacement shortcut unavailable">
+          <p>This shortcut does not replace default-shaped grants.</p>
         </StateNotice>
       )}
       {grant.state === "expired" && (
@@ -1230,12 +1185,8 @@ function GrantActions({
                       )
                     }
                   >
-                    <option value="create_first">
-                      Create replacement before delete — temporary overlap
-                    </option>
-                    <option value="delete_first">
-                      Delete before create — temporary loss
-                    </option>
+                    <option value="create_first">Create first</option>
+                    <option value="delete_first">Delete first</option>
                   </select>
                 )}
               </FormField>
@@ -1296,7 +1247,7 @@ function GrantActions({
           <p>
             {action === "create"
               ? `This creates one independent immutable policy record. It does not delete or modify the current grant.${grant.readOnly ? (replacementEffect === "allow" ? " The replacement ALLOW retains read-only server access." : " The replacement DENY applies to all tools on this server.") : ""}`
-              : "This permanently removes this policy record. No replacement or later step is automatic."}
+              : "This permanently removes this policy record. Remaining grants still apply, with matching Deny taking precedence. No replacement or later step is automatic."}
           </p>
         }
         confirmLabel={
@@ -1377,6 +1328,15 @@ export function Grants({
     };
   }, [resolved.canonicalFragment, view.generation]);
   if (create) {
+    if (
+      error !== undefined &&
+      (principals === undefined || servers === undefined)
+    )
+      return (
+        <StateNotice state="error" title="Grant options unavailable">
+          <p>{error}</p>
+        </StateNotice>
+      );
     if (principals === undefined || servers === undefined)
       return <StateNotice state="loading" title="Loading grant options" />;
     return (
@@ -1476,7 +1436,7 @@ export function Grants({
             <div>
               <dt>Expires</dt>
               <dd>
-                <UserTime value={detail.expiresAt} fallback="Permanent" />
+                <UserTime value={detail.expiresAt} fallback="No expiry" />
               </dd>
             </div>
             <div>
@@ -1678,7 +1638,7 @@ function GrantCollection({
                 serverNames.get(grant.serverID) ?? grant.serverID,
               render: (grant) =>
                 grant.serverID === "00000000000000000000000000" ? (
-                  `Gateway self-service tools${grant.readOnly ? " — Read-only tools" : ""}`
+                  `Gateway self-service tools — ${grant.upstreamName ?? (grant.readOnly ? "Read-only tools" : "All tools")}`
                 ) : (
                   <a href={`#/mcp/servers/${grant.serverID}?tab=tools`}>
                     {serverNames.get(grant.serverID) ??

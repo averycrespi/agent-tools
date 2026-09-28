@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { captureStateFeedback } from "./state-feedback.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +14,22 @@ export async function runHTTPTraffic(
   requestCount: () => number,
 ): Promise<void> {
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-traffic-"));
+  const captureTransfer = async (state: string) => {
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      const outcome = page.locator("section").filter({
+        has: page.getByRole("heading", { name: "Outcome", exact: true }),
+      });
+      await outcome.screenshot({
+        path: join(screenshots, `transfer-${state}-${width}.png`),
+      });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(width);
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+  };
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -181,17 +198,17 @@ export async function runHTTPTraffic(
   for (const label of [
     "Protocol upgrades are not supported",
     "Absolute-form HTTP request required",
-    "Request target failed validation",
+    "Forbidden path construct",
   ]) {
     await expect(page.getByText(label, { exact: true })).toBeVisible();
   }
   await page
     .getByRole("row")
-    .filter({ hasText: "Request target failed validation" })
+    .filter({ hasText: "Forbidden path construct" })
     .getByRole("link", { name: "Not parsed", exact: true })
     .click();
   await expect(
-    page.getByText("Request target failed validation", { exact: true }),
+    page.getByText("Forbidden path construct", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Gateway", { exact: true })).toBeVisible();
   expect(await page.content()).not.toContain("path-secret");
@@ -305,6 +322,12 @@ export async function runHTTPTraffic(
   let diagnostics = false,
     legacyRejection = false,
     responseEvidence = false;
+  let recordedUnknown = false,
+    terminationEvidence = false;
+  const observedTermination = () =>
+    recordedUnknown
+      ? { stage: "upstream_read", condition: "cancelled", context: "cancelled" }
+      : { stage: "complete", condition: "clean" };
   let stale = false,
     failHistory = false,
     malformed = false,
@@ -357,7 +380,16 @@ export async function runHTTPTraffic(
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ admission: tunnel, completion: null }),
+        body: JSON.stringify({
+          admission: tunnel,
+          completion: {
+            completed_at: at,
+            outcome: "outcome_unknown",
+            bytes_sent: 0,
+            bytes_received: 1,
+            duration_ms: 1,
+          },
+        }),
       });
       return;
     }
@@ -378,12 +410,15 @@ export async function runHTTPTraffic(
           completion: responseEvidence
             ? {
                 completed_at: at,
-                outcome: "succeeded",
+                outcome: recordedUnknown ? "outcome_unknown" : "succeeded",
                 status: 200,
                 bytes_sent: 0,
                 bytes_received: 1,
                 duration_ms: 1,
                 response_source: "upstream",
+                ...(terminationEvidence
+                  ? { termination: observedTermination() }
+                  : {}),
               }
             : null,
         }),
@@ -482,7 +517,23 @@ export async function runHTTPTraffic(
                     connect: rejected.connect,
                     response_source: "gateway",
                   },
-                  summary(3),
+                  {
+                    ...summary(3),
+                    ...(terminationEvidence
+                      ? {
+                          completion_recorded: responseEvidence,
+                          ...(responseEvidence
+                            ? {
+                                termination: observedTermination(),
+                                response_source: "upstream",
+                                outcome: recordedUnknown
+                                  ? "outcome_unknown"
+                                  : "succeeded",
+                              }
+                            : {}),
+                        }
+                      : {}),
+                  },
                 ],
                 next_cursor: null,
               }
@@ -650,6 +701,10 @@ export async function runHTTPTraffic(
       { exact: true },
     ),
   ).toBeVisible();
+  await expect(
+    page.getByText("Missing terminal evidence", { exact: true }),
+  ).toBeVisible();
+  await captureTransfer("missing");
   await page.getByText("Matched policy selectors", { exact: true }).click();
   await page.screenshot({
     path: join(screenshots, "detail.png"),
@@ -665,6 +720,12 @@ export async function runHTTPTraffic(
       exact: true,
     }),
   ).toBeVisible();
+  await expect(
+    page.getByText(
+      "The request may have taken effect. Retrying may repeat effects.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: join(screenshots, "tunnel-narrow.png"),
@@ -742,6 +803,10 @@ export async function runHTTPTraffic(
     .click();
   for (const [stage, reason, label] of [
     ["headers", "invalid_headers", "Invalid headers"],
+    ["target", "invalid_target_syntax", "Invalid request target syntax"],
+    ["target", "target_too_long", "Request target exceeds byte limit"],
+    ["target", "forbidden_path", "Forbidden path construct"],
+    ["target", "authority_mismatch", "Request authority mismatch"],
     [
       "request_form",
       "origin_form_required",
@@ -753,6 +818,22 @@ export async function runHTTPTraffic(
     await expect(page.getByText(label!, { exact: true })).toBeVisible();
     await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
     await expect(page.getByText(label!, { exact: true })).toBeVisible();
+    if (reason === "target_too_long") {
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await page.screenshot({
+        path: join(screenshots, "target-byte-limit-detail.png"),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(390);
+      await page.screenshot({
+        path: join(screenshots, "target-byte-limit-detail-narrow.png"),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
     await page
       .getByRole("link", { name: "Back to HTTP traffic", exact: true })
       .click();
@@ -782,9 +863,68 @@ export async function runHTTPTraffic(
   await page.locator(`a[href*="/http/traffic/${id(3)}"]`).click();
   await expect(page.getByText("Upstream", { exact: true })).toBeVisible();
   await expect(page.getByText("200", { exact: true })).toBeVisible();
+  await expect(page.locator("#page-title")).toHaveText("HTTP Traffic details");
+  const duplicateCaution = page.getByText(
+    "The request may have taken effect. Retrying may repeat effects.",
+    { exact: true },
+  );
+  await expect(duplicateCaution).toHaveCount(0);
+  await expect(
+    page.getByText("Termination details unavailable", { exact: true }),
+  ).toBeVisible();
+  await captureTransfer("historical");
+  terminationEvidence = true;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(
+    page.getByText("Clean HTTP transfer", { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: join(screenshots, "transfer-clean-desktop.png"),
+    fullPage: true,
+  });
+  await captureTransfer("clean");
+  recordedUnknown = true;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(duplicateCaution).toBeVisible();
+  await expect(page.getByText("200", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Incomplete HTTP transfer", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Upstream read", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cancelled", { exact: true })).toHaveCount(2);
+  await page.getByText("Transfer evidence limits", { exact: true }).click();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: join(screenshots, "transfer-incomplete-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: join(screenshots, "transfer-incomplete-narrow.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await captureTransfer("incomplete");
+  await captureStateFeedback(page, "http-request-recorded-unknown");
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
     .click();
+  await expect(
+    page.getByText("Incomplete HTTP transfer", { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: join(screenshots, "transfer-list-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: join(screenshots, "transfer-list-narrow.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
   connectCases = true;
   await page
     .getByRole("button", { name: "Clear filters", exact: true })

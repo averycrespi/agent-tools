@@ -1013,7 +1013,6 @@ export function TypedConfirmationDialog({
       onClose={() => returnFocus.current?.focus()}
     >
       <form method="dialog">
-        <span class="panel-code">TYPE TO CONFIRM</span>
         <h2 id={`${id}-title`}>{title}</h2>
         <div id={`${id}-consequence`} class="dialog-consequence">
           {consequence}
@@ -1100,7 +1099,6 @@ export function ConfirmationDialog({
       onClose={restoreFocus}
     >
       <form method="dialog">
-        <span class="panel-code">CONFIRM</span>
         <h2 id={`${id}-title`}>{title}</h2>
         <div id={`${id}-consequence`} class="dialog-consequence">
           {consequence}

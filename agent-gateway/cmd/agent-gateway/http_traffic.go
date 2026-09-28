@@ -117,5 +117,15 @@ func httpTrafficItemTable(body []byte) (controlclient.Table, error) {
 	default:
 		table.Rows = append(table.Rows, []string{"Outcome", "Not dispatched"})
 	}
+	if c != nil && a.Target != nil && a.Target.Scheme != "" {
+		if c.Termination == nil {
+			table.Rows = append(table.Rows, []string{"HTTP transfer", "Termination details unavailable"})
+		} else {
+			table.Rows = append(table.Rows, []string{"Observed stage", c.Termination.Stage}, []string{"Observed condition", c.Termination.Condition})
+			if c.Termination.Context != "" {
+				table.Rows = append(table.Rows, []string{"Request context", c.Termination.Context})
+			}
+		}
+	}
 	return table, nil
 }

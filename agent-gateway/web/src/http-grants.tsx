@@ -12,6 +12,7 @@ import {
   ConfirmationDialog,
   FormField,
   StateNotice,
+  StatusLabel,
   TableIdentity,
 } from "./primitives";
 import { httpDefaultText, readPrincipals, type Principal } from "./principals";
@@ -130,10 +131,79 @@ async function grantResponse(response: Response): Promise<Grant> {
 function destination(p: Policy): Destination {
   return p.destination ?? p.request!.origin;
 }
-function summary(p: Policy): string {
+function PolicyFacts({ policy: p }: { policy: Policy }) {
   const d = destination(p);
   const r = p.request;
-  return `${labels[p.type]} · ${r === undefined ? "" : r.origin.scheme + "://"}${d.host}:${d.port}${r === undefined ? "" : ` · ${r.methods.any ? "Any method" : r.methods.values!.join(", ")} · ${r.path.kind === "any" ? "Any path" : r.path.kind === "exact" ? r.path.value : r.path.value + " and descendants"}`}`;
+  return (
+    <>
+      <div>
+        <dt>Type</dt>
+        <dd>{labels[p.type]}</dd>
+      </div>
+      <div>
+        <dt>Destination</dt>
+        <dd>
+          {r === undefined ? "" : r.origin.scheme + "://"}
+          {d.host}:{d.port}
+        </dd>
+      </div>
+      {r === undefined ? (
+        <>
+          <div>
+            <dt>Methods</dt>
+            <dd>Not applicable</dd>
+          </div>
+          <div>
+            <dt>Path</dt>
+            <dd>Not applicable</dd>
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <dt>Methods</dt>
+            <dd>
+              {r.methods.any ? "Any method" : r.methods.values!.join(", ")}
+            </dd>
+          </div>
+          <div>
+            <dt>Path</dt>
+            <dd>
+              {r.path.kind === "any"
+                ? "Any path"
+                : r.path.kind === "exact"
+                  ? r.path.value
+                  : r.path.value + " and descendants"}
+            </dd>
+          </div>
+        </>
+      )}
+      <div>
+        <dt>Local/private access</dt>
+        <dd>
+          {p.type === "allow_requests" || p.type === "allow_tunnel"
+            ? p.allow_private
+              ? "Enabled"
+              : "Disabled"
+            : "Not applicable"}
+        </dd>
+      </div>
+      <div>
+        <dt>Credential</dt>
+        <dd>
+          {p.type !== "allow_requests" ? (
+            "Not applicable"
+          ) : p.credential_id === undefined ? (
+            "No credential"
+          ) : (
+            <a href={`#/http/credentials/${p.credential_id}`}>
+              {p.credential_id}
+            </a>
+          )}
+        </dd>
+      </div>
+    </>
+  );
 }
 interface Props {
   session: SessionClient;
@@ -141,6 +211,46 @@ interface Props {
   resolved: ResolvedLocation;
   view: ViewSnapshot;
   onRefresh: () => void;
+  notify: (message?: string) => void;
+}
+
+function useGrantChoices(props: Props, enabled: boolean) {
+  const [principals, setPrincipals] = useState<Principal[]>([]);
+  const [credentials, setCredentials] = useState<
+    ReturnType<typeof decodeHTTPCredential>[]
+  >([]);
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!enabled) return;
+    let current = true;
+    setLoading(true);
+    void Promise.all([
+      readPrincipals(props.session),
+      readCredentialChoices(props.session),
+    ])
+      .then(([people, creds]) => {
+        if (current) {
+          setPrincipals(people);
+          setCredentials(creds);
+          setLoadError(false);
+        }
+      })
+      .catch(() => {
+        if (current) {
+          setPrincipals([]);
+          setCredentials([]);
+          setLoadError(true);
+        }
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [enabled, props.view.generation]);
+  return { principals, credentials, loadError, loading };
 }
 
 function usePolicyMutation<T>(props: {
@@ -153,6 +263,7 @@ function usePolicyMutation<T>(props: {
     controller.snapshot(),
   );
   const [blockedAt, setBlockedAt] = useState<number>();
+  const [reviewRequired, setReviewRequired] = useState(false);
   useEffect(() => controller.subscribe(setState), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   const blocked =
@@ -172,6 +283,7 @@ function usePolicyMutation<T>(props: {
         (outcome.kind === "rejected" && outcome.requiresRefresh)
       ) {
         setBlockedAt(props.view.generation);
+        if (outcome.kind === "rejected") setReviewRequired(true);
         props.onRefresh();
       }
     } catch {
@@ -179,7 +291,16 @@ function usePolicyMutation<T>(props: {
       props.onRefresh();
     }
   };
-  return { blocked, submit, state };
+  return {
+    blocked,
+    submit,
+    state,
+    reviewRequired,
+    review: () => {
+      setReviewRequired(false);
+      controller.abandon();
+    },
+  };
 }
 function MutationNotice({ state }: { state: MutationSnapshot }) {
   if (state.state === "uncertain")
@@ -191,11 +312,10 @@ function MutationNotice({ state }: { state: MutationSnapshot }) {
   if (state.state === "rejected")
     return (
       <StateNotice state="error" title="Change not applied">
-        <p>
-          {state.requiresRefresh
-            ? "Policy changed. Refresh, inspect the current revision and review again."
-            : (state.problem?.title ?? "Check the proposed policy.")}
-        </p>
+        <p>{state.problem?.title ?? "Check the proposed policy."}</p>
+        {state.requiresRefresh && (
+          <p>Inspect refreshed policy before reviewing again.</p>
+        )}
       </StateNotice>
     );
   return null;
@@ -205,9 +325,22 @@ export function HTTPGrants(props: Props) {
   const selected = props.resolved.location.segments[1];
   const [detail, setDetail] = useState<Grant>();
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
+  const choices = useGrantChoices(
+    props,
+    selected !== undefined && selected !== "test-access",
+  );
+  const closeEditor = () => {
+    setEditing(false);
+    editButton.current?.focus();
+  };
   useEffect(() => {
     let current = true;
-    setError(false);
+    setLoading(true);
     if (
       selected === undefined ||
       selected === "new" ||
@@ -228,10 +361,16 @@ export function HTTPGrants(props: Props) {
       },
     )
       .then((value) => {
-        if (current && value?.id === selected) setDetail(value);
+        if (current && value?.id === selected) {
+          setDetail(value);
+          setError(false);
+        }
       })
       .catch(() => {
         if (current) setError(true);
+      })
+      .finally(() => {
+        if (current) setLoading(false);
       });
     return () => {
       current = false;
@@ -239,8 +378,8 @@ export function HTTPGrants(props: Props) {
   }, [selected, props.view.generation]);
   if (selected === undefined) return <GrantCollection {...props} />;
   if (selected === "test-access") return <AccessPreview {...props} />;
-  if (selected === "new") return <GrantEditor {...props} />;
-  if (error)
+  if (selected === "new") return <GrantEditor {...props} choices={choices} />;
+  if (error && detail?.id !== selected)
     return (
       <StateNotice state="error" title="HTTP grant unavailable">
         <p>Refresh to inspect current policy.</p>
@@ -248,28 +387,130 @@ export function HTTPGrants(props: Props) {
     );
   if (detail?.id !== selected)
     return <StateNotice state="loading" title="Loading HTTP grant" />;
+  const credentialAvailable = choices.credentials.find(
+    (c) => c.id === detail.policy.credential_id,
+  )?.available;
   return (
     <div class="domain-view">
       <nav class="detail-navigation" aria-label="HTTP grant navigation">
         <a href="#/http/grants">Back to HTTP grants</a>
       </nav>
       <header class="detail-context">
-        <h1 tabindex={-1}>{detail.description ?? "Unnamed HTTP grant"}</h1>
+        <h1 ref={title} tabindex={-1}>
+          {detail.description || "Unnamed HTTP grant"}
+        </h1>
+        <span class="table-identifier">{detail.id}</span>
       </header>
-      <section class="panel domain-panel">
-        <h2>Current policy</h2>
-        <p>{summary(detail.policy)}</p>
-        <p>
-          <a href={`#/agents/${detail.principal_id}`}>
-            Agent {detail.principal_id}
-          </a>
-        </p>
-        <p class="technical-value">{detail.id}</p>
-        <p>
-          Expires: <UserTime value={detail.expires_at} fallback="No expiry" />
-        </p>
+      {error && (
+        <StateNotice
+          state="stale"
+          title={
+            saved
+              ? "Grant saved; refresh unavailable"
+              : "Grant details are stale"
+          }
+        >
+          <p>
+            {saved
+              ? "Showing last acknowledged values."
+              : "Showing last loaded values."}{" "}
+            Refresh to inspect current policy before editing.
+          </p>
+        </StateNotice>
+      )}
+      <section
+        class="panel domain-panel"
+        aria-labelledby="http-grant-details-title"
+      >
+        <div class="panel-heading">
+          <h2 id="http-grant-details-title">Grant details</h2>
+          <StatusLabel
+            state={detail.state === "active" ? "current" : "neutral"}
+          >
+            {detail.state === "active" ? "Active" : "Expired"}
+          </StatusLabel>
+        </div>
+        <dl class="fact-grid">
+          <div>
+            <dt>Agent</dt>
+            <dd>
+              <TableIdentity
+                primary={
+                  <a href={`#/agents/${detail.principal_id}`}>
+                    {choices.principals.find(
+                      (p) => p.id === detail.principal_id,
+                    )?.displayName ??
+                      (choices.loading ? "Loading agent" : "Agent unavailable")}
+                  </a>
+                }
+                secondary={detail.principal_id}
+              />
+            </dd>
+          </div>
+          <PolicyFacts policy={detail.policy} />
+          <div>
+            <dt>Expires</dt>
+            <dd>
+              <UserTime value={detail.expires_at} fallback="No expiry" />
+            </dd>
+          </div>
+          <div>
+            <dt>Created</dt>
+            <dd>
+              <UserTime value={detail.created_at} />
+            </dd>
+          </div>
+          {detail.policy.credential_id !== undefined && (
+            <div>
+              <dt>Credential material</dt>
+              <dd>
+                {choices.loading
+                  ? "Loading"
+                  : credentialAvailable === undefined
+                    ? "Unknown"
+                    : credentialAvailable
+                      ? "Available"
+                      : "Unavailable"}
+              </dd>
+            </div>
+          )}
+        </dl>
+        <div class="form-actions">
+          <button
+            ref={editButton}
+            type="button"
+            aria-expanded={editing}
+            aria-controls="http-grant-editor"
+            disabled={error || loading}
+            onClick={() => {
+              if (!editing) {
+                setSaved(false);
+                props.notify();
+                setEditing(true);
+              }
+            }}
+          >
+            Edit grant
+          </button>
+        </div>
       </section>
-      <GrantEditor {...props} grant={detail} />
+      {editing && (
+        <GrantEditor
+          {...props}
+          grant={detail}
+          choices={choices}
+          unavailable={error || loading}
+          onCancel={closeEditor}
+          onSaved={(value) => {
+            setDetail(value);
+            setSaved(true);
+            closeEditor();
+            title.current?.focus();
+            props.notify("Grant saved");
+            props.onRefresh();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -445,15 +686,19 @@ function GrantCollection(props: Props) {
   );
 }
 
-function GrantEditor(props: Props & { grant?: Grant }) {
+function GrantEditor(
+  props: Props & {
+    grant?: Grant;
+    choices: ReturnType<typeof useGrantChoices>;
+    unavailable?: boolean;
+    onCancel?: () => void;
+    onSaved?: (grant: Grant) => void;
+  },
+) {
   const g = props.grant;
   const p = g?.policy;
   const request = p?.request;
-  const [principals, setPrincipals] = useState<Principal[]>([]);
-  const [credentials, setCredentials] = useState<
-    ReturnType<typeof decodeHTTPCredential>[]
-  >([]);
-  const [loadError, setLoadError] = useState(false);
+  const { principals, credentials, loadError, loading } = props.choices;
   const [principal, setPrincipal] = useState(g?.principal_id ?? "");
   const [description, setDescription] = useState(g?.description ?? "");
   const [kind, setKind] = useState<Kind>(p?.type ?? "allow_requests");
@@ -485,6 +730,11 @@ function GrantEditor(props: Props & { grant?: Grant }) {
   );
   const [dirty, setDirty] = useState(false);
   const [confirm, setConfirm] = useState<"save" | "delete">();
+  const [discard, setDiscard] = useState(false);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const confirmationFocus = useRef<HTMLButtonElement>(null);
+  const descriptionInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState(false);
   const [expected, setExpected] = useState(
     g === undefined ? null : grantETag(g),
@@ -493,25 +743,8 @@ function GrantEditor(props: Props & { grant?: Grant }) {
   const navigate = useUnsavedChanges(dirty);
   const mutation = usePolicyMutation<Grant | null>(props);
   useEffect(() => {
-    let current = true;
-    void Promise.all([
-      readPrincipals(props.session),
-      readCredentialChoices(props.session),
-    ])
-      .then(([people, creds]) => {
-        if (current) {
-          setPrincipals(people);
-          setCredentials(creds);
-          setLoadError(false);
-        }
-      })
-      .catch(() => {
-        if (current) setLoadError(true);
-      });
-    return () => {
-      current = false;
-    };
-  }, [props.view.generation]);
+    if (g !== undefined) descriptionInput.current?.focus();
+  }, []);
   const requests = kind === "allow_requests" || kind === "block_requests";
   const allow = kind === "allow_requests" || kind === "allow_tunnel";
   const compatible = credentials.filter(
@@ -545,17 +778,28 @@ function GrantEditor(props: Props & { grant?: Grant }) {
       ? { credential_id: credential }
       : {}),
   };
-  const stale = g !== undefined && expected !== grantETag(g);
+  const stale =
+    g !== undefined && (expected !== grantETag(g) || mutation.reviewRequired);
   const submit = () => {
     const deleting = confirm === "delete";
     setConfirm(undefined);
+    if (
+      mutation.blocked ||
+      stale ||
+      props.unavailable ||
+      (!deleting && (loadError || loading))
+    )
+      return;
     const body = deleting
       ? null
       : JSON.stringify({
           principal_id: principal,
           description: description || null,
           policy,
-          expires_at: expiry === "" ? null : new Date(expiry).toISOString(),
+          expires_at:
+            expiry === ""
+              ? null
+              : new Date(expiry).toISOString().replace(/\.000Z$/, "Z"),
         });
     void mutation.submit(
       {
@@ -581,15 +825,13 @@ function GrantEditor(props: Props & { grant?: Grant }) {
         setDirty(false);
         if (value === null) navigate("#/http/grants", true);
         else if (g === undefined) navigate(`#/http/grants/${value.id}`, true);
-        else {
-          setExpected(grantETag(value));
-          props.onRefresh();
-        }
+        else props.onSaved?.(value);
       },
     );
   };
   return (
     <section
+      id="http-grant-editor"
       class="panel domain-panel"
       aria-labelledby="http-grant-editor-title"
     >
@@ -607,7 +849,14 @@ function GrantEditor(props: Props & { grant?: Grant }) {
       {stale && (
         <StateNotice state="warning" title="Policy changed">
           <p>Inspect the current policy above before applying this draft.</p>
-          <button type="button" onClick={() => setExpected(grantETag(g!))}>
+          <button
+            type="button"
+            disabled={mutation.blocked || props.unavailable}
+            onClick={() => {
+              setExpected(grantETag(g!));
+              mutation.review();
+            }}
+          >
             Use current revision
           </button>
         </StateNotice>
@@ -628,7 +877,10 @@ function GrantEditor(props: Props & { grant?: Grant }) {
               credential === "" ||
               compatible.some((c) => c.id === credential));
           setError(!valid);
-          if (valid) setConfirm("save");
+          if (valid) {
+            confirmationFocus.current = button.current;
+            setConfirm("save");
+          }
         }}
       >
         <div role="group" aria-label="Agent and description">
@@ -642,6 +894,12 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                 onChange={(e) => setPrincipal(e.currentTarget.value)}
               >
                 <option value="">Select agent</option>
+                {g !== undefined &&
+                  !principals.some((v) => v.id === principal) && (
+                    <option value={principal}>
+                      Agent unavailable · {principal}
+                    </option>
+                  )}
                 {principals.map((v) => (
                   <option value={v.id} key={v.id}>
                     {v.displayName}
@@ -654,6 +912,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
             {(a) => (
               <input
                 {...a}
+                ref={descriptionInput}
                 maxLength={256}
                 value={description}
                 onInput={(e) => setDescription(e.currentTarget.value)}
@@ -748,7 +1007,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                       aria-label={`Method ${index + 1}`}
                       required
                       maxLength={32}
-                      pattern="[A-Z0-9!#$%&'*+.^_`|~-]+"
+                      pattern={"[A-Z0-9!#$%&'*+.^_`\\|~\\-]+"}
                       value={method}
                       onInput={(e) =>
                         setMethods(
@@ -760,9 +1019,10 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                     />
                     <button
                       type="button"
-                      onClick={() =>
-                        setMethods(methods.filter((_, i) => i !== index))
-                      }
+                      onClick={() => {
+                        setDirty(true);
+                        setMethods(methods.filter((_, i) => i !== index));
+                      }}
                     >
                       Remove method
                     </button>
@@ -771,7 +1031,10 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                 <button
                   type="button"
                   disabled={methods.length >= 32}
-                  onClick={() => setMethods([...methods, "GET"])}
+                  onClick={() => {
+                    setDirty(true);
+                    setMethods([...methods, "GET"]);
+                  }}
                 >
                   Add method
                 </button>
@@ -795,7 +1058,7 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                 <FormField
                   id="http-grant-path"
                   label="Path"
-                  hint="Slash and unreserved characters only; query, header and body matching are not supported."
+                  hint="Slash, literal @ and unreserved characters only; query, header and body matching are not supported."
                 >
                   {(a) => (
                     <input
@@ -829,6 +1092,12 @@ function GrantEditor(props: Props & { grant?: Grant }) {
                   onChange={(e) => setCredential(e.currentTarget.value)}
                 >
                   <option value="">No credential</option>
+                  {credential !== "" &&
+                    !compatible.some((c) => c.id === credential) && (
+                      <option value={credential}>
+                        Unavailable credential · {credential}
+                      </option>
+                    )}
                   {compatible.map((c) => (
                     <option value={c.id}>
                       {c.name}
@@ -880,39 +1149,142 @@ function GrantEditor(props: Props & { grant?: Grant }) {
         <div class="form-actions">
           <button
             ref={button}
-            class={`${g === undefined ? "create-action " : ""}form-submit-action`}
-            disabled={mutation.blocked || stale || loadError}
+            class={g === undefined ? "create-action" : "primary-action"}
+            disabled={
+              mutation.blocked ||
+              stale ||
+              loadError ||
+              loading ||
+              props.unavailable
+            }
           >
-            {g === undefined ? "Review and create" : "Review changes"}
+            {mutation.state.state === "submitting"
+              ? "Applying grant…"
+              : g === undefined
+                ? "Review and create"
+                : "Review changes"}
           </button>
           {g !== undefined && (
-            <button
-              type="button"
-              class="danger-action"
-              disabled={mutation.blocked || stale}
-              onClick={() => setConfirm("delete")}
-            >
-              Delete grant
-            </button>
+            <>
+              <button
+                ref={cancelButton}
+                type="button"
+                disabled={mutation.blocked}
+                onClick={() => (dirty ? setDiscard(true) : props.onCancel?.())}
+              >
+                Cancel
+              </button>
+              <button
+                ref={deleteButton}
+                type="button"
+                class="danger-action"
+                disabled={mutation.blocked || stale || props.unavailable}
+                onClick={() => {
+                  confirmationFocus.current = deleteButton.current;
+                  setConfirm("delete");
+                }}
+              >
+                Delete grant
+              </button>
+            </>
           )}
         </div>
       </form>
+      <ConfirmationDialog
+        id="http-grant-discard"
+        open={discard}
+        title="Discard grant changes?"
+        consequence="Your unsaved changes will be lost."
+        confirmLabel="Discard changes"
+        returnFocus={cancelButton as unknown as RefObject<HTMLElement>}
+        onCancel={() => setDiscard(false)}
+        onConfirm={() => props.onCancel?.()}
+      />
       <ConfirmationDialog
         id="http-grant-confirm"
         open={confirm !== undefined}
         title={confirm === "delete" ? "Delete HTTP grant" : "Apply HTTP grant"}
         consequence={
-          confirm === "delete"
-            ? "Remove this grant. Other grants and the agent default still apply."
-            : summary(policy) +
-              (privateAccess && allow
-                ? " · Local/private access enabled"
-                : "") +
-              (policy.credential_id ? " · Credential injection required" : "")
+          confirm === "delete" ? (
+            "Remove this grant. Other grants and the agent default still apply."
+          ) : (
+            <>
+              {g !== undefined && (
+                <section aria-label="Current grant">
+                  <h3>Current grant</h3>
+                  <dl class="fact-grid">
+                    <div>
+                      <dt>Description</dt>
+                      <dd>{g.description || "Unnamed HTTP grant"}</dd>
+                    </div>
+                    <div>
+                      <dt>Agent</dt>
+                      <dd>
+                        {principals.find((p) => p.id === g.principal_id)
+                          ?.displayName ?? "Agent unavailable"}{" "}
+                        · {g.principal_id}
+                      </dd>
+                    </div>
+                    <PolicyFacts policy={g.policy} />
+                    <div>
+                      <dt>Expires</dt>
+                      <dd>
+                        <UserTime value={g.expires_at} fallback="No expiry" />
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
+              <section aria-label="Proposed grant">
+                <h3>Proposed grant</h3>
+                <dl class="fact-grid">
+                  <div>
+                    <dt>Description</dt>
+                    <dd>{description || "Unnamed HTTP grant"}</dd>
+                  </div>
+                  <div>
+                    <dt>Agent</dt>
+                    <dd>
+                      {principals.find((p) => p.id === principal)
+                        ?.displayName ?? "Agent"}{" "}
+                      · {principal}
+                    </dd>
+                  </div>
+                  <PolicyFacts policy={policy} />
+                  <div>
+                    <dt>Expires</dt>
+                    <dd>
+                      <UserTime
+                        value={
+                          expiry === "" ? null : new Date(expiry).toISOString()
+                        }
+                        fallback="No expiry"
+                      />
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+              {policy.type === "allow_tunnel" && (
+                <p>
+                  Opaque tunnel bypass: request method/path checks and
+                  credential injection do not apply inside this tunnel.
+                </p>
+              )}
+              {policy.allow_private && (
+                <p>Permits local/private destinations within this grant.</p>
+              )}
+              {policy.credential_id !== undefined && (
+                <p>
+                  The selected credential will be injected into matching HTTPS
+                  requests.
+                </p>
+              )}
+            </>
+          )
         }
         confirmLabel={confirm === "delete" ? "Delete grant" : "Apply grant"}
         destructive={confirm === "delete"}
-        returnFocus={button as unknown as RefObject<HTMLElement>}
+        returnFocus={confirmationFocus as unknown as RefObject<HTMLElement>}
         onCancel={() => setConfirm(undefined)}
         onConfirm={submit}
       />

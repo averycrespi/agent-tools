@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { captureStateFeedback } from "./state-feedback.ts";
 import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
@@ -29,6 +30,22 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
       fail(`Request ${state} overflows at ${label}`);
     const dialog = page.locator("dialog[open]");
     const modal = (await dialog.count()) > 0;
+    if (
+      [
+        "exact-tool-approved",
+        "server-to-tool-approved",
+        "grant-delete-first",
+        "synthetic-exact-table",
+      ].includes(state)
+    ) {
+      const skip = await page.locator(".skip-link").evaluate((node) => ({
+        focused: node === document.activeElement,
+        bottom: node.getBoundingClientRect().bottom,
+      }));
+      expect(skip.focused).toBe(false);
+      expect(skip.bottom).toBeLessThan(0);
+      await page.screenshot({ path: join(directory, `${label}-viewport.png`) });
+    }
     await page.screenshot({
       path: join(directory, `${label}.png`),
       fullPage: !modal,
@@ -337,8 +354,7 @@ export async function runAccessManagementReadCanary(
   for (const phrase of [
     "Submitted: no descriptor evidence",
     "Current target",
-    "Approval grants the selected authority",
-    "it does not execute or retry a call",
+    "Approval does not execute or retry a call",
   ])
     if (!body.includes(phrase))
       fail(`Access management read canary omitted ${phrase}`);
@@ -736,8 +752,8 @@ export async function runPrincipals(
   });
   await page.locator('[data-testid="principal-create-view"]').waitFor();
   await expect(
-    page.getByTestId("principal-create-view").locator(".panel-code").first(),
-  ).toHaveText("AGENT NEW");
+    page.getByTestId("principal-create-view").locator(".panel-code"),
+  ).toHaveCount(0);
   body = (await page.locator("body").textContent()) ?? "";
   if (
     (await page
@@ -814,11 +830,8 @@ export async function runPrincipals(
   await page.locator('[data-testid="principal-change-confirm-submit"]').click();
   await page.locator('[data-testid="principal-detail"]').waitFor();
   await expect(
-    page
-      .getByTestId("principal-detail")
-      .locator(".panel-code")
-      .filter({ hasText: /^(?:AGENT|PRINCIPAL)(?: EDIT)?$/ }),
-  ).toHaveText(["AGENT", "AGENT EDIT"]);
+    page.getByTestId("principal-detail").locator(".panel-code"),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("heading", {
       level: 1,
@@ -832,8 +845,7 @@ export async function runPrincipals(
   await page
     .getByTestId("toast")
     .filter({
-      hasText:
-        "Agent created; MCP discovery visibility saved. Ordinary grant added for six fixed MCP self-service tools, not downstream tools or future protocols.",
+      hasText: "Agent created.",
     })
     .waitFor();
 
@@ -989,6 +1001,7 @@ export async function runPrincipalCredentials(
     updated_at: "2026-08-28T13:00:00Z",
   });
   let current = principal("1", true);
+  let credentialReadFails = false;
   let issues = 0;
   let revokes = 0;
   let releaseLost: (() => void) | undefined;
@@ -1000,6 +1013,14 @@ export async function runPrincipalCredentials(
   await page.route("**/api/v2/principals/*", async (route) => {
     if (route.request().method() !== "GET") {
       await route.fallback();
+      return;
+    }
+    if (credentialReadFails) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        json: { status: 503, code: "unavailable", title: "Unavailable" },
+      });
       return;
     }
     await route.fulfill({
@@ -1022,6 +1043,7 @@ export async function runPrincipalCredentials(
       if (request.method() === "POST") {
         issues += 1;
         if (issues === 1) {
+          credentialReadFails = true;
           current = principal("2", true);
           await route.fulfill({
             status: 412,
@@ -1140,6 +1162,21 @@ export async function runPrincipalCredentials(
   await page
     .getByText("The agent revision is stale.", { exact: true })
     .waitFor();
+  await expect(
+    page.getByText("Current agent data unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/was reloaded/)).toHaveCount(0);
+  await expect(page.getByText(/Last loaded values:/)).toBeVisible();
+  await captureStateFeedback(page, "agent-reload-failed");
+  credentialReadFails = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Current agent data unavailable", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("principal-credential-actions")).toContainText(
+    "2",
+  );
+  await expect(page.getByText(/was reloaded/)).toHaveCount(0);
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
     .locator('[data-testid="principal-credential-confirm-submit"]')
@@ -1400,12 +1437,22 @@ export async function runGrantReadsCreate(
   let attempts = 0;
   let creates = 0;
   let descriptionPatches = 0;
+  let descriptionOutcome: "success" | "rejected" | "unknown" = "success";
+  let optionsUnavailable = false;
   let descriptorRequests = 0;
   const expectedExpiry = await page.evaluate(() =>
     new Date("2030-01-01T12:34:56").toISOString(),
   );
 
   await page.route("**/api/v2/principals?*", async (route) => {
+    if (optionsUnavailable) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        json: { status: 503, code: "unavailable", title: "Unavailable" },
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1716,6 +1763,22 @@ export async function runGrantReadsCreate(
       )
         fail("grant description PATCH body changed");
       descriptionPatches += 1;
+      if (descriptionOutcome === "rejected") {
+        await route.fulfill({
+          status: 400,
+          contentType: "application/problem+json",
+          json: {
+            status: 400,
+            code: "invalid_operation",
+            title: "The operation is invalid.",
+          },
+        });
+        return;
+      }
+      if (descriptionOutcome === "unknown") {
+        await route.abort("failed");
+        return;
+      }
       active.description = patch.description as string | null;
       active.revision = String(Number(active.revision) + 1);
       await route.fulfill({
@@ -1827,6 +1890,24 @@ export async function runGrantReadsCreate(
   await page.waitForFunction(
     () => document.querySelectorAll('[data-testid="grant-row"]').length === 2,
   );
+  optionsUnavailable = true;
+  await page.evaluate(() => {
+    window.location.hash = "#/mcp/grants/new";
+  });
+  await expect(
+    page.getByText("Grant options unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Loading grant options", { exact: true }),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "grant-options-unavailable");
+  optionsUnavailable = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(page.getByTestId("grant-description")).toBeVisible();
+  await page.evaluate(() => {
+    window.location.hash = "#/mcp/grants";
+  });
+  await waitForCollectionRows(page, "grant", 2);
   let body = (await page.locator("body").textContent()) ?? "";
   if (staleRestarted) fail("grant list traversed without navigation");
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
@@ -1964,6 +2045,22 @@ export async function runGrantReadsCreate(
   await page.waitForTimeout(100);
   if (descriptionPatches !== 2)
     fail("grant description save and clear did not both reach the API");
+  descriptionOutcome = "rejected";
+  await descriptionEditor.fill("Updated reporting access");
+  await saveDescription.click();
+  await expect(
+    page.getByText("Description not saved", { exact: true }),
+  ).toBeVisible();
+  await expect(descriptionEditor).toHaveValue("Updated reporting access");
+  await captureStateFeedback(page, "description-rejected");
+  descriptionOutcome = "unknown";
+  await saveDescription.click();
+  await expect(
+    page.getByText("Save outcome unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(saveDescription).toBeDisabled();
+  await captureStateFeedback(page, "description-unknown");
+  expect(descriptionPatches).toBe(4);
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/grants/${id}`;
@@ -2125,7 +2222,7 @@ export async function runGrantReadsCreate(
   )
     fail("missing server reported a catalog/schema load that never started");
   await page
-    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .getByRole("button", { name: "Remove condition 1", exact: true })
     .click();
   await page.locator('[data-testid="grant-server"]').selectOption(serverID);
   const toolInput = page.getByRole("combobox", {
@@ -2302,12 +2399,19 @@ export async function runGrantReadsCreate(
   if ((await page.getByRole("listbox").count()) !== 0)
     fail("moving focus outside a combobox left stale suggestions open");
   await operator.selectOption("regex");
+  await expect(
+    page.getByLabel("Full-string RE2 pattern", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add condition", exact: true }),
+  ).toBeVisible();
   if (
     (await scalarType.inputValue()) !== "string" ||
     !(await scalarType.isDisabled()) ||
     (await scalarValue.inputValue()) !== ""
   )
     fail("MATCHES did not lock String and clear the equality token");
+  await captureStateFeedback(page, "matcher-full-string");
   const regexWarning = page.getByText(
     /Schema suggests number; only string runtime values can match/,
   );
@@ -2481,7 +2585,7 @@ export async function runGrantReadsCreate(
   )
     fail("server switch or unavailable catalog rewrote constraint rows");
   await page
-    .getByRole("button", { name: "Remove constraint 1", exact: true })
+    .getByRole("button", { name: "Remove condition 1", exact: true })
     .click();
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
@@ -2532,7 +2636,7 @@ export async function runGrantReadsCreate(
   await page
     .getByTestId("grant-create-view")
     .getByText(
-      "Choose a complete expiry date and time, or clear it for permanent access.",
+      "Choose a complete expiry date and time, or clear it for no expiry.",
       { exact: true },
     )
     .waitFor();
@@ -2698,7 +2802,7 @@ export async function runGrantCorrection(
     principal_id: principalID,
     effect,
     server_id: target,
-    upstream_name: null,
+    upstream_name: null as string | null,
     constraint: null,
     expires_at: state === "expired" ? "2026-08-28T12:30:00Z" : null,
     state,
@@ -2722,6 +2826,16 @@ export async function runGrantCorrection(
     [grantIDs[8]!, grant(grantIDs[8]!, principalIDs[8]!, "allow", zero)],
     [grantIDs[9]!, grant(grantIDs[9]!, principalIDs[9]!, "allow", zero)],
   ]);
+  const retainedAllowID = "01ARZ3NDEKTSV4RRFFQ69G5FZZ";
+  const syntheticExactID = "01ARZ3NDEKTSV4RRFFQ69G5FZY";
+  grants.set(
+    retainedAllowID,
+    grant(retainedAllowID, principalIDs[1]!, "allow"),
+  );
+  grants.set(syntheticExactID, {
+    ...grant(syntheticExactID, principalIDs[7]!, "deny", zero),
+    upstream_name: "get_identity",
+  });
   const replacements = new Map<string, string>();
   let creates = 0;
   let deletes = 0;
@@ -2952,7 +3066,11 @@ export async function runGrantCorrection(
   await page.getByTestId("correction-effect").selectOption("allow");
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByText(/replacement now overlaps/).waitFor();
+  await page
+    .getByText("Replacement grant created; original grant not yet deleted.", {
+      exact: true,
+    })
+    .waitFor();
   if (Number(creates) !== 1 || Number(deletes) !== 0)
     fail("create-first auto-submitted deletion");
   await page.locator('[data-testid="grant-correction-step"]').click();
@@ -2965,7 +3083,11 @@ export async function runGrantCorrection(
   await page.locator('[data-testid="grant-correct"]').click();
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByText(/replacement now overlaps/).waitFor();
+  await page
+    .getByText("Replacement grant created; original grant not yet deleted.", {
+      exact: true,
+    })
+    .waitFor();
   const reloadDeletes = Number(deletes);
   await navigate(grantIDs[3]!);
   await navigate(grantIDs[6]!);
@@ -2982,7 +3104,16 @@ export async function runGrantCorrection(
     .selectOption("delete_first");
   await page.locator('[data-testid="grant-correction-step"]').click();
   await confirmAction();
-  await page.getByText(/Authorization is absent/).waitFor();
+  await page
+    .getByText("Original grant deleted; replacement not yet created.", {
+      exact: true,
+    })
+    .waitFor();
+  await expect(page.getByTestId("grant-actions")).not.toContainText(
+    "Authorization is absent",
+  );
+  await captureRequestState(page, "grant-delete-first");
+  expect(grants.has(retainedAllowID)).toBe(true);
   const beforeCreate = Number(creates);
   if (Number(deletes) !== reloadDeletes + 1)
     fail("delete-first step one was not isolated");
@@ -2998,7 +3129,7 @@ export async function runGrantCorrection(
   await confirmAction();
   await page.getByText("The grant is invalid.", { exact: true }).waitFor();
   const rejectedDeletes = Number(deletes);
-  if ((await page.getByText(/replacement now overlaps/).count()) !== 0)
+  if ((await page.getByText(/Replacement grant created/).count()) !== 0)
     fail("rejected correction advanced to step two");
 
   await navigate(grantIDs[3]!);
@@ -3011,14 +3142,25 @@ export async function runGrantCorrection(
   if (Number(deletes) !== rejectedDeletes)
     fail("stale correction submitted deletion");
 
-  const defaultWarnings: Array<[string, string]> = [
-    [grantIDs[7]!, "removes the agent's access to Gateway self-service tools"],
-    [grantIDs[8]!, "removes the agent's access to Gateway self-service tools"],
-    [grantIDs[9]!, "removes the agent's access to Gateway self-service tools"],
-  ];
-  for (const [grantID, phrase] of defaultWarnings) {
+  for (const grantID of [grantIDs[7]!, grantIDs[8]!, grantIDs[9]!]) {
     await navigate(grantID);
-    await page.getByText(new RegExp(phrase)).waitFor();
+    await expect(
+      page.getByText("This shortcut does not replace default-shaped grants.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByTestId("grant-actions")).not.toContainText(
+      "removes the agent's access",
+    );
+    await page.getByTestId("grant-delete").click();
+    await expect(page.getByRole("dialog")).toContainText(
+      "Remaining grants still apply, with matching Deny taking precedence.",
+    );
+    await captureRequestState(page, "default-delete-confirmation");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
     if (
       (await page.locator('[data-testid="grant-correct"]').isDisabled()) !==
       true
@@ -3035,6 +3177,12 @@ export async function runGrantCorrection(
   await page.locator('[data-testid="grant-delete"]').click();
   await confirmAction();
   await page.locator('[data-testid="grants-view"]').waitFor();
+  await expect(
+    page.getByTestId("grant-row").filter({
+      has: page.locator(`a[href="#/mcp/grants/${syntheticExactID}"]`),
+    }),
+  ).toContainText("Gateway self-service tools — get_identity");
+  await captureRequestState(page, "synthetic-exact-table");
 
   await navigate(grantIDs[4]!);
   await page.locator('[data-testid="grant-correct"]').click();
@@ -3046,7 +3194,7 @@ export async function runGrantCorrection(
   await page
     .getByText("Grant mutation outcome is unknown", { exact: true })
     .waitFor();
-  if ((await page.getByText(/Authorization is absent/).count()) !== 0)
+  if ((await page.getByText(/Original grant deleted/).count()) !== 0)
     fail("uncertain correction advanced to step two");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -3743,6 +3891,13 @@ export async function runRequestAdjudication(
           : null,
     },
   });
+  const exactFixtureJSON = (value: unknown) =>
+    JSON.stringify(value)
+      .replaceAll('"/attempt":1', '"/attempt":1.0')
+      .replaceAll('"/extra":1', '"/extra":1.0')
+      .replaceAll('"/exponent":100', '"/exponent":1e+02')
+      .replaceAll('"/upper":1000', '"/upper":1E3')
+      .replaceAll('"/integer":9007199254740992', '"/integer":9007199254740993');
   states.set(ids[0]!, detail(ids[0]!, policy("server", "demo", null, "1200")));
   states.set(
     ids[1]!,
@@ -3753,7 +3908,14 @@ export async function runRequestAdjudication(
         "demo.safe",
         {
           version: 2,
-          equals: { "/mode": "safe", "/attempt": 1 },
+          equals: {
+            "/mode": "safe",
+            "/attempt": 1,
+            "/one": 1,
+            "/exponent": 100,
+            "/upper": 1000,
+            "/integer": 9007199254740992,
+          },
           regex: { "/resource": "item[<>&]-\\d+" },
         },
         "600",
@@ -3894,6 +4056,7 @@ export async function runRequestAdjudication(
     },
   );
 
+  let requestReadFails = false;
   await page.route("**/api/v2/mcp/grant-requests/**", async (route) => {
     const parts = new URL(route.request().url()).pathname.split("/");
     const action = parts.at(-1)!;
@@ -3902,13 +4065,21 @@ export async function runRequestAdjudication(
     const item = states.get(id);
     if (item === undefined) fail("unknown adjudication fixture");
     if (route.request().method() === "GET") {
+      if (requestReadFails) {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/problem+json",
+          json: { status: 503, code: "unavailable", title: "Unavailable" },
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         headers: { ETag: `"grant-request-${id}-${String(item.revision)}"` },
         body:
           id === ids[1] || id === ids[10]
-            ? JSON.stringify(item).replace('"/attempt":1', '"/attempt":1.0')
+            ? exactFixtureJSON(item)
             : JSON.stringify(item),
       });
       return;
@@ -3921,6 +4092,7 @@ export async function runRequestAdjudication(
     )
       fail("request adjudication precondition changed shape");
     if (id === ids[6]) {
+      requestReadFails = true;
       states.set(
         id,
         detail(
@@ -4030,7 +4202,36 @@ export async function runRequestAdjudication(
           !raw.includes('"/literal":"<>&"'))
       )
         fail("v1 approval without additions did not retain exact atoms in v2");
-      states.set(id, detail(id, submitted, "approved", approved));
+      const settled = detail(id, submitted, "approved", approved);
+      states.set(
+        id,
+        id === ids[0]
+          ? {
+              ...settled,
+              approved_evidence: {
+                server_id: serverID,
+                tool_id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+                namespace: "demo",
+                upstream_name: "safe",
+                external_name: "demo.safe",
+                catalog_revision: "1",
+                fingerprint: "approved-fingerprint",
+                durable_state: "current",
+                descriptor: { name: "safe", inputSchema: {}, annotations: {} },
+                captured_at: "2026-08-28T13:00:00Z",
+              },
+              current_target: {
+                scope: "tool",
+                target_state: "extant",
+                active_state: "current",
+                durable_state: "current",
+                catalog_revision: "1",
+                fingerprint: "approved-fingerprint",
+                descriptor: { name: "safe", inputSchema: {}, annotations: {} },
+              },
+            }
+          : settled,
+      );
     } else {
       rejections += 1;
       const body = JSON.parse(route.request().postData() ?? "null") as Record<
@@ -4047,7 +4248,10 @@ export async function runRequestAdjudication(
       status: 200,
       contentType: "application/json",
       headers: { ETag: `"grant-request-${id}-2"` },
-      body: JSON.stringify(result),
+      body:
+        id === ids[1] || id === ids[10]
+          ? exactFixtureJSON(result)
+          : JSON.stringify(result),
     });
   });
 
@@ -4230,7 +4434,34 @@ export async function runRequestAdjudication(
   ]) {
     await expect(terminalComparison).toContainText(phrase);
   }
+  await expect(
+    page.getByText("demo.safe — Unchanged since approval", { exact: true }),
+  ).toBeVisible();
   await captureRequestState(page, "server-to-tool-approved");
+  const approvedNarrowing = states.get(ids[0]!)!;
+  states.set(ids[0]!, {
+    ...approvedNarrowing,
+    current_target: {
+      ...(approvedNarrowing.current_target as object),
+      fingerprint: "changed-fingerprint",
+    },
+  });
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText(
+      "demo.safe — Changed since approval — inspect approved and current definitions",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  states.set(ids[0]!, { ...approvedNarrowing, approved_evidence: null });
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText(
+      "demo.safe — Comparison unavailable — missing tool definition",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  states.set(ids[0]!, approvedNarrowing);
 
   await navigate(ids[1]!);
   await page
@@ -4353,6 +4584,36 @@ export async function runRequestAdjudication(
   ]) {
     await expect(terminalComparison).toContainText(phrase);
   }
+  const lexicalConditions = [
+    "/attempt equals 1.0",
+    "/one equals 1",
+    "/exponent equals 1e+02",
+    "/upper equals 1E3",
+    "/integer equals 9007199254740993",
+  ];
+  for (const list of await terminalComparison
+    .locator(".request-conditions")
+    .all()) {
+    for (const condition of lexicalConditions)
+      await expect(list.locator("li")).toContainText([condition]);
+  }
+  for (const source of await terminalComparison
+    .getByLabel("Exact condition source", { exact: true })
+    .all()) {
+    for (const token of [
+      '"/attempt":1.0',
+      '"/exponent":1e+02',
+      '"/upper":1E3',
+      '"/integer":9007199254740993',
+    ])
+      await expect(source).toHaveValue(
+        new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      );
+  }
+  await page.getByText("Approved serialized policy", { exact: true }).click();
+  await expect(
+    page.getByLabel("Approved policy", { exact: true }),
+  ).toContainText("9007199254740993");
   await captureRequestState(page, "exact-tool-approved");
 
   await navigate(ids[10]!, false);
@@ -4573,6 +4834,15 @@ export async function runRequestAdjudication(
   await navigate(ids[6]!);
   await reviewApproval();
   await confirm();
+  await expect(
+    page.getByText(
+      "Refresh the request and review its state before taking another action.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(/was reloaded/)).toHaveCount(0);
+  await captureStateFeedback(page, "request-reload-failed");
+  requestReadFails = false;
+  await page.getByTestId("manual-refresh").click();
   await page
     .getByText("Request adjudication is closed", { exact: true })
     .waitFor();

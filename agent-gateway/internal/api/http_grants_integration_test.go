@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
@@ -99,7 +100,7 @@ func TestIntegrationHTTPGrantsReferencesDefaultsAndPreview(t *testing.T) {
 	require.Equal(t, 409, perform(handler, http.MethodPatch, "/api/v2/http/credentials/"+credential.ID, update, headers).Code)
 	delete(headers, "If-Match")
 	beforeEvents := len(*events)
-	previewBody := fmt.Sprintf(`{"principal_id":%q,"url":%q,"method":"GET"}`, principal.Principal.ID, fmt.Sprintf("https://%s:%d/path?canary=private-preview", credential.Boundary.Host, credential.Boundary.Port))
+	previewBody := fmt.Sprintf(`{"principal_id":%q,"url":%q,"method":"GET"}`, principal.Principal.ID, fmt.Sprintf("https://%s:%d/é//%%2f?canary=private-preview&canary=+%%00", credential.Boundary.Host, credential.Boundary.Port))
 	preview := perform(handler, http.MethodPost, "/api/v2/http/access-preview", previewBody, headers)
 	require.Equal(t, 200, preview.Code, preview.Body.String())
 	require.Contains(t, preview.Body.String(), `"policy_only":true`)
@@ -108,6 +109,9 @@ func TestIntegrationHTTPGrantsReferencesDefaultsAndPreview(t *testing.T) {
 	require.Equal(t, beforeEvents, len(*events))
 	require.Equal(t, "no-store", preview.Header().Get("Cache-Control"))
 	for _, bad := range []string{
+		fmt.Sprintf(`{"principal_id":%q,"url":"https://example.com/\ud800","method":"GET"}`, principal.Principal.ID),
+		fmt.Sprintf(`{"principal_id":%q,"url":"https://example.com/\udfff","method":"GET"}`, principal.Principal.ID),
+		fmt.Sprintf(`{"principal_id":%q,"url":%q,"method":"GET"}`, principal.Principal.ID, "https://example.com/"+strings.Repeat("é", 683)),
 		fmt.Sprintf(`{"principal_id":%q,"connect":{"host":"example.com","port":443,"extra":true}}`, principal.Principal.ID),
 		fmt.Sprintf(`{"principal_id":%q,"connect":null}`, principal.Principal.ID),
 		fmt.Sprintf(`{"principal_id":%q,"connect":{"host":"example.com","port":443},"url":null}`, principal.Principal.ID),

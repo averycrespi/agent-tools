@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { captureStateFeedback } from "./state-feedback.ts";
 import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
@@ -313,6 +314,13 @@ export async function runAudit(
   ).toBeFocused();
   await expect(page.getByText("interrupted", { exact: true })).toBeVisible();
   await expect.poll(() => holdTarget !== undefined).toBe(true);
+  await expect(
+    page.getByText(/Pending or unknown outcomes do not prove success/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Only allowlisted safe detail is retained/),
+  ).toHaveCount(0);
+  await captureStateFeedback(page, "audit-detail");
   if (holdTarget === undefined) fail("Target barrier not reached");
   holdTarget();
   await expect(

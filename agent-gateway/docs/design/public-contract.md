@@ -116,7 +116,14 @@ under the existing bounded traffic reader lifetime and retained capacity. No new
 sensitive data or per-row resource lookup is introduced.
 
 `HTTPTrafficPage` is exactly `{items,next_cursor}`. Each summary is
-`{id,admitted_at,principal_id,target,type,decision,outcome}`; target is null for
+`{id,admitted_at,principal_id,target,type,decision,outcome,completion_recorded}`
+with optional `rejection`, `connect`, `response_source` and `termination` facts.
+`completion_recorded` reports row presence, independently of outcome. Optional
+termination retains closed observed stage/condition and failure-context facts as
+specified by [HTTP evidence](invocation-and-ingress.md#http-traffic-evidence),
+never application success or cancellation attribution. Older records without these
+facts remain unavailable, not inferred clean; older API responses may omit the
+completion-presence projection. Target is null for
 unparseable requests, `{host,port}` for CONNECT, or `{host,port,scheme,method}`
 for a request. No observed path exists. Item `HTTPTrafficRecord` is exactly
 `{admission,completion}` using the executable bounded evidence contract; only

@@ -13,18 +13,23 @@ import (
 )
 
 type httpTrafficReader struct {
-	query contract.HTTPTrafficQuery
-	id    string
-	err   error
+	query  contract.HTTPTrafficQuery
+	id     string
+	err    error
+	page   contract.HTTPTrafficPage
+	record contract.HTTPTrafficRecord
 }
 
 func (r *httpTrafficReader) ListHTTP(_ context.Context, q contract.HTTPTrafficQuery) (contract.HTTPTrafficPage, error) {
 	r.query = q
+	if r.page.Items != nil {
+		return r.page, r.err
+	}
 	return contract.HTTPTrafficPage{Items: []contract.HTTPTrafficSummary{}}, r.err
 }
 func (r *httpTrafficReader) GetHTTP(_ context.Context, id string) (contract.HTTPTrafficRecord, error) {
 	r.id = id
-	return contract.HTTPTrafficRecord{}, r.err
+	return r.record, r.err
 }
 func TestHTTPTrafficReadAPI(t *testing.T) {
 	reader := &httpTrafficReader{}
@@ -47,6 +52,17 @@ func TestHTTPTrafficReadAPI(t *testing.T) {
 		assert.Equal(t, 405, perform(handler, http.MethodPost, target, "", bearer).Code)
 	}
 	assert.Equal(t, testID, reader.id)
+	observed := &contract.HTTPTermination{Stage: "upstream_read", Condition: "failure", Context: "cancelled"}
+	reader.record.Completion = &contract.HTTPTrafficCompletion{Outcome: "outcome_unknown", Status: 200, ResponseSource: "upstream", Termination: observed}
+	reader.page.Items = []contract.HTTPTrafficSummary{{ID: testID, Outcome: "outcome_unknown", CompletionRecorded: true, Termination: observed}}
+	for _, target := range []string{path, path + "/" + testID} {
+		projected := perform(handler, http.MethodGet, target, "", bearer)
+		require.Equal(t, 200, projected.Code)
+		require.Equal(t, "no-store", projected.Header().Get("Cache-Control"))
+		require.Contains(t, projected.Body.String(), `"termination":{"stage":"upstream_read","condition":"failure","context":"cancelled"}`)
+	}
+	reader.record.Completion = nil
+	require.Contains(t, perform(handler, http.MethodGet, path+"/"+testID, "", bearer).Body.String(), `"completion":null`)
 	for _, query := range []string{"?secret=x", "?limit=01", "?limit=101", "?limit=1&limit=2", "?destination=", "?type=request&type=connect", "?connect_id=", "?connect_id=a&connect_id=b", "?principal=", "?principal=a&principal=b", "?search_locale=", "?search_locale=en&search_locale=tr"} {
 		assert.Equal(t, 400, perform(handler, http.MethodGet, path+query, "", bearer).Code, query)
 	}

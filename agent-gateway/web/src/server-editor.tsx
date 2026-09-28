@@ -1,5 +1,6 @@
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { validOAuthOrigin } from "./oauth-origin";
 import { useUnsavedChanges } from "./navigation";
 import type {
   MutationController,
@@ -404,26 +405,10 @@ function transportFromDraft(draft: Draft): unknown {
           "Enter an OAuth network origin.",
           item.id,
         );
-      let parsedOrigin: URL;
-      try {
-        parsedOrigin = new URL(origin);
-      } catch {
+      if (!validOAuthOrigin(origin))
         throw new DraftValidationError(
           "origin",
-          "OAuth network origin must be an absolute HTTP or HTTPS origin.",
-          item.id,
-        );
-      }
-      if (
-        (parsedOrigin.protocol !== "https:" &&
-          parsedOrigin.protocol !== "http:") ||
-        parsedOrigin.username !== "" ||
-        parsedOrigin.password !== "" ||
-        parsedOrigin.origin !== origin
-      )
-        throw new DraftValidationError(
-          "origin",
-          "OAuth network origin must contain only an HTTP or HTTPS scheme, host, and optional port.",
+          "Use a lowercase DNS origin without an IP address, path, or default port.",
           item.id,
         );
       if (seenOrigins.has(origin))
@@ -1798,14 +1783,14 @@ export function ServerEditor({
             {mutation.requiresRefresh && !create && (
               <p>
                 A current server reload was requested. Your safe nonsecret draft
-                is preserved; review it after the refreshed ETag arrives.
+                is preserved; review it after the reload succeeds.
               </p>
             )}
           </StateNotice>
         )}
         {waitingForFreshETag && (
           <p class="session-message" role="status">
-            Waiting for a fresh server ETag before another submission.
+            Waiting for a refreshed server revision before another submission.
           </p>
         )}
         {mutation.state === "uncertain" && (
@@ -1871,7 +1856,6 @@ export function ServerEditor({
       <section class="panel domain-panel" aria-labelledby="server-editor-title">
         <div class="panel-heading">
           <div>
-            <span class="panel-code">NEW SERVER</span>
             <h2 id="server-editor-title">Create MCP Server</h2>
           </div>
         </div>

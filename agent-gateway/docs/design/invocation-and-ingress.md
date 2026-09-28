@@ -33,7 +33,10 @@ rejections additionally carry a closed `rejection` stage/reason pair: `headers`
 (`invalid_headers`, `trailers_unsupported`, `upgrade_unsupported`,
 `inner_proxy_authorization`), `request_form` (`connect_body`, `nested_connect`,
 `origin_form_required`, `absolute_http_required`), or `target`
-(`invalid_request_target`, `invalid_connect_target`). These categories describe
+(`invalid_target_syntax`, `target_too_long`, `forbidden_path`,
+`authority_mismatch`, plus historical `invalid_request_target` and
+`invalid_connect_target`). Syntax includes malformed escapes; forbidden paths
+include controls, backslashes and dot segments. These categories describe
 rules, never offending input or parser error strings; their encoded object is at
 most 128 bytes. No partly parsed destination or unvalidated method is retained.
 
@@ -75,6 +78,33 @@ of queued completion reserve 640 bytes, including the full 512-byte payload;
 existing immutable per-member MCP diagnostics and no-added-dwell batching remain.
 No background terminal retry or replay is introduced.
 
+New request completions optionally retain `termination`, a closed object of at
+most 128 bytes within the unchanged 512-byte completion bound. `stage` names the
+observed operation: `exchange` (before an upstream response is available),
+`upstream_read`, `downstream_write`, `downstream_flush`, `deadline` (setting or
+clearing a downstream write deadline), `response_headers` (HEAD), or `complete`
+(clean body EOF and completed writes/flushes). `condition` is `clean`, `cancelled`,
+`timeout`, or `failure`. Clean is valid only for `complete` or HEAD
+`response_headers` with the existing `succeeded` outcome. All other conditions
+retain `outcome_unknown`; `complete` cannot carry a failure. Exchange facts
+accompany a Gateway-selected response; subsequent transfer facts accompany the
+selected upstream status. Pre-dispatch preparation and opaque tunnels have no
+response-transfer termination object.
+
+On failure the operation error determines the condition: typed timeout/deadline
+first, typed cancellation second, otherwise failure. A separate optional `context`
+records the request-context snapshot (`cancelled` or `timeout`) when that error is
+observed. It neither overrides the operation condition nor attributes initiation
+or causal order; Gateway drain and peer closure can both cancel the context.
+Deadline stage identifies deadline handling, not necessarily deadline expiry.
+Clean records have no failure-context snapshot. EOF does not parse application
+content or prove application success, and a terminal-looking SSE event followed by
+cancellation is still incomplete. Error strings, content and cancellation origin
+are never retained. Historical completions omit termination without backfill;
+summary `completion_recorded` distinguishes their absence of details from missing
+completion. Persistence failure retains the existing best-effort unknown boundary
+without replay or a success claim.
+
 ## HTTP proxy engine
 
 `internal/httpproxy` consumes the sole composition-owned authenticator, authority,
@@ -110,9 +140,14 @@ no upstream permission. Invalid authenticated coordinates retain only invalid-re
 evidence, not the submitted URL. Parser-level malformed framing is rejected before
 an authenticated request exists.
 
-CONNECT fixes HTTPS authority; SNI and inner Host must agree through the policy
-canonicalizer. Forwarding uses the resulting canonical path/authority, never
-forwarding headers or a reparsed raw URL. Duplicate Host and malformed framing
+Outer absolute-form HTTP and CONNECT use request-target authority, ignoring a
+conflicting raw Host as defined in the [authority contract](identity-and-authorization.md#canonical-selectors-and-forwarding).
+That raw Host never controls policy, credentials, private permission or forwarding.
+CONNECT fixes HTTPS authority; SNI and inner Host/H2 authority must agree through the policy
+canonicalizer. Forwarding uses validated authority and the preserved escaped
+path/opaque query, not the separate policy comparison path, forwarding headers
+or an unvalidated raw URL. The [request compatibility contract](identity-and-authorization.md#canonical-selectors-and-forwarding)
+owns syntax, conversions and byte bounds. Duplicate Host and malformed framing
 are refused by the HTTP parser; accepted framing is reserialized on a fresh hop.
 Intercepted upgrades/WebSockets and trailers reject; explicit tunnels are opaque
 and never run inner request policy or credential injection. No HTTP/3 or TLS-error
@@ -149,7 +184,8 @@ connections, and retains actual owner accounting until cleanup settles. CA mater
 is closed only after HTTP owners and their completion attempts settle, before the
 shared traffic store closes. Timeout
 reports unconfirmed cleanup, not permission to close storage underneath live work.
-One completion attempt carries only safe status, byte counts and outcome; interrupted
+One completion attempt carries only safe status, byte counts, outcome and bounded
+observed termination facts; interrupted
 or uncertain dispatch remains unknown and is never replayed. Completion timestamps
 use canonical UTC with exactly nine fractional digits, including on lower-precision
 clocks; trimming trailing zeros violates the traffic store's evidence contract.

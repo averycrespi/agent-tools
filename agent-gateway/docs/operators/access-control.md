@@ -293,6 +293,8 @@ agent-gateway http default update PRINCIPAL_ID --file /private/default.json --ye
 agent-gateway http test-access --file /private/preview.json
 ```
 
+Open a grant to read its saved **Grant details**, then choose **Edit grant** to change it. **Review changes** compares the saved and proposed configuration before applying it. **Cancel** closes editing without a write and asks before discarding a dirty draft. Acknowledged updates announce **Grant saved** and return to details. If the following read fails, **Grant saved; refresh unavailable** distinguishes the successful write from stale displayed data: refresh rather than submitting the change again. Conflicts keep the draft for explicit current-revision review and reconfirmation; an uncertain outcome remains blocked for inspection. **Delete grant** is a separate, confirmed destructive action.
+
 Grant files contain `principal_id`, nullable `description`, `policy` and nullable `expires_at`. Update replaces the complete configuration in place, preserving ID and agent; it is not delete/recreate. Default files are exactly `{"http_default":"block"}` or `{"http_default":"allow"}`. These convenience commands read/write the canonical identity endpoint and return `Principal` JSON with its unified ETag, not a separate default resource. For a combined change, use `agent-gateway agent update PRINCIPAL_ID --display-name NAME --http-default allow --yes`. Omitted ETags get one validated read; use `--etag` to pin a reviewed agent revision. A stale or uncertain result must be inspected, never automatically replayed.
 
 Example grant policy: `{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"api.example.com","port":443},"methods":{"values":["GET"]},"path":{"kind":"segment_prefix","value":"/v1"}}}`. An optional `credential_id` must contain the entire HTTPS origin scope. Referenced credentials cannot be deleted or have their recipe changed; incompatible scope edits fail atomically. Expired grants remain visible and reference-bearing until deleted.
@@ -310,9 +312,20 @@ remain forbidden. Do not treat GET as read-only or the cooperative proxy as
 network-enforced containment.
 
 See the [normative HTTP v1 contract](../design/identity-and-authorization.md#http-policy-version-1)
-for the deliberately restricted path grammar, explicit wildcard hosts, exact
-ports, credential containment and bounded explanations. This policy surface does not migrate Broker rules or qualify capacity or native
-credentials.
+for the unchanged, deliberately restricted **selector** grammar, explicit wildcard
+hosts, exact ports, credential containment and bounded explanations. Request URLs
+have a broader [compatibility profile](http-proxy.md#request-target-compatibility):
+`/%61` compares as `/a` while preserving its wire spelling; `/a/b`, `/a%2Fb`
+and `/a%252Fb` are distinct. Prefix boundaries use literal slashes only; queries
+are never matched. Some newly accepted paths cannot be exact v1 selectors.
+
+Existing default-allow, any-path, root/ancestor-prefix and credential-bearing grants
+intentionally reach newly accepted targets, including credential injection. Review
+those scopes before deployment; there is no automatic policy migration. Gateway
+cannot infer upstream recursive decoding or slash merging, so narrow block rules
+under default allow do not promise to cover every upstream-equivalent resource.
+This policy surface does not migrate Broker rules or qualify capacity, native
+credentials, or live npm/Jina clients.
 
 <a id="browse-principal-and-grant-tables"></a>
 

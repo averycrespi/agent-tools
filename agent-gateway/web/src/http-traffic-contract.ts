@@ -115,6 +115,10 @@ const rejectionReasons: Record<string, Record<string, string>> = {
   target: {
     invalid_request_target: "Request target failed validation",
     invalid_connect_target: "CONNECT target failed validation",
+    invalid_target_syntax: "Invalid request target syntax",
+    target_too_long: "Request target exceeds byte limit",
+    forbidden_path: "Forbidden path construct",
+    authority_mismatch: "Request authority mismatch",
   },
 };
 export function rejectionLabel(value: Rejection | undefined): string {
@@ -155,6 +159,51 @@ function optionalKeys(value: unknown, keys: string[]): string[] {
   const v = object(value);
   return keys.filter((key) => Object.hasOwn(v, key));
 }
+export interface Termination {
+  stage: string;
+  condition: string;
+  context?: string;
+}
+const terminationStages = [
+  "exchange",
+  "upstream_read",
+  "downstream_write",
+  "downstream_flush",
+  "deadline",
+  "response_headers",
+  "complete",
+];
+function termination(value: unknown, outcome: unknown): Termination {
+  const t = exact(value, [
+    "stage",
+    "condition",
+    ...optionalKeys(value, ["context"]),
+  ]);
+  closed(t.stage, terminationStages);
+  closed(t.condition, ["clean", "cancelled", "timeout", "failure"]);
+  if (t.context !== undefined) closed(t.context, ["cancelled", "timeout"]);
+  if (
+    t.condition === "clean"
+      ? outcome !== "succeeded" ||
+        !["complete", "response_headers"].includes(String(t.stage)) ||
+        t.context !== undefined
+      : outcome !== "outcome_unknown" || t.stage === "complete"
+  )
+    throw new Error("Inconsistent HTTP termination evidence.");
+  return t as unknown as Termination;
+}
+export function transferLabel(
+  recorded: boolean | undefined,
+  value?: Termination,
+): string {
+  if (recorded === false) return "Missing terminal evidence";
+  if (value === undefined) return "Termination details unavailable";
+  return value.condition === "clean"
+    ? value.stage === "response_headers"
+      ? "Headers prepared (HEAD)"
+      : "Clean HTTP transfer"
+    : "Incomplete HTTP transfer";
+}
 export interface TrafficSummary {
   id: string;
   admitted_at: string;
@@ -166,6 +215,8 @@ export interface TrafficSummary {
   rejection?: Rejection;
   connect?: ConnectContext;
   response_source?: string;
+  completion_recorded?: boolean;
+  termination?: Termination;
 }
 export interface TrafficPage {
   items: TrafficSummary[];
@@ -192,7 +243,13 @@ export function decodeTrafficPage(value: unknown): TrafficPage {
       "type",
       "decision",
       "outcome",
-      ...optionalKeys(value, ["rejection", "connect", "response_source"]),
+      ...optionalKeys(value, [
+        "rejection",
+        "connect",
+        "response_source",
+        "completion_recorded",
+        "termination",
+      ]),
     ]);
     const item: TrafficSummary = {
       id: id(r.id),
@@ -225,6 +282,33 @@ export function decodeTrafficPage(value: unknown): TrafficPage {
       item.response_source = closed(r.response_source, ["gateway", "upstream"]);
     if (item.rejection !== undefined && item.response_source !== "gateway")
       throw new Error("Invalid rejection source.");
+    if (r.completion_recorded !== undefined) {
+      if (
+        typeof r.completion_recorded !== "boolean" ||
+        (r.completion_recorded && item.decision !== "allow")
+      )
+        throw new Error("Invalid HTTP completion presence.");
+      item.completion_recorded = r.completion_recorded;
+    }
+    if (r.termination !== undefined) {
+      if (
+        item.type !== "request" ||
+        item.decision !== "allow" ||
+        item.completion_recorded !== true
+      )
+        throw new Error("Invalid HTTP termination presence.");
+      item.termination = termination(r.termination, item.outcome);
+      const observed = item.termination;
+      if (
+        (observed.stage === "exchange"
+          ? item.response_source !== "gateway"
+          : item.response_source !== "upstream") ||
+        (observed.stage === "response_headers" &&
+          item.target?.method !== "HEAD") ||
+        (observed.stage === "complete" && item.target?.method === "HEAD")
+      )
+        throw new Error("Invalid HTTP termination boundary.");
+    }
     if (seen.has(item.id)) throw new Error("Duplicate HTTP traffic record.");
     seen.add(item.id);
     return item;
@@ -366,7 +450,12 @@ export function decodeTrafficItem(value: unknown): TrafficItem {
         "bytes_sent",
         "bytes_received",
         "duration_ms",
-        ...optionalKeys(c, ["status", "response_source", "gateway_status"]),
+        ...optionalKeys(c, [
+          "status",
+          "response_source",
+          "gateway_status",
+          "termination",
+        ]),
       ]);
       if (!d.allowed || time(c.completed_at) < String(a.evaluated_at))
         throw new Error("Invalid terminal evidence.");
@@ -376,6 +465,18 @@ export function decodeTrafficItem(value: unknown): TrafficItem {
         "prestart_failure",
         "upstream_failure",
       ]);
+      if (c.termination !== undefined) {
+        const observed = termination(c.termination, c.outcome);
+        if (
+          d.transport !== "request" ||
+          (observed.stage === "exchange"
+            ? c.response_source !== "gateway"
+            : c.response_source !== "upstream") ||
+          (observed.stage === "response_headers" && t.method !== "HEAD") ||
+          (observed.stage === "complete" && t.method === "HEAD")
+        )
+          throw new Error("Invalid HTTP termination boundary.");
+      }
       integer(c.bytes_sent);
       integer(c.bytes_received);
       integer(c.duration_ms);

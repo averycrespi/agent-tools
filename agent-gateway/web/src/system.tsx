@@ -474,12 +474,23 @@ function StatusPanel({
     >
       <div class="panel-heading">
         <h2 id="system-status-title">Gateway status</h2>
-        {status !== undefined && (
+        {status !== undefined && panelStatus === "current" && (
           <StatusLabel state={healthy ? "current" : "warning"}>
             {healthy ? "Healthy" : "Degraded"}
           </StatusLabel>
         )}
       </div>
+      {status !== undefined &&
+        (panelStatus === "error" || panelStatus === "stale") && (
+          <StateNotice
+            state="stale"
+            title={
+              panelStatus === "error"
+                ? "Refresh failed — last known status"
+                : "Last known status"
+            }
+          />
+        )}
       {panelStatus === "error" && status === undefined ? (
         <StateNotice state="error" title="System status unavailable">
           <p>
@@ -800,16 +811,28 @@ function ResourceLimits({
         <div>
           <h2 id="system-limits-title">Resource limits</h2>
         </div>
-        <StatusLabel
-          state={
-            limits.some((limit) => limit.saturated) ? "warning" : "current"
-          }
-        >
-          {limits.some((limit) => limit.saturated)
-            ? "Attention needed"
-            : "Available"}
-        </StatusLabel>
+        {panel?.status === "current" && (
+          <StatusLabel
+            state={
+              limits.some((limit) => limit.saturated) ? "warning" : "current"
+            }
+          >
+            {limits.some((limit) => limit.saturated)
+              ? "Attention needed"
+              : "Available"}
+          </StatusLabel>
+        )}
       </div>
+      {(panel?.status === "error" || panel?.status === "stale") && (
+        <StateNotice
+          state="stale"
+          title={
+            panel.status === "error"
+              ? "Refresh failed — last known limits"
+              : "Last known limits"
+          }
+        />
+      )}
       <ComparisonTable caption="Gateway resource occupancy and hard limits">
         <thead>
           <tr>
@@ -1020,12 +1043,13 @@ function Backups({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">DURABLE RECOVERY</span>
           <h2 id="backups-title">Backups</h2>
         </div>
-        <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {sentenceCase(panelStatus)}
-        </StatusLabel>
+        {panelStatus !== "current" && (
+          <StatusLabel state={panelStatus}>
+            {sentenceCase(panelStatus)}
+          </StatusLabel>
+        )}
       </div>
       <div class="collection-toolbar collection-toolbar-after-copy">
         <a
@@ -1049,10 +1073,7 @@ function Backups({
       )}
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Backup outcome is unknown">
-          <p>
-            Nothing is replayed automatically. Refresh records before choosing
-            an explicit same-intent replay.
-          </p>
+          <p>Refresh backups before taking another action.</p>
           {mutation.canReplay && (
             <button
               data-testid="backup-replay"
@@ -1424,12 +1445,13 @@ function AdminCredentials({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">ADMIN AUTHORITY</span>
           <h2 id="admin-credentials-title">Admin credentials</h2>
         </div>
-        <StatusLabel state={panelStatus === "error" ? "error" : panelStatus}>
-          {sentenceCase(panelStatus)}
-        </StatusLabel>
+        {panelStatus !== "current" && (
+          <StatusLabel state={panelStatus}>
+            {sentenceCase(panelStatus)}
+          </StatusLabel>
+        )}
       </div>
       <div class="collection-toolbar collection-toolbar-after-copy">
         <a
@@ -1660,7 +1682,6 @@ export function System({
         <section class="panel" aria-labelledby="system-later-title">
           <div class="panel-heading">
             <div>
-              <span class="panel-code">SYSTEM-LATER</span>
               <h2 id="system-later-title">Workflow not yet available</h2>
             </div>
             <StatusLabel state="unavailable">Unavailable</StatusLabel>

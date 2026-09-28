@@ -125,6 +125,21 @@ func TestCLIHTTPGrantAcceptsCanonicalPolicyProjections(t *testing.T) {
 	}
 }
 
+func TestCLIHTTPSelectorReaderRetainsV1Grammar(t *testing.T) {
+	for _, path := range []string{"/@scope/pkg", "/a-._~", "/" + strings.Repeat("a", 4095)} {
+		require.True(t, validHTTPResponsePath(path), path)
+	}
+	for _, path := range []string{"/%40scope/pkg", "/a//b", "/a:b", "/a%2Fb", "/café", "/" + strings.Repeat("a", 4096)} {
+		require.False(t, validHTTPResponsePath(path), path)
+	}
+	g := httpResponseGrantFixture()
+	g.Policy = json.RawMessage(strings.Replace(string(g.Policy), `"/v1"`, `"/@scope"`, 1))
+	raw, err := json.Marshal(g)
+	require.NoError(t, err)
+	_, err = httpGrantTable(raw)
+	require.NoError(t, err)
+}
+
 func TestCLIHTTPPreviewAcceptsEvaluatorEvidence(t *testing.T) {
 	for _, scenario := range []string{"default-block", "default-allow", "block_destination", "block_requests", "allow_requests", "allow_tunnel", "intercept", "credential", "conflict", "unavailable"} {
 		t.Run(scenario, func(t *testing.T) {

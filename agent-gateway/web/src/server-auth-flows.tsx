@@ -186,9 +186,6 @@ function StartFlow({
     }
     if (outcome.kind === "uncertain") {
       sink.lose();
-      setNotice(
-        "The flow start outcome is unknown. Inspect current flow history and start a new flow only from refreshed state.",
-      );
       return;
     }
     sink.cancel();
@@ -251,7 +248,6 @@ function StartFlow({
     <section class="panel domain-panel" aria-labelledby="auth-flow-start-title">
       <div class="panel-heading">
         <div>
-          <span class="panel-code">ONE-TIME AUTHORIZATION</span>
           <h2 id="auth-flow-start-title">OAuth authorization</h2>
         </div>
       </div>
@@ -259,6 +255,11 @@ function StartFlow({
         Continue authorization in a new browser page. The one-time URL is
         cleared when it is dismissed, opened, or you leave this page.
       </p>
+      {eligible(server) && !exchangeActive && (
+        <p>
+          Starting again invalidates any previous pending authorization link.
+        </p>
+      )}
       {clientSecretMissing && (
         <p class="bounded-note" id="oauth-client-prerequisite">
           Add the client secret above before authorizing.
@@ -278,12 +279,15 @@ function StartFlow({
           {replacingAuthority ? "Reauthorize server" : "Authorize server"}
         </button>
       ) : (
-        <StateNotice state="empty" title="OAuth is unavailable">
-          <p>
-            {exchangeActive
-              ? "An OAuth authorization is already in progress."
-              : "This server is not configured for OAuth."}
-          </p>
+        <StateNotice
+          state={exchangeActive ? "loading" : "empty"}
+          title={
+            exchangeActive
+              ? "Authorization in progress"
+              : "OAuth is unavailable"
+          }
+        >
+          {!exchangeActive && <p>This server is not configured for OAuth.</p>}
         </StateNotice>
       )}
       {mutation.problem !== undefined && (
@@ -299,7 +303,8 @@ function StartFlow({
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Flow start outcome unknown">
           <p>
-            Inspect authoritative flow history. This start cannot be replayed.
+            Inspect refreshed flow history before starting again. This start
+            cannot be replayed.
           </p>
         </StateNotice>
       )}
@@ -365,7 +370,6 @@ function CancelFlow({
     >
       <div class="panel-heading">
         <div>
-          <span class="panel-code">ACTIVE FLOW</span>
           <h2 id="auth-flow-cancel-title">Cancel this OAuth flow</h2>
         </div>
       </div>
@@ -502,13 +506,6 @@ export function ServerAuthFlows({
                 </div>
               </dl>
             </details>
-          )}
-          {!authFlowIsTerminal(flow) && (
-            <p class="bounded-note">
-              This nonterminal flow polls every two seconds while visible.
-              Events trigger authoritative reads and never prove progress or
-              completion.
-            </p>
           )}
         </section>
         <CancelFlow mutations={mutations} flow={flow} onRefresh={onRefresh} />

@@ -7,6 +7,7 @@ import {
   rejectionLabel,
   trafficOutcome,
   trafficDecisionLabel,
+  transferLabel,
 } from "../src/http-traffic-contract.ts";
 import { parseFragment, serializeLocation } from "../src/location.ts";
 const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -119,6 +120,85 @@ test("HTTP history rejects unknown fields and contradictory evidence", () => {
   Object.assign(completed.completion, { upstream_error: "private" });
   assert.throws(() => decodeTrafficItem(completed));
 });
+test("Transfer evidence is closed and never inferred from status or historical outcomes", () => {
+  const completed = {
+    ...item(),
+    completion: {
+      completed_at: at,
+      outcome: "outcome_unknown",
+      status: 200,
+      bytes_sent: 0,
+      bytes_received: 10,
+      duration_ms: 1,
+      response_source: "upstream",
+      termination: {
+        stage: "upstream_read",
+        condition: "cancelled",
+        context: "cancelled",
+      },
+    },
+  };
+  assert.deepEqual(decodeTrafficItem(completed), completed);
+  assert.equal(transferLabel(false), "Missing terminal evidence");
+  assert.equal(transferLabel(true), "Termination details unavailable");
+  assert.equal(transferLabel(undefined), "Termination details unavailable");
+  assert.equal(
+    transferLabel(true, completed.completion.termination),
+    "Incomplete HTTP transfer",
+  );
+  assert.equal(
+    transferLabel(true, { stage: "complete", condition: "clean" }),
+    "Clean HTTP transfer",
+  );
+  assert.equal(
+    transferLabel(true, { stage: "response_headers", condition: "clean" }),
+    "Headers prepared (HEAD)",
+  );
+  for (const t of [
+    { stage: "client_cancelled", condition: "cancelled" },
+    { stage: "upstream_read", condition: "secret" },
+    { stage: "upstream_read", condition: "cancelled", error: "secret" },
+    { stage: "upstream_read", condition: "cancelled", context: "client" },
+    { stage: "complete", condition: "failure" },
+    { stage: "complete", condition: "clean" },
+    { stage: "exchange", condition: "failure" },
+    { stage: "response_headers", condition: "cancelled" },
+  ])
+    assert.throws(() =>
+      decodeTrafficItem({
+        ...completed,
+        completion: { ...completed.completion, termination: t },
+      }),
+    );
+  const summary = {
+    id,
+    admitted_at: at,
+    principal_id: id,
+    target: item().admission.target,
+    type: "request",
+    decision: "allow",
+    outcome: "outcome_unknown",
+    completion_recorded: true,
+    response_source: "upstream",
+    termination: completed.completion.termination,
+  };
+  assert.deepEqual(
+    decodeTrafficPage({ items: [summary], next_cursor: null }).items,
+    [summary],
+  );
+  for (const patch of [
+    { completion_recorded: false },
+    { completion_recorded: "yes" },
+    { termination: { stage: "complete", condition: "clean" } },
+  ])
+    assert.throws(() =>
+      decodeTrafficPage({
+        items: [{ ...summary, ...patch }],
+        next_cursor: null,
+      }),
+    );
+});
+
 test("Rejection categories, CONNECT context and response provenance are closed", () => {
   const legacy = item();
   Object.assign(legacy.admission, {
@@ -139,6 +219,22 @@ test("Rejection categories, CONNECT context and response provenance are closed",
     },
   });
   assert.deepEqual(decodeTrafficItem(current), current);
+  for (const [reason, label] of Object.entries({
+    invalid_request_target: "Request target failed validation",
+    invalid_connect_target: "CONNECT target failed validation",
+    invalid_target_syntax: "Invalid request target syntax",
+    target_too_long: "Request target exceeds byte limit",
+    forbidden_path: "Forbidden path construct",
+    authority_mismatch: "Request authority mismatch",
+  })) {
+    const value = structuredClone(current);
+    const rejection = { stage: "target", reason };
+    Object.assign(value.admission, { rejection });
+    assert.deepEqual(decodeTrafficItem(value), value);
+    assert.equal(rejectionLabel(rejection), label);
+    rejection.stage = "headers";
+    assert.throws(() => decodeTrafficItem(value));
+  }
   for (const patch of [
     { rejection: { stage: "headers", reason: "invalid_request_target" } },
     { rejection: { stage: "target", reason: "secret".repeat(1000) } },

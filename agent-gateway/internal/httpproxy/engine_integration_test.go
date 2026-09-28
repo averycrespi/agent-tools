@@ -88,6 +88,11 @@ func fixture(t *testing.T) *proxyFixture {
 
 func fixtureWithCompletionClock(t *testing.T, completionNow func() time.Time) *proxyFixture {
 	t.Helper()
+	return fixtureWithListener(t, completionNow, nil)
+}
+
+func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func(net.Listener) net.Listener) *proxyFixture {
+	t.Helper()
 	ctx := audit.WithSystem(t.Context())
 	const installation = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	owner, err := gatewaypaths.Acquire(filepath.Join(t.TempDir(), "gateway"))
@@ -137,6 +142,9 @@ func fixtureWithCompletionClock(t *testing.T, completionNow func() time.Time) *p
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+	if wrap != nil {
+		listener = wrap(listener)
+	}
 	done := make(chan error, 1)
 	go func() { done <- engine.Serve(listener) }()
 	t.Cleanup(func() {
@@ -210,6 +218,11 @@ func (f *proxyFixture) intercept(t *testing.T, upstream, alpn string) *tls.Conn 
 	reader := bufio.NewReader(conn)
 	response, err := http.ReadResponse(reader, &http.Request{Method: "CONNECT"})
 	require.NoError(t, err)
+	if response.StatusCode != http.StatusOK {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		t.Logf("CONNECT failure: uncorrelated traffic history window: %+v", f.connectFailureSnapshot(ctx))
+	}
 	require.Equal(t, 200, response.StatusCode)
 	tlsConn := tls.Client(&bufferedConn{Conn: conn, reader: reader}, &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: f.roots, ServerName: u.Hostname(), NextProtos: []string{alpn}})
 	require.NoError(t, tlsConn.HandshakeContext(t.Context()))
@@ -315,7 +328,7 @@ func TestIntegrationDeniedPathsAndAmbiguousFramingNeverDispatch(t *testing.T) {
 	defer upstream.Close()
 	f.allow(t, upstream.URL, "allow_requests", "/approved", "")
 	client := f.client(t)
-	for _, path := range []string{"/approved-sibling", "/approved/%2fsecret", "/approved/../other"} {
+	for _, path := range []string{"/approved-sibling", "/approved%2fsecret", "/approved/%5csecret", "/approved/../other"} {
 		response := f.request(t, client, "GET", upstream.URL+path, nil)
 		require.GreaterOrEqual(t, response.StatusCode, 400)
 		_ = response.Body.Close()

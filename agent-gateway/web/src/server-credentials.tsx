@@ -199,7 +199,7 @@ function ReplacementForm({
     });
     if (entries.some(([, value]) => value.length === 0)) {
       clear();
-      setError("Every write-only credential field must be nonempty.");
+      setError("Enter every credential again; the fields were cleared.");
       return;
     }
     setConfirming(true);

@@ -33,7 +33,9 @@ func (r HTTPRejection) Valid() bool {
 	case "request_form":
 		return r.Reason == "connect_body" || r.Reason == "nested_connect" || r.Reason == "origin_form_required" || r.Reason == "absolute_http_required"
 	case "target":
-		return r.Reason == "invalid_request_target" || r.Reason == "invalid_connect_target"
+		return r.Reason == "invalid_request_target" || r.Reason == "invalid_connect_target" ||
+			r.Reason == "invalid_target_syntax" || r.Reason == "target_too_long" ||
+			r.Reason == "forbidden_path" || r.Reason == "authority_mismatch"
 	}
 	return false
 }
@@ -72,14 +74,52 @@ type HTTPTrafficAdmission struct {
 
 // HTTPTrafficCompletion is closed Gateway evidence, never a transport error.
 type HTTPTrafficCompletion struct {
-	CompletedAt    string `json:"completed_at"`
-	Outcome        string `json:"outcome"`
-	Status         int    `json:"status,omitempty"`
-	BytesSent      int64  `json:"bytes_sent"`
-	BytesReceived  int64  `json:"bytes_received"`
-	DurationMS     int64  `json:"duration_ms"`
-	ResponseSource string `json:"response_source,omitempty"`
-	GatewayStatus  int    `json:"gateway_status,omitempty"`
+	CompletedAt    string           `json:"completed_at"`
+	Outcome        string           `json:"outcome"`
+	Status         int              `json:"status,omitempty"`
+	BytesSent      int64            `json:"bytes_sent"`
+	BytesReceived  int64            `json:"bytes_received"`
+	DurationMS     int64            `json:"duration_ms"`
+	ResponseSource string           `json:"response_source,omitempty"`
+	GatewayStatus  int              `json:"gateway_status,omitempty"`
+	Termination    *HTTPTermination `json:"termination,omitempty"`
+}
+
+// HTTPTermination contains observed transfer facts, not application outcomes or
+// attribution. Context is a separate failure-time snapshot, never a cause.
+type HTTPTermination struct {
+	Stage     string `json:"stage"`
+	Condition string `json:"condition"`
+	Context   string `json:"context,omitempty"`
+}
+
+func (t HTTPTermination) Valid(outcome, method, source string) bool {
+	if method == "" || (t.Context != "" && t.Context != "cancelled" && t.Context != "timeout") {
+		return false
+	}
+	switch t.Stage {
+	case "exchange":
+		if source != "gateway" {
+			return false
+		}
+	case "upstream_read", "downstream_write", "downstream_flush", "deadline", "response_headers", "complete":
+		if source != "upstream" {
+			return false
+		}
+	default:
+		return false
+	}
+	if (t.Stage == "response_headers" && method != "HEAD") || (t.Stage == "complete" && method == "HEAD") {
+		return false
+	}
+	switch t.Condition {
+	case "clean":
+		return outcome == "succeeded" && (t.Stage == "complete" || t.Stage == "response_headers") && t.Context == ""
+	case "cancelled", "timeout", "failure":
+		return outcome == "outcome_unknown" && t.Stage != "complete"
+	default:
+		return false
+	}
 }
 
 // HTTPOutcomeInterceptionSelected describes policy selection, not CONNECT/TLS
@@ -104,16 +144,18 @@ type HTTPTrafficQuery struct {
 }
 
 type HTTPTrafficSummary struct {
-	ID             string              `json:"id"`
-	AdmittedAt     string              `json:"admitted_at"`
-	PrincipalID    string              `json:"principal_id"`
-	Target         *HTTPTrafficTarget  `json:"target"`
-	Type           string              `json:"type"`
-	Decision       string              `json:"decision"`
-	Outcome        string              `json:"outcome"`
-	Rejection      *HTTPRejection      `json:"rejection,omitempty"`
-	Connect        *HTTPConnectContext `json:"connect,omitempty"`
-	ResponseSource string              `json:"response_source,omitempty"`
+	ID                 string              `json:"id"`
+	AdmittedAt         string              `json:"admitted_at"`
+	PrincipalID        string              `json:"principal_id"`
+	Target             *HTTPTrafficTarget  `json:"target"`
+	Type               string              `json:"type"`
+	Decision           string              `json:"decision"`
+	Outcome            string              `json:"outcome"`
+	Rejection          *HTTPRejection      `json:"rejection,omitempty"`
+	Connect            *HTTPConnectContext `json:"connect,omitempty"`
+	ResponseSource     string              `json:"response_source,omitempty"`
+	CompletionRecorded bool                `json:"completion_recorded"`
+	Termination        *HTTPTermination    `json:"termination,omitempty"`
 }
 
 type HTTPTrafficPage struct {

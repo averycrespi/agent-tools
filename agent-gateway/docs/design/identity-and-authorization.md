@@ -90,31 +90,75 @@ transport operation, never a request-method selector. Path is `{kind:"any"}`,
 Segment prefix includes the named path and slash-delimited descendants, not
 lexical siblings; a trailing prefix slash is normalized away except at root.
 
-The v1 path grammar admits slash, ASCII unreserved bytes and literal `@` (for
-example, `/@anthropic-ai/sdk/-/sdk-0.124.0.tgz`). Literal `@` is path data,
-not authority userinfo, and is preserved through policy matching and forwarding.
-Unreserved percent escapes decode once; empty URI path becomes `/`. Encoded
-separators, percent/double escaping, escaped reserved bytes (including `%40`),
-other literal reserved delimiters, controls, non-ASCII paths, repeated separators
-and literal/encoded dot segments reject rather than being matched one way and
-forwarded another. Reserved escapes are not generally equivalent to their literal
-spelling for an upstream router. In particular, scoped npm metadata paths such
-as `/@scope%2fpkg` remain unsupported: decoding the slash changes segment policy,
-while preserving it would require an explicit escaped-resource policy contract.
-This conservative subset is not a claim to accept every legal URI or all npm
-operations. Fragments, userinfo and opaque URLs reject.
-Query remains bounded, syntactically valid opaque forwarding data, never policy
-or decision evidence; headers and bodies are not selectors.
+The unchanged v1 **selector** grammar admits slash, ASCII unreserved bytes and
+literal `@`, decodes unreserved escapes once, rejects repeated slashes and dot
+segments, and canonicalizes a trailing prefix slash away except at root. Reserved
+escapes, other literal reserved delimiters and non-ASCII selectors remain invalid.
+Persisted selector output, precedence and decisions for previously accepted inputs
+are unchanged; request parsing does not compile or broaden selector syntax. Some
+new request paths cannot be expressed as exact v1 selectors.
 
-`ParseConnect` requires explicit authority and matching Host. `ParseRequest`
-requires an absolute HTTP/HTTPS URI and matching Host with effective ports; an
-intercepted request also supplies the CONNECT destination, must be HTTPS and
-must agree with that destination. SNI, when supplied, must normalize to the same
-host. The ingress adapter must reject duplicate Host fields and construct an
-absolute URI from origin-form only using its bound CONNECT coordinates, never
-client forwarding headers. Canonical values have private fields and fresh URL
-projections. Eventual forwarding must use their authority, method and path, not
-reparse the original input; round-trip tests pin the intended Go HTTP coordinates.
+**Request targets** instead follow bounded RFC 3986 path/query syntax. Paths admit
+pchar reserved characters (`!$&'()*+,;=:@`), literal slashes, repeated slashes and
+valid percent escapes. The forwarding representation preserves escaped path and
+opaque query byte spelling, including percent-case, duplicates/order, `+`, and
+absent query versus empty `?`. Empty path becomes `/`. Valid Unicode URL input
+is converted to UTF-8 percent encoding without Unicode normalization; invalid UTF-8
+input is rejected, not replaced. Literal non-ASCII wire targets are not supported.
+No slash cleaning, reserved decoding, recursive decoding or query reserialization
+occurs. `/https://example.com` and `//example.com/x` remain path data under the
+original destination, never a new authority.
+
+The separate **comparison path** decodes only unreserved escapes once (`/%61pi`
+equals `/api`) and uppercases hex digits of remaining escapes for comparison only.
+Literal reserved bytes differ from their escapes (`@` differs from `%40`).
+`/a/b`, `/a%2Fb` and `/a%252Fb` are distinct; only literal `/` supplies a prefix
+boundary. `/a//b` remains distinct from `/a/b`, but both descend from prefix `/a`.
+Queries remain outside matching. Preview, admission reparse, allow/block selection,
+private-network permission and credential selection use the same comparison path.
+Gateway does not infer upstream recursive decoding, slash merging or arbitrary
+routing equivalences. In particular default-allow with narrow block rules is not
+universal protection against upstream normalization; operators must scope access
+for the actual upstream behavior.
+
+Malformed escapes, raw control/whitespace, path backslashes (literal or encoded),
+encoded path controls (00–1F and 7F), and literal or unreserved-decoded `.`/`..`
+segments reject. Encoded query bytes are opaque, not subject to path-control bans;
+double-encoded data is not recursively interpreted. Fragments, userinfo and opaque
+URLs reject. Headers and bodies are not selectors.
+
+The 4,096-byte path limit applies to the escaped forwarding path and comparison
+path (which never grows); the 8,192-byte target limit applies both to input UTF-8
+bytes and the serialized forwarding absolute URI, including normalized authority,
+explicit effective port, escaped Unicode, and query marker/data. Intercepted
+origin-form is bounded after adding the bound CONNECT HTTPS authority. Unicode
+encoding or authority expansion can therefore reject otherwise short input.
+
+Unchanged default-allow, any-path, root/ancestor-prefix and credential-bearing
+grants intentionally reach newly accepted targets, including credential injection.
+Unreserved escape spelling is now retained on the wire instead of decoded there.
+This approved effective expansion requires operator review before live adoption;
+there is no automatic grant migration or new policy version.
+
+For outer absolute-form HTTP, the request-target URL authority is authoritative:
+a conflicting raw Host is ignored and forwarded Host is regenerated from the
+validated target, as RFC 9112 section 3.2.2 requires. For outer CONNECT,
+Gateway explicitly permits the CONNECT request-target authority to take precedence
+over a conflicting raw Host. Raw Host never selects routing, authorization,
+private-network permission or credentials in either case. Go's HTTP parser owns
+these outer-form rules; no custom pre-parser is introduced. Malformed headers and
+framing, including duplicate Host, remain rejected by the HTTP server.
+
+`ParseConnect` requires an explicit host:port and agreement with its supplied
+**effective** authority. `ParseRequest` requires an absolute HTTP/HTTPS URI and
+matching effective Host/port. An intercepted origin request supplies the CONNECT
+destination, must be HTTPS, and its HTTP/1 Host or HTTP/2 authority must agree
+with that destination. SNI, when supplied, must normalize to the same host.
+The adapter constructs the inner absolute URI only from its bound CONNECT
+coordinates, never client forwarding headers. Canonical values have private fields and fresh URL
+projections. Forwarding uses their validated authority, method and preserved
+escaped path/query, not the comparison path or original unvalidated input;
+admission serialization/reparse retains that forwarding representation.
 
 ### Credential and address authority
 

@@ -68,7 +68,7 @@ func TestBrowserAuthFlows(t *testing.T) {
 	assert.Positive(t, event.Requests)
 	assert.GreaterOrEqual(t, event.ListReads, 2)
 	assert.GreaterOrEqual(t, event.DetailReads, 3)
-	assert.Equal(t, 3, event.Starts)
+	assert.Equal(t, 4, event.Starts)
 	assert.Equal(t, 2, event.Cancels)
 
 	harness.Stop(os.Interrupt)

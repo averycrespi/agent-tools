@@ -74,7 +74,7 @@ function label(kind: OperationKind): string {
     case "reload":
       return "Reload server";
     case "retry":
-      return "Retry connection";
+      return "Retry server operation";
     case "refresh_catalog":
       return "Refresh tools";
     case "credential_replace":
@@ -143,7 +143,7 @@ export function OperationRows({
           options: [
             { value: "activate", label: "Connect server" },
             { value: "reload", label: "Reload server" },
-            { value: "retry", label: "Retry connection" },
+            { value: "retry", label: "Retry server operation" },
             { value: "refresh_catalog", label: "Refresh tools" },
             { value: "credential_replace", label: "Replace credential" },
             { value: "disable", label: "Disable server" },
@@ -380,8 +380,8 @@ function OperationStarter({
       {mutation.state === "uncertain" && (
         <StateNotice state="warning" title="Operation start outcome unknown">
           <p>
-            Inspect operation history. The exact same start may be replayed
-            explicitly only while this in-memory recovery tuple remains live.
+            Inspect operation history before using Replay this same operation
+            start.
           </p>
         </StateNotice>
       )}
@@ -487,13 +487,6 @@ export function ServerOperations({
               </dd>
             </div>
           </dl>
-          {!operationIsTerminal(operation) && (
-            <p class="bounded-note">
-              This nonterminal record polls every two seconds while visible.
-              Events only trigger authoritative snapshot reads and never prove
-              completion.
-            </p>
-          )}
         </section>
       </>
     );

@@ -22,6 +22,8 @@ import {
   decodeTrafficPage,
   destinationLabel,
   rejectionLabel,
+  transferLabel,
+  type Termination,
   trafficOutcome,
   trafficDecisionLabel,
   interceptionExplanation,
@@ -552,6 +554,14 @@ export function HTTPTraffic({
                         ? "—"
                         : sentenceCase(trafficOutcome(row))}
                     </StatusLabel>
+                    {row.type === "request" && row.decision === "allow" && (
+                      <div>
+                        {transferLabel(
+                          row.completion_recorded,
+                          row.termination,
+                        )}
+                      </div>
+                    )}
                   </>
                 ),
               },
@@ -833,6 +843,7 @@ function TrafficDetail({
   const a = item.admission,
     d = a.decision as Record<string, unknown> | null,
     c = item.completion,
+    termination = c?.termination as Termination | undefined,
     rejection = a.rejection as Rejection | undefined,
     connect = a.connect as ConnectContext | undefined,
     intercepted =
@@ -956,7 +967,9 @@ function TrafficDetail({
         ) : (
           <dl class="fact-grid">
             {Object.entries(c)
-              .filter(([key]) => key !== "response_source")
+              .filter(
+                ([key]) => key !== "response_source" && key !== "termination",
+              )
               .map(([key, value]) => (
                 <div>
                   <dt>{sentenceCase(key)}</dt>
@@ -970,6 +983,44 @@ function TrafficDetail({
                 </div>
               ))}
           </dl>
+        )}
+        {!isConnect && d?.allowed && (
+          <dl class="fact-grid">
+            <div>
+              <dt>HTTP transfer</dt>
+              <dd>{transferLabel(c !== null, termination)}</dd>
+            </div>
+            {termination !== undefined && (
+              <>
+                <div>
+                  <dt>Observed stage</dt>
+                  <dd>{sentenceCase(termination.stage)}</dd>
+                </div>
+                <div>
+                  <dt>Observed condition</dt>
+                  <dd>{sentenceCase(termination.condition)}</dd>
+                </div>
+                {termination.context !== undefined && (
+                  <div>
+                    <dt>Request context</dt>
+                    <dd>{sentenceCase(termination.context)}</dd>
+                  </div>
+                )}
+              </>
+            )}
+          </dl>
+        )}
+        {termination !== undefined && (
+          <details>
+            <summary>Transfer evidence limits</summary>
+            <p>
+              HTTP transfer evidence does not establish application success or
+              who initiated cancellation.
+            </p>
+          </details>
+        )}
+        {!isConnect && c?.outcome === "outcome_unknown" && (
+          <p>The request may have taken effect. Retrying may repeat effects.</p>
         )}
       </section>
       <section class="panel domain-panel">

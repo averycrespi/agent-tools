@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,10 @@ func TestHTTPTrafficPairedRestorePreservesBothDomains(t *testing.T) {
 	http, err := traffic.AdmitHTTP(t.Context(), httpTrafficAdmission(2))
 	require.NoError(t, err)
 	require.True(t, traffic.Confirm(t.Context(), http))
-	require.NoError(t, traffic.CompleteHTTP(t.Context(), http, httpTrafficCompletion()))
+	completion := httpTrafficCompletion()
+	completion.ResponseSource = "upstream"
+	completion.Termination = &contract.HTTPTermination{Stage: "complete", Condition: "clean"}
+	require.NoError(t, traffic.CompleteHTTP(t.Context(), http, completion))
 	unknown, err := traffic.AdmitHTTP(t.Context(), httpTrafficAdmission(3))
 	require.NoError(t, err)
 	require.True(t, traffic.Confirm(t.Context(), unknown))
@@ -51,7 +55,7 @@ func TestHTTPTrafficPairedRestorePreservesBothDomains(t *testing.T) {
 	assert.Equal(t, invocationID(91), hh.Generation)
 	assert.Equal(t, int64(3), hh.HighWater)
 	require.NotNil(t, hh.Records[0].Completion)
-	assert.Equal(t, "succeeded", hh.Records[0].Completion.Outcome)
+	assert.Equal(t, completion, *hh.Records[0].Completion)
 	assert.Nil(t, hh.Records[1].Completion)
 	assert.False(t, restored.Confirm(t.Context(), unknown))
 	assert.Empty(t, restored.pins)

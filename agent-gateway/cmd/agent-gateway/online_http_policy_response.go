@@ -128,7 +128,7 @@ func validHTTPResponsePath(value string) bool {
 		return false
 	}
 	for _, b := range []byte(value) {
-		if (b < 'A' || b > 'Z') && (b < 'a' || b > 'z') && (b < '0' || b > '9') && !strings.ContainsRune("/-._~", rune(b)) {
+		if (b < 'A' || b > 'Z') && (b < 'a' || b > 'z') && (b < '0' || b > '9') && !strings.ContainsRune("/-._~@", rune(b)) {
 			return false
 		}
 	}

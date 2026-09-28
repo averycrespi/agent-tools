@@ -146,16 +146,16 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 		}
 		args = append(args, q.Limit+1)
 		//nolint:gosec // Predicate columns are fixed above; every filter value is bound.
-		rows, err := tx.QueryContext(ctx, `SELECT insertion_sequence,id,json_extract(admission,'$.admitted_at'),principal_id,json_extract(admission,'$.target'),traffic_type,decision,`+httpTrafficReadOutcome+`,json_extract(admission,'$.rejection'),json_extract(admission,'$.connect'),CASE WHEN json_type(admission,'$.rejection')='object' THEN 'gateway' ELSE coalesce(json_extract(completion,'$.response_source'),'') END FROM http_traffic WHERE `+strings.Join(clauses, " AND ")+` ORDER BY insertion_sequence DESC LIMIT ?`, args...)
+		rows, err := tx.QueryContext(ctx, `SELECT insertion_sequence,id,json_extract(admission,'$.admitted_at'),principal_id,json_extract(admission,'$.target'),traffic_type,decision,`+httpTrafficReadOutcome+`,json_extract(admission,'$.rejection'),json_extract(admission,'$.connect'),CASE WHEN json_type(admission,'$.rejection')='object' THEN 'gateway' ELSE coalesce(json_extract(completion,'$.response_source'),'') END,completion IS NOT NULL,json_extract(completion,'$.termination') FROM http_traffic WHERE `+strings.Join(clauses, " AND ")+` ORDER BY insertion_sequence DESC LIMIT ?`, args...)
 		if err != nil {
 			return err
 		}
 		var last int64
 		for rows.Next() {
 			var item contract.HTTPTrafficSummary
-			var target, rejection, connect sql.NullString
+			var target, rejection, connect, termination sql.NullString
 			var sequence int64
-			if err = rows.Scan(&sequence, &item.ID, &item.AdmittedAt, &item.PrincipalID, &target, &item.Type, &item.Decision, &item.Outcome, &rejection, &connect, &item.ResponseSource); err != nil {
+			if err = rows.Scan(&sequence, &item.ID, &item.AdmittedAt, &item.PrincipalID, &target, &item.Type, &item.Decision, &item.Outcome, &rejection, &connect, &item.ResponseSource, &item.CompletionRecorded, &termination); err != nil {
 				break
 			}
 			if len(page.Items) == q.Limit {
@@ -191,6 +191,13 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 			if connect.Valid {
 				item.Connect = &contract.HTTPConnectContext{}
 				if strictjson.Decode([]byte(connect.String), item.Connect, strictjson.Options{MaxBytes: 512, MaxDepth: 2, RejectUnknownMembers: true}) != nil {
+					err = ErrInvalidState
+					break
+				}
+			}
+			if termination.Valid {
+				item.Termination = &contract.HTTPTermination{}
+				if strictjson.Decode([]byte(termination.String), item.Termination, strictjson.Options{MaxBytes: 128, MaxDepth: 2, RejectUnknownMembers: true}) != nil || !item.CompletionRecorded || item.Type != "request" || item.Target == nil || !item.Termination.Valid(item.Outcome, item.Target.Method, item.ResponseSource) {
 					err = ErrInvalidState
 					break
 				}

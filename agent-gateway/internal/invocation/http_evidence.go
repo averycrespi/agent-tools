@@ -142,6 +142,9 @@ func encodeHTTPCompletion(a contract.HTTPTrafficAdmission, c contract.HTTPTraffi
 	if c.Status != 0 && (c.Status < 100 || c.Status > 599 || a.Decision.Transport != contract.HTTPTransportRequest) {
 		return "", ErrInvalidInput
 	}
+	if c.Termination != nil && (a.Target == nil || a.Decision.Transport != contract.HTTPTransportRequest || !c.Termination.Valid(c.Outcome, a.Target.Method, c.ResponseSource)) {
+		return "", ErrInvalidInput
+	}
 	if c.Outcome == "prestart_failure" && (c.Status != 0 || c.BytesSent != 0 || c.BytesReceived != 0) {
 		return "", ErrInvalidInput
 	}
@@ -169,7 +172,7 @@ func scanHTTPTraffic(scanner invocationScanner) (contract.HTTPTrafficRecord, int
 	}
 	if completion.Valid {
 		r.Completion = &contract.HTTPTrafficCompletion{}
-		if strictjson.Decode([]byte(completion.String), r.Completion, strictjson.Options{MaxBytes: contract.HTTPTrafficCompletionBytes, MaxDepth: 2, RejectUnknownMembers: true}) != nil {
+		if strictjson.Decode([]byte(completion.String), r.Completion, strictjson.Options{MaxBytes: contract.HTTPTrafficCompletionBytes, MaxDepth: 3, RejectUnknownMembers: true}) != nil {
 			return r, 0, ErrInvalidState
 		}
 		canonical, err := encodeHTTPCompletion(r.Admission, *r.Completion)

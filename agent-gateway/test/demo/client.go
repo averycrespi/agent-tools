@@ -12,6 +12,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
 type client struct {
@@ -65,6 +68,16 @@ func (c *client) request(method, path string, body any, headers http.Header, sta
 	}
 	if response.StatusCode != status {
 		c.err = fmt.Errorf("%s %s returned HTTP %d", method, strings.Split(path, "?")[0], response.StatusCode)
+		var diagnostic struct {
+			Code contract.ProblemCode `json:"code"`
+		}
+		// Only a recognized code reaches diagnostics, never response text or
+		// parser errors. The existing failure remains latched without a retry.
+		if strictjson.Decode(raw, &diagnostic, strictjson.Options{MaxBytes: 4096, MaxDepth: 4}) == nil {
+			if problem, ok := contract.ProblemForCode(diagnostic.Code); ok && problem.Status == response.StatusCode {
+				c.err = fmt.Errorf("%w (problem=%s)", c.err, problem.Code)
+			}
+		}
 		return nil, nil
 	}
 	result := object{}
