@@ -210,6 +210,11 @@ func (f *proxyFixture) intercept(t *testing.T, upstream, alpn string) *tls.Conn 
 	reader := bufio.NewReader(conn)
 	response, err := http.ReadResponse(reader, &http.Request{Method: "CONNECT"})
 	require.NoError(t, err)
+	if response.StatusCode != http.StatusOK {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		t.Logf("CONNECT failure: uncorrelated traffic history window: %+v", f.connectFailureSnapshot(ctx))
+	}
 	require.Equal(t, 200, response.StatusCode)
 	tlsConn := tls.Client(&bufferedConn{Conn: conn, reader: reader}, &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: f.roots, ServerName: u.Hostname(), NextProtos: []string{alpn}})
 	require.NoError(t, tlsConn.HandshakeContext(t.Context()))
