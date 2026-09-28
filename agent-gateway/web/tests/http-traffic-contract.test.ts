@@ -139,6 +139,22 @@ test("Rejection categories, CONNECT context and response provenance are closed",
     },
   });
   assert.deepEqual(decodeTrafficItem(current), current);
+  for (const [reason, label] of Object.entries({
+    invalid_request_target: "Request target failed validation",
+    invalid_connect_target: "CONNECT target failed validation",
+    invalid_target_syntax: "Invalid request target syntax",
+    target_too_long: "Request target exceeds byte limit",
+    forbidden_path: "Forbidden path construct",
+    authority_mismatch: "Request authority mismatch",
+  })) {
+    const value = structuredClone(current);
+    const rejection = { stage: "target", reason };
+    Object.assign(value.admission, { rejection });
+    assert.deepEqual(decodeTrafficItem(value), value);
+    assert.equal(rejectionLabel(rejection), label);
+    rejection.stage = "headers";
+    assert.throws(() => decodeTrafficItem(value));
+  }
   for (const patch of [
     { rejection: { stage: "headers", reason: "invalid_request_target" } },
     { rejection: { stage: "target", reason: "secret".repeat(1000) } },

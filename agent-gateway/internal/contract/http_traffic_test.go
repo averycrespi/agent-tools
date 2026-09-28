@@ -10,7 +10,7 @@ func TestHTTPRejectionVocabularyIsClosedAndBounded(t *testing.T) {
 	stages := map[string][]string{
 		"headers":      {"invalid_headers", "trailers_unsupported", "upgrade_unsupported", "inner_proxy_authorization"},
 		"request_form": {"connect_body", "nested_connect", "origin_form_required", "absolute_http_required"},
-		"target":       {"invalid_request_target", "invalid_connect_target"},
+		"target":       {"invalid_request_target", "invalid_connect_target", "invalid_target_syntax", "target_too_long", "forbidden_path", "authority_mismatch"},
 	}
 	for stage, reasons := range stages {
 		for _, reason := range reasons {

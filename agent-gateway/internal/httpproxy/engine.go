@@ -239,6 +239,12 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	e.mu.Unlock()
 	defer func() { e.mu.Lock(); e.streams--; e.mu.Unlock() }()
 	raw := r.RequestURI
+	for _, b := range []byte(raw) {
+		if b < 0x21 || b > 0x7e {
+			e.rejectInvalid(w, r, lease, inside, "target", "invalid_target_syntax")
+			return
+		}
+	}
 	sni := ""
 	var destination *httppolicy.Destination
 	if inside != nil {
@@ -255,7 +261,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	}
 	target, err := httppolicy.ParseRequest(raw, r.Method, r.Host, sni, destination)
 	if err != nil {
-		e.rejectInvalid(w, r, lease, inside, "target", "invalid_request_target")
+		e.rejectInvalid(w, r, lease, inside, "target", httppolicy.RejectionReason(err))
 		return
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), target.Destination(), e.options.Listeners)

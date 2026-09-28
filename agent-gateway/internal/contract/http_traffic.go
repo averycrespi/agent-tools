@@ -33,7 +33,9 @@ func (r HTTPRejection) Valid() bool {
 	case "request_form":
 		return r.Reason == "connect_body" || r.Reason == "nested_connect" || r.Reason == "origin_form_required" || r.Reason == "absolute_http_required"
 	case "target":
-		return r.Reason == "invalid_request_target" || r.Reason == "invalid_connect_target"
+		return r.Reason == "invalid_request_target" || r.Reason == "invalid_connect_target" ||
+			r.Reason == "invalid_target_syntax" || r.Reason == "target_too_long" ||
+			r.Reason == "forbidden_path" || r.Reason == "authority_mismatch"
 	}
 	return false
 }

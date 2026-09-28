@@ -36,7 +36,10 @@ func TestIntegrationRejectionDiagnosticsPersistAndRead(t *testing.T) {
 		{"headers", "upgrade_unsupported", func(r *http.Request) { r.Header.Set("Upgrade", "upgrade-secret") }},
 		{"request_form", "connect_body", func(r *http.Request) { r.Method = "CONNECT"; r.ContentLength = 1 }},
 		{"request_form", "absolute_http_required", func(r *http.Request) { r.URL.Scheme = "https" }},
-		{"target", "invalid_request_target", func(r *http.Request) { r.RequestURI = "http://example.com/%2fpath-secret?query-secret" }},
+		{"target", "forbidden_path", func(r *http.Request) { r.RequestURI = "http://example.com/%5cpath-secret?query-secret" }},
+		{"target", "invalid_target_syntax", func(r *http.Request) { r.RequestURI = "http://example.com/%zzpath-secret?query-secret" }},
+		{"target", "target_too_long", func(r *http.Request) { r.RequestURI = "http://example.com/" + strings.Repeat("path-secret", 1000) }},
+		{"target", "authority_mismatch", func(r *http.Request) { r.Host = "other.example.com" }},
 		{"target", "invalid_connect_target", func(r *http.Request) { r.Method = "CONNECT"; r.RequestURI = "host-secret/path-secret" }},
 	}
 	for _, tt := range tests {
@@ -150,7 +153,7 @@ func TestIntegrationConcurrentH2RejectionsUseActualConnect(t *testing.T) {
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	failures := make(chan error, 18)
-	reasons := []string{"invalid_request_target", "inner_proxy_authorization", "invalid_headers"}
+	reasons := []string{"forbidden_path", "inner_proxy_authorization", "invalid_headers"}
 	for index, client := range clients {
 		connection := client.intercept(t, upstream.URL, "h2")
 		history, err := f.traffic.HTTPHistory(t.Context(), 0, 100)
@@ -166,7 +169,7 @@ func TestIntegrationConcurrentH2RejectionsUseActualConnect(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				<-start
-				req, err := http.NewRequestWithContext(t.Context(), "GET", upstream.URL+"/%2fpath-secret?query-secret", nil)
+				req, err := http.NewRequestWithContext(t.Context(), "GET", upstream.URL+"/%5cpath-secret?query-secret", nil)
 				if err != nil {
 					failures <- err
 					return

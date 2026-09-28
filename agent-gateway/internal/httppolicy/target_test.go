@@ -31,7 +31,7 @@ func TestHTTPCanonicalCoordinatesAndForwarding(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if forwarded.URL.Host != r.Destination().Authority() || forwarded.URL.Path != r.Path() || forwarded.URL.RawPath != "" || forwarded.URL.RawQuery != r.URL().RawQuery {
+		if forwarded.URL.Host != r.Destination().Authority() || forwarded.URL.EscapedPath() != r.URL().EscapedPath() || forwarded.URL.RawQuery != r.URL().RawQuery {
 			t.Fatal("forwarding drift", forwarded.URL, r)
 		}
 		again, err := ParseRequest(forwarded.URL.String(), "GET", forwarded.Host, "", nil)
@@ -47,7 +47,7 @@ func TestHTTPRejectAmbiguousTargets(t *testing.T) {
 			t.Fatalf("accepted host %q", host)
 		}
 	}
-	for _, path := range []string{"/a/../secret", "/./x", "/%2e%2e/x", "/%2Fsecret", "/%5csecret", "/%252fsecret", "/a//b", "/%00", "/%7f", "/%zz", "/x;admin", "/x%3fadmin", "/café", "/a\\b", strings.Repeat("/a", contract.HTTPPathBytes)} {
+	for _, path := range []string{"/a/../secret", "/./x", "/%2e%2e/x", "/%5csecret", "/%00", "/%7f", "/%zz", "/a\\b", strings.Repeat("/a", contract.HTTPPathBytes)} {
 		if _, err := ParseRequest("https://api.example.com"+path, "GET", "api.example.com", "", nil); err == nil {
 			t.Fatalf("accepted path %q", path)
 		}

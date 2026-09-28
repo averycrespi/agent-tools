@@ -315,7 +315,7 @@ func TestIntegrationDeniedPathsAndAmbiguousFramingNeverDispatch(t *testing.T) {
 	defer upstream.Close()
 	f.allow(t, upstream.URL, "allow_requests", "/approved", "")
 	client := f.client(t)
-	for _, path := range []string{"/approved-sibling", "/approved/%2fsecret", "/approved/../other"} {
+	for _, path := range []string{"/approved-sibling", "/approved%2fsecret", "/approved/%5csecret", "/approved/../other"} {
 		response := f.request(t, client, "GET", upstream.URL+path, nil)
 		require.GreaterOrEqual(t, response.StatusCode, 400)
 		_ = response.Body.Close()

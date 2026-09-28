@@ -34,6 +34,29 @@ func TestCLIHTTPTrafficSeparateReadOnlyHistory(t *testing.T) {
 	require.Equal(t, 1, calls)
 	require.Contains(t, string(output), `"items":[]`)
 }
+func TestCLIHTTPTrafficRejectionReasonsRemainClosed(t *testing.T) {
+	ref := contract.HTTPRevisionRef{ID: idForSecurityTest(), Revision: 1}
+	at := "2026-09-21T00:00:00.000000000Z"
+	summary := contract.HTTPTrafficSummary{ID: ref.ID, PrincipalID: ref.ID, AdmittedAt: at, Type: "invalid", Decision: "invalid", Outcome: "not_dispatched"}
+	item := contract.HTTPTrafficRecord{Admission: contract.HTTPTrafficAdmission{ID: ref.ID, Principal: ref, AgentCredential: ref, CredentialFingerprint: "0123456789abcdef", AdmittedAt: at, EvaluatedAt: at, Class: "invalid_request", Grants: []contract.HTTPTrafficGrant{}}}
+	require.True(t, validHTTPTrafficSummary(summary))
+	require.True(t, validHTTPTrafficItem(item))
+	for _, reason := range []string{"invalid_request_target", "invalid_connect_target", "invalid_target_syntax", "target_too_long", "forbidden_path", "authority_mismatch"} {
+		rejection := &contract.HTTPRejection{Stage: "target", Reason: reason}
+		summary.Rejection = rejection
+		item.Admission.Rejection = rejection
+		require.True(t, validHTTPTrafficSummary(summary))
+		require.True(t, validHTTPTrafficItem(item))
+		rejection.Stage = "headers"
+		require.False(t, validHTTPTrafficSummary(summary))
+		require.False(t, validHTTPTrafficItem(item))
+	}
+	summary.Rejection = &contract.HTTPRejection{Stage: "target", Reason: "private-canary"}
+	item.Admission.Rejection = summary.Rejection
+	require.False(t, validHTTPTrafficSummary(summary))
+	require.False(t, validHTTPTrafficItem(item))
+}
+
 func TestCLIHTTPTrafficUnknownAndTunnelPresentation(t *testing.T) {
 	ref := contract.HTTPRevisionRef{ID: idForSecurityTest(), Revision: 1}
 	allowPrivate := false

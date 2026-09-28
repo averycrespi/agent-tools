@@ -182,17 +182,17 @@ export async function runHTTPTraffic(
   for (const label of [
     "Protocol upgrades are not supported",
     "Absolute-form HTTP request required",
-    "Request target failed validation",
+    "Forbidden path construct",
   ]) {
     await expect(page.getByText(label, { exact: true })).toBeVisible();
   }
   await page
     .getByRole("row")
-    .filter({ hasText: "Request target failed validation" })
+    .filter({ hasText: "Forbidden path construct" })
     .getByRole("link", { name: "Not parsed", exact: true })
     .click();
   await expect(
-    page.getByText("Request target failed validation", { exact: true }),
+    page.getByText("Forbidden path construct", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Gateway", { exact: true })).toBeVisible();
   expect(await page.content()).not.toContain("path-secret");
@@ -759,6 +759,10 @@ export async function runHTTPTraffic(
     .click();
   for (const [stage, reason, label] of [
     ["headers", "invalid_headers", "Invalid headers"],
+    ["target", "invalid_target_syntax", "Invalid request target syntax"],
+    ["target", "target_too_long", "Request target exceeds byte limit"],
+    ["target", "forbidden_path", "Forbidden path construct"],
+    ["target", "authority_mismatch", "Request authority mismatch"],
     [
       "request_form",
       "origin_form_required",
@@ -770,6 +774,22 @@ export async function runHTTPTraffic(
     await expect(page.getByText(label!, { exact: true })).toBeVisible();
     await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
     await expect(page.getByText(label!, { exact: true })).toBeVisible();
+    if (reason === "target_too_long") {
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await page.screenshot({
+        path: join(screenshots, "target-byte-limit-detail.png"),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(390);
+      await page.screenshot({
+        path: join(screenshots, "target-byte-limit-detail-narrow.png"),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
     await page
       .getByRole("link", { name: "Back to HTTP traffic", exact: true })
       .click();

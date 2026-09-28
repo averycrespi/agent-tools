@@ -192,7 +192,7 @@ func (h *Handler) previewHTTP(w http.ResponseWriter, r *http.Request) {
 			in.Connect = &contract.HTTPDestinationSelector{Host: *destination.Host, Port: *destination.Port}
 		}
 	} else {
-		valid = valid && decodeRequiredGrantMember(raw.URL, &in.URL) && decodeRequiredGrantMember(raw.Method, &in.Method)
+		valid = valid && decodeHTTPURLInput(raw.URL, &in.URL) && decodeRequiredGrantMember(raw.Method, &in.Method)
 	}
 	if !valid {
 		writeProblem(w, contract.ProblemMalformedRequest)
@@ -204,6 +204,39 @@ func (h *Handler) previewHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// encoding/json replaces isolated UTF-16 surrogate escapes. A URL must not
+// silently select a different resource, so validate pairs before accepting it.
+func decodeHTTPURLInput(raw json.RawMessage, destination *string) bool {
+	if !decodeRequiredGrantMember(raw, destination) {
+		return false
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		i++
+		if raw[i] != 'u' {
+			continue
+		}
+		n, _ := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
+		i += 4
+		if n >= 0xdc00 && n <= 0xdfff {
+			return false
+		}
+		if n >= 0xd800 && n <= 0xdbff {
+			if i+6 >= len(raw) || string(raw[i+1:i+3]) != `\u` {
+				return false
+			}
+			low, _ := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
+			if low < 0xdc00 || low > 0xdfff {
+				return false
+			}
+			i += 6
+		}
+	}
+	return true
 }
 
 func (h *Handler) emitHTTPPolicy() {

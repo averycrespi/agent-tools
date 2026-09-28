@@ -93,8 +93,9 @@ func parseAuthority(raw string, defaultPort uint16) (Destination, error) {
 	return NewDestination(host, port)
 }
 
-// ParseConnect requires explicit host:port and agreement with the mandatory
-// Host authority. It confers neither tunnel nor request permission.
+// ParseConnect requires explicit host:port and agreement with the supplied
+// effective authority. The outer HTTP parser gives the CONNECT target precedence
+// over raw Host. This parser confers neither tunnel nor request permission.
 func ParseConnect(authority, hostHeader string) (Destination, error) {
 	d, err := parseAuthority(authority, 0)
 	h, e := parseAuthority(hostHeader, 0)
@@ -107,6 +108,7 @@ func ParseConnect(authority, hostHeader string) (Destination, error) {
 type Request struct {
 	destination                 Destination
 	scheme, method, path, query string
+	escapedPath                 string
 	forceQuery                  bool
 }
 
@@ -115,22 +117,33 @@ func (r Request) Scheme() string           { return r.scheme }
 func (r Request) Method() string           { return r.method }
 func (r Request) Path() string             { return r.path }
 
-// URL returns a fresh value with the exact canonical policy path. Query is
-// preserved for forwarding, never interpreted as a policy selector/evidence.
+// URL returns a fresh forwarding value, distinct from the comparison Path.
+// RawPath preserves accepted escape spelling; queries are never selectors.
 func (r Request) URL() *url.URL {
-	return &url.URL{Scheme: r.scheme, Host: r.destination.Authority(), Path: r.path, RawQuery: r.query, ForceQuery: r.forceQuery}
+	decoded, _ := url.PathUnescape(r.escapedPath)
+	return &url.URL{Scheme: r.scheme, Host: r.destination.Authority(), Path: decoded, RawPath: r.escapedPath, RawQuery: r.query, ForceQuery: r.forceQuery}
 }
 
-// ParseRequest parses an absolute URI with mandatory Host. A nonnil CONNECT
+// ParseRequest parses an absolute URI with the effective Host. Outer absolute
+// HTTP uses target authority; intercepted origin requests use inner Host/:authority.
+// A nonnil CONNECT
 // destination binds HTTPS to its intercepted connection. SNI, when present,
 // must agree as well. Adapters must reject duplicate Host fields beforehand.
 func ParseRequest(raw, method, hostHeader, sni string, connect *Destination) (Request, error) {
-	if len(raw) == 0 || len(raw) > contract.HTTPTargetBytes || !validMethod(method) || method == "CONNECT" || strings.ContainsAny(raw, "\r\n\t\\#") {
-		return Request{}, ErrInvalid
+	if len(raw) > contract.HTTPTargetBytes {
+		return Request{}, targetError("target_too_long")
+	}
+	if len(raw) == 0 || !utf8.ValidString(raw) || !validMethod(method) || method == "CONNECT" {
+		return Request{}, targetError("invalid_target_syntax")
+	}
+	for _, b := range []byte(raw) {
+		if b < 0x21 || b == 0x7f || strings.ContainsRune("\\#\"<>^`{|}", rune(b)) {
+			return Request{}, targetError("invalid_target_syntax")
+		}
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.User != nil || u.Opaque != "" || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return Request{}, ErrInvalid
+		return Request{}, targetError("invalid_target_syntax")
 	}
 	port := uint16(80)
 	if u.Scheme == "https" {
@@ -139,38 +152,45 @@ func ParseRequest(raw, method, hostHeader, sni string, connect *Destination) (Re
 	d, err := parseAuthority(u.Host, port)
 	h, e := parseAuthority(hostHeader, port)
 	if err != nil || e != nil || d != h {
-		return Request{}, ErrInvalid
+		return Request{}, targetError("authority_mismatch")
 	}
 	if connect != nil && (u.Scheme != "https" || *connect != d) {
-		return Request{}, ErrInvalid
+		return Request{}, targetError("authority_mismatch")
 	}
 	if sni != "" {
 		sh, e := canonicalHost(sni)
 		if e != nil || sh != d.host || u.Scheme != "https" {
-			return Request{}, ErrInvalid
+			return Request{}, targetError("authority_mismatch")
 		}
 	}
-	p, err := canonicalPath(u.EscapedPath())
+	// Validate input syntax before net/url can escape unsupported ASCII bytes.
+	pathInput := raw[strings.Index(raw, "://")+3+len(u.Host):]
+	pathInput, _, _ = strings.Cut(pathInput, "?")
+	if !uriComponent(pathInput, false) || !uriComponent(u.RawQuery, true) {
+		return Request{}, targetError("invalid_target_syntax")
+	}
+	escaped := encodeUnicode(pathInput)
+	if escaped == "" {
+		escaped = "/"
+	}
+	p, err := requestPath(escaped)
 	if err != nil {
 		return Request{}, err
 	}
 	// Queries remain opaque, but malformed escaping/control bytes cannot pass
 	// through a second parser with a different interpretation.
 	if _, err = url.QueryUnescape(u.RawQuery); err != nil {
-		return Request{}, ErrInvalid
+		return Request{}, targetError("invalid_target_syntax")
 	}
-	for _, b := range []byte(u.RawQuery) {
-		if b < 0x21 || b > 0x7e {
-			return Request{}, ErrInvalid
-		}
-	}
-	result := Request{d, u.Scheme, method, p, u.RawQuery, u.ForceQuery}
+	query := encodeUnicode(u.RawQuery)
+	result := Request{destination: d, scheme: u.Scheme, method: method, path: p, escapedPath: escaped, query: query, forceQuery: u.ForceQuery}
 	if len(result.URL().String()) > contract.HTTPTargetBytes {
-		return Request{}, ErrInvalid
+		return Request{}, targetError("target_too_long")
 	}
 	return result, nil
 }
 
+// canonicalPath is the unchanged v1 selector compiler, not a request parser.
 func canonicalPath(raw string) (string, error) {
 	if raw == "" {
 		return "/", nil

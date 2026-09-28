@@ -115,6 +115,10 @@ const rejectionReasons: Record<string, Record<string, string>> = {
   target: {
     invalid_request_target: "Request target failed validation",
     invalid_connect_target: "CONNECT target failed validation",
+    invalid_target_syntax: "Invalid request target syntax",
+    target_too_long: "Request target exceeds byte limit",
+    forbidden_path: "Forbidden path construct",
+    authority_mismatch: "Request authority mismatch",
   },
 };
 export function rejectionLabel(value: Rejection | undefined): string {

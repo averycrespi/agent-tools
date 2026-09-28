@@ -11,6 +11,37 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 3. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
 4. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
 
+## HTTP URL compatibility expansion
+
+Before deploying this change, review HTTP defaults, any-path and root/ancestor-prefix
+grants, including their credential and private-network scopes. Their records and
+v1 selector grammar/precedence stay unchanged, but they intentionally admit newly
+supported reserved/escaped paths, repeated slashes and percent-encoded Unicode.
+Credential-bearing grants can inject credentials into those newly accepted targets.
+Previously accepted unreserved escapes now retain their spelling on the wire
+(`/%61`, not `/a`) while comparing identically for policy. No automatic grant edits,
+migration or new policy version is introduced.
+
+The [request profile](http-proxy.md#request-target-compatibility) distinguishes
+forwarding from comparison, defines byte bounds and lists retained exclusions.
+Some accepted paths cannot be exact v1 selectors. Gateway does not infer arbitrary
+upstream decoding or slash merging; default-allow plus narrow blocks requires
+review against the actual upstream's routing. Upgrade strict diagnostic readers
+with the service for the new closed target reason codes; historical generic
+rejection records remain readable.
+
+Authority semantics are form-specific: outer absolute URLs (RFC 9112 section
+3.2.2) and CONNECT request-targets take precedence over a conflicting raw Host.
+This documents existing parser behavior, not new authority from that header.
+Routing, grants, private permission, credentials and forwarded Host remain bound
+to the target. Intercepted HTTP/1 Host, HTTP/2 authority and TLS SNI still must
+agree with CONNECT; malformed framing/header safeguards remain unchanged.
+
+Controlled-upstream fixtures are not live npm/Jina qualification. The historical
+Jina rejection's precise cause remains unproven. Live adoption, installed resource
+changes and client qualification require separate operator approval; source/CI
+success does not authorize a service reload, restart or deployment.
+
 ## HTTP listener default cutover
 
 Bare `serve` and new `service install` default HTTP to `127.0.0.1:8212`, separate

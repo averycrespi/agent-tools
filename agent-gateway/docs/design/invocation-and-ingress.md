@@ -33,7 +33,10 @@ rejections additionally carry a closed `rejection` stage/reason pair: `headers`
 (`invalid_headers`, `trailers_unsupported`, `upgrade_unsupported`,
 `inner_proxy_authorization`), `request_form` (`connect_body`, `nested_connect`,
 `origin_form_required`, `absolute_http_required`), or `target`
-(`invalid_request_target`, `invalid_connect_target`). These categories describe
+(`invalid_target_syntax`, `target_too_long`, `forbidden_path`,
+`authority_mismatch`, plus historical `invalid_request_target` and
+`invalid_connect_target`). Syntax includes malformed escapes; forbidden paths
+include controls, backslashes and dot segments. These categories describe
 rules, never offending input or parser error strings; their encoded object is at
 most 128 bytes. No partly parsed destination or unvalidated method is retained.
 
@@ -110,9 +113,14 @@ no upstream permission. Invalid authenticated coordinates retain only invalid-re
 evidence, not the submitted URL. Parser-level malformed framing is rejected before
 an authenticated request exists.
 
-CONNECT fixes HTTPS authority; SNI and inner Host must agree through the policy
-canonicalizer. Forwarding uses the resulting canonical path/authority, never
-forwarding headers or a reparsed raw URL. Duplicate Host and malformed framing
+Outer absolute-form HTTP and CONNECT use request-target authority, ignoring a
+conflicting raw Host as defined in the [authority contract](identity-and-authorization.md#canonical-selectors-and-forwarding).
+That raw Host never controls policy, credentials, private permission or forwarding.
+CONNECT fixes HTTPS authority; SNI and inner Host/H2 authority must agree through the policy
+canonicalizer. Forwarding uses validated authority and the preserved escaped
+path/opaque query, not the separate policy comparison path, forwarding headers
+or an unvalidated raw URL. The [request compatibility contract](identity-and-authorization.md#canonical-selectors-and-forwarding)
+owns syntax, conversions and byte bounds. Duplicate Host and malformed framing
 are refused by the HTTP parser; accepted framing is reserialized on a fresh hop.
 Intercepted upgrades/WebSockets and trailers reject; explicit tunnels are opaque
 and never run inner request policy or credential injection. No HTTP/3 or TLS-error

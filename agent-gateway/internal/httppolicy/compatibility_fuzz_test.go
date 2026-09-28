@@ -48,7 +48,7 @@ func assertPolicyForwarding(t *testing.T, r Request) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forwarded.URL.Path != r.Path() || forwarded.Host != r.Destination().Authority() || forwarded.URL.RawQuery != r.URL().RawQuery || forwarded.URL.ForceQuery != r.URL().ForceQuery {
+	if forwarded.URL.EscapedPath() != r.URL().EscapedPath() || forwarded.Host != r.Destination().Authority() || forwarded.URL.RawQuery != r.URL().RawQuery || forwarded.URL.ForceQuery != r.URL().ForceQuery {
 		t.Fatal("forwarding coordinate drift")
 	}
 	again, err := ParseRequest(forwarded.URL.String(), r.Method(), forwarded.Host, "", nil)
@@ -58,7 +58,13 @@ func assertPolicyForwarding(t *testing.T, r Request) {
 	p := basePolicy(contract.HTTPAllowRequests)
 	p.Request.Origin = contract.HTTPOriginSelector{Scheme: r.Scheme(), Host: r.Destination().Host(), Port: r.Destination().Port()}
 	p.Request.Path = contract.HTTPPathSelector{Kind: contract.HTTPPathExact, Value: r.Path()}
-	e := evaluator(t, snapshot(grant(t, 10, p)))
+	compiled, compileErr := Compile(p)
+	if compileErr != nil {
+		// The request grammar deliberately exceeds the unchanged v1 selector
+		// grammar; those requests still must survive the forwarding round trip.
+		return
+	}
+	e := evaluator(t, snapshot(Grant{Ref: ref(10), PrincipalID: id(1), Policy: compiled}))
 	decision, err := e.RequestPolicy(again)
 	if err != nil || !decision.Allowed {
 		t.Fatalf("exact policy did not authorize forwarded resource: %+v %v", decision, err)
@@ -105,6 +111,35 @@ func FuzzHTTPPolicyForwarding(f *testing.F) {
 			return
 		}
 		assertPolicyForwarding(t, r)
+	})
+}
+
+func FuzzHTTPConstructiveWireCompatibility(f *testing.F) {
+	f.Add([]byte{0, 1, 2, 3, 4, 5, 6, 7})
+	f.Fuzz(func(t *testing.T, seed []byte) {
+		if len(seed) > 64 {
+			seed = seed[:64]
+		}
+		wireTokens := []string{"a", "%61", "%2f", "%252F", "//", ":", "%3a", "%C3%a9", "@", "%40", "%20"}
+		comparisonTokens := []string{"a", "a", "%2F", "%252F", "//", ":", "%3A", "%C3%A9", "@", "%40", "%20"}
+		wire, comparison := "/p", "/p"
+		for _, b := range seed {
+			i := int(b) % len(wireTokens)
+			wire += wireTokens[i]
+			comparison += comparisonTokens[i]
+		}
+		query := "?x=1&x=2+3&v=%00%ff"
+		r, err := ParseRequest("https://api.example.com"+wire+query, "GET", "api.example.com", "", nil)
+		if err != nil {
+			t.Fatalf("constructed valid URI rejected: %v", err)
+		}
+		if r.URL().RequestURI() != wire+query || r.Path() != comparison {
+			t.Fatal("constructive wire/comparison drift")
+		}
+		again, err := ParseRequest(r.URL().String(), r.Method(), r.Destination().Authority(), "", nil)
+		if err != nil || r != again {
+			t.Fatal("admission round trip drift")
+		}
 	})
 }
 

@@ -105,9 +105,9 @@ func TestHTTPReceiptAdmissionConfirmationRaces(t *testing.T) {
 			defer lease.Release()
 			identity, err := audits.PrepareIdentity()
 			require.NoError(t, err)
-			input := authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/private-canary?token=query-canary", Method: "GET"}
+			input := authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/%70rivate-canary//%2f?token=query-canary&token=+%00", Method: "GET"}
 			if mode == "malformed" {
-				input.URL = "https://example.com/%2fsecret-canary"
+				input.URL = "https://example.com/%5csecret-canary"
 			}
 			facts := httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}}
 			resultCh := make(chan HTTPAdmissionResult, 1)

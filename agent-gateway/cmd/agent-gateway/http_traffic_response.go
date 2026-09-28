@@ -13,6 +13,9 @@ func validHTTPTrafficTarget(t *contract.HTTPTrafficTarget) bool {
 	return t != nil && validHTTPResponseHost(t.Host) && !strings.Contains(t.Host, "*") && t.Port > 0 && ((t.Scheme == "" && t.Method == "") || ((t.Scheme == "http" || t.Scheme == "https") && validHTTPResponseMethod(t.Method)))
 }
 func validHTTPTrafficSummary(s contract.HTTPTrafficSummary) bool {
+	if s.Rejection != nil && (s.Type != "invalid" || !s.Rejection.Valid()) {
+		return false
+	}
 	if !contract.ValidAuditID(s.ID) || !contract.ValidAuditID(s.PrincipalID) {
 		return false
 	}
@@ -43,6 +46,9 @@ func validHTTPSummaryOutcome(decision, outcome string) bool {
 
 func validHTTPTrafficItem(item contract.HTTPTrafficRecord) bool {
 	a := item.Admission
+	if a.Rejection != nil && (a.Class != "invalid_request" || !a.Rejection.Valid()) {
+		return false
+	}
 	raw, err := json.Marshal(a)
 	if err != nil || len(raw) > contract.HTTPTrafficAdmissionBytes {
 		return false

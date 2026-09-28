@@ -95,14 +95,17 @@ func TestIntegrationCredentialConflictOrMissingMaterialNeverDials(t *testing.T) 
 				clear(f.backend.items)
 				f.backend.mu.Unlock()
 			}
-			conn := f.intercept(t, upstream.URL, "http/1.1")
-			_, err = fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\n\r\n", u.Host)
-			require.NoError(t, err)
-			response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "GET"})
-			require.NoError(t, err)
-			require.Equal(t, 403, response.StatusCode)
-			require.NoError(t, response.Body.Close())
-			require.Zero(t, connections.Load())
+			for _, path := range []string{"/", "/https://example.com//%2f?opaque=%00"} {
+				conn := f.intercept(t, upstream.URL, "http/1.1")
+				_, err = fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", path, u.Host)
+				require.NoError(t, err)
+				response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "GET"})
+				require.NoError(t, err)
+				require.Equal(t, 403, response.StatusCode)
+				require.NoError(t, response.Body.Close())
+				require.NoError(t, conn.Close())
+				require.Zero(t, connections.Load())
+			}
 		})
 	}
 }

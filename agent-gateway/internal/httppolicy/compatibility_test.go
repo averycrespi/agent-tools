@@ -66,7 +66,7 @@ func TestHTTPScopedPrefixPolicy(t *testing.T) {
 }
 
 func TestHTTPCompatibilityLimits(t *testing.T) {
-	for _, path := range []string{"/%40scope/pkg", "/@scope%2fpkg", "/@scope%2Fpkg", "/%2540scope/pkg", "/@scope/%2e%2e/pkg", "/@scope//pkg", "/@scope/%00", "/@scope/%5cpkg", "/a:b", "/a;b", "/a+b", "/a%3fb", "/café"} {
+	for _, path := range []string{"/@scope/%2e%2e/pkg", "/@scope/%00", "/@scope/%5cpkg", "/bad%xx", "/raw space"} {
 		if _, err := ParseRequest("https://registry.npmjs.org"+path, "GET", "registry.npmjs.org", "", nil); err == nil {
 			t.Fatalf("accepted deliberately unsupported path %q", path)
 		}
