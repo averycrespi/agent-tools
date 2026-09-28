@@ -40,7 +40,7 @@ export function ToastHost({ coordinator }: { coordinator: ToastCoordinator }) {
   useEffect(() => coordinator.subscribe(setMessage), [coordinator]);
   if (message === undefined) return null;
   return (
-    <aside class="toast" role="status" aria-live="polite" data-testid="toast">
+    <div class="toast" role="status" aria-live="polite" data-testid="toast">
       <span>{message}</span>
       <button
         type="button"
@@ -49,6 +49,6 @@ export function ToastHost({ coordinator }: { coordinator: ToastCoordinator }) {
       >
         ×
       </button>
-    </aside>
+    </div>
   );
 }

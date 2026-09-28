@@ -854,6 +854,11 @@ function App() {
               resolved={resolved}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
+              notify={(message) =>
+                message === undefined
+                  ? toastCoordinator.clear()
+                  : toastCoordinator.show(message)
+              }
             />
           ) : destination === "http-credentials" ? (
             <HTTPCredentials

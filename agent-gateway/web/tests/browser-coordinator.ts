@@ -228,6 +228,7 @@ try {
     ...(input.scenario === "audit" ? { timezoneId: "America/New_York" } : {}),
   });
   const externalRequests: string[] = [];
+  let httpGrantExpectedFailures: number[] = [];
   const originFailures: string[] = [];
   const requestHeaderChecks: Array<Promise<void>> = [];
   let requests = 0;
@@ -690,7 +691,7 @@ try {
         () => requests,
       );
     } else if (input.scenario === "http-grants") {
-      await runHTTPGrants(
+      httpGrantExpectedFailures = await runHTTPGrants(
         context,
         page,
         baseURL,
@@ -767,14 +768,16 @@ try {
           ),
         )) ||
       (input.scenario === "http-grants" &&
-        consoleFailures.length === 2 &&
-        [409, 412].every(
+        consoleFailures.length === httpGrantExpectedFailures.length &&
+        [...new Set(httpGrantExpectedFailures)].every(
           (status) =>
             consoleFailures.filter((value) =>
               new RegExp(
                 `^Failed to load resource: the server responded with a status of ${status}(?: \\(.*\\))?$`,
               ).test(value),
-            ).length === 1,
+            ).length ===
+            httpGrantExpectedFailures.filter((value) => value === status)
+              .length,
         )) ||
       (input.scenario === "auth-flows" &&
         consoleFailures.length === 1 &&
