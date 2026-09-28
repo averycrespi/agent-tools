@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
@@ -187,6 +188,16 @@ func TestIntegrationInterceptBodylessResponses(t *testing.T) {
 					}
 					return false
 				}, 3*time.Second, 10*time.Millisecond)
+				observed := contract.HTTPTermination{Stage: "complete", Condition: "clean"}
+				outcome := "succeeded"
+				if tc.method == "HEAD" {
+					observed.Stage = "response_headers"
+				}
+				if tc.interrupted {
+					observed = contract.HTTPTermination{Stage: "upstream_read", Condition: "failure"}
+					outcome = "outcome_unknown"
+				}
+				assertTermination(t, f, observed, outcome)
 				require.EqualValues(t, 1, calls.Load())
 			})
 		}

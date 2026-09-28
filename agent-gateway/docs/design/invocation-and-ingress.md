@@ -78,6 +78,33 @@ of queued completion reserve 640 bytes, including the full 512-byte payload;
 existing immutable per-member MCP diagnostics and no-added-dwell batching remain.
 No background terminal retry or replay is introduced.
 
+New request completions optionally retain `termination`, a closed object of at
+most 128 bytes within the unchanged 512-byte completion bound. `stage` names the
+observed operation: `exchange` (before an upstream response is available),
+`upstream_read`, `downstream_write`, `downstream_flush`, `deadline` (setting or
+clearing a downstream write deadline), `response_headers` (HEAD), or `complete`
+(clean body EOF and completed writes/flushes). `condition` is `clean`, `cancelled`,
+`timeout`, or `failure`. Clean is valid only for `complete` or HEAD
+`response_headers` with the existing `succeeded` outcome. All other conditions
+retain `outcome_unknown`; `complete` cannot carry a failure. Exchange facts
+accompany a Gateway-selected response; subsequent transfer facts accompany the
+selected upstream status. Pre-dispatch preparation and opaque tunnels have no
+response-transfer termination object.
+
+On failure the operation error determines the condition: typed timeout/deadline
+first, typed cancellation second, otherwise failure. A separate optional `context`
+records the request-context snapshot (`cancelled` or `timeout`) when that error is
+observed. It neither overrides the operation condition nor attributes initiation
+or causal order; Gateway drain and peer closure can both cancel the context.
+Deadline stage identifies deadline handling, not necessarily deadline expiry.
+Clean records have no failure-context snapshot. EOF does not parse application
+content or prove application success, and a terminal-looking SSE event followed by
+cancellation is still incomplete. Error strings, content and cancellation origin
+are never retained. Historical completions omit termination without backfill;
+summary `completion_recorded` distinguishes their absence of details from missing
+completion. Persistence failure retains the existing best-effort unknown boundary
+without replay or a success claim.
+
 ## HTTP proxy engine
 
 `internal/httpproxy` consumes the sole composition-owned authenticator, authority,
@@ -157,7 +184,8 @@ connections, and retains actual owner accounting until cleanup settles. CA mater
 is closed only after HTTP owners and their completion attempts settle, before the
 shared traffic store closes. Timeout
 reports unconfirmed cleanup, not permission to close storage underneath live work.
-One completion attempt carries only safe status, byte counts and outcome; interrupted
+One completion attempt carries only safe status, byte counts, outcome and bounded
+observed termination facts; interrupted
 or uncertain dispatch remains unknown and is never replayed. Completion timestamps
 use canonical UTC with exactly nine fractional digits, including on lower-precision
 clocks; trimming trailing zeros violates the traffic store's evidence contract.

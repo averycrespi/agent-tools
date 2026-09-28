@@ -206,6 +206,23 @@ are never traffic evidence. CONNECT tunnels expose no inner requests. An allowed
 record without completion means unknown outcome, not proof of nonexecution or
 permission to retry. No grant-creation or replay action is available.
 
+**HTTP transfer** distinguishes missing terminal evidence, historical termination
+details unavailable, a recorded incomplete transfer, and an observed clean HTTP
+transfer. HEAD instead reports **Headers prepared (HEAD)**: final delivery belongs
+to the HTTP server and is not acknowledged by this evidence. Detail shows the
+observed operation stage and condition; optional request-context cancellation or
+timeout is a separate snapshot, not attribution to the client or upstream.
+An HTTP 200, terminal-looking event or clean transfer does not establish application
+success. Client closure can follow normal application completion, but these facts
+do not establish that it did. Unknown effects remain unsafe to automatically retry.
+
+JSON completion and summary projections carry the optional closed `termination`
+object; summaries additionally expose `completion_recorded`. Historical completions
+without termination details remain unchanged, including historical `succeeded`
+outcomes. Upgrade the bundled Gateway, CLI and UI together; older strict readers
+cannot read newly retained termination fields. No discarded error text or content
+can be recovered.
+
 The browser starts Live, pauses it when loading older records, and retains at most
 500 records before requiring narrower filters or a return to newest. Manual refresh
 replaces the loaded window. Shared retention can expire a cursor; the browser then

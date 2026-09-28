@@ -61,13 +61,17 @@ and immutable-admission/one-terminal triggers in the same database. MCP tables,
 rows, diagnostics and public representations are unchanged. Both domains share
 traffic metadata, monotonic sequence allocation, retention and physical budget.
 The MCP sequence high-water includes HTTP insertions without inventing MCP rows.
-Optional closed HTTP rejection, CONNECT context and response-provenance fields
+Optional closed HTTP rejection, CONNECT context, response-provenance and
+response-transfer termination fields
 extend the existing bounded JSON payloads without DDL or historical rewrites.
 Absent fields retain their original canonical encoding and accounting. Readers,
 backup verification and restore validate the new vocabulary together; older
 binaries cannot read newly recorded fields, so rollback against that history is
 unsupported. Missing historical diagnostics, correlation and response source
-remain absent.
+remain absent. HTTP termination remains within the existing 512-byte completion
+bound and fixed charge; nested stage/condition/context vocabulary is validated by
+the same canonical encoder on writes, startup, reads, backup and restore. Missing
+historical termination is never synthesized from status or outcome.
 
 Before readiness, under existing installation ownership and before constructing
 readers or starting the writer, a schema-1 selected generation receives exactly

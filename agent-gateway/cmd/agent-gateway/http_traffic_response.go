@@ -13,6 +13,12 @@ func validHTTPTrafficTarget(t *contract.HTTPTrafficTarget) bool {
 	return t != nil && validHTTPResponseHost(t.Host) && !strings.Contains(t.Host, "*") && t.Port > 0 && ((t.Scheme == "" && t.Method == "") || ((t.Scheme == "http" || t.Scheme == "https") && validHTTPResponseMethod(t.Method)))
 }
 func validHTTPTrafficSummary(s contract.HTTPTrafficSummary) bool {
+	if s.CompletionRecorded && s.Decision != "allow" {
+		return false
+	}
+	if s.Termination != nil && (!s.CompletionRecorded || s.Type != "request" || s.Target == nil || !s.Termination.Valid(s.Outcome, s.Target.Method, s.ResponseSource)) {
+		return false
+	}
 	if s.Rejection != nil && (s.Type != "invalid" || !s.Rejection.Valid()) {
 		return false
 	}
@@ -105,6 +111,25 @@ func validHTTPTrafficItem(item contract.HTTPTrafficRecord) bool {
 	c := item.Completion
 	if c == nil {
 		return true
+	}
+	if c.Termination != nil && (d.Transport != contract.HTTPTransportRequest || !c.Termination.Valid(c.Outcome, a.Target.Method, c.ResponseSource)) {
+		return false
+	}
+	if c.ResponseSource != "" && c.ResponseSource != "gateway" && c.ResponseSource != "upstream" {
+		return false
+	}
+	if c.GatewayStatus != 0 && (c.ResponseSource != "gateway" || c.GatewayStatus < 400 || c.GatewayStatus > 599) {
+		return false
+	}
+	if c.ResponseSource == "gateway" && (c.GatewayStatus == 0 || c.Status != 0) {
+		return false
+	}
+	if c.ResponseSource == "upstream" && c.Status == 0 {
+		return false
+	}
+	raw, err = json.Marshal(c)
+	if err != nil || len(raw) > contract.HTTPTrafficCompletionBytes {
+		return false
 	}
 	completed, ok := httpResponseTime(c.CompletedAt)
 	if !d.Allowed || !ok || completed.Before(evaluated) || c.BytesSent < 0 || c.BytesReceived < 0 || c.DurationMS < 0 || !slices.Contains([]string{"succeeded", "prestart_failure", "upstream_failure", "outcome_unknown"}, c.Outcome) {

@@ -317,6 +317,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	completion.Outcome = "outcome_unknown"
 	response, err := address.ProxyExchange(r.Context(), target, header, outgoingBody, r.ContentLength, result.Evidence.Decision.PrivateGrant != nil, e.roots)
 	if err != nil {
+		completion.Termination = termination(r.Context(), "exchange", err)
 		rejectResponse(http.StatusBadGateway)
 		return
 	}
@@ -332,23 +333,29 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		// H2 HEAD headers end the stream; explicitly flushing can report its
 		// normal closure as an error. Leave bounded finalization to the server.
 		if err := controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
+			completion.Termination = termination(r.Context(), "deadline", err)
 			panic(http.ErrAbortHandler)
 		}
-		if r.Context().Err() != nil {
+		if err := r.Context().Err(); err != nil {
+			completion.Termination = termination(r.Context(), "response_headers", err)
 			panic(http.ErrAbortHandler)
 		}
+		completion.Termination = &contract.HTTPTermination{Stage: "response_headers", Condition: "clean"}
 		completion.Outcome = "succeeded"
 		return
 	}
 	writer := &streamWriter{writer: w, controller: controller}
 	if err := writer.Flush(); err != nil {
+		completion.Termination = termination(r.Context(), "downstream_flush", err)
 		panic(http.ErrAbortHandler)
 	}
 	n, err := io.CopyBuffer(writer, response.Body, make([]byte, contract.HTTPProxyBufferBytes))
 	completion.BytesReceived = n
 	if err != nil {
+		completion.Termination = termination(r.Context(), "upstream_read", err)
 		panic(http.ErrAbortHandler)
 	}
+	completion.Termination = &contract.HTTPTermination{Stage: "complete", Condition: "clean"}
 	completion.Status = response.StatusCode
 	completion.Outcome = "succeeded"
 }
@@ -472,26 +479,32 @@ type streamWriter struct {
 
 func (w *streamWriter) Flush() error {
 	if err := w.controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
-		return err
+		return transferFailure("deadline", err)
 	}
 	if err := w.controller.Flush(); err != nil {
-		return err
+		return transferFailure("downstream_flush", err)
 	}
-	return w.controller.SetWriteDeadline(time.Time{})
+	return transferFailure("deadline", w.controller.SetWriteDeadline(time.Time{}))
 }
 
 func (w *streamWriter) Write(p []byte) (int, error) {
 	if err := w.controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
-		return 0, err
+		return 0, transferFailure("deadline", err)
 	}
 	n, err := w.writer.Write(p)
-	if err == nil {
-		err = w.controller.Flush()
+	if err != nil {
+		return n, transferFailure("downstream_write", err)
 	}
-	if err == nil {
-		err = w.controller.SetWriteDeadline(time.Time{})
+	if err = w.controller.Flush(); err != nil {
+		return n, transferFailure("downstream_flush", err)
 	}
-	return n, err
+	if err = w.controller.SetWriteDeadline(time.Time{}); err != nil {
+		return n, transferFailure("deadline", err)
+	}
+	if n != len(p) {
+		return n, transferFailure("downstream_write", io.ErrShortWrite)
+	}
+	return n, nil
 }
 
 // Check the canonical SNI against CONNECT, without creating another parser.
