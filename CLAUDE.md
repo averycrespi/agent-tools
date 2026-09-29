@@ -5,7 +5,7 @@ Monorepo of tools for working with AI coding agents.
 ## Structure
 
 ```
-agent-gateway/         Locally secure MCP gateway — see agent-gateway/CLAUDE.md
+agent-gateway/      Local MCP gateway and HTTP/HTTPS proxy — see agent-gateway/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
 typesafe-mcp/        Stateless TypeSafe inference over stdio MCP — see typesafe-mcp/CLAUDE.md
 ```

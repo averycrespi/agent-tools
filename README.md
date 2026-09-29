@@ -2,39 +2,30 @@
 
 [![CI](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/averycrespi/agent-tools/actions/workflows/ci.yml)
 
-My tools for working with AI coding agents: controlled external access that keeps upstream credentials on the host. Use individual tools or combine them to fit your workflow.
+Tools that give AI coding agents controlled access to external services while keeping service credentials on the host.
 
 ## Tools at a Glance
 
-| Tool                            | Purpose                                               | Runs on         |
-| ------------------------------- | ----------------------------------------------------- | --------------- |
-| [Agent Gateway](#agent-gateway) | Give agents scoped access to MCP tools                | Host            |
-| [Local Git MCP](#local-git-mcp) | Perform authenticated Git remote operations over MCP  | Host subprocess |
-| [TypeSafe MCP](#typesafe-mcp)   | Evaluate agent-defined questions with TypeSafe models | Host subprocess |
+| Tool                            | Purpose                                                        |
+| ------------------------------- | -------------------------------------------------------------- |
+| [Agent Gateway](#agent-gateway) | Give agents scoped access to MCP tools and HTTP/HTTPS services |
+| [Local Git MCP](#local-git-mcp) | Perform authenticated Git remote operations over MCP           |
+| [TypeSafe MCP](#typesafe-mcp)   | Evaluate agent-defined questions with TypeSafe models          |
 
 ## Choosing and Combining Tools
 
-These tools are independent, not a mandatory stack:
-
-- **Execution:** Bring your own client environment. These access tools do not manage VMs or guest provisioning and do not require Lima or a particular agent harness.
-- **MCP access:** Use Agent Gateway to connect agents to backend MCP servers with scoped permissions.
-- **Git access:** Run Local Git MCP as a stdio backend behind Gateway, using its access controls and invocation history.
-- **Model evaluation:** Run TypeSafe MCP behind Gateway for agent-defined Choice, Score, and Noul questions, with explicit paid-inference authorization.
-- **Non-MCP traffic:** Use Gateway's [HTTP proxy](agent-gateway/docs/operators/http-proxy.md) for ordinary HTTP/HTTPS clients.
+Use your preferred agent harness and client environment. Agent Gateway controls access to MCP tools and HTTP/HTTPS services; Local Git MCP and TypeSafe MCP are optional backends you can run behind it or another compatible MCP client.
 
 ## Tool Summaries
 
-<a id="mcp-gateway"></a>
-
 ### Agent Gateway
 
-`agent-gateway` provides a local MCP endpoint when you want separate agent identities and scoped permissions that agents can request through MCP.
+`agent-gateway` provides a local MCP endpoint and HTTP/HTTPS forward proxy with separate agent identities and scoped access controls.
 
-- Denies access unless granted, with scopes for servers, tools, or matching arguments and optional expiry.
+- Denies access unless granted for MCP tools, with scoped permissions that agents can request through self-service tools.
+- Controls HTTP/HTTPS traffic with separate per-agent defaults and grants, supporting HTTPS interception, credential injection, and opaque tunnels.
 - Manages upstream credentials and OAuth; agents receive a separate Gateway credential, not upstream service secrets.
-- Provides a web application and CLI for administration, with redacted invocation history and control-plane audit records.
-
-Only the canonical executable is published. Existing installations retain explicit-root operation and the [post-migration installation safety guidance](agent-gateway/docs/operators/installation-safety.md); publication never removes stale installed artifacts. The source directory and Go module are `agent-gateway`; durable and MCP identities remain unchanged.
+- Provides a web application and CLI for administration, with redacted MCP invocation and HTTP traffic history plus control-plane audit records.
 
 See the [Agent Gateway README](agent-gateway/README.md) for setup and usage.
 
@@ -50,13 +41,13 @@ See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
 
 ### TypeSafe MCP
 
-`typesafe-mcp` is a stateless stdio backend for TypeSafe inference.
+`typesafe-mcp` lets agents evaluate questions with TypeSafe models through MCP.
 
-- Exposes exactly `evaluate` and `list_models`, with strict input and response contracts.
-- Sends mixed agent-defined questions in one bounded, authenticated HTTPS request, without retries or action policy.
-- Reads only `TYPESAFE_API_KEY`, compatible with Gateway's secret environment slots.
+- Supports choosing between options, assigning scores, and estimating probabilities for yes/no questions.
+- Returns structured results for agents to use in their workflows.
+- Runs as a stateless stdio backend behind Gateway or another compatible MCP client.
 
-Inference discloses submitted data to TypeSafe and consumes quota. See the [TypeSafe MCP README](typesafe-mcp/README.md) for limits, privacy considerations, and secret-free Gateway configuration.
+See the [TypeSafe MCP README](typesafe-mcp/README.md) for setup and usage.
 
 ## Installation
 
@@ -93,7 +84,7 @@ make check  # check CI selection, formatting, lint, and ordinary tool correctnes
 
 `make setup` combines development dependencies and installation of all tools.
 
-GitHub Actions checks affected tools on pull requests and all tools on `main`, manual runs, and a weekly schedule. See the [contributor guidance](CLAUDE.md#development) for test ownership and focused checks, and [CI guidance](CLAUDE.md#ci) for selection, caching, and required checks.
+See the [contributor guidance](CLAUDE.md#development) for focused checks and CI requirements.
 
 ## Deprecated Tools
 
