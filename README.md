@@ -8,9 +8,7 @@ My tools for working with AI coding agents: controlled external access that keep
 
 | Tool                            | Purpose                                               | Runs on         |
 | ------------------------------- | ----------------------------------------------------- | --------------- |
-| [MCP Broker](#mcp-broker)       | Apply rules and per-call human approval to MCP tools  | Host            |
 | [Agent Gateway](#agent-gateway) | Give agents scoped access to MCP tools                | Host            |
-| [HTTP Broker](#http-broker)     | Inject credentials into proxied HTTP/HTTPS requests   | Host            |
 | [Local Git MCP](#local-git-mcp) | Perform authenticated Git remote operations over MCP  | Host subprocess |
 | [TypeSafe MCP](#typesafe-mcp)   | Evaluate agent-defined questions with TypeSafe models | Host subprocess |
 
@@ -19,34 +17,12 @@ My tools for working with AI coding agents: controlled external access that keep
 These tools are independent, not a mandatory stack:
 
 - **Execution:** Bring your own client environment. These access tools do not manage VMs or guest provisioning and do not require Lima or a particular agent harness.
-- **MCP access:** Choose MCP Broker or Agent Gateway based on the permission model below. Both connect agents to backend MCP servers.
-- **Git access:** Run Local Git MCP as a stdio backend behind either Broker or Gateway, using that service's access controls and invocation history.
+- **MCP access:** Use Agent Gateway to connect agents to backend MCP servers with scoped permissions.
+- **Git access:** Run Local Git MCP as a stdio backend behind Gateway, using its access controls and invocation history.
 - **Model evaluation:** Run TypeSafe MCP behind Gateway for agent-defined Choice, Score, and Noul questions, with explicit paid-inference authorization.
-- **Non-MCP traffic:** HTTP Broker handles ordinary HTTP/HTTPS clients. It complements MCP access rather than routing through it.
-
-### MCP Broker or Agent Gateway?
-
-Both keep upstream credentials outside the sandbox, but approval means different things:
-
-|                | MCP Broker                                                   | Agent Gateway                                                          |
-| -------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Access model   | Rules allow, deny, or require human approval for a tool call | Per-agent grants scope access to servers, tools, or matching arguments |
-| Human approval | Resolves an individual waiting call                          | Grants permissions; does not approve a queued tool call                |
-| Agent workflow | Call tools under operator-defined rules                      | Discover tools, inspect access, and request additional permissions     |
-
-They have separate configuration and state; Gateway does not migrate Broker settings.
+- **Non-MCP traffic:** Use Gateway's [HTTP proxy](agent-gateway/docs/operators/http-proxy.md) for ordinary HTTP/HTTPS clients.
 
 ## Tool Summaries
-
-### MCP Broker
-
-`mcp-broker` proxies MCP servers through a single host-side endpoint when you want rule-based access with optional per-call human approval.
-
-- Applies allow, deny, or require-approval rules to tool calls.
-- Collects human decisions through a web dashboard, with optional Telegram approval.
-- Records tool calls in a searchable SQLite audit log and displays discovered tools and rules.
-
-See the [MCP Broker README](mcp-broker/README.md) for setup and usage.
 
 <a id="mcp-gateway"></a>
 
@@ -62,25 +38,13 @@ Only the canonical executable is published. Existing installations retain explic
 
 See the [Agent Gateway README](agent-gateway/README.md) for setup and usage.
 
-### HTTP Broker
-
-`http-broker` is a host-side HTTP/HTTPS forward proxy for clients such as `curl` and SDKs that need authenticated access outside MCP.
-
-- Applies rules to intercept, tunnel, or deny traffic, injecting host-held credentials into intercepted requests.
-- Binds each credential to allowed destination hosts, independently of request rules.
-- Records proxy traffic in an audit log with a read-only web dashboard.
-
-Enforcement is **cooperative**: clients must honour `HTTP_PROXY`/`HTTPS_PROXY`. Clients can bypass the proxy, so it is not a containment boundary. See the [security model](http-broker/docs/security-model.md) for details.
-
-See the [HTTP Broker README](http-broker/README.md) for setup and usage.
-
 ### Local Git MCP
 
 `local-git-mcp` exposes authenticated Git remote operations to agents through a host-side stdio MCP server.
 
 - Supports pushing, pulling, fetching, cloning GitHub repositories, and inspecting remotes and remote refs.
 - Uses the host's existing Git, SSH keys, and credential helpers without copying those credentials into the sandbox.
-- Runs as a subprocess behind MCP Broker or Agent Gateway, with no separate config, persistent state, or network listener.
+- Runs as a subprocess behind Agent Gateway, with no separate config, persistent state, or network listener.
 
 See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
 
@@ -104,9 +68,7 @@ Requirements:
 From the repository root, run the install command for the tools you need:
 
 ```bash
-make -C mcp-broker install
 make -C agent-gateway install
-make -C http-broker install
 make -C local-git-mcp install
 make -C typesafe-mcp install
 ```
@@ -142,6 +104,8 @@ These tools are no longer maintained, but their final versions remain available 
 
 | Tool                  | Last commit                                                                                                                  | Reason                                                                               |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `mcp-broker`          | [`ef0edecd86`](https://github.com/averycrespi/agent-tools/tree/ef0edecd86e5ab9d81db76dd95afd7df968c3810/mcp-broker)          | Superseded by Agent Gateway.                                                         |
+| `http-broker`         | [`ef0edecd86`](https://github.com/averycrespi/agent-tools/tree/ef0edecd86e5ab9d81db76dd95afd7df968c3810/http-broker)         | Superseded by Agent Gateway.                                                         |
 | `sandbox-manager`     | [`e9f0dfd3a0`](https://github.com/averycrespi/agent-tools/tree/e9f0dfd3a06461aa068e429349539e929b960357/sandbox-manager)     | Retired with repository-owned guest provisioning; bring your own client environment. |
 | `local-gomod-proxy`   | [`586ed5d1aa`](https://github.com/averycrespi/agent-tools/tree/586ed5d1aa925778bf7a98e69a9308d1d4eaad94/local-gomod-proxy)   | No longer needed.                                                                    |
 | `worktree-manager`    | [`20b0fb924c`](https://github.com/averycrespi/agent-tools/tree/20b0fb924c97b2058e181ce08f721214bbf80e5c/worktree-manager)    | Deprecated in favor of Herdr for workspace and worktree management.                  |

@@ -136,7 +136,3 @@ npm run ui:build
 `make suite-inventory` reports test ownership and build-context applicability. Browser, E2E, security, stress, and native evidence remain explicit leaves rather than hidden work in the fast unit path. `make test-browser` batches its four required Chromium leaves through one planner while retaining separate test processes and Gateway builds. Add `AGENT_GATEWAY_TEST_JSON=1` to Go suite targets for structured execution events without changing selection or instrumentation.
 
 Use the [frontend development guide](docs/maintainers/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/maintainers/release-verification.md) for release evidence and failure discipline.
-
-## Coexistence with MCP Broker
-
-Agent Gateway and MCP Broker are independent tools. Use distinct listen authorities and data directories. Installing or starting Gateway does not alter Broker configuration, role tokens, sessions, audit records, or behavior.

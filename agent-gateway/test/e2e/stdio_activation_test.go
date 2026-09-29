@@ -99,15 +99,16 @@ func TestGatewayBinaryActivatesAndPublishesStdioCatalog(t *testing.T) {
 }
 
 func TestGatewayBinaryWithdrawsStdioCatalogOnProcessAndOutputFailure(t *testing.T) {
-	// Retried fixture faults reap themselves during negotiation, so verified cleanup permits connectivity retry instead of a terminal cleanup failure.
+	// Inject faults only after publication and observe their original classification,
+	// rather than waiting for a later failed retry to overwrite it with connectivity.
 	for _, test := range []struct {
 		name   string
 		mode   string
 		reason contract.PublicReason
 		kill   bool
 	}{
-		{name: "process exit", mode: "process-failure", reason: contract.ReasonConnectivity, kill: true},
-		{name: "bounded output", mode: "output-failure", reason: contract.ReasonConnectivity},
+		{name: "process exit", mode: "process-failure", reason: contract.ReasonProcessExited, kill: true},
+		{name: "bounded output", mode: "output-failure", reason: contract.ReasonOutputLimit},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			harness := newGatewayHarness(t)
@@ -117,18 +118,18 @@ func TestGatewayBinaryWithdrawsStdioCatalogOnProcessAndOutputFailure(t *testing.
 			require.NoError(t, err)
 			eventsPath := filepath.Join(t.TempDir(), "stdio-events.jsonl")
 			creation := createStdioServer(t, harness, fixtureExecutable, test.mode, filepath.Join(t.TempDir(), "marker"), eventsPath)
-			if test.kill {
-				harness.WaitOperation(creation.Server.ID, creation.Operation.ID, contract.OperationSucceeded)
-				waitForStdioServer(t, harness, creation.Server.ID, func(server stdioServerView) bool {
-					return server.Runtime.State == contract.RuntimeActive && server.Catalog.ActiveToolCount == 2
-				})
-			}
+			harness.WaitOperation(creation.Server.ID, creation.Operation.ID, contract.OperationSucceeded)
+			waitForStdioServer(t, harness, creation.Server.ID, func(server stdioServerView) bool {
+				return server.Runtime.State == contract.RuntimeActive && server.Catalog.ActiveState == contract.ActiveCatalogCurrent && server.Catalog.ActiveToolCount == 2
+			})
 			starts := waitForFixtureEvents(t, eventsPath, func(events []stdioFixtureEvent) bool {
 				return countFixtureEvents(events, "start", "") == 1
 			})
 			pid := fixtureEvents(starts, "start", "")[0].PID
 			if test.kill {
 				require.NoError(t, syscall.Kill(pid, syscall.SIGKILL))
+			} else {
+				require.NoError(t, syscall.Kill(pid, syscall.SIGUSR1))
 			}
 			server := waitForStdioServer(t, harness, creation.Server.ID, func(server stdioServerView) bool {
 				return server.Runtime.State == contract.RuntimeRetryWait && server.Runtime.Reason != nil && *server.Runtime.Reason == test.reason && server.Catalog.ActiveRevision == nil && server.Catalog.ActiveToolCount == 0

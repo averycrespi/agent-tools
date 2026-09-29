@@ -47,7 +47,7 @@ Tools that accept `remote` require a configured remote name such as `origin`; ra
 
 This is an intentional breaking API change. All six tools reject unknown top-level arguments, missing required fields, and wrongly typed fields before invoking their handlers.
 
-`remote_url` is visible to mcp-broker policy and audit processing. Never submit an HTTP(S) URL containing URI userinfo, including username-only or username/password forms; use SSH or an external credential helper instead. local-git-mcp rejects credential-bearing supplied and resolved HTTP(S) URLs without echoing them in tool errors.
+`remote_url` is visible to Agent Gateway policy and audit processing. Never submit an HTTP(S) URL containing URI userinfo, including username-only or username/password forms; use SSH or an external credential helper instead. local-git-mcp rejects credential-bearing supplied and resolved HTTP(S) URLs without echoing them in tool errors.
 
 Destination verification supports cooperative policy mediation: it catches mistakes and links broker-visible arguments to Git's ordinary effective configuration. It does not pin the transport or contain hostile Git configuration, URL rewrites, remote helpers, redirects, or configuration changes after verification.
 
@@ -57,15 +57,8 @@ Destination verification supports cooperative policy mediation: it catches mista
 # Build
 make build
 
-# Use as a stdio MCP backend (e.g., in mcp-broker config)
-{
-  "servers": {
-    "local-git": {
-      "command": "local-git-mcp",
-      "args": ["/shared/worktrees", "/other/repo/root"]
-    }
-  }
-}
+# Run the stdio backend with explicit repository roots
+./local-git-mcp /shared/worktrees /other/repo/root
 
 # Explicitly allow all host paths, preserving the old unrestricted behavior
 local-git-mcp --allow-all-paths
@@ -73,6 +66,8 @@ local-git-mcp --allow-all-paths
 # Override the per-git-command timeout (default: 5m; 0 disables it)
 local-git-mcp --git-timeout 20m /shared/worktrees
 ```
+
+To use it behind Agent Gateway, register the absolute executable path and repository-root arguments using Gateway's [server administration guide](../agent-gateway/docs/operators/administration.md).
 
 `--allow-all-paths` disables repository path isolation. Use it only when the caller is trusted to operate on any absolute git repository path visible to the host; the server logs a startup warning when this flag is enabled.
 

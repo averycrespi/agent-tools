@@ -5,10 +5,8 @@ Monorepo of tools for working with AI coding agents.
 ## Structure
 
 ```
-mcp-broker/          MCP proxy for sandboxed agents — see mcp-broker/CLAUDE.md
 agent-gateway/         Locally secure MCP gateway — see agent-gateway/CLAUDE.md
 local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
-http-broker/         MITM HTTP/HTTPS forward proxy that injects credentials for sandboxed agents — see http-broker/CLAUDE.md
 typesafe-mcp/        Stateless TypeSafe inference over stdio MCP — see typesafe-mcp/CLAUDE.md
 ```
 

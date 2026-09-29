@@ -16,14 +16,14 @@ func TestDocumentationContractDrift(t *testing.T) {
 
 	documents := map[string][]string{
 		"../../../README.md": {
-			"Denies access unless granted", "Grants permissions; does not approve a queued tool call", "agent-gateway/README.md",
+			"Denies access unless granted", "agent-gateway/README.md", "Superseded by Agent Gateway.",
 		},
 		"../../../CLAUDE.md": {
 			"agent-gateway/docs/maintainers/release-verification.md", "Gateway release acceptance is a separate owner", "make frontend-verify-supply-chain", "make frontend-audit",
 		},
 		"../../README.md": {
 			"## Why Gateway?", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
-			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Native keyring operations may prompt", "## Coexistence with MCP Broker",
+			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Native keyring operations may prompt",
 		},
 		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",

@@ -1,9 +1,7 @@
 go 1.26.6
 
 use (
-	./http-broker
-	./local-git-mcp
-	./mcp-broker
 	./agent-gateway
+	./local-git-mcp
 	./typesafe-mcp
 )
