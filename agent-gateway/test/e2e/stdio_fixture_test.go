@@ -81,14 +81,10 @@ func TestE2EStdioFixtureProcess(t *testing.T) {
 		appendFixtureEvent(eventsPath, stdioFixtureEvent{Kind: "released", PID: pid})
 	}
 	if repeatFault {
-		if mode == "process-failure" {
+		if mode == "process-failure" || mode == "output-failure" {
 			os.Exit(42)
 		}
-		if mode == "protocol-failure" {
-			_, _ = fmt.Fprintln(os.Stdout, `{`)
-		} else {
-			_, _ = fmt.Fprintln(os.Stdout, strings.Repeat("x", 10*1024*1024))
-		}
+		_, _ = fmt.Fprintln(os.Stdout, `{`)
 		select {}
 	}
 
@@ -103,11 +99,18 @@ func TestE2EStdioFixtureProcess(t *testing.T) {
 	}()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, os.Interrupt)
+	if mode == "output-failure" {
+		signal.Notify(signals, syscall.SIGUSR1)
+	}
 	defer signal.Stop(signals)
 	for {
 		select {
 		case received := <-signals:
 			appendFixtureEvent(eventsPath, stdioFixtureEvent{Kind: "signal", PID: pid, Mode: received.String()})
+			if received == syscall.SIGUSR1 && mode == "output-failure" {
+				_, _ = fmt.Fprintln(os.Stdout, strings.Repeat("x", 10*1024*1024))
+				continue
+			}
 			if mode != "blocked-stop" {
 				return
 			}
@@ -153,8 +156,6 @@ func handleFixtureFrame(mode string, fallbackProbe bool, eventsPath string, pid 
 		}
 		_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"beta","description":"second fixture page","inputSchema":{"type":"object"}}],"nextCursor":null}}`+"\n", request.ID)
 		switch mode {
-		case "output-failure":
-			_, _ = fmt.Fprintln(os.Stdout, strings.Repeat("x", 10*1024*1024))
 		case "protocol-failure":
 			_, _ = fmt.Fprintln(os.Stdout, `{`)
 		}
