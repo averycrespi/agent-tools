@@ -16,7 +16,8 @@ from ci import inventory
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = inventory(ROOT)["tools"]
+# Keep queued work in the failure fixture even with only two non-Gateway tools.
+TOOLS = [*inventory(ROOT)["tools"], "fixture-tool"]
 OTHERS = [tool for tool in TOOLS if tool != "agent-gateway"]
 WORKER = '''import json, os, socket, sys, time
 from pathlib import Path
@@ -40,7 +41,9 @@ class RootMakeTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="root-make-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        (self.root / "Makefile").write_bytes((ROOT / "Makefile").read_bytes())
+        makefile = (ROOT / "Makefile").read_text()
+        makefile = makefile.replace("OTHER_TOOLS :=", "TOOLS += fixture-tool\nOTHER_TOOLS :=", 1)
+        (self.root / "Makefile").write_text(makefile)
         (self.root / "events").mkdir()
         (self.root / "worker.py").write_text(WORKER)
         for tool in TOOLS:
@@ -89,7 +92,8 @@ class RootMakeTests(unittest.TestCase):
                         failing.close()
                         output = b""
                         deadline = time.monotonic() + 10
-                        while not re.search(rb"\[[^\n]*__test-mcp-broker[^\n]*\][^\n]*Error", output):
+                        failure_pattern = rb"\[[^\n]*__test-" + re.escape(OTHERS[0].encode()) + rb"[^\n]*\][^\n]*Error"
+                        while not re.search(failure_pattern, output):
                             ready, _, _ = select.select([process.stdout], [], [], max(0, deadline-time.monotonic()))
                             self.assertTrue(ready, output.decode(errors="replace"))
                             chunk = os.read(process.stdout.fileno(), 8192)

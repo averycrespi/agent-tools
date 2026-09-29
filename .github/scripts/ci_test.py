@@ -11,10 +11,7 @@ from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, 
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = [
-    "mcp-broker", "agent-gateway", "local-git-mcp",
-    "http-broker", "typesafe-mcp",
-]
+TOOLS = ["agent-gateway", "local-git-mcp", "typesafe-mcp"]
 
 
 class SelectionTests(unittest.TestCase):
@@ -44,7 +41,8 @@ class SelectionTests(unittest.TestCase):
         for path in ("go.work", "go.work.sum", "Makefile", "package.json", "package-lock.json",
                      ".github/workflows/ci.yml", ".github/scripts/ci.py", ".github/actions/go-cache/action.yml", ".prettierignore",
                      "README.md", "assets/example.svg", "new-tool/main.go",
-                     "agent-gateway-lookalike/main.go", "sandbox-manager/deleted.go"):
+                     "agent-gateway-lookalike/main.go", "sandbox-manager/deleted.go",
+                     "mcp-broker/deleted.go", "http-broker/deleted.go"):
             with self.subTest(path=path):
                 self.assertEqual(self.select([path])["tools"], TOOLS)
 
@@ -61,11 +59,11 @@ class SelectionTests(unittest.TestCase):
 
     def test_tool_build_metadata_also_invalidates_gateway_contracts(self):
         for suffix in ("Makefile", "go.mod", "go.sum", ".golangci.yml"):
-            self.assertEqual(self.select([f"http-broker/{suffix}"])["tools"], ["agent-gateway", "http-broker", "typesafe-mcp"])
+            self.assertEqual(self.select([f"local-git-mcp/{suffix}"])["tools"], TOOLS)
 
     def test_multiple_tools_are_unique_and_stably_ordered(self):
-        self.assertEqual(self.select(["http-broker/a.go", "mcp-broker/b.go", "http-broker/c.go"])["tools"],
-                         ["mcp-broker", "http-broker"])
+        self.assertEqual(self.select(["typesafe-mcp/a.go", "local-git-mcp/b.go", "typesafe-mcp/c.go"])["tools"],
+                         ["local-git-mcp", "typesafe-mcp"])
 
     def test_empty_pr_can_skip_but_other_events_are_full(self):
         self.assertEqual(self.select([])["tools"], [])
@@ -170,7 +168,7 @@ class GateTests(unittest.TestCase):
         return needs
 
     def test_success_and_only_intentional_skips_pass(self):
-        for paths in ([], ["http-broker/main.go"], ["README.md"]):
+        for paths in ([], ["local-git-mcp/main.go"], ["README.md"]):
             check_gate(self.needs(paths))
 
     def test_failures_cancellation_and_unexpected_skips_block(self):
@@ -222,7 +220,7 @@ class CacheTests(unittest.TestCase):
     def test_roles_tools_toolchains_and_platforms_are_isolated(self):
         first = self.identity()["prefix"]
         for override in ({"role": "lint"}, {"role": "integration"}, {"role": "harness"}, {"role": "e2e"},
-                         {"tool": "mcp-broker"}, {"toolchain": "go version go1.26 linux/arm64"},
+                         {"tool": "local-git-mcp"}, {"toolchain": "go version go1.26 linux/arm64"},
                          {"platform": "Linux/X64"}, {"platform": "macOS/ARM64"}):
             self.assertNotEqual(first, self.identity(**override)["prefix"])
         for override in ({"role": "unknown"}, {"tool": "unknown"}, {"run": ""}, {"attempt": "one"}):
@@ -240,7 +238,7 @@ class CacheTests(unittest.TestCase):
             root = Path(directory)
             (root / "Makefile").write_text((ROOT / "Makefile").read_text())
             paths = [root / "go.work", root / "agent-gateway/go.mod", root / "agent-gateway/go.sum",
-                     root / "mcp-broker/go.mod", root / "mcp-broker/go.sum", root / "agent-gateway/.golangci.yml"]
+                     root / "local-git-mcp/go.mod", root / "local-git-mcp/go.sum", root / "agent-gateway/.golangci.yml"]
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("original\n")

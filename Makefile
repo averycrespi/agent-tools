@@ -1,7 +1,7 @@
-TOOLS := mcp-broker agent-gateway local-git-mcp http-broker typesafe-mcp
+TOOLS := agent-gateway local-git-mcp typesafe-mcp
 OTHER_TOOLS := $(filter-out agent-gateway,$(TOOLS))
-INTEGRATION_TOOLS := mcp-broker agent-gateway local-git-mcp typesafe-mcp
-E2E_TOOLS := mcp-broker agent-gateway http-broker
+INTEGRATION_TOOLS := agent-gateway local-git-mcp typesafe-mcp
+E2E_TOOLS := agent-gateway
 LOCAL_TEST_JOBS ?= 2
 
 ifneq ($(LOCAL_TEST_JOBS),1)
