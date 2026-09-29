@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
+import { captureDetailLayout } from "./detail-layout.ts";
 import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
@@ -366,6 +367,7 @@ export async function runAudit(
     related.getByText("Related events unavailable", { exact: true }),
   ).toHaveCount(0);
   await expect(related.getByRole("row")).toHaveCount(3);
+  await captureDetailLayout(page, "audit-event-related-populated");
   await capture("desktop-detail", 1440);
   await capture("narrow-detail", 390);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -714,6 +716,7 @@ export async function runAudit(
   await expect(
     page.getByText("Retention details", { exact: true }),
   ).toBeFocused();
+  await captureDetailLayout(page, "audit-retention-expanded");
   await capture("retention-expanded", 320, false);
   await assertSecretAbsent(page, context, baseURL, [bearer], true, "system");
   mode = "delayed";

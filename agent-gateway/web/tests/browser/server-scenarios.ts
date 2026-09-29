@@ -1,6 +1,7 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
+import { captureDetailLayout } from "./detail-layout.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -250,6 +251,7 @@ export async function runServerManagementCanary(
     diagnosticScreenshots.push(path);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
+  await captureDetailLayout(page, "server-status-healthy");
   await serverStatus.getByRole("button", { name: "Copy server ID" }).click();
   await page.waitForFunction(() => {
     const status = document.querySelector(
@@ -833,6 +835,7 @@ export async function runServerCreateUpdate(
     !oauthReview.includes("fixture.read fixture.write")
   )
     fail("OAuth compatibility values were omitted or not normalized in review");
+  await captureDetailLayout(page, "mcp-server-create-oauth-review");
   const reviewedConnection = await normalizedReview
     .getByText("Connection", { exact: true })
     .locator("xpath=following-sibling::dd")
@@ -957,6 +960,7 @@ export async function runServerCreateUpdate(
     !reviewText.includes("TOKEN → primary")
   )
     fail("server creation confirmation did not review consequential choices");
+  await captureDetailLayout(page, "mcp-server-create-stdio-review");
   await page.locator('[data-testid="server-change-confirm-cancel"]').click();
   if (
     (await page.locator("#server-display-name").inputValue()) !==
@@ -1482,6 +1486,7 @@ export async function runServerOperations(
         ?.getAttribute("data-freshness") === "current",
   );
   await page.waitForTimeout(100);
+  await captureDetailLayout(page, "server-operation-scheduled");
   const beforePoll = detailPollReads;
   detailState = "running";
   await page.waitForTimeout(2100);
@@ -1517,6 +1522,7 @@ export async function runServerOperations(
     fail(
       `terminal operation continued polling (${beforePoll}, ${hiddenReads}, ${terminalReads} -> ${detailPollReads})`,
     );
+  await captureDetailLayout(page, "server-operation-succeeded");
   const detailText =
     (await page.locator('[data-testid="operation-detail"]').textContent()) ??
     "";
@@ -2371,6 +2377,7 @@ export async function runAuthFlows(
     (await page.locator('[data-testid="start-auth-flow"]').count()) !== 0
   )
     fail("exchanging auth flow offered a mutation");
+  await captureDetailLayout(page, "oauth-flow-exchanging-detail");
   showExchangeInList = true;
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
@@ -2407,6 +2414,12 @@ export async function runAuthFlows(
     terminalID,
   ])
     if (!finalDOM.includes(value)) fail(`OAuth detail omitted ${value}`);
+  await page.getByText("Diagnostic details", { exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.locator('[data-testid="auth-flow-detail"] details'),
+  ).toHaveAttribute("open", "");
+  await captureDetailLayout(page, "oauth-flow-failed-diagnostic");
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=status`;
   }, serverID);

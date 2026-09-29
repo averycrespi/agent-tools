@@ -852,9 +852,9 @@ function TrafficDetail({
       a.target !== null && (a.target as TrafficTarget).scheme === undefined;
   return (
     <>
-      <section class="panel domain-panel">
+      <section class="detail-section">
         <h2>Admission</h2>
-        <dl class="fact-grid">
+        <dl class="detail-facts">
           <div>
             <dt>Destination</dt>
             <dd>{destinationLabel(a.target as TrafficTarget | null)}</dd>
@@ -899,7 +899,7 @@ function TrafficDetail({
           </details>
         )}
         {!isConnect && (
-          <dl class="fact-grid">
+          <dl class="detail-facts">
             <div>
               <dt>Connection</dt>
               <dd>
@@ -930,9 +930,9 @@ function TrafficDetail({
           <p>Opaque tunnel: inner HTTP requests are not visible.</p>
         )}
       </section>
-      <section class="panel domain-panel">
+      <section class="detail-section">
         <h2>Outcome</h2>
-        <dl class="fact-grid">
+        <dl class="detail-facts">
           <div>
             <dt>Response source</dt>
             <dd>
@@ -965,7 +965,7 @@ function TrafficDetail({
                 : undefined}
           </StateNotice>
         ) : (
-          <dl class="fact-grid">
+          <dl class="detail-facts">
             {Object.entries(c)
               .filter(
                 ([key]) => key !== "response_source" && key !== "termination",
@@ -985,7 +985,7 @@ function TrafficDetail({
           </dl>
         )}
         {!isConnect && d?.allowed && (
-          <dl class="fact-grid">
+          <dl class="detail-facts">
             <div>
               <dt>HTTP transfer</dt>
               <dd>{transferLabel(c !== null, termination)}</dd>
@@ -1023,13 +1023,13 @@ function TrafficDetail({
           <p>The request may have taken effect. Retrying may repeat effects.</p>
         )}
       </section>
-      <section class="panel domain-panel">
+      <section class="detail-section">
         <h2>Admission-time authority</h2>
         <p>
           These references and matched policy selectors describe admission time,
           not current grants or credential authority.
         </p>
-        <dl class="fact-grid">
+        <dl class="detail-facts">
           {[
             ["Agent", a.principal],
             ["Agent credential", a.agent_credential],

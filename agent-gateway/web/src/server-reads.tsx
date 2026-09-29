@@ -2220,7 +2220,7 @@ export function ServerReads({
           current="tools"
         />
         <section
-          class="panel domain-panel"
+          class="detail-section"
           aria-labelledby="descriptor-detail-title"
         >
           <ReadPanel panel={panel}>
@@ -2261,6 +2261,7 @@ export function ServerReads({
                           : "Historical evidence; not callable"}
                       </StatusLabel>
                     </div>
+                    <h3>Catalog evidence</h3>
                     <dl class="tool-metadata">
                       <div>
                         <dt>Catalog revision</dt>
@@ -2410,7 +2411,7 @@ export function ServerReads({
           current="status"
         />
         <section
-          class="panel domain-panel operator-status-view"
+          class="detail-section operator-status-view"
           aria-labelledby="server-status-title"
         >
           <div class="panel-heading">

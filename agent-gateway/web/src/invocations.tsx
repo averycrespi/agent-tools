@@ -861,87 +861,101 @@ function InvocationFacts({
   principalNames: ReadonlyMap<string, string>;
 }) {
   return (
-    <dl class="fact-grid">
-      <div>
-        <dt>Invocation ID</dt>
-        <dd>{item.id}</dd>
-      </div>
-      <div>
-        <dt>Agent</dt>
-        <dd>
-          <a href={`#/agents/${item.principalID}`}>
-            {principalNames.get(item.principalID) ?? item.principalID}
-          </a>
-        </dd>
-      </div>
-      <div>
-        <dt>Tool</dt>
-        <dd>
-          {item.target?.kind === "downstream" ? (
-            <a
-              href={`#/mcp/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
-            >
-              {invocationTargetLabel(item.target, item.requestedName)}
+    <>
+      <h3>Authorization and relationships</h3>
+      <dl class="detail-facts">
+        <div>
+          <dt>Agent</dt>
+          <dd>
+            <a href={`#/agents/${item.principalID}`}>
+              {principalNames.get(item.principalID) ?? item.principalID}
             </a>
-          ) : (
-            invocationTargetLabel(item.target, item.requestedName)
+          </dd>
+        </div>
+        <div>
+          <dt>Tool</dt>
+          <dd>
+            {item.target?.kind === "downstream" ? (
+              <a
+                href={`#/mcp/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+              >
+                {invocationTargetLabel(item.target, item.requestedName)}
+              </a>
+            ) : (
+              invocationTargetLabel(item.target, item.requestedName)
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Authorization decision</dt>
+          <dd>
+            <AuthorizationDecision decision={item.authorization?.decision} />
+          </dd>
+        </div>
+        {item.authorization?.grantID !== null &&
+          item.authorization?.grantID !== undefined && (
+            <div>
+              <dt>Grant</dt>
+              <dd>
+                <a href={`#/mcp/grants/${item.authorization.grantID}`}>
+                  Grant {item.authorization.grantID}
+                </a>
+              </dd>
+            </div>
           )}
-        </dd>
-      </div>
-      <div>
-        <dt>Authorization decision</dt>
-        <dd>
-          <AuthorizationDecision decision={item.authorization?.decision} />
-        </dd>
-      </div>
-      {item.authorization?.grantID !== null &&
-        item.authorization?.grantID !== undefined && (
+        {item.target?.kind === "downstream" && (
           <div>
-            <dt>Grant</dt>
+            <dt>Server</dt>
             <dd>
-              <a href={`#/mcp/grants/${item.authorization.grantID}`}>
-                Grant {item.authorization.grantID}
+              <a href={`#/mcp/servers/${item.target.serverID}`}>
+                Server {item.target.serverID}
               </a>
             </dd>
           </div>
         )}
-      {item.target?.kind === "downstream" && (
+      </dl>
+      <h3>Identity and timing</h3>
+      <dl class="detail-facts">
         <div>
-          <dt>Server</dt>
+          <dt>Invocation ID</dt>
+          <dd class="technical-value">{item.id}</dd>
+        </div>
+        <div>
+          <dt>Admitted</dt>
           <dd>
-            <a href={`#/mcp/servers/${item.target.serverID}`}>
-              Server {item.target.serverID}
-            </a>
+            <UserTime value={item.admittedAt} />
           </dd>
         </div>
-      )}
-      <div>
-        <dt>Admitted</dt>
-        <dd>
-          <UserTime value={item.admittedAt} />
-        </dd>
-      </div>
-      <div>
-        <dt>Completed</dt>
-        <dd>
-          <UserTime
-            value={item.completedAt}
-            fallback="No terminal timestamp retained"
-          />
-        </dd>
-      </div>
-      <div>
-        <dt>Outcome basis</dt>
-        <dd>{sentenceCase(item.basis)}</dd>
-      </div>
-      <div>
-        <dt>Credential</dt>
-        <dd>
-          {item.credentialID} · revision {item.credentialRevision} · fingerprint{" "}
-          {item.credentialFingerprint}
-        </dd>
-      </div>
-    </dl>
+        <div>
+          <dt>Completed</dt>
+          <dd>
+            <UserTime
+              value={item.completedAt}
+              fallback="No terminal timestamp retained"
+            />
+          </dd>
+        </div>
+        <div>
+          <dt>Outcome basis</dt>
+          <dd>{sentenceCase(item.basis)}</dd>
+        </div>
+      </dl>
+      <h3>Admission-time credential</h3>
+      <dl class="detail-facts">
+        <div>
+          <dt>Credential ID</dt>
+          <dd class="technical-value">{item.credentialID}</dd>
+        </div>
+        <div>
+          <dt>Credential revision</dt>
+          <dd>{item.credentialRevision}</dd>
+        </div>
+        <div>
+          <dt>Fingerprint</dt>
+          <dd class="technical-value">{item.credentialFingerprint}</dd>
+        </div>
+      </dl>
+    </>
   );
 }
 export function Invocations({
@@ -1459,10 +1473,7 @@ function InvocationDetail({
           </h1>
         </div>
       </header>
-      <section
-        class="panel domain-panel"
-        aria-labelledby="invocation-detail-title"
-      >
+      <section class="detail-section" aria-labelledby="invocation-detail-title">
         <div class="panel-heading">
           <h2 id="invocation-detail-title">Invocation details</h2>
           <StatusLabel state={invocationState(item.outcome)}>

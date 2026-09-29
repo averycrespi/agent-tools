@@ -480,7 +480,7 @@ function History({ value }: { value: AuditHistory }) {
       </p>
       <details>
         <summary>Retention details</summary>
-        <dl class="fact-grid">
+        <dl class="detail-facts">
           <div>
             <dt>Oldest retained boundary</dt>
             <dd>
@@ -985,7 +985,7 @@ export function Audit({
       )}
       {detail ? (
         snapshot.item !== undefined ? (
-          <section class="panel domain-panel" aria-label="Audit event detail">
+          <section class="detail-section" aria-label="Audit event detail">
             <div class="panel-heading">
               <h2>
                 {snapshot.item.category}.{snapshot.item.action}
@@ -994,7 +994,8 @@ export function Audit({
                 {sentenceCase(snapshot.item.outcome)}
               </StatusLabel>
             </div>
-            <dl class="fact-grid">
+            <h3>Event and attribution</h3>
+            <dl class="detail-facts">
               <div>
                 <dt>Sequence / phase</dt>
                 <dd>
@@ -1039,6 +1040,9 @@ export function Audit({
                   )}
                 </dd>
               </div>
+            </dl>
+            <h3>Recorded diagnostics</h3>
+            <dl class="detail-facts">
               <div>
                 <dt>Reason</dt>
                 <dd>{snapshot.item.detail.reason ?? "None recorded"}</dd>
@@ -1055,11 +1059,13 @@ export function Audit({
             </p>
             <details>
               <summary>Technical details</summary>
-              <dl>
-                <dt>Correlation ID</dt>
-                <dd>
-                  <code>{snapshot.item.correlation_id}</code>
-                </dd>
+              <dl class="detail-facts">
+                <div>
+                  <dt>Correlation ID</dt>
+                  <dd>
+                    <code>{snapshot.item.correlation_id}</code>
+                  </dd>
+                </div>
               </dl>
             </details>
             <RelatedAudit

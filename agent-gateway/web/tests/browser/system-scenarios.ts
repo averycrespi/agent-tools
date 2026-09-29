@@ -1,4 +1,5 @@
 import { captureStateFeedback } from "./state-feedback.ts";
+import { captureDetailLayout, prepareDetailBaseline } from "./detail-layout.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -756,6 +757,7 @@ export async function runAdminCredentials(
     .getByRole("heading", { name: "Review admin credential", exact: true })
     .waitFor();
   if (creates !== 0) fail("admin credential submitted before final review");
+  await captureDetailLayout(page, "administrator-expiry-review");
   await page
     .locator('[data-testid="admin-credential-create-confirm-submit"]')
     .click();
@@ -1678,6 +1680,7 @@ export async function runInvocations(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
+  const compareBaseline = prepareDetailBaseline(page);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -2180,7 +2183,7 @@ export async function runInvocations(
   await page.locator('[data-testid="invocation-detail"]').waitFor();
   const detailAuthorization = page
     .getByTestId("invocation-detail")
-    .locator(".fact-grid > div")
+    .locator(".detail-facts > div")
     .filter({
       has: page.locator("dt").filter({ hasText: /^Authorization decision$/ }),
     })
@@ -2219,8 +2222,8 @@ export async function runInvocations(
       .locator('[data-testid="invocation-detail"] section.panel h1')
       .count()) !== 0 ||
     (await page
-      .locator('[data-testid="invocation-detail"] .fact-grid')
-      .count()) !== 1 ||
+      .locator('[data-testid="invocation-detail"] .detail-facts')
+      .count()) !== 3 ||
     (
       await page
         .locator('[data-testid="invocation-detail"] dt')
@@ -2258,6 +2261,8 @@ export async function runInvocations(
     fail("invocation capture was not explained inert item-only content");
 
   await expect(page.getByTestId("failure-diagnostics")).toHaveCount(0);
+  await captureDetailLayout(page, "invocation-missing-terminal");
+  await compareBaseline("invocation-missing-terminal");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const path = join(linkScreenshots, `legacy-detail-${width}.png`);
@@ -2617,7 +2622,7 @@ export async function runSystemStatus(
   if (
     !(await statusPanel.getAttribute("class"))
       ?.split(/\s+/)
-      .includes("panel") ||
+      .includes("detail-section") ||
     (await statusPanel
       .locator('[data-testid="system-status-summary"]')
       .count()) !== 0 ||
@@ -2652,6 +2657,7 @@ export async function runSystemStatus(
       .getAttribute("data-mutation-availability")) !== "storage_latched"
   )
     fail("System did not close mutation admission for latched storage");
+  await captureDetailLayout(page, "system-status-latched");
 
   await expect(
     statusPanel.getByText("Gateway API", { exact: true }),
@@ -2700,6 +2706,7 @@ export async function runSystemStatus(
     body.includes("Gateway is operating normally")
   )
     fail("System healthy status repeated its conclusion");
+  await captureDetailLayout(page, "system-status-healthy");
 
   failStatus = true;
   await page.getByTestId("manual-refresh").click();

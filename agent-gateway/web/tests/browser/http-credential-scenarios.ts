@@ -1,4 +1,5 @@
 import { captureStateFeedback } from "./state-feedback.ts";
+import { captureDetailLayout } from "./detail-layout.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -98,6 +99,11 @@ export async function runHTTPCredentials(
       .getByRole("button", { name: "Review and create", exact: true })
       .click();
     await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("dialog")).not.toContainText(
+      "host-bound-canary",
+    );
+    if (!allowWildcard)
+      await captureDetailLayout(page, "http-credential-create-review-long");
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Cancel", exact: true })
@@ -187,6 +193,7 @@ export async function runHTTPCredentials(
   await expect(page.locator("#page-title")).toHaveText(
     "HTTP Credential details",
   );
+  await captureDetailLayout(page, "http-credential-detail-present");
   const id = new URL(page.url()).hash.split("/").at(-1)!;
   const response = await fetch(`${baseURL}/api/v2/http/credentials/${id}`, {
     headers: { Authorization: `Bearer ${bearer}` },
@@ -226,7 +233,7 @@ export async function runHTTPCredentials(
     .not.toBe(created.revision);
   await expect(
     page
-      .locator(".fact-grid dd")
+      .locator(".detail-facts dd")
       .filter({ hasText: new RegExp(`^${rotatedRevision}$`) }),
   ).toBeVisible();
   await page.getByLabel("Header name").fill("Host");
@@ -247,6 +254,7 @@ export async function runHTTPCredentials(
   await page
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
+  await captureDetailLayout(page, "http-credential-metadata-review");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Edit boundary and recipe", exact: true })

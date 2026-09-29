@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
+import { captureDetailLayout, prepareDetailBaseline } from "./detail-layout.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ export async function runHTTPTraffic(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
+  const compareBaseline = prepareDetailBaseline(page);
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-traffic-"));
   const captureTransfer = async (state: string) => {
     for (const width of [1280, 390]) {
@@ -705,6 +707,8 @@ export async function runHTTPTraffic(
     page.getByText("Missing terminal evidence", { exact: true }),
   ).toBeVisible();
   await captureTransfer("missing");
+  await captureDetailLayout(page, "http-traffic-missing-terminal");
+  await compareBaseline("http-traffic-missing-terminal");
   await page.getByText("Matched policy selectors", { exact: true }).click();
   await page.screenshot({
     path: join(screenshots, "detail.png"),
@@ -908,6 +912,7 @@ export async function runHTTPTraffic(
   ).toBeLessThanOrEqual(390);
   await page.setViewportSize({ width: 1280, height: 900 });
   await captureTransfer("incomplete");
+  await captureDetailLayout(page, "http-traffic-incomplete-transfer");
   await captureStateFeedback(page, "http-request-recorded-unknown");
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })

@@ -179,6 +179,51 @@ export function ComparisonTable({
   );
 }
 
+export function DetailComparison({
+  label,
+  beforeLabel,
+  afterLabel,
+  rows,
+  fullWidth = false,
+}: {
+  label: string;
+  beforeLabel: string;
+  afterLabel: string;
+  fullWidth?: boolean;
+  rows: readonly {
+    label: string;
+    before: ComponentChildren;
+    after: ComponentChildren;
+    changed: boolean;
+  }[];
+}) {
+  return (
+    <dl
+      class={`detail-comparison${fullWidth ? " comparison-wide" : ""}`}
+      aria-label={label}
+    >
+      {rows.map((row) => (
+        <div key={row.label} class="comparison-field">
+          <dt>
+            {row.label}
+            {row.changed && <span class="comparison-change">Changed</span>}
+          </dt>
+          <dd>
+            <div class="comparison-value">
+              <span class="comparison-label">{beforeLabel}</span>
+              <div>{row.before}</div>
+            </div>
+            <div class="comparison-value">
+              <span class="comparison-label">{afterLabel}</span>
+              <div>{row.after}</div>
+            </div>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function CompactRecord({
   primaryLabel,
   primary,

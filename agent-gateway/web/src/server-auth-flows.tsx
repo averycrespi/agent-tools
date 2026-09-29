@@ -442,7 +442,7 @@ export function ServerAuthFlows({
     return (
       <>
         <section
-          class="panel domain-panel"
+          class="detail-section"
           aria-labelledby="auth-flow-detail-title"
           data-testid="auth-flow-detail"
         >

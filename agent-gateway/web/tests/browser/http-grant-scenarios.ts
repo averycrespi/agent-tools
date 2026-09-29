@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertSecretAbsent, waitForLifecycle } from "./shared.ts";
 import { exerciseGrantDetails } from "./http-grant-details.ts";
+import {
+  assertDetailComparison,
+  captureDetailLayout,
+} from "./detail-layout.ts";
 
 export async function runHTTPGrants(
   context: BrowserContext,
@@ -15,6 +19,23 @@ export async function runHTTPGrants(
 ): Promise<number[]> {
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-grants-"));
   const captureState = async (name: string) => {
+    if (
+      [
+        "principal-create-block-review",
+        "principal-created-block",
+        "principal-combined-confirm",
+        "principal-conflict",
+        "grant-complete-confirmation",
+        "preview-default-block",
+        "preview-conflict",
+        "detail-save-confirmation",
+        "detail-long-unavailable-material",
+        "detail-saved-read-failed",
+        "detail-save-success",
+        "detail-block_requests",
+      ].includes(name)
+    )
+      await captureDetailLayout(page, name);
     const dialog = page.locator("dialog[open]");
     const modal = (await dialog.count()) > 0;
     if (modal)
@@ -481,18 +502,31 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("heading", { name: "Allowed by request policy" }),
   ).toBeVisible();
-  await expect(
-    page.getByText(
-      `Policy snapshot ${firstPreview.decision.policy_revision} · HTTP default: ${firstPreview.default === "allow" ? "Allow requests" : "Block requests"} (revision ${firstPreview.decision.default_revision}). Test again after policy changes.`,
-      { exact: true },
-    ),
-  ).toBeVisible();
+  const policyRevision = page
+    .locator("dl.detail-facts > div")
+    .filter({ has: page.locator("dt", { hasText: /^Policy revision$/ }) });
+  await expect(policyRevision.locator("dd")).toHaveText(
+    String(firstPreview.decision.policy_revision),
+  );
+  const defaultRevision = page
+    .locator("dl.detail-facts > div")
+    .filter({ has: page.locator("dt", { hasText: /^Default revision$/ }) });
+  await expect(defaultRevision.locator("dd")).toHaveText(
+    String(firstPreview.decision.default_revision),
+  );
   for (const key of ["principal", "grant", "credential", "credential_grant"]) {
     const fact = page
-      .locator("dl.fact-grid > div")
+      .locator("dl.detail-facts > div")
       .filter({
         has: page.getByText(
-          key === "principal" ? "Agent" : key.replaceAll("_", " "),
+          (
+            {
+              principal: "Agent",
+              grant: "Deciding grant",
+              credential: "Credential",
+              credential_grant: "Credential grant",
+            } as Record<string, string>
+          )[key]!,
           { exact: true },
         ),
       })
@@ -682,8 +716,14 @@ export async function runHTTPGrants(
     "block",
   );
   await expect(
-    page.getByText(/Last loaded values: Concurrent rename/),
+    page.getByText("Your draft is preserved. Last loaded settings:", {
+      exact: true,
+    }),
   ).toBeVisible();
+  const refreshedName = page
+    .locator(".state-detail .detail-facts > div")
+    .filter({ has: page.locator("dt", { hasText: /^Display name$/ }) });
+  await expect(refreshedName.locator("dd")).toHaveText("Concurrent rename");
   await captureState("principal-conflict");
   expect(concurrentWrite).toBe(true);
   await page.unroute(principalPath);
@@ -920,12 +960,14 @@ export async function runHTTPGrants(
   await page
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
-  await expect(
-    page.getByRole("region", { name: "Current grant", exact: true }),
-  ).toContainText("Concurrent edit");
-  await expect(
-    page.getByRole("region", { name: "Proposed grant", exact: true }),
-  ).toContainText("Retained local draft");
+  await assertDetailComparison(page, "Current versus proposed grant", [
+    {
+      field: "Description",
+      before: "Concurrent edit",
+      after: "Retained local draft",
+      changed: true,
+    },
+  ]);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Apply grant", exact: true })

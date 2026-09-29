@@ -467,7 +467,7 @@ function StatusPanel({
     saturatedLimits.length === 0;
   return (
     <section
-      class="panel domain-panel operator-status-view system-status-view"
+      class="detail-section operator-status-view system-status-view"
       aria-labelledby="system-status-title"
       data-testid="system-status-panel"
       data-panel-status={panelStatus}
@@ -1410,21 +1410,23 @@ function AdminCredentials({
                 Create one administrator authority whose bearer is displayed
                 once.
               </p>
-              <dl>
-                <dt>Expires</dt>
-                <dd>
-                  {expiry === "" ? (
-                    "No expiry"
-                  ) : (
-                    <UserTime
-                      value={
-                        Number.isFinite(Date.parse(expiry))
-                          ? new Date(expiry).toISOString()
-                          : expiry
-                      }
-                    />
-                  )}
-                </dd>
+              <dl class="detail-facts">
+                <div>
+                  <dt>Expires</dt>
+                  <dd>
+                    {expiry === "" ? (
+                      "No expiry"
+                    ) : (
+                      <UserTime
+                        value={
+                          Number.isFinite(Date.parse(expiry))
+                            ? new Date(expiry).toISOString()
+                            : expiry
+                        }
+                      />
+                    )}
+                  </dd>
+                </div>
               </dl>
             </div>
           }

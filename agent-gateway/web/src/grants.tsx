@@ -747,7 +747,8 @@ function GrantCreate({
                   title="Unconstrained access matches every argument object"
                 />
               )}
-              <dl class="fact-grid">
+              <h3>Identity and authority</h3>
+              <dl class="detail-facts">
                 <div>
                   <dt>Description</dt>
                   <dd>{description}</dd>
@@ -1380,7 +1381,7 @@ export function Grants({
             </h1>
           </div>
         </header>
-        <section class="panel domain-panel" aria-labelledby="grant-title">
+        <section class="detail-section" aria-labelledby="grant-title">
           <div class="panel-heading">
             <h2 id="grant-title">Grant details</h2>
             <StatusLabel
@@ -1389,11 +1390,8 @@ export function Grants({
               {detail.state === "active" ? "Active" : "Expired"}
             </StatusLabel>
           </div>
-          <dl class="fact-grid">
-            <div>
-              <dt>Grant ID</dt>
-              <dd>{detail.id}</dd>
-            </div>
+          <h3>Policy and relationships</h3>
+          <dl class="detail-facts">
             <div>
               <dt>Effect</dt>
               <dd>{detail.effect === "allow" ? "Allow" : "Deny"}</dd>
@@ -1433,6 +1431,13 @@ export function Grants({
                 {detail.readOnly && <p>{readOnlyExplanation}</p>}
               </dd>
             </div>
+          </dl>
+          <h3>Identity and timing</h3>
+          <dl class="detail-facts">
+            <div>
+              <dt>Grant ID</dt>
+              <dd class="technical-value">{detail.id}</dd>
+            </div>
             <div>
               <dt>Expires</dt>
               <dd>
@@ -1447,7 +1452,10 @@ export function Grants({
             </div>
           </dl>
           {detail.constraint !== null && (
-            <InertJSON value={detail.constraint} label="Grant constraint" />
+            <section class="detail-section" aria-label="Constraint evidence">
+              <h3>Constraint evidence</h3>
+              <InertJSON value={detail.constraint} label="Grant constraint" />
+            </section>
           )}
         </section>
         <GrantDescriptionEditor

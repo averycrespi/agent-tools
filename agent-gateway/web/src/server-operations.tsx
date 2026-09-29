@@ -443,7 +443,7 @@ export function ServerOperations({
     return (
       <>
         <section
-          class="panel domain-panel"
+          class="detail-section"
           aria-labelledby="operation-detail-title"
           data-testid="operation-detail"
         >
