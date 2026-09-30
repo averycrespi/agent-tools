@@ -174,7 +174,7 @@ func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy neti
 		}
 		return all
 	}
-	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, Remote: built.remoteFactory, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
+	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, GitMaterials: built.gitCredentials, Remote: built.remoteFactory, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
 	if err == nil {
 		built.httpProxyAuthority = proxy.String()
 	}

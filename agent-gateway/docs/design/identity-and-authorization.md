@@ -232,8 +232,9 @@ Git is a dedicated configuration and policy domain over the existing principal,
 singular agent credential, authority gate and control database. Git grants and
 Git credentials confer no HTTP or MCP permission; HTTP grants/defaults and
 credentials confer no Git permission. Git always defaults to deny. There is no
-second identity slot, listener, database, protocol registry or production Git
-dispatch in this configuration delivery.
+second identity slot, listener, database or protocol registry. Supported Git
+requests use the intercepted HTTPS proxy with separate Git admission and selected
+Git material; HTTP request grants and defaults never authorize a Git operation.
 
 Schema 22 retains up to 256 live repositories and 1,024 permanent repository
 identities, 4,096 grants including expired rows, and 256 live Git credentials with
@@ -272,16 +273,34 @@ Every authority-affecting mutation uses authority-before-storage ordering,
 advances the shared authorization revision and commits required attributed audit
 atomically. Older pending admissions fail confirmation without reevaluation.
 Exact repository, alias, profile, principal and authorization revisions are usable
-by later immutable request binding; policy-only evaluation is neither authentication
-nor admission authority, material proof or network qualification.
+by immutable request binding; policy-only evaluation is neither authentication
+nor admission authority, material proof or network qualification. Receive-pack
+discovery and exact flush-only probes require read plus at least one active
+push-capable grant and have separate nonmutation receipts. Each actual push
+independently checks every requested create/update/delete before dispatch.
 
 The singleton routing profile stores an independently revisioned bounded set of
 HTTPS origins. Repository creation/deletion never modifies that intent, even when
-the last repository is deleted. `active:false` is a read-only production gate, not
-an editable switch. TOOLS-90 must establish the tunnel-transition enforcement gate
-before profile intent becomes usable in production. Ordinary GitHub HTTP remains
-supported under existing HTTP policy; configuration here does not claim Git-shaped
-wire traffic is already segregated or bypass later ingress enforcement.
+the last repository is deleted. `active:true` is read-only, not an editable switch.
+The shared authority gate serializes profile changes with final opaque CONNECT
+confirmation. Activation refuses while any matching previously confirmed tunnel
+owner remains unsettled, without canceling it. Owners survive through stream and
+completion cleanup; caller timeout does not release them. Enabled origins refuse
+opaque admission, including with an empty repository set. Intercepted ordinary
+GitHub HTTP remains supported under HTTP policy. Destination blocks, forbidden
+addresses, listener exclusions and TLS verification remain unconditional; existing
+explicit private-address grants supply only network permission, not repository or
+ref authority and never HTTP credential selection.
+
+Git evaluation seals the private request owner and exact parsed prefix, repository,
+alias, profile, principal, agent credential and shared policy revisions. The
+selected Git credential generation is acquired separately. Only acknowledged
+durable admission followed by unchanged-authority/material confirmation permits
+one dispatch of that same request owner. Equal retained summaries cannot
+substitute another prefix. Cancellation, revocation, edits, drain and storage
+health failure before confirmation refuse without reevaluation. Authority and
+storage ownership never span client body reads, secret provider I/O or network
+work. Ref names, OIDs and request binding remain memory-only.
 
 Startup and staged backup/restore validate the complete retained Git graph,
 canonical policy, capacities, timestamps, origins, overlap and references. Restore

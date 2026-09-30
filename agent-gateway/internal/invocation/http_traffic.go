@@ -21,7 +21,7 @@ func (s *TrafficStore) AdmitHTTP(ctx context.Context, admission contract.HTTPTra
 
 func (s *TrafficStore) CompleteHTTP(ctx context.Context, receipt *TrafficReceipt, completion contract.HTTPTrafficCompletion) error {
 	var admission contract.HTTPTrafficAdmission
-	valid := receipt != nil && receipt.httpAdmission != ""
+	valid := receipt != nil && receipt.httpAdmission != "" && receipt.gitAdmission == ""
 	if valid {
 		valid = strictjson.Decode([]byte(receipt.httpAdmission), &admission, strictjson.Options{MaxBytes: contract.HTTPTrafficAdmissionBytes, MaxDepth: 12, RejectUnknownMembers: true}) == nil
 	}
@@ -29,7 +29,9 @@ func (s *TrafficStore) CompleteHTTP(ctx context.Context, receipt *TrafficReceipt
 	return s.enqueueCompletion(&trafficRequest{ctx: ctx, receipt: receipt, httpCompletion: encoded, bytes: maxTrafficCompletionBytes, expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}, valid && err == nil)
 }
 
-func (r *trafficRequest) terminal() bool { return r.completion != nil || r.httpCompletion != "" }
+func (r *trafficRequest) terminal() bool {
+	return r.completion != nil || r.httpCompletion != "" || r.gitCompletion != ""
+}
 
 type HTTPTrafficHistory struct {
 	Generation string

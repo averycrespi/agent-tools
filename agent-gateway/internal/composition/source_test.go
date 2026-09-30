@@ -200,7 +200,7 @@ func testProductionPersistenceAndCapabilitySliceGuards(t *testing.T, root string
 	}
 	for _, source := range sources {
 		contents := source.contents
-		if source.path == "internal/invocation/http_admission.go" {
+		if source.path == "internal/invocation/http_admission.go" || source.path == "internal/invocation/git_admission.go" {
 			contents = strings.ReplaceAll(contents, "materials.Acquire(ctx", "")
 		}
 		for _, symbol := range []string{"Routes().Resolve(", ".Acquire(ctx"} {
@@ -410,6 +410,15 @@ var _ http.Client
 			name: "HTTP material owner cannot acquire MCP capability", path: "internal/invocation/http_admission.go", contents: "package invocation\nfunc call() { _, _ = capability.Acquire(ctx) }\n", want: "internal/invocation/http_admission.go: prohibited capability consumer .Acquire(",
 		},
 		{
+			name: "Git material owner cannot acquire MCP capability", path: "internal/invocation/git_admission.go", contents: "package invocation\nfunc call() { _, _ = capability.Acquire(ctx) }\n", want: "internal/invocation/git_admission.go: prohibited capability consumer .Acquire(",
+		},
+		{
+			name: "Git evidence outside owner", path: "internal/api/bad.go", contents: "package api\nconst query = `SELECT * FROM git_traffic`\n", want: "internal/api/bad.go: prohibited S4 SQL table git_traffic",
+		},
+		{
+			name: "Git traffic read cannot mutate", path: "internal/invocation/git_traffic.go", contents: "package invocation\nconst query = `DELETE FROM git_traffic`\n", want: "internal/invocation/git_traffic.go: prohibited S4 SQL table git_traffic",
+		},
+		{
 			name: "HTTP evidence outside owner", path: "internal/api/bad.go", contents: "package api\nconst query = `SELECT * FROM http_traffic`\n", want: "internal/api/bad.go: prohibited S4 SQL table http_traffic",
 		},
 		{
@@ -445,8 +454,8 @@ var (
 	s3SQLTable     = regexp.MustCompile(`(?i)\b(authorization_meta|principals|grants)\b`)
 	auditSQLTable  = regexp.MustCompile(`(?i)\bcontrol_audit_(events|history)\b`)
 	auditSQLWrite  = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b`)
-	s4SQLTable     = regexp.MustCompile(`(?i)\b(invocations|http_traffic)\b`)
-	s4SQLDML       = regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(invocations|http_traffic)\b`)
+	s4SQLTable     = regexp.MustCompile(`(?i)\b(invocations|http_traffic|git_traffic)\b`)
+	s4SQLDML       = regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(invocations|http_traffic|git_traffic)\b`)
 	s4SQLJoin      = regexp.MustCompile(`(?i)\bJOIN\b`)
 	s5SQLTable     = regexp.MustCompile(`(?i)\b(grant_request_identities|grant_requests|grant_request_evidence_bytes)\b`)
 	s5SQLDML       = regexp.MustCompile(`(?i)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(grant_request_identities|grant_requests|grant_request_evidence_bytes)\b`)
@@ -459,7 +468,7 @@ func productionSliceViolations(source productionSource) []string {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" && source.path != "internal/httpproxy/engine.go" {
+		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" && source.path != "internal/httpproxy/engine.go" && source.path != "internal/httpproxy/git.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited invocation import %s", source.path, imported))
 		}
 		if strings.HasSuffix(imported, "/internal/selfservice") && source.path != "internal/composition/composition.go" {
@@ -549,7 +558,7 @@ func productionSliceViolations(source productionSource) []string {
 				return true
 			}
 			// HTTP admission acquires only the selected credential material, not an MCP capability.
-			if receiver, ok := selector.X.(*ast.Ident); source.path == "internal/invocation/http_admission.go" && ok && receiver.Name == "materials" {
+			if receiver, ok := selector.X.(*ast.Ident); (source.path == "internal/invocation/http_admission.go" || source.path == "internal/invocation/git_admission.go") && ok && receiver.Name == "materials" {
 				return true
 			}
 			violations = append(violations, fmt.Sprintf("%s: prohibited capability consumer .Acquire(", source.path))
@@ -680,12 +689,12 @@ func s4SQLViolations(source productionSource) []string {
 		switch source.path {
 		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go", "internal/invocation/traffic_migration.go":
 			return true
-		case "internal/invocation/reads.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go":
+		case "internal/invocation/reads.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go", "internal/invocation/git_evidence.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}
 		case "internal/invocation/validation.go", "internal/storage/storage.go",
-			"internal/invocation/traffic_generation.go", "internal/invocation/traffic_verify.go", "internal/invocation/traffic_http_migration.go", "internal/storage/traffic_schema.go", "internal/storage/traffic_http_schema.go", "internal/storage/traffic_selection.go":
+			"internal/invocation/traffic_generation.go", "internal/invocation/traffic_verify.go", "internal/invocation/traffic_http_migration.go", "internal/invocation/git_traffic.go", "internal/storage/traffic_git_schema.go", "internal/storage/traffic_schema.go", "internal/storage/traffic_http_schema.go", "internal/storage/traffic_selection.go":
 			if !s4SQLDML.MatchString(value) {
 				return true
 			}

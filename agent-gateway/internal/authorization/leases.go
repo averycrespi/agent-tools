@@ -89,12 +89,13 @@ type authorityRegistry struct {
 	gate          chan struct{}
 	draining      atomic.Bool
 
-	mu       sync.Mutex
-	work     int64
-	idle     chan struct{}
-	stopping chan struct{}
-	leases   map[*Lease]struct{}
-	hooks    authorityHooks
+	mu               sync.Mutex
+	work             int64
+	idle             chan struct{}
+	stopping         chan struct{}
+	leases           map[*Lease]struct{}
+	opaqueGitOrigins map[string]int
+	hooks            authorityHooks
 }
 
 func newAuthorityRegistry(store *storage.Store) *authorityRegistry {
@@ -102,7 +103,7 @@ func newAuthorityRegistry(store *storage.Store) *authorityRegistry {
 	close(idle)
 	return &authorityRegistry{
 		store: store, gate: make(chan struct{}, 1), idle: idle,
-		stopping: make(chan struct{}), leases: make(map[*Lease]struct{}),
+		stopping: make(chan struct{}), leases: make(map[*Lease]struct{}), opaqueGitOrigins: make(map[string]int),
 	}
 }
 

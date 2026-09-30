@@ -224,8 +224,11 @@ The [Git policy chapter](identity-and-authorization.md#persisted-git-authority)
 owns immutable identity and closed bounded selector semantics.
 
 `GitProfileWrite` is exactly `{origins:[HTTPS-origin,...]}`; `GitRoutingProfile`
-is `{origins,revision,active}` with read-only `active:false` until the enforcement
-owner's production tunnel gate. ETags are exact strong
+is `{origins,revision,active}` with read-only `active:true`. Adding an origin
+conflicts while a previously admitted opaque tunnel to that origin remains
+unsettled; the mutation neither cancels it nor waits for it. Enabled origins
+reject opaque tunnels and retain Git-shaped rejection with no repositories.
+Ordinary intercepted HTTP remains governed by HTTP policy. ETags are exact strong
 `"git-repository-ID-REVISION"`, `"git-grant-ID-REVISION"`,
 `"git-credential-ID-REVISION"` and `"git-profile-routing-REVISION"`.
 Missing/stale preconditions use `precondition_required`/`stale_revision`.
@@ -247,6 +250,12 @@ rotate is exactly `{secret}`. `GitCredential` contains `id`, `name`, `origin`,
 `updated_at`. Ordinary reads return neither secret nor handle. The credential
 owner retains the established 4,096-byte prefix-plus-secret bound and protected
 generation lifecycle; see [Git credentials](downstream-servers.md#scoped-git-credentials).
+
+Minimal Git admission/completion evidence is durable in traffic schema 3, with
+no public Git history route in this delivery. It retains only bounded safe
+identity/revision, operation/command-count, decision/material and transport facts;
+no observed refs, OIDs, request prefixes, packs or arbitrary upstream messages.
+Missing terminal is unknown and HTTP 200 never represents Git mutation success.
 
 ## Invocation history queries
 

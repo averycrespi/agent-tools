@@ -82,12 +82,12 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 		if err != nil {
 			return nil, err
 		}
-		_, err = db.ExecContext(ctx, storage.TrafficSchemaVersion(2))
+		_, err = db.ExecContext(ctx, storage.TrafficSchemaVersion(3))
 		if err == nil {
 			_, err = db.ExecContext(ctx, `INSERT INTO traffic_meta VALUES(1,?,?,0,0,0,0)`, installation, generation)
 		}
 		if err == nil {
-			_, err = db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id=%d; PRAGMA user_version=2`, trafficApplicationID))
+			_, err = db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id=%d; PRAGMA user_version=3`, trafficApplicationID))
 		}
 		if err == nil && populate != nil {
 			err = populate(ctx, db)
@@ -325,7 +325,7 @@ func (s *TrafficStore) validateTraffic(ctx context.Context, installation, genera
 	if err := s.db.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&auto); err != nil {
 		return err
 	}
-	if app != trafficApplicationID || (version != 1 && version != 2) || pageSize != trafficPageSize || maxPages != trafficPages(s.config) || syncMode != 2 || busy != 50 || spill != 0 || auto != 0 || foreign != 1 || journal != "wal" {
+	if app != trafficApplicationID || (version < 1 || version > 3) || pageSize != trafficPageSize || maxPages != trafficPages(s.config) || syncMode != 2 || busy != 50 || spill != 0 || auto != 0 || foreign != 1 || journal != "wal" {
 		return ErrInvalidState
 	}
 	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
@@ -346,7 +346,7 @@ func (s *TrafficStore) validateTrafficSchema(ctx context.Context, version int) e
 	for _, ddl := range strings.Split(strings.TrimSpace(ddl), "\n\n") {
 		expected[strings.Join(strings.Fields(strings.TrimSuffix(strings.TrimSpace(ddl), ";")), " ")] = true
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' LIMIT 32`)
+	rows, err := s.db.QueryContext(ctx, `SELECT sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' LIMIT ?`, len(expected)+1)
 	if err != nil {
 		return err
 	}
@@ -421,13 +421,21 @@ func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation
 		return err
 	}
 	mcpCount := actualCount
-	if version == 2 {
+	if version >= 2 {
 		httpCount, httpBytes, err := s.validateHTTPTraffic(ctx, high)
 		if err != nil {
 			return err
 		}
 		actualCount += httpCount
 		actualBytes += httpBytes
+	}
+	if version >= 3 {
+		gitCount, gitBytes, err := s.validateGitTraffic(ctx, high)
+		if err != nil {
+			return err
+		}
+		actualCount += gitCount
+		actualBytes += gitBytes
 	}
 	if actualCount != count || actualBytes != bytes {
 		return ErrInvalidState

@@ -1,0 +1,114 @@
+package httpproxy
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitwire"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
+)
+
+func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, target httppolicy.Request, address *remote.ProxyAddress, repository contract.GitRepository, profile contract.GitRoutingProfile) {
+	controller := http.NewResponseController(w)
+	if r.ProtoMajor == 1 {
+		if err := controller.EnableFullDuplex(); err != nil {
+			reject(w, http.StatusBadGateway)
+			return
+		}
+	}
+	// A single absolute deadline covers all command controls, the PACK signature,
+	// and exact end-of-body probes; individual reads never renew it.
+	if err := controller.SetReadDeadline(time.Now().Add(gitwire.ParseTimeout)); err != nil {
+		reject(w, http.StatusBadRequest)
+		return
+	}
+	request, err := gitwire.New(r.Context(), target, repository, profile.Revision, r.Header, r.Body)
+	if err != nil {
+		reject(w, http.StatusBadRequest)
+		return
+	}
+	if err := controller.SetReadDeadline(time.Time{}); err != nil {
+		reject(w, http.StatusBadRequest)
+		return
+	}
+	identity, err := e.options.Evidence.PrepareIdentity()
+	if err != nil {
+		reject(w, http.StatusServiceUnavailable)
+		return
+	}
+	result, err := e.options.Admissions.AdmitGit(r.Context(), lease, identity, request, address.Facts(), e.options.GitMaterials)
+	if err != nil || !result.DispatchAuthorized {
+		reject(w, http.StatusForbidden)
+		return
+	}
+	completion := contract.GitTrafficCompletion{Outcome: "prestart_failure"}
+	defer func() { e.completeGit(result, identity, completion) }()
+	header := r.Header.Clone()
+	if result.Material != nil {
+		header, err = result.Material.Apply(repository.URL, header)
+		if err != nil {
+			reject(w, http.StatusBadGateway)
+			return
+		}
+	}
+	stripHopHeaders(header)
+	if remote.ValidateProxyHeaders(header) != nil {
+		reject(w, http.StatusBadRequest)
+		return
+	}
+	body, err := request.Dispatch()
+	if err != nil {
+		reject(w, http.StatusForbidden)
+		return
+	}
+	upload := &countedBody{ReadCloser: body, controller: controller, done: make(chan struct{})}
+	defer func() {
+		_ = upload.Close()
+		completion.BytesSent = upload.count.Load()
+		completion.TransferComplete = completion.TransferComplete && (upload.eof.Load() || r.ContentLength >= 0 && completion.BytesSent == r.ContentLength)
+		if request.Operation() != "push" && completion.TransferComplete {
+			completion.Outcome = "nonmutation"
+		}
+	}()
+	completion.Outcome = "outcome_unknown"
+	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Evidence.PrivateGrant != nil, e.roots)
+	if err != nil {
+		reject(w, http.StatusBadGateway)
+		return
+	}
+	defer func() { _ = response.Body.Close() }()
+	stripHopHeaders(response.Header)
+	for name, values := range response.Header {
+		w.Header()[name] = values
+	}
+	w.WriteHeader(response.StatusCode)
+	completion.Status = response.StatusCode
+	writer := &streamWriter{writer: w, controller: controller}
+	if err := writer.Flush(); err != nil {
+		panic(http.ErrAbortHandler)
+	}
+	n, err := io.CopyBuffer(writer, response.Body, make([]byte, contract.HTTPProxyBufferBytes))
+	completion.BytesReceived = n
+	if err != nil {
+		panic(http.ErrAbortHandler)
+	}
+	completion.TransferComplete = true
+}
+func (e *Engine) completeGit(result invocation.GitAdmissionResult, identity invocation.PreparedAdmission, completion contract.GitTrafficCompletion) {
+	now := e.options.Now().UTC()
+	start, err := time.Parse(time.RFC3339Nano, identity.AdmittedAt)
+	if err != nil {
+		return
+	}
+	completion.CompletedAt = now.Format(contract.AuditTimestampLayout)
+	completion.DurationMS = max(0, now.Sub(start).Milliseconds())
+	ctx, cancel := context.WithTimeout(context.Background(), contract.HTTPProxyDrainTimeout)
+	defer cancel()
+	_ = e.options.Admissions.CompleteGit(ctx, result, completion)
+}

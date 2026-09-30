@@ -84,8 +84,8 @@ type GitGrant struct {
 	UpdatedAt    string     `json:"updated_at"`
 }
 
-// Profiles survive repository deletion. Active is never configurable here: the
-// enforcement owner must establish the tunnel-transition gate before activation.
+// Profiles survive repository deletion. Active is read-only: authority owns
+// the atomic profile/opaque-tunnel transition fence.
 type GitRoutingProfile struct {
 	Origins  []string `json:"origins"`
 	Revision string   `json:"revision"`

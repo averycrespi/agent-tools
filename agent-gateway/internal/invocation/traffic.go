@@ -67,6 +67,8 @@ type TrafficReceipt struct {
 	request       context.Context
 	httpAdmission string
 	httpAllowed   bool
+	gitAdmission  string
+	gitAllowed    bool
 }
 
 type trafficPin struct{ dispatched, completing bool }
@@ -81,6 +83,9 @@ type trafficRequest struct {
 	httpAdmission  string
 	httpAllowed    bool
 	httpCompletion string
+	gitAdmission   string
+	gitAllowed     bool
+	gitCompletion  string
 	completion     *activity.Completion
 	diagnosticJSON any
 	receipt        *TrafficReceipt
@@ -88,7 +93,7 @@ type trafficRequest struct {
 	result         chan trafficResult
 }
 
-// TrafficStore is the composition-owned MCP and HTTP evidence store. Its worker owns
+// TrafficStore is the composition-owned MCP, HTTP and Git evidence store. Its worker owns
 // evidence only; there are deliberately no execution callbacks or retry paths.
 type TrafficStore struct {
 	db              *sql.DB
@@ -186,7 +191,7 @@ func (s *TrafficStore) confirmCandidate(ctx context.Context, receipt *TrafficRec
 		return false
 	}
 	evidence := receipt.evidence.admission.Authorization
-	if receipt.httpAdmission == "" && (evidence == nil || evidence.Decision != contract.DecisionAllow) || receipt.httpAdmission != "" && !receipt.httpAllowed {
+	if receipt.httpAdmission == "" && receipt.gitAdmission == "" && (evidence == nil || evidence.Decision != contract.DecisionAllow) || receipt.httpAdmission != "" && !receipt.httpAllowed || receipt.gitAdmission != "" && !receipt.gitAllowed {
 		return false
 	}
 	if invocationID != "" && receipt.evidence.InvocationID != invocationID || detach == nil || !detach() {
@@ -226,7 +231,7 @@ func (s *TrafficStore) Complete(ctx context.Context, receipt *TrafficReceipt, co
 func (s *TrafficStore) complete(ctx context.Context, receipt *TrafficReceipt, completion activity.Completion, diagnostic *contract.FailureDiagnostics) error {
 	// Encode before queueing so the writer owns bounded immutable evidence.
 	diagnosticJSON, diagnosticErr := encodeFailureDiagnostics(completion.Class, diagnostic)
-	valid := diagnosticErr == nil && receipt != nil && receipt.httpAdmission == "" && validTrafficCompletion(receipt.evidence, completion)
+	valid := diagnosticErr == nil && receipt != nil && receipt.httpAdmission == "" && receipt.gitAdmission == "" && validTrafficCompletion(receipt.evidence, completion)
 	r := &trafficRequest{ctx: ctx, receipt: receipt, completion: &completion, diagnosticJSON: diagnosticJSON, bytes: maxTrafficCompletionBytes,
 		expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}
 	return s.enqueueCompletion(r, valid)

@@ -89,7 +89,7 @@ func TestIntegrationGitRepositoryGrantAndProfileContracts(t *testing.T) {
 	headers["If-Match"] = profile.Header().Get("ETag")
 	updatedProfile := perform(h, http.MethodPatch, "/api/v2/git/routing-profile", `{"origins":["https://example.com"]}`, headers)
 	require.Equal(t, 200, updatedProfile.Code, updatedProfile.Body.String())
-	require.Contains(t, updatedProfile.Body.String(), `"active":false`)
+	require.Contains(t, updatedProfile.Body.String(), `"active":true`)
 	headers["If-Match"] = edited.Header().Get("ETag")
 	require.Equal(t, 204, perform(h, http.MethodDelete, path, "", headers).Code)
 	delete(headers, "If-Match")

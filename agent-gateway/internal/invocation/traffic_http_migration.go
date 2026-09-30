@@ -16,10 +16,10 @@ func (s *TrafficStore) upgradeTraffic(ctx context.Context) error {
 	if err := s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
-	if version == 2 {
+	if version == 3 {
 		return nil
 	}
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return ErrInvalidState
 	}
 	if err := s.reserveTraffic(ctx); err != nil {
@@ -32,9 +32,14 @@ func (s *TrafficStore) upgradeTraffic(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, storage.TrafficHTTPMigration())
+	if version == 1 {
+		_, err = tx.ExecContext(ctx, storage.TrafficHTTPMigration())
+	}
 	if err == nil {
-		_, err = tx.ExecContext(ctx, `PRAGMA user_version=2`)
+		_, err = tx.ExecContext(ctx, storage.TrafficGitMigration())
+	}
+	if err == nil {
+		_, err = tx.ExecContext(ctx, `PRAGMA user_version=3`)
 	}
 	if err == nil {
 		err = s.inject("http_migration_commit")
@@ -49,7 +54,7 @@ func (s *TrafficStore) upgradeTraffic(ctx context.Context) error {
 		return errors.Join(ErrTrafficFault, err)
 	}
 	// No second row scan: nothing in the validated evidence was transformed.
-	if err = s.validateTrafficSchema(ctx, 2); err != nil {
+	if err = s.validateTrafficSchema(ctx, 3); err != nil {
 		return err
 	}
 	return trafficFiles(s.path, s.config)

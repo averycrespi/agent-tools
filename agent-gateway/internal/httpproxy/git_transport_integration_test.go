@@ -25,14 +25,14 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
-// Exchange facts deliberately exclude bodies, headers and credentials. Later Git
-// policy owners can reuse the repository assertions with narrower fixture grants.
+// Exchange facts deliberately exclude bodies, headers and credentials. These
+// native fixtures run under Git policy, not HTTP-only request permission.
 type gitExchange struct {
 	path, protocol string
 	bytes          int
@@ -85,6 +85,11 @@ func newNativeGitFixture(t *testing.T) *nativeGitFixture {
 	secret := fmt.Sprintf("%x", n.secret)
 	n.secret = []byte(secret)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ordinary" || strings.HasPrefix(r.URL.Path, "/upstream.git/releases/") || r.URL.Path == "/upstream.git/issues" {
+			n.record(gitExchange{path: r.URL.Path, status: 200})
+			_, _ = io.WriteString(w, "ordinary HTTP")
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer "+secret || r.Header.Get("Proxy-Authorization") != "" {
 			w.WriteHeader(403)
 			return
@@ -156,10 +161,21 @@ func newNativeGitFixture(t *testing.T) *nativeGitFixture {
 	require.NoError(t, err)
 	addr, err := netip.ParseAddrPort(u.Host)
 	require.NoError(t, err)
-	material, err := n.proxy.materials.Create(audit.WithSystem(t.Context()), httpcredentials.Definition{Name: "native-git-fixture", Boundary: httpcredentials.Boundary{Host: addr.Addr().String(), Port: addr.Port()}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, n.secret)
+	require.True(t, addr.IsValid())
+	material, err := n.proxy.gitMaterials.Create(audit.WithSystem(t.Context()), contract.GitCredentialDefinition{Name: "native-git-fixture", Origin: server.URL, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, append([]byte(nil), n.secret...))
 	require.NoError(t, err)
-	n.proxy.allow(t, server.URL, "allow_requests", "/upstream.git", material.ID)
+	// This grant supplies only explicit private-network permission. It selects
+	// no HTTP material; Git admission still requires its independent ref policy.
+	n.proxy.allow(t, server.URL, "allow_requests", "/upstream.git", "")
 	n.remote = server.URL + "/upstream.git"
+	repository, err := n.proxy.authority.PutGitRepository(audit.WithSystem(t.Context()), "", "", contract.GitRepositoryDefinition{Name: "native", URL: n.remote, Aliases: []string{}, CredentialID: &material.ID})
+	require.NoError(t, err)
+	_, err = n.proxy.authority.PutGitGrant(audit.WithSystem(t.Context()), "", "", authorization.GitGrantInput{PrincipalID: n.proxy.credential.Principal.ID, RepositoryID: repository.ID, Policy: json.RawMessage(`{"version":1,"read":true,"refs":[{"ref":{"kind":"prefix","value":"refs/heads/"},"actions":["create","update","delete"]},{"ref":{"kind":"prefix","value":"refs/tags/"},"actions":["create","update","delete"]}]}`)})
+	require.NoError(t, err)
+	profile, err := n.proxy.authority.GetGitRoutingProfile(t.Context())
+	require.NoError(t, err)
+	_, err = n.proxy.authority.PutGitRoutingProfile(audit.WithSystem(t.Context()), profile.Revision, []string{server.URL})
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(n.root, "ca.pem"), n.proxy.publicCA, 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(n.root, "proxy-token"), []byte(n.proxy.credential.Bearer), 0600))
 	n.wrapper = filepath.Join(n.root, "client-git.sh")
@@ -179,14 +195,14 @@ func newNativeGitFixture(t *testing.T) *nativeGitFixture {
 			}
 			require.Error(t, dialErr, "owned native Git listener survived cleanup")
 		}
-		history, err := n.proxy.traffic.HTTPHistory(ctx, 0, 256)
+		history, err := n.proxy.traffic.GitHistory(ctx, 0, 256)
 		require.NoError(t, err)
 		encoded, err := json.Marshal(history)
 		require.NoError(t, err)
 		for _, canary := range [][]byte{n.secret, []byte(n.proxy.credential.Bearer)} {
 			scanner, err := testutil.NewCanaryScanner(canary)
 			require.NoError(t, err)
-			require.NoError(t, scanner.Scan("retained HTTP traffic", bytes.NewReader(encoded)))
+			require.NoError(t, scanner.Scan("retained Git traffic", bytes.NewReader(encoded)))
 		}
 		require.NoError(t, os.RemoveAll(n.root))
 		_, err = os.Stat(n.root)
@@ -339,7 +355,7 @@ func TestIntegrationNativeGitInterruptedPushNoReplay(t *testing.T) {
 	n.clientRun(n.root, "clone", n.remote, n.client)
 	initial := n.ref("refs/heads/main")
 	n.commit("Interrupted disposable push")
-	beforePush, err := n.proxy.traffic.HTTPHistory(t.Context(), 0, 256)
+	beforePush, err := n.proxy.traffic.GitHistory(t.Context(), 0, 256)
 	require.NoError(t, err)
 	n.mu.Lock()
 	n.interrupt = true
@@ -371,11 +387,11 @@ func TestIntegrationNativeGitInterruptedPushNoReplay(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, count, "Gateway must not replay dispatched receive-pack")
-	history, err := n.proxy.traffic.HTTPHistory(t.Context(), beforePush.HighWater, 256)
+	history, err := n.proxy.traffic.GitHistory(t.Context(), beforePush.HighWater, 256)
 	require.NoError(t, err)
 	interruptedRecords := 0
 	for _, record := range history.Records {
-		if record.Admission.Target != nil && record.Admission.Target.Method == "POST" {
+		if record.Admission.Operation == "push" {
 			interruptedRecords++
 			// Even a recorded terminal transport observation is not a Git
 			// completion receipt. Absent terminal evidence is unknown as well.
@@ -386,6 +402,64 @@ func TestIntegrationNativeGitInterruptedPushNoReplay(t *testing.T) {
 	}
 	require.Equal(t, 1, interruptedRecords)
 	require.Equal(t, initial, n.ref("refs/heads/main"), "fixture deliberately withheld upstream execution, not a general rollback guarantee")
+}
+
+func TestIntegrationNativeGitDeniedCommandsNeverDispatch(t *testing.T) {
+	n := newNativeGitFixture(t)
+	n.clientRun(n.root, "clone", n.remote, n.client)
+	grants, err := n.proxy.authority.ListGitGrants(t.Context())
+	require.NoError(t, err)
+	require.Len(t, grants, 1)
+	grant := grants[0]
+	_, err = n.proxy.authority.PutGitGrant(audit.WithSystem(t.Context()), grant.ID, grant.Revision, authorization.GitGrantInput{PrincipalID: grant.PrincipalID, RepositoryID: grant.RepositoryID, Policy: json.RawMessage(`{"version":1,"read":true,"refs":[{"ref":{"kind":"exact","value":"refs/heads/allowed"},"actions":["create"]}]}`)})
+	require.NoError(t, err)
+	zero, one := strings.Repeat("0", 40), strings.Repeat("1", 40)
+	packet := func(ref string) string {
+		value := zero + " " + one + " " + ref
+		return fmt.Sprintf("%04x%s", len(value)+4, value)
+	}
+	for _, test := range []struct{ path, method, body, contentType string }{
+		{"/upstream.git/git-receive-pack", "POST", packet("refs/heads/allowed") + packet("refs/heads/denied") + "0000PACKopaque", "application/x-git-receive-pack-request"},
+		{"/upstream.git/git-receive-pack", "POST", "0000trailing", "application/x-git-receive-pack-request"},
+		{"/unknown.git/git-receive-pack", "POST", "0000", "application/x-git-receive-pack-request"},
+		{"/upstream.git/git-receive-pack", "POST", "0000", "text/plain"},
+		{"/upstream.git/info/refs?service=git-upload-pack&service=git-receive-pack", "GET", "", ""},
+		{"/upstream.git/git%252dreceive-pack", "POST", "0000", "application/x-git-receive-pack-request"},
+	} {
+		t.Run(test.path+test.contentType, func(t *testing.T) {
+			before := len(n.facts())
+			conn := n.proxy.intercept(t, n.remote, "http/1.1")
+			u, err := url.Parse(n.remote)
+			require.NoError(t, err)
+			_, err = fmt.Fprintf(conn, "%s %s HTTP/1.1\r\nHost: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", test.method, test.path, u.Host, test.contentType, len(test.body), test.body)
+			require.NoError(t, err)
+			response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: test.method})
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, response.StatusCode, 400)
+			_, err = io.Copy(io.Discard, response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			require.NoError(t, conn.Close())
+			require.Equal(t, before, len(n.facts()), "denial must make zero upstream exchanges")
+		})
+	}
+	// Profile activation does not take ordinary pages away from HTTP policy.
+	u, err := url.Parse(n.remote)
+	require.NoError(t, err)
+	n.proxy.allow(t, u.Scheme+"://"+u.Host, "allow_requests", "", "")
+	for _, ordinary := range []string{"/ordinary", "/ordinary?q=service", "/ordinary?q=git-upload-pack&service=search", "/upstream.git/issues?q=service", "/upstream.git/releases/download/v1/HEAD", "/upstream.git/releases/download/objects/app.zip", "/upstream.git/releases/download/v1/git-receive-pack.exe", "/upstream.git/releases/download/v1/git-receive-pack"} {
+		conn := n.proxy.intercept(t, n.remote, "http/1.1")
+		_, err = fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", ordinary, u.Host)
+		require.NoError(t, err)
+		response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "GET"})
+		require.NoError(t, err)
+		require.Equal(t, 200, response.StatusCode, ordinary)
+		body, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, "ordinary HTTP", string(body))
+		require.NoError(t, response.Body.Close())
+		require.NoError(t, conn.Close())
+	}
 }
 
 func mustReadGitFile(t *testing.T, path string) []byte {

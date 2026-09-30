@@ -204,6 +204,49 @@ preserved. H2 can retain legal 304 representation length, which describes the se
 representation rather than bytes to be sent. This does not promise that every client
 library interprets that metadata correctly.
 
+## Git routing and dispatch
+
+On enabled HTTPS profile origins, validated method/URL coordinates classify
+upload-pack and receive-pack discovery/service endpoints before HTTP policy.
+Only configured canonical repositories and explicit `.git` aliases match.
+Content-Type validates consistency, never routing authority. Unknown, ambiguous,
+escaped, malformed or unsupported Git-shaped traffic rejects without HTTP fallback;
+pages, archives, releases and downloads remain ordinary HTTP. Endpoint detection
+uses coordinates relative to configured roots (including retained tombstones), or
+the owner/repository coordinates of unknown GitHub repositories; arbitrary asset
+names and query text are not service endpoints. HTTP admission rechecks Git
+exclusion inside its own authority/profile snapshot, so activation between initial
+classification and evaluation cannot create an HTTP-authorized Git dispatch.
+Destination/TLS and listener checks remain shared and unconditional.
+
+The request-local `gitwire` owner parses receive-pack commands before admission.
+Limits are 256 KiB control prefix, 128 commands, 4 KiB capabilities, 32 capability
+tokens, 1,024-byte refs, and one nonrenewable ten-second client-read deadline.
+Unsigned SHA-1 branch/tag create/update/delete commands validate OIDs, pkt-line
+framing and duplicate destinations. Every command must be authorized; no command
+removal or partial forwarding is permitted. Negotiated atomic pushes retain their
+exact wire controls without downgrade. Signed certificates, push options, shallow
+controls, SHA-256, HTTP content encoding, dumb HTTP and alternate object transfers
+are unsupported. PACK compression is opaque and permitted.
+
+Discovery bodies and flush-only `0000` probes require exact EOF. Delete-only bodies
+also require EOF before admission; create/update requests require the PACK signature
+then stream the opaque remainder with bounded buffers/backpressure. The exact
+validated prefix, source, actions and configuration revisions remain in one private
+owner; candidates bind its identity as well as durable evidence. Retained summary
+equality cannot substitute a different owner. Nothing invokes host Git or stores
+objects in production. Native Git and backend processes exist only in fixtures.
+
+After acknowledged admission and unchanged authority/material confirmation, the
+engine injects only the repository-selected Git credential and makes one exchange.
+There is no redirect, refresh, replay or uncertain-push retry. Each new client
+request needs independent admission. Cancellation, rejection, early responses and
+drain settle upload readers, streams, material and synchronous best-effort completion
+owners; a timeout does not assert settlement. Missing terminal evidence remains
+unknown, and even clean HTTP 200 never asserts a successful Git ref mutation.
+A complete transfer requires both the upload and response to finish; an early
+response to an unfinished upload is not a complete transfer.
+
 ## Governed invocation and audit evidence
 
 Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover).

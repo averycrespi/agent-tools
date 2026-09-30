@@ -104,7 +104,7 @@ func TestGitPolicyMutationFencesPendingConfirmationAndProfileSurvivesDeletion(t 
 	require.NoError(t, err)
 	profile, err = r.PutGitRoutingProfile(ctx, profile.Revision, []string{"https://example.com"})
 	require.NoError(t, err)
-	require.False(t, profile.Active)
+	require.True(t, profile.Active)
 	pending := mustAuthenticateLease(t, r, credential.Bearer)
 	defer pending.Release()
 	evaluation, err := r.EvaluateAdmission(ctx, pending, id(88), &ResolvedVerification{Target: accesstarget.Tool(contract.SyntheticServerID, "tool"), Arguments: mustAdmissionArguments(t, `{}`)})

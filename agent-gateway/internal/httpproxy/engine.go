@@ -18,6 +18,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
@@ -28,15 +29,16 @@ import (
 var ErrUnavailable = errors.New("HTTP proxy unavailable")
 
 type Options struct {
-	Authority  *authorization.Repository
-	Evidence   *invocation.Repository
-	Admissions *invocation.AdmissionCoordinator
-	Materials  *httpcredentials.Service
-	Remote     *remote.Factory
-	Signer     *httpca.Signer
-	Listeners  func() []netip.AddrPort
-	Now        func() time.Time
-	Ready      func() bool
+	Authority    *authorization.Repository
+	Evidence     *invocation.Repository
+	Admissions   *invocation.AdmissionCoordinator
+	Materials    *httpcredentials.Service
+	GitMaterials *gitcredentials.Service
+	Remote       *remote.Factory
+	Signer       *httpca.Signer
+	Listeners    func() []netip.AddrPort
+	Now          func() time.Time
+	Ready        func() bool
 }
 
 type Engine struct {
@@ -267,6 +269,15 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	address, err := e.options.Remote.ResolveProxy(r.Context(), target.Destination(), e.options.Listeners)
 	if err != nil {
 		reject(w, http.StatusForbidden)
+		return
+	}
+	repository, profile, git, err := e.options.Authority.ResolveGitRequest(r.Context(), target)
+	if err != nil {
+		reject(w, http.StatusForbidden)
+		return
+	}
+	if git {
+		e.git(w, r, lease, target, address, repository, profile)
 		return
 	}
 	identity, err := e.options.Evidence.PrepareIdentity()

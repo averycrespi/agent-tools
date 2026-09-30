@@ -97,7 +97,7 @@ func TestIntegrationGitPairedRestorePreservesConfigurationNotRetiredMaterial(t *
 	retainedProfile, err := restoredPolicies.GetGitRoutingProfile(ctx)
 	require.NoError(t, err)
 	require.Equal(t, profile, retainedProfile)
-	require.False(t, retainedProfile.Active)
+	require.True(t, retainedProfile.Active)
 	restoredGeneration, err := restored.SelectedTraffic(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, restoredGeneration)

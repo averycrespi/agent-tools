@@ -44,7 +44,7 @@ Every connection installs a two-second busy policy, enables foreign keys, verifi
 ## Isolated traffic store
 
 Schema 18 adds the control-owned `traffic_selection` singleton. Production selects
-exactly one independently bound `invocation.TrafficStore` for MCP and HTTP evidence,
+exactly one independently bound `invocation.TrafficStore` for MCP, HTTP and Git evidence,
 completion and history. Control retains identities, credentials, policy, requests,
 configuration and administrative audit. Storage owns traffic DDL; invocation owns
 its evidence, SQL, validation, writer and reads. There is one composition graph,
@@ -54,7 +54,7 @@ A missing, foreign or invalid selected generation fails closed; an unselected
 legacy installation requires explicit stopped migration, never live backfill.
 
 An explicitly created `traffic-<generation>.db` uses application ID `MGT1`, schema
-2, and exact installation/generation bindings. Control schema 20 retains the
+3, and exact installation/generation bindings. Control schema 20 retains the
 existing installation/generation selector: its binding format does not change.
 Traffic schema 2 adds a distinct `http_traffic` table, stored indexed query facts,
 and immutable-admission/one-terminal triggers in the same database. MCP tables,
@@ -73,20 +73,32 @@ bound and fixed charge; nested stage/condition/context vocabulary is validated b
 the same canonical encoder on writes, startup, reads, backup and restore. Missing
 historical termination is never synthesized from status or outcome.
 
+Traffic schema 3 adds a distinct `git_traffic` table with immutable admission and
+one-terminal triggers to that same generation. Its minimal bounded admission
+contains identities/revisions, operation, command count, allowed disposition and
+selected material generation, never observed refs/OIDs, policy selectors, URLs,
+prefixes, hashes, packs, arbitrary messages or secrets. Completion contains only
+closed transport facts: prestart failure, unknown outcome or nonmutation, byte
+counts, duration, status and transfer-complete flag. Missing terminal stays unknown;
+even a complete HTTP 200 push remains outcome_unknown, not Git success. Git rows
+share sequence allocation, cross-domain identity uniqueness, retention, pins and
+physical budgets with MCP and HTTP. Every retained row is semantically validated.
+
 Before readiness, under existing installation ownership and before constructing
-readers or starting the writer, a schema-1 selected generation receives exactly
+readers or starting the writer, a schema-1 or schema-2 selected generation receives
 one complete schema/binding/evidence/accounting validation. A bounded transaction
-then adds only empty HTTP tables/indexes/triggers and advances user_version to 2.
+adds only the missing empty HTTP/Git tables/indexes/triggers and advances
+user_version to 3.
 This uses the existing writer connection, physical reservation and FULL durability;
 after commit, exact new DDL and file bounds are verified without rescanning
-unchanged evidence. Current schema-2 startup performs one complete validation of
-both domains. A failed or uncertain migration never produces a ready store;
+unchanged evidence. Current schema-3 startup performs one complete validation of
+all three domains. A failed or uncertain migration never produces a ready store;
 a fresh startup validates the atomic version that actually settled. No online
 backfill, new operator command, file replacement or implicit empty initialization
 is involved. Existing selected pairs still reject `migrate-traffic`; schema-17
 single-store extraction remains the explicit stopped operation. Older readers
-reject traffic schema 2. Immutable paired backup verification accepts exact
-schema-1 and schema-2 definitions, and restore copies both domains into a fresh
+reject traffic schema 3. Immutable paired backup verification accepts exact
+schema-1, schema-2 and schema-3 definitions, and restore copies present domains into a fresh
 generation while preserving missing completions. Creation checkpoints and closes an
 owner-only stage, syncs its file, publishes without replacing an existing name,
 and syncs the directory before and after removing the staging name. Failed
@@ -128,9 +140,10 @@ work well below the combined limit; it is not a throughput guarantee or a hard
 bound on uninterruptible filesystem I/O. Ownership remains held until settlement.
 
 Logical retention charges include encoded evidence plus 1024 bytes and the
-protocol's reserved completion payload: 512 bytes for MCP diagnostics or HTTP
+protocol's reserved completion payload: 512 bytes for MCP diagnostics, Git or HTTP
 terminal facts. HTTP admission JSON is at most 65,536 bytes; its charge includes
-that entire immutable payload. MCP retains its existing 16,384-byte charged-record
+that entire immutable payload. Git admission JSON is at most 8,192 bytes and
+reserves the same 512-byte completion allowance. MCP retains its existing 16,384-byte charged-record
 ceiling. Shared batching reserves for the largest accepted domain member. The logical allowance is one quarter of the
 database partition, leaving index/fragmentation headroom. A separately configurable
 1–1,000,000 retained-row ceiling bounds full semantic validation work; it is not a

@@ -54,6 +54,7 @@ internal/downstream/         Raw bounded JSON-RPC and stdio/Streamable HTTP conn
 internal/accesstarget/       MCP target values and scope comparisons
 internal/httppolicy/         Pure HTTP v1 policy and canonical targets
 internal/gitpolicy/          Pure Git v1 policy and canonical locators
+internal/gitwire/            Private bounded Git wire parsing and one-dispatch request owners
 internal/authorization/      Principals, credentials, grants, policy SQL, and admission leases
 internal/discovery/          Principal-specific current-tool projection and cursors
 internal/grantrequests/      Durable request workflow, evidence, dedupe, and adjudication

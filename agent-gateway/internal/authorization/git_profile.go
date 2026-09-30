@@ -42,6 +42,7 @@ func gitRoutingProfileTx(ctx context.Context, tx *sql.Tx) (contract.GitRoutingPr
 	if err != nil || string(encoded) != raw {
 		return profile, ErrInvalidState
 	}
+	profile.Active = true
 	return profile, nil
 }
 
@@ -64,6 +65,17 @@ func (r *Repository) PutGitRoutingProfile(ctx context.Context, revision string, 
 		}
 		if current.Revision != revision {
 			return ErrStaleRevision
+		}
+		// The authority gate serializes this check with final opaque admission;
+		// actual owners remain registered through network and completion cleanup.
+		r.authority.mu.Lock()
+		occupied := false
+		for _, origin := range canonical {
+			occupied = occupied || r.authority.opaqueGitOrigins[origin] != 0
+		}
+		r.authority.mu.Unlock()
+		if occupied {
+			return ErrConflict
 		}
 		if _, e := tx.ExecContext(ctx, `UPDATE git_routing_profile SET origins_json=?,revision=revision+1 WHERE singleton=1`, string(raw)); e != nil {
 			return e

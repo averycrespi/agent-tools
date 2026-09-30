@@ -161,10 +161,10 @@ Existing `--visibility`, API `visibility`, and creation `default_grant` names re
 ## Git configuration and access
 
 `agent-gateway git` manages repositories, Git-only grants/credentials and independent
-routing intent through `/api/v2/git`. This is configuration only: production Git
-routing/ref enforcement and tunnel-transition qualification are not active here.
-Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and secrets
-never inherit HTTP defaults, HTTP grants or HTTP credentials. Use
+routing through `/api/v2/git`. Enabled HTTPS origins classify smart Git separately
+from ordinary HTTP and authorize every requested ref action before forwarding a
+push. Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and
+secrets never inherit HTTP defaults, request grants or HTTP credentials. Use
 `agent-gateway git --help` for the command tree. Git configuration capabilities
 have API/CLI owners in `GitControlPlaneCapabilityManifest`, separately from the
 browser capability inventory; no Git browser controls are claimed.
@@ -212,7 +212,15 @@ spelling at the same origin/base. Metadata update retains the canonical URL.
 
 Profile files are exactly `{"origins":["https://github.com"]}`. Origins normalize
 to explicit effective ports; repository deletion never removes profile intent.
-The read-only `active:false` gate cannot be activated by a profile write.
+The read-only `active:true` field reports the enforcement gate. Activation refuses
+while a matching opaque tunnel is still settling; let that owner finish before
+submitting a new conditional update. Existing work is not canceled. Enabled origins
+refuse opaque CONNECT even after the last repository is removed. Receive-pack
+discovery and large-push flush probes require read plus a push-capable grant, but
+never authorize a later push. Unsupported signed pushes, push options, SHA-256,
+HTTP-compressed push bodies, dumb HTTP, LFS and SSH fail closed. HTTP 200 does not
+prove that the upstream accepted a push; use the native Git result. Local fixture
+coverage does not qualify live GitHub, native installation or client adoption.
 
 Credential files require `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
 and write-only `secret`; metadata files omit secret, and rotation files contain
