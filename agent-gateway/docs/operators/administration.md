@@ -158,6 +158,78 @@ Existing `--visibility`, API `visibility`, and creation `default_grant` names re
 
 `agent-gateway http --help` groups scoped credentials, grants, agent HTTP defaults and policy-only Test access. Use **HTTP → Grants** or `http grant list|get|create|update|delete`; `http default get|update` operates on an agent ID without changing MCP defaults. `http test-access --file PATH` previews policy without DNS, dispatch or secret resolution. The [HTTP access-control guide](access-control.md#http-grants-and-test-access) owns complete file shapes, examples, precedence and limitations. All writes retain the shared strict-file, exact-ETag, confirmation and no-replay mechanics. This surface starts no production proxy. Strict clients must follow the [agent HTTP-default cutover](upgrade-compatibility.md#principal-http-default-client-cutover); unknown outcomes require inspection, never replay.
 
+## Git configuration and access
+
+`agent-gateway git` manages repositories, Git-only grants/credentials and independent
+routing intent through `/api/v2/git`. This is configuration only: production Git
+routing/ref enforcement and tunnel-transition qualification are not active here.
+Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and secrets
+never inherit HTTP defaults, HTTP grants or HTTP credentials. Use
+`agent-gateway git --help` for the command tree. Git configuration capabilities
+have API/CLI owners in `GitControlPlaneCapabilityManifest`, separately from the
+browser capability inventory; no Git browser controls are claimed.
+
+Create a repository from a strict JSON file with deliberate public access:
+
+```json
+{
+  "name": "Team repository",
+  "url": "https://github.com/team/repository",
+  "aliases": ["https://github.com/team/repository.git"],
+  "credential_id": null
+}
+```
+
+```bash
+agent-gateway git repository create --file /private/repository.json --yes
+agent-gateway git repository list
+agent-gateway git repository get ID
+agent-gateway git repository update ID --file /private/repository.json --yes
+agent-gateway git repository delete ID --yes
+agent-gateway git grant create --file /private/grant.json --yes
+agent-gateway git grant list
+agent-gateway git grant get ID
+agent-gateway git grant update ID --file /private/grant.json --yes
+agent-gateway git grant delete ID --yes
+agent-gateway git routing-profile get
+agent-gateway git routing-profile update --file /private/profile.json --yes
+agent-gateway git credential list
+agent-gateway git credential get ID
+agent-gateway git credential create --file /private/credential.json --yes
+agent-gateway git credential update ID --file /private/metadata.json --yes
+agent-gateway git credential rotate ID --file /private/rotation.json --yes
+agent-gateway git credential delete ID --yes
+```
+
+A grant file requires `principal_id`, `repository_id`, nullable `description`,
+nullable `expires_at`, and `policy`. A read-only policy is
+`{"version":1,"read":true,"refs":[]}`. To permit branch creation/update, include
+`{"ref":{"kind":"prefix","value":"refs/heads/team/"},"actions":["create","update"]}`
+in `refs`; deletion remains denied. Write-only grants reject. Exact selectors
+use `kind:"exact"` and a fully qualified ref. Different destinations require new
+repository identities and grants; aliases only add/remove terminal `.git`
+spelling at the same origin/base. Metadata update retains the canonical URL.
+
+Profile files are exactly `{"origins":["https://github.com"]}`. Origins normalize
+to explicit effective ports; repository deletion never removes profile intent.
+The read-only `active:false` gate cannot be activated by a profile write.
+
+Credential files require `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
+and write-only `secret`; metadata files omit secret, and rotation files contain
+only secret. Deliberately supply existing HTTPS-compatible material using a
+private file or stdin, never argv/environment, host helper execution or credential
+store scanning. Do not save material in source, backups or browser storage.
+Selected missing/unavailable material has no public-access or old-generation
+fallback. Every retained repository reference, including deleted configuration,
+prevents credential deletion or incompatible origin/recipe edits. Restore
+invalidates protected material; deliberately resupply it after recovery.
+
+All edits/deletes/rotations use exact ETags. Omission performs one validated
+preflight; explicit `--etag` is never refreshed. Authority changes fence pending
+admissions and retain atomic administrative audit. No command replays an uncertain
+mutation. The [Git public contract](../design/public-contract.md#git-configuration-resources)
+owns exact shapes, bounds and failures.
+
 ## Scoped HTTP credentials
 
 Use **HTTP → Credentials** to create, inspect, edit, rotate or delete a reusable HTTPS credential. It has one host/port boundary, one header, an optional fixed prefix, and one write-only secret. `Authorization` with `Bearer ` and custom API-key headers are supported. Wildcard hosts require both `*.example.com` spelling and explicit opt-in; they do not cover the apex. Transport-control headers cannot be overwritten. Credentials alone grant no HTTP access and do not start a proxy.

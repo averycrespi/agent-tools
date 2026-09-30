@@ -20,6 +20,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/discovery"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/grantrequests"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
@@ -78,6 +79,8 @@ type ControlAPIDependencies struct {
 
 	HTTPPolicies    *authorization.Repository
 	HTTPCredentials *httpcredentials.Service
+	GitPolicies     *authorization.Repository
+	GitCredentials  *gitcredentials.Service
 }
 
 type Composition struct {
@@ -120,6 +123,7 @@ type Composition struct {
 	refresh              *oauth.RefreshService
 	replacements         *servercredentials.Service
 	httpCredentials      *httpcredentials.Service
+	gitCredentials       *gitcredentials.Service
 	httpCA               *httpca.Service
 	httpProxy            *httpproxy.Engine
 	httpProxyAuthority   string
@@ -213,10 +217,10 @@ func (built *Composition) AgentIngress() (AgentIngressDependencies, bool) {
 	}, true
 }
 func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
-	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil || built.httpCredentials == nil {
+	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil || built.httpCredentials == nil || built.gitCredentials == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization}, true
+	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization, GitPolicies: built.authorization, GitCredentials: built.gitCredentials}, true
 }
 func (built *Composition) authorityDependenciesComplete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
@@ -825,6 +829,13 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	built.httpCredentials, err = httpcredentials.NewService(httpRepository, built.keyring, options.InstallationID)
 	if err != nil {
 		return nil, fmt.Errorf("construct HTTP credential service: %w", err)
+	}
+	if err := gitcredentials.ValidateStartup(context.Background(), options.Store); err != nil {
+		return nil, fmt.Errorf("validate Git credentials: %w", err)
+	}
+	built.gitCredentials, err = gitcredentials.NewService(options.Store, built.keyring, built.authorization, options.Clock, options.Entropy, options.InstallationID)
+	if err != nil {
+		return nil, fmt.Errorf("construct Git credentials: %w", err)
 	}
 	if err := check("replacement_service"); err != nil {
 		return nil, err

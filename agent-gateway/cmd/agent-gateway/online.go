@@ -416,7 +416,7 @@ func onlineUsageProblem(spec onlineCommandSpec, title string) *controlclient.Onl
 }
 
 func onlineCommandSpecs() []onlineCommandSpec {
-	return []onlineCommandSpec{
+	return append(gitOnlineSpecs(), []onlineCommandSpec{
 		onlineSpec([]string{"http", "traffic", "list"}, "list", "http traffic list", "limit", "cursor", "principal-id", "destination", "type", "decision", "outcome", "connect-id"),
 		onlineSpec([]string{"http", "traffic", "get"}, "get ID", "http traffic get ID"),
 		onlineSpec([]string{"http", "grant", "list"}, "list", "http grant list", "limit", "cursor"),
@@ -478,7 +478,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"mcp", "grant-request", "reject"}, "reject REQUEST_ID", "mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]", "reason", "etag", "yes"),
 		onlineSpec([]string{"mcp", "invocation", "list"}, "list", "mcp invocation list", "limit", "cursor", "principal-id", "server-id", "requested-name", "admission-class", "decision", "outcome"),
 		onlineSpec([]string{"mcp", "invocation", "get"}, "get INVOCATION_ID", "mcp invocation get INVOCATION_ID"),
-	}
+	}...)
 }
 
 func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineCommandSpec {
@@ -490,6 +490,11 @@ func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineC
 
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineGroupDescriptions = map[string]string{
+	"git":                   "Manage Git configuration and access",
+	"git repository":        "Manage Git repositories",
+	"git grant":             "Manage Git access grants",
+	"git credential":        "Manage Git credentials",
+	"git routing-profile":   "Manage Git routing intent",
 	"http":                  "Manage HTTP access",
 	"http traffic":          "View HTTP traffic history",
 	"http grant":            "Manage HTTP access grants",

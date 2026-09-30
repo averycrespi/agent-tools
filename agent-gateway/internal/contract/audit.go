@@ -126,6 +126,10 @@ var (
 		"http_credential":   {"create", "update", "rotate", "delete", "invalidate"},
 		"http_grant":        {"create", "update", "delete"},
 		"http_default":      {"update"},
+		"git_repository":    {"create", "update", "delete"},
+		"git_grant":         {"create", "update", "delete"},
+		"git_credential":    {"create", "update", "rotate", "delete", "invalidate"},
+		"git_profile":       {"update"},
 		"operation":         {"request", "activate", "reload", "retry", "refresh_catalog", "credential_replace", "disable", "delete", "disconnect_credentials", "schedule", "start", "finish", "recover"},
 		"oauth":             {"create", "prepare", "authorize", "register", "publish_registration", "invalidate_registration", "await_callback", "begin_exchange", "exchange", "refresh", "install", "finish", "cancel", "expire", "supersede", "recover", "revoke"},
 		"catalog":           {"refresh", "commit", "publish", "retire", "invalidate", "fence", "withdraw"},
@@ -156,7 +160,7 @@ func AuditCategories() []string {
 }
 
 func AuditTargetTypes() []string {
-	return []string{"installation", "admin_credential", "backup", "server", "operation", "auth_flow", "principal", "agent_credential", "grant", "grant_request", "descriptor", "http_credential", "http_grant", "http_default"}
+	return []string{"installation", "admin_credential", "backup", "server", "operation", "auth_flow", "principal", "agent_credential", "grant", "grant_request", "descriptor", "http_credential", "http_grant", "http_default", "git_repository", "git_grant", "git_credential"}
 }
 
 func AuditOutcomes() []string {

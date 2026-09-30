@@ -36,6 +36,8 @@ Gateway listens on loopback. Local clients connect directly; VMs and containers 
 
 Manage agents and scoped MCP/HTTP access in the browser. **MCP → Invocations** shows redacted call history; **Audit Log** includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
 
+[Git configuration](docs/operators/administration.md#git-configuration-and-access) manages immutable repositories, Git-only credentials and ref grants. Production Git routing and enforcement remain inactive.
+
 Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
 
 ### Explicit about uncertain outcomes

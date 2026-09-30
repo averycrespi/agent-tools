@@ -234,7 +234,8 @@ func testSourceOwnershipGuards(t *testing.T, root string, sources []productionSo
 	assert.Contains(t, recoverySource, "func invalidateAgentCredentialCandidate(")
 	assert.Equal(t, 1, strings.Count(recoverySource, "UPDATE principals"), "internal/storage/recovery.go: only stopped candidate recovery may own S3 SQL")
 	assert.Equal(t, 1, strings.Count(recoverySource, "principals"), "internal/storage/recovery.go: stopped recovery gets one exact S3 table reference")
-	assert.NotContains(t, recoverySource, "authorization_meta")
+	assert.Equal(t, 1, strings.Count(recoverySource, "authorization_meta"), "internal/storage/recovery.go: only stopped Git fence recovery may advance shared revision")
+	assert.Equal(t, 1, strings.Count(recoverySource, "UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1"))
 	assert.NotContains(t, recoverySource, "grants")
 }
 
@@ -636,6 +637,11 @@ func s3SQLViolations(source productionSource) []string {
 		if source.path == "internal/storage/recovery.go" && function == "invalidateAgentCredentialCandidate" {
 			return true
 		}
+		// Stopped marker recovery may fence Git material before a live authority
+		// owner exists, but cannot read or mutate principals or grants.
+		if source.path == "internal/storage/recovery.go" && function == "restoreKeyringAuthorityFence" && value == "UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1" {
+			return true
+		}
 		seen := make(map[string]struct{})
 		for _, match := range s3SQLTable.FindAllStringSubmatch(value, -1) {
 			table := strings.ToLower(match[1])
@@ -760,7 +766,7 @@ func s3MigrationViolations(t *testing.T, root string) []string {
 	for _, path := range paths {
 		contents, readErr := os.ReadFile(path)
 		require.NoError(t, readErr)
-		if filepath.Base(path) == "008_authorization.sql" || filepath.Base(path) == "012_grant_names.sql" || filepath.Base(path) == "013_grant_descriptions.sql" || filepath.Base(path) == "016_read_only_grants.sql" || filepath.Base(path) == "020_http_grants.sql" || !s3SQLVerb.Match(contents) {
+		if filepath.Base(path) == "008_authorization.sql" || filepath.Base(path) == "012_grant_names.sql" || filepath.Base(path) == "013_grant_descriptions.sql" || filepath.Base(path) == "016_read_only_grants.sql" || filepath.Base(path) == "020_http_grants.sql" || filepath.Base(path) == "022_git_authority.sql" || !s3SQLVerb.Match(contents) {
 			continue
 		}
 		relative, relErr := filepath.Rel(root, path)

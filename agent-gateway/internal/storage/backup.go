@@ -41,6 +41,29 @@ func (store *Store) BackupTo(ctx context.Context, destination string) error {
 	return nil
 }
 
+// ViewBackup lends one immutable read-only transaction to a domain validator.
+// It performs no migration, native access, writable attachment or sidecar work.
+func ViewBackup(ctx context.Context, path string, validate func(*sql.Tx) error) error {
+	if validate == nil {
+		return ErrInvalidDatabase
+	}
+	if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
+		return err
+	}
+	uri := &url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&immutable=1"}
+	database, err := sql.Open("sqlite3", uri.String())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = database.Close() }()
+	transaction, err := database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	return validate(transaction)
+}
+
 // VerifyBackup validates a closed current or accepted schema-3-and-later backup without changing it.
 func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 	if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
@@ -72,6 +95,11 @@ func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 	}
 	if applicationID != ApplicationID || schema < 3 || schema > CurrentSchema || !installationIDPattern.MatchString(installationID) || revision < 0 || integrity != "ok" {
 		return Identity{}, fmt.Errorf("%w: backup identity or integrity mismatch", ErrInvalidDatabase)
+	}
+	if schema >= 22 {
+		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "022_git_authority.sql"); err != nil {
+			return Identity{}, fmt.Errorf("%w: Git schema mismatch: %w", ErrInvalidDatabase, err)
+		}
 	}
 	identity := Identity{InstallationID: installationID, SchemaVersion: schema, Revision: uint64(revision)}
 	if schema >= 18 {

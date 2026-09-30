@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:63f98f2a71da631648e6b8ce38cb79d3e7d422f5f5049f80a4a2b583c7ed5369", digest)
+	assert.Equal(t, "sha256:1eb04989e06975ddcd5923cb5894fa1b58e2b627a63a195774a7a6d6173a082f", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -83,7 +83,7 @@ func TestCLIContract(t *testing.T) {
 
 	t.Run("frozen capability uses match Cobra leaves", func(t *testing.T) {
 		expected := make([]string, 0)
-		for _, row := range contract.ControlPlaneCapabilityManifest() {
+		for _, row := range append(contract.ControlPlaneCapabilityManifest(), contract.GitControlPlaneCapabilityManifest()...) {
 			expected = append(expected, row.CLIUses...)
 		}
 		sort.Strings(expected)

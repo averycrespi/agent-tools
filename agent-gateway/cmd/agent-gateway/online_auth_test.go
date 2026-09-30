@@ -89,6 +89,8 @@ func TestCLIOutputMatrix(t *testing.T) {
 
 	categories := map[string][]string{
 		"read": {
+			"git repository list", "git repository get ID", "git grant list", "git grant get ID",
+			"git credential list", "git credential get ID", "git routing-profile get",
 			"http grant list", "http grant get ID", "http default get ID", "http test-access --file PATH",
 			"http credential list", "http credential get ID", "http traffic list", "http traffic get ID",
 			"audit list", "audit get AUDIT_EVENT_ID",
@@ -99,6 +101,10 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"mcp grant-request list", "mcp grant-request get REQUEST_ID", "mcp invocation list", "mcp invocation get INVOCATION_ID",
 		},
 		"mutation": {
+			"git repository create --file PATH", "git repository update ID --file PATH [--etag ETAG]",
+			"git grant create --file PATH", "git grant update ID --file PATH [--etag ETAG]",
+			"git credential create --file PATH", "git credential update ID --file PATH [--etag ETAG]", "git credential rotate ID --file PATH [--etag ETAG]",
+			"git routing-profile update --file PATH [--etag ETAG]",
 			"http grant create --file PATH", "http grant update ID --file PATH [--etag ETAG]", "http default update ID --file PATH [--etag ETAG]",
 			"http credential create --file PATH", "http credential update ID --file PATH [--etag ETAG]", "http credential rotate ID --file PATH [--etag ETAG]",
 			"backup create", "mcp server create --file PATH", "mcp server update ID [--etag ETAG] [--display-name NAME] [--enable|--disable] [--file PATH]", "mcp server delete ID [--etag ETAG]",
@@ -107,6 +113,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"mcp grant create --principal-id ID --effect EFFECT --server-id ID [--description TEXT] [--upstream-name NAME] [--expires-at RFC3339] [--read-only] [--file PATH]", "mcp grant update ID --description TEXT [--etag ETAG]", "mcp grant-request approve REQUEST_ID --scope SCOPE --target TARGET [--description TEXT] [--etag ETAG] [--duration-seconds SECONDS] [--acknowledge-future-tools] [--read-only] [--file PATH]", "mcp grant-request reject REQUEST_ID --reason REASON [--etag ETAG]",
 		},
 		"no_content": {
+			"git repository delete ID [--etag ETAG]", "git grant delete ID [--etag ETAG]", "git credential delete ID [--etag ETAG]",
 			"http grant delete ID [--etag ETAG]",
 			"http credential delete ID [--etag ETAG]",
 			"admin credential revoke ID", "backup delete BACKUP_ID", "mcp server auth-flow cancel ID FLOW_ID", "mcp grant delete ID",

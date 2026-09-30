@@ -26,7 +26,7 @@ The `go-keyring` process-global functions sit behind instance-local adapters. Ga
 
 Any Get/Set/Delete may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. One process-global nonblocking `keyring_work` permit bounds outstanding operations; saturation rejects immediately and cancellation does not release the slot before the backend call returns. This accepted MVP limitation never permits file/configuration fallback. The MVP is unsuitable for unattended credential access; hardening is required before unattended deployment or after any unexpected dialog, cancellation-surviving call, or keyring-induced service blockage.
 
-A keyring namespace binds the installation ULID, an immutable Gateway-derived resource-owner ULID, and one closed kind: `static_credential`, `oauth_client`, `oauth_tokens`, `http_credential`, or `http_ca`. Secret payloads are limited to 256 KiB, base64url encoded into stored values no larger than 3,000 bytes, and identified outside the provider only by random opaque handles. Chunks are written before a versioned owner/kind/handle/length/SHA-256 manifest, so no partial generation reads. Read verifies every binding, bound, decoded length, and digest; deletion handles complete or interrupted generations.
+A keyring namespace binds the installation ULID, an immutable Gateway-derived resource-owner ULID, and one closed kind: `static_credential`, `oauth_client`, `oauth_tokens`, `http_credential`, `http_ca`, or `git_credential`. Secret payloads are limited to 256 KiB, base64url encoded into stored values no larger than 3,000 bytes, and identified outside the provider only by random opaque handles. Chunks are written before a versioned owner/kind/handle/length/SHA-256 manifest, so no partial generation reads. Read verifies every binding, bound, decoded length, and digest; deletion handles complete or interrupted generations.
 
 SQLite registers a non-authoritative candidate before the first keyring write, making crash leftovers discoverable without persisting secret bytes. After writing and reading back a complete generation, one latched transaction advances the Gateway revision, selects its opaque handle as authority, invokes any domain callback, and moves the prior handle to bounded cleanup metadata.
 
@@ -47,6 +47,48 @@ The recipe accepts one ASCII token header name (1–128 bytes), a printable ASCI
 Typed `http_credential` keyring records use the existing opaque-generation coordinator and durable fence/activation protocol. Create reserves safe metadata before one bounded secret ingress; failed publication can leave an unavailable visible record. Rotation preserves identity, fences old authority before external work, verifies the candidate and activates only acknowledged publication. Mutation admission is nonqueueing. A stale ETag is rejected before material work. Failed or uncertain rotation cannot fall back to old bytes; keyring cleanup failure does not reactivate authority. Future acquisitions require the exact current metadata revision and selected handle/material revision; an already admitted material pin retains its own generation until cleared. Secrets never enter ordinary reads, events, diagnostics, SQLite or backups.
 
 Metadata edits and deletion run in the shared control transaction. `ReferenceInspector.ReferencesTx` supplies all referencing grants on that transaction; edits check full containment for every reference and deletion rejects any reference. `CheckReferenceTx` is the grant owner's reciprocal insertion/update seam and checks the exact credential binding. Neither opens nested mutation admission. Schema 20 composition supplies the singular authorization repository as the real reference inspector. Referenced recipe changes reject atomically, as do boundaries that fail whole-grant containment and referenced deletion. `NoHTTPGrants` remains only for isolated credential fixtures with an empty grant store, never production. Restored stages invalidate all HTTP material authority before installation, even when old keyring chunks survive; deliberate new secret ingress is required.
+
+## Scoped Git credentials
+
+Git credentials are dedicated secret-free configuration over the same protected
+generation coordinator, not HTTP credential authority or an additional principal
+slot. Schema 22 stores only permanent ID, bounded name, exact canonical HTTPS
+origin, the established one-header recipe, metadata/material revisions, opaque
+handle, timestamps and tombstone. There are at most 256 live credentials and
+1,024 retained identities. Existing HTTPS-compatible secret material may be
+supplied deliberately through administrator write-only ingress; there is no host
+credential-helper execution, store scan, SSH conversion or implicit acquisition.
+
+The HTTP-compatible header/prefix grammar and 4,096-byte prefix-plus-secret bound
+are reused without inheriting HTTP grants. A typed `git_credential` namespace
+prevents cross-domain generation selection. Create reserves unavailable metadata;
+rotation durably fences old authority before external work, verifies the candidate
+and activates only acknowledged publication. Failure/uncertainty never restores
+the old generation. Selected missing, fenced or unavailable material fails closed
+with no alternate credential or public-access fallback. Exact resource revision
+and selected material generation must agree for acquisition and later binding.
+Raw secret ingress is cleared and is absent from ordinary reads, configuration,
+SQLite, paired backups, events, diagnostics and browser storage.
+
+The authorization owner supplies every referencing repository on the credential
+owner's supplied SQL transaction, including deleted retained configuration. A
+referenced credential cannot be deleted or change its recipe; edited origin must
+still contain every canonical repository destination. Repository writes validate
+credential ID, nondeleted state and exact HTTPS origin on that same writer.
+Credential authority edits and generation fences advance shared authorization
+revision under authority-before-storage ordering; pending older admissions cannot
+confirm. No keyring operation runs under a control SQL transaction. Before a live
+authority owner exists, stopped marker recovery may only restore the Git keyring
+fence and advance shared authorization revision; it cannot inspect principals or
+grants. The source guard admits this exact revision update, not general authorization-domain SQL.
+
+Startup and staged backup validation check complete canonical Git configuration,
+references, capacities and material-selection metadata. Paired restore preserves
+valid policy/repository/profile configuration while invalidating all Git generation
+authority and advancing revisions before installation. Surviving old keyring
+chunks are non-authoritative; restore never reads them or revives backup material.
+These deterministic lifecycle seams establish neither native credential custody
+nor production Git forwarding, live GitHub interoperability or guest isolation.
 
 ## Installation interception CA
 

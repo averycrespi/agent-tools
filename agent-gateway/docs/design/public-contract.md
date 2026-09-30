@@ -170,6 +170,84 @@ All use existing administrator bearer/session authority, strict bounded JSON, no
 
 `HTTPCredentialCreate` requires `name`, `boundary`, `recipe`, and write-only `secret`; POST returns 201 plus the safe resource. PATCH `HTTPCredentialUpdate` is a complete secret-free metadata replacement requiring `name`, `boundary`, and `recipe`; it returns 200. POST rotate accepts only `HTTPCredentialRotate` with `{secret}` and returns 200. DELETE accepts `EmptyObject` and returns 204. Every mutation except create requires exact strong `If-Match: "http-credential-ID-REVISION"`; missing/stale preconditions use `precondition_required`/`stale_revision`. Resource reads and successful create/update/rotate return that ETag. Incompatible references use `conflict`; invalid recipes use `invalid_operation`, never reflected input. Secret ingress is bounded by the recipe and standard JSON body bounds; the browser validates those bounds before confirmation and clears rejected write-only input. Keyring capability/material failures use `keyring_unavailable`, not a storage latch; a joined actual storage latch retains `storage_unavailable` precedence. The [credential owner](downstream-servers.md#scoped-http-credentials) defines validation, lifecycle, containment, and failure behavior.
 
+## Git configuration resources
+
+| Pattern                               | Exact Allow          | Authority               |
+| ------------------------------------- | -------------------- | ----------------------- |
+| `/api/v2/git/repositories`            | `GET, POST`          | admin bearer or session |
+| `/api/v2/git/repositories/{id}`       | `DELETE, GET, PATCH` | admin bearer or session |
+| `/api/v2/git/grants`                  | `GET, POST`          | admin bearer or session |
+| `/api/v2/git/grants/{id}`             | `DELETE, GET, PATCH` | admin bearer or session |
+| `/api/v2/git/routing-profile`         | `GET, PATCH`         | admin bearer or session |
+| `/api/v2/git/credentials`             | `GET, POST`          | admin bearer or session |
+| `/api/v2/git/credentials/{id}`        | `DELETE, GET, PATCH` | admin bearer or session |
+| `/api/v2/git/credentials/{id}/rotate` | `POST`               | admin bearer or session |
+
+All `/api/v2/git` resources use existing administrator bearer/session authority,
+strict bounded closed JSON, no-store responses and no automatic replay. They add
+no browser or traffic-history surface. Collections accept only singleton nonempty
+`cursor` and canonical `limit` (default 50, maximum 100), use ID ascending order
+and return `{items,next_cursor,total_count,offset}` from one bounded read. ID
+continuations are representation-bound, not frozen policy snapshots; a missing
+continuation identity is stale. Item/profile reads are bodyless and queryless.
+
+| Method and pattern                         | Closed request schema | Success schema/status            | Exact If-Match | Response ETag |
+| ------------------------------------------ | --------------------- | -------------------------------- | -------------- | ------------- |
+| `GET /api/v2/git/repositories`             | `GitListQuery`        | `QueryPage<GitRepository>` / 200 | no             | no            |
+| `POST /api/v2/git/repositories`            | `GitRepositoryWrite`  | `GitRepository` / 201            | no             | yes           |
+| `GET /api/v2/git/repositories/{id}`        | `None`                | `GitRepository` / 200            | no             | yes           |
+| `PATCH /api/v2/git/repositories/{id}`      | `GitRepositoryWrite`  | `GitRepository` / 200            | yes            | yes           |
+| `DELETE /api/v2/git/repositories/{id}`     | `None`                | `Empty` / 204                    | yes            | no            |
+| `GET /api/v2/git/grants`                   | `GitListQuery`        | `QueryPage<GitGrant>` / 200      | no             | no            |
+| `POST /api/v2/git/grants`                  | `GitGrantWrite`       | `GitGrant` / 201                 | no             | yes           |
+| `GET /api/v2/git/grants/{id}`              | `None`                | `GitGrant` / 200                 | no             | yes           |
+| `PATCH /api/v2/git/grants/{id}`            | `GitGrantWrite`       | `GitGrant` / 200                 | yes            | yes           |
+| `DELETE /api/v2/git/grants/{id}`           | `None`                | `Empty` / 204                    | yes            | no            |
+| `GET /api/v2/git/routing-profile`          | `None`                | `GitRoutingProfile` / 200        | no             | yes           |
+| `PATCH /api/v2/git/routing-profile`        | `GitProfileWrite`     | `GitRoutingProfile` / 200        | yes            | yes           |
+| `GET /api/v2/git/credentials`              | `GitListQuery`        | `QueryPage<GitCredential>` / 200 | no             | no            |
+| `POST /api/v2/git/credentials`             | `GitCredentialCreate` | `GitCredential` / 201            | no             | yes           |
+| `GET /api/v2/git/credentials/{id}`         | `None`                | `GitCredential` / 200            | no             | yes           |
+| `PATCH /api/v2/git/credentials/{id}`       | `GitCredentialUpdate` | `GitCredential` / 200            | yes            | yes           |
+| `DELETE /api/v2/git/credentials/{id}`      | `EmptyObject`         | `Empty` / 204                    | yes            | no            |
+| `POST /api/v2/git/credentials/{id}/rotate` | `GitCredentialRotate` | `GitCredential` / 200            | yes            | yes           |
+
+`GitRepositoryWrite` requires exactly `name`, `url`, nonnull `aliases` array and
+nullable `credential_id`. No omitted credential selector means public access:
+public configuration deliberately supplies null. `GitRepository` adds `id`,
+`revision`, `alias_revision`, `created_at`, `updated_at`. Locator retargeting and
+alias collisions conflict. `GitGrantWrite` requires exactly `principal_id`,
+`repository_id`, nullable `description`, `policy`, nullable `expires_at`.
+`GitGrant` adds `id`, `revision`, `state`, `created_at`, `updated_at`; state is
+active/expired, timestamps are fixed UTC nanoseconds, expiry follows creation.
+The [Git policy chapter](identity-and-authorization.md#persisted-git-authority)
+owns immutable identity and closed bounded selector semantics.
+
+`GitProfileWrite` is exactly `{origins:[HTTPS-origin,...]}`; `GitRoutingProfile`
+is `{origins,revision,active}` with read-only `active:false` until the enforcement
+owner's production tunnel gate. ETags are exact strong
+`"git-repository-ID-REVISION"`, `"git-grant-ID-REVISION"`,
+`"git-credential-ID-REVISION"` and `"git-profile-routing-REVISION"`.
+Missing/stale preconditions use `precondition_required`/`stale_revision`.
+Invalid configuration uses `invalid_grant` (policy/repository/profile) or
+`invalid_operation` (credential). Incompatible references use `conflict`;
+capacity uses `resource_limit`; storage/keyring failures use their existing safe
+problems without submitted input or dependency errors. Successful mutations emit
+only the shared ID-free authorization invalidation; no Git browser subscriptions
+or credential secrets are introduced.
+
+Git credential deletion requires exact `{}` and an exact credential ETag. A storage
+latch takes precedence over joined keyring failures: return `storage_unavailable`
+and treat the mutation outcome as uncertain, never a reason to replay.
+
+Git credential create requires `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
+and write-only `secret`. Update replaces the same metadata without a secret;
+rotate is exactly `{secret}`. `GitCredential` contains `id`, `name`, `origin`,
+`recipe`, `revision`, `available`, `referencing_repositories:[{id}]`, `created_at`,
+`updated_at`. Ordinary reads return neither secret nor handle. The credential
+owner retains the established 4,096-byte prefix-plus-secret bound and protected
+generation lifecycle; see [Git credentials](downstream-servers.md#scoped-git-credentials).
+
 ## Invocation history queries
 
 Invocation collections accept the existing singleton `limit` (default 50, 1–100), `cursor`, exact `principal_id`, `server_id`, `requested_name`, `admission_class`, `decision`, and `outcome` fields, plus optional `tool`, `principal`, and `search_locale`. Unknown, repeated, empty, invalid, or oversized members fail. Text filters contain at most 256 UTF-8 bytes without control/format characters. `search_locale` is a canonical language tag of at most 64 bytes; omission uses locale-independent casing. The browser supplies its current default locale. `decision=not_evaluated` selects null authorization evidence without adding a stored authorization decision. Every existing outcome remains selectable, including both explicit and missing-terminal `outcome_unknown`.

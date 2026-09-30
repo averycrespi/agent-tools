@@ -8,6 +8,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGitControlPlaneCapabilitiesHaveNoBrowserOwner(t *testing.T) {
+	rows := GitControlPlaneCapabilityManifest()
+	require.Len(t, rows, 4)
+	uses := make(map[string]bool)
+	for _, row := range rows {
+		assert.Empty(t, row.WebControl)
+		assert.Empty(t, row.WebScenario)
+		assert.Equal(t, "cli."+row.ID, row.CLIScenario)
+		assert.NotEmpty(t, row.Operation)
+		assert.NotEmpty(t, row.Mechanics)
+		for _, use := range row.CLIUses {
+			assert.False(t, uses[use], use)
+			uses[use] = true
+		}
+	}
+	require.Len(t, uses, 18)
+	rows[0].CLIUses[0] = "changed"
+	assert.Equal(t, "git repository list", GitControlPlaneCapabilityManifest()[0].CLIUses[0])
+}
+
 func TestControlPlaneCapabilityManifest(t *testing.T) {
 	capabilities := ControlPlaneCapabilityManifest()
 	require.Len(t, capabilities, 45)

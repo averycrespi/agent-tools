@@ -86,7 +86,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:1f8b73f79df2127518092a2f687e4088d9a3a8dbd96b1da459f50ae0002c880b", digest)
+	assert.Equal(t, "sha256:0e810592a0870520b4c7be7672e288f3e967221a3f623a93af5ab8ac4f5edde9", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -210,6 +210,14 @@ func TestCLIUnknownCommandsAreInputErrors(t *testing.T) {
 
 func testCLICommandErrors(t *testing.T) {
 	requiredFlags := map[string][]string{
+		"git repository create --file PATH":                                  {"file"},
+		"git repository update ID --file PATH [--etag ETAG]":                 {"file"},
+		"git grant create --file PATH":                                       {"file"},
+		"git grant update ID --file PATH [--etag ETAG]":                      {"file"},
+		"git credential create --file PATH":                                  {"file"},
+		"git credential update ID --file PATH [--etag ETAG]":                 {"file"},
+		"git credential rotate ID --file PATH [--etag ETAG]":                 {"file"},
+		"git routing-profile update --file PATH [--etag ETAG]":               {"file"},
 		"http grant create --file PATH":                                      {"file"},
 		"http grant update ID --file PATH [--etag ETAG]":                     {"file"},
 		"http default update ID --file PATH [--etag ETAG]":                   {"file"},

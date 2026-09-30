@@ -69,6 +69,16 @@ func ControlPlaneCapabilityManifest() []ControlPlaneCapability {
 	return result
 }
 
+// Git configuration has administrative API/CLI coverage, not browser controls.
+func GitControlPlaneCapabilityManifest() []ControlPlaneCapability {
+	return []ControlPlaneCapability{
+		{ID: "git-repository", Operation: "Git repository administration", CLIUses: []string{"git repository list", "git repository get ID", "git repository create --file PATH", "git repository update ID --file PATH [--etag ETAG]", "git repository delete ID [--etag ETAG]"}, Mechanics: "immutable destination; exact ETag; explicit aliases; no replay", CLIScenario: "cli.git-repository"},
+		{ID: "git-grant", Operation: "Git grant administration", CLIUses: []string{"git grant list", "git grant get ID", "git grant create --file PATH", "git grant update ID --file PATH [--etag ETAG]", "git grant delete ID [--etag ETAG]"}, Mechanics: "closed policy; explicit read; independent ref actions; exact ETag; no replay", CLIScenario: "cli.git-grant"},
+		{ID: "git-credential", Operation: "Git credential administration", CLIUses: []string{"git credential list", "git credential get ID", "git credential create --file PATH", "git credential update ID --file PATH [--etag ETAG]", "git credential delete ID [--etag ETAG]", "git credential rotate ID --file PATH [--etag ETAG]"}, Mechanics: "write-only secret file; generation fencing; retained references; exact ETag; no replay", CLIScenario: "cli.git-credential"},
+		{ID: "git-routing-profile", Operation: "Git routing intent administration", CLIUses: []string{"git routing-profile get", "git routing-profile update --file PATH [--etag ETAG]"}, Mechanics: "independent routing intent; inactive until enforcement transition; exact ETag; no replay", CLIScenario: "cli.git-routing-profile"},
+	}
+}
+
 func ControlPlaneLifecycleManifest() []ControlPlaneCapability {
 	return []ControlPlaneCapability{
 		{ID: "web-exchange", Operation: "Browser bearer exchange", WebControl: "Sign in", Mechanics: "POST exchange", WebScenario: "browser.exchange"},

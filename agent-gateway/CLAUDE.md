@@ -44,6 +44,7 @@ internal/catalog/            Durable descriptors, normalization, active publicat
 internal/credentialauthority/ Current server credential resolution
 internal/servercredentials/  MCP credential cutover
 internal/httpcredentials/    Scoped HTTP credentials
+internal/gitcredentials/     Git-only protected credentials
 internal/httpca/             Installation CA lifecycle
 internal/httpproxy/          HTTP/CONNECT engine
 internal/runtimes/           Process-local reconciliation and stdio supervision
@@ -52,6 +53,7 @@ internal/oauth/              Resource/issuer trust, registration, flows, callbac
 internal/downstream/         Raw bounded JSON-RPC and stdio/Streamable HTTP connections
 internal/accesstarget/       MCP target values and scope comparisons
 internal/httppolicy/         Pure HTTP v1 policy and canonical targets
+internal/gitpolicy/          Pure Git v1 policy and canonical locators
 internal/authorization/      Principals, credentials, grants, policy SQL, and admission leases
 internal/discovery/          Principal-specific current-tool projection and cursors
 internal/grantrequests/      Durable request workflow, evidence, dedupe, and adjudication
