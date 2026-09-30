@@ -78,6 +78,7 @@ type proxyFixture struct {
 	authority  *authorization.Repository
 	materials  *httpcredentials.Service
 	roots      *x509.CertPool
+	publicCA   []byte
 	backend    *memoryBackend
 }
 
@@ -158,7 +159,7 @@ func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func
 			t.Error("proxy serve failed to join")
 		}
 	})
-	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, roots: roots, backend: backend}
+	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, roots: roots, publicCA: public, backend: backend}
 }
 func (f *proxyFixture) allow(t *testing.T, raw, kind, path, credential string) {
 	t.Helper()

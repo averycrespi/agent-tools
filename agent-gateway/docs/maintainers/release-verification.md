@@ -169,6 +169,38 @@ restart to share fake material without touching a native keyring. This is produc
 composition correctness, **not** native signing persistence, protected key custody,
 unattended access, client trust qualification or target capacity evidence.
 
+### Native HTTPS Git transport fixtures
+
+The `internal/httpproxy` integration owner runs disposable native `git` clients
+against a local TLS smart-HTTP `git-http-backend`. Git and its HTTP backend must
+be available on the test host; missing material fails qualification rather than
+silently skipping it. For focused transport changes, run from the repository root:
+
+```bash
+go -C agent-gateway test -race -tags=integration ./internal/httpproxy -run '^TestIntegrationNativeGit' -count=1 -timeout=5m
+make -C agent-gateway verify
+```
+
+The fixtures use distinct upstream, seed and client repositories, private client
+HOME/CA/proxy-token material, numeric-loopback ephemeral listeners and bounded
+`testutil.BinaryRunner` child groups. They clear ambient Git configuration and
+credential helpers; only the supported agent proxy credential is exported to the
+client. The upstream credential stays in fake host-held material. Process output
+is bounded and scanned without printing credential canaries.
+
+Assertions cover native clone/fetch/ls-remote objects and refs, fetch protocol v2
+and fallback, branch/tag/multi-ref/atomic pushes, native flush-only receive-pack
+probes before large chunked packs, and Git rejection despite HTTP 200. The
+interrupted push fixture withholds upstream execution after dispatch, joins the
+cancelled client and upstream handler, then checks forwarding count and live refs;
+it proves no automatic replay, not rollback of arbitrary upstream effects or
+successful completion from missing evidence.
+
+Existing HTTP request grants are fixture setup, not Git policy. Later enforcement
+must rerun these native-client cases with Git policy enabled. Local transport
+fixtures qualify neither live GitHub routing/interoperability, actual guest
+isolation/egress, nor native credential stores or installed services.
+
 ### Traffic-store checks
 
 `invocation.TrafficStore` owns production MCP persistence. Its isolated
