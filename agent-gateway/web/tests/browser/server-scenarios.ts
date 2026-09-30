@@ -1,7 +1,7 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
-import { captureDetailLayout } from "./detail-layout.ts";
+import { captureDetailLayout, captureTableState } from "./detail-layout.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1250,6 +1250,7 @@ export async function runServerOperations(
   let operationReads = 0;
   let listReads = 0;
   let listBlocked = false;
+  let failActive = true;
   let detailPollReads = 0;
   let detailState = "scheduled";
   let starts = 0;
@@ -1313,27 +1314,29 @@ export async function runServerOperations(
         status: 200,
         contentType: "application/json",
         body: JSON.stringify(
-          active
-            ? {
-                items: listBlocked
-                  ? [operation(operationIDs[4], "reload", "scheduled")]
-                  : [],
-                has_more: false,
-              }
-            : {
-                items: [
-                  operation(
-                    operationIDs[5],
-                    "reload",
-                    "failed",
-                    "connectivity",
-                  ),
-                  operation(operationIDs[4], "disable", "succeeded"),
-                ],
-                next_cursor: null,
-                total_count: 2,
-                offset: 0,
-              },
+          active && failActive
+            ? {}
+            : active
+              ? {
+                  items: listBlocked
+                    ? [operation(operationIDs[4], "reload", "scheduled")]
+                    : [],
+                  has_more: false,
+                }
+              : {
+                  items: [
+                    operation(
+                      operationIDs[5],
+                      "reload",
+                      "failed",
+                      "connectivity",
+                    ),
+                    operation(operationIDs[4], "disable", "succeeded"),
+                  ],
+                  next_cursor: null,
+                  total_count: 2,
+                  offset: 0,
+                },
         ),
       });
     },
@@ -1420,6 +1423,18 @@ export async function runServerOperations(
   await page.waitForFunction(() =>
     document.body.textContent?.includes("Available actions"),
   );
+  await expect(
+    page.getByText("Active operations unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("start-operation-refresh_catalog"),
+  ).toBeDisabled();
+  await captureTableState(page, "operation-active-lookup-failed");
+  failActive = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByTestId("start-operation-refresh_catalog"),
+  ).toBeEnabled();
   await assertTableConventions(
     page,
     "Server activity",
@@ -1997,6 +2012,10 @@ export async function runAuthFlows(
   };
   let detailState = "preparing";
   let showExchangeInList = false;
+  let terminalHistory = false;
+  let terminalDetailFailure = false;
+  let flowReadMode: "normal" | "failure" | "stale" | "restart-failure" =
+    "normal";
   let detailReads = 0;
   let listReads = 0;
   let starts = 0;
@@ -2074,8 +2093,45 @@ export async function runAuthFlows(
     async (route) => {
       if (route.request().method() !== "GET") return route.fallback();
       listReads += 1;
-      if (new URL(route.request().url()).search !== "?limit=50")
+      const query = new URL(route.request().url()).searchParams;
+      if (
+        query.get("limit") !== "50" ||
+        [...query.keys()].some((key) => !["limit", "cursor"].includes(key))
+      )
         fail("auth flow list query changed");
+      if (flowReadMode === "failure" || flowReadMode === "restart-failure") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      if (flowReadMode === "stale" && query.has("cursor")) {
+        flowReadMode = "restart-failure";
+        await route.fulfill({
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            code: "stale_cursor",
+            title: "Flow traversal expired.",
+          }),
+        });
+        return;
+      }
+      if (query.has("cursor")) {
+        expect(query.get("cursor")).toBe("retained-page-two");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            items: [flow("01ARZ3NDEKTSV4RRFFQ69G5FEB", "expired")],
+            next_cursor: null,
+          }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -2083,7 +2139,7 @@ export async function runAuthFlows(
           items: [
             showExchangeInList
               ? flow(exchangingID, "exchanging")
-              : flow(activeID, "preparing"),
+              : flow(activeID, terminalHistory ? "succeeded" : "preparing"),
             flow(terminalID, "failed", "oauth_rejected"),
           ],
           next_cursor: "retained-page-two",
@@ -2139,7 +2195,9 @@ export async function runAuthFlows(
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(flow(terminalID, "failed", "oauth_rejected")),
+        body: terminalDetailFailure
+          ? "{}"
+          : JSON.stringify(flow(terminalID, "failed", "oauth_rejected")),
       }),
   );
   await page.route(
@@ -2190,9 +2248,70 @@ export async function runAuthFlows(
     ["Created", "Flow", "Status", "Reason"],
     "Flow",
   );
-  await page.evaluate((id) => {
-    window.location.hash = `#/mcp/servers/${id}?tab=authentication`;
-  }, serverID);
+  // Exercise continuation against a settled retained snapshot; nonterminal
+  // polling is covered independently by the initial event and detail states.
+  terminalHistory = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page
+      .getByTestId("auth-flow-row")
+      .filter({ hasText: activeID })
+      .getByText("Succeeded", { exact: true }),
+  ).toBeVisible();
+  flowReadMode = "failure";
+  await page
+    .getByRole("button", { name: "Load more flows", exact: true })
+    .click();
+  await expect(
+    page.getByText("OAuth activity unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("auth-flow-row")).toHaveCount(2);
+  await expect(
+    page.getByText("2 flows loaded (stale)", { exact: true }),
+  ).toBeVisible();
+  await captureTableState(page, "oauth-continuation-failed");
+  flowReadMode = "normal";
+  await page
+    .getByRole("button", { name: "Load more flows", exact: true })
+    .click();
+  await expect(page.getByTestId("auth-flow-row")).toHaveCount(3);
+  const status = page.getByRole("combobox", { name: "Status", exact: true });
+  await status.selectOption("cancelled");
+  await expect(page.getByTestId("auth-flow-row")).toHaveCount(0);
+  await expect(status).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`#/mcp/servers/${serverID}\\?tab=authentication$`),
+  );
+  await captureTableState(page, "oauth-local-filter-empty");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(status).toHaveValue("");
+  await page.getByTestId("manual-refresh").click();
+  await expect(page.getByTestId("auth-flow-row")).toHaveCount(2);
+  flowReadMode = "stale";
+  await page
+    .getByRole("button", { name: "Load more flows", exact: true })
+    .click();
+  await expect(
+    page.getByText("Flow history changed", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("OAuth activity unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("auth-flow-row")).toHaveCount(0);
+  await expect(status).toBeVisible();
+  await expect(
+    page.getByText("No retained OAuth flows", { exact: true }),
+  ).toHaveCount(0);
+  await captureTableState(page, "oauth-stale-restart-failed");
+  flowReadMode = "normal";
+  terminalHistory = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page
+      .getByTestId("auth-flow-row")
+      .filter({ hasText: activeID })
+      .getByText("Preparing", { exact: true }),
+  ).toBeVisible();
   const authorizationAction = page.locator('[data-testid="start-auth-flow"]');
   await authorizationAction.waitFor();
   await expect(
@@ -2387,11 +2506,9 @@ export async function runAuthFlows(
   if ((await page.locator('[data-testid="auth-flow-row"]').count()) !== 2)
     fail("authentication omitted OAuth activity history");
   await expect(
-    page.getByRole("button", { name: "Load older flows", exact: true }),
+    page.getByRole("button", { name: "Load more flows", exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByText("Showing 2 of 2 loaded", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("2 flows loaded", { exact: true })).toBeVisible();
   if ((await page.locator('[data-testid="start-auth-flow"]').count()) !== 0)
     fail("authentication offered a second active OAuth flow");
   await expect(
@@ -2420,6 +2537,17 @@ export async function runAuthFlows(
     page.locator('[data-testid="auth-flow-detail"] details'),
   ).toHaveAttribute("open", "");
   await captureDetailLayout(page, "oauth-flow-failed-diagnostic");
+  terminalDetailFailure = true;
+  await page.getByTestId("manual-refresh").click();
+  const retainedFlow = page.getByTestId("auth-flow-detail");
+  await expect(
+    retainedFlow.getByText("OAuth flow unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(retainedFlow).toContainText("last-known");
+  await expect(retainedFlow.getByText("Failed", { exact: true })).toBeVisible();
+  await expect(retainedFlow.locator("details")).toHaveAttribute("open", "");
+  await captureTableState(page, "oauth-detail-last-known");
+  terminalDetailFailure = false;
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=status`;
   }, serverID);
@@ -3568,6 +3696,7 @@ export async function runServerCatalogReads(
     page.getByText("No additional constraints.", { exact: true }),
   ).toHaveCount(0);
   await captureStateFeedback(page, "tool-schema-summary");
+  await captureTableState(page, "retired-tool-detail");
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=tools`;

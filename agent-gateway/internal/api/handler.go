@@ -122,36 +122,37 @@ type Options struct {
 }
 
 type Handler struct {
-	inventoryEpoch   string
-	installationID   string
-	credentials      CredentialService
-	sessions         SessionService
-	backups          BackupService
-	events           EventService
-	invalidate       func(contract.Invalidation)
-	newKeepalive     func() (<-chan time.Time, func())
-	origin           string
-	status           func(context.Context) (contract.SystemStatus, error)
-	callbackService  OAuthCallbackService
-	servers          ServerService
-	principals       PrincipalService
-	collections      AuthorizationCollectionService
-	grantRequests    GrantRequestService
-	invocations      InvocationReader
-	httpTraffic      HTTPTrafficReader
-	audit            AuditReader
-	httpPolicies     HTTPPolicyService
-	httpCredentials  HTTPCredentialService
-	grantTarget      authorization.CurrentGrantTargetValidator
-	authFlows        AuthFlowService
-	replacements     CredentialReplacementService
-	catalog          CatalogService
-	activeCatalog    ActiveCatalogService
-	operationState   OperationStateProvider
-	runtimeStatus    func(string) RuntimeStatus
-	triggerServer    func(context.Context, string, *string, bool)
-	catalogTraversal func(string) contract.LimitStatus
-	dispatchStatus   func(string) contract.LimitStatus
+	inventoryEpoch          string
+	installationID          string
+	credentials             CredentialService
+	sessions                SessionService
+	backups                 BackupService
+	events                  EventService
+	invalidate              func(contract.Invalidation)
+	newKeepalive            func() (<-chan time.Time, func())
+	origin                  string
+	status                  func(context.Context) (contract.SystemStatus, error)
+	callbackService         OAuthCallbackService
+	servers                 ServerService
+	principals              PrincipalService
+	collections             AuthorizationCollectionService
+	grantRequests           GrantRequestService
+	invocations             InvocationReader
+	httpTraffic             HTTPTrafficReader
+	audit                   AuditReader
+	httpPolicies            HTTPPolicyService
+	httpCredentialCursorKey string
+	httpCredentials         HTTPCredentialService
+	grantTarget             authorization.CurrentGrantTargetValidator
+	authFlows               AuthFlowService
+	replacements            CredentialReplacementService
+	catalog                 CatalogService
+	activeCatalog           ActiveCatalogService
+	operationState          OperationStateProvider
+	runtimeStatus           func(string) RuntimeStatus
+	triggerServer           func(context.Context, string, *string, bool)
+	catalogTraversal        func(string) contract.LimitStatus
+	dispatchStatus          func(string) contract.LimitStatus
 }
 
 //go:embed static/*
@@ -198,7 +199,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{inventoryEpoch: rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, httpTraffic: options.HTTPTraffic, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, httpTraffic: options.HTTPTraffic, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {

@@ -119,13 +119,23 @@ export function prepareDetailBaseline(page: Page) {
   };
 }
 
+export async function captureTableState(
+  page: Page,
+  state: string,
+): Promise<void> {
+  if (process.env.AGENT_GATEWAY_TABLE_ARTIFACT_DIR !== undefined)
+    await captureDetailLayout(page, `table-${state}`);
+}
+
 export async function captureDetailLayout(
   page: Page,
   state: string,
   candidate = true,
 ): Promise<void> {
   await expect(page.locator("dialog.sensitive-dialog[open]")).toHaveCount(0);
-  const artifactRoot = process.env.AGENT_GATEWAY_DETAIL_ARTIFACT_DIR;
+  const artifactRoot = state.startsWith("table-")
+    ? process.env.AGENT_GATEWAY_TABLE_ARTIFACT_DIR
+    : process.env.AGENT_GATEWAY_DETAIL_ARTIFACT_DIR;
   const directory =
     artifactRoot === undefined
       ? undefined

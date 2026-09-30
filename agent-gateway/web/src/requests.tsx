@@ -2197,7 +2197,7 @@ export function Requests({
           items={items}
           rowKey={(item) => item.id}
           rowTestID="request-row"
-          emptyTitle="No requests match"
+          emptyTitle={allRequests ? "No requests" : "No pending requests"}
           remote={controls}
           itemNames={{ singular: "request", plural: "requests" }}
           filters={[

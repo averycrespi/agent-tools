@@ -628,6 +628,9 @@ function GrantCollection(props: Props) {
         <CollectionTable
           caption="HTTP grants"
           rowHeaderKey="description"
+          additionalSorts={[
+            { key: "id", label: "Grant ID", sortValue: (r) => r.grant.id },
+          ]}
           remote={controls}
           initialSort={{ key: "description", direction: "ascending" }}
           itemNames={{ singular: "grant", plural: "grants" }}
@@ -651,7 +654,7 @@ function GrantCollection(props: Props) {
             },
             {
               key: "target",
-              label: "Destination",
+              label: "Destination host",
               type: "text",
               value: (r) => destination(r.grant.policy).host,
             },
@@ -728,8 +731,13 @@ function GrantCollection(props: Props) {
               label: "Status",
               role: "status",
               sortValue: (r) => r.grant.state,
-              render: (r) =>
-                r.grant.state === "active" ? "Active" : "Expired",
+              render: (r) => (
+                <StatusLabel
+                  state={r.grant.state === "active" ? "current" : "neutral"}
+                >
+                  {r.grant.state === "active" ? "Active" : "Expired"}
+                </StatusLabel>
+              ),
             },
             {
               key: "expiry",

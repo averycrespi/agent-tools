@@ -1177,7 +1177,9 @@ function InvocationList({
               role: "status",
               render: (item) => (
                 <StatusLabel state={invocationState(item.outcome)}>
-                  {sentenceCase(item.outcome)}
+                  {item.outcome === "invalid_params"
+                    ? "Invalid parameters"
+                    : sentenceCase(item.outcome)}
                 </StatusLabel>
               ),
             },
@@ -1233,7 +1235,7 @@ function InvocationTextFilter({
     <input
       type="search"
       aria-label={name}
-      placeholder={`${name}…`}
+      placeholder={name}
       value={draft}
       onInput={(event) => setDraft(event.currentTarget.value)}
     />
@@ -1477,7 +1479,9 @@ function InvocationDetail({
         <div class="panel-heading">
           <h2 id="invocation-detail-title">Invocation details</h2>
           <StatusLabel state={invocationState(item.outcome)}>
-            {sentenceCase(item.outcome)}
+            {item.outcome === "invalid_params"
+              ? "Invalid parameters"
+              : sentenceCase(item.outcome)}
           </StatusLabel>
         </div>
         <InvocationFacts item={item} principalNames={principalNames} />

@@ -240,6 +240,10 @@ export class HTTPTrafficController {
         key: context.viewKey,
         live: this.value.live,
         paused: this.value.paused,
+        notice:
+          this.value.key === ""
+            ? ""
+            : "The previous traffic traversal was discarded. Reading the newest matching page.",
       };
       this.emit();
     }
@@ -459,6 +463,9 @@ export function HTTPTraffic({
         <>
           <CollectionTable
             caption="HTTP traffic records"
+            localStale={
+              current.error || current.olderError || panel?.status === "error"
+            }
             layout="activity"
             rowHeaderKey="destination"
             rowKey={(row) => row.id}
@@ -634,108 +641,118 @@ function TrafficFilters({
   };
   useDebouncedInput(draft, apply);
   return (
-    <div
-      class="table-filters collection-query-filters"
-      role="group"
-      aria-label="HTTP traffic filters"
-    >
-      {[
-        ["destination", "Destination host"],
-        ["principal", "Agent"],
-      ].map(([key, label]) => (
-        <input
-          type="search"
-          aria-label={label}
-          placeholder={label}
-          value={draft[`filter_${key}`] ?? ""}
-          onInput={(event) =>
-            setDraft({
-              ...draft,
-              [`filter_${key}`]: event.currentTarget.value,
-            })
-          }
-        />
-      ))}
-      {query.filter_connect_id && (
-        <span class="inline-actions">
-          Related to CONNECT{" "}
-          <a
-            href={serializeLocation({
-              destination: "http-traffic",
-              segments: ["http-traffic", query.filter_connect_id],
-              query: {},
-            })}
-          >
-            <code>{query.filter_connect_id}</code>
-          </a>
-          <button
-            type="button"
-            onClick={() => {
-              const next = { ...draft };
-              delete next.filter_connect_id;
+    <>
+      <div
+        class="table-filters collection-query-filters"
+        role="group"
+        aria-label="HTTP traffic filters"
+      >
+        {[
+          ["destination", "Destination host"],
+          ["principal", "Agent"],
+        ].map(([key, label]) => (
+          <input
+            type="search"
+            aria-label={label}
+            placeholder={label}
+            value={draft[`filter_${key}`] ?? ""}
+            onInput={(event) =>
+              setDraft({
+                ...draft,
+                [`filter_${key}`]: event.currentTarget.value,
+              })
+            }
+          />
+        ))}
+        {Object.entries(trafficOptions).map(([key, values]) => (
+          <select
+            aria-label={sentenceCase(key)}
+            value={draft[`filter_${key}`] ?? ""}
+            onChange={(event) => {
+              const next = {
+                ...draft,
+                [`filter_${key}`]: event.currentTarget.value,
+              };
               setDraft(next);
               apply(next);
             }}
           >
-            Remove connection filter
-          </button>
-        </span>
-      )}
-      {query.filter_principal_id && (
-        <span class="inline-actions">
-          Exact agent ID: <code>{query.filter_principal_id}</code>
-          <button
-            type="button"
-            onClick={() => {
-              const next = { ...draft };
-              delete next.filter_principal_id;
-              setDraft(next);
-              apply(next);
-            }}
-          >
-            Remove exact agent filter
-          </button>
-        </span>
-      )}
-      {Object.entries(trafficOptions).map(([key, values]) => (
-        <select
-          aria-label={sentenceCase(key)}
-          value={draft[`filter_${key}`] ?? ""}
-          onChange={(event) => {
-            const next = {
-              ...draft,
-              [`filter_${key}`]: event.currentTarget.value,
-            };
-            setDraft(next);
-            apply(next);
+            <option value="">{sentenceCase(key)}: any</option>
+            {values.map((value) => (
+              <option value={value}>
+                {key === "decision" && value === "intercept"
+                  ? "Interception selected"
+                  : sentenceCase(value)}
+              </option>
+            ))}
+          </select>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft({});
+            apply({});
           }}
         >
-          <option value="">{sentenceCase(key)}: any</option>
-          {values.map((value) => (
-            <option value={value}>
-              {key === "decision" && value === "intercept"
-                ? "Interception selected"
-                : sentenceCase(value)}
-            </option>
-          ))}
-        </select>
-      ))}
-      <button
-        type="button"
-        onClick={() => {
-          setDraft({});
-          apply({});
-        }}
-      >
-        Clear filters
-      </button>
+          Clear filters
+        </button>
+      </div>
+      {(query.filter_connect_id || query.filter_principal_id) && (
+        <div
+          class="table-filters"
+          role="group"
+          aria-label="HTTP traffic context filters"
+        >
+          {query.filter_connect_id && (
+            <span class="inline-actions">
+              Related to CONNECT{" "}
+              <a
+                href={serializeLocation({
+                  destination: "http-traffic",
+                  segments: ["http-traffic", query.filter_connect_id],
+                  query: {},
+                })}
+              >
+                <code>{query.filter_connect_id}</code>
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = { ...draft };
+                  delete next.filter_connect_id;
+                  setDraft(next);
+                  apply(next);
+                }}
+              >
+                Remove connection filter
+              </button>
+            </span>
+          )}
+          {query.filter_principal_id && (
+            <span class="inline-actions">
+              Exact agent ID: <code>{query.filter_principal_id}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = { ...draft };
+                  delete next.filter_principal_id;
+                  setDraft(next);
+                  apply(next);
+                }}
+              >
+                Remove exact agent filter
+              </button>
+            </span>
+          )}
+        </div>
+      )}
       {error && (
         <StateNotice
           state="error"
           title="Use searches of at most 256 UTF-8 bytes without control characters."
         />
       )}
-    </div>
+    </>
   );
 }
 function RelatedTraffic({
@@ -784,6 +801,7 @@ function RelatedTraffic({
           rowKey={(row) => row.id}
           items={current.items}
           emptyTitle="No related requests recorded"
+          localStale={current.error}
           columns={[
             {
               key: "time",
@@ -796,33 +814,73 @@ function RelatedTraffic({
               label: "Request",
               role: "identity",
               render: (row) => (
-                <a href={link(row.id)}>{destinationLabel(row.target)}</a>
+                <TableIdentity
+                  primary={
+                    <a href={link(row.id)}>{destinationLabel(row.target)}</a>
+                  }
+                  secondary={row.id}
+                />
               ),
             },
             {
               key: "decision",
               label: "Decision",
               role: "status",
-              render: (row) => trafficDecisionLabel(row.decision, row.type),
+              render: (row) => (
+                <StatusLabel
+                  state={row.decision === "allow" ? "current" : "neutral"}
+                >
+                  {trafficDecisionLabel(row.decision, row.type)}
+                </StatusLabel>
+              ),
             },
             {
               key: "outcome",
               label: "Outcome",
               role: "status",
-              render: (row) => sentenceCase(trafficOutcome(row)),
+              render: (row) => (
+                <StatusLabel
+                  state={
+                    trafficOutcome(row) === "succeeded"
+                      ? "current"
+                      : trafficOutcome(row) === "outcome_unknown"
+                        ? "warning"
+                        : ["not_dispatched", "interception_selected"].includes(
+                              trafficOutcome(row),
+                            )
+                          ? "neutral"
+                          : "error"
+                  }
+                >
+                  {row.decision === "intercept"
+                    ? "—"
+                    : sentenceCase(trafficOutcome(row))}
+                </StatusLabel>
+              ),
             },
           ]}
         />
       )}
-      {current?.next && current.items.length < 500 && (
-        <button
-          type="button"
-          disabled={current.loading}
-          onClick={() => controller.more()}
-        >
-          Load more requests
-        </button>
-      )}
+      <div class="collection-pagination">
+        {current?.loaded && (
+          <LoadedHistorySummary
+            count={current.items.length}
+            singular="request"
+            plural="requests"
+            matching={false}
+            stale={current.error}
+          />
+        )}
+        {current?.next && current.items.length < 500 && (
+          <button
+            type="button"
+            disabled={current.loading}
+            onClick={() => controller.more()}
+          >
+            Load more requests
+          </button>
+        )}
+      </div>
     </section>
   );
 }

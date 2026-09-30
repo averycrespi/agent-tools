@@ -8,7 +8,9 @@ import { exerciseGrantDetails } from "./http-grant-details.ts";
 import {
   assertDetailComparison,
   captureDetailLayout,
+  captureTableState,
 } from "./detail-layout.ts";
+import { assertTableConventions } from "./table-conventions.ts";
 
 export async function runHTTPGrants(
   context: BrowserContext,
@@ -390,6 +392,37 @@ export async function runHTTPGrants(
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.getByRole("link", { name: "Back to HTTP grants" }).click();
   }
+  await assertTableConventions(
+    page,
+    "HTTP grants",
+    ["Grant", "Agent", "Destination", "Type", "Status", "Expires"],
+    "Grant",
+  );
+  await page.goto(
+    `${baseURL}/#/http/grants?principal_id=${principal.id}&sort=target&direction=descending`,
+  );
+  await expect(
+    page.getByRole("group", { name: "HTTP grants context filters" }),
+  ).toContainText(principal.id);
+  await expect(
+    page.getByRole("columnheader", { name: "Destination", exact: true }),
+  ).toHaveAttribute("aria-sort", "descending");
+  await expect(
+    page.getByRole("searchbox", { name: "Destination host", exact: true }),
+  ).toBeVisible();
+  await captureTableState(page, "http-grants-exact-context");
+  await page.reload();
+  await waitForLifecycle(page, "authenticated");
+  await expect(page).toHaveURL(
+    /principal_id=.*sort=target&direction=descending$/,
+  );
+  await expect(
+    page.getByRole("group", { name: "HTTP grants context filters" }),
+  ).toContainText(principal.id);
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page).toHaveURL(
+    /#\/http\/grants\?sort=target&direction=descending$/,
+  );
   await page.screenshot({
     path: join(screenshots, "table-desktop.png"),
     fullPage: true,

@@ -59,7 +59,11 @@ function FlowRows({
   hasMore,
   loadingMore,
   onLoadMore,
+  stale,
+  loading,
 }: {
+  stale: boolean;
+  loading: boolean;
   serverID: string;
   items: readonly ServerAuthFlowView[];
   hasMore: boolean;
@@ -72,10 +76,15 @@ function FlowRows({
       layout="activity"
       rowHeaderKey="action"
       loadedSubset
+      historySummary
+      localStale={stale}
+      localLoading={loading}
+      itemNames={{ singular: "flow", plural: "flows" }}
+      emptyTitle="No retained OAuth flows"
       hasMore={hasMore}
       loadingMore={loadingMore}
       onLoadMore={onLoadMore}
-      loadMoreLabel="Load older flows"
+      loadMoreLabel="Load more flows"
       items={items}
       rowKey={(flow) => flow.id}
       rowTestID="auth-flow-row"
@@ -423,6 +432,8 @@ export function ServerAuthFlows({
   onLoadMore,
   onRefresh,
   mode = "full",
+  stale = false,
+  loading = false,
 }: {
   mutations: MutationCoordinator;
   sinks: SensitiveSinkCoordinator;
@@ -437,6 +448,8 @@ export function ServerAuthFlows({
   onLoadMore: () => void;
   onRefresh: () => void;
   mode?: "full" | "history" | "action";
+  stale?: boolean;
+  loading?: boolean;
 }) {
   if (flow !== undefined)
     return (
@@ -460,6 +473,11 @@ export function ServerAuthFlows({
               Back to authentication
             </a>
           </p>
+          {stale && (
+            <StateNotice state="error" title="OAuth flow unavailable">
+              These flow details are last-known. Refresh to retry the read.
+            </StateNotice>
+          )}
           <dl class="detail-list">
             <div>
               <dt>Created</dt>
@@ -542,17 +560,24 @@ export function ServerAuthFlows({
             </p>
           </StateNotice>
         )}
-        {flows.length === 0 ? (
-          <StateNotice state="empty" title="No retained OAuth flows" />
-        ) : (
-          <FlowRows
-            serverID={server.id}
-            items={flows}
-            hasMore={nextCursor !== null}
-            loadingMore={loadingMore}
-            onLoadMore={onLoadMore}
-          />
+        {loading && (
+          <StateNotice state="loading" title="Loading OAuth activity" />
         )}
+        {stale && (
+          <StateNotice state="error" title="OAuth activity unavailable">
+            Loaded flows are last-known. Use Load more flows to retry
+            continuation, or Refresh to restart.
+          </StateNotice>
+        )}
+        <FlowRows
+          stale={stale}
+          loading={loading}
+          serverID={server.id}
+          items={flows}
+          hasMore={nextCursor !== null}
+          loadingMore={loadingMore}
+          onLoadMore={onLoadMore}
+        />
       </section>
       {mode === "full" && (
         <StartFlow

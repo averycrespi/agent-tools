@@ -1,5 +1,9 @@
 import { captureStateFeedback } from "./state-feedback.ts";
-import { captureDetailLayout, prepareDetailBaseline } from "./detail-layout.ts";
+import {
+  captureDetailLayout,
+  prepareDetailBaseline,
+  captureTableState,
+} from "./detail-layout.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -284,6 +288,7 @@ export async function runBackups(
   let creates = 0;
   let deletes = 0;
   let details = 0;
+  let backupReadFails = false;
   let recoveryKey: string | undefined;
   await page.route("**/api/v2/backups**", async (route) => {
     const request = route.request();
@@ -298,7 +303,9 @@ export async function runBackups(
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ items, next_cursor: null }),
+        body: JSON.stringify(
+          backupReadFails ? {} : { items, next_cursor: null },
+        ),
       });
       return;
     }
@@ -457,10 +464,27 @@ export async function runBackups(
   await assertSimplifiedInventory();
   await page.locator('[data-testid="backup-delete"]').first().click();
   await expect(page.getByRole("dialog")).toContainText(ids[1]!);
+  await captureTableState(page, "backup-delete-confirmation");
   await page.locator('[data-testid="backup-delete-confirm-cancel"]').click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.getByTestId("backup-delete").first()).toBeFocused();
   expect(deletes).toBe(0);
   await expect(rows).toHaveCount(2);
+  backupReadFails = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known backups", { exact: true }),
+  ).toBeVisible();
+  await expect(rows).toHaveCount(2);
+  await expect(
+    page.getByText("2 backups (last-known)", { exact: true }),
+  ).toBeVisible();
+  await captureTableState(page, "backups-stale");
+  backupReadFails = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known backups", { exact: true }),
+  ).toHaveCount(0);
   await page.locator('[data-testid="backup-delete"]').first().click();
   await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
   await page.getByText(/Backup deleted/).waitFor();
@@ -531,6 +555,7 @@ export async function runAdminCredentials(
   let items = [credential(0), credential(1), credential(2, "active", false)];
   let creates = 0;
   let revokes = 0;
+  let adminReadFails = false;
   let expectedExpiry: string | null = null;
   let releaseLost: (() => void) | undefined;
   let markLostStarted: (() => void) | undefined;
@@ -550,7 +575,9 @@ export async function runAdminCredentials(
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ items, next_cursor: null }),
+        body: JSON.stringify(
+          adminReadFails ? {} : { items, next_cursor: null },
+        ),
       });
       return;
     }
@@ -684,6 +711,32 @@ export async function runAdminCredentials(
       .count()) !== items.length
   )
     fail("admin credential fingerprints remained interactive or expanded");
+  const adminStatus = page.getByRole("combobox", {
+    name: "Status",
+    exact: true,
+  });
+  await adminStatus.selectOption("expired");
+  await expect(page.getByTestId("admin-credential-row")).toHaveCount(0);
+  await expect(adminStatus).toBeVisible();
+  await expect(page).toHaveURL(/#\/system\?tab=admin-credentials$/);
+  await captureTableState(page, "admin-local-filter-empty");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page.getByTestId("admin-credential-row")).toHaveCount(3);
+  adminReadFails = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known administrator credentials", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("admin-credential-row")).toHaveCount(3);
+  await expect(
+    page.getByText("Showing 3 of 3 (last-known)", { exact: true }),
+  ).toBeVisible();
+  await captureTableState(page, "admin-stale");
+  adminReadFails = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known administrator credentials", { exact: true }),
+  ).toHaveCount(0);
   await page.locator('[data-testid="admin-credential-create"]').click();
   await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
   if (
@@ -845,6 +898,33 @@ export async function runAdminCredentials(
       { exact: true },
     )
     .waitFor();
+  items = items.map((item) =>
+    item.id === ids[0]
+      ? item
+      : { ...item, status: "revoked" as const, revision: "9" },
+  );
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page.getByTestId("admin-credentials-view").waitFor();
+  await page.getByTestId("manual-refresh").click();
+  const protectedRow = page
+    .getByTestId("admin-credential-row")
+    .filter({ hasText: ids[0]! });
+  const protectedRevoke = protectedRow.getByTestId("admin-credential-revoke");
+  await expect(protectedRevoke).toBeDisabled();
+  const protectionText = protectedRow.getByText(
+    "The last active non-expiring administrator credential cannot be revoked.",
+    { exact: true },
+  );
+  await expect(protectionText).toBeVisible();
+  const guidanceWidth = (await protectionText.boundingBox())!.width;
+  expect(guidanceWidth).toBeGreaterThanOrEqual(200);
+  expect(guidanceWidth).toBeLessThanOrEqual(256);
+  await expect(protectedRevoke).toHaveAccessibleDescription(
+    "The last active non-expiring administrator credential cannot be revoked.",
+  );
+  await captureTableState(page, "admin-protected-revoke");
   const logoutResponse = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === "/api/v2/admin-sessions/current" &&
@@ -1701,6 +1781,7 @@ export async function runInvocations(
   let listReads = 0;
   let continuationReads = 0;
   let itemReads = 0;
+  let vocabularyItemReads = 0;
   let staleMode = false;
   let staleRestarted = false;
   let itemMissing = false;
@@ -1716,6 +1797,25 @@ export async function runInvocations(
     )
       fail("invocation view issued an unauthenticated or non-read request");
     if (url.pathname !== "/api/v2/mcp/invocations") {
+      if (
+        url.pathname === `/api/v2/mcp/invocations/${invocationIDs.admission}`
+      ) {
+        expect(url.search).toBe("");
+        vocabularyItemReads += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ...invocationFixture(
+              invocationIDs.admission,
+              "admission",
+              "invalid_params",
+            ),
+            redacted_arguments: null,
+          }),
+        });
+        return;
+      }
       if (
         url.pathname !== `/api/v2/mcp/invocations/${invocationIDs.missing}` ||
         url.search !== ""
@@ -1779,6 +1879,24 @@ export async function runInvocations(
       [...query.keys()].some((key) => query.getAll(key).length !== 1)
     )
       fail("invocation list request changed shape");
+    if (query.get("outcome") === "invalid_params") {
+      listReads += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            invocationFixture(
+              invocationIDs.admission,
+              "admission",
+              "invalid_params",
+            ),
+          ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
     if (query.get("decision") === "block") {
       listReads += 1;
       await route.fulfill({
@@ -1992,6 +2110,7 @@ export async function runInvocations(
     .locator("option")
     .allTextContents();
   for (const outcome of [
+    "Invalid parameters",
     "Invalid arguments",
     "Authorization unavailable",
     "Prestart failure",
@@ -2056,6 +2175,46 @@ export async function runInvocations(
     "data-state",
     "neutral",
   );
+
+  const invalidOutcome = page.getByLabel("Outcome", { exact: true });
+  await expect(
+    invalidOutcome.locator('option[value="invalid_params"]'),
+  ).toHaveText("Invalid parameters");
+  await expect(
+    page
+      .getByTestId("invocation-row")
+      .filter({ hasText: invocationIDs.admission })
+      .locator('[data-label="Outcome"] .status-label'),
+  ).toHaveText("Invalid parameters");
+  const invalidQuery = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return (
+      url.pathname === "/api/v2/mcp/invocations" &&
+      url.searchParams.get("outcome") === "invalid_params"
+    );
+  });
+  await invalidOutcome.selectOption("invalid_params");
+  await invalidQuery;
+  await expect(page).toHaveURL(/filter_outcome=invalid_params/);
+  await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+  await page
+    .getByRole("link", {
+      name: `Invocation ${invocationIDs.admission}`,
+      exact: true,
+    })
+    .click();
+  await expect(
+    page
+      .getByTestId("invocation-detail")
+      .getByText("Invalid parameters", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Back to invocations", exact: true })
+    .click();
+  await expect(invalidOutcome).toHaveValue("invalid_params");
+  expect(vocabularyItemReads).toBe(1);
+  await invalidOutcome.selectOption("");
+  await expect(page.getByTestId("invocation-row")).toHaveCount(2);
 
   const beforeWait = listReads;
   await page.waitForTimeout(5100);
@@ -2459,7 +2618,7 @@ export async function runInvocations(
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "invocations_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, continuation_reads: continuationReads, item_reads: itemReads, history_screenshots: historyScreenshots })}\n`,
+    `${JSON.stringify({ event: "invocations_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, continuation_reads: continuationReads, item_reads: itemReads, vocabulary_item_reads: vocabularyItemReads, history_screenshots: historyScreenshots })}\n`,
   );
 }
 

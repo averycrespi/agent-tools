@@ -504,18 +504,20 @@ export function ServerOperations({
         activeRefreshing={activeRefreshing}
         multipleActive={multipleActive}
       />
-      <section
-        class="panel domain-panel"
-        aria-labelledby="operation-list-title"
-        data-testid="operation-list"
-      >
-        <div class="panel-heading">
-          <div>
-            <h2 id="operation-list-title">Operation history</h2>
+      {history !== undefined && (
+        <section
+          class="panel domain-panel"
+          aria-labelledby="operation-list-title"
+          data-testid="operation-list"
+        >
+          <div class="panel-heading">
+            <div>
+              <h2 id="operation-list-title">Operation history</h2>
+            </div>
           </div>
-        </div>
-        {history}
-      </section>
+          {history}
+        </section>
+      )}
     </>
   );
 }

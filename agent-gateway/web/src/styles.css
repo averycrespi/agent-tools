@@ -1522,6 +1522,12 @@ button.sort-button:not(:disabled):hover {
   font-weight: 450;
 }
 
+.table-action-guidance {
+  inline-size: 16rem;
+  max-inline-size: 100%;
+  white-space: normal;
+}
+
 .table-identifier {
   display: block;
   margin-top: 4px;
@@ -2322,8 +2328,20 @@ button.sort-button:not(:disabled):hover {
   flex: 1 1 9rem;
 }
 
-.audit-filter-grid > .form-field:has(input[type="datetime-local"]) {
-  flex-basis: 15rem;
+.audit-filter-group {
+  display: flex;
+  flex: 2 1 22rem;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.audit-filter-group > .form-field {
+  flex: 1 1 10rem;
+}
+
+.audit-filter-group:has(input[type="datetime-local"]) > .form-field {
+  flex-basis: 14rem;
 }
 
 .audit-filter-grid .form-field {
@@ -2337,22 +2355,6 @@ button.sort-button:not(:disabled):hover {
 
 .audit-filter-grid .field-error {
   order: 2;
-}
-
-.audit-optional-filter {
-  display: flex;
-  flex: 1 1 18rem;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-}
-
-.audit-optional-filter .form-field {
-  flex: 1;
-}
-
-.audit-optional-filter > button {
-  margin-top: 23px;
 }
 
 .audit-filter-grid input,

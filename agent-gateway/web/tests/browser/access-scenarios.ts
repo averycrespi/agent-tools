@@ -3,6 +3,7 @@ import { captureStateFeedback } from "./state-feedback.ts";
 import {
   assertDetailComparison,
   captureDetailLayout,
+  captureTableState,
   prepareDetailBaseline,
 } from "./detail-layout.ts";
 import { assertTableConventions } from "./table-conventions.ts";
@@ -3522,6 +3523,7 @@ export async function runRequestReads(
     /(?:Requests, |last known )32 pending/,
   );
   await captureRequestState(page, "pending-queue");
+  await captureTableState(page, "requests-pending");
   if (
     (await page.locator('[data-testid="request-row"]').count()) !== 32 ||
     !(

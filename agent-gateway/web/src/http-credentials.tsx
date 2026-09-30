@@ -251,13 +251,20 @@ function CredentialCollection(props: Props) {
     props.session,
     props.resolved,
     props.view,
-    (_query, cursor, signal) =>
-      readCollectionPage(
+    (query, cursor, signal) => {
+      const params = new URLSearchParams({ limit: "50" });
+      for (const key of ["name", "boundary", "recipe", "status"]) {
+        const value = query[`filter_${key}`];
+        if (value !== undefined) params.set(key, value);
+      }
+      if (cursor !== null) params.set("cursor", cursor);
+      return readCollectionPage(
         props.session,
-        `/api/v2/http/credentials?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`,
+        `/api/v2/http/credentials?${params}`,
         decodeHTTPCredential,
         signal,
-      ),
+      );
+    },
     navigate,
     { key: "created", direction: "descending" },
   );
@@ -278,7 +285,37 @@ function CredentialCollection(props: Props) {
           items={items}
           rowKey={(c) => c.id}
           initialSort={{ key: "created", direction: "descending" }}
-          filters={[]}
+          filters={[
+            {
+              key: "name",
+              label: "Name or ID",
+              type: "text",
+              value: (c) => c.name,
+              literalValues: (c) => [c.id],
+            },
+            {
+              key: "boundary",
+              label: "HTTPS boundary",
+              type: "text",
+              value: (c) => `${c.boundary.host}:${c.boundary.port}`,
+            },
+            {
+              key: "recipe",
+              label: "Header recipe",
+              type: "text",
+              value: (c) => `${c.recipe.header} ${c.recipe.prefix}`,
+            },
+            {
+              key: "status",
+              label: "Status",
+              type: "select",
+              value: (c) => (c.available ? "configured" : "unavailable"),
+              options: [
+                { value: "configured", label: "Configured" },
+                { value: "unavailable", label: "Unavailable" },
+              ],
+            },
+          ]}
           columns={[
             {
               key: "name",

@@ -1260,7 +1260,7 @@ function PrincipalCollection({
         sort: query.sort ?? "name",
         direction: query.direction ?? "ascending",
       });
-      for (const key of ["name", "state", "visibility"]) {
+      for (const key of ["name", "state", "visibility", "http_default"]) {
         const value = query[`filter_${key}`];
         if (value !== undefined) params.set(key, value);
       }
@@ -1329,8 +1329,18 @@ function PrincipalCollection({
               value: (principal) => principal.visibility,
               options: [
                 { value: "requestable", label: "Requestable" },
-                { value: "allowed-only", label: "Allowed only" },
-                { value: "all", label: "All" },
+                { value: "allowed-only", label: "Allowed tools only" },
+                { value: "all", label: "All tools" },
+              ],
+            },
+            {
+              key: "http_default",
+              label: "HTTP default",
+              type: "select",
+              value: (principal) => principal.httpDefault,
+              options: [
+                { value: "block", label: "Block requests" },
+                { value: "allow", label: "Allow requests" },
               ],
             },
           ]}

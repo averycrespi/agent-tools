@@ -1,5 +1,6 @@
 import { captureStateFeedback } from "./state-feedback.ts";
-import { captureDetailLayout } from "./detail-layout.ts";
+import { captureDetailLayout, captureTableState } from "./detail-layout.ts";
+import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -204,6 +205,83 @@ export async function runHTTPCredentials(
   const created = await response.json();
   expect(created.available).toBe(true);
   expect(JSON.stringify(created)).not.toContain("canary");
+  await page
+    .getByRole("link", { name: "Back to HTTP credentials", exact: true })
+    .click();
+  await assertTableConventions(
+    page,
+    "HTTP credentials",
+    ["Credential", "HTTPS boundary", "Header recipe", "Status"],
+    "Credential",
+  );
+  const keyboardFilters = [
+    ["Name or ID", "exmaple"],
+    ["HTTPS boundary", "api.example.com 443"],
+    ["Header recipe", "authorization bearer"],
+  ] as const;
+  for (const [label, value] of keyboardFilters) {
+    const filter = page.getByRole("searchbox", { name: label, exact: true });
+    await filter.pressSequentially(value);
+    await expect(filter).toHaveValue(value);
+    await expect(filter).toBeFocused();
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "Showing 1–1 of 1 matching credential" }),
+    ).toBeVisible();
+  }
+  for (const [label, value] of keyboardFilters)
+    await expect(
+      page.getByRole("searchbox", { name: label, exact: true }),
+    ).toHaveValue(value);
+  await expect(page).toHaveURL(
+    /filter_boundary=api\.example\.com%20443&filter_name=exmaple&filter_recipe=authorization%20bearer/,
+  );
+  await page.evaluate(() => {
+    for (const [label, value] of [
+      ["Name or ID", "Example"],
+      ["HTTPS boundary", "api example 443"],
+    ]) {
+      const filter = document.querySelector<HTMLInputElement>(
+        `input[aria-label="${label}"]`,
+      )!;
+      filter.value = value!;
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  await expect(
+    page.getByRole("searchbox", { name: "Name or ID", exact: true }),
+  ).toHaveValue("Example");
+  await expect(
+    page.getByRole("searchbox", { name: "HTTPS boundary", exact: true }),
+  ).toHaveValue("api example 443");
+  await expect(page).toHaveURL(
+    /filter_boundary=api%20example%20443&filter_name=Example&filter_recipe=authorization%20bearer/,
+  );
+  await captureTableState(page, "http-credentials-keyboard-filters");
+  const statusFilter = page.getByRole("combobox", {
+    name: "Status",
+    exact: true,
+  });
+  await statusFilter.focus();
+  await statusFilter.selectOption("unavailable");
+  await expect(statusFilter).toBeFocused();
+  await expect(
+    page.getByText("No matching credentials", { exact: true }).first(),
+  ).toBeVisible();
+  await captureTableState(page, "http-credentials-filtered-empty");
+  await page
+    .getByRole("combobox", { name: "Status", exact: true })
+    .selectOption("configured");
+  await expect(page.getByRole("table")).toContainText(created.id);
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page).toHaveURL(/#\/http\/credentials$/);
+  await page
+    .getByRole("link", { name: "Example HTTP credential", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Example HTTP credential", exact: true }),
+  ).toBeVisible();
   await page
     .getByLabel("Secret", { exact: true })
     .fill("http-credential-rotate-canary");

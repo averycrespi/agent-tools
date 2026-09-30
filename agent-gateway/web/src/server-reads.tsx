@@ -1054,6 +1054,19 @@ export class ServerReadsController {
     let restarted = false;
     if (next !== null && (await staleCursor(response))) {
       restarted = true;
+      if (
+        kind === "authFlows" &&
+        !context.signal.aborted &&
+        this.value.viewKey === context.viewKey
+      ) {
+        this.value = {
+          ...this.value,
+          authFlows: [],
+          authFlowNext: null,
+          restarted: true,
+        };
+        this.emit();
+      }
       response = await get(context, listPath(kind, context.viewKey, null));
     }
     if (kind === "servers")
@@ -1089,6 +1102,11 @@ export class ServerReadsController {
       if (etag !== `"server-${server.id}-${server.desiredRevision}"`)
         throw new Error("invalid server ETag");
       if (kind === "operations") {
+        // Server facts remain readable even when active-operation lookup fails.
+        if (!context.signal.aborted && this.value.viewKey === context.viewKey) {
+          this.value = { ...this.value, server, serverETag: etag };
+          this.emit();
+        }
         const page = decodeActiveOperations(await json(response));
         if (page.items.some((item) => item.serverID !== server.id))
           throw new Error("invalid active operation server");
@@ -2083,29 +2101,32 @@ export function ServerReads({
                 onLoadMore={() => void controller.loadMore("authFlows")}
                 onRefresh={onRefresh}
                 mode="action"
+                stale={authFlowPanel?.status === "error"}
               />
             )}
         </ReadPanel>
-        <ReadPanel panel={authFlowPanel}>
-          {snapshot.server !== undefined &&
-            snapshot.serverETag !== undefined && (
-              <ServerAuthFlows
-                mutations={mutations}
-                sinks={sinks}
-                server={snapshot.server}
-                etag={snapshot.serverETag}
-                readVersion={snapshot.readVersion}
-                flows={snapshot.authFlows}
-                flow={undefined}
-                nextCursor={snapshot.authFlowNext}
-                loadingMore={snapshot.loadingMore}
-                restarted={snapshot.restarted}
-                onLoadMore={() => void controller.loadMore("authFlows")}
-                onRefresh={onRefresh}
-                mode="history"
-              />
-            )}
-        </ReadPanel>
+        {snapshot.server !== undefined && snapshot.serverETag !== undefined && (
+          <ServerAuthFlows
+            mutations={mutations}
+            sinks={sinks}
+            server={snapshot.server}
+            etag={snapshot.serverETag}
+            readVersion={snapshot.readVersion}
+            flows={snapshot.authFlows}
+            flow={undefined}
+            nextCursor={snapshot.authFlowNext}
+            loadingMore={snapshot.loadingMore}
+            restarted={snapshot.restarted}
+            onLoadMore={() => void controller.loadMore("authFlows")}
+            onRefresh={onRefresh}
+            mode="history"
+            stale={authFlowPanel?.status === "error"}
+            loading={
+              authFlowPanel === undefined ||
+              (authFlowPanel.status === "loading" && !authFlowPanel.hasValue)
+            }
+          />
+        )}
       </div>
     );
   if (authFlowItem !== null) {
@@ -2128,6 +2149,7 @@ export function ServerReads({
                 readVersion={snapshot.readVersion}
                 flows={snapshot.authFlows}
                 flow={snapshot.authFlow}
+                stale={panel?.status === "error"}
                 nextCursor={snapshot.authFlowNext}
                 loadingMore={snapshot.loadingMore}
                 restarted={snapshot.restarted}
@@ -2147,43 +2169,51 @@ export function ServerReads({
           serverID={activityTab[1]!}
           current="operations"
         />
-        <ReadPanel panel={operationPanel}>
-          {snapshot.server !== undefined &&
-            snapshot.serverETag !== undefined && (
-              <ServerOperations
-                mutations={mutations}
-                server={snapshot.server}
-                etag={snapshot.serverETag}
-                readVersion={snapshot.readVersion}
-                operations={snapshot.operations}
-                operation={undefined}
-                activeCurrent={
-                  operationPanel?.status === "current" &&
-                  operationPanel.refreshing !== true
-                }
-                activeRefreshing={operationPanel?.refreshing === true}
-                multipleActive={
-                  snapshot.activeMore || snapshot.operations.length > 1
-                }
-                history={
-                  <ServerCollectionTable
-                    session={session}
-                    resolved={resolved}
-                    view={view}
-                    kind="operations"
-                    decodePage={decodeOperationPage}
-                    render={(items, controls) => (
-                      <OperationRows
-                        serverID={activityTab[1]!}
-                        items={items}
-                        controls={controls}
-                      />
-                    )}
-                  />
-                }
+        {operationPanel?.status === "error" && (
+          <StateNotice state="error" title="Active operations unavailable">
+            Operation starts are disabled. History remains independently
+            readable.
+          </StateNotice>
+        )}
+        {snapshot.server !== undefined && snapshot.serverETag !== undefined && (
+          <ServerOperations
+            mutations={mutations}
+            server={snapshot.server}
+            etag={snapshot.serverETag}
+            readVersion={snapshot.readVersion}
+            operations={snapshot.operations}
+            operation={undefined}
+            activeCurrent={
+              operationPanel?.status === "current" &&
+              operationPanel.refreshing !== true
+            }
+            activeRefreshing={operationPanel?.refreshing === true}
+            multipleActive={
+              snapshot.activeMore || snapshot.operations.length > 1
+            }
+          />
+        )}
+        <section
+          class="panel domain-panel"
+          aria-labelledby="operation-list-title"
+          data-testid="operation-list"
+        >
+          <h2 id="operation-list-title">Operation history</h2>
+          <ServerCollectionTable
+            session={session}
+            resolved={resolved}
+            view={view}
+            kind="operations"
+            decodePage={decodeOperationPage}
+            render={(items, controls) => (
+              <OperationRows
+                serverID={activityTab[1]!}
+                items={items}
+                controls={controls}
               />
             )}
-        </ReadPanel>
+          />
+        </section>
       </div>
     );
   if (operationItem !== null) {
@@ -2251,16 +2281,17 @@ export function ServerReads({
                       </div>
                       <StatusLabel
                         state={
-                          descriptor.retiredAt === null
-                            ? "current"
-                            : "unavailable"
+                          descriptor.retiredAt === null ? "current" : "neutral"
                         }
                       >
                         {descriptor.retiredAt === null
                           ? "Available"
-                          : "Historical evidence; not callable"}
+                          : "Retired"}
                       </StatusLabel>
                     </div>
+                    {descriptor.retiredAt !== null && (
+                      <p>Historical evidence; not callable</p>
+                    )}
                     <h3>Catalog evidence</h3>
                     <dl class="tool-metadata">
                       <div>

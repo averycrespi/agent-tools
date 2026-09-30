@@ -1086,16 +1086,27 @@ function Backups({
         </StateNotice>
       )}
       {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      {panelStatus === "error" && backups !== undefined && (
+        <StateNotice state="stale" title="Last-known backups">
+          The inventory and count are stale. Use Refresh to try again.
+        </StateNotice>
+      )}
       {panelStatus === "error" && backups === undefined ? (
         <StateNotice state="error" title="Backups unavailable" />
       ) : (panelStatus === "loading" && panel?.hasValue !== true) ||
         backups === undefined ? (
         <StateNotice state="loading" title="Loading backups" />
-      ) : backups.length === 0 ? (
-        <StateNotice state="empty" title="No backups" />
       ) : (
         <CollectionTable
           caption="Published backup artifacts"
+          emptyTitle="No backups"
+          localStale={panelStatus === "error"}
+          summaryExtra={
+            <output class="table-filter-summary">
+              {backups.length} {backups.length === 1 ? "backup" : "backups"}
+              {panelStatus === "error" ? " (last-known)" : ""}
+            </output>
+          }
           rowHeaderKey="backup"
           items={backups}
           rowKey={(backup) => backup.id}
@@ -1144,12 +1155,14 @@ function Backups({
               render: (backup) => (
                 <div class="inline-actions">
                   <button
-                    ref={deleteButton}
                     class="danger-action"
                     data-testid="backup-delete"
                     type="button"
                     disabled={disabled}
-                    onClick={() => beginDelete(backup)}
+                    onClick={(event) => {
+                      deleteButton.current = event.currentTarget;
+                      beginDelete(backup);
+                    }}
                   >
                     Delete
                   </button>
@@ -1479,6 +1492,11 @@ function AdminCredentials({
         </StateNotice>
       )}
       {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      {panelStatus === "error" && credentials !== undefined && (
+        <StateNotice state="stale" title="Last-known administrator credentials">
+          The inventory and count are stale. Use Refresh to try again.
+        </StateNotice>
+      )}
       {panelStatus === "error" && credentials === undefined ? (
         <StateNotice
           state="error"
@@ -1490,11 +1508,11 @@ function AdminCredentials({
           state="loading"
           title="Loading administrator credentials"
         />
-      ) : credentials.length === 0 ? (
-        <StateNotice state="empty" title="No administrator credentials" />
       ) : (
         <CollectionTable
           caption="Admin credentials"
+          emptyTitle="No administrator credentials"
+          localStale={panelStatus === "error"}
           rowHeaderKey="fingerprint"
           initialSort={{ key: "created", direction: "descending" }}
           additionalSorts={[
@@ -1584,23 +1602,34 @@ function AdminCredentials({
                   credential.nonExpiring &&
                   activeNonExpiring <= 1;
                 return credential.status === "active" ? (
-                  <button
-                    class="danger-action"
-                    data-testid="admin-credential-revoke"
-                    type="button"
-                    disabled={disabled || protectedLast}
-                    title={
-                      protectedLast
-                        ? "The last active non-expiring administrator authority cannot be revoked."
-                        : undefined
-                    }
-                    onClick={(event) => {
-                      revokeButton.current = event.currentTarget;
-                      beginRevoke(credential);
-                    }}
-                  >
-                    Revoke
-                  </button>
+                  <>
+                    <button
+                      class="danger-action"
+                      data-testid="admin-credential-revoke"
+                      type="button"
+                      disabled={disabled || protectedLast}
+                      aria-describedby={
+                        protectedLast
+                          ? `protected-revoke-${credential.id}`
+                          : undefined
+                      }
+                      onClick={(event) => {
+                        revokeButton.current = event.currentTarget;
+                        beginRevoke(credential);
+                      }}
+                    >
+                      Revoke
+                    </button>
+                    {protectedLast && (
+                      <p
+                        id={`protected-revoke-${credential.id}`}
+                        class="table-secondary table-action-guidance"
+                      >
+                        The last active non-expiring administrator credential
+                        cannot be revoked.
+                      </p>
+                    )}
+                  </>
                 ) : (
                   "—"
                 );

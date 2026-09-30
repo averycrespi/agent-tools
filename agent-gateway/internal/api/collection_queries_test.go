@@ -51,7 +51,11 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 		if i == 127 {
 			name = "Faraway Match"
 		}
-		last, err = repository.CreatePrincipal(context.Background(), authorization.CreatePrincipalRequest{DisplayName: name, Visibility: contract.VisibilityAll})
+		policy := contract.HTTPDefaultBlock
+		if i == 127 {
+			policy = contract.HTTPDefaultAllow
+		}
+		last, err = repository.CreatePrincipal(context.Background(), authorization.CreatePrincipalRequest{DisplayName: name, Visibility: contract.VisibilityAll, HTTPDefault: &policy})
 		require.NoError(t, err)
 	}
 	service, err := authorization.NewCollectionService(repository, apiCollectionTargets{})
@@ -107,6 +111,11 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 	metadata("/api/v2/principals?sort=name&limit=50&cursor="+*second.NextCursor, 128, 100)
 	metadata("/api/v2/principals?name=faraway&state=active&visibility=all", 1, 0)
 	metadata("/api/v2/principals?name=nonexistent", 0, 0)
+	metadata("/api/v2/principals?http_default=allow", 1, 0)
+	metadata("/api/v2/principals?http_default=block", 127, 0)
+	for _, query := range []string{"http_default=unknown", "http_default=", "http_default=allow&http_default=block", "unknown=allow"} {
+		require.Equal(t, 400, perform(boundary, http.MethodGet, "/api/v2/principals?"+query, "", auth).Code)
+	}
 	var match contract.Collection[contract.Principal]
 	get("/api/v2/principals?name=faraway&state=active&visibility=all", &match)
 	require.Len(t, match.Items, 1)
