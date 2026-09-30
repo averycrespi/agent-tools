@@ -4,6 +4,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
   auditActions,
+  auditTargets,
   parseAuditJSON,
   decodeAuditItem,
   decodeAuditPage,
@@ -60,6 +61,14 @@ test("browser audit vocabulary stays aligned with authoritative Go contract", ()
     ),
   );
   assert.deepEqual(auditActions, actions);
+  const targets = source.match(
+    /func AuditTargetTypes\(\) \[\]string \{\s*return \[\]string\{([^}]+)\}/,
+  );
+  assert.ok(targets);
+  assert.deepEqual(
+    [...auditTargets].sort(),
+    [...targets[1]!.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]).sort(),
+  );
   for (const [file, type, member] of [
     ["server_states.go", "PublicReason", "reason"],
     ["problems.go", "ProblemCode", "problem"],
@@ -154,6 +163,48 @@ test("audit strict projections preserve attribution, uncertain outcomes and rete
     }),
   );
 });
+test("Git audit events and filters retain the closed shared audit contract", () => {
+  for (const [category, targetType] of [
+    ["git_repository", "git_repository"],
+    ["git_grant", "git_grant"],
+    ["git_credential", "git_credential"],
+    ["git_profile", "installation"],
+  ]) {
+    for (const action of auditActions[category!]!) {
+      const gitEvent = {
+        ...event,
+        category,
+        action,
+        phase: "outcome",
+        outcome: "succeeded",
+        target: { type: targetType, id },
+      };
+      const page = { items: [gitEvent], next_cursor: null, history };
+      assert.deepEqual(decodeAuditPage(page), page);
+      assert.equal(
+        validAuditQuery({
+          filter_category: category!,
+          filter_action: action,
+          filter_target_type: targetType!,
+        }),
+        true,
+      );
+      assert.throws(() =>
+        decodeAuditPage({
+          ...page,
+          items: [{ ...gitEvent, action: "dispatch" }],
+        }),
+      );
+      assert.throws(() =>
+        decodeAuditPage({
+          ...page,
+          items: [{ ...gitEvent, secret: "private" }],
+        }),
+      );
+    }
+  }
+});
+
 test("audit filters validate the exact API grammar including nanosecond time boundaries", () => {
   const query = {
     filter_actor_type: "system",

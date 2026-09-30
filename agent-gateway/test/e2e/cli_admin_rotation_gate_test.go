@@ -237,7 +237,7 @@ func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, 
 			optional = true
 		}
 		if !optional {
-			args = append(args, stoppedMatrixValue(field, root, name))
+			args = append(args, stoppedMatrixValue(t, field, root, name))
 		}
 		if strings.HasSuffix(field, "]") {
 			optional = false
@@ -260,12 +260,16 @@ func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, 
 	return args
 }
 
-func stoppedMatrixValue(value, root, command string) string {
+func stoppedMatrixValue(t *testing.T, value, root, command string) string {
+	t.Helper()
 	value = strings.Trim(value, "[]")
 	switch value {
 	case "ID", "BACKUP_ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
 		return stoppedMatrixID
 	case "PATH":
+		if strings.HasPrefix(command, "git ") {
+			return writeStoppedMatrixGitFile(t, root, command)
+		}
 		if strings.HasPrefix(command, "http ") {
 			return writeStoppedMatrixHTTPFile(root, command)
 		}
@@ -292,6 +296,30 @@ func stoppedMatrixValue(value, root, command string) string {
 	default:
 		return value
 	}
+}
+
+func writeStoppedMatrixGitFile(t *testing.T, root, command string) string {
+	t.Helper()
+	var body string
+	switch command {
+	case "git repository create", "git repository update":
+		body = `{"name":"Git matrix","url":"https://example.com/team/repo","aliases":[],"credential_id":null}`
+	case "git grant create", "git grant update":
+		body = `{"principal_id":"` + stoppedMatrixID + `","repository_id":"` + stoppedMatrixID + `","description":null,"policy":{"version":1,"read":true,"refs":[]},"expires_at":null}`
+	case "git credential create":
+		body = `{"name":"Git matrix","origin":"https://example.com","recipe":{"header":"Authorization","prefix":"Bearer "},"secret":"matrix-secret"}`
+	case "git credential update":
+		body = `{"name":"Git matrix","origin":"https://example.com","recipe":{"header":"Authorization","prefix":"Bearer "}}`
+	case "git credential rotate":
+		body = `{"secret":"matrix-secret"}`
+	case "git routing-profile update":
+		body = `{"origins":["https://example.com"]}`
+	default:
+		t.Fatalf("missing Git input fixture for %s", command)
+	}
+	path := filepath.Join(root, "git-input.json")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	return path
 }
 
 func writeStoppedMatrixHTTPFile(root, command string) string {
