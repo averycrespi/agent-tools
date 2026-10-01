@@ -118,9 +118,12 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 			}
 			require.Equal(t, encoding, response.Header.Get("Content-Encoding"))
 			require.NoError(t, response.Body.Close())
-			require.NoError(t, conn.Close())
 			drain, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
+			// Content-Length EOF can precede the handler's final flush bookkeeping.
+			// Let Connection: close settle naturally before cleanup can abort it.
+			require.NoError(t, f.engine.Wait(drain))
+			require.NoError(t, conn.Close())
 			require.NoError(t, f.engine.Close(drain))
 			history, err := f.traffic.GitHistory(t.Context(), 0, 10)
 			require.NoError(t, err)
