@@ -2249,50 +2249,46 @@ export function ServerReads({
           serverID={descriptorItem[1]!}
           current="tools"
         />
-        <section
-          class="detail-section"
-          aria-labelledby="descriptor-detail-title"
-        >
-          <ReadPanel panel={panel}>
-            {snapshot.descriptor !== undefined &&
-              (() => {
-                const descriptor = snapshot.descriptor;
-                const document = descriptor.descriptor as JSONRecord;
-                const annotations = document.annotations as JSONRecord;
-                return (
-                  <>
-                    <nav class="detail-navigation" aria-label="Tool navigation">
-                      <a
-                        href={`#/mcp/servers/${descriptor.serverID}?tab=tools`}
-                      >
-                        Back to tools
-                      </a>
-                      <span aria-hidden="true">·</span>
-                      <a href="#/mcp/tools">Back to catalog</a>
-                    </nav>
-                    <div class="panel-heading tool-heading">
-                      <div>
-                        <h2 id="descriptor-detail-title">
-                          MCP Tool: {descriptor.externalName}
-                        </h2>
-                        {typeof document.description === "string" && (
-                          <p>{document.description}</p>
-                        )}
-                      </div>
-                      <StatusLabel
-                        state={
-                          descriptor.retiredAt === null ? "current" : "neutral"
-                        }
-                      >
-                        {descriptor.retiredAt === null
-                          ? "Available"
-                          : "Retired"}
-                      </StatusLabel>
+        <ReadPanel panel={panel}>
+          {snapshot.descriptor !== undefined &&
+            (() => {
+              const descriptor = snapshot.descriptor;
+              const document = descriptor.descriptor as JSONRecord;
+              const annotations = document.annotations as JSONRecord;
+              return (
+                <>
+                  <nav class="detail-navigation" aria-label="Tool navigation">
+                    <a href={`#/mcp/servers/${descriptor.serverID}?tab=tools`}>
+                      Back to tools
+                    </a>
+                    <span aria-hidden="true">·</span>
+                    <a href="#/mcp/tools">Back to catalog</a>
+                  </nav>
+                  <header class="detail-context-heading tool-heading">
+                    <div>
+                      <h2 id="descriptor-detail-title">
+                        MCP Tool: {descriptor.externalName}
+                      </h2>
+                      {typeof document.description === "string" && (
+                        <p>{document.description}</p>
+                      )}
                     </div>
-                    {descriptor.retiredAt !== null && (
-                      <p>Historical evidence; not callable</p>
-                    )}
-                    <h3>Catalog evidence</h3>
+                    <StatusLabel
+                      state={
+                        descriptor.retiredAt === null ? "current" : "neutral"
+                      }
+                    >
+                      {descriptor.retiredAt === null ? "Available" : "Retired"}
+                    </StatusLabel>
+                  </header>
+                  {descriptor.retiredAt !== null && (
+                    <p>Historical evidence; not callable</p>
+                  )}
+                  <section
+                    class="detail-section"
+                    aria-labelledby="tool-evidence-title"
+                  >
+                    <h3 id="tool-evidence-title">Catalog evidence</h3>
                     <dl class="tool-metadata">
                       <div>
                         <dt>Catalog revision</dt>
@@ -2357,11 +2353,11 @@ export function ServerReads({
                         />
                       )}
                     </div>
-                  </>
-                );
-              })()}
-          </ReadPanel>
-        </section>
+                  </section>
+                </>
+              );
+            })()}
+        </ReadPanel>
       </div>
     );
   if (descriptorList !== undefined)

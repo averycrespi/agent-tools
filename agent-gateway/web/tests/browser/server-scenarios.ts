@@ -1,7 +1,11 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
-import { captureDetailLayout, captureTableState } from "./detail-layout.ts";
+import {
+  captureDetailLayout,
+  captureTableState,
+  prepareDetailBaseline,
+} from "./detail-layout.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,6 +40,7 @@ export async function runServerManagementCanary(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
+  const compareBaseline = prepareDetailBaseline(page);
   const serverID = serverReadIDs.active;
   const server = {
     ...serverReadFixture(serverID, {
@@ -252,6 +257,21 @@ export async function runServerManagementCanary(
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await captureDetailLayout(page, "server-status-healthy");
+  await compareBaseline("server-status-healthy");
+  await expect(serverStatus.locator(".detail-section")).toHaveCount(1);
+  await expect(
+    serverStatus.locator(".detail-section .detail-section"),
+  ).toHaveCount(0);
+  await expect(
+    serverStatus
+      .locator(".detail-section")
+      .getByRole("heading", { name: "Operational state", exact: true }),
+  ).toBeVisible();
+  await expect(
+    serverStatus
+      .locator(".detail-section")
+      .getByRole("heading", { name: "Technical details", exact: true }),
+  ).toBeVisible();
   await serverStatus.getByRole("button", { name: "Copy server ID" }).click();
   await page.waitForFunction(() => {
     const status = document.querySelector(

@@ -167,14 +167,19 @@ export function HTTPCredentials(props: Props) {
         <a href="#/http/credentials">Back to HTTP credentials</a>
       </nav>
       <header class="detail-context">
-        <h1 tabindex={-1}>{detail.name}</h1>
-      </header>
-      <section class="detail-section">
-        <div class="panel-heading">
-          <h2>Credential details</h2>
+        <div class="detail-context-heading">
+          <h1 tabindex={-1}>{detail.name}</h1>
           <StatusLabel state={detail.available ? "current" : "warning"}>
             {detail.available ? "Configured" : "Unavailable"}
           </StatusLabel>
+        </div>
+      </header>
+      <section
+        class="detail-section"
+        aria-labelledby="credential-details-title"
+      >
+        <div class="panel-heading">
+          <h2 id="credential-details-title">Credential details</h2>
         </div>
         <h3>HTTPS scope and recipe</h3>
         <dl class="detail-facts">

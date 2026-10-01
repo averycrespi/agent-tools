@@ -3063,10 +3063,23 @@ export async function runSystemStatus(
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
   const statusPanel = page.locator('[data-testid="system-status-panel"]');
+  await expect(statusPanel.locator(".detail-section")).toHaveCount(3);
+  expect(
+    await statusPanel.evaluate(
+      (node) => getComputedStyle(node).backgroundColor,
+    ),
+  ).toBe("rgba(0, 0, 0, 0)");
+  await expect(
+    statusPanel
+      .getByTestId("system-status-material")
+      .getByText("Credential storage", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    statusPanel
+      .getByTestId("system-status-material")
+      .getByText("Control storage", { exact: true }),
+  ).toBeVisible();
   if (
-    !(await statusPanel.getAttribute("class"))
-      ?.split(/\s+/)
-      .includes("detail-section") ||
     (await statusPanel
       .locator('[data-testid="system-status-summary"]')
       .count()) !== 0 ||

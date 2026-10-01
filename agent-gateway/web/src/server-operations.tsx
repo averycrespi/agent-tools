@@ -441,26 +441,23 @@ export function ServerOperations({
 }) {
   if (operation !== undefined)
     return (
-      <>
-        <section
-          class="detail-section"
-          aria-labelledby="operation-detail-title"
-          data-testid="operation-detail"
-        >
-          <div class="panel-heading">
-            <div>
-              <h2 id="operation-detail-title">Operation {operation.id}</h2>
-              <span class="table-secondary">{label(operation.kind)}</span>
-            </div>
-            <StatusLabel state={operationState(operation)}>
-              {words(operation.state)}
-            </StatusLabel>
+      <div data-testid="operation-detail">
+        <nav class="detail-navigation" aria-label="Operation navigation">
+          <a href={`#/mcp/servers/${server.id}?tab=operations`}>
+            Back to operations
+          </a>
+        </nav>
+        <header class="detail-context-heading">
+          <div>
+            <h2 id="operation-detail-title">Operation {operation.id}</h2>
+            <span class="table-secondary">{label(operation.kind)}</span>
           </div>
-          <p class="detail-navigation">
-            <a href={`#/mcp/servers/${server.id}?tab=operations`}>
-              Back to operations
-            </a>
-          </p>
+          <StatusLabel state={operationState(operation)}>
+            {words(operation.state)}
+          </StatusLabel>
+        </header>
+        <section class="detail-section" aria-labelledby="operation-facts-title">
+          <h3 id="operation-facts-title">Operation details</h3>
           <dl class="detail-list">
             <div>
               <dt>Created</dt>
@@ -488,7 +485,7 @@ export function ServerOperations({
             </div>
           </dl>
         </section>
-      </>
+      </div>
     );
   return (
     <>

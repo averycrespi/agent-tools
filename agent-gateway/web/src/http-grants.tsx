@@ -452,9 +452,16 @@ export function HTTPGrants(props: Props) {
         <a href="#/http/grants">Back to HTTP grants</a>
       </nav>
       <header class="detail-context">
-        <h1 ref={title} tabindex={-1}>
-          {detail.description || "Unnamed HTTP grant"}
-        </h1>
+        <div class="detail-context-heading">
+          <h1 ref={title} tabindex={-1}>
+            {detail.description || "Unnamed HTTP grant"}
+          </h1>
+          <StatusLabel
+            state={detail.state === "active" ? "current" : "neutral"}
+          >
+            {detail.state === "active" ? "Active" : "Expired"}
+          </StatusLabel>
+        </div>
         <span class="table-identifier">{detail.id}</span>
       </header>
       {error && (
@@ -480,11 +487,6 @@ export function HTTPGrants(props: Props) {
       >
         <div class="panel-heading">
           <h2 id="http-grant-details-title">Grant details</h2>
-          <StatusLabel
-            state={detail.state === "active" ? "current" : "neutral"}
-          >
-            {detail.state === "active" ? "Active" : "Expired"}
-          </StatusLabel>
         </div>
         <h3>Policy and relationships</h3>
         <dl class="detail-facts">
@@ -1580,7 +1582,7 @@ function PreviewResult({
       "Blocked: a matching local/private allow is required",
   };
   return (
-    <section class="detail-section" aria-live="polite">
+    <section class="detail-group" aria-live="polite">
       <h3>{reasons[String(d.reason)] ?? "Policy result unavailable"}</h3>
       <dl class="detail-facts">
         <div>

@@ -387,7 +387,10 @@ export async function runHTTPGrants(
     ).toHaveAttribute("href", `#/agents/${principal.id}`);
     await expect(facts).toContainText(principal.id);
     await expect(facts).toContainText("Created");
-    await expect(facts).toContainText("Active");
+    await expect(page.locator(".detail-context .status-label")).toHaveText(
+      "Active",
+    );
+    await expect(facts.locator(".status-label")).toHaveCount(0);
     await captureState(`detail-${kind}`);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.getByRole("link", { name: "Back to HTTP grants" }).click();

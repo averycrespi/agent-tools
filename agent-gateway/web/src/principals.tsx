@@ -1176,18 +1176,16 @@ export function Principals({
                 {principal.displayName}
               </h1>
             </div>
-          </div>
-        </header>
-        <section class="detail-section" aria-labelledby="principal-title">
-          <div class="panel-heading">
-            <div>
-              <h2 id="principal-title">Agent details</h2>
-            </div>
             <StatusLabel
               state={principal.state === "active" ? "current" : "neutral"}
             >
               {principal.state === "active" ? "Active" : "Disabled"}
             </StatusLabel>
+          </div>
+        </header>
+        <section class="detail-section" aria-labelledby="principal-title">
+          <div class="panel-heading">
+            <h2 id="principal-title">Agent details</h2>
           </div>
           <h3>Access defaults</h3>
           <dl class="detail-facts">

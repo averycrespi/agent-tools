@@ -173,6 +173,36 @@ export async function assertAuthoritativeHistory(
     await expect(page.getByLabel("Outcome", { exact: true })).toBeVisible();
     await capture("initial-empty");
     await page.unroute("**/api/v2/mcp/invocations?*", holdInitial);
+    // Only the session-wide mutation latch needs System status off-route.
+    // A hidden System panel must not compete with history for traffic readers.
+    let statusReads = 0;
+    const countStatusRead = (request: import("@playwright/test").Request) => {
+      if (new URL(request.url()).pathname === "/api/v2/system-status")
+        statusReads += 1;
+    };
+    page.on("request", countStatusRead);
+    try {
+      const statusResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/v2/system-status",
+      );
+      const historyResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/v2/mcp/invocations",
+      );
+      await page.getByRole("button", { name: "Refresh current view" }).click();
+      const responses = await Promise.all([statusResponse, historyResponse]);
+      await Promise.all(responses.map((response) => response.finished()));
+      expect(
+        statusReads,
+        "History refresh reads only the global mutation latch",
+      ).toBe(1);
+      expect(responses.map((response) => response.status())).toEqual([
+        200, 200,
+      ]);
+    } finally {
+      page.off("request", countStatusRead);
+    }
     await page.evaluate(() => {
       window.location.hash = "#/overview";
     });
@@ -503,11 +533,57 @@ export async function assertAuthoritativeHistory(
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("arrival.lookup");
-    await arrivalResponse;
-    await expect(
-      page.getByTestId("invocation-row"),
-      "history: matching arrival published",
-    ).toHaveCount(1);
+    const arrival = await arrivalResponse;
+    try {
+      await expect(
+        page.getByTestId("invocation-row"),
+        "history: matching arrival published",
+      ).toHaveCount(1);
+    } catch (error) {
+      // Preserve bounded facts about intermittent live-history failure, not raw evidence.
+      const facts = await page.evaluate(() => ({
+        rows: document.querySelectorAll('[data-testid="invocation-row"]')
+          .length,
+        panelStatus: document
+          .querySelector('[data-testid="invocations-view"]')
+          ?.getAttribute("data-panel-status"),
+        notices: [...document.querySelectorAll(".state-notice .status-label")]
+          .filter((node) => node.checkVisibility())
+          .map((node) => node.textContent)
+          .filter((text) =>
+            [
+              "Loading invocations",
+              "Invocation list unavailable",
+              "Refresh failed; shown results are stale",
+              "No matching invocations",
+            ].includes(text ?? ""),
+          ),
+      }));
+      let responseFacts: unknown = "body_unavailable";
+      try {
+        const body: unknown = await arrival.json();
+        if (body !== null && typeof body === "object") {
+          responseFacts = {
+            code:
+              "code" in body &&
+              ["storage_unavailable", "shutting_down"].includes(
+                String(body.code),
+              )
+                ? body.code
+                : null,
+            items:
+              "items" in body && Array.isArray(body.items)
+                ? body.items.length
+                : null,
+          };
+        }
+      } catch {
+        // CDP may no longer retain the body; the status and rendered facts still help.
+      }
+      if (error instanceof Error)
+        error.message += `\nHistory arrival post-failure facts: ${JSON.stringify({ facts, responseStatus: arrival.status(), responseFacts, synthetic: syntheticResponses.has(arrival.request()) })}`;
+      throw error;
+    }
     await live.uncheck();
     await call("arrival.lookup");
     await expect(

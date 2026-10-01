@@ -3780,6 +3780,33 @@ export async function runRequestReads(
   };
   await navigate(requestIDs[0]!);
   await captureRequestState(page, "changed-evidence");
+  const evidenceDisclosure = page.getByText(
+    "Technical identifiers and immutable evidence",
+    { exact: true },
+  );
+  await evidenceDisclosure.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", {
+      name: "Submitted policy and evidence — immutable",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Current target comparison — read-time",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await captureDetailLayout(page, "request-evidence-expanded");
+  await evidenceDisclosure.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", {
+      name: "Submitted policy and evidence — immutable",
+      exact: true,
+    }),
+  ).not.toBeVisible();
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Submitted policy and evidence — immutable",
@@ -3849,7 +3876,7 @@ export async function runRequestReads(
     }),
   ).toBeVisible();
   await expect(
-    page.getByTestId("request-detail").locator(".panel-heading .status-label"),
+    page.getByTestId("request-detail").locator(".detail-context .status-label"),
   ).toHaveAttribute("data-state", "neutral");
   await captureRequestState(page, "cancelled");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);

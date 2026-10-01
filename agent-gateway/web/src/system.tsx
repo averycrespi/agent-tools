@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useUnsavedChanges } from "./navigation";
+import { parseFragment } from "./location";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
 import type {
   MutationController,
@@ -331,6 +332,7 @@ export class SystemController {
     views.registerPanel({
       id: "system-status",
       matches: (viewKey) => {
+        if (parseFragment(viewKey)?.destination !== "system") return false;
         const selected = tab(viewKey);
         return selected === "status" || selected === "resource-limits";
       },
@@ -467,7 +469,7 @@ function StatusPanel({
     saturatedLimits.length === 0;
   return (
     <section
-      class="detail-section operator-status-view system-status-view"
+      class="operator-status-view system-status-view"
       aria-labelledby="system-status-title"
       data-testid="system-status-panel"
       data-panel-status={panelStatus}
@@ -586,7 +588,7 @@ function StatusPanel({
           )}
 
           <section
-            class="operator-status-section"
+            class="detail-section"
             aria-labelledby="system-operational-title"
             data-testid="system-status-operational"
           >
@@ -642,15 +644,6 @@ function StatusPanel({
                   )}
                 </dd>
               </div>
-              <div>
-                <dt>Control storage</dt>
-                <dd>
-                  <strong>{sentenceCase(status.sqliteState)}</strong>
-                  <span>
-                    Mutation admission {status.latched ? "closed" : "open"}
-                  </span>
-                </dd>
-              </div>
               {status.httpProxy && (
                 <div>
                   <dt>HTTP proxy</dt>
@@ -680,6 +673,24 @@ function StatusPanel({
                   </dd>
                 </div>
               )}
+            </dl>
+          </section>
+          <section
+            class="detail-section"
+            aria-labelledby="system-material-title"
+            data-testid="system-status-material"
+          >
+            <h3 id="system-material-title">Storage and credentials</h3>
+            <dl class="operator-status-grid">
+              <div>
+                <dt>Control storage</dt>
+                <dd>
+                  <strong>{sentenceCase(status.sqliteState)}</strong>
+                  <span>
+                    Mutation admission {status.latched ? "closed" : "open"}
+                  </span>
+                </dd>
+              </div>
               {status.traffic && (
                 <div>
                   <dt>Shared traffic storage</dt>
@@ -742,7 +753,7 @@ function StatusPanel({
           </section>
 
           <section
-            class="operator-status-details"
+            class="detail-section"
             aria-labelledby="system-technical-details-title"
             data-testid="system-status-details"
           >

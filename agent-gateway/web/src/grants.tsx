@@ -1379,16 +1379,16 @@ export function Grants({
             <h1 id="grant-page-title" tabindex={-1}>
               MCP Grant {detail.id}
             </h1>
-          </div>
-        </header>
-        <section class="detail-section" aria-labelledby="grant-title">
-          <div class="panel-heading">
-            <h2 id="grant-title">Grant details</h2>
             <StatusLabel
               state={detail.state === "active" ? "current" : "neutral"}
             >
               {detail.state === "active" ? "Active" : "Expired"}
             </StatusLabel>
+          </div>
+        </header>
+        <section class="detail-section" aria-labelledby="grant-title">
+          <div class="panel-heading">
+            <h2 id="grant-title">Grant details</h2>
           </div>
           <h3>Policy and relationships</h3>
           <dl class="detail-facts">
@@ -1452,7 +1452,7 @@ export function Grants({
             </div>
           </dl>
           {detail.constraint !== null && (
-            <section class="detail-section" aria-label="Constraint evidence">
+            <section class="detail-group" aria-label="Constraint evidence">
               <h3>Constraint evidence</h3>
               <InertJSON value={detail.constraint} label="Grant constraint" />
             </section>

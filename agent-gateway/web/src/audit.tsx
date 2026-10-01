@@ -770,7 +770,10 @@ function RelatedAudit({
   useEffect(() => controller.subscribe(setValue), [controller]);
   const current = value.key === view.viewKey ? value : undefined;
   return (
-    <section aria-label="Related events" class="related-history">
+    <section
+      aria-label="Related events"
+      class="panel domain-panel related-history"
+    >
       <div class="panel-heading">
         <h2>Related events</h2>
         <button
@@ -956,7 +959,14 @@ export function Audit({
             </a>
           </nav>
           <header class="detail-context" data-testid="detail-context">
-            <h1 tabindex={-1}>Audit event {resolved.location.segments[1]}</h1>
+            <div class="detail-context-heading">
+              <h1 tabindex={-1}>Audit event {resolved.location.segments[1]}</h1>
+              {snapshot.item !== undefined && (
+                <StatusLabel state={outcomeState(snapshot.item.outcome)}>
+                  {sentenceCase(snapshot.item.outcome)}
+                </StatusLabel>
+              )}
+            </div>
           </header>
         </>
       ) : null}
@@ -977,104 +987,105 @@ export function Audit({
       )}
       {detail ? (
         snapshot.item !== undefined ? (
-          <section class="detail-section" aria-label="Audit event detail">
-            <div class="panel-heading">
-              <h2>
-                {snapshot.item.category}.{snapshot.item.action}
-              </h2>
-              <StatusLabel state={outcomeState(snapshot.item.outcome)}>
-                {sentenceCase(snapshot.item.outcome)}
-              </StatusLabel>
-            </div>
-            <h3>Event and attribution</h3>
-            <dl class="detail-facts">
-              <div>
-                <dt>Sequence / phase</dt>
-                <dd>
-                  {snapshot.item.sequence} · {snapshot.item.phase}
-                </dd>
+          <>
+            <section class="detail-section" aria-label="Audit event detail">
+              <div class="panel-heading">
+                <h2>
+                  {snapshot.item.category}.{snapshot.item.action}
+                </h2>
               </div>
-              <div>
-                <dt>Timestamp</dt>
-                <dd>
-                  <UserTime value={snapshot.item.timestamp} />
-                </dd>
-              </div>
-              <div>
-                <dt>Performer</dt>
-                <dd>
-                  {sentenceCase(snapshot.item.actor.type)}
-                  {snapshot.item.actor.credential !== null && (
-                    <>
-                      <br />
-                      <Credential value={snapshot.item.actor.credential} />
-                    </>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Initiating credential (not performer)</dt>
-                <dd>
-                  <Credential value={snapshot.item.initiator} />
-                </dd>
-              </div>
-              <div>
-                <dt>Target</dt>
-                <dd>
-                  {snapshot.item.target.type === "principal"
-                    ? "Agent"
-                    : sentenceCase(snapshot.item.target.type)}
-                  :{" "}
-                  {snapshot.targetLink === undefined ? (
-                    snapshot.item.target.id
-                  ) : (
-                    <a href={snapshot.targetLink}>{snapshot.item.target.id}</a>
-                  )}
-                </dd>
-              </div>
-            </dl>
-            <h3>Recorded diagnostics</h3>
-            <dl class="detail-facts">
-              <div>
-                <dt>Reason</dt>
-                <dd>{snapshot.item.detail.reason ?? "None recorded"}</dd>
-              </div>
-              <div>
-                <dt>Problem</dt>
-                <dd>{snapshot.item.detail.problem ?? "None recorded"}</dd>
-              </div>
-            </dl>
-            <p>
-              Credential attribution does not identify a named human. Pending or
-              unknown outcomes do not prove success, rollback, or permission to
-              replay.
-            </p>
-            <details>
-              <summary>Technical details</summary>
+              <h3>Event and attribution</h3>
               <dl class="detail-facts">
                 <div>
-                  <dt>Correlation ID</dt>
+                  <dt>Sequence / phase</dt>
                   <dd>
-                    <code>{snapshot.item.correlation_id}</code>
+                    {snapshot.item.sequence} · {snapshot.item.phase}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Timestamp</dt>
+                  <dd>
+                    <UserTime value={snapshot.item.timestamp} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Performer</dt>
+                  <dd>
+                    {sentenceCase(snapshot.item.actor.type)}
+                    {snapshot.item.actor.credential !== null && (
+                      <>
+                        <br />
+                        <Credential value={snapshot.item.actor.credential} />
+                      </>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Initiating credential (not performer)</dt>
+                  <dd>
+                    <Credential value={snapshot.item.initiator} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Target</dt>
+                  <dd>
+                    {snapshot.item.target.type === "principal"
+                      ? "Agent"
+                      : sentenceCase(snapshot.item.target.type)}
+                    :{" "}
+                    {snapshot.targetLink === undefined ? (
+                      snapshot.item.target.id
+                    ) : (
+                      <a href={snapshot.targetLink}>
+                        {snapshot.item.target.id}
+                      </a>
+                    )}
                   </dd>
                 </div>
               </dl>
-            </details>
+              <h3>Recorded diagnostics</h3>
+              <dl class="detail-facts">
+                <div>
+                  <dt>Reason</dt>
+                  <dd>{snapshot.item.detail.reason ?? "None recorded"}</dd>
+                </div>
+                <div>
+                  <dt>Problem</dt>
+                  <dd>{snapshot.item.detail.problem ?? "None recorded"}</dd>
+                </div>
+              </dl>
+              <p>
+                Credential attribution does not identify a named human. Pending
+                or unknown outcomes do not prove success, rollback, or
+                permission to replay.
+              </p>
+              <details>
+                <summary>Technical details</summary>
+                <dl class="detail-facts">
+                  <div>
+                    <dt>Correlation ID</dt>
+                    <dd>
+                      <code>{snapshot.item.correlation_id}</code>
+                    </dd>
+                  </div>
+                </dl>
+              </details>
+              {snapshot.targetUnavailable && (
+                <StateNotice state="warning" title="Current target unavailable">
+                  <p>
+                    Audit evidence remains available. The resource link could
+                    not be verified.
+                  </p>
+                </StateNotice>
+              )}
+            </section>
             <RelatedAudit
               controller={controller.related}
               selected={snapshot.item}
               resolved={resolved}
               view={view}
             />
-            {snapshot.targetUnavailable && (
-              <StateNotice state="warning" title="Current target unavailable">
-                <p>
-                  Audit evidence remains available. The resource link could not
-                  be verified.
-                </p>
-              </StateNotice>
-            )}
-          </section>
+          </>
         ) : snapshot.missing ? (
           <StateNotice state="unavailable" title="Audit event not retained">
             <p>A missing event does not prove the action never occurred.</p>

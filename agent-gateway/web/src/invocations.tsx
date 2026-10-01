@@ -1473,16 +1473,16 @@ function InvocationDetail({
           <h1 id="invocation-page-title" tabindex={-1}>
             MCP Invocation {item.id}
           </h1>
-        </div>
-      </header>
-      <section class="detail-section" aria-labelledby="invocation-detail-title">
-        <div class="panel-heading">
-          <h2 id="invocation-detail-title">Invocation details</h2>
           <StatusLabel state={invocationState(item.outcome)}>
             {item.outcome === "invalid_params"
               ? "Invalid parameters"
               : sentenceCase(item.outcome)}
           </StatusLabel>
+        </div>
+      </header>
+      <section class="detail-section" aria-labelledby="invocation-detail-title">
+        <div class="panel-heading">
+          <h2 id="invocation-detail-title">Invocation details</h2>
         </div>
         <InvocationFacts item={item} principalNames={principalNames} />
         {item.basis === "missing_terminal" && (

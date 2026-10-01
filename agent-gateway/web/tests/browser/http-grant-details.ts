@@ -306,7 +306,10 @@ export async function exerciseGrantDetails(
   await expect(
     page.getByRole("heading", { name: "Unnamed HTTP grant", exact: true }),
   ).toBeVisible();
-  await expect(facts).toContainText("Expired");
+  await expect(page.locator(".detail-context .status-label")).toHaveText(
+    "Expired",
+  );
+  await expect(facts.locator(".status-label")).toHaveCount(0);
   await expect(
     facts.getByRole("link", { name: "Agent unavailable", exact: true }),
   ).toBeVisible();

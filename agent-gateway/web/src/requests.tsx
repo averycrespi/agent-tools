@@ -657,7 +657,7 @@ function Evidence({
       <StateNotice state="empty" title={`${label}: no descriptor evidence`} />
     );
   return (
-    <section class="detail-section">
+    <section class="detail-group">
       <h3>{label}: immutable descriptor evidence</h3>
       <p>
         {evidence.durableState === "retired"
@@ -1885,11 +1885,6 @@ export function Requests({
                 ? "Review MCP Access Request"
                 : `${sentenceCase(detail.state)} MCP Access Request`}
             </h1>
-          </div>
-        </header>
-        <section class="detail-section" aria-labelledby="request-title">
-          <div class="panel-heading">
-            <h2 id="request-title">Request details</h2>
             <StatusLabel
               state={
                 detail.state === "pending"
@@ -1901,6 +1896,11 @@ export function Requests({
             >
               {sentenceCase(detail.state)}
             </StatusLabel>
+          </div>
+        </header>
+        <section class="detail-section" aria-labelledby="request-title">
+          <div class="panel-heading">
+            <h2 id="request-title">Request details</h2>
           </div>
           <dl class="detail-facts">
             <div>
@@ -1995,7 +1995,7 @@ export function Requests({
             instructions or proof of callable authority.
           </p>
           <section
-            class="detail-section"
+            class="detail-group"
             aria-labelledby="submitted-policy-title"
           >
             <h2 id="submitted-policy-title">
@@ -2010,10 +2010,7 @@ export function Requests({
             )}
             <Evidence evidence={detail.submittedEvidence} label="Submitted" />
           </section>
-          <section
-            class="detail-section"
-            aria-labelledby="current-target-title"
-          >
+          <section class="detail-group" aria-labelledby="current-target-title">
             <h2 id="current-target-title">
               Current target comparison — read-time
             </h2>
@@ -2114,7 +2111,7 @@ export function Requests({
             ) : (
               <>
                 <section
-                  class="detail-section"
+                  class="detail-group"
                   aria-label="Requested versus approved"
                 >
                   <h3>Requested versus Approved</h3>

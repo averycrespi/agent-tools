@@ -1533,13 +1533,15 @@ p {
 
 .audit-record details,
 .domain-panel details,
-.detail-section details {
+.detail-section details,
+.detail-group details {
   margin-top: 10px;
 }
 
 .audit-record summary,
 .domain-panel summary,
-.detail-section summary {
+.detail-section summary,
+.detail-group summary {
   color: var(--muted);
   font-size: 12px;
 }
@@ -1564,7 +1566,8 @@ p {
 }
 
 .domain-panel h3,
-.detail-section h3 {
+.detail-section h3,
+.detail-group h3 {
   margin: 20px 0 8px;
 }
 
@@ -1784,6 +1787,10 @@ button.sort-button:not(:disabled):hover {
   gap: 16px;
 }
 
+.detail-context-heading > .status-label {
+  flex-shrink: 0;
+}
+
 .server-context h2,
 .detail-context h1 {
   font-size: clamp(28px, 3vw, 38px);
@@ -1931,18 +1938,28 @@ button.sort-button:not(:disabled):hover {
   font-size: 11px;
 }
 
-/* Detail/review owners opt in; collection panels and editing forms keep surfaces. */
+/* Opt in at the task boundary, never at an ordinary inner fact group. */
 .detail-section {
   min-width: 0;
-  padding: 16px 0;
-  border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  margin: 16px 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
-.detail-section > :first-child {
+.detail-group {
+  min-width: 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.domain-panel > .detail-group {
+  margin-top: 16px;
+}
+
+.detail-section > :first-child,
+.detail-group > :first-child {
   margin-top: 0;
 }
 
@@ -2289,6 +2306,14 @@ button.sort-button:not(:disabled):hover {
 .operator-status-stack {
   display: grid;
   gap: 24px;
+}
+
+.system-status-view .operator-status-stack {
+  gap: 16px;
+}
+
+.system-status-view .detail-section {
+  margin: 0;
 }
 
 .operator-status-summary {
@@ -2920,6 +2945,7 @@ button.sort-button:not(:disabled):hover {
   }
 
   .server-context-heading,
+  .detail-context-heading,
   .server-context-guidance {
     align-items: flex-start;
     flex-direction: column;

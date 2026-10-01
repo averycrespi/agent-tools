@@ -454,12 +454,13 @@ export function ServerAuthFlows({
   if (flow !== undefined)
     return (
       <>
-        <section
-          class="detail-section"
-          aria-labelledby="auth-flow-detail-title"
-          data-testid="auth-flow-detail"
-        >
-          <div class="panel-heading">
+        <div data-testid="auth-flow-detail">
+          <nav class="detail-navigation" aria-label="OAuth flow navigation">
+            <a href={`#/mcp/servers/${server.id}?tab=authentication`}>
+              Back to authentication
+            </a>
+          </nav>
+          <header class="detail-context-heading">
             <div>
               <h2 id="auth-flow-detail-title">OAuth flow {flow.id}</h2>
               <span class="table-secondary">OAuth authorization</span>
@@ -467,65 +468,66 @@ export function ServerAuthFlows({
             <StatusLabel state={flowState(flow)}>
               {words(flow.state)}
             </StatusLabel>
-          </div>
-          <p class="detail-navigation">
-            <a href={`#/mcp/servers/${server.id}?tab=authentication`}>
-              Back to authentication
-            </a>
-          </p>
-          {stale && (
-            <StateNotice state="error" title="OAuth flow unavailable">
-              These flow details are last-known. Refresh to retry the read.
-            </StateNotice>
-          )}
-          <dl class="detail-list">
-            <div>
-              <dt>Created</dt>
-              <dd>
-                <UserTime value={flow.createdAt} />
-              </dd>
-            </div>
-            <div>
-              <dt>Expires</dt>
-              <dd>
-                <UserTime value={flow.expiresAt} />
-              </dd>
-            </div>
-            <div>
-              <dt>Finished</dt>
-              <dd>
-                <UserTime value={flow.finishedAt} fallback="In progress" />
-              </dd>
-            </div>
-            <div>
-              <dt>Reason</dt>
-              <dd>{flow.reason === null ? "—" : words(flow.reason)}</dd>
-            </div>
-          </dl>
-          {flow.diagnostic !== null && (
-            <details>
-              <summary>Diagnostic details</summary>
-              <dl class="detail-list">
-                <div>
-                  <dt>Stage</dt>
-                  <dd>{words(flow.diagnostic.stage)}</dd>
-                </div>
-                <div>
-                  <dt>Reason</dt>
-                  <dd>{words(flow.diagnostic.reason)}</dd>
-                </div>
-                <div>
-                  <dt>HTTP status</dt>
-                  <dd>{flow.diagnostic.httpStatus ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt>Correlation</dt>
-                  <dd>{flow.diagnostic.correlationID}</dd>
-                </div>
-              </dl>
-            </details>
-          )}
-        </section>
+          </header>
+          <section
+            class="detail-section"
+            aria-labelledby="auth-flow-facts-title"
+          >
+            <h3 id="auth-flow-facts-title">Flow details</h3>
+            {stale && (
+              <StateNotice state="error" title="OAuth flow unavailable">
+                These flow details are last-known. Refresh to retry the read.
+              </StateNotice>
+            )}
+            <dl class="detail-list">
+              <div>
+                <dt>Created</dt>
+                <dd>
+                  <UserTime value={flow.createdAt} />
+                </dd>
+              </div>
+              <div>
+                <dt>Expires</dt>
+                <dd>
+                  <UserTime value={flow.expiresAt} />
+                </dd>
+              </div>
+              <div>
+                <dt>Finished</dt>
+                <dd>
+                  <UserTime value={flow.finishedAt} fallback="In progress" />
+                </dd>
+              </div>
+              <div>
+                <dt>Reason</dt>
+                <dd>{flow.reason === null ? "—" : words(flow.reason)}</dd>
+              </div>
+            </dl>
+            {flow.diagnostic !== null && (
+              <details>
+                <summary>Diagnostic details</summary>
+                <dl class="detail-list">
+                  <div>
+                    <dt>Stage</dt>
+                    <dd>{words(flow.diagnostic.stage)}</dd>
+                  </div>
+                  <div>
+                    <dt>Reason</dt>
+                    <dd>{words(flow.diagnostic.reason)}</dd>
+                  </div>
+                  <div>
+                    <dt>HTTP status</dt>
+                    <dd>{flow.diagnostic.httpStatus ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Correlation</dt>
+                    <dd>{flow.diagnostic.correlationID}</dd>
+                  </div>
+                </dl>
+              </details>
+            )}
+          </section>
+        </div>
         <CancelFlow mutations={mutations} flow={flow} onRefresh={onRefresh} />
       </>
     );
