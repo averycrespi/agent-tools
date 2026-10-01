@@ -1,4 +1,5 @@
 import { expect, type Page, type Route } from "@playwright/test";
+import { captureTableState } from "./browser/detail-layout.ts";
 
 type Capture = (page: Page, state: string) => Promise<void>;
 
@@ -7,6 +8,20 @@ export async function exerciseCollectionPagination(
   capture?: Capture,
   restoreSession?: () => Promise<void>,
 ): Promise<void> {
+  const originalCapture = capture;
+  capture = async (page, state) => {
+    await originalCapture?.(page, state);
+    if (
+      [
+        "principals-empty",
+        "principals-error",
+        "principals-restarted",
+        "grants-error",
+        "principals-stale-refresh",
+      ].includes(state)
+    )
+      await captureTableState(page, state);
+  };
   const original = await page.evaluate(() => window.location.hash);
   const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   const id = (index: number) =>
@@ -18,7 +33,7 @@ export async function exerciseCollectionPagination(
     display_name: index === 127 ? "Zulu needle" : "Duplicate name",
     state: index === 127 ? "disabled" : "active",
     visibility: index === 127 ? "all" : "requestable",
-    http_default: "block",
+    http_default: index === 127 ? "allow" : "block",
     revision: "1",
     credential_revision: "0",
     credential: null,
@@ -134,6 +149,10 @@ export async function exerciseCollectionPagination(
     if (query.get("visibility") !== null)
       indices = indices.filter(
         (index) => principal(index).visibility === query.get("visibility"),
+      );
+    if (query.get("http_default") !== null)
+      indices = indices.filter(
+        (index) => principal(index).http_default === query.get("http_default"),
       );
     if (query.get("effect") !== null)
       indices = indices.filter(
@@ -341,6 +360,32 @@ export async function exerciseCollectionPagination(
       await expect(search).toHaveValue("needle");
       await root.getByRole("button", { name: "Reset", exact: true }).click();
       await settled(50);
+      if (selected === "principals") {
+        const httpDefault = root.getByRole("combobox", {
+          name: "HTTP default",
+          exact: true,
+        });
+        await httpDefault.selectOption("allow");
+        await settled(1);
+        await expect(rows).toContainText("Zulu needle");
+        expect(requests.at(-1)?.query.get("http_default")).toBe("allow");
+        expect(requests.at(-1)?.cursor).toBeNull();
+        await expect(summary).toHaveText("Showing 1–1 of 1 matching agent");
+        await root.getByRole("button", { name: "Reset", exact: true }).click();
+        await settled(50);
+      }
+      invalidRange = { total_count: "unavailable" };
+      await page.locator('[data-testid="manual-refresh"]').click();
+      await expect(summary).toHaveText("Unavailable");
+      await settled(50);
+      await expect(
+        root.getByText("Last-known results", { exact: true }),
+      ).toBeVisible();
+      await expect(next).toBeDisabled();
+      await capture?.(page, `${selected}-stale-refresh`);
+      invalidRange = undefined;
+      await page.locator('[data-testid="manual-refresh"]').click();
+      await expect(summary).toHaveText(range(0));
       await next.click();
       await expect(summary).toHaveText(range(50));
       await root
@@ -414,6 +459,17 @@ export async function exerciseCollectionPagination(
       ).toBeVisible();
       await expect(summary).toHaveText(`No ${itemLabel}`);
       await capture?.(page, `${selected}-empty`);
+      invalidRange = { total_count: 1 };
+      await page.locator('[data-testid="manual-refresh"]').click();
+      await expect(summary).toHaveText("Unavailable");
+      await expect(
+        root
+          .locator(".state-notice")
+          .getByText(`No ${itemLabel}`, { exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        root.getByText("Last-known results", { exact: true }),
+      ).toBeVisible();
       for (const invalid of [
         { total_count: undefined },
         { offset: undefined },
@@ -448,7 +504,11 @@ export async function exerciseCollectionPagination(
       );
       mode = "normal";
       await search.fill("missing");
-      await expect(root.getByText("No matches", { exact: true })).toBeVisible();
+      await expect(
+        root
+          .locator(".state-notice")
+          .getByText(`No matching ${itemLabel}`, { exact: true }),
+      ).toBeVisible();
       await expect(search).toHaveValue("missing");
       await expect(summary).toHaveText(`No matching ${itemLabel}`);
       await capture?.(page, `${selected}-no-matches`);

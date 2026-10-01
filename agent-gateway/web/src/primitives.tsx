@@ -179,6 +179,51 @@ export function ComparisonTable({
   );
 }
 
+export function DetailComparison({
+  label,
+  beforeLabel,
+  afterLabel,
+  rows,
+  fullWidth = false,
+}: {
+  label: string;
+  beforeLabel: string;
+  afterLabel: string;
+  fullWidth?: boolean;
+  rows: readonly {
+    label: string;
+    before: ComponentChildren;
+    after: ComponentChildren;
+    changed: boolean;
+  }[];
+}) {
+  return (
+    <dl
+      class={`detail-comparison${fullWidth ? " comparison-wide" : ""}`}
+      aria-label={label}
+    >
+      {rows.map((row) => (
+        <div key={row.label} class="comparison-field">
+          <dt>
+            {row.label}
+            {row.changed && <span class="comparison-change">Changed</span>}
+          </dt>
+          <dd>
+            <div class="comparison-value">
+              <span class="comparison-label">{beforeLabel}</span>
+              <div>{row.before}</div>
+            </div>
+            <div class="comparison-value">
+              <span class="comparison-label">{afterLabel}</span>
+              <div>{row.after}</div>
+            </div>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function CompactRecord({
   primaryLabel,
   primary,
@@ -336,11 +381,10 @@ function replaceCollectionFilter(key: string, value: string): void {
   const queryKey = `filter_${key}`;
   if (value.trim() === "") delete query[queryKey];
   else query[queryKey] = value;
-  window.history.replaceState(
-    null,
-    "",
-    serializeLocation({ ...location, query }),
-  );
+  const fragment = serializeLocation({ ...location, query });
+  // Local inventories/history own filters in component state, not undeclared URLs.
+  if (parseFragment(fragment) === undefined) return;
+  window.history.replaceState(null, "", fragment);
 }
 
 export function CollectionTable<T>({
@@ -362,6 +406,11 @@ export function CollectionTable<T>({
   layout = "resource",
   additionalSorts = [],
   loadedSubset = false,
+  historySummary = false,
+  historyMatching = false,
+  localStale = false,
+  localLoading = false,
+  summaryExtra,
 }: {
   caption: string;
   rowHeaderKey: string;
@@ -372,6 +421,11 @@ export function CollectionTable<T>({
     sortValue: (item: T) => string | number;
   }[];
   loadedSubset?: boolean;
+  historySummary?: boolean;
+  historyMatching?: boolean;
+  localStale?: boolean;
+  localLoading?: boolean;
+  summaryExtra?: ComponentChildren;
   items: readonly T[];
   columns: readonly CollectionColumn<T>[];
   rowKey: (item: T) => string;
@@ -444,9 +498,9 @@ export function CollectionTable<T>({
           : "ascending",
     }));
   };
-  const hasActiveFilters = Object.values(filterValues).some(
-    (value) => value.trim() !== "",
-  );
+  const hasActiveFilters =
+    Object.values(filterValues).some((value) => value.trim() !== "") ||
+    (remote?.contextFilters.length ?? 0) > 0;
   const pagination = (position: "top" | "bottom") =>
     remote !== undefined && (
       <div class="collection-pagination">
@@ -510,7 +564,7 @@ export function CollectionTable<T>({
                 key={filter.key}
                 type="search"
                 aria-label={filter.label}
-                placeholder={filter.placeholder ?? `${filter.label}…`}
+                placeholder={filter.placeholder ?? filter.label}
                 value={filterValues[filter.key] ?? ""}
                 onInput={(event) => {
                   const value = event.currentTarget.value;
@@ -568,13 +622,39 @@ export function CollectionTable<T>({
           >
             Reset
           </button>
-          {remote === undefined && (
+          {remote === undefined && !historySummary && (
             <output class="table-filter-summary" aria-live="polite">
               Showing {visible.length} of {items.length}
               {hasMore ? " loaded" : ""}
+              {localStale ? " (last-known)" : ""}
             </output>
           )}
         </div>
+      )}
+      {remote !== undefined && remote.contextFilters.length > 0 && (
+        <div
+          class="table-filters"
+          role="group"
+          aria-label={`${caption} context filters`}
+        >
+          {remote.contextFilters.map((filter) => (
+            <button
+              type="button"
+              onClick={() => remote.clearContextFilter(filter.key)}
+            >
+              {filter.label}:{" "}
+              <span class="technical-value">{filter.value}</span> ×
+            </button>
+          ))}
+        </div>
+      )}
+      {remote?.stale && (
+        <StateNotice state="stale" title="Last-known results">
+          <p>
+            These rows are stale. The current range is unavailable until Refresh
+            succeeds.
+          </p>
+        </StateNotice>
       )}
       {remote?.notice !== undefined && (
         <StateNotice state="warning" title={remote.notice} />
@@ -707,21 +787,39 @@ export function CollectionTable<T>({
         />
       )}
       {visible.length === 0 &&
+        !localStale &&
+        !localLoading &&
         (remote === undefined || remote.status === "current") && (
           <StateNotice
             state="empty"
             title={
               remote !== undefined && hasActiveFilters
-                ? "No matches"
+                ? `No matching ${itemNames.plural}`
                 : emptyTitle
             }
           />
         )}
       {pagination("bottom")}
-      {hasMore && onLoadMore !== undefined && (
-        <button type="button" disabled={loadingMore} onClick={onLoadMore}>
-          {loadingMore ? "Loading…" : loadMoreLabel}
-        </button>
+      {(historySummary ||
+        summaryExtra !== undefined ||
+        (hasMore && onLoadMore !== undefined)) && (
+        <div class="collection-pagination">
+          {hasMore && onLoadMore !== undefined && (
+            <button type="button" disabled={loadingMore} onClick={onLoadMore}>
+              {loadingMore ? "Loading…" : loadMoreLabel}
+            </button>
+          )}
+          {historySummary && !localLoading && (
+            <LoadedHistorySummary
+              count={visible.length}
+              singular={itemNames.singular}
+              plural={itemNames.plural}
+              matching={hasActiveFilters || historyMatching}
+              stale={localStale}
+            />
+          )}
+          {summaryExtra}
+        </div>
       )}
     </div>
   );
