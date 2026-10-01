@@ -1,5 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
+import {
+  assertDetailComparison,
+  captureDetailLayout,
+  captureTableState,
+  prepareDetailBaseline,
+} from "./detail-layout.ts";
 import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
@@ -15,6 +21,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 async function captureRequestState(page: Page, state: string): Promise<void> {
+  if (
+    [
+      "changed-evidence",
+      "approved-deleted",
+      "cancelled",
+      "narrowed-confirmation",
+      "narrowed-draft",
+      "exact-tool-approved",
+      "read-only-grant-confirmation",
+      "read-only-grant-detail",
+      "uncertain",
+    ].includes(state)
+  )
+    await captureDetailLayout(page, `request-${state}`);
   const directory = await mkdtemp(join(tmpdir(), `request-${state}-`));
   for (const [width, height, label] of [
     [1280, 900, "desktop"],
@@ -144,12 +164,14 @@ export async function runReadOnlyBackendFlow(
   await page
     .getByText("Request adjudication is closed", { exact: true })
     .waitFor();
-  await expect(
-    page.getByRole("region", {
-      name: "Requested versus approved",
-      exact: true,
-    }),
-  ).toContainText("All tools → Read-only server tools");
+  await assertDetailComparison(page, "Requested versus approved authority", [
+    {
+      field: "Access",
+      before: "All tools",
+      after: "Read-only server tools",
+      changed: true,
+    },
+  ]);
   await captureRequestState(page, "backend-read-only-approved");
   const createdGrant = page
     .getByTestId("request-detail")
@@ -977,6 +999,7 @@ export async function runPrincipalCredentials(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
+  const compareBaseline = prepareDetailBaseline(page);
   const principalID = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
   const credentialID = "01ARZ3NDEKTSV4RRFFQ69G5FAZ";
   const issuedBearer = `mgw_agent_${"I".repeat(43)}`;
@@ -1114,6 +1137,8 @@ export async function runPrincipalCredentials(
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
   await page.locator('[data-testid="principal-credential-actions"]').waitFor();
+  await captureDetailLayout(page, "agent-credential-present");
+  await compareBaseline("agent-credential-present");
   let body = (await page.locator("body").textContent()) ?? "";
   if (
     !body.includes("Only one agent credential may be active at a time.") ||
@@ -1166,7 +1191,11 @@ export async function runPrincipalCredentials(
     page.getByText("Current agent data unavailable", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText(/was reloaded/)).toHaveCount(0);
-  await expect(page.getByText(/Last loaded values:/)).toBeVisible();
+  await expect(
+    page.getByText("Your draft is preserved. Last loaded settings:", {
+      exact: true,
+    }),
+  ).toBeVisible();
   await captureStateFeedback(page, "agent-reload-failed");
   credentialReadFails = false;
   await page.getByTestId("manual-refresh").click();
@@ -3494,6 +3523,7 @@ export async function runRequestReads(
     /(?:Requests, |last known )32 pending/,
   );
   await captureRequestState(page, "pending-queue");
+  await captureTableState(page, "requests-pending");
   if (
     (await page.locator('[data-testid="request-row"]').count()) !== 32 ||
     !(
@@ -3750,6 +3780,33 @@ export async function runRequestReads(
   };
   await navigate(requestIDs[0]!);
   await captureRequestState(page, "changed-evidence");
+  const evidenceDisclosure = page.getByText(
+    "Technical identifiers and immutable evidence",
+    { exact: true },
+  );
+  await evidenceDisclosure.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", {
+      name: "Submitted policy and evidence — immutable",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Current target comparison — read-time",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await captureDetailLayout(page, "request-evidence-expanded");
+  await evidenceDisclosure.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", {
+      name: "Submitted policy and evidence — immutable",
+      exact: true,
+    }),
+  ).not.toBeVisible();
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Submitted policy and evidence — immutable",
@@ -3819,7 +3876,7 @@ export async function runRequestReads(
     }),
   ).toBeVisible();
   await expect(
-    page.getByTestId("request-detail").locator(".panel-heading .status-label"),
+    page.getByTestId("request-detail").locator(".detail-context .status-label"),
   ).toHaveAttribute("data-state", "neutral");
   await captureRequestState(page, "cancelled");
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
@@ -4423,13 +4480,20 @@ export async function runRequestAdjudication(
     exact: true,
   });
   await expect(terminalComparison).toBeVisible();
+  await assertDetailComparison(page, "Requested versus approved authority", [
+    { field: "Scope", before: "Server", after: "Tool", changed: true },
+    { field: "Tools", before: "demo", after: "demo.safe", changed: true },
+    {
+      field: "Duration",
+      before: "20 minutes",
+      after: "10 minutes",
+      changed: true,
+    },
+  ]);
   for (const phrase of [
-    "Server → Tool",
-    "demo → demo.safe",
-    "20 minutes → 10 minutes",
-    "Requested conditions",
+    "Requested",
     "No argument restrictions",
-    "Approved conditions",
+    "Approved",
     '/mode equals "safe"',
   ]) {
     await expect(terminalComparison).toContainText(phrase);
@@ -4574,10 +4638,17 @@ export async function runRequestAdjudication(
     .getByText("Request adjudication is closed", { exact: true })
     .waitFor();
 
+  await assertDetailComparison(page, "Requested versus approved authority", [
+    { field: "Scope", before: "Tool", after: "Tool", changed: false },
+    { field: "Tools", before: "demo.safe", after: "demo.safe", changed: false },
+    {
+      field: "Duration",
+      before: "10 minutes",
+      after: "5 minutes",
+      changed: true,
+    },
+  ]);
   for (const phrase of [
-    "Tool → Unchanged",
-    "demo.safe → Unchanged",
-    "10 minutes → 5 minutes",
     '/mode equals "safe"',
     "/extra equals 1",
     '/zone matches "(local|dev)"',
@@ -4723,6 +4794,8 @@ export async function runRequestAdjudication(
         exact: true,
       }),
     ).toBeVisible();
+    if (index === 0)
+      await captureDetailLayout(page, "request-rejected-terminal");
   }
 
   await navigate(ids[9]!);
@@ -4741,13 +4814,17 @@ export async function runRequestAdjudication(
   await expect(
     permanentDialog.getByText("Access considerations", { exact: true }),
   ).toHaveCount(0);
+  await expect(
+    permanentDialog.getByRole("heading", { name: "Conditions", exact: true }),
+  ).toBeVisible();
   await expect(permanentDialog.locator("dt")).toHaveText([
     "Agent",
     "Approved target",
     "Tools",
     "Duration",
-    "Conditions",
     "Tool definition",
+    "Agent ID",
+    "Server ID",
   ]);
   for (const text of [
     "Access does not expire automatically.",
@@ -4824,9 +4901,14 @@ export async function runRequestAdjudication(
     await page
       .getByText("Request adjudication is closed", { exact: true })
       .waitFor();
-    await expect(terminalComparison).toContainText(
-      "Read-only server tools → Read-only server tools",
-    );
+    await assertDetailComparison(page, "Requested versus approved authority", [
+      {
+        field: "Access",
+        before: "Read-only server tools",
+        after: "Read-only server tools",
+        changed: false,
+      },
+    ]);
     if (index === 11)
       await captureRequestState(page, "read-only-request-approved");
   }

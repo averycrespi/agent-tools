@@ -33,6 +33,7 @@ import {
   CollectionTable,
   TableIdentity,
   ConfirmationDialog,
+  DetailComparison,
   containsControlCharacters,
   FormField,
   InertJSON,
@@ -529,7 +530,7 @@ function AccessSummary({
   return (
     <div class="request-access-summary">
       {policy.readOnly && <p>{readOnlyExplanation}</p>}
-      <dl class="request-access-facts">
+      <dl class="detail-facts">
         <div>
           <dt>Duration</dt>
           <dd>
@@ -538,16 +539,14 @@ function AccessSummary({
           </dd>
         </div>
         <div>
-          <dt>Conditions</dt>
-          <dd>
-            <Conditions source={source} />
-          </dd>
-        </div>
-        <div>
           <dt>Tool definition</dt>
           <dd>{definition}</dd>
         </div>
       </dl>
+      <section aria-label="Conditions">
+        <h3>Conditions</h3>
+        <Conditions source={source} />
+      </section>
     </div>
   );
 }
@@ -597,7 +596,7 @@ function policyAccess(policy: Policy): string {
 
 function policyFacts(policy: Policy) {
   return (
-    <dl class="fact-grid">
+    <dl class="detail-facts">
       <div>
         <dt>Scope</dt>
         <dd>
@@ -621,55 +620,29 @@ function policyFacts(policy: Policy) {
 }
 
 function policyComparisonFacts(requested: Policy, approved: Policy) {
+  const fields = (policy: Policy) => [
+    { label: "Access", value: policyAccess(policy) },
+    { label: "Scope", value: sentenceCase(policy.scope) },
+    { label: "Tools", value: policy.target },
+    { label: "Duration", value: readableDuration(policy.durationSeconds) },
+    {
+      label: "Future tools acknowledged",
+      value: policy.futureToolsAcknowledged ? "Yes" : "No",
+    },
+  ];
+  const before = fields(requested);
   return (
-    <dl class="fact-grid">
-      <div>
-        <dt>Access</dt>
-        <dd>
-          {policyAccess(requested)} → {policyAccess(approved)}
-        </dd>
-      </div>
-      <div>
-        <dt>Scope</dt>
-        <dd>
-          {sentenceCase(requested.scope)} →{" "}
-          {requested.scope === approved.scope
-            ? "Unchanged"
-            : sentenceCase(approved.scope)}
-        </dd>
-      </div>
-      <div>
-        <dt>Tools</dt>
-        <dd>
-          {requested.target} →{" "}
-          {requested.scope === approved.scope &&
-          requested.target === approved.target
-            ? "Unchanged"
-            : approved.target}
-        </dd>
-      </div>
-      <div>
-        <dt>Duration</dt>
-        <dd>
-          {readableDuration(requested.durationSeconds)} →{" "}
-          {requested.durationSeconds === approved.durationSeconds
-            ? "Unchanged"
-            : readableDuration(approved.durationSeconds)}
-        </dd>
-      </div>
-      <div>
-        <dt>Future tools acknowledged</dt>
-        <dd>
-          {requested.futureToolsAcknowledged ? "Yes" : "No"} →{" "}
-          {requested.futureToolsAcknowledged ===
-          approved.futureToolsAcknowledged
-            ? "Unchanged"
-            : approved.futureToolsAcknowledged
-              ? "Yes"
-              : "No"}
-        </dd>
-      </div>
-    </dl>
+    <DetailComparison
+      label="Requested versus approved authority"
+      beforeLabel="Requested"
+      afterLabel="Approved"
+      rows={fields(approved).map((field, index) => ({
+        label: field.label,
+        before: before[index]!.value,
+        after: field.value,
+        changed: before[index]!.value !== field.value,
+      }))}
+    />
   );
 }
 function Evidence({
@@ -684,14 +657,14 @@ function Evidence({
       <StateNotice state="empty" title={`${label}: no descriptor evidence`} />
     );
   return (
-    <section class="subpanel">
+    <section class="detail-group">
       <h3>{label}: immutable descriptor evidence</h3>
       <p>
         {evidence.durableState === "retired"
           ? "Retired historical evidence; it is not proof of a callable tool."
           : "Current when captured; current target comparison remains authoritative for present state."}
       </p>
-      <dl class="fact-grid">
+      <dl class="detail-facts">
         <div>
           <dt>Namespace / tool</dt>
           <dd>
@@ -1680,7 +1653,7 @@ function RequestActions({
                 Creates one allow grant and closes this request. It does not run
                 a tool.
               </p>
-              <dl class="fact-grid">
+              <dl class="detail-facts">
                 <div>
                   <dt>Agent</dt>
                   <dd>{principalName}</dd>
@@ -1719,8 +1692,16 @@ function RequestActions({
               </p>
               <details>
                 <summary>Exact identifiers and serialized policy</summary>
-                <p>Agent ID: {detail.principalID}</p>
-                <p>Server ID: {detail.resolvedServerID}</p>
+                <dl class="detail-facts">
+                  <div>
+                    <dt>Agent ID</dt>
+                    <dd class="technical-value">{detail.principalID}</dd>
+                  </div>
+                  <div>
+                    <dt>Server ID</dt>
+                    <dd class="technical-value">{detail.resolvedServerID}</dd>
+                  </div>
+                </dl>
                 <strong>Read-only serialized policy</strong>
                 <textarea
                   class="inert-json matcher-policy-review"
@@ -1904,11 +1885,6 @@ export function Requests({
                 ? "Review MCP Access Request"
                 : `${sentenceCase(detail.state)} MCP Access Request`}
             </h1>
-          </div>
-        </header>
-        <section class="panel domain-panel" aria-labelledby="request-title">
-          <div class="panel-heading">
-            <h2 id="request-title">Request details</h2>
             <StatusLabel
               state={
                 detail.state === "pending"
@@ -1921,7 +1897,12 @@ export function Requests({
               {sentenceCase(detail.state)}
             </StatusLabel>
           </div>
-          <dl class="fact-grid">
+        </header>
+        <section class="detail-section" aria-labelledby="request-title">
+          <div class="panel-heading">
+            <h2 id="request-title">Request details</h2>
+          </div>
+          <dl class="detail-facts">
             <div>
               <dt>Agent</dt>
               <dd>
@@ -1989,9 +1970,9 @@ export function Requests({
             readAvailable={error === undefined}
           />
         )}
-        <details class="panel domain-panel">
+        <details class="detail-section">
           <summary>Technical identifiers and immutable evidence</summary>
-          <dl class="fact-grid">
+          <dl class="detail-facts">
             <div>
               <dt>Request ID</dt>
               <dd>{detail.id}</dd>
@@ -2014,7 +1995,7 @@ export function Requests({
             instructions or proof of callable authority.
           </p>
           <section
-            class="panel domain-panel"
+            class="detail-group"
             aria-labelledby="submitted-policy-title"
           >
             <h2 id="submitted-policy-title">
@@ -2029,10 +2010,7 @@ export function Requests({
             )}
             <Evidence evidence={detail.submittedEvidence} label="Submitted" />
           </section>
-          <section
-            class="panel domain-panel"
-            aria-labelledby="current-target-title"
-          >
+          <section class="detail-group" aria-labelledby="current-target-title">
             <h2 id="current-target-title">
               Current target comparison — read-time
             </h2>
@@ -2040,7 +2018,7 @@ export function Requests({
               Current comparison does not rewrite immutable submitted evidence
               or the request revision.
             </p>
-            <dl class="fact-grid">
+            <dl class="detail-facts">
               <div>
                 <dt>Target</dt>
                 <dd>{sentenceCase(detail.currentTarget.targetState)}</dd>
@@ -2101,14 +2079,14 @@ export function Requests({
         </details>
         {detail.state !== "pending" && (
           <section
-            class="panel domain-panel"
+            class="detail-section"
             aria-labelledby="approved-policy-title"
           >
             <h2 id="approved-policy-title">
               {sentenceCase(detail.state)} decision
             </h2>
             {detail.approvedGrantID !== null && (
-              <dl class="fact-grid">
+              <dl class="detail-facts">
                 <div>
                   <dt>Created grant</dt>
                   <dd>
@@ -2133,7 +2111,7 @@ export function Requests({
             ) : (
               <>
                 <section
-                  class="subpanel"
+                  class="detail-group"
                   aria-label="Requested versus approved"
                 >
                   <h3>Requested versus Approved</h3>
@@ -2141,10 +2119,30 @@ export function Requests({
                     detail.requestedPolicy,
                     detail.approvedPolicy,
                   )}
-                  <h4>Requested conditions</h4>
-                  <Conditions source={detail.submittedConstraintSource} />
-                  <h4>Approved conditions</h4>
-                  <Conditions source={detail.approvedConstraintSource} />
+                  <DetailComparison
+                    label="Requested versus approved conditions"
+                    fullWidth
+                    beforeLabel="Requested"
+                    afterLabel="Approved"
+                    rows={[
+                      {
+                        label: "Conditions",
+                        before: (
+                          <Conditions
+                            source={detail.submittedConstraintSource}
+                          />
+                        ),
+                        after: (
+                          <Conditions
+                            source={detail.approvedConstraintSource}
+                          />
+                        ),
+                        changed:
+                          detail.submittedConstraintSource !==
+                          detail.approvedConstraintSource,
+                      },
+                    ]}
+                  />
                 </section>
                 <details>
                   <summary>Approved serialized policy</summary>
@@ -2196,7 +2194,7 @@ export function Requests({
           items={items}
           rowKey={(item) => item.id}
           rowTestID="request-row"
-          emptyTitle="No requests match"
+          emptyTitle={allRequests ? "No requests" : "No pending requests"}
           remote={controls}
           itemNames={{ singular: "request", plural: "requests" }}
           filters={[

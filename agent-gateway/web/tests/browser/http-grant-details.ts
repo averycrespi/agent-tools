@@ -142,12 +142,31 @@ export async function exerciseGrantDetails(
     await route.continue();
   });
   await review.click();
-  await expect(
-    page.getByRole("region", { name: "Current grant", exact: true }),
-  ).toContainText("Test block_requests");
-  await expect(
-    page.getByRole("region", { name: "Proposed grant", exact: true }),
-  ).toContainText("Acknowledged grant");
+  const comparison = page.locator(
+    'dl[aria-label="Current versus proposed grant"]',
+  );
+  await expect(comparison.locator("dt")).toHaveText([
+    "DescriptionChanged",
+    "Agent",
+    "Type",
+    "Destination",
+    "Methods",
+    "Path",
+    "Local/private access",
+    "Credential",
+    "Expires",
+  ]);
+  const descriptionRow = comparison.locator(".comparison-field").first();
+  await expect(descriptionRow.locator(".comparison-label")).toHaveText([
+    "Current",
+    "Proposed",
+  ]);
+  await expect(descriptionRow.locator(".comparison-value > div")).toHaveText([
+    "Test block_requests",
+    "Acknowledged grant",
+  ]);
+  await expect(comparison.locator(".comparison-value")).toHaveCount(18);
+  await expect(comparison.locator(".comparison-change")).toHaveCount(1);
   await capture("detail-save-confirmation");
   await page
     .getByRole("dialog")
@@ -287,7 +306,10 @@ export async function exerciseGrantDetails(
   await expect(
     page.getByRole("heading", { name: "Unnamed HTTP grant", exact: true }),
   ).toBeVisible();
-  await expect(facts).toContainText("Expired");
+  await expect(page.locator(".detail-context .status-label")).toHaveText(
+    "Expired",
+  );
+  await expect(facts.locator(".status-label")).toHaveCount(0);
   await expect(
     facts.getByRole("link", { name: "Agent unavailable", exact: true }),
   ).toBeVisible();

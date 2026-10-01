@@ -3,6 +3,7 @@ import {
   request,
   type BrowserContext,
   type Page,
+  type Response,
 } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,6 +52,9 @@ export async function assertAuthoritativeHistory(
     const headers = { Authorization: `Bearer ${bearer}` };
     const directory = await mkdtemp(join(tmpdir(), "gateway-history-visual-"));
     const screenshots: string[] = [];
+    const syntheticResponses = new WeakSet<
+      import("@playwright/test").Request
+    >();
     const capture = async (state: string) => {
       for (const width of [1440, 390, 320]) {
         await page.setViewportSize({ width, height: 900 });
@@ -67,6 +71,71 @@ export async function assertAuthoritativeHistory(
           fail("History controls overflowed viewport");
       }
       await page.setViewportSize({ width: 1440, height: 900 });
+    };
+    const expectMatchingEmpty = async (
+      stage:
+        | "history: initial unmatched tool"
+        | "history: nonmatching arrival"
+        | "history: empty retry",
+      expectedTool: string,
+      response: Response | null = null,
+    ) => {
+      try {
+        await expect(
+          page.getByText("No matching invocations", { exact: true }),
+          stage,
+        ).toBeVisible();
+      } catch (error) {
+        // Attribute a failed assertion without emitting query or response data.
+        const facts = await page
+          .evaluate((tool) => {
+            const notices = Array.from(
+              document.querySelectorAll<HTMLElement>(
+                ".state-notice .status-label",
+              ),
+            );
+            const visible = (title: string) =>
+              notices.some(
+                (notice) =>
+                  notice.textContent === title && notice.checkVisibility(),
+              );
+            const input = document.querySelector<HTMLInputElement>(
+              'input[aria-label="Tool"]',
+            );
+            return {
+              loading: visible("Loading invocations"),
+              unavailable: visible("Invocation list unavailable"),
+              stale: visible("Refresh failed; shown results are stale"),
+              empty: visible("No matching invocations"),
+              toolPresent: input !== null,
+              draftMatches: input?.value === tool,
+              appliedMatches:
+                new URLSearchParams(window.location.hash.split("?")[1]).get(
+                  "filter_tool",
+                ) === tool,
+            };
+          }, expectedTool)
+          .catch(() => null);
+        let problemCode: string | null = null;
+        if (response !== null) {
+          try {
+            const body: unknown = await response.json();
+            const code =
+              body !== null && typeof body === "object" && "code" in body
+                ? body.code
+                : null;
+            problemCode =
+              code === "storage_unavailable" || code === "shutting_down"
+                ? code
+                : "other";
+          } catch {
+            problemCode = "body_unavailable";
+          }
+        }
+        if (error instanceof Error)
+          error.message += `\nHistory empty-result post-failure facts: ${JSON.stringify({ facts, responseStatus: response?.status() ?? null, problemCode, synthetic: response === null ? null : syntheticResponses.has(response.request()) })}`;
+        throw error;
+      }
     };
     let releaseInitial!: () => void;
     let initialStarted!: () => void;
@@ -104,6 +173,36 @@ export async function assertAuthoritativeHistory(
     await expect(page.getByLabel("Outcome", { exact: true })).toBeVisible();
     await capture("initial-empty");
     await page.unroute("**/api/v2/mcp/invocations?*", holdInitial);
+    // Only the session-wide mutation latch needs System status off-route.
+    // A hidden System panel must not compete with history for traffic readers.
+    let statusReads = 0;
+    const countStatusRead = (request: import("@playwright/test").Request) => {
+      if (new URL(request.url()).pathname === "/api/v2/system-status")
+        statusReads += 1;
+    };
+    page.on("request", countStatusRead);
+    try {
+      const statusResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/v2/system-status",
+      );
+      const historyResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/v2/mcp/invocations",
+      );
+      await page.getByRole("button", { name: "Refresh current view" }).click();
+      const responses = await Promise.all([statusResponse, historyResponse]);
+      await Promise.all(responses.map((response) => response.finished()));
+      expect(
+        statusReads,
+        "History refresh reads only the global mutation latch",
+      ).toBe(1);
+      expect(responses.map((response) => response.status())).toEqual([
+        200, 200,
+      ]);
+    } finally {
+      page.off("request", countStatusRead);
+    }
     await page.evaluate(() => {
       window.location.hash = "#/overview";
     });
@@ -266,18 +365,27 @@ export async function assertAuthoritativeHistory(
       selected.items[0].requested_name !== "historical_library.lookup"
     )
       fail("Real Invocation older-only fuzzy query failed");
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: older-only tool result",
+    ).toHaveCount(1);
     await expect(page.getByLabel("Tool", { exact: true })).toBeFocused();
     await page.getByLabel("Agent", { exact: true }).fill("cafe investgiator");
     await expect(page).toHaveURL(/filter_principal=cafe%20investgiator/);
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: agent intersection",
+    ).toHaveCount(1);
     await page
       .getByLabel("Authorization", { exact: true })
       .selectOption("not_evaluated");
     await page
       .getByLabel("Outcome", { exact: true })
       .selectOption("unknown_tool");
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: authorization/outcome intersection",
+    ).toHaveCount(1);
 
     await capture("filtered");
     let failFresh = true;
@@ -290,6 +398,7 @@ export async function assertAuthoritativeHistory(
       ) {
         failFresh = false;
         failOlder = false;
+        syntheticResponses.add(route.request());
         await route.fulfill({
           status: 503,
           contentType: "application/problem+json",
@@ -308,7 +417,10 @@ export async function assertAuthoritativeHistory(
         exact: true,
       }),
     ).toBeVisible();
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: compatible refresh retains row",
+    ).toHaveCount(1);
     await capture("refresh-error");
     await page.getByRole("button", { name: "Retry refresh" }).click();
     await expect(
@@ -334,22 +446,34 @@ export async function assertAuthoritativeHistory(
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
     await page.getByRole("link", { name: "Back to invocations" }).click();
     await expect(live).not.toBeChecked();
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: detail back preserves filtered row",
+    ).toHaveCount(1);
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
     await page.goBack();
     await expect(page.getByTestId("invocation-detail")).toBeVisible();
     await page.goForward();
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: forward restores list",
+    ).toHaveCount(1);
     await expect(live).not.toBeChecked();
     await live.check();
     const copiedList = page.url();
     await page.goto(copiedList);
     await waitForLifecycle(page, "authenticated");
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: copied list bootstrap",
+    ).toHaveCount(1);
     await page.reload();
     await waitForLifecycle(page, "authenticated");
     await expect(page).toHaveURL(copiedList);
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: list reload",
+    ).toHaveCount(1);
     await page
       .getByTestId("invocation-row")
       .getByRole("link", {
@@ -380,11 +504,15 @@ export async function assertAuthoritativeHistory(
     await capture("detail");
     await page.getByRole("link", { name: "Back to invocations" }).click();
     await expect(page).toHaveURL(copiedList);
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
-    await page.getByLabel("Tool", { exact: true }).fill("arrival.lookup");
     await expect(
-      page.getByText("No matching invocations", { exact: true }),
-    ).toBeVisible();
+      page.getByTestId("invocation-row"),
+      "history: copied detail back",
+    ).toHaveCount(1);
+    await page.getByLabel("Tool", { exact: true }).fill("arrival.lookup");
+    await expectMatchingEmpty(
+      "history: initial unmatched tool",
+      "arrival.lookup",
+    );
     await capture("empty");
     const nonmatchResponse = page.waitForResponse(
       (r) =>
@@ -392,25 +520,79 @@ export async function assertAuthoritativeHistory(
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("workshop.echo");
-    await nonmatchResponse;
+    const nonmatch = await nonmatchResponse;
     await expect(page.getByTestId("invocation-row")).toHaveCount(0);
-    await expect(
-      page.getByText("No matching invocations", { exact: true }),
-    ).toBeVisible();
+    await expectMatchingEmpty(
+      "history: nonmatching arrival",
+      "arrival.lookup",
+      nonmatch,
+    );
     const arrivalResponse = page.waitForResponse(
       (r) =>
         new URL(r.url()).pathname === "/api/v2/mcp/invocations" &&
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("arrival.lookup");
-    await arrivalResponse;
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    const arrival = await arrivalResponse;
+    try {
+      await expect(
+        page.getByTestId("invocation-row"),
+        "history: matching arrival published",
+      ).toHaveCount(1);
+    } catch (error) {
+      // Preserve bounded facts about intermittent live-history failure, not raw evidence.
+      const facts = await page.evaluate(() => ({
+        rows: document.querySelectorAll('[data-testid="invocation-row"]')
+          .length,
+        panelStatus: document
+          .querySelector('[data-testid="invocations-view"]')
+          ?.getAttribute("data-panel-status"),
+        notices: [...document.querySelectorAll(".state-notice .status-label")]
+          .filter((node) => node.checkVisibility())
+          .map((node) => node.textContent)
+          .filter((text) =>
+            [
+              "Loading invocations",
+              "Invocation list unavailable",
+              "Refresh failed; shown results are stale",
+              "No matching invocations",
+            ].includes(text ?? ""),
+          ),
+      }));
+      let responseFacts: unknown = "body_unavailable";
+      try {
+        const body: unknown = await arrival.json();
+        if (body !== null && typeof body === "object") {
+          responseFacts = {
+            code:
+              "code" in body &&
+              ["storage_unavailable", "shutting_down"].includes(
+                String(body.code),
+              )
+                ? body.code
+                : null,
+            items:
+              "items" in body && Array.isArray(body.items)
+                ? body.items.length
+                : null,
+          };
+        }
+      } catch {
+        // CDP may no longer retain the body; the status and rendered facts still help.
+      }
+      if (error instanceof Error)
+        error.message += `\nHistory arrival post-failure facts: ${JSON.stringify({ facts, responseStatus: arrival.status(), responseFacts, synthetic: syntheticResponses.has(arrival.request()) })}`;
+      throw error;
+    }
     await live.uncheck();
     await call("arrival.lookup");
     await expect(
       page.getByText("Updates available", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+    await expect(
+      page.getByTestId("invocation-row"),
+      "history: paused matching arrival retained",
+    ).toHaveCount(1);
     await page.getByTestId("manual-refresh").click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(2);
     await expect(live).not.toBeChecked();
@@ -510,9 +692,7 @@ export async function assertAuthoritativeHistory(
     ).toHaveCount(0);
     await capture("new-query-error");
     await page.getByRole("button", { name: "Retry refresh" }).click();
-    await expect(
-      page.getByText("No matching invocations", { exact: true }),
-    ).toBeVisible();
+    await expectMatchingEmpty("history: empty retry", "absent.lookup");
     let releaseLate!: () => void;
     let markLate!: () => void;
     let markSettled!: () => void;

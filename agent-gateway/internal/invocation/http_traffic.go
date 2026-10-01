@@ -16,7 +16,7 @@ func (s *TrafficStore) AdmitHTTP(ctx context.Context, admission contract.HTTPTra
 	if err != nil {
 		return nil, err
 	}
-	return s.enqueueAdmission(&trafficRequest{ctx: ctx, prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: admission.ID, AdmittedAt: admission.AdmittedAt}}, httpAdmission: encoded, httpAllowed: admission.Decision != nil && admission.Decision.Allowed, bytes: httpTrafficChargeBase + int64(len(encoded)), expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)})
+	return s.enqueueAdmission(&trafficRequest{ctx: ctx, prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: admission.ID, AdmittedAt: admission.AdmittedAt}}, httpAdmission: encoded, recorded: httpRecordedAdmission(admission), httpAllowed: admission.Decision != nil && admission.Decision.Allowed, bytes: httpTrafficChargeBase + int64(len(encoded)), expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)})
 }
 
 func (s *TrafficStore) CompleteHTTP(ctx context.Context, receipt *TrafficReceipt, completion contract.HTTPTrafficCompletion) error {
@@ -26,7 +26,11 @@ func (s *TrafficStore) CompleteHTTP(ctx context.Context, receipt *TrafficReceipt
 		valid = strictjson.Decode([]byte(receipt.httpAdmission), &admission, strictjson.Options{MaxBytes: contract.HTTPTrafficAdmissionBytes, MaxDepth: 12, RejectUnknownMembers: true}) == nil
 	}
 	encoded, err := encodeHTTPCompletion(admission, completion)
-	return s.enqueueCompletion(&trafficRequest{ctx: ctx, receipt: receipt, httpCompletion: encoded, bytes: maxTrafficCompletionBytes, expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}, valid && err == nil)
+	protocol := recordedHTTPUnclassified
+	if valid {
+		protocol = receipt.recordedProtocol
+	}
+	return s.enqueueCompletion(&trafficRequest{ctx: ctx, receipt: receipt, httpCompletion: encoded, recorded: recordedTerminal(protocol, completion.Outcome), bytes: maxTrafficCompletionBytes, expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}, valid && err == nil)
 }
 
 func (r *trafficRequest) terminal() bool { return r.completion != nil || r.httpCompletion != "" }

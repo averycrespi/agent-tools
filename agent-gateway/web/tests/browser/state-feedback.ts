@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import { captureDetailLayout } from "./detail-layout.ts";
 import { expect, type Page } from "@playwright/test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,6 +9,16 @@ export async function captureStateFeedback(
   page: Page,
   state: string,
 ): Promise<void> {
+  if (
+    [
+      "tool-schema-summary",
+      "system-stale",
+      "request-reload-failed",
+      "agent-reload-failed",
+      "http-credential-invalid",
+    ].includes(state)
+  )
+    await captureDetailLayout(page, state);
   const directory = await mkdtemp(join(tmpdir(), `gateway-feedback-${state}-`));
   const previous = page.viewportSize();
   for (const width of [1280, 390]) {

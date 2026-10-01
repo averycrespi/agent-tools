@@ -248,6 +248,18 @@ try {
     }
   });
   const consoleFailures: string[] = [];
+  const apiFailures: string[] = [];
+  context.on("response", (response) => {
+    const url = new URL(response.url());
+    if (
+      url.origin === baseURL &&
+      url.pathname.startsWith("/api/v2/") &&
+      response.status() >= 400 &&
+      response.status() !== 401 &&
+      apiFailures.length < 32
+    )
+      apiFailures.push(`${response.status()}:${url.pathname}`);
+  });
   context.on("page", (candidate) => {
     candidate.on("console", (message) => {
       if (
@@ -884,7 +896,7 @@ try {
       (consoleFailures.length !== 0 && !expectedConsoleFailures)
     ) {
       fail(
-        `unexpected browser protocol side effect (external=${externalRequests.length}, origin=${originFailures.length}, console=${consoleFailures.length}, console_classes=${consoleFailures.map((value) => /^Failed to load resource: the server responded with a status of ([0-9]{3})/.exec(value)?.[1] ?? "other").join(",")})`,
+        `unexpected browser protocol side effect (external=${externalRequests.length}, origin=${originFailures.length}, console=${consoleFailures.length}, console_classes=${consoleFailures.map((value) => /^Failed to load resource: the server responded with a status of ([0-9]{3})/.exec(value)?.[1] ?? "other").join(",")}, expected_http_grant_classes=${httpGrantExpectedFailures.join(",")}, api_failures=${apiFailures.join(",")})`,
       );
     }
     if (

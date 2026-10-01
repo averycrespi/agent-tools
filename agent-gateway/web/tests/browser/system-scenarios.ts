@@ -1,4 +1,14 @@
 import { captureStateFeedback } from "./state-feedback.ts";
+import { activityFixture } from "../recorded-activity-fixture.ts";
+import {
+  captureOverviewLayout,
+  prepareOverviewBaseline,
+} from "./overview-layout.ts";
+import {
+  captureDetailLayout,
+  prepareDetailBaseline,
+  captureTableState,
+} from "./detail-layout.ts";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,10 +61,10 @@ export async function runOverviewInvocationSystemCanary(
   );
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Operational conditions",
-    "active MCP catalog tools",
-    "configured servers",
-    "Waiting for a decision",
+    "Gateway readiness",
+    "Active MCP catalog tools",
+    "Configured MCP servers",
+    "Pending MCP decisions",
   ])
     if (!body.includes(phrase))
       fail(`Overview workflow canary omitted ${phrase}`);
@@ -283,6 +293,7 @@ export async function runBackups(
   let creates = 0;
   let deletes = 0;
   let details = 0;
+  let backupReadFails = false;
   let recoveryKey: string | undefined;
   await page.route("**/api/v2/backups**", async (route) => {
     const request = route.request();
@@ -297,7 +308,9 @@ export async function runBackups(
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ items, next_cursor: null }),
+        body: JSON.stringify(
+          backupReadFails ? {} : { items, next_cursor: null },
+        ),
       });
       return;
     }
@@ -456,10 +469,27 @@ export async function runBackups(
   await assertSimplifiedInventory();
   await page.locator('[data-testid="backup-delete"]').first().click();
   await expect(page.getByRole("dialog")).toContainText(ids[1]!);
+  await captureTableState(page, "backup-delete-confirmation");
   await page.locator('[data-testid="backup-delete-confirm-cancel"]').click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.getByTestId("backup-delete").first()).toBeFocused();
   expect(deletes).toBe(0);
   await expect(rows).toHaveCount(2);
+  backupReadFails = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known backups", { exact: true }),
+  ).toBeVisible();
+  await expect(rows).toHaveCount(2);
+  await expect(
+    page.getByText("2 backups (last-known)", { exact: true }),
+  ).toBeVisible();
+  await captureTableState(page, "backups-stale");
+  backupReadFails = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known backups", { exact: true }),
+  ).toHaveCount(0);
   await page.locator('[data-testid="backup-delete"]').first().click();
   await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
   await page.getByText(/Backup deleted/).waitFor();
@@ -530,6 +560,7 @@ export async function runAdminCredentials(
   let items = [credential(0), credential(1), credential(2, "active", false)];
   let creates = 0;
   let revokes = 0;
+  let adminReadFails = false;
   let expectedExpiry: string | null = null;
   let releaseLost: (() => void) | undefined;
   let markLostStarted: (() => void) | undefined;
@@ -549,7 +580,9 @@ export async function runAdminCredentials(
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ items, next_cursor: null }),
+        body: JSON.stringify(
+          adminReadFails ? {} : { items, next_cursor: null },
+        ),
       });
       return;
     }
@@ -683,6 +716,32 @@ export async function runAdminCredentials(
       .count()) !== items.length
   )
     fail("admin credential fingerprints remained interactive or expanded");
+  const adminStatus = page.getByRole("combobox", {
+    name: "Status",
+    exact: true,
+  });
+  await adminStatus.selectOption("expired");
+  await expect(page.getByTestId("admin-credential-row")).toHaveCount(0);
+  await expect(adminStatus).toBeVisible();
+  await expect(page).toHaveURL(/#\/system\?tab=admin-credentials$/);
+  await captureTableState(page, "admin-local-filter-empty");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page.getByTestId("admin-credential-row")).toHaveCount(3);
+  adminReadFails = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known administrator credentials", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("admin-credential-row")).toHaveCount(3);
+  await expect(
+    page.getByText("Showing 3 of 3 (last-known)", { exact: true }),
+  ).toBeVisible();
+  await captureTableState(page, "admin-stale");
+  adminReadFails = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last-known administrator credentials", { exact: true }),
+  ).toHaveCount(0);
   await page.locator('[data-testid="admin-credential-create"]').click();
   await page.locator('[data-testid="admin-credential-create-view"]').waitFor();
   if (
@@ -756,6 +815,7 @@ export async function runAdminCredentials(
     .getByRole("heading", { name: "Review admin credential", exact: true })
     .waitFor();
   if (creates !== 0) fail("admin credential submitted before final review");
+  await captureDetailLayout(page, "administrator-expiry-review");
   await page
     .locator('[data-testid="admin-credential-create-confirm-submit"]')
     .click();
@@ -843,6 +903,33 @@ export async function runAdminCredentials(
       { exact: true },
     )
     .waitFor();
+  items = items.map((item) =>
+    item.id === ids[0]
+      ? item
+      : { ...item, status: "revoked" as const, revision: "9" },
+  );
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page.getByTestId("admin-credentials-view").waitFor();
+  await page.getByTestId("manual-refresh").click();
+  const protectedRow = page
+    .getByTestId("admin-credential-row")
+    .filter({ hasText: ids[0]! });
+  const protectedRevoke = protectedRow.getByTestId("admin-credential-revoke");
+  await expect(protectedRevoke).toBeDisabled();
+  const protectionText = protectedRow.getByText(
+    "The last active non-expiring administrator credential cannot be revoked.",
+    { exact: true },
+  );
+  await expect(protectionText).toBeVisible();
+  const guidanceWidth = (await protectionText.boundingBox())!.width;
+  expect(guidanceWidth).toBeGreaterThanOrEqual(200);
+  expect(guidanceWidth).toBeLessThanOrEqual(256);
+  await expect(protectedRevoke).toHaveAccessibleDescription(
+    "The last active non-expiring administrator credential cannot be revoked.",
+  );
+  await captureTableState(page, "admin-protected-revoke");
   const logoutResponse = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === "/api/v2/admin-sessions/current" &&
@@ -885,9 +972,15 @@ export async function runOverview(
   requestCount: () => number,
 ): Promise<void> {
   await waitForLifecycle(page, "signed_out");
+  // Install before authentication creates the grouped polling timers.
+  await page.clock.install();
   let invocationReads = 0;
+  let activityReads = 0;
+  let activityMode: "complete" | "partial" | "reset" | "error" = "complete";
+  let catalogMode: "current" | "error" = "current";
   let customHeaders: unknown = { "X-MCP-Toolsets": "repos,issues" };
   const screenshots = await mkdtemp(join(tmpdir(), "overview-headers-"));
+  const compareBaseline = prepareOverviewBaseline(page);
   const httpServer = () => ({
     ...overviewServer("01ARZ3NDEKTSV4RRFFQ69G5FA0", "Quiet server", "active"),
     transport: {
@@ -906,7 +999,10 @@ export async function runOverview(
     | "empty"
     | "error" = "complete";
   let statusMode: "abnormal" | "quiet" | "error" = "abnormal";
+  let reportedStatus = false;
+  let proxyDisabled = false;
   let requestMode: "populated" | "quiet" | "error" = "populated";
+  let queueFault: "total" | "offset" | "cursor" | "label" | undefined;
   let staleRestarted = false;
   let heldStatus = true;
   let releaseHeldStatus: (() => void) | undefined;
@@ -938,7 +1034,55 @@ export async function runOverview(
       });
       return;
     }
-    const status = overviewStatusFixture();
+    const status = {
+      ...overviewStatusFixture(),
+      ...(reportedStatus
+        ? {
+            endpoints: {
+              authority: "127.0.0.1:8210",
+              api: statusMode === "quiet" ? "ready" : "read_only",
+              mcp: statusMode === "quiet" ? "ready" : "unavailable",
+            },
+            http_proxy: {
+              enabled: !proxyDisabled,
+              ready: statusMode === "quiet",
+              ca_ready: statusMode === "quiet",
+              authority: "127.0.0.1:8212",
+              connections: {
+                in_use: statusMode === "quiet" ? 0 : 230,
+                limit: 256,
+                saturated: false,
+              },
+              work: {
+                in_use: statusMode === "quiet" ? 0 : 128,
+                limit: 128,
+                saturated: statusMode !== "quiet",
+              },
+              active_streams: 0,
+              active_tunnels: 0,
+            },
+            traffic: {
+              ready: statusMode === "quiet",
+              faulted: statusMode !== "quiet",
+              pressure: statusMode !== "quiet",
+              budget_bytes: 4294967296,
+              database_bytes: 1048576,
+              wal_bytes: 65536,
+              quota_refusals: 0,
+              pruned_records: 0,
+              generation: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+              rolling_history: true,
+              unknown_completion_possible: true,
+            },
+          }
+        : {}),
+    };
+    status.limits.mcp_work = { in_use: 64, limit: 64, saturated: true };
+    status.limits.downstream_dispatch = {
+      in_use: 858993460,
+      limit: 1073741824,
+      saturated: false,
+    };
     if (statusMode === "quiet") {
       status.process.state = "ready";
       status.process.ready = true;
@@ -1161,14 +1305,21 @@ export async function runOverview(
                 },
               })).map((request) => ({
                 request,
-                principal_display_name: "Overview agent",
+                principal_display_name:
+                  queueFault === "label" ? null : "Overview agent",
                 server_display_name: "Needs operator attention",
                 resolved_server_id: "01ARZ3NDEKTSV4RRFFQ69G5FA1",
                 resolved_upstream_name: null,
               })),
-        total_count: requestMode === "quiet" ? 0 : 6,
-        offset: 0,
-        next_cursor: requestMode === "quiet" ? null : "more-pending",
+        total_count:
+          queueFault === "total" ? -1 : requestMode === "quiet" ? 0 : 6,
+        offset: queueFault === "offset" ? 1 : 0,
+        next_cursor:
+          queueFault === "cursor"
+            ? null
+            : requestMode === "quiet"
+              ? null
+              : "more-pending",
       }),
     });
   });
@@ -1193,6 +1344,71 @@ export async function runOverview(
             updated_at: "2026-08-28T00:00:00Z",
           },
         ],
+        next_cursor: null,
+      }),
+    });
+  });
+  await page.route("**/api/v2/recorded-activity", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    expect(new URL(route.request().url()).search).toBe("");
+    activityReads++;
+    if (activityMode === "error") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
+    const value = activityFixture(
+      activityMode === "reset" ? "unavailable" : activityMode,
+    );
+    if (activityMode === "reset") {
+      value.epoch = `${"B".repeat(26)}-2`;
+      value.epoch_reason = "clock_reset";
+      value.collection_start = "2026-09-30T12:16:00Z";
+    }
+    value.buckets.forEach((bucket, index) => {
+      if (!bucket.counts) return;
+      bucket.counts.mcp.admissions.allow = index * 2;
+      bucket.counts.mcp.completions.downstream_failure = index % 3;
+      bucket.counts.http_request.admissions.allow = index;
+      bucket.counts.http_request.completions.outcome_unknown = index % 2;
+      bucket.counts.connect.admissions.interception_selected = index % 4;
+    });
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(value),
+    });
+  });
+  await page.route("**/api/v2/mcp/catalog?*", async (route) => {
+    expect(new URL(route.request().url()).search).toBe("?limit=1");
+    if (catalogMode === "error") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        catalog: {
+          active_state: "empty",
+          active_generation: "snapshot-1",
+          changed_at: null,
+          issue_count: 0,
+        },
+        items: [],
         next_cursor: null,
       }),
     });
@@ -1244,6 +1460,10 @@ export async function runOverview(
     overviewPhase = state;
     if ((await overview.locator("nav").count()) !== 0)
       fail(`Overview ${state} retained redundant destination navigation`);
+    if (process.env.AGENT_GATEWAY_OVERVIEW_ARTIFACT_DIR) {
+      await captureOverviewLayout(page, state);
+      return;
+    }
     for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme });
       for (const width of [1440, 390, 320]) {
@@ -1299,6 +1519,8 @@ export async function runOverview(
   };
   await assertCurrent("servers");
   await assertCurrent("requests");
+  await assertCurrent("activity");
+  await assertCurrent("catalog");
   if (
     (await source("status").getAttribute("data-panel-status")) !== "loading" ||
     !(await sourceText("status")).includes("Loading current data")
@@ -1321,8 +1543,9 @@ export async function runOverview(
     "Overview agent",
     "5 shown; more need attention",
     "5 shown; more pending",
-    "9 configured servers",
-    "8 active MCP catalog tools",
+    "9 Configured MCP servers",
+    "8 Active MCP catalog tools",
+    "6 pending",
   ]) {
     if (!body.includes(text)) fail(`Overview omitted ${text}`);
   }
@@ -1400,14 +1623,14 @@ export async function runOverview(
       1
     )
       fail(`Primary navigation omitted destination ${href}`);
-  for (const [name, href] of [
-    ["Inspect System", "#/system"],
-    ["Inspect storage status", "#/system"],
-    ["Inspect keyring status", "#/system"],
-    ["Inspect resource limits", "#/system?tab=resource-limits"],
+  for (const [sourceID, name, href] of [
+    ["status", "Inspect System", "#/system"],
+    ["material", "Inspect storage status", "#/system"],
+    ["material", "Inspect keyring status", "#/system"],
+    ["capacity", "Resource limits", "#/system?tab=resource-limits"],
   ] as const)
     if (
-      (await source("status")
+      (await source(sourceID)
         .getByRole("link", { name, exact: true })
         .getAttribute("href")) !== href
     )
@@ -1421,6 +1644,64 @@ export async function runOverview(
       .evaluate((link) => link === document.activeElement))
   )
     fail("Server links not keyboard reachable in queue order");
+  await expect(overview.locator(":scope > .overview-panel")).toHaveCount(7);
+  await expect(overview.locator(":scope > .overview-panel h2")).toHaveText([
+    "Gateway readiness",
+    "Storage and material",
+    "Work capacity",
+    "MCP attention",
+    "Pending MCP decisions",
+    "MCP inventory",
+    "Recorded activity",
+  ]);
+  await expect(source("status")).toContainText("Not reported");
+  reportedStatus = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(source("capacity")).toContainText("HTTP connections230 / 256");
+  await expect(source("capacity")).toContainText("HTTP work128 / 128");
+  await expect(
+    source("capacity").locator(".overview-conditions li strong"),
+  ).toHaveText(["MCP work", "HTTP work", "Downstream dispatch"]);
+  await expect(source("capacity")).toContainText(
+    "1 additional pool under pressure",
+  );
+  await expect(source("material")).toContainText("Traffic storeFaulted");
+  await capture("reported-pools");
+  proxyDisabled = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    source("status").getByText("Disabled", { exact: true }),
+  ).toHaveAttribute("data-state", "neutral");
+  proxyDisabled = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    source("status").getByText("Not ready", { exact: true }),
+  ).toBeVisible();
+
+  const minuteEvidence = source("activity").getByText("Minute evidence", {
+    exact: true,
+  });
+  await minuteEvidence.focus();
+  await page.keyboard.press("Enter");
+  await expect(source("activity").locator("details[open] ol li")).toHaveCount(
+    60,
+  );
+  await expect(minuteEvidence).toBeFocused();
+  await captureOverviewLayout(page, "activity-minute-evidence");
+  await minuteEvidence.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    source("activity").getByRole("link", {
+      name: "MCP invocation history",
+      exact: true,
+    }),
+  ).toHaveAttribute("href", "#/mcp/invocations");
+  await expect(
+    source("activity").getByRole("link", {
+      name: "HTTP and CONNECT history",
+      exact: true,
+    }),
+  ).toHaveAttribute("href", "#/http/traffic");
   const accessibility = await new AxeBuilder({ page })
     .include('[data-testid="overview-grid"]')
     .analyze();
@@ -1429,6 +1710,22 @@ export async function runOverview(
       `Overview accessibility violations: ${accessibility.violations.map((item) => item.id).join(",")}`,
     );
   await capture("attention");
+  await compareBaseline("attention");
+  for (const fault of ["total", "offset", "cursor", "label"] as const) {
+    queueFault = fault;
+    await page.getByTestId("manual-refresh").click();
+    await expect(source("requests")).toHaveAttribute(
+      "data-panel-status",
+      "error",
+    );
+    await expect(source("requests")).toContainText(
+      "last known; current queue unknown",
+    );
+    await assertCurrent("servers");
+  }
+  queueFault = undefined;
+  await page.getByTestId("manual-refresh").click();
+  await assertCurrent("requests");
   await page.waitForTimeout(5100);
   if (invocationReads !== 0)
     fail("Overview performed invocation reads or polling");
@@ -1439,7 +1736,7 @@ export async function runOverview(
   await page.waitForFunction(() =>
     document
       .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("1 configured"),
+      ?.textContent?.includes("1 servers flagged"),
   );
   if (
     !staleRestarted ||
@@ -1450,20 +1747,31 @@ export async function runOverview(
     fail("stale server traversal was not restarted cleanly");
 
   serverMode = "partial";
+  activityMode = "partial";
   await page.locator('[data-testid="manual-refresh"]').click();
   await page.waitForFunction(() =>
     document
       .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("counts incomplete"),
+      ?.textContent?.includes("loaded; incomplete"),
   );
   if (
     !(await sourceText("servers")).includes(
       "additional affected servers may exist",
     ) ||
-    !(await sourceText("servers")).includes("loaded; counts incomplete")
+    !(await sourceText("servers")).includes("loaded; incomplete")
   )
     fail("Partial traversal implied an exhaustive count");
+  await assertCurrent("activity");
+  await expect(source("activity")).toContainText("Partial coverage");
   await capture("partial");
+  activityMode = "reset";
+  await page.getByTestId("manual-refresh").click();
+  await expect(source("activity")).toContainText(
+    "Collection reset after a clock discontinuity",
+  );
+  await expect(source("activity").locator(".activity-totals")).toHaveCount(0);
+  await capture("activity-reset");
+  activityMode = "complete";
 
   statusMode = "quiet";
   serverMode = "quiet";
@@ -1478,22 +1786,27 @@ export async function runOverview(
   await assertCurrent("requests");
   const quiet = (await overview.textContent()) ?? "";
   for (const text of [
-    "Process ready",
-    "SQLite ready · not latched",
-    "Keyring ready",
+    "ProcessReady",
+    "Administration APIReady",
+    "MCP ingressReady",
+    "HTTP proxyReady",
+    "Traffic storeReady",
+    "HTTP connections0 / 256",
+    "HTTP work0 / 128",
+    "SQLiteReady · Not latched",
+    "Keyring startupReady",
     "No servers flagged for attention in the current read",
     "No pending access requests in the current read",
-    "1 configured server",
-    "1 active MCP catalog tool",
+    "1 Configured MCP servers",
+    "1 Active MCP catalog tools",
   ])
     if (!quiet.includes(text)) fail(`Quiet Overview omitted ${text}`);
   if (
     quiet.includes("capacity pressure") ||
     quiet.includes("saturated") ||
-    quiet.includes("healthy") ||
-    quiet.length > 650
+    quiet.includes("healthy")
   )
-    fail("Quiet Overview was not short or evidence-bounded");
+    fail("Ready Overview claimed unsupported aggregate health or pressure");
   if (
     (await page
       .locator('[data-testid="gateway-shell"]')
@@ -1501,6 +1814,7 @@ export async function runOverview(
   )
     fail("Fresh unlatched read did not reopen admission");
   await capture("quiet");
+  await compareBaseline("quiet");
 
   for (const headers of [null, [], "invalid", { "X-MCP-Toolsets": 7 }]) {
     customHeaders = headers;
@@ -1521,7 +1835,7 @@ export async function runOverview(
     customHeaders = headers;
     await page.locator('[data-testid="manual-refresh"]').click();
     await assertCurrent("servers");
-    if (!(await sourceText("servers")).includes("1 configured server"))
+    if (!(await sourceText("inventory")).includes("1 Configured MCP servers"))
       fail("Valid HTTP headers prevented complete server counts");
   }
 
@@ -1533,9 +1847,8 @@ export async function runOverview(
       ?.textContent?.includes("No servers configured"),
   );
   if (
-    !(await sourceText("servers")).includes(
-      "0 configured servers · 0 active MCP catalog tools",
-    )
+    !(await sourceText("inventory")).includes("0 Configured MCP servers") ||
+    !(await sourceText("inventory")).includes("0 Active MCP catalog tools")
   )
     fail("Empty inventory counts misleading");
   await capture("empty");
@@ -1569,8 +1882,27 @@ export async function runOverview(
   statusMode = "quiet";
   serverMode = "quiet";
   requestMode = "quiet";
-  await page.locator('[data-testid="manual-refresh"]').click();
+  activityMode = "error";
+  catalogMode = "error";
+  await page.getByTestId("manual-refresh").click();
+  await expect(source("activity")).toHaveAttribute(
+    "data-panel-status",
+    "error",
+  );
+  await expect(source("catalog")).toHaveAttribute("data-panel-status", "error");
+  await expect(source("activity")).toContainText(
+    "last known; current activity unknown",
+  );
+  await expect(source("catalog")).toContainText(
+    "last known; current state unknown",
+  );
   for (const id of ["status", "servers", "requests"]) await assertCurrent(id);
+  await capture("activity-catalog-error");
+  activityMode = "complete";
+  catalogMode = "current";
+  await page.locator('[data-testid="manual-refresh"]').click();
+  for (const id of ["status", "servers", "requests", "activity", "catalog"])
+    await assertCurrent(id);
   await page.route("**/api/v2/events", (route) =>
     route.fulfill({
       status: 200,
@@ -1664,9 +1996,44 @@ export async function runOverview(
   await capture("unavailable");
   if (invocationReads !== 0)
     fail("Overview invocation reads returned after reload");
+  const beforePoll = activityReads;
+  await page.clock.fastForward(31_000);
+  await expect.poll(() => activityReads).toBeGreaterThan(beforePoll);
+  await assertCurrent("activity");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenReads = activityReads;
+  await page.clock.fastForward(61_000);
+  expect(activityReads, "hidden Overview pauses grouped activity reads").toBe(
+    hiddenReads,
+  );
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.fastForward(31_000);
+  await expect.poll(() => activityReads).toBeGreaterThan(hiddenReads);
+  await assertCurrent("activity");
+  await page.evaluate(() => {
+    window.location.hash = "#/audit-log";
+  });
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Audit Log", exact: true }),
+  ).toBeVisible();
+  const awayReads = activityReads;
+  await page.clock.fastForward(61_000);
+  expect(activityReads, "navigation stops activity reads").toBe(awayReads);
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "overview_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), invocation_reads: invocationReads, screenshots })}\n`,
+    `${JSON.stringify({ event: "overview_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), invocation_reads: invocationReads, activity_reads: activityReads, screenshots })}\n`,
   );
 }
 
@@ -1678,6 +2045,7 @@ export async function runInvocations(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
+  const compareBaseline = prepareDetailBaseline(page);
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
@@ -1698,6 +2066,7 @@ export async function runInvocations(
   let listReads = 0;
   let continuationReads = 0;
   let itemReads = 0;
+  let vocabularyItemReads = 0;
   let staleMode = false;
   let staleRestarted = false;
   let itemMissing = false;
@@ -1713,6 +2082,25 @@ export async function runInvocations(
     )
       fail("invocation view issued an unauthenticated or non-read request");
     if (url.pathname !== "/api/v2/mcp/invocations") {
+      if (
+        url.pathname === `/api/v2/mcp/invocations/${invocationIDs.admission}`
+      ) {
+        expect(url.search).toBe("");
+        vocabularyItemReads += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ...invocationFixture(
+              invocationIDs.admission,
+              "admission",
+              "invalid_params",
+            ),
+            redacted_arguments: null,
+          }),
+        });
+        return;
+      }
       if (
         url.pathname !== `/api/v2/mcp/invocations/${invocationIDs.missing}` ||
         url.search !== ""
@@ -1776,6 +2164,24 @@ export async function runInvocations(
       [...query.keys()].some((key) => query.getAll(key).length !== 1)
     )
       fail("invocation list request changed shape");
+    if (query.get("outcome") === "invalid_params") {
+      listReads += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            invocationFixture(
+              invocationIDs.admission,
+              "admission",
+              "invalid_params",
+            ),
+          ],
+          next_cursor: null,
+        }),
+      });
+      return;
+    }
     if (query.get("decision") === "block") {
       listReads += 1;
       await route.fulfill({
@@ -1989,6 +2395,7 @@ export async function runInvocations(
     .locator("option")
     .allTextContents();
   for (const outcome of [
+    "Invalid parameters",
     "Invalid arguments",
     "Authorization unavailable",
     "Prestart failure",
@@ -2053,6 +2460,46 @@ export async function runInvocations(
     "data-state",
     "neutral",
   );
+
+  const invalidOutcome = page.getByLabel("Outcome", { exact: true });
+  await expect(
+    invalidOutcome.locator('option[value="invalid_params"]'),
+  ).toHaveText("Invalid parameters");
+  await expect(
+    page
+      .getByTestId("invocation-row")
+      .filter({ hasText: invocationIDs.admission })
+      .locator('[data-label="Outcome"] .status-label'),
+  ).toHaveText("Invalid parameters");
+  const invalidQuery = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return (
+      url.pathname === "/api/v2/mcp/invocations" &&
+      url.searchParams.get("outcome") === "invalid_params"
+    );
+  });
+  await invalidOutcome.selectOption("invalid_params");
+  await invalidQuery;
+  await expect(page).toHaveURL(/filter_outcome=invalid_params/);
+  await expect(page.getByTestId("invocation-row")).toHaveCount(1);
+  await page
+    .getByRole("link", {
+      name: `Invocation ${invocationIDs.admission}`,
+      exact: true,
+    })
+    .click();
+  await expect(
+    page
+      .getByTestId("invocation-detail")
+      .getByText("Invalid parameters", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Back to invocations", exact: true })
+    .click();
+  await expect(invalidOutcome).toHaveValue("invalid_params");
+  expect(vocabularyItemReads).toBe(1);
+  await invalidOutcome.selectOption("");
+  await expect(page.getByTestId("invocation-row")).toHaveCount(2);
 
   const beforeWait = listReads;
   await page.waitForTimeout(5100);
@@ -2180,7 +2627,7 @@ export async function runInvocations(
   await page.locator('[data-testid="invocation-detail"]').waitFor();
   const detailAuthorization = page
     .getByTestId("invocation-detail")
-    .locator(".fact-grid > div")
+    .locator(".detail-facts > div")
     .filter({
       has: page.locator("dt").filter({ hasText: /^Authorization decision$/ }),
     })
@@ -2219,8 +2666,8 @@ export async function runInvocations(
       .locator('[data-testid="invocation-detail"] section.panel h1')
       .count()) !== 0 ||
     (await page
-      .locator('[data-testid="invocation-detail"] .fact-grid')
-      .count()) !== 1 ||
+      .locator('[data-testid="invocation-detail"] .detail-facts')
+      .count()) !== 3 ||
     (
       await page
         .locator('[data-testid="invocation-detail"] dt')
@@ -2258,6 +2705,8 @@ export async function runInvocations(
     fail("invocation capture was not explained inert item-only content");
 
   await expect(page.getByTestId("failure-diagnostics")).toHaveCount(0);
+  await captureDetailLayout(page, "invocation-missing-terminal");
+  await compareBaseline("invocation-missing-terminal");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const path = join(linkScreenshots, `legacy-detail-${width}.png`);
@@ -2454,7 +2903,7 @@ export async function runInvocations(
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
-    `${JSON.stringify({ event: "invocations_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, continuation_reads: continuationReads, item_reads: itemReads, history_screenshots: historyScreenshots })}\n`,
+    `${JSON.stringify({ event: "invocations_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), list_reads: listReads, continuation_reads: continuationReads, item_reads: itemReads, vocabulary_item_reads: vocabularyItemReads, history_screenshots: historyScreenshots })}\n`,
   );
 }
 
@@ -2614,10 +3063,23 @@ export async function runSystemStatus(
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
   const statusPanel = page.locator('[data-testid="system-status-panel"]');
+  await expect(statusPanel.locator(".detail-section")).toHaveCount(3);
+  expect(
+    await statusPanel.evaluate(
+      (node) => getComputedStyle(node).backgroundColor,
+    ),
+  ).toBe("rgba(0, 0, 0, 0)");
+  await expect(
+    statusPanel
+      .getByTestId("system-status-material")
+      .getByText("Credential storage", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    statusPanel
+      .getByTestId("system-status-material")
+      .getByText("Control storage", { exact: true }),
+  ).toBeVisible();
   if (
-    !(await statusPanel.getAttribute("class"))
-      ?.split(/\s+/)
-      .includes("panel") ||
     (await statusPanel
       .locator('[data-testid="system-status-summary"]')
       .count()) !== 0 ||
@@ -2652,6 +3114,7 @@ export async function runSystemStatus(
       .getAttribute("data-mutation-availability")) !== "storage_latched"
   )
     fail("System did not close mutation admission for latched storage");
+  await captureDetailLayout(page, "system-status-latched");
 
   await expect(
     statusPanel.getByText("Gateway API", { exact: true }),
@@ -2700,6 +3163,7 @@ export async function runSystemStatus(
     body.includes("Gateway is operating normally")
   )
     fail("System healthy status repeated its conclusion");
+  await captureDetailLayout(page, "system-status-healthy");
 
   failStatus = true;
   await page.getByTestId("manual-refresh").click();

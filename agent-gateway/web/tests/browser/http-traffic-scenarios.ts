@@ -1,5 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
+import {
+  captureDetailLayout,
+  prepareDetailBaseline,
+  captureTableState,
+} from "./detail-layout.ts";
+import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +19,7 @@ export async function runHTTPTraffic(
   bearer: string,
   requestCount: () => number,
 ): Promise<void> {
+  const compareBaseline = prepareDetailBaseline(page);
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-http-traffic-"));
   const captureTransfer = async (state: string) => {
     for (const width of [1280, 390]) {
@@ -163,6 +170,18 @@ export async function runHTTPTraffic(
   await expect(
     page.getByRole("region", { name: "Requests on this connection" }),
   ).toContainText("GET https://127.0.0.1");
+  await assertTableConventions(
+    page,
+    "Related HTTP requests",
+    ["Admitted", "Request", "Decision", "Outcome"],
+    "Request",
+  );
+  await expect(
+    page.getByRole("region", {
+      name: "Requests on this connection",
+      exact: true,
+    }),
+  ).toContainText("1 request loaded");
   // Legacy table links still apply exact correlation, without an ID entry field.
   await page.goto(`${baseURL}/#/http/traffic?filter_connect_id=${realParent}`);
   await expect(
@@ -319,6 +338,7 @@ export async function runHTTPTraffic(
   let connectCases = false,
     missingParent = false;
   let emptyPage = true;
+  let failRelated = false;
   let diagnostics = false,
     legacyRejection = false,
     responseEvidence = false;
@@ -427,6 +447,15 @@ export async function runHTTPTraffic(
     }
     expect(url.pathname).toBe("/api/v2/http/traffic");
     if (connectCases) {
+      if (failRelated && url.searchParams.get("connect_id") === id(5)) {
+        // Invalid read data exercises panel failure without adding console errors.
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
       const rows = [
         {
           ...summary(5),
@@ -548,11 +577,30 @@ export async function runHTTPTraffic(
   await expect(
     page.locator('.history-continuation output[aria-live="polite"]'),
   ).toHaveText("0 HTTP traffic records loaded");
+  failHistory = true;
+  await page.getByRole("button", { name: "Refresh current view" }).click();
+  await expect(
+    page.getByText("HTTP traffic unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("No HTTP traffic yet", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.history-continuation output[aria-live="polite"]'),
+  ).toHaveText("0 HTTP traffic records loaded (stale)");
+  await captureTableState(page, "http-traffic-stale-empty");
+  failHistory = false;
   emptyPage = false;
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect(
     page.getByText("2 HTTP traffic records loaded", { exact: true }),
   ).toBeVisible();
+  await assertTableConventions(
+    page,
+    "HTTP traffic records",
+    ["Admitted", "Destination", "Agent", "Type", "Decision", "Outcome"],
+    "Destination",
+  );
   const historySummary = page.locator(
     '.history-continuation output[aria-live="polite"]',
   );
@@ -575,6 +623,7 @@ export async function runHTTPTraffic(
     path: join(screenshots, "stale-history.png"),
     fullPage: true,
   });
+  await captureTableState(page, "http-traffic-stale-populated");
   failHistory = false;
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect(historySummary).toHaveText("2 HTTP traffic records loaded");
@@ -585,6 +634,34 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("Live paused while viewing older results", { exact: true }),
   ).toBeVisible();
+  const traversalNotice = page.getByText(
+    "The previous traffic traversal was discarded. Reading the newest matching page.",
+    { exact: true },
+  );
+  const expectRestartedTraversal = async () => {
+    await expect(traversalNotice).toBeVisible();
+    await expect(historySummary).toHaveText("2 HTTP traffic records loaded");
+    await expect(page.locator(`a[href*="/http/traffic/${id(1)}"]`)).toHaveCount(
+      0,
+    );
+  };
+  await page.locator(`a[href*="/http/traffic/${id(3)}"]`).click();
+  await page
+    .getByRole("link", { name: "Back to HTTP traffic", exact: true })
+    .click();
+  await expectRestartedTraversal();
+  await page.goBack();
+  await expect(
+    page.getByRole("link", { name: "Back to HTTP traffic", exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expectRestartedTraversal();
+  await page.goForward();
+  await expect(
+    page.getByRole("link", { name: "Back to HTTP traffic", exact: true }),
+  ).toBeVisible();
+  await page.goForward();
+  await expectRestartedTraversal();
   await page.getByRole("button", { name: "Resume live", exact: true }).click();
   await expect(
     page.getByText("2 HTTP traffic records loaded", { exact: true }),
@@ -705,6 +782,8 @@ export async function runHTTPTraffic(
     page.getByText("Missing terminal evidence", { exact: true }),
   ).toBeVisible();
   await captureTransfer("missing");
+  await captureDetailLayout(page, "http-traffic-missing-terminal");
+  await compareBaseline("http-traffic-missing-terminal");
   await page.getByText("Matched policy selectors", { exact: true }).click();
   await page.screenshot({
     path: join(screenshots, "detail.png"),
@@ -908,6 +987,7 @@ export async function runHTTPTraffic(
   ).toBeLessThanOrEqual(390);
   await page.setViewportSize({ width: 1280, height: 900 });
   await captureTransfer("incomplete");
+  await captureDetailLayout(page, "http-traffic-incomplete-transfer");
   await captureStateFeedback(page, "http-request-recorded-unknown");
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
@@ -976,6 +1056,33 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("No related requests recorded", { exact: true }),
   ).toBeVisible();
+  const relatedRequests = page.getByRole("region", {
+    name: "Requests on this connection",
+    exact: true,
+  });
+  await expect(relatedRequests).toContainText("0 requests loaded");
+  failRelated = true;
+  await relatedRequests
+    .getByRole("button", { name: "Refresh requests", exact: true })
+    .click();
+  await expect(
+    relatedRequests.getByText("Related requests unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    relatedRequests.getByText("No related requests recorded", { exact: true }),
+  ).toHaveCount(0);
+  await expect(relatedRequests).toContainText("0 requests loaded (stale)");
+  failRelated = false;
+  await relatedRequests
+    .getByRole("button", { name: "Refresh requests", exact: true })
+    .click();
+  await expect(
+    relatedRequests.getByText("Related requests unavailable", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    relatedRequests.getByText("No related requests recorded", { exact: true }),
+  ).toBeVisible();
+  await expect(relatedRequests).not.toContainText("(stale)");
   await expect(
     page.getByText(/Only recorded associations are shown/),
   ).toHaveCount(0);

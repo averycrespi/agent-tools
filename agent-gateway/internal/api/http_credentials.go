@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
@@ -42,7 +43,29 @@ func (h *Handler) httpCredentialCollection(w http.ResponseWriter, r *http.Reques
 			writeProblem(w, contract.ProblemMalformedRequest)
 			return
 		}
-		limit, after, problem := parseCollectionQuery(query, "http_credentials")
+		selection := httpcredentials.CollectionQuery{}
+		fields := map[string]*string{"name": &selection.Name, "boundary": &selection.Boundary, "recipe": &selection.Recipe, "status": &selection.Status}
+		for key, destination := range fields {
+			if members, exists := query[key]; exists {
+				if len(members) != 1 || members[0] == "" {
+					writeProblem(w, contract.ProblemMalformedRequest)
+					return
+				}
+				*destination = members[0]
+				query.Del(key)
+			}
+		}
+		if !selection.Validate() {
+			writeProblem(w, contract.ProblemMalformedRequest)
+			return
+		}
+		cursor := query.Get("cursor")
+		if members, exists := query["cursor"]; exists && (len(members) != 1 || cursor == "") {
+			writeProblem(w, contract.ProblemMalformedRequest)
+			return
+		}
+		query.Del("cursor")
+		limit, _, problem := parseCollectionQuery(query, "http_credentials")
 		if problem != "" {
 			writeProblem(w, problem)
 			return
@@ -52,28 +75,19 @@ func (h *Handler) httpCredentialCollection(w http.ResponseWriter, r *http.Reques
 			writeHTTPCredentialError(w, err)
 			return
 		}
-		start := 0
-		if after != "" {
-			found := false
-			for i, item := range items {
-				if item.ID == after {
-					start = i + 1
-					found = true
-					break
-				}
-			}
-			if !found {
+		page, err := httpcredentials.SelectPage(items, selection, cursor, limit, time.Now(), h.httpCredentialCursorKey)
+		if err != nil {
+			switch {
+			case errors.Is(err, httpcredentials.ErrInvalidCursor):
+				writeProblem(w, contract.ProblemInvalidCursor)
+			case errors.Is(err, httpcredentials.ErrStaleCursor):
 				writeProblem(w, contract.ProblemStaleCursor)
-				return
+			default:
+				writeHTTPCredentialError(w, err)
 			}
+			return
 		}
-		end := min(start+limit, len(items))
-		var next *string
-		if end < len(items) {
-			cursor := encodeCursor("http_credentials", items[end-1].ID)
-			next = &cursor
-		}
-		writeJSON(w, http.StatusOK, contract.QueryCollection[httpcredentials.Resource]{Collection: contract.Collection[httpcredentials.Resource]{Items: items[start:end], NextCursor: next}, CollectionRange: contract.CollectionRange{TotalCount: len(items), Offset: start}})
+		writeJSON(w, http.StatusOK, page)
 		return
 	}
 	if r.URL.RawQuery != "" {
