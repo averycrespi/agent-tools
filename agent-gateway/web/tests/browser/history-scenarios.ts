@@ -3,6 +3,7 @@ import {
   request,
   type BrowserContext,
   type Page,
+  type Response,
 } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,6 +52,9 @@ export async function assertAuthoritativeHistory(
     const headers = { Authorization: `Bearer ${bearer}` };
     const directory = await mkdtemp(join(tmpdir(), "gateway-history-visual-"));
     const screenshots: string[] = [];
+    const syntheticResponses = new WeakSet<
+      import("@playwright/test").Request
+    >();
     const capture = async (state: string) => {
       for (const width of [1440, 390, 320]) {
         await page.setViewportSize({ width, height: 900 });
@@ -74,7 +78,7 @@ export async function assertAuthoritativeHistory(
         | "history: nonmatching arrival"
         | "history: empty retry",
       expectedTool: string,
-      responseStatus: number | null = null,
+      response: Response | null = null,
     ) => {
       try {
         await expect(
@@ -112,8 +116,24 @@ export async function assertAuthoritativeHistory(
             };
           }, expectedTool)
           .catch(() => null);
+        let problemCode: string | null = null;
+        if (response !== null) {
+          try {
+            const body: unknown = await response.json();
+            const code =
+              body !== null && typeof body === "object" && "code" in body
+                ? body.code
+                : null;
+            problemCode =
+              code === "storage_unavailable" || code === "shutting_down"
+                ? code
+                : "other";
+          } catch {
+            problemCode = "body_unavailable";
+          }
+        }
         if (error instanceof Error)
-          error.message += `\nHistory empty-result post-failure facts: ${JSON.stringify({ facts, responseStatus })}`;
+          error.message += `\nHistory empty-result post-failure facts: ${JSON.stringify({ facts, responseStatus: response?.status() ?? null, problemCode, synthetic: response === null ? null : syntheticResponses.has(response.request()) })}`;
         throw error;
       }
     };
@@ -348,6 +368,7 @@ export async function assertAuthoritativeHistory(
       ) {
         failFresh = false;
         failOlder = false;
+        syntheticResponses.add(route.request());
         await route.fulfill({
           status: 503,
           contentType: "application/problem+json",
@@ -469,12 +490,12 @@ export async function assertAuthoritativeHistory(
         new URL(r.url()).searchParams.get("tool") === "arrival.lookup",
     );
     await call("workshop.echo");
-    const nonmatchStatus = (await nonmatchResponse).status();
+    const nonmatch = await nonmatchResponse;
     await expect(page.getByTestId("invocation-row")).toHaveCount(0);
     await expectMatchingEmpty(
       "history: nonmatching arrival",
       "arrival.lookup",
-      nonmatchStatus,
+      nonmatch,
     );
     const arrivalResponse = page.waitForResponse(
       (r) =>

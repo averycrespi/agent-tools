@@ -43,6 +43,8 @@ func TestInvocationReadComposition(t *testing.T) {
 	controlAPI, ok := built.ControlAPI()
 	require.True(t, ok)
 	assert.Same(t, built.invocationReads, controlAPI.Invocations)
+	require.NotNil(t, controlAPI.RecordedActivity)
+	assert.Equal(t, built.traffic.RecordedActivity().Epoch, controlAPI.RecordedActivity().Epoch, "one composition-owned traffic observer")
 	page, err := controlAPI.Invocations.List(t.Context(), contract.InvocationListQuery{Limit: 1})
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)

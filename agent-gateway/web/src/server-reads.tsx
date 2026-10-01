@@ -189,7 +189,7 @@ interface CatalogDescriptorView extends DescriptorView {
   serverDisplayName: string;
   serverCatalogState: string;
 }
-interface CatalogView {
+export interface CatalogView {
   activeState: "empty" | "current" | "degraded";
   activeGeneration: string;
   changedAt: string | null;
@@ -526,7 +526,7 @@ export function decodeDescriptorPage(value: unknown): Page<DescriptorView> {
     nextCursor: cursor(page.next_cursor),
   };
 }
-function decodeCatalogPage(value: unknown): {
+export function decodeCatalogPage(value: unknown): {
   catalog: CatalogView;
   page: Page<CatalogDescriptorView>;
 } {

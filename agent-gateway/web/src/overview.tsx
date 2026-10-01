@@ -5,6 +5,13 @@ import { useEffect, useState } from "preact/hooks";
 import { type PrincipalDirectory } from "./principals";
 import { sentenceCase, StateNotice, StatusLabel } from "./primitives";
 import type { SessionClient } from "./session";
+import { decodeCatalogPage, type CatalogView } from "./server-reads";
+import {
+  decodeRecordedActivity,
+  type RecordedActivity,
+} from "./recorded-activity";
+import { RecordedActivityView } from "./recorded-activity-view";
+import { capacityState } from "./resource-utilization";
 import { formatUserTime } from "./time";
 import type {
   PanelSnapshot,
@@ -113,17 +120,22 @@ interface ServerSummary {
 interface RequestView {
   id: string;
   principalID: string;
+  principalName: string;
+  serverName: string;
   target: string;
   createdAt: string;
 }
 interface RequestSummary {
   items: RequestView[];
+  total: number;
   complete: boolean;
 }
 export interface OverviewSnapshot {
   status?: StatusView;
   servers?: ServerSummary;
   requests?: RequestSummary;
+  catalog?: CatalogView;
+  activity?: RecordedActivity;
 }
 
 type Listener = (snapshot: OverviewSnapshot) => void;
@@ -573,8 +585,11 @@ function validatePolicy(value: unknown): string {
     throw new Error("invalid response");
   return target;
 }
-function decodeRequestPage(value: unknown): RequestSummary {
+export function decodeRequestPage(value: unknown): RequestSummary {
   const page = record(value, ["items", "next_cursor", "total_count", "offset"]);
+  const total = integer(page.total_count);
+  if (integer(page.offset) !== 0) throw new Error("invalid queue offset");
+  const next = cursor(page.next_cursor);
   const items = array(page.items).map((candidate): RequestView => {
     const row = record(candidate, [
       "request",
@@ -583,8 +598,8 @@ function decodeRequestPage(value: unknown): RequestSummary {
       "resolved_server_id",
       "resolved_upstream_name",
     ]);
-    stringValue(row.principal_display_name);
-    stringValue(row.server_display_name);
+    const principalName = stringValue(row.principal_display_name);
+    const serverName = stringValue(row.server_display_name);
     identifier(row.resolved_server_id);
     if (row.resolved_upstream_name !== null)
       stringValue(row.resolved_upstream_name);
@@ -614,11 +629,19 @@ function decodeRequestPage(value: unknown): RequestSummary {
     return {
       id: identifier(item.id),
       principalID: identifier(item.principal_id),
+      principalName,
+      serverName,
       target: validatePolicy(item.requested_policy),
       createdAt: stringValue(item.created_at),
     };
   });
-  return { items, complete: cursor(page.next_cursor) === null };
+  if (
+    items.length !== Math.min(total, 5) ||
+    (next === null) !== (items.length === total) ||
+    new Set(items.map((item) => item.id)).size !== items.length
+  )
+    throw new Error("invalid queue coverage");
+  return { items, total, complete: next === null };
 }
 async function responseJSON(response: Response): Promise<unknown> {
   if (
@@ -747,6 +770,37 @@ export class OverviewController {
         this.emit();
       },
     });
+    views.registerPanel({
+      id: "overview-catalog",
+      matches,
+      invalidations: ["catalog"],
+      read: async (context) => {
+        const result = decodeCatalogPage(
+          await responseJSON(await get(context, "/api/v2/mcp/catalog?limit=1")),
+        );
+        if (result.page.items.length > 1)
+          throw new Error("invalid catalog bound");
+        return result.catalog;
+      },
+      publish: (catalog) => {
+        this.value = { ...this.value, catalog };
+        this.emit();
+      },
+    });
+    views.registerPanel({
+      id: "overview-activity",
+      matches,
+      invalidations: [],
+      pollMilliseconds: 30_000,
+      read: async (context) =>
+        decodeRecordedActivity(
+          await responseJSON(await get(context, "/api/v2/recorded-activity")),
+        ),
+      publish: (activity) => {
+        this.value = { ...this.value, activity };
+        this.emit();
+      },
+    });
     session.registerProtectedState(() => {
       this.value = {};
       setStorageLatched(false);
@@ -766,12 +820,6 @@ export class OverviewController {
   }
 }
 
-function capacityState(limit: LimitView): "saturated" | "pressure" | undefined {
-  if (limit.saturated) return "saturated";
-  if (limit.limit > 0 && BigInt(limit.inUse) * 5n >= BigInt(limit.limit) * 4n)
-    return "pressure";
-  return undefined;
-}
 function Panel({
   id,
   title,
@@ -784,6 +832,7 @@ function Panel({
   children?: ComponentChildren;
 }) {
   const status = panel?.status ?? "loading";
+  const sharedSource = id === "overview-material" || id === "overview-capacity";
   return (
     <section
       class="panel overview-panel"
@@ -800,17 +849,32 @@ function Panel({
         </StatusLabel>
       </div>
       {panel?.hasValue === true && status !== "current" && (
-        <p class="overview-evidence" role="status">
+        <p
+          class="overview-evidence"
+          role={
+            id === "overview-material" || id === "overview-capacity"
+              ? undefined
+              : "status"
+          }
+        >
           {status === "error" ? "Refresh failed." : "Data stale."} Showing the
           last read; current state is unknown.
         </p>
       )}
       {status === "error" && panel?.hasValue !== true ? (
-        <StateNotice state="error" title="Read unavailable">
-          <p>Refresh after checking Gateway availability.</p>
-        </StateNotice>
+        sharedSource ? (
+          <p>System read unavailable.</p>
+        ) : (
+          <StateNotice state="error" title="Read unavailable">
+            <p>Refresh after checking Gateway availability.</p>
+          </StateNotice>
+        )
       ) : status === "loading" && panel?.hasValue !== true ? (
-        <StateNotice state="loading" title="Loading current data" />
+        sharedSource ? (
+          <p>Loading system data</p>
+        ) : (
+          <StateNotice state="loading" title="Loading current data" />
+        )
       ) : (
         children
       )}
@@ -824,6 +888,35 @@ function attentionReason(server: ServerView): string {
   if (server.runtime !== "active")
     return `Runtime ${sentenceCase(server.runtime).toLowerCase()}`;
   return `Active catalog ${sentenceCase(server.catalog).toLowerCase()}`;
+}
+
+function ReadinessFact({
+  label,
+  value,
+  current,
+}: {
+  label: string;
+  value: string | undefined;
+  current: boolean;
+}) {
+  const state =
+    !current || value === undefined || value === "disabled"
+      ? "neutral"
+      : value === "ready"
+        ? "current"
+        : value === "starting" || value === "draining"
+          ? "warning"
+          : "unavailable";
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>
+        <StatusLabel state={state}>
+          {value === undefined ? "Not reported" : sentenceCase(value)}
+        </StatusLabel>
+      </dd>
+    </div>
+  );
 }
 
 function WaitingTime({ value }: { value: string }) {
@@ -848,7 +941,6 @@ function WaitingTime({ value }: { value: string }) {
 
 export function Overview({
   controller,
-  principals,
   view,
 }: {
   controller: OverviewController;
@@ -856,40 +948,90 @@ export function Overview({
   view: ViewSnapshot;
 }) {
   const [snapshot, setSnapshot] = useState(controller.snapshot());
-  const [principalNames, setPrincipalNames] = useState(principals.snapshot());
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
-  useEffect(() => principals.subscribe(setPrincipalNames), [principals]);
   const panel = (id: string) => view.panels[id];
-  const pressure =
-    snapshot.status?.limits.filter(
-      (item) => capacityState(item) !== undefined,
-    ) ?? [];
+  const status = snapshot.status;
+  const pools = [
+    ...(status?.limits ?? [])
+      .filter(
+        (item) =>
+          item.name === "mcp_work" || item.name === "downstream_dispatch",
+      )
+      .map((item) => ({
+        ...item,
+        label: item.name === "mcp_work" ? "MCP work" : "Downstream dispatch",
+      })),
+    ...(status?.httpProxy
+      ? [
+          {
+            ...status.httpProxy.connections,
+            name: "http_regular" as const,
+            label: "HTTP connections",
+          },
+          {
+            ...status.httpProxy.work,
+            name: "http_regular" as const,
+            label: "HTTP work",
+          },
+        ]
+      : []),
+  ];
+  const pressure = pools
+    .filter((item) => capacityState(item) !== undefined)
+    .sort((a, b) => Number(b.saturated) - Number(a.saturated));
   const configuredServers = snapshot.servers?.items.length ?? 0;
   const activeTools =
     snapshot.servers?.items.reduce(
-      (total, server) => total + server.activeToolCount,
-      0,
+      (total, server) => total + BigInt(server.activeToolCount),
+      0n,
     ) ?? 0;
   const serversNeedingAttention =
     snapshot.servers?.items.filter((server) => server.attention) ?? [];
   const current = (id: string) => panel(id)?.status === "current";
-  const status = snapshot.status;
   return (
     <div class="overview" data-testid="overview-grid">
       <Panel
         id="overview-status"
-        title="Operational conditions"
+        title="Gateway readiness"
         panel={panel("overview-status")}
       >
         {status !== undefined && (
           <div class="overview-stack">
-            <div class="overview-facts">
-              {status.ready && <span>Process ready</span>}
-              {!status.latched && status.sqliteState === "ready" && (
-                <span>SQLite ready · not latched</span>
-              )}
-              {status.keyring === "ready" && <span>Keyring ready</span>}
-            </div>
+            <dl class="overview-facts">
+              <ReadinessFact
+                label="Process"
+                value={status.ready ? "ready" : status.processState}
+                current={current("overview-status")}
+              />
+              <ReadinessFact
+                label="Administration API"
+                value={status.endpoints?.api}
+                current={current("overview-status")}
+              />
+              <ReadinessFact
+                label="MCP ingress"
+                value={status.endpoints?.mcp}
+                current={current("overview-status")}
+              />
+              <ReadinessFact
+                label="HTTP proxy"
+                value={
+                  !status.httpProxy
+                    ? undefined
+                    : !status.httpProxy.enabled
+                      ? "disabled"
+                      : status.httpProxy.ready
+                        ? "ready"
+                        : "not_ready"
+                }
+                current={current("overview-status")}
+              />
+            </dl>
+            <p class="overview-context">
+              Readiness is admission capability, not downstream reachability or
+              access.
+            </p>
+            <a href="#/system">System readiness</a>
             {!status.ready && (
               <StateNotice
                 state="warning"
@@ -901,6 +1043,74 @@ export function Overview({
                 </p>
               </StateNotice>
             )}
+          </div>
+        )}
+      </Panel>
+      <Panel
+        id="overview-material"
+        title="Storage and material"
+        panel={panel("overview-status")}
+      >
+        {status !== undefined && (
+          <div class="overview-stack">
+            <dl class="overview-facts">
+              <div>
+                <dt>SQLite</dt>
+                <dd>
+                  {sentenceCase(status.sqliteState)}
+                  {status.sqliteState === "latched" && status.latched
+                    ? ""
+                    : status.latched
+                      ? " · Latched"
+                      : " · Not latched"}
+                </dd>
+              </div>
+              <div>
+                <dt>Traffic store</dt>
+                <dd>
+                  {!status.traffic
+                    ? "Not reported"
+                    : status.traffic.faulted
+                      ? "Faulted"
+                      : status.traffic.pressure
+                        ? "Storage pressure"
+                        : status.traffic.ready
+                          ? "Ready"
+                          : "Not ready"}
+                </dd>
+              </div>
+              <div>
+                <dt>Keyring startup</dt>
+                <dd>{sentenceCase(status.keyring)}</dd>
+              </div>
+              <div>
+                <dt>HTTP CA capability</dt>
+                <dd>
+                  {!status.httpProxy
+                    ? "Not reported"
+                    : status.httpProxy.caReady
+                      ? "Ready"
+                      : "Not ready"}
+                </dd>
+              </div>
+              <div>
+                <dt>Backup activity</dt>
+                <dd>{sentenceCase(status.backupState)}</dd>
+              </div>
+              <div>
+                <dt>Last reported backup</dt>
+                <dd>
+                  {status.lastBackupAt
+                    ? formatUserTime(status.lastBackupAt)
+                    : "No completion reported"}
+                </dd>
+              </div>
+            </dl>
+            <p class="overview-context">
+              Startup capability is not a current credential probe; CA readiness
+              does not establish client trust. Backup completion is not recovery
+              assurance.
+            </p>
             {(status.latched || status.sqliteState !== "ready") && (
               <StateNotice
                 state="error"
@@ -929,17 +1139,51 @@ export function Overview({
                 </p>
               </StateNotice>
             )}
+            <a href="#/system">Storage and material status</a>
+          </div>
+        )}
+      </Panel>
+      <Panel
+        id="overview-capacity"
+        title="Work capacity"
+        panel={panel("overview-status")}
+      >
+        {status !== undefined && (
+          <div class="overview-stack">
+            <dl class="overview-facts overview-pools">
+              {pools.map((item) => (
+                <div key={item.label}>
+                  <dt>{item.label}</dt>
+                  <dd>
+                    <strong>
+                      {item.inUse.toLocaleString()} /{" "}
+                      {item.limit.toLocaleString()}
+                    </strong>
+                    {item.limit === 0 ? " · N/A" : ""}
+                    {item.saturated
+                      ? " · Saturated"
+                      : capacityState(item) === "pressure"
+                        ? " · 80% pressure"
+                        : ""}
+                  </dd>
+                </div>
+              ))}
+              {!status.httpProxy && (
+                <div>
+                  <dt>HTTP pools</dt>
+                  <dd>Not reported</dd>
+                </div>
+              )}
+            </dl>
+            <p class="overview-context">
+              Independent pools; not combined utilization.
+            </p>
             {pressure.length > 0 && (
               <div class="overview-capacity">
                 <ul class="overview-conditions">
-                  {pressure.map((item) => (
-                    <li key={item.name}>
-                      <strong>
-                        {item.name === "principals"
-                          ? "Agents"
-                          : sentenceCase(item.name)}
-                      </strong>
-                      : {item.inUse} / {item.limit}
+                  {pressure.slice(0, 3).map((item) => (
+                    <li key={item.label}>
+                      <strong>{item.label}</strong>: {item.inUse} / {item.limit}
                       {" — "}
                       {capacityState(item) === "saturated"
                         ? "Capacity saturated; additional work may be rejected."
@@ -947,21 +1191,30 @@ export function Overview({
                     </li>
                   ))}
                 </ul>
-                <a href="#/system?tab=resource-limits">
-                  Inspect resource limits
-                </a>
+                {pressure.length > 3 && (
+                  <p>{pressure.length - 3} additional pool under pressure.</p>
+                )}
               </div>
             )}
+            <a href="#/system?tab=resource-limits">Resource limits</a>
           </div>
         )}
       </Panel>
       <Panel
         id="overview-servers"
-        title="Servers needing investigation"
+        title="MCP attention"
         panel={panel("overview-servers")}
       >
         {snapshot.servers !== undefined && (
           <>
+            <p class="overview-headline">
+              <strong>{serversNeedingAttention.length}</strong> servers flagged
+              {!current("overview-servers")
+                ? " · last known; current state unknown"
+                : !snapshot.servers.complete
+                  ? " · loaded; incomplete"
+                  : " · current traversal"}
+            </p>
             {!snapshot.servers.complete && (
               <p class="overview-evidence">
                 Server traversal incomplete; additional affected servers may
@@ -991,22 +1244,22 @@ export function Overview({
             {serversNeedingAttention.length > 5 && (
               <p>5 shown; more need attention.</p>
             )}
-            <p class="overview-context">
-              {configuredServers} configured{" "}
-              {configuredServers === 1 ? "server" : "servers"} · {activeTools}{" "}
-              active MCP catalog {activeTools === 1 ? "tool" : "tools"}
-              {snapshot.servers.complete ? "" : " loaded; counts incomplete"}.
-            </p>
           </>
         )}
       </Panel>
       <Panel
         id="overview-requests"
-        title="Waiting for a decision"
+        title="Pending MCP decisions"
         panel={panel("overview-requests")}
       >
         {snapshot.requests !== undefined && (
           <>
+            <p class="overview-headline">
+              <strong>{snapshot.requests.total}</strong> pending
+              {current("overview-requests")
+                ? ""
+                : " · last known; current queue unknown"}
+            </p>
             {snapshot.requests.items.length === 0 ? (
               <p>
                 {!current("overview-requests")
@@ -1023,11 +1276,11 @@ export function Overview({
                 {snapshot.requests.items.slice(0, 5).map((item) => (
                   <li key={item.id} data-testid="overview-request-row">
                     <div class="overview-requester">
-                      {principalNames.get(item.principalID) ??
-                        `Agent ${item.principalID}`}
+                      {item.principalName || `Agent ${item.principalID}`}
                     </div>
                     <a href={`#/mcp/access-requests/${item.id}`}>
                       Review access to {item.target}
+                      {item.serverName ? ` · ${item.serverName}` : ""}
                     </a>
                     <p>
                       <WaitingTime value={item.createdAt} />
@@ -1045,6 +1298,99 @@ export function Overview({
                 </p>
               )}
           </>
+        )}
+      </Panel>
+      <section
+        class="panel overview-panel"
+        data-testid="overview-inventory"
+        aria-labelledby="overview-inventory-title"
+      >
+        <div class="panel-heading">
+          <h2 id="overview-inventory-title">MCP inventory</h2>
+        </div>
+        {snapshot.servers === undefined && (
+          <p>
+            Server inventory{" "}
+            {panel("overview-servers")?.status === "error"
+              ? "unavailable"
+              : "loading"}
+            .
+          </p>
+        )}
+        {snapshot.servers !== undefined && (
+          <>
+            <div class="overview-inventory-values">
+              <p class="overview-headline">
+                <strong>{configuredServers}</strong> Configured MCP servers
+              </p>
+              <p class="overview-headline">
+                <strong>{activeTools.toLocaleString()}</strong> Active MCP
+                catalog tools
+              </p>
+            </div>
+            <p
+              class={
+                current("overview-servers") && snapshot.servers.complete
+                  ? "overview-context"
+                  : "overview-evidence"
+              }
+            >
+              {!current("overview-servers")
+                ? "Last known counts; current state unknown."
+                : !snapshot.servers.complete
+                  ? "Loaded counts; traversal incomplete."
+                  : "Complete current server traversal."}{" "}
+              Catalog tools are not an access or callability count.
+            </p>
+          </>
+        )}
+        <div
+          class="overview-catalog"
+          data-testid="overview-catalog"
+          data-panel-status={panel("overview-catalog")?.status ?? "loading"}
+        >
+          {!snapshot.catalog ? (
+            <p>
+              Catalog summary{" "}
+              {panel("overview-catalog")?.status === "error"
+                ? "unavailable"
+                : "loading"}
+              .
+            </p>
+          ) : (
+            <>
+              <p>
+                Independent catalog snapshot:{" "}
+                {sentenceCase(snapshot.catalog.activeState).toLowerCase()} ·{" "}
+                {snapshot.catalog.issueCount} catalog issues
+                {current("overview-catalog")
+                  ? ""
+                  : " · last known; current state unknown"}
+              </p>
+              <details>
+                <summary>Catalog snapshot evidence</summary>
+                <p>Generation {snapshot.catalog.activeGeneration}</p>
+                <p>
+                  {snapshot.catalog.changedAt
+                    ? formatUserTime(snapshot.catalog.changedAt)
+                    : "No change time reported"}
+                </p>
+              </details>
+            </>
+          )}
+          <a href="#/mcp/tools">MCP catalog</a>
+        </div>
+      </section>
+      <Panel
+        id="overview-activity"
+        title="Recorded activity"
+        panel={panel("overview-activity")}
+      >
+        {snapshot.activity && (
+          <RecordedActivityView
+            value={snapshot.activity}
+            current={current("overview-activity")}
+          />
         )}
       </Panel>
     </div>

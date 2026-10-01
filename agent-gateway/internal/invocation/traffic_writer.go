@@ -105,6 +105,11 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, receipt *TrafficReceipt,
 		}
 	}
 	s.mu.Unlock()
+	// Count only the final acknowledged settlement, including the admission
+	// cancellation fence. SQL readability and live outcomes are not receipts.
+	if err == nil {
+		s.recorded.record(r.recorded)
+	}
 	r.result <- trafficResult{receipt: receipt, err: err}
 }
 
@@ -151,7 +156,7 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	for _, r := range active {
 		var receipt *TrafficReceipt
 		if err == nil && !r.terminal() {
-			receipt = &TrafficReceipt{evidence: r.prepared, owner: s, request: r.ctx, httpAdmission: r.httpAdmission, httpAllowed: r.httpAllowed}
+			receipt = &TrafficReceipt{evidence: r.prepared, owner: s, request: r.ctx, httpAdmission: r.httpAdmission, httpAllowed: r.httpAllowed, recordedProtocol: r.recorded.protocol}
 		}
 		s.settleTraffic(r, receipt, err)
 	}
