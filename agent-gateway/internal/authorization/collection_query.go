@@ -25,6 +25,7 @@ type CollectionQuery struct {
 	Target         string
 	State          string
 	Visibility     string
+	HTTPDefault    string
 	Effect         string
 	PrincipalID    string
 	ServerID       string
@@ -115,9 +116,10 @@ func (query CollectionQuery) Validate(collection string) bool {
 		return query.Representation == "" && query.Identity == "" && query.Principal == "" && query.Target == "" && query.Effect == "" && query.PrincipalID == "" && query.ServerID == "" &&
 			(query.State == "" || validPrincipalState(contract.PrincipalState(query.State))) &&
 			(query.Visibility == "" || validVisibility(contract.PrincipalVisibility(query.Visibility))) &&
+			(query.HTTPDefault == "" || query.HTTPDefault == string(contract.HTTPDefaultBlock) || query.HTTPDefault == string(contract.HTTPDefaultAllow)) &&
 			slices.Contains([]string{"", "name", "id", "state", "visibility"}, query.Sort)
 	}
-	return collection == grantCollection && (query.Representation == "" || query.Representation == "table") && query.Name == "" && query.Visibility == "" &&
+	return collection == grantCollection && (query.Representation == "" || query.Representation == "table") && query.Name == "" && query.Visibility == "" && query.HTTPDefault == "" &&
 		slices.Contains([]string{"", "active", "expired"}, query.State) && slices.Contains([]string{"", "allow", "deny"}, query.Effect) &&
 		slices.Contains([]string{"", "id", "description", "principal", "target", "effect", "state"}, query.Sort)
 }
@@ -132,6 +134,7 @@ type collectionCandidate struct {
 	UpstreamName  string
 	State         string
 	Visibility    string
+	HTTPDefault   string
 	Effect        string
 	Revision      string
 	Sequence      int64
@@ -143,14 +146,14 @@ func (service *CollectionService) QueryPrincipals(ctx context.Context, query Col
 	}
 	var page PrincipalPage
 	err := service.repository.view(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id, display_name, state, visibility, revision, insertion_sequence FROM principals ORDER BY insertion_sequence LIMIT ?`, mustLimit("principals")+1)
+		rows, err := tx.QueryContext(ctx, `SELECT id, display_name, state, visibility, (SELECT policy FROM http_defaults WHERE principal_id = principals.id), revision, insertion_sequence FROM principals ORDER BY insertion_sequence LIMIT ?`, mustLimit("principals")+1)
 		if err != nil {
 			return err
 		}
 		candidates := make([]collectionCandidate, 0)
 		for rows.Next() {
 			var item collectionCandidate
-			if err := rows.Scan(&item.ID, &item.Name, &item.State, &item.Visibility, &item.Revision, &item.Sequence); err != nil {
+			if err := rows.Scan(&item.ID, &item.Name, &item.State, &item.Visibility, &item.HTTPDefault, &item.Revision, &item.Sequence); err != nil {
 				_ = rows.Close()
 				return err
 			}
@@ -320,7 +323,7 @@ func candidateMatches(item collectionCandidate, query CollectionQuery) bool {
 	return searchIdentity(item.Name, item.ID, query.Name) && searchIdentity(item.Name, item.ID, query.Identity) &&
 		searchIdentity(item.PrincipalName, item.PrincipalID, query.Principal) && searchIdentity(item.ServerName+" "+item.UpstreamName, item.ServerID, query.Target) &&
 		(query.State == "" || query.State == item.State) && (query.Visibility == "" || query.Visibility == item.Visibility) &&
-		(query.Effect == "" || query.Effect == item.Effect) && (query.PrincipalID == "" || query.PrincipalID == item.PrincipalID) && (query.ServerID == "" || query.ServerID == item.ServerID)
+		(query.HTTPDefault == "" || query.HTTPDefault == item.HTTPDefault) && (query.Effect == "" || query.Effect == item.Effect) && (query.PrincipalID == "" || query.PrincipalID == item.PrincipalID) && (query.ServerID == "" || query.ServerID == item.ServerID)
 }
 
 func candidateSortValue(item collectionCandidate, key string) string {

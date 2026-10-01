@@ -10,6 +10,7 @@ import type {
 import {
   CollectionTable,
   ConfirmationDialog,
+  DetailComparison,
   FormField,
   StateNotice,
   StatusLabel,
@@ -131,78 +132,133 @@ async function grantResponse(response: Response): Promise<Grant> {
 function destination(p: Policy): Destination {
   return p.destination ?? p.request!.origin;
 }
-function PolicyFacts({ policy: p }: { policy: Policy }) {
+function policyReviewFields(p: Policy) {
   const d = destination(p);
   const r = p.request;
+  return [
+    { label: "Type", value: labels[p.type] },
+    {
+      label: "Destination",
+      value: `${r === undefined ? "" : r.origin.scheme + "://"}${d.host}:${d.port}`,
+    },
+    {
+      label: "Methods",
+      value:
+        r === undefined
+          ? "Not applicable"
+          : r.methods.any
+            ? "Any method"
+            : r.methods.values!.join(", "),
+    },
+    {
+      label: "Path",
+      value:
+        r === undefined
+          ? "Not applicable"
+          : r.path.kind === "any"
+            ? "Any path"
+            : r.path.kind === "exact"
+              ? r.path.value!
+              : r.path.value + " and descendants",
+    },
+    {
+      label: "Local/private access",
+      value:
+        p.type === "allow_requests" || p.type === "allow_tunnel"
+          ? p.allow_private
+            ? "Enabled"
+            : "Disabled"
+          : "Not applicable",
+    },
+    {
+      label: "Credential",
+      value:
+        p.type !== "allow_requests"
+          ? "Not applicable"
+          : (p.credential_id ?? "No credential"),
+      href:
+        p.credential_id === undefined
+          ? undefined
+          : `#/http/credentials/${p.credential_id}`,
+    },
+  ];
+}
+function PolicyFacts({ policy }: { policy: Policy }) {
   return (
     <>
-      <div>
-        <dt>Type</dt>
-        <dd>{labels[p.type]}</dd>
-      </div>
-      <div>
-        <dt>Destination</dt>
-        <dd>
-          {r === undefined ? "" : r.origin.scheme + "://"}
-          {d.host}:{d.port}
-        </dd>
-      </div>
-      {r === undefined ? (
-        <>
-          <div>
-            <dt>Methods</dt>
-            <dd>Not applicable</dd>
-          </div>
-          <div>
-            <dt>Path</dt>
-            <dd>Not applicable</dd>
-          </div>
-        </>
-      ) : (
-        <>
-          <div>
-            <dt>Methods</dt>
-            <dd>
-              {r.methods.any ? "Any method" : r.methods.values!.join(", ")}
-            </dd>
-          </div>
-          <div>
-            <dt>Path</dt>
-            <dd>
-              {r.path.kind === "any"
-                ? "Any path"
-                : r.path.kind === "exact"
-                  ? r.path.value
-                  : r.path.value + " and descendants"}
-            </dd>
-          </div>
-        </>
-      )}
-      <div>
-        <dt>Local/private access</dt>
-        <dd>
-          {p.type === "allow_requests" || p.type === "allow_tunnel"
-            ? p.allow_private
-              ? "Enabled"
-              : "Disabled"
-            : "Not applicable"}
-        </dd>
-      </div>
-      <div>
-        <dt>Credential</dt>
-        <dd>
-          {p.type !== "allow_requests" ? (
-            "Not applicable"
-          ) : p.credential_id === undefined ? (
-            "No credential"
-          ) : (
-            <a href={`#/http/credentials/${p.credential_id}`}>
-              {p.credential_id}
-            </a>
-          )}
-        </dd>
-      </div>
+      {policyReviewFields(policy).map((field) => (
+        <div key={field.label}>
+          <dt>{field.label}</dt>
+          <dd>
+            {field.href === undefined ? (
+              field.value
+            ) : (
+              <a href={field.href}>{field.value}</a>
+            )}
+          </dd>
+        </div>
+      ))}
     </>
+  );
+}
+function GrantComparison({
+  current,
+  proposed,
+  principals,
+}: {
+  current: Grant;
+  proposed: Pick<
+    Grant,
+    "description" | "principal_id" | "policy" | "expires_at"
+  >;
+  principals: Principal[];
+}) {
+  const fields = (grant: typeof proposed) => [
+    { label: "Description", value: grant.description || "Unnamed HTTP grant" },
+    {
+      label: "Agent",
+      value: grant.principal_id,
+      content: (
+        <TableIdentity
+          primary={
+            principals.find((p) => p.id === grant.principal_id)?.displayName ??
+            "Agent unavailable"
+          }
+          secondary={grant.principal_id}
+        />
+      ),
+    },
+    ...policyReviewFields(grant.policy).map((field) => ({
+      ...field,
+      content:
+        field.href === undefined ? (
+          field.value
+        ) : (
+          <a href={field.href}>{field.value}</a>
+        ),
+    })),
+    {
+      label: "Expires",
+      value: grant.expires_at,
+      content: <UserTime value={grant.expires_at} fallback="No expiry" />,
+    },
+  ];
+  const before = fields(current);
+  return (
+    <DetailComparison
+      label="Current versus proposed grant"
+      beforeLabel="Current"
+      afterLabel="Proposed"
+      rows={fields(proposed).map((field, index) => ({
+        label: field.label,
+        before:
+          "content" in before[index]!
+            ? before[index]!.content
+            : before[index]!.value,
+        after: "content" in field ? field.content : field.value,
+        changed: before[index]!.value !== field.value,
+      }))}
+    />
   );
 }
 interface Props {
@@ -396,9 +452,16 @@ export function HTTPGrants(props: Props) {
         <a href="#/http/grants">Back to HTTP grants</a>
       </nav>
       <header class="detail-context">
-        <h1 ref={title} tabindex={-1}>
-          {detail.description || "Unnamed HTTP grant"}
-        </h1>
+        <div class="detail-context-heading">
+          <h1 ref={title} tabindex={-1}>
+            {detail.description || "Unnamed HTTP grant"}
+          </h1>
+          <StatusLabel
+            state={detail.state === "active" ? "current" : "neutral"}
+          >
+            {detail.state === "active" ? "Active" : "Expired"}
+          </StatusLabel>
+        </div>
         <span class="table-identifier">{detail.id}</span>
       </header>
       {error && (
@@ -419,18 +482,14 @@ export function HTTPGrants(props: Props) {
         </StateNotice>
       )}
       <section
-        class="panel domain-panel"
+        class="detail-section"
         aria-labelledby="http-grant-details-title"
       >
         <div class="panel-heading">
           <h2 id="http-grant-details-title">Grant details</h2>
-          <StatusLabel
-            state={detail.state === "active" ? "current" : "neutral"}
-          >
-            {detail.state === "active" ? "Active" : "Expired"}
-          </StatusLabel>
         </div>
-        <dl class="fact-grid">
+        <h3>Policy and relationships</h3>
+        <dl class="detail-facts">
           <div>
             <dt>Agent</dt>
             <dd>
@@ -448,18 +507,6 @@ export function HTTPGrants(props: Props) {
             </dd>
           </div>
           <PolicyFacts policy={detail.policy} />
-          <div>
-            <dt>Expires</dt>
-            <dd>
-              <UserTime value={detail.expires_at} fallback="No expiry" />
-            </dd>
-          </div>
-          <div>
-            <dt>Created</dt>
-            <dd>
-              <UserTime value={detail.created_at} />
-            </dd>
-          </div>
           {detail.policy.credential_id !== undefined && (
             <div>
               <dt>Credential material</dt>
@@ -474,6 +521,21 @@ export function HTTPGrants(props: Props) {
               </dd>
             </div>
           )}
+        </dl>
+        <h3>Timing</h3>
+        <dl class="detail-facts">
+          <div>
+            <dt>Expires</dt>
+            <dd>
+              <UserTime value={detail.expires_at} fallback="No expiry" />
+            </dd>
+          </div>
+          <div>
+            <dt>Created</dt>
+            <dd>
+              <UserTime value={detail.created_at} />
+            </dd>
+          </div>
         </dl>
         <div class="form-actions">
           <button
@@ -568,6 +630,9 @@ function GrantCollection(props: Props) {
         <CollectionTable
           caption="HTTP grants"
           rowHeaderKey="description"
+          additionalSorts={[
+            { key: "id", label: "Grant ID", sortValue: (r) => r.grant.id },
+          ]}
           remote={controls}
           initialSort={{ key: "description", direction: "ascending" }}
           itemNames={{ singular: "grant", plural: "grants" }}
@@ -591,7 +656,7 @@ function GrantCollection(props: Props) {
             },
             {
               key: "target",
-              label: "Destination",
+              label: "Destination host",
               type: "text",
               value: (r) => destination(r.grant.policy).host,
             },
@@ -668,8 +733,13 @@ function GrantCollection(props: Props) {
               label: "Status",
               role: "status",
               sortValue: (r) => r.grant.state,
-              render: (r) =>
-                r.grant.state === "active" ? "Active" : "Expired",
+              render: (r) => (
+                <StatusLabel
+                  state={r.grant.state === "active" ? "current" : "neutral"}
+                >
+                  {r.grant.state === "active" ? "Active" : "Expired"}
+                </StatusLabel>
+              ),
             },
             {
               key: "expiry",
@@ -1209,61 +1279,51 @@ function GrantEditor(
             "Remove this grant. Other grants and the agent default still apply."
           ) : (
             <>
-              {g !== undefined && (
-                <section aria-label="Current grant">
-                  <h3>Current grant</h3>
-                  <dl class="fact-grid">
+              {g !== undefined ? (
+                <GrantComparison
+                  current={g}
+                  proposed={{
+                    description,
+                    principal_id: principal,
+                    policy,
+                    expires_at:
+                      expiry === "" ? null : new Date(expiry).toISOString(),
+                  }}
+                  principals={principals}
+                />
+              ) : (
+                <section aria-label="Proposed grant">
+                  <h3>Proposed grant</h3>
+                  <dl class="detail-facts">
                     <div>
                       <dt>Description</dt>
-                      <dd>{g.description || "Unnamed HTTP grant"}</dd>
+                      <dd>{description || "Unnamed HTTP grant"}</dd>
                     </div>
                     <div>
                       <dt>Agent</dt>
                       <dd>
-                        {principals.find((p) => p.id === g.principal_id)
-                          ?.displayName ?? "Agent unavailable"}{" "}
-                        · {g.principal_id}
+                        {principals.find((p) => p.id === principal)
+                          ?.displayName ?? "Agent"}{" "}
+                        · {principal}
                       </dd>
                     </div>
-                    <PolicyFacts policy={g.policy} />
+                    <PolicyFacts policy={policy} />
                     <div>
                       <dt>Expires</dt>
                       <dd>
-                        <UserTime value={g.expires_at} fallback="No expiry" />
+                        <UserTime
+                          value={
+                            expiry === ""
+                              ? null
+                              : new Date(expiry).toISOString()
+                          }
+                          fallback="No expiry"
+                        />
                       </dd>
                     </div>
                   </dl>
                 </section>
               )}
-              <section aria-label="Proposed grant">
-                <h3>Proposed grant</h3>
-                <dl class="fact-grid">
-                  <div>
-                    <dt>Description</dt>
-                    <dd>{description || "Unnamed HTTP grant"}</dd>
-                  </div>
-                  <div>
-                    <dt>Agent</dt>
-                    <dd>
-                      {principals.find((p) => p.id === principal)
-                        ?.displayName ?? "Agent"}{" "}
-                      · {principal}
-                    </dd>
-                  </div>
-                  <PolicyFacts policy={policy} />
-                  <div>
-                    <dt>Expires</dt>
-                    <dd>
-                      <UserTime
-                        value={
-                          expiry === "" ? null : new Date(expiry).toISOString()
-                        }
-                        fallback="No expiry"
-                      />
-                    </dd>
-                  </div>
-                </dl>
-              </section>
               {policy.type === "allow_tunnel" && (
                 <p>
                   Opaque tunnel bypass: request method/path checks and
@@ -1522,20 +1582,33 @@ function PreviewResult({
       "Blocked: a matching local/private allow is required",
   };
   return (
-    <section class="panel domain-panel" aria-live="polite">
+    <section class="detail-group" aria-live="polite">
       <h3>{reasons[String(d.reason)] ?? "Policy result unavailable"}</h3>
-      <p>
-        Policy snapshot {String(d.policy_revision)} · HTTP default:{" "}
-        {httpDefaultText(result.default)} (revision {String(d.default_revision)}
-        ). Test again after policy changes.
-      </p>
-      <p>
-        Transport: {String(d.transport)}.{" "}
-        {d.private_grant === undefined
-          ? "Local/private destinations require an explicit matching allow."
-          : "Matching local/private permission is present."}
-      </p>
-      <dl class="fact-grid">
+      <dl class="detail-facts">
+        <div>
+          <dt>Policy revision</dt>
+          <dd>{String(d.policy_revision)}</dd>
+        </div>
+        <div>
+          <dt>HTTP default</dt>
+          <dd>{httpDefaultText(result.default)}</dd>
+        </div>
+        <div>
+          <dt>Default revision</dt>
+          <dd>{String(d.default_revision)}</dd>
+        </div>
+        <div>
+          <dt>Transport</dt>
+          <dd>{String(d.transport)}</dd>
+        </div>
+        <div>
+          <dt>Local/private permission</dt>
+          <dd>
+            {d.private_grant === undefined
+              ? "Explicit matching allow required"
+              : "Matching permission present"}
+          </dd>
+        </div>
         <div>
           <dt>Agent</dt>
           <dd>
@@ -1559,7 +1632,20 @@ function PreviewResult({
             return null;
           return (
             <div>
-              <dt>{key.replaceAll("_", " ")}</dt>
+              <dt>
+                {
+                  (
+                    {
+                      grant: "Deciding grant",
+                      private_grant: "Local/private grant",
+                      credential: "Credential",
+                      credential_grant: "Credential grant",
+                      conflict_credential: "Conflicting credential",
+                      conflict_grant: "Conflicting grant",
+                    } as Record<string, string>
+                  )[key]
+                }
+              </dt>
               <dd>
                 <a
                   href={`#/http/${key.includes("credential") && !key.includes("grant") ? "credentials" : "grants"}/${ref.id}`}

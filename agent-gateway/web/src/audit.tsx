@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
-  auditFilterKeys,
   auditFilterOptions,
   decodeAuditItem,
   decodeAuditPage,
@@ -20,6 +19,7 @@ import {
 } from "./location";
 import {
   CollectionTable,
+  LoadedHistorySummary,
   TableIdentity,
   FormField,
   sentenceCase,
@@ -480,7 +480,7 @@ function History({ value }: { value: AuditHistory }) {
       </p>
       <details>
         <summary>Retention details</summary>
-        <dl class="fact-grid">
+        <dl class="detail-facts">
           <div>
             <dt>Oldest retained boundary</dt>
             <dd>
@@ -512,11 +512,12 @@ function localAuditTime(value: string): string {
     .toISOString()
     .slice(0, 19);
 }
-const primaryFilters = ["from", "until", "category", "action", "outcome"];
-const optionalFilters = auditFilterKeys.filter(
-  (key) => !primaryFilters.includes(key) && key !== "correlation_id",
-);
-const filterLabel = (key: string) => sentenceCase(key).replace(/\bid\b/g, "ID");
+const filterLabel = (key: string) =>
+  key === "category"
+    ? "Event"
+    : key === "actor_type"
+      ? "Performer type"
+      : sentenceCase(key).replace(/\bid\b/g, "ID");
 const idFilters = ["credential_id", "target_id", "correlation_id"];
 function compactQuery(query: Readonly<Record<string, string>>) {
   return Object.fromEntries(
@@ -548,26 +549,12 @@ function Filters({
   });
   const applied = useRef(resolved.location.query);
   const ownNavigation = useRef<string>();
-  const [selectedFilters, setSelectedFilters] = useState<string[]>(
-    optionalFilters.filter((key) => Boolean(draft[`filter_${key}`])),
-  );
-  const focusTarget = useRef<string>();
-  useLayoutEffect(() => {
-    if (focusTarget.current !== undefined) {
-      document.getElementById(focusTarget.current)?.focus();
-      focusTarget.current = undefined;
-    }
-  }, [selectedFilters]);
+
   useLayoutEffect(() => {
     applied.current = resolved.location.query;
     // Our own valid field update must not erase unrelated invalid drafts.
     if (ownNavigation.current !== resolved.canonicalFragment) {
       setDraft({ ...resolved.location.query });
-      setSelectedFilters(
-        optionalFilters.filter((key) =>
-          Boolean(resolved.location.query[`filter_${key}`]),
-        ),
-      );
     }
     ownNavigation.current = undefined;
   }, [resolved.canonicalFragment]);
@@ -608,7 +595,6 @@ function Filters({
     serializeLocation({ ...resolved.location, query: applied.current });
   const clear = () => {
     setDraft({});
-    setSelectedFilters([]);
     applied.current = {};
     ownNavigation.current = "#/audit-log";
     navigate("#/audit-log");
@@ -702,7 +688,7 @@ function Filters({
   };
   return (
     <form
-      class="panel domain-panel audit-filters"
+      class="audit-filters"
       aria-label="Filter audit history"
       onSubmit={(event) => event.preventDefault()}
     >
@@ -722,30 +708,28 @@ function Filters({
         </div>
       )}
       <div class="audit-filter-grid">
-        {primaryFilters.filter((key) => key !== "outcome").map(field)}
-        {selectedFilters
-          .toSorted(
-            (a, b) => optionalFilters.indexOf(a) - optionalFilters.indexOf(b),
-          )
-          .map((key) => (
-            <div class="audit-optional-filter" key={key}>
-              {field(key)}
-              <button
-                type="button"
-                aria-label={`Remove ${filterLabel(key)} filter`}
-                onClick={() => {
-                  focusTarget.current = "audit-add-filter";
-                  setSelectedFilters(
-                    selectedFilters.filter((selected) => selected !== key),
-                  );
-                  setDraft({ ...draft, [`filter_${key}`]: "" });
-                  apply({ [`filter_${key}`]: "" });
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+        <div class="audit-filter-group">
+          {field("from")}
+          {field("until")}
+        </div>
+        {field("category")}
+        <div
+          class="audit-filter-group"
+          role="group"
+          aria-label="Performer filters"
+        >
+          {field("actor_type")}
+          {field("credential_id")}
+        </div>
+        {field("action")}
+        <div
+          class="audit-filter-group"
+          role="group"
+          aria-label="Target filters"
+        >
+          {field("target_type")}
+          {field("target_id")}
+        </div>
         {field("outcome")}
       </div>
       {pending && (
@@ -757,34 +741,9 @@ function Filters({
         </p>
       )}
       <div class="audit-filter-actions">
-        <select
-          id="audit-add-filter"
-          aria-label="Add filter"
-          value=""
-          disabled={selectedFilters.length === optionalFilters.length}
-          onChange={(event) => {
-            const key = event.currentTarget.value;
-            if (!optionalFilters.includes(key) || selectedFilters.includes(key))
-              return;
-            focusTarget.current = `audit-${key}`;
-            setSelectedFilters([...selectedFilters, key]);
-          }}
-        >
-          <option value="" disabled>
-            Add filter…
-          </option>
-          {optionalFilters
-            .filter((key) => !selectedFilters.includes(key))
-            .map((key) => (
-              <option key={key} value={key}>
-                {filterLabel(key)}
-              </option>
-            ))}
-        </select>
         <button
           type="button"
           disabled={
-            selectedFilters.length === 0 &&
             Object.keys(compactQuery(draft)).length === 0 &&
             Object.keys(applied.current).length === 0
           }
@@ -792,9 +751,6 @@ function Filters({
         >
           Clear filters
         </button>
-        <p class="audit-filter-help">
-          Filters apply to all retained events, not just loaded rows.
-        </p>
       </div>
     </form>
   );
@@ -814,7 +770,10 @@ function RelatedAudit({
   useEffect(() => controller.subscribe(setValue), [controller]);
   const current = value.key === view.viewKey ? value : undefined;
   return (
-    <section aria-label="Related events" class="related-history">
+    <section
+      aria-label="Related events"
+      class="panel domain-panel related-history"
+    >
       <div class="panel-heading">
         <h2>Related events</h2>
         <button
@@ -853,13 +812,8 @@ function RelatedAudit({
                 : 0,
           )}
           emptyTitle="No related events recorded"
+          localStale={current.error}
           columns={[
-            {
-              key: "sequence",
-              label: "Sequence",
-              role: "count",
-              render: (row) => row.sequence,
-            },
             {
               key: "time",
               label: "Time",
@@ -871,31 +825,58 @@ function RelatedAudit({
               label: "Event",
               role: "identity",
               render: (row) => (
-                <>
-                  <a
-                    aria-current={
-                      row.id === resolved.location.segments[1]
-                        ? "page"
-                        : undefined
-                    }
-                    href={serializeLocation({
-                      ...resolved.location,
-                      segments: ["audit", row.id],
-                    })}
-                  >
-                    {row.category}.{row.action}
-                  </a>
-                  {row.id === resolved.location.segments[1] && (
-                    <div class="muted">Selected event</div>
-                  )}
-                </>
+                <TableIdentity
+                  primary={
+                    <>
+                      <a
+                        aria-current={
+                          row.id === resolved.location.segments[1]
+                            ? "page"
+                            : undefined
+                        }
+                        href={serializeLocation({
+                          ...resolved.location,
+                          segments: ["audit", row.id],
+                        })}
+                      >
+                        {sentenceCase(row.category)}
+                      </a>
+                      {row.id === resolved.location.segments[1] && (
+                        <div class="muted">Selected event</div>
+                      )}
+                      <span class="table-secondary">
+                        Sequence {row.sequence}
+                      </span>
+                    </>
+                  }
+                  secondary={row.id}
+                />
               ),
             },
             {
               key: "actor",
               label: "Performer",
               role: "text",
-              render: (row) => sentenceCase(row.actor.type),
+              render: (row) => (
+                <>
+                  <TableIdentity
+                    primary={sentenceCase(row.actor.type)}
+                    secondary={row.actor.credential?.id}
+                  />
+                  {row.initiator !== null && (
+                    <span class="table-secondary">
+                      Initiated by{" "}
+                      <span class="technical-value">{row.initiator.id}</span>
+                    </span>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: "action",
+              label: "Action",
+              role: "text",
+              render: (row) => sentenceCase(row.action),
             },
             {
               key: "phase",
@@ -916,15 +897,31 @@ function RelatedAudit({
           ]}
         />
       )}
-      {current?.next && current.items.length < 500 && (
-        <button
-          type="button"
-          disabled={current.loading}
-          onClick={() => controller.more()}
-        >
-          Load more related events
-        </button>
-      )}
+      <div class="collection-pagination">
+        {current?.loaded && (
+          <>
+            <LoadedHistorySummary
+              count={current.items.length}
+              singular="event"
+              plural="events"
+              matching={false}
+              stale={current.error}
+            />
+            {!current.items.some((row) => row.id === selected.id) && (
+              <span class="table-filter-summary">Plus the selected event</span>
+            )}
+          </>
+        )}
+        {current?.next && current.items.length < 500 && (
+          <button
+            type="button"
+            disabled={current.loading}
+            onClick={() => controller.more()}
+          >
+            Load more related events
+          </button>
+        )}
+      </div>
     </section>
   );
 }
@@ -962,12 +959,17 @@ export function Audit({
             </a>
           </nav>
           <header class="detail-context" data-testid="detail-context">
-            <h1 tabindex={-1}>Audit event {resolved.location.segments[1]}</h1>
+            <div class="detail-context-heading">
+              <h1 tabindex={-1}>Audit event {resolved.location.segments[1]}</h1>
+              {snapshot.item !== undefined && (
+                <StatusLabel state={outcomeState(snapshot.item.outcome)}>
+                  {sentenceCase(snapshot.item.outcome)}
+                </StatusLabel>
+              )}
+            </div>
           </header>
         </>
-      ) : (
-        <Filters resolved={resolved} navigate={navigate} />
-      )}
+      ) : null}
       {snapshot.notice !== undefined && (
         <StateNotice state="warning" title="Audit traversal changed">
           <p>{snapshot.notice}</p>
@@ -985,98 +987,105 @@ export function Audit({
       )}
       {detail ? (
         snapshot.item !== undefined ? (
-          <section class="panel domain-panel" aria-label="Audit event detail">
-            <div class="panel-heading">
-              <h2>
-                {snapshot.item.category}.{snapshot.item.action}
-              </h2>
-              <StatusLabel state={outcomeState(snapshot.item.outcome)}>
-                {sentenceCase(snapshot.item.outcome)}
-              </StatusLabel>
-            </div>
-            <dl class="fact-grid">
-              <div>
-                <dt>Sequence / phase</dt>
-                <dd>
-                  {snapshot.item.sequence} · {snapshot.item.phase}
-                </dd>
+          <>
+            <section class="detail-section" aria-label="Audit event detail">
+              <div class="panel-heading">
+                <h2>
+                  {snapshot.item.category}.{snapshot.item.action}
+                </h2>
               </div>
-              <div>
-                <dt>Timestamp</dt>
-                <dd>
-                  <UserTime value={snapshot.item.timestamp} />
-                </dd>
-              </div>
-              <div>
-                <dt>Performer</dt>
-                <dd>
-                  {sentenceCase(snapshot.item.actor.type)}
-                  {snapshot.item.actor.credential !== null && (
-                    <>
-                      <br />
-                      <Credential value={snapshot.item.actor.credential} />
-                    </>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Initiating credential (not performer)</dt>
-                <dd>
-                  <Credential value={snapshot.item.initiator} />
-                </dd>
-              </div>
-              <div>
-                <dt>Target</dt>
-                <dd>
-                  {snapshot.item.target.type === "principal"
-                    ? "Agent"
-                    : sentenceCase(snapshot.item.target.type)}
-                  :{" "}
-                  {snapshot.targetLink === undefined ? (
-                    snapshot.item.target.id
-                  ) : (
-                    <a href={snapshot.targetLink}>{snapshot.item.target.id}</a>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Reason</dt>
-                <dd>{snapshot.item.detail.reason ?? "None recorded"}</dd>
-              </div>
-              <div>
-                <dt>Problem</dt>
-                <dd>{snapshot.item.detail.problem ?? "None recorded"}</dd>
-              </div>
-            </dl>
-            <p>
-              Credential attribution does not identify a named human. Pending or
-              unknown outcomes do not prove success, rollback, or permission to
-              replay.
-            </p>
-            <details>
-              <summary>Technical details</summary>
-              <dl>
-                <dt>Correlation ID</dt>
-                <dd>
-                  <code>{snapshot.item.correlation_id}</code>
-                </dd>
+              <h3>Event and attribution</h3>
+              <dl class="detail-facts">
+                <div>
+                  <dt>Sequence / phase</dt>
+                  <dd>
+                    {snapshot.item.sequence} · {snapshot.item.phase}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Timestamp</dt>
+                  <dd>
+                    <UserTime value={snapshot.item.timestamp} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Performer</dt>
+                  <dd>
+                    {sentenceCase(snapshot.item.actor.type)}
+                    {snapshot.item.actor.credential !== null && (
+                      <>
+                        <br />
+                        <Credential value={snapshot.item.actor.credential} />
+                      </>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Initiating credential (not performer)</dt>
+                  <dd>
+                    <Credential value={snapshot.item.initiator} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Target</dt>
+                  <dd>
+                    {snapshot.item.target.type === "principal"
+                      ? "Agent"
+                      : sentenceCase(snapshot.item.target.type)}
+                    :{" "}
+                    {snapshot.targetLink === undefined ? (
+                      snapshot.item.target.id
+                    ) : (
+                      <a href={snapshot.targetLink}>
+                        {snapshot.item.target.id}
+                      </a>
+                    )}
+                  </dd>
+                </div>
               </dl>
-            </details>
+              <h3>Recorded diagnostics</h3>
+              <dl class="detail-facts">
+                <div>
+                  <dt>Reason</dt>
+                  <dd>{snapshot.item.detail.reason ?? "None recorded"}</dd>
+                </div>
+                <div>
+                  <dt>Problem</dt>
+                  <dd>{snapshot.item.detail.problem ?? "None recorded"}</dd>
+                </div>
+              </dl>
+              <p>
+                Credential attribution does not identify a named human. Pending
+                or unknown outcomes do not prove success, rollback, or
+                permission to replay.
+              </p>
+              <details>
+                <summary>Technical details</summary>
+                <dl class="detail-facts">
+                  <div>
+                    <dt>Correlation ID</dt>
+                    <dd>
+                      <code>{snapshot.item.correlation_id}</code>
+                    </dd>
+                  </div>
+                </dl>
+              </details>
+              {snapshot.targetUnavailable && (
+                <StateNotice state="warning" title="Current target unavailable">
+                  <p>
+                    Audit evidence remains available. The resource link could
+                    not be verified.
+                  </p>
+                </StateNotice>
+              )}
+            </section>
             <RelatedAudit
               controller={controller.related}
               selected={snapshot.item}
               resolved={resolved}
               view={view}
             />
-            {snapshot.targetUnavailable && (
-              <StateNotice state="warning" title="Current target unavailable">
-                <p>
-                  Audit evidence remains available. The resource link could not
-                  be verified.
-                </p>
-              </StateNotice>
-            )}
-          </section>
+          </>
         ) : snapshot.missing ? (
           <StateNotice state="unavailable" title="Audit event not retained">
             <p>A missing event does not prove the action never occurred.</p>
@@ -1093,10 +1102,7 @@ export function Audit({
         ) : null
       ) : (
         <section class="panel domain-panel" aria-label="Audit history">
-          <div class="panel-heading">
-            <h2>Control-plane events</h2>
-            <span>Newest first · {snapshot.items.length} loaded</span>
-          </div>
+          <Filters resolved={resolved} navigate={navigate} />
           {snapshot.history === undefined && panel?.status !== "error" ? (
             <StateNotice state="loading" title="Loading audit history" />
           ) : snapshot.history !== undefined &&
@@ -1149,7 +1155,7 @@ export function Audit({
                             segments: ["audit", item.id],
                           })}
                         >
-                          {item.category}.{item.action}
+                          {sentenceCase(item.category)}
                         </a>
                       }
                       secondary={item.id}
@@ -1178,6 +1184,12 @@ export function Audit({
                       )}
                     </>
                   ),
+                },
+                {
+                  key: "action",
+                  label: "Action",
+                  role: "text",
+                  render: (item) => sentenceCase(item.action),
                 },
                 {
                   key: "target",
@@ -1220,8 +1232,21 @@ export function Audit({
               loadingMore={snapshot.loadingOlder}
               onLoadMore={() => void controller.loadOlder()}
               loadMoreLabel="Load older audit events"
+              historySummary
+              historyMatching={Object.keys(resolved.location.query).length > 0}
+              itemNames={{ singular: "event", plural: "events" }}
+              localStale={panel?.status === "error" || snapshot.olderError}
             />
           ) : null}
+          {snapshot.history !== undefined && snapshot.items.length === 0 && (
+            <LoadedHistorySummary
+              count={0}
+              singular="event"
+              plural="events"
+              matching={Object.keys(resolved.location.query).length > 0}
+              stale={panel?.status === "error"}
+            />
+          )}
           {snapshot.olderError && (
             <p role="alert">
               Older audit results unavailable. Loaded rows were retained; use

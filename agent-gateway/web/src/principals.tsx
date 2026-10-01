@@ -613,12 +613,31 @@ function PrincipalEditor({
       {(stale || mutation.requiresRefresh || mutation.state === "uncertain") &&
         detail !== undefined && (
           <StateNotice state="warning" title="Review current agent settings">
-            <p>
-              Your draft is preserved. Last loaded values:{" "}
-              {detail.principal.displayName}; {detail.principal.state};{" "}
-              {visibilityText(detail.principal.visibility)}; HTTP default{" "}
-              {httpDefaultText(detail.principal.httpDefault)}.
-            </p>
+            <p>Your draft is preserved. Last loaded settings:</p>
+            <dl class="detail-facts">
+              <div>
+                <dt>Display name</dt>
+                <dd>{detail.principal.displayName}</dd>
+              </div>
+              <div>
+                <dt>Agent enabled</dt>
+                <dd>
+                  {detail.principal.state === "active" ? "Enabled" : "Disabled"}
+                </dd>
+              </div>
+              <div>
+                <dt>MCP discovery visibility</dt>
+                <dd>{visibilityText(detail.principal.visibility)}</dd>
+              </div>
+              <div>
+                <dt>HTTP default</dt>
+                <dd>{httpDefaultText(detail.principal.httpDefault)}</dd>
+              </div>
+              <div>
+                <dt>Revision</dt>
+                <dd>{detail.principal.revision}</dd>
+              </div>
+            </dl>
             <div class="form-actions">
               <button type="button" onClick={onRefresh}>
                 Refresh current settings
@@ -732,7 +751,7 @@ function PrincipalEditor({
                 access before creating it. Discovery visibility grants no
                 access; MCP grants remain authoritative.
               </p>
-              <dl class="fact-grid">
+              <dl class="detail-facts">
                 <div>
                   <dt>Display name</dt>
                   <dd>{displayName}</dd>
@@ -757,7 +776,7 @@ function PrincipalEditor({
             </div>
           ) : (
             <div class="review-stack">
-              <dl class="fact-grid">
+              <dl class="detail-facts">
                 {displayName !== initialDraft.current.displayName && (
                   <div>
                     <dt>Display name</dt>
@@ -930,7 +949,7 @@ function PrincipalCredentialActions({
     blockedETag === detail.etag;
   return (
     <section
-      class="panel domain-panel"
+      class="detail-section"
       aria-labelledby="principal-credential-title"
       data-testid="principal-credential-actions"
     >
@@ -947,7 +966,7 @@ function PrincipalCredentialActions({
         the current credential.
       </p>
       {principal.credential !== null && (
-        <dl class="fact-grid">
+        <dl class="detail-facts">
           <div>
             <dt>Credential ID</dt>
             <dd class="technical-value">{principal.credential.id}</dd>
@@ -1157,24 +1176,19 @@ export function Principals({
                 {principal.displayName}
               </h1>
             </div>
-          </div>
-        </header>
-        <section class="panel domain-panel" aria-labelledby="principal-title">
-          <div class="panel-heading">
-            <div>
-              <h2 id="principal-title">Agent details</h2>
-            </div>
             <StatusLabel
               state={principal.state === "active" ? "current" : "neutral"}
             >
               {principal.state === "active" ? "Active" : "Disabled"}
             </StatusLabel>
           </div>
-          <dl class="fact-grid">
-            <div>
-              <dt>Agent ID</dt>
-              <dd class="technical-value">{principal.id}</dd>
-            </div>
+        </header>
+        <section class="detail-section" aria-labelledby="principal-title">
+          <div class="panel-heading">
+            <h2 id="principal-title">Agent details</h2>
+          </div>
+          <h3>Access defaults</h3>
+          <dl class="detail-facts">
             <div>
               <dt>MCP discovery visibility</dt>
               <dd>{visibilityText(principal.visibility)}</dd>
@@ -1182,6 +1196,13 @@ export function Principals({
             <div>
               <dt>HTTP default</dt>
               <dd>{httpDefaultText(principal.httpDefault)}</dd>
+            </div>
+          </dl>
+          <h3>Identity and revision</h3>
+          <dl class="detail-facts">
+            <div>
+              <dt>Agent ID</dt>
+              <dd class="technical-value">{principal.id}</dd>
             </div>
             <div>
               <dt>Agent revision</dt>
@@ -1237,7 +1258,7 @@ function PrincipalCollection({
         sort: query.sort ?? "name",
         direction: query.direction ?? "ascending",
       });
-      for (const key of ["name", "state", "visibility"]) {
+      for (const key of ["name", "state", "visibility", "http_default"]) {
         const value = query[`filter_${key}`];
         if (value !== undefined) params.set(key, value);
       }
@@ -1306,8 +1327,18 @@ function PrincipalCollection({
               value: (principal) => principal.visibility,
               options: [
                 { value: "requestable", label: "Requestable" },
-                { value: "allowed-only", label: "Allowed only" },
-                { value: "all", label: "All" },
+                { value: "allowed-only", label: "Allowed tools only" },
+                { value: "all", label: "All tools" },
+              ],
+            },
+            {
+              key: "http_default",
+              label: "HTTP default",
+              type: "select",
+              value: (principal) => principal.httpDefault,
+              options: [
+                { value: "block", label: "Block requests" },
+                { value: "allow", label: "Allow requests" },
               ],
             },
           ]}

@@ -1,6 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resourceUtilization } from "../src/resource-utilization.ts";
+import {
+  capacityState,
+  resourceUtilization,
+} from "../src/resource-utilization.ts";
+
+test("capacity pressure respects backend saturation, zero bounds and safe integer thresholds", () => {
+  for (const [inUse, limit, saturated, expected] of [
+    [0, 100, true, "saturated"],
+    [0, 0, true, "saturated"],
+    [1, 0, false, undefined],
+    [79, 100, false, undefined],
+    [80, 100, false, "pressure"],
+    [120, 100, false, "pressure"],
+    [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, false, "pressure"],
+    [Number.MAX_SAFE_INTEGER, 1, false, "pressure"],
+    [7205759403792792, Number.MAX_SAFE_INTEGER, false, undefined],
+    [7205759403792793, Number.MAX_SAFE_INTEGER, false, "pressure"],
+  ] as const)
+    assert.equal(capacityState({ inUse, limit, saturated }), expected);
+});
 
 const maximum = Number.MAX_SAFE_INTEGER;
 for (const [inUse, limit, expected] of [

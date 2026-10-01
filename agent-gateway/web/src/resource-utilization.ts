@@ -1,3 +1,14 @@
+export function capacityState(pool: {
+  inUse: number;
+  limit: number;
+  saturated: boolean;
+}): "saturated" | "pressure" | undefined {
+  if (pool.saturated) return "saturated";
+  if (pool.limit > 0 && BigInt(pool.inUse) * 5n >= BigInt(pool.limit) * 4n)
+    return "pressure";
+  return undefined;
+}
+
 // Inputs are the nonnegative safe integers accepted by decodeStatus.
 export function resourceUtilization(inUse: number, limit: number): string {
   if (limit === 0) return "N/A";
