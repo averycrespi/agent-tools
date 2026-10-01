@@ -62,13 +62,14 @@ func (c TrafficConfig) valid() bool {
 // is useful only in its original process/store. Neither an ID nor a history row
 // can create one. Dispatch still requires the authority owner's confirmation.
 type TrafficReceipt struct {
-	evidence      PreparedAdmission
-	owner         *TrafficStore
-	request       context.Context
-	httpAdmission string
-	httpAllowed   bool
-	gitAdmission  string
-	gitAllowed    bool
+	evidence         PreparedAdmission
+	owner            *TrafficStore
+	request          context.Context
+	httpAdmission    string
+	httpAllowed      bool
+	gitAdmission     string
+	gitAllowed       bool
+	recordedProtocol recordedProtocol
 }
 
 type trafficPin struct{ dispatched, completing bool }
@@ -88,6 +89,7 @@ type trafficRequest struct {
 	gitCompletion  string
 	completion     *activity.Completion
 	diagnosticJSON any
+	recorded       recordedEvent
 	receipt        *TrafficReceipt
 	bytes          int64
 	result         chan trafficResult
@@ -100,6 +102,7 @@ type TrafficStore struct {
 	readerDB        *sql.DB
 	path            string
 	config          TrafficConfig
+	recorded        *recordedActivity
 	mu              sync.Mutex
 	closed, faulted bool
 	draining        bool
@@ -142,7 +145,7 @@ func (s *TrafficStore) Admit(ctx context.Context, prepared PreparedAdmission) (*
 	if !validPreparedAdmission(prepared) {
 		return nil, ErrInvalidInput
 	}
-	r := &trafficRequest{ctx: ctx, prepared: prepared, bytes: trafficCharge(prepared),
+	r := &trafficRequest{ctx: ctx, prepared: prepared, recorded: mcpRecordedAdmission(prepared), bytes: trafficCharge(prepared),
 		expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}
 	if r.bytes > 16384 {
 		return nil, ErrTrafficCapacity
@@ -232,7 +235,7 @@ func (s *TrafficStore) complete(ctx context.Context, receipt *TrafficReceipt, co
 	// Encode before queueing so the writer owns bounded immutable evidence.
 	diagnosticJSON, diagnosticErr := encodeFailureDiagnostics(completion.Class, diagnostic)
 	valid := diagnosticErr == nil && receipt != nil && receipt.httpAdmission == "" && receipt.gitAdmission == "" && validTrafficCompletion(receipt.evidence, completion)
-	r := &trafficRequest{ctx: ctx, receipt: receipt, completion: &completion, diagnosticJSON: diagnosticJSON, bytes: maxTrafficCompletionBytes,
+	r := &trafficRequest{ctx: ctx, receipt: receipt, completion: &completion, recorded: recordedTerminal(recordedMCP, string(completion.Class)), diagnosticJSON: diagnosticJSON, bytes: maxTrafficCompletionBytes,
 		expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}
 	return s.enqueueCompletion(r, valid)
 }

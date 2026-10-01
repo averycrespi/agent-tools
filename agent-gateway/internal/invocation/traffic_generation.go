@@ -153,6 +153,7 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 		return nil, err
 	}
 	s.readerDB = readers
+	s.recorded = newRecordedActivity()
 	success = true
 	go s.runTraffic()
 	return s, nil

@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { captureTableState } from "./detail-layout.ts";
 
 // Called by each existing domain owner; no separate scenario or fixture lifecycle.
 export async function assertTableConventions(
@@ -181,6 +182,10 @@ export async function assertTableConventions(
       await row.scrollIntoViewIfNeeded();
       await page.screenshot({ path: join(artifacts, `${width}.png`) });
     }
+    await captureTableState(
+      page,
+      `${caption.toLowerCase().replace(/[^a-z]+/g, "-")}-populated`,
+    );
   } finally {
     if (originalViewport) await page.setViewportSize(originalViewport);
   }

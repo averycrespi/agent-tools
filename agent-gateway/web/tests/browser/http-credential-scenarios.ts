@@ -1,4 +1,6 @@
 import { captureStateFeedback } from "./state-feedback.ts";
+import { captureDetailLayout, captureTableState } from "./detail-layout.ts";
+import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -98,6 +100,11 @@ export async function runHTTPCredentials(
       .getByRole("button", { name: "Review and create", exact: true })
       .click();
     await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("dialog")).not.toContainText(
+      "host-bound-canary",
+    );
+    if (!allowWildcard)
+      await captureDetailLayout(page, "http-credential-create-review-long");
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Cancel", exact: true })
@@ -187,6 +194,7 @@ export async function runHTTPCredentials(
   await expect(page.locator("#page-title")).toHaveText(
     "HTTP Credential details",
   );
+  await captureDetailLayout(page, "http-credential-detail-present");
   const id = new URL(page.url()).hash.split("/").at(-1)!;
   const response = await fetch(`${baseURL}/api/v2/http/credentials/${id}`, {
     headers: { Authorization: `Bearer ${bearer}` },
@@ -198,8 +206,102 @@ export async function runHTTPCredentials(
   expect(created.available).toBe(true);
   expect(JSON.stringify(created)).not.toContain("canary");
   await page
-    .getByLabel("Secret", { exact: true })
-    .fill("http-credential-rotate-canary");
+    .getByRole("link", { name: "Back to HTTP credentials", exact: true })
+    .click();
+  await assertTableConventions(
+    page,
+    "HTTP credentials",
+    ["Credential", "HTTPS boundary", "Header recipe", "Status"],
+    "Credential",
+  );
+  const keyboardFilters = [
+    ["Name or ID", "exmaple"],
+    ["HTTPS boundary", "api.example.com 443"],
+    ["Header recipe", "authorization bearer"],
+  ] as const;
+  for (const [label, value] of keyboardFilters) {
+    const filter = page.getByRole("searchbox", { name: label, exact: true });
+    await filter.pressSequentially(value);
+    await expect(filter).toHaveValue(value);
+    await expect(filter).toBeFocused();
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "Showing 1–1 of 1 matching credential" }),
+    ).toBeVisible();
+  }
+  for (const [label, value] of keyboardFilters)
+    await expect(
+      page.getByRole("searchbox", { name: label, exact: true }),
+    ).toHaveValue(value);
+  await expect(page).toHaveURL(
+    /filter_boundary=api\.example\.com%20443&filter_name=exmaple&filter_recipe=authorization%20bearer/,
+  );
+  await page.evaluate(() => {
+    for (const [label, value] of [
+      ["Name or ID", "Example"],
+      ["HTTPS boundary", "api example 443"],
+    ]) {
+      const filter = document.querySelector<HTMLInputElement>(
+        `input[aria-label="${label}"]`,
+      )!;
+      filter.value = value!;
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  await expect(
+    page.getByRole("searchbox", { name: "Name or ID", exact: true }),
+  ).toHaveValue("Example");
+  await expect(
+    page.getByRole("searchbox", { name: "HTTPS boundary", exact: true }),
+  ).toHaveValue("api example 443");
+  await expect(page).toHaveURL(
+    /filter_boundary=api%20example%20443&filter_name=Example&filter_recipe=authorization%20bearer/,
+  );
+  await captureTableState(page, "http-credentials-keyboard-filters");
+  const statusFilter = page.getByRole("combobox", {
+    name: "Status",
+    exact: true,
+  });
+  await statusFilter.focus();
+  await statusFilter.selectOption("unavailable");
+  await expect(statusFilter).toBeFocused();
+  await expect(
+    page.getByText("No matching credentials", { exact: true }).first(),
+  ).toBeVisible();
+  await captureTableState(page, "http-credentials-filtered-empty");
+  await page
+    .getByRole("combobox", { name: "Status", exact: true })
+    .selectOption("configured");
+  await expect(page.getByRole("table")).toContainText(created.id);
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page).toHaveURL(/#\/http\/credentials$/);
+  // Enter as soon as the field mounts, before deferred effects can run.
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      const input = document.getElementById("http-credential-secret-rotate");
+      if (!(input instanceof HTMLInputElement)) return;
+      observer.disconnect();
+      input.value = "http-credential-rotate-canary";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+  await page
+    .getByRole("link", { name: "Example HTTP credential", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Example HTTP credential", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(page.getByLabel("Secret", { exact: true })).toHaveValue(
+    "http-credential-rotate-canary",
+  );
   await page
     .getByRole("button", { name: "Review rotation", exact: true })
     .click();
@@ -226,7 +328,7 @@ export async function runHTTPCredentials(
     .not.toBe(created.revision);
   await expect(
     page
-      .locator(".fact-grid dd")
+      .locator(".detail-facts dd")
       .filter({ hasText: new RegExp(`^${rotatedRevision}$`) }),
   ).toBeVisible();
   await page.getByLabel("Header name").fill("Host");
@@ -247,6 +349,7 @@ export async function runHTTPCredentials(
   await page
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
+  await captureDetailLayout(page, "http-credential-metadata-review");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Edit boundary and recipe", exact: true })

@@ -122,6 +122,7 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/http/credentials/{id}", Method: "PATCH", RequestSchema: "HTTPCredentialUpdate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v2/http/credentials/{id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
 	{Pattern: "/api/v2/http/credentials/{id}/rotate", Method: "POST", RequestSchema: "HTTPCredentialRotate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/recorded-activity", Method: "GET", RequestSchema: "None", SuccessSchema: "RecordedActivitySummary", SuccessStatuses: []int{200}},
 }
 
 func ResourceMechanics() []ResourceMechanic {

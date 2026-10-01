@@ -132,6 +132,7 @@ function authorizationCollectionQuery(
       ? {
           filter_state: ["active", "disabled"],
           filter_visibility: ["requestable", "allowed-only", "all"],
+          filter_http_default: ["block", "allow"],
           sort: ["name", "id", "state", "visibility"],
         }
       : {
@@ -393,7 +394,16 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   }
   if (
     first === "http-credentials" &&
-    noQuery &&
+    (segments.length === 1
+      ? exactQuery(query, {
+          filter_name: (value) => isCollectionFilter("filter_name", value),
+          filter_boundary: (value) =>
+            isCollectionFilter("filter_boundary", value),
+          filter_recipe: (value) => isCollectionFilter("filter_recipe", value),
+          filter_status: (value) =>
+            ["configured", "unavailable"].includes(value),
+        })
+      : noQuery) &&
     (segments.length === 1 ||
       (segments.length === 2 &&
         second !== undefined &&
@@ -498,6 +508,7 @@ const queryOrder: Readonly<Record<string, readonly string[]>> = {
   catalog: ["sort", "direction"],
   principals: ["sort", "direction"],
   grants: ["sort", "direction"],
+  "http-grants": ["principal_id", "sort", "direction"],
   requests: ["queue", "sort", "direction"],
 };
 

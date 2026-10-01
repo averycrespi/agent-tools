@@ -43,6 +43,8 @@ func trafficCompletion() activity.Completion {
 
 func TestTrafficAcknowledgmentReceiptAndCompletion(t *testing.T) {
 	s, _ := trafficFixture(t, nil, nil)
+	ring, clock := recordedFixture()
+	s.recorded = ring
 	prepared := trafficPrepared(1)
 	receipt, err := s.Admit(context.Background(), prepared)
 	require.NoError(t, err)
@@ -64,6 +66,10 @@ func TestTrafficAcknowledgmentReceiptAndCompletion(t *testing.T) {
 	_, err = s.Admit(context.Background(), trafficPrepared(1))
 	assert.ErrorIs(t, err, ErrIdentityUnavailable)
 	assert.True(t, s.Healthy())
+	clock.advance(time.Minute)
+	counts := s.RecordedActivity().Buckets[14].Counts.MCP
+	assert.Equal(t, uint64(1), counts.Admissions.Allow)
+	assert.Equal(t, uint64(1), counts.Completions.Succeeded)
 }
 
 func TestTrafficFaultsNeverDispatchOrReplay(t *testing.T) {
@@ -75,6 +81,8 @@ func TestTrafficFaultsNeverDispatchOrReplay(t *testing.T) {
 				}
 				return nil
 			})
+			ring, clock := recordedFixture()
+			s.recorded = ring
 			receipt, err := s.Admit(context.Background(), trafficPrepared(1))
 			require.ErrorIs(t, err, ErrTrafficFault)
 			require.Nil(t, receipt)
@@ -93,11 +101,15 @@ func TestTrafficFaultsNeverDispatchOrReplay(t *testing.T) {
 				expected = 1
 			}
 			assert.Len(t, history.Records, expected)
+			clock.advance(time.Minute)
+			assert.Equal(t, contract.RecordedProtocols{}, *s.RecordedActivity().Buckets[14].Counts)
 			require.NoError(t, s.Close())
 			reopened, err := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, reopened.Close()) }()
 			assert.True(t, reopened.Healthy())
+			assert.NotEqual(t, s.RecordedActivity().Epoch, reopened.RecordedActivity().Epoch)
+			assert.Equal(t, "unavailable", reopened.RecordedActivity().Coverage)
 			assert.False(t, reopened.Confirm(context.Background(), receipt))
 			history, err = reopened.History(context.Background(), 0, 10)
 			require.NoError(t, err)
@@ -131,6 +143,8 @@ func TestTrafficAtomicBatchAndCancellationSettlement(t *testing.T) {
 			close(release)
 		}
 	})
+	ring, clock := recordedFixture()
+	s.recorded = ring
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan trafficResult, 1)
 	go func() { r, e := s.Admit(ctx, trafficPrepared(1)); result <- trafficResult{r, e} }()
@@ -154,6 +168,8 @@ func TestTrafficAtomicBatchAndCancellationSettlement(t *testing.T) {
 	require.Len(t, history.Records, 1)
 	assert.Nil(t, history.Records[0].CompletedAt)
 	assert.Empty(t, s.pins)
+	clock.advance(time.Minute)
+	assert.Equal(t, contract.RecordedProtocols{}, *s.RecordedActivity().Buckets[14].Counts)
 }
 
 func TestTrafficRetentionPinsHolesAndRestartRelease(t *testing.T) {

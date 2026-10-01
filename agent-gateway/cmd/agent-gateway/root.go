@@ -309,6 +309,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		GitTraffic:    controlAPI.GitTraffic,
 		Audit:         controlAPI.Audit,
 
+		RecordedActivity: controlAPI.RecordedActivity,
+
 		HTTPCredentials: controlAPI.HTTPCredentials,
 		HTTPPolicies:    controlAPI.HTTPPolicies,
 		GitPolicies:     controlAPI.GitPolicies,

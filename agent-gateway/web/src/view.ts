@@ -176,6 +176,9 @@ export interface CollectionControls {
   changeSort: (key: string) => void;
   resetFilters: () => void;
   status: "loading" | "current" | "error";
+  stale: boolean;
+  contextFilters: readonly { key: string; label: string; value: string }[];
+  clearContextFilter: (key: string) => void;
   error: string | undefined;
   notice: string | undefined;
   totalCount: number | undefined;
@@ -334,6 +337,7 @@ export function useCollectionPage<T>(
       .catch((error: unknown) => {
         if (!current()) return;
         if (error instanceof StaleCollectionCursor && cursor !== null) {
+          setResult({ key, cursor: null, status: "loading" });
           setHistory({
             key,
             cursors: [null],
@@ -343,12 +347,18 @@ export function useCollectionPage<T>(
           });
           return;
         }
-        setResult({
+        setResult((previous) => ({
           key,
           cursor,
+          page:
+            !(error instanceof StaleCollectionCursor) &&
+            previous.key === key &&
+            previous.cursor === cursor
+              ? previous.page
+              : undefined,
           status: "error",
           error: "Collection data is unavailable. Use Refresh to try again.",
-        });
+        }));
       });
     return () => {
       controller.abort();
@@ -395,6 +405,22 @@ export function useCollectionPage<T>(
       filterValues,
       sort,
       status,
+      stale: matching && result.status === "error" && page !== undefined,
+      contextFilters:
+        query.principal_id === undefined
+          ? []
+          : [
+              {
+                key: "principal_id",
+                label: "Exact agent ID",
+                value: query.principal_id,
+              },
+            ],
+      clearContextFilter: (name) => {
+        const next = { ...query };
+        delete next[name];
+        changeQuery(next);
+      },
       error: queryError ?? (matching ? result.error : undefined),
       notice: active.notice,
       totalCount: page?.totalCount,
@@ -417,7 +443,16 @@ export function useCollectionPage<T>(
           });
       },
       changeFilter: (name, value) => {
-        const next = { ...query };
+        // Hash navigation is asynchronous: compose rapid edits with the pending
+        // same-resource query rather than overwriting it from rendered props.
+        const pending = parseFragment(window.location.hash);
+        const next = {
+          ...(pending?.destination === resolved.location.destination &&
+          pending.query.tab === resolved.location.query.tab &&
+          pending.segments.join("/") === resolved.location.segments.join("/")
+            ? pending.query
+            : query),
+        };
         if (value.trim() === "") delete next[`filter_${name}`];
         else next[`filter_${name}`] = value;
         changeQuery(next);
@@ -435,7 +470,8 @@ export function useCollectionPage<T>(
         changeQuery(
           Object.fromEntries(
             Object.entries(query).filter(
-              ([name]) => !name.startsWith("filter_"),
+              ([name]) =>
+                !name.startsWith("filter_") && name !== "principal_id",
             ),
           ),
         ),

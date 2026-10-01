@@ -4,6 +4,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertSecretAbsent, waitForLifecycle } from "./shared.ts";
+import { captureDetailLayout } from "./detail-layout.ts";
 
 export async function runGit(
   browserVersion: string,
@@ -30,6 +31,7 @@ export async function runGit(
   });
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-git-"));
   const capture = async (name: string) => {
+    await captureDetailLayout(page, `git-${name}`);
     for (const [suffix, width, height] of [
       ["desktop", 1280, 900],
       ["narrow", 390, 844],
@@ -306,6 +308,13 @@ export async function runGit(
     page.getByText("Reconcile an uncertain push", { exact: false }),
   ).toBeVisible();
   await capture("traffic-detail");
+  await page
+    .getByText("Admission-time policy references", { exact: true })
+    .click();
+  await expect(
+    page.getByText("Authorization revision", { exact: true }),
+  ).toBeVisible();
+  await capture("traffic-policy-references");
   await page.unroute("**/api/v2/git/traffic?*");
   await page.route("**/api/v2/git/traffic?*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", json: {} }),

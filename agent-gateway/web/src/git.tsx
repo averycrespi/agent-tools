@@ -117,16 +117,8 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         <a href={`#/git/${kind}`}>Back to Git {kind}</a>
       </nav>
       <header class="detail-context">
-        <h1 tabindex={-1}>{label(value)}</h1>
-      </header>
-      {error && (
-        <StateNotice state="error" title="Git resource refresh unavailable">
-          Saved facts may be stale. Refresh before making changes.
-        </StateNotice>
-      )}
-      <section class="panel domain-panel">
-        <div class="panel-heading">
-          <h2>{`Git ${singular(kind)} details`}</h2>
+        <div class="detail-context-heading">
+          <h1 tabindex={-1}>{label(value)}</h1>
           {kind === "credentials" ? (
             <StatusLabel state={value.available ? "current" : "warning"}>
               {value.available ? "Configured" : "Unavailable"}
@@ -139,7 +131,15 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
             </StatusLabel>
           ) : null}
         </div>
-        <dl class="fact-grid">
+      </header>
+      {error && (
+        <StateNotice state="error" title="Git resource refresh unavailable">
+          Saved facts may be stale. Refresh before making changes.
+        </StateNotice>
+      )}
+      <section class="detail-section">
+        <h2>{`Git ${singular(kind)} details`}</h2>
+        <dl class="detail-facts">
           <div>
             <dt>ID</dt>
             <dd class="technical-value">{value.id}</dd>
@@ -918,7 +918,7 @@ function GitEditor({
             "Replace protected material. A failed cutover can leave the credential unavailable; there is no fallback to the old secret."
           ) : (
             <div class="confirmation-details">
-              <dl class="fact-grid">
+              <dl class="detail-facts">
                 {kind !== "grants" && (
                   <div>
                     <dt>Name</dt>
@@ -1055,9 +1055,9 @@ export function GitTrafficView(props: Props) {
       {error && (
         <StateNotice state="warning" title="Git traffic refresh unavailable" />
       )}
-      <section class="panel domain-panel">
+      <section class="detail-section">
         <h2>Recorded exchange</h2>
-        <dl class="fact-grid">
+        <dl class="detail-facts">
           <div>
             <dt>Admitted</dt>
             <dd>
@@ -1133,7 +1133,7 @@ export function GitTrafficView(props: Props) {
         )}
         <details>
           <summary>Admission-time policy references</summary>
-          <dl class="fact-grid">
+          <dl class="detail-facts">
             <div>
               <dt>Repository</dt>
               <dd>

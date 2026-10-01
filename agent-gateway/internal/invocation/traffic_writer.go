@@ -105,6 +105,12 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, receipt *TrafficReceipt,
 		}
 	}
 	s.mu.Unlock()
+	// Count only the final acknowledged settlement, including the admission
+	// cancellation fence. SQL readability and live outcomes are not receipts.
+	// Git has no dimension in this MCP/HTTP summary; its zero event is not MCP allow.
+	if err == nil && r.gitAdmission == "" && r.gitCompletion == "" {
+		s.recorded.record(r.recorded)
+	}
 	r.result <- trafficResult{receipt: receipt, err: err}
 }
 
@@ -151,7 +157,7 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	for _, r := range active {
 		var receipt *TrafficReceipt
 		if err == nil && !r.terminal() {
-			receipt = &TrafficReceipt{evidence: r.prepared, owner: s, request: r.ctx, httpAdmission: r.httpAdmission, httpAllowed: r.httpAllowed, gitAdmission: r.gitAdmission, gitAllowed: r.gitAllowed}
+			receipt = &TrafficReceipt{evidence: r.prepared, owner: s, request: r.ctx, httpAdmission: r.httpAdmission, httpAllowed: r.httpAllowed, gitAdmission: r.gitAdmission, gitAllowed: r.gitAllowed, recordedProtocol: r.recorded.protocol}
 		}
 		s.settleTraffic(r, receipt, err)
 	}

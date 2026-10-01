@@ -22,7 +22,7 @@ func parseAuthorizationCollectionQuery(raw, collection string) (authorization.Co
 	}
 	fields := map[string]*string{"sort": &query.Sort, "direction": &query.Direction, "state": &query.State}
 	if collection == "principals" {
-		fields["name"], fields["visibility"] = &query.Name, &query.Visibility
+		fields["name"], fields["visibility"], fields["http_default"] = &query.Name, &query.Visibility, &query.HTTPDefault
 	} else {
 		fields["identity"], fields["principal"], fields["target"], fields["effect"] = &query.Identity, &query.Principal, &query.Target, &query.Effect
 		query.PrincipalID, query.ServerID = values.Get("principal_id"), values.Get("server_id")

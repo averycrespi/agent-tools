@@ -189,7 +189,7 @@ registerInvalidationTrigger(
 );
 registerInvalidationTrigger(
   "principal-invalidation",
-  (key) => /^#\/principals(?:[/?]|$)/.test(key),
+  (key) => /^#\/agents(?:[/?]|$)/.test(key),
   ["authorization"],
 );
 registerInvalidationTrigger(
@@ -922,7 +922,7 @@ function App() {
             />
           ) : destination === "http-credentials" ? (
             <HTTPCredentials
-              key={resolved.canonicalFragment}
+              key={resolved.location.segments.join("/")}
               session={sessionClient}
               mutations={mutationCoordinator}
               sinks={sensitiveSinkCoordinator}

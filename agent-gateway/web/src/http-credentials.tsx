@@ -167,24 +167,34 @@ export function HTTPCredentials(props: Props) {
         <a href="#/http/credentials">Back to HTTP credentials</a>
       </nav>
       <header class="detail-context">
-        <h1 tabindex={-1}>{detail.name}</h1>
-      </header>
-      <section class="panel domain-panel">
-        <div class="panel-heading">
-          <h2>Credential details</h2>
+        <div class="detail-context-heading">
+          <h1 tabindex={-1}>{detail.name}</h1>
           <StatusLabel state={detail.available ? "current" : "warning"}>
             {detail.available ? "Configured" : "Unavailable"}
           </StatusLabel>
         </div>
-        <dl class="fact-grid">
-          <div>
-            <dt>Credential ID</dt>
-            <dd class="technical-value">{detail.id}</dd>
-          </div>
+      </header>
+      <section
+        class="detail-section"
+        aria-labelledby="credential-details-title"
+      >
+        <div class="panel-heading">
+          <h2 id="credential-details-title">Credential details</h2>
+        </div>
+        <h3>HTTPS scope and recipe</h3>
+        <dl class="detail-facts">
           <div>
             <dt>HTTPS boundary</dt>
             <dd>
               {detail.boundary.host}:{detail.boundary.port}
+            </dd>
+          </div>
+          <div>
+            <dt>Wildcard hosts</dt>
+            <dd>
+              {detail.boundary.allow_wildcard
+                ? "Allowed within boundary"
+                : "Exact host only"}
             </dd>
           </div>
           <div>
@@ -193,6 +203,13 @@ export function HTTPCredentials(props: Props) {
               {detail.recipe.header}: {detail.recipe.prefix}
               <span class="secondary-text">[secret]</span>
             </dd>
+          </div>
+        </dl>
+        <h3>Identity and revision</h3>
+        <dl class="detail-facts">
+          <div>
+            <dt>Credential ID</dt>
+            <dd class="technical-value">{detail.id}</dd>
           </div>
           <div>
             <dt>Revision</dt>
@@ -239,13 +256,20 @@ function CredentialCollection(props: Props) {
     props.session,
     props.resolved,
     props.view,
-    (_query, cursor, signal) =>
-      readCollectionPage(
+    (query, cursor, signal) => {
+      const params = new URLSearchParams({ limit: "50" });
+      for (const key of ["name", "boundary", "recipe", "status"]) {
+        const value = query[`filter_${key}`];
+        if (value !== undefined) params.set(key, value);
+      }
+      if (cursor !== null) params.set("cursor", cursor);
+      return readCollectionPage(
         props.session,
-        `/api/v2/http/credentials?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`,
+        `/api/v2/http/credentials?${params}`,
         decodeHTTPCredential,
         signal,
-      ),
+      );
+    },
     navigate,
     { key: "created", direction: "descending" },
   );
@@ -266,7 +290,37 @@ function CredentialCollection(props: Props) {
           items={items}
           rowKey={(c) => c.id}
           initialSort={{ key: "created", direction: "descending" }}
-          filters={[]}
+          filters={[
+            {
+              key: "name",
+              label: "Name or ID",
+              type: "text",
+              value: (c) => c.name,
+              literalValues: (c) => [c.id],
+            },
+            {
+              key: "boundary",
+              label: "HTTPS boundary",
+              type: "text",
+              value: (c) => `${c.boundary.host}:${c.boundary.port}`,
+            },
+            {
+              key: "recipe",
+              label: "Header recipe",
+              type: "text",
+              value: (c) => `${c.recipe.header} ${c.recipe.prefix}`,
+            },
+            {
+              key: "status",
+              label: "Status",
+              type: "select",
+              value: (c) => (c.available ? "configured" : "unavailable"),
+              options: [
+                { value: "configured", label: "Configured" },
+                { value: "unavailable", label: "Unavailable" },
+              ],
+            },
+          ]}
           columns={[
             {
               key: "name",
@@ -648,11 +702,52 @@ function CredentialEditor({
         open={confirming}
         title={title}
         consequence={
-          metadata
-            ? `HTTPS ${host}:${port}; replace ${header} with ${prefix}[secret]. Every referencing grant must remain contained.`
-            : mode === "delete"
-              ? "Permanently retire this unreferenced credential. Stored material cannot be restored from a backup."
-              : "Once replacement starts, failure may leave this credential unavailable; replacement does not fall back to the old secret."
+          metadata ? (
+            <div class="review-stack">
+              <dl class="detail-facts">
+                <div>
+                  <dt>Name</dt>
+                  <dd>{name}</dd>
+                </div>
+                <div>
+                  <dt>HTTPS boundary</dt>
+                  <dd>
+                    {host}:{port}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Wildcard hosts</dt>
+                  <dd>
+                    {wildcard ? "Allowed within boundary" : "Exact host only"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Header</dt>
+                  <dd>{header}</dd>
+                </div>
+                <div>
+                  <dt>Prefix</dt>
+                  <dd>{prefix === "" ? "None" : <code>{prefix}</code>}</dd>
+                </div>
+                <div>
+                  <dt>Secret material</dt>
+                  <dd>
+                    {mode === "create"
+                      ? "Write-only; not displayed"
+                      : "Unchanged"}
+                  </dd>
+                </div>
+              </dl>
+              <p>
+                Replace the named header using this recipe. Every referencing
+                grant must remain contained.
+              </p>
+            </div>
+          ) : mode === "delete" ? (
+            "Permanently retire this unreferenced credential. Stored material cannot be restored from a backup."
+          ) : (
+            "Once replacement starts, failure may leave this credential unavailable; replacement does not fall back to the old secret."
+          )
         }
         confirmLabel={title}
         destructive={mode !== "create"}
