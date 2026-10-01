@@ -165,9 +165,12 @@ routing through `/api/v2/git`. Enabled HTTPS origins classify smart Git separate
 from ordinary HTTP and authorize every requested ref action before forwarding a
 push. Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and
 secrets never inherit HTTP defaults, request grants or HTTP credentials. Use
-`agent-gateway git --help` for the command tree. Git configuration capabilities
-have API/CLI owners in `GitControlPlaneCapabilityManifest`, separately from the
-browser capability inventory; no Git browser controls are claimed.
+`agent-gateway git --help` for the command tree. The dedicated **Git** browser
+section manages Repositories, Grants and Credentials, separately from HTTP/MCP.
+Canonical destinations are immutable; alias edits never retarget authority.
+Adding a push rule explicitly enables read. Secret controls are write-only and
+clear on submission, cancellation, navigation and session loss. Review changes
+before confirmation; uncertain mutations offer no replay.
 
 Create a repository from a strict JSON file with deliberate public access:
 
@@ -237,6 +240,57 @@ preflight; explicit `--etag` is never refreshed. Authority changes fence pending
 admissions and retain atomic administrative audit. No command replays an uncertain
 mutation. The [Git public contract](../design/public-contract.md#git-configuration-resources)
 owns exact shapes, bounds and failures.
+
+## Git traffic history
+
+Use **Git → Traffic**, `GET /api/v2/git/traffic`, or:
+
+```bash
+agent-gateway git traffic list --limit 50
+agent-gateway git traffic get TRAFFIC_ID
+```
+
+Lists are newest-first with bounded `--limit`/`--cursor` continuation; JSON retains
+exact admission and optional completion evidence. History is bounded and may be
+pruned. Stale cursors require a fresh read, not another Git operation. Each
+classified authenticated exchange has its own Git record when durable admission
+is available; it is not duplicated as an ordinary HTTP request. Discovery and
+flush-only probes are distinct from pushes. No guessed CONNECT association or
+traffic-to-grant shortcut is provided.
+
+**Admission**, **Transport**, and **Upstream report** answer different questions.
+Allowed does not mean dispatched; HTTP 200 and clean transfer do not mean push
+success. Read completion does not establish a valid local checkout. A complete
+supported receive-pack report can say reported success, failure, or partial
+success. This is an upstream claim, not independent verification of repository
+effects. Missing, malformed, interrupted, oversized or unsupported reports remain
+unknown, including a partial report missing one requested command. Git push
+observation requests identity encoding; an unexpectedly encoded response is
+relayed live but not interpreted. Ordinary HTTP encoding is unchanged.
+
+Configured repository name/destination, revisions, up to four applicable grant
+references plus their total, command operation counts, and transport facts are
+immutable admission-time evidence. Later rename/deletion/rotation never rewrites
+that history. Legacy rows without policy facts or terminal observation remain
+explicitly unavailable/unknown. Observed refs/OIDs, packs, request headers,
+command fingerprints, arbitrary upstream messages and secrets are not persisted.
+
+Blocked/unsupported exchanges are not authorized; unavailable Git credentials
+never fall back to public access. For an uncertain push, inspect the native Git
+result and reconcile the relevant remote refs with an independently authorized
+read before deciding on another operation. Do not infer rollback or safe retry
+from missing completion; a persistence failure does not replace a result already
+relayed to the live client.
+
+For clients, use HTTPS smart-Git remotes with the configured canonical spelling or
+explicit `.git` alias. Follow [proxy and CA setup](http-proxy.md) to activate the
+Gateway proxy, transfer only its public CA and the supported agent proxy
+credential through protected client configuration, and configure Git's HTTPS
+proxy and CA trust (`http.proxy`/`http.sslCAInfo`) in the client environment. Never
+disable certificate verification or transfer the upstream Git credential to the
+client. Keep host Git helpers, SSH, LFS, alternate transports and direct-egress
+bypass outside this integration. Source/Chromium/local TLS fixtures do not qualify
+live GitHub or actual sandbox egress, installed services, or native key custody.
 
 ## Scoped HTTP credentials
 

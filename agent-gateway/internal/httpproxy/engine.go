@@ -266,14 +266,26 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		e.rejectInvalid(w, r, lease, inside, "target", httppolicy.RejectionReason(err))
 		return
 	}
-	address, err := e.options.Remote.ResolveProxy(r.Context(), target.Destination(), e.options.Listeners)
-	if err != nil {
-		reject(w, http.StatusForbidden)
-		return
-	}
 	repository, profile, git, err := e.options.Authority.ResolveGitRequest(r.Context(), target)
 	if err != nil {
-		reject(w, http.StatusForbidden)
+		if git {
+			reason := "unsupported"
+			if errors.Is(err, authorization.ErrNotFound) {
+				reason = "repository_unavailable"
+			}
+			e.rejectGit(w, r, lease, reason)
+		} else {
+			reject(w, http.StatusForbidden)
+		}
+		return
+	}
+	address, err := e.options.Remote.ResolveProxy(r.Context(), target.Destination(), e.options.Listeners)
+	if err != nil {
+		if git {
+			e.rejectGit(w, r, lease, "destination_unavailable")
+		} else {
+			reject(w, http.StatusForbidden)
+		}
 		return
 	}
 	if git {

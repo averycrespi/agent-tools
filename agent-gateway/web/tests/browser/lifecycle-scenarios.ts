@@ -1248,6 +1248,10 @@ export async function runShellPrimitives(
     ["Credentials", "#/http/credentials"],
     ["Grants", "#/http/grants"],
     ["Traffic", "#/http/traffic"],
+    ["Repositories", "#/git/repositories"],
+    ["Grants", "#/git/grants"],
+    ["Credentials", "#/git/credentials"],
+    ["Traffic", "#/git/traffic"],
     ["Servers", "#/mcp/servers"],
     ["Tools", "#/mcp/tools"],
     ["Grants", "#/mcp/grants"],
@@ -1270,6 +1274,7 @@ export async function runShellPrimitives(
     fail("domain navigation labels, order or legacy destinations changed");
   for (const [name, labels] of [
     ["HTTP", ["Credentials", "Grants", "Traffic"]],
+    ["Git", ["Repositories", "Grants", "Credentials", "Traffic"]],
     ["MCP", ["Servers", "Tools", "Grants", "Requests", "Invocations"]],
   ] as const) {
     const links = await primary
@@ -1281,8 +1286,8 @@ export async function runShellPrimitives(
     if (JSON.stringify(links) !== JSON.stringify(labels))
       fail(`${name} navigation group lost its accessible membership`);
   }
-  if ((await primary.getByRole("group").count()) !== 2)
-    fail("primary navigation must contain the HTTP and MCP named groups");
+  if ((await primary.getByRole("group").count()) !== 3)
+    fail("primary navigation must contain the HTTP, Git and MCP named groups");
   for (const [label, href] of expectedNavigation) {
     await primary.locator(`a[href="${href}"]`).focus();
     await page.keyboard.press("Enter");
@@ -1294,7 +1299,9 @@ export async function runShellPrimitives(
             ? `MCP ${label === "Requests" ? "Access Requests" : label}`
             : href.startsWith("#/http/")
               ? `HTTP ${label}`
-              : label) &&
+              : href.startsWith("#/git/")
+                ? `Git ${label}`
+                : label) &&
         document
           .querySelector("#primary-navigation a[aria-current=page]")
           ?.getAttribute("href") === href,

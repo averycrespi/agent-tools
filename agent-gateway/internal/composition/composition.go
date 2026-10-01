@@ -74,6 +74,7 @@ type ControlAPIDependencies struct {
 
 	GrantRequests *grantrequests.AdminService
 	Invocations   *invocation.ReadService
+	GitTraffic    *invocation.ReadService
 	HTTPTraffic   *invocation.ReadService
 	Audit         *audit.Repository
 
@@ -220,7 +221,7 @@ func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
 	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil || built.httpCredentials == nil || built.gitCredentials == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization, GitPolicies: built.authorization, GitCredentials: built.gitCredentials}, true
+	return ControlAPIDependencies{AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, GitTraffic: built.invocationReads, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization, GitPolicies: built.authorization, GitCredentials: built.gitCredentials}, true
 }
 func (built *Composition) authorityDependenciesComplete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&

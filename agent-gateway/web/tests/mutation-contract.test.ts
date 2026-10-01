@@ -19,6 +19,16 @@ const routes: Array<
   [`/api/v2/mcp/servers/${id}/operations`, "POST", true, "operation_start"],
   [`/api/v2/mcp/servers/${id}/oauth-flows`, "POST", true, "none"],
   [`/api/v2/mcp/servers/${id}/credential-replacements`, "POST", true, "none"],
+  ["/api/v2/git/repositories", "POST", false, "none"],
+  [`/api/v2/git/repositories/${id}`, "PATCH", true, "none"],
+  [`/api/v2/git/repositories/${id}`, "DELETE", true, "none"],
+  ["/api/v2/git/grants", "POST", false, "none"],
+  [`/api/v2/git/grants/${id}`, "PATCH", true, "none"],
+  [`/api/v2/git/grants/${id}`, "DELETE", true, "none"],
+  ["/api/v2/git/credentials", "POST", false, "none"],
+  [`/api/v2/git/credentials/${id}`, "PATCH", true, "none"],
+  [`/api/v2/git/credentials/${id}`, "DELETE", true, "none"],
+  [`/api/v2/git/credentials/${id}/rotate`, "POST", true, "none"],
   ["/api/v2/principals", "POST", false, "none"],
   [`/api/v2/principals/${id}/credential`, "POST", true, "none"],
   ["/api/v2/mcp/grants", "POST", false, "none"],
@@ -46,6 +56,9 @@ for (const [route, method, requiresPrecondition, idempotency] of routes) {
         requiresPrecondition,
         idempotency,
         successStatuses: [200],
+        ...(route.startsWith("/api/v2/git/credentials") && method === "POST"
+          ? { uncertainProblemCodes: ["keyring_unavailable"] }
+          : {}),
         decode: async () => {},
       };
       const mutation = coordinator.create<void>();

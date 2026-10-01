@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -71,10 +72,25 @@ func (r *Repository) EvaluateGitAdmission(ctx context.Context, lease *Lease, id,
 			if e != nil {
 				return e
 			}
+			policyFacts := &contract.GitTrafficPolicy{RepositoryName: repo.resource.Name, RepositoryURL: repo.resource.URL, Grants: []contract.GitRevisionRef{}}
+			for _, action := range request.Actions() {
+				switch action.Action {
+				case "create":
+					policyFacts.Creates++
+				case "update":
+					policyFacts.Updates++
+				case "delete":
+					policyFacts.Deletes++
+				}
+			}
 			applicable := []gitpolicy.Grant{}
 			capable := false
 			for _, g := range grants {
 				if g.PrincipalID == lease.binding.PrincipalID && g.RepositoryID == supplied.ID && g.State == contract.GrantActive {
+					policyFacts.GrantCount++
+					if len(policyFacts.Grants) < 4 {
+						policyFacts.Grants = append(policyFacts.Grants, contract.GitRevisionRef{ID: g.ID, Revision: g.Revision})
+					}
 					applicable = append(applicable, gitpolicy.Grant{Policy: g.Policy})
 					capable = capable || g.Policy.Read && len(g.Policy.Refs) > 0
 				}
@@ -96,12 +112,19 @@ func (r *Repository) EvaluateGitAdmission(ctx context.Context, lease *Lease, id,
 			}
 			allowed = allowed && network
 			evidence := contract.GitTrafficAdmission{ID: id, AdmittedAt: admittedAt, EvaluatedAt: binding.EvaluatedAt, Principal: contract.GitRevisionRef{ID: lease.binding.PrincipalID, Revision: lease.binding.PrincipalRevision}, AgentCredential: contract.GitRevisionRef{ID: lease.binding.CredentialID, Revision: lease.binding.CredentialRevision}, Repository: contract.GitRevisionRef{ID: supplied.ID, Revision: supplied.Revision}, AliasRevision: supplied.AliasRevision, ProfileRevision: profile.Revision, AuthorizationRevision: binding.AuthorizationRevision, Operation: request.Operation(), Commands: len(request.Actions()), Allowed: allowed, PrivateGrant: private}
+			evidence.Policy = policyFacts
 			if allowed && repo.resource.CredentialID != nil {
 				material, e := gitMaterialTx(ctx, tx, *repo.resource.CredentialID)
-				if e != nil {
+				switch {
+				case errors.Is(e, ErrAdmissionUnavailable):
+					allowed = false
+					evidence.Allowed = false
+					evidence.Denial = "credential_unavailable"
+				case e != nil:
 					return e
+				default:
+					evidence.Material = &material
 				}
-				evidence.Material = &material
 			}
 			out.Evidence = evidence
 			if allowed {

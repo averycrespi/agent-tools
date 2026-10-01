@@ -20,6 +20,7 @@ import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
+import { GitConfiguration, GitTrafficView } from "./git";
 import { HTTPCredentials } from "./http-credentials";
 import { HTTPGrants } from "./http-grants";
 import { HTTPTraffic, HTTPTrafficController } from "./http-traffic";
@@ -61,6 +62,15 @@ const navigation: ReadonlyArray<{
     destinations: ["http-credentials", "http-grants", "http-traffic"],
   },
   {
+    label: "Git",
+    destinations: [
+      "git-repositories",
+      "git-grants",
+      "git-credentials",
+      "git-traffic",
+    ],
+  },
+  {
     label: "MCP",
     destinations: ["servers", "catalog", "grants", "requests", "invocations"],
   },
@@ -71,6 +81,10 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   servers: "Servers",
   catalog: "Tools",
   principals: "Agents",
+  "git-repositories": "Repositories",
+  "git-grants": "Grants",
+  "git-credentials": "Credentials",
+  "git-traffic": "Traffic",
   "http-credentials": "Credentials",
   "http-grants": "Grants",
   "http-traffic": "Traffic",
@@ -84,6 +98,10 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
 
 const pageLabels: Readonly<Record<Destination, string>> = {
   ...destinationLabels,
+  "git-repositories": "Git Repositories",
+  "git-grants": "Git Grants",
+  "git-credentials": "Git Credentials",
+  "git-traffic": "Git Traffic",
   "http-credentials": "HTTP Credentials",
   "http-grants": "HTTP Grants",
   "http-traffic": "HTTP Traffic",
@@ -139,6 +157,7 @@ const registerInvalidationTrigger = (
   matches: (viewKey: string) => boolean,
   invalidations: ReadonlyArray<
     | "authorization"
+    | "system_status"
     | "grant_requests"
     | "servers"
     | "catalog"
@@ -152,6 +171,12 @@ const registerInvalidationTrigger = (
     read: async () => null,
     publish: () => undefined,
   });
+registerInvalidationTrigger(
+  "git-invalidation",
+  (key) =>
+    /^#\/git\/(?:repositories|grants|credentials|traffic)(?:[/?]|$)/.test(key),
+  ["authorization", "system_status"],
+);
 registerInvalidationTrigger(
   "http-policy-invalidation",
   (key) => /^#\/http\/grants(?:[/?]|$)/.test(key),
@@ -495,7 +520,11 @@ function App() {
   const isRequestDetail =
     destination === "requests" && resolved.location.segments[1] !== undefined;
   const isResourceDetail =
-    ((destination === "http-credentials" ||
+    ((destination === "git-repositories" ||
+      destination === "git-grants" ||
+      destination === "git-credentials" ||
+      destination === "git-traffic" ||
+      destination === "http-credentials" ||
       destination === "http-grants" ||
       destination === "http-traffic") &&
       resolved.location.segments[1] !== undefined &&
@@ -507,31 +536,33 @@ function App() {
     isRequestDetail ||
     (destination === "audit" && resolved.location.segments[1] !== undefined);
   const destinationLabel =
-    destination === "http-grants" && resolved.location.segments[1] === "new"
-      ? "Create HTTP grant"
-      : destination === "http-grants" &&
-          resolved.location.segments[1] === "test-access"
-        ? "Test access"
-        : destination === "http-credentials" &&
-            resolved.location.segments[1] === "new"
-          ? "Create HTTP credential"
-          : destination === "servers" &&
-              resolved.location.segments[1] !== undefined
-            ? resolved.canonicalFragment === "#/mcp/servers/new"
-              ? "Create MCP Server"
-              : "MCP Server details"
-            : destination === "principals" &&
-                resolved.canonicalFragment === "#/agents/new"
-              ? "Create agent"
-              : destination === "grants" &&
-                  resolved.canonicalFragment.startsWith("#/mcp/grants/new")
-                ? "Create MCP Grant"
-                : resolved.canonicalFragment === "#/system/backups/new"
-                  ? "Create backup"
-                  : resolved.canonicalFragment ===
-                      "#/system/admin-credentials/new"
-                    ? "Create admin credential"
-                    : pageLabels[destination];
+    destination.startsWith("git-") && resolved.location.segments[1] === "new"
+      ? `Create Git ${destination === "git-repositories" ? "repository" : destination === "git-credentials" ? "credential" : "grant"}`
+      : destination === "http-grants" && resolved.location.segments[1] === "new"
+        ? "Create HTTP grant"
+        : destination === "http-grants" &&
+            resolved.location.segments[1] === "test-access"
+          ? "Test access"
+          : destination === "http-credentials" &&
+              resolved.location.segments[1] === "new"
+            ? "Create HTTP credential"
+            : destination === "servers" &&
+                resolved.location.segments[1] !== undefined
+              ? resolved.canonicalFragment === "#/mcp/servers/new"
+                ? "Create MCP Server"
+                : "MCP Server details"
+              : destination === "principals" &&
+                  resolved.canonicalFragment === "#/agents/new"
+                ? "Create agent"
+                : destination === "grants" &&
+                    resolved.canonicalFragment.startsWith("#/mcp/grants/new")
+                  ? "Create MCP Grant"
+                  : resolved.canonicalFragment === "#/system/backups/new"
+                    ? "Create backup"
+                    : resolved.canonicalFragment ===
+                        "#/system/admin-credentials/new"
+                      ? "Create admin credential"
+                      : pageLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
   const pendingRequests = pendingRequestsController.presentation(view);
 
@@ -842,6 +873,35 @@ function App() {
             <Requests
               session={sessionClient}
               mutations={mutationCoordinator}
+              resolved={resolved}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "git-traffic" ? (
+            <GitTrafficView
+              key={resolved.canonicalFragment}
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
+              resolved={resolved}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "git-repositories" ||
+            destination === "git-grants" ||
+            destination === "git-credentials" ? (
+            <GitConfiguration
+              key={resolved.canonicalFragment}
+              kind={
+                destination === "git-repositories"
+                  ? "repositories"
+                  : destination === "git-grants"
+                    ? "grants"
+                    : "credentials"
+              }
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              sinks={sensitiveSinkCoordinator}
               resolved={resolved}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}

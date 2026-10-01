@@ -19,11 +19,34 @@ func validGitRef(ref contract.GitRevisionRef) bool {
 func encodeGitAdmission(a contract.GitTrafficAdmission) (string, error) {
 	admitted, ok := parseCanonicalInvocationTimestamp(a.AdmittedAt)
 	evaluated, valid := parseCanonicalInvocationTimestamp(a.EvaluatedAt)
-	if !ok || !valid || evaluated.Before(admitted) || !validOpaqueInvocationID(a.ID) || !validGitRef(a.Principal) || !validGitRef(a.AgentCredential) || !validGitRef(a.Repository) || !gitpolicy.ValidRevision(a.AliasRevision) || !gitpolicy.ValidRevision(a.ProfileRevision) || !gitpolicy.ValidRevision(a.AuthorizationRevision) || a.Commands < 0 || a.Commands > contract.GitRequestedRefs {
+	if !ok || !valid || evaluated.Before(admitted) || !validOpaqueInvocationID(a.ID) || !validGitRef(a.Principal) || !validGitRef(a.AgentCredential) || !gitpolicy.ValidRevision(a.ProfileRevision) || !gitpolicy.ValidRevision(a.AuthorizationRevision) || a.Commands < 0 || a.Commands > contract.GitRequestedRefs {
 		return "", ErrInvalidInput
 	}
-	if !slices.Contains([]string{"read_discovery", "read", "push_discovery", "probe", "push"}, a.Operation) || (a.Operation == "push") != (a.Commands > 0) {
+	if a.Denial != "" && (a.Denial != "credential_unavailable" || a.Allowed || a.Rejection != "") {
 		return "", ErrInvalidInput
+	}
+	if a.Rejection != "" {
+		if !slices.Contains([]string{"unsupported", "repository_unavailable", "destination_unavailable"}, a.Rejection) || a.Allowed || a.Operation != "invalid" || a.Commands != 0 || a.Repository != (contract.GitRevisionRef{}) || a.AliasRevision != "" || a.Material != nil || a.PrivateGrant != nil {
+			return "", ErrInvalidInput
+		}
+	} else if !validGitRef(a.Repository) || !gitpolicy.ValidRevision(a.AliasRevision) {
+		return "", ErrInvalidInput
+	}
+	if !slices.Contains([]string{"read_discovery", "read", "push_discovery", "probe", "push", "invalid"}, a.Operation) || (a.Operation == "push") != (a.Commands > 0) || (a.Operation == "invalid") != (a.Rejection != "") {
+		return "", ErrInvalidInput
+	}
+	if p := a.Policy; p != nil {
+		canonical, err := gitpolicy.Locator(p.RepositoryURL)
+		if err != nil || canonical != p.RepositoryURL || len(p.RepositoryName) == 0 || len(p.RepositoryName) > 256 || p.Grants == nil || len(p.Grants) > 4 || p.GrantCount < len(p.Grants) || p.GrantCount > contract.GitGrants || p.Creates < 0 || p.Updates < 0 || p.Deletes < 0 || p.Creates+p.Updates+p.Deletes != a.Commands || a.Rejection != "" {
+			return "", ErrInvalidInput
+		}
+		seen := map[string]bool{}
+		for _, ref := range p.Grants {
+			if !validGitRef(ref) || seen[ref.ID] {
+				return "", ErrInvalidInput
+			}
+			seen[ref.ID] = true
+		}
 	}
 	if a.Material != nil && (!a.Allowed || !validGitRef(a.Material.Credential) || !gitpolicy.ValidRevision(a.Material.Generation)) {
 		return "", ErrInvalidInput
@@ -41,6 +64,12 @@ func encodeGitCompletion(a contract.GitTrafficAdmission, c contract.GitTrafficCo
 	completed, ok := parseCanonicalInvocationTimestamp(c.CompletedAt)
 	evaluated, valid := parseCanonicalInvocationTimestamp(a.EvaluatedAt)
 	if !ok || !valid || completed.Before(evaluated) || !a.Allowed || c.BytesSent < 0 || c.BytesReceived < 0 || c.DurationMS < 0 || c.Status != 0 && (c.Status < 100 || c.Status > 599) {
+		return "", ErrInvalidInput
+	}
+	if !slices.Contains([]string{"", "credential_unavailable", "authorization_unavailable"}, c.Failure) || c.Failure != "" && c.Outcome != "prestart_failure" {
+		return "", ErrInvalidInput
+	}
+	if !slices.Contains([]string{"", "reported_success", "reported_failure", "reported_partial"}, c.ReportedResult) || c.ReportedResult != "" && (a.Operation != "push" || !c.TransferComplete || c.Status != 200 || c.Outcome != "outcome_unknown") {
 		return "", ErrInvalidInput
 	}
 	if !slices.Contains([]string{"prestart_failure", "outcome_unknown", "nonmutation"}, c.Outcome) {

@@ -13,6 +13,7 @@ type CollectionContract struct {
 }
 
 var collectionContracts = []CollectionContract{
+	{Pattern: "/api/v2/git/traffic", DefaultOrder: "insertion_sequence descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "GitTrafficPage", QueryMembers: []string{"cursor", "limit"}},
 	{Pattern: "/api/v2/git/repositories", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GitRepository>", QueryMembers: []string{"cursor", "limit"}},
 	{Pattern: "/api/v2/git/grants", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GitGrant>", QueryMembers: []string{"cursor", "limit"}},
 	{Pattern: "/api/v2/git/credentials", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GitCredential>", QueryMembers: []string{"cursor", "limit"}},

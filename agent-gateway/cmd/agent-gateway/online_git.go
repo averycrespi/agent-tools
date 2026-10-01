@@ -62,6 +62,8 @@ func gitOnlineSpecs() []onlineCommandSpec {
 		}
 	}
 	return append(specs,
+		onlineCommandSpec{Path: []string{"git", "traffic", "list"}, Use: "list", ManifestUse: "git traffic list", Short: "List recorded Git traffic", Flags: []string{"limit", "cursor"}},
+		onlineCommandSpec{Path: []string{"git", "traffic", "get"}, Use: "get ID", ManifestUse: "git traffic get ID", Short: "Get a Git traffic record"},
 		onlineCommandSpec{Path: []string{"git", "routing-profile", "get"}, Use: "get", ManifestUse: "git routing-profile get", Short: "Get Git routing intent"},
 		onlineCommandSpec{Path: []string{"git", "routing-profile", "update"}, Use: "update", ManifestUse: "git routing-profile update --file PATH [--etag ETAG]", Short: "Update Git routing intent", Flags: []string{"file", "etag", "yes"}, RequiredFlags: []string{"file"}},
 	)

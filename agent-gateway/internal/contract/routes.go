@@ -75,6 +75,8 @@ var routes = []Route{
 	{Pattern: "/api/v2/http/credentials/{id}/rotate", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/traffic", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/traffic/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/traffic", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/traffic/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/git/repositories", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/git/repositories/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/git/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},

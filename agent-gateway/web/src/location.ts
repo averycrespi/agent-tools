@@ -9,6 +9,10 @@ export type Destination =
   | "servers"
   | "catalog"
   | "principals"
+  | "git-repositories"
+  | "git-grants"
+  | "git-credentials"
+  | "git-traffic"
   | "http-credentials"
   | "http-grants"
   | "http-traffic"
@@ -37,6 +41,10 @@ export const destinationPaths: Readonly<Record<Destination, string>> = {
   servers: "mcp/servers",
   catalog: "mcp/tools",
   principals: "agents",
+  "git-repositories": "git/repositories",
+  "git-grants": "git/grants",
+  "git-credentials": "git/credentials",
+  "git-traffic": "git/traffic",
   "http-credentials": "http/credentials",
   "http-grants": "http/grants",
   "http-traffic": "http/traffic",
@@ -324,6 +332,18 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("servers", segments, query);
     }
   }
+  if (
+    (first === "git-repositories" ||
+      first === "git-grants" ||
+      first === "git-credentials" ||
+      first === "git-traffic") &&
+    noQuery &&
+    (segments.length === 1 ||
+      (segments.length === 2 &&
+        second !== undefined &&
+        (isGatewayID(second) || (second === "new" && first !== "git-traffic"))))
+  )
+    return location(first, segments, query);
   if (
     first === "http-traffic" &&
     validHTTPTrafficQuery(query) &&

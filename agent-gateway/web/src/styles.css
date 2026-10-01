@@ -574,6 +574,13 @@ p {
   margin-top: 24px;
 }
 
+.git-mutation-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .duration-controls {
   display: flex;
   flex-wrap: wrap;

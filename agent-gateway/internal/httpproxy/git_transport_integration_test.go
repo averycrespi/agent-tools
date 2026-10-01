@@ -428,6 +428,8 @@ func TestIntegrationNativeGitDeniedCommandsNeverDispatch(t *testing.T) {
 	} {
 		t.Run(test.path+test.contentType, func(t *testing.T) {
 			before := len(n.facts())
+			prior, historyErr := n.proxy.traffic.GitHistory(t.Context(), 0, 256)
+			require.NoError(t, historyErr)
 			conn := n.proxy.intercept(t, n.remote, "http/1.1")
 			u, err := url.Parse(n.remote)
 			require.NoError(t, err)
@@ -441,6 +443,10 @@ func TestIntegrationNativeGitDeniedCommandsNeverDispatch(t *testing.T) {
 			require.NoError(t, response.Body.Close())
 			require.NoError(t, conn.Close())
 			require.Equal(t, before, len(n.facts()), "denial must make zero upstream exchanges")
+			history, historyErr := n.proxy.traffic.GitHistory(t.Context(), 0, 256)
+			require.NoError(t, historyErr)
+			require.Len(t, history.Records, len(prior.Records)+1, "one Git admission per classified rejection")
+			require.False(t, history.Records[len(history.Records)-1].Admission.Allowed)
 		})
 	}
 	// Profile activation does not take ordinary pages away from HTTP policy.

@@ -174,6 +174,8 @@ All use existing administrator bearer/session authority, strict bounded JSON, no
 
 | Pattern                               | Exact Allow          | Authority               |
 | ------------------------------------- | -------------------- | ----------------------- |
+| `/api/v2/git/traffic`                 | `GET`                | admin bearer or session |
+| `/api/v2/git/traffic/{id}`            | `GET`                | admin bearer or session |
 | `/api/v2/git/repositories`            | `GET, POST`          | admin bearer or session |
 | `/api/v2/git/repositories/{id}`       | `DELETE, GET, PATCH` | admin bearer or session |
 | `/api/v2/git/grants`                  | `GET, POST`          | admin bearer or session |
@@ -185,7 +187,7 @@ All use existing administrator bearer/session authority, strict bounded JSON, no
 
 All `/api/v2/git` resources use existing administrator bearer/session authority,
 strict bounded closed JSON, no-store responses and no automatic replay. They add
-no browser or traffic-history surface. Collections accept only singleton nonempty
+no listener or agent identity. Configuration collections accept only singleton nonempty
 `cursor` and canonical `limit` (default 50, maximum 100), use ID ascending order
 and return `{items,next_cursor,total_count,offset}` from one bounded read. ID
 continuations are representation-bound, not frozen policy snapshots; a missing
@@ -211,6 +213,22 @@ continuation identity is stale. Item/profile reads are bodyless and queryless.
 | `PATCH /api/v2/git/credentials/{id}`       | `GitCredentialUpdate` | `GitCredential` / 200            | yes            | yes           |
 | `DELETE /api/v2/git/credentials/{id}`      | `EmptyObject`         | `Empty` / 204                    | yes            | no            |
 | `POST /api/v2/git/credentials/{id}/rotate` | `GitCredentialRotate` | `GitCredential` / 200            | yes            | yes           |
+
+Traffic reads are `GET /api/v2/git/traffic` (`GitListQuery` → `GitTrafficPage`)
+and `GET /api/v2/git/traffic/{id}` (`None` → `GitTrafficRecord`), both status 200,
+bodyless, without ETags. List accepts only `limit` (50 default, 100 maximum) and
+`cursor`, returning `{items,next_cursor}` in insertion-sequence descending order.
+MAC-bound cursors pin process epoch, traffic generation, pruning and high-water;
+stale/replaced history cannot silently continue. Items contain immutable admission
+and nullable completion. Optional admission policy facts retain configured
+repository identity, bounded grant references and operation counts. Optional
+`rejection`/`denial` carry closed safe categories, never raw failure text.
+Completion `outcome` remains transport-oriented (`prestart_failure`,
+`outcome_unknown`, `nonmutation`); optional `reported_result` is independently
+`reported_success`, `reported_failure`, or `reported_partial`, only for a complete
+HTTP-200 push transfer with a supported complete request-bound upstream report.
+Absent reporting remains unknown. Historical rows without these optional fields
+remain valid without reinterpretation or a database migration.
 
 `GitRepositoryWrite` requires exactly `name`, `url`, nonnull `aliases` array and
 nullable `credential_id`. No omitted credential selector means public access:

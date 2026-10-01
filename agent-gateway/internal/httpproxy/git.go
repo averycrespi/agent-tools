@@ -30,7 +30,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	}
 	request, err := gitwire.New(r.Context(), target, repository, profile.Revision, r.Header, r.Body)
 	if err != nil {
-		reject(w, http.StatusBadRequest)
+		e.rejectGit(w, r, lease, "unsupported")
 		return
 	}
 	if err := controller.SetReadDeadline(time.Time{}); err != nil {
@@ -53,6 +53,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	if result.Material != nil {
 		header, err = result.Material.Apply(repository.URL, header)
 		if err != nil {
+			completion.Failure = "credential_unavailable"
 			reject(w, http.StatusBadGateway)
 			return
 		}
@@ -72,11 +73,17 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 		_ = upload.Close()
 		completion.BytesSent = upload.count.Load()
 		completion.TransferComplete = completion.TransferComplete && (upload.eof.Load() || r.ContentLength >= 0 && completion.BytesSent == r.ContentLength)
+		if !completion.TransferComplete {
+			completion.ReportedResult = ""
+		}
 		if request.Operation() != "push" && completion.TransferComplete {
 			completion.Outcome = "nonmutation"
 		}
 	}()
 	completion.Outcome = "outcome_unknown"
+	if request.Operation() == "push" {
+		header.Set("Accept-Encoding", "identity")
+	}
 	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Evidence.PrivateGrant != nil, e.roots)
 	if err != nil {
 		reject(w, http.StatusBadGateway)
@@ -93,13 +100,34 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	if err := writer.Flush(); err != nil {
 		panic(http.ErrAbortHandler)
 	}
-	n, err := io.CopyBuffer(writer, response.Body, make([]byte, contract.HTTPProxyBufferBytes))
+	var reader io.Reader = response.Body
+	var observer *gitwire.StatusObserver
+	encodings := response.Header.Values("Content-Encoding")
+	if request.Operation() == "push" && response.StatusCode == http.StatusOK && (len(encodings) == 0 || len(encodings) == 1 && encodings[0] == "identity") && len(response.Header.Values("Content-Type")) == 1 && response.Header.Get("Content-Type") == "application/x-git-receive-pack-result" && !response.Uncompressed {
+		observer = request.ObserveStatus()
+		reader = io.TeeReader(reader, observer)
+	}
+	n, err := io.CopyBuffer(writer, reader, make([]byte, contract.HTTPProxyBufferBytes))
 	completion.BytesReceived = n
 	if err != nil {
 		panic(http.ErrAbortHandler)
 	}
 	completion.TransferComplete = true
+	if observer != nil {
+		if result := observer.Result(); result != "unknown" {
+			completion.ReportedResult = result
+		}
+	}
 }
+func (e *Engine) rejectGit(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, reason string) {
+	identity, err := e.options.Evidence.PrepareIdentity()
+	if err != nil || e.options.Admissions.RejectGit(r.Context(), lease, identity, reason) != nil {
+		reject(w, http.StatusServiceUnavailable)
+		return
+	}
+	reject(w, http.StatusForbidden)
+}
+
 func (e *Engine) completeGit(result invocation.GitAdmissionResult, identity invocation.PreparedAdmission, completion contract.GitTrafficCompletion) {
 	now := e.options.Now().UTC()
 	start, err := time.Parse(time.RFC3339Nano, identity.AdmittedAt)

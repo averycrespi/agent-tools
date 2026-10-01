@@ -1,4 +1,5 @@
 import { type Browser, chromium, firefox, webkit } from "@playwright/test";
+import { runGit } from "./browser/git-scenarios.ts";
 import { runHTTPCredentials } from "./browser/http-credential-scenarios.ts";
 import { runHTTPGrants } from "./browser/http-grant-scenarios.ts";
 import { runHTTPTraffic } from "./browser/http-traffic-scenarios.ts";
@@ -79,6 +80,7 @@ interface BridgeInput {
     | "access-management-read-canary"
     | "system-administration-canary"
     | "visual-accessibility-privacy-canary"
+    | "git"
     | "http-credentials"
     | "http-grants"
     | "http-traffic"
@@ -161,6 +163,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "access-management-read-canary" &&
       value.scenario !== "system-administration-canary" &&
       value.scenario !== "visual-accessibility-privacy-canary" &&
+      value.scenario !== "git" &&
       value.scenario !== "http-credentials" &&
       value.scenario !== "http-grants" &&
       value.scenario !== "http-traffic" &&
@@ -229,6 +232,7 @@ try {
   });
   const externalRequests: string[] = [];
   let httpGrantExpectedFailures: number[] = [];
+  let gitExpectedFailures: number[] = [];
   const originFailures: string[] = [];
   const requestHeaderChecks: Array<Promise<void>> = [];
   let requests = 0;
@@ -698,6 +702,15 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "git") {
+      gitExpectedFailures = await runGit(
+        browser.version(),
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "http-credentials") {
       await runHTTPCredentials(
         browser.version(),
@@ -778,6 +791,17 @@ try {
             ).length ===
             httpGrantExpectedFailures.filter((value) => value === status)
               .length,
+        )) ||
+      (input.scenario === "git" &&
+        consoleFailures.length === gitExpectedFailures.length &&
+        [...new Set(gitExpectedFailures)].every(
+          (status) =>
+            consoleFailures.filter((value) =>
+              new RegExp(
+                `^Failed to load resource: the server responded with a status of ${status}(?: \\(.*\\))?$`,
+              ).test(value),
+            ).length ===
+            gitExpectedFailures.filter((value) => value === status).length,
         )) ||
       (input.scenario === "auth-flows" &&
         consoleFailures.length === 1 &&

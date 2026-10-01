@@ -247,6 +247,37 @@ unknown, and even clean HTTP 200 never asserts a successful Git ref mutation.
 A complete transfer requires both the upload and response to finish; an early
 response to an unfinished upload is not a complete transfer.
 
+### Git report observation and history
+
+The request-local Git wire owner observes at most 256 KiB of response controls,
+without affecting live forwarding when observation is unsupported or exceeds the
+bound. Negotiated report-status/report-status-v2 basic status and side-band-64k
+channel-1 framing are supported; progress is discarded and channel-3 fatal or
+unsupported v2 option records leave the report unknown. Every requested command
+must appear exactly once, with no foreign refs, and both inner/outer flushes and
+exact terminal framing must be complete. Ref/OID/message data never leaves the
+request-local owner. Complete upstream reports distinguish reported success,
+failure and partial success, never independently verified effects.
+
+Observed pushes explicitly request `Accept-Encoding: identity`; any unexpected
+encoding, automatic decompression, unsupported content type, non-200 status,
+interrupted upload/response or incomplete report prevents a retained result.
+Response bytes and headers still relay live with the ordinary safe transport
+handling. Ordinary HTTP compression is unchanged. Completion-persistence failure
+never replaces the known live response and does not invent terminal evidence.
+
+Git traffic stays in the shared traffic store with one record per classified
+exchange and no duplicate ordinary HTTP request. Safely classified rejections
+retain only closed categories and authenticated identity/revision facts; unknown
+repository coordinates and unsupported request content are not retained.
+Optional admission-time policy facts hold configured repository name/canonical
+URL, at most four applicable grant references and their total, and create/update/
+delete counts. These are immutable historical configuration, not current labels
+or observed refs. Public API, CLI and browser history expose admission, transport
+and upstream-report evidence separately; absent historical additions remain
+unavailable/unknown. No guessed CONNECT link, raw capture, traffic-to-grant action
+or automatic retry is introduced.
+
 ## Governed invocation and audit evidence
 
 Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover).

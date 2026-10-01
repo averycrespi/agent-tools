@@ -121,6 +121,8 @@ type Request struct {
 	repository      contract.GitRepository
 	profileRevision string
 	operation       string
+	reportStatus    bool
+	sideband        bool
 	actions         []gitpolicy.RefAction
 	prefix          []byte
 	source          io.ReadCloser
@@ -238,6 +240,9 @@ func (r *Request) parse(ctx context.Context) error {
 				if !validCapabilities(capabilities) {
 					return ErrInvalid
 				}
+				tokens := strings.Fields(capabilities)
+				r.reportStatus = slices.Contains(tokens, "report-status") || slices.Contains(tokens, "report-status-v2")
+				r.sideband = slices.Contains(tokens, "side-band-64k")
 				control = command
 			}
 		}

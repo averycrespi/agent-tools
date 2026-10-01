@@ -49,6 +49,12 @@ func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorizatio
 			result.Material = nil
 		}
 	}()
+	if materialErr != nil {
+		evaluation.Evidence.Allowed = false
+		evaluation.Evidence.Denial = "credential_unavailable"
+		evaluation.Evidence.Material = nil
+		result.Evidence = evaluation.Evidence
+	}
 	receipt, err := traffic.AdmitGit(ctx, evaluation.Evidence)
 	if err != nil {
 		return result, err
@@ -72,6 +78,26 @@ func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorizatio
 	result.receipt = receipt
 	return result, nil
 }
+func (c *AdmissionCoordinator) RejectGit(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, reason string) error {
+	if c == nil || c.audits.traffic == nil || !validAdmissionIdentity(identity) {
+		return ErrInvalidInput
+	}
+	if !c.audits.traffic.admissionGate.TryRLock() {
+		return ErrTrafficCapacity
+	}
+	defer c.audits.traffic.admissionGate.RUnlock()
+	evidence, err := c.authority.GitRejection(ctx, lease, identity.InvocationID, identity.AdmittedAt, reason)
+	if err != nil {
+		return err
+	}
+	defer c.audits.publishTrafficStatus()
+	receipt, err := c.audits.traffic.AdmitGit(ctx, evidence)
+	if err == nil {
+		c.audits.traffic.Release(receipt)
+	}
+	return err
+}
+
 func (c *AdmissionCoordinator) CompleteGit(ctx context.Context, result GitAdmissionResult, completion contract.GitTrafficCompletion) error {
 	if c == nil || c.audits.traffic == nil || !result.DispatchAuthorized {
 		return ErrInvalidInput
