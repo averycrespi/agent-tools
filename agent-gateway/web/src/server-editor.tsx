@@ -1432,8 +1432,9 @@ function CreationReview({ draft }: { draft: Draft }) {
       ? "None"
       : items.map((item) => `${item.name}${separator}${item.value}`).join(", ");
   return (
-    <>
-      <dl class="review-list" data-testid="server-creation-review">
+    <div data-testid="server-creation-review">
+      <h3>Identity</h3>
+      <dl class="review-list">
         <div>
           <dt>Namespace</dt>
           <dd>{draft.namespace}</dd>
@@ -1446,6 +1447,9 @@ function CreationReview({ draft }: { draft: Draft }) {
           <dt>Initial state</dt>
           <dd>{draft.enabled ? "Enabled" : "Disabled"}</dd>
         </div>
+      </dl>
+      <h3>Connection</h3>
+      <dl class="review-list" data-testid="server-connection-review">
         <div>
           <dt>Connection</dt>
           <dd>{connection}</dd>
@@ -1479,6 +1483,13 @@ function CreationReview({ draft }: { draft: Draft }) {
               <dt>Custom HTTP headers (plaintext)</dt>
               <dd>{pairs(draft.headers, ": ")}</dd>
             </div>
+          </>
+        )}
+      </dl>
+      {draft.transportKind !== "stdio" && (
+        <>
+          <h3>Authentication</h3>
+          <dl class="review-list" data-testid="server-authentication-review">
             <div>
               <dt>Authentication</dt>
               <dd>{authentication}</dd>
@@ -1550,14 +1561,14 @@ function CreationReview({ draft }: { draft: Draft }) {
                 </div>
               </>
             )}
-          </>
-        )}
-      </dl>
+          </dl>
+        </>
+      )}
       <p>
         The namespace is permanent. If enabled, Gateway will try to connect
         after the server is created.
       </p>
-    </>
+    </div>
   );
 }
 

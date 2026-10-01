@@ -110,6 +110,8 @@ func TestPurposeEvidenceDAGMetadataIsComplete(t *testing.T) {
 	}
 	assert.Equal(t, 5*time.Minute, dag.Leaves["test-unit"].Timeout)
 	assert.Equal(t, 6*time.Minute, dag.Leaves["test-unit"].Budget)
+	assert.Equal(t, 6*time.Minute, dag.Leaves["test-browser-workflows"].Timeout)
+	assert.Equal(t, 7*time.Minute, dag.Leaves["test-browser-workflows"].Budget)
 
 	for id, command := range dag.Commands {
 		assert.Equal(t, id, command.ID)

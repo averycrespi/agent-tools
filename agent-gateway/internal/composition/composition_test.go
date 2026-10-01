@@ -43,6 +43,23 @@ func TestInvocationReadComposition(t *testing.T) {
 	controlAPI, ok := built.ControlAPI()
 	require.True(t, ok)
 	assert.Same(t, built.invocationReads, controlAPI.Invocations)
+	require.NotNil(t, controlAPI.RecordedActivity)
+	assert.Equal(t, built.traffic.RecordedActivity().Epoch, controlAPI.RecordedActivity().Epoch, "one composition-owned traffic observer")
+	require.NotNil(t, controlAPI.GitCredentials)
+	assert.Same(t, built.gitCredentials, controlAPI.GitCredentials)
+	assert.Same(t, built.authorization, controlAPI.GitPolicies)
+	assert.Same(t, built.authorization, controlAPI.HTTPPolicies)
+	assert.Same(t, built.httpCredentials, controlAPI.HTTPCredentials)
+	traffic := built.traffic
+	built.traffic = nil
+	_, availableWithoutTraffic := built.ControlAPI()
+	built.traffic = traffic
+	assert.False(t, availableWithoutTraffic, "Git authority must not expose a bundle without the recorded-activity owner")
+	gitCredentials := built.gitCredentials
+	built.gitCredentials = nil
+	_, availableWithoutGit := built.ControlAPI()
+	built.gitCredentials = gitCredentials
+	assert.False(t, availableWithoutGit, "recorded activity must not expose a bundle without Git credential authority")
 	page, err := controlAPI.Invocations.List(t.Context(), contract.InvocationListQuery{Limit: 1})
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)

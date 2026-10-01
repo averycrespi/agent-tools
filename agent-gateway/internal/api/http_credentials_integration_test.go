@@ -78,6 +78,12 @@ func newHTTPCredentialIntegrationHandler(t *testing.T) (http.Handler, *[]contrac
 
 func newHTTPCredentialIntegrationHandlerWithBackend(t *testing.T, backend *httpCredentialBackend) (http.Handler, *[]contract.Invalidation) {
 	t.Helper()
+	handler, _, invalidations := newHTTPCredentialIntegrationHandlerWithRestart(t, backend)
+	return handler, invalidations
+}
+
+func newHTTPCredentialIntegrationHandlerWithRestart(t *testing.T, backend *httpCredentialBackend) (http.Handler, func() http.Handler, *[]contract.Invalidation) {
+	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	owner, err := gatewaypaths.Acquire(root)
@@ -96,14 +102,18 @@ func newHTTPCredentialIntegrationHandlerWithBackend(t *testing.T, backend *httpC
 	require.NoError(t, err)
 	invalidations := []contract.Invalidation{}
 	var invalidationMu sync.Mutex
-	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Principals: policies, HTTPPolicies: policies, HTTPCredentials: service, Invalidate: func(event contract.Invalidation) {
+	options := Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Principals: policies, HTTPPolicies: policies, HTTPCredentials: service, Invalidate: func(event contract.Invalidation) {
 		invalidationMu.Lock()
 		defer invalidationMu.Unlock()
 		invalidations = append(invalidations, event)
-	}})
-	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
-	require.NoError(t, err)
-	return boundary, &invalidations
+	}}
+	build := func() http.Handler {
+		handler := New(options)
+		boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
+		require.NoError(t, err)
+		return boundary
+	}
+	return build(), build, &invalidations
 }
 
 func TestIntegrationHTTPCredentialKeyringFailureIsNotStorageFailure(t *testing.T) {

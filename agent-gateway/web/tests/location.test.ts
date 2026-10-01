@@ -40,6 +40,40 @@ const owned = ["operations", "auth-flows", "descriptors"].map(
 );
 const routes = [...collections, ...details, ...creates, ...owned];
 
+test("table queries round-trip authoritative filters and exact grant context only", () => {
+  for (const fragment of [
+    "#/agents?filter_http_default=allow&filter_visibility=all&sort=name&direction=descending",
+    "#/http/credentials?filter_name=Caf%C3%A9&filter_boundary=example%3A443&filter_recipe=Bearer&filter_status=unavailable",
+    ...["id", "description", "principal", "target", "effect", "state"].flatMap(
+      (sort) =>
+        ["ascending", "descending"].map(
+          (direction) =>
+            `#/http/grants?principal_id=${id}&sort=${sort}&direction=${direction}&filter_state=active`,
+        ),
+    ),
+  ]) {
+    const parsed = parseFragment(fragment);
+    assert.ok(parsed, fragment);
+    assert.deepEqual(
+      parseFragment(serializeLocation(parsed)),
+      parsed,
+      fragment,
+    );
+  }
+  for (const fragment of [
+    "#/agents?filter_http_default=unknown",
+    "#/agents?filter_http_default=",
+    "#/http/credentials?filter_status=active",
+    "#/http/credentials?filter_name=" + "x".repeat(257),
+    "#/http/credentials?secret=canary",
+    "#/http/credentials?sort=name",
+    `#/http/credentials/${id}?filter_name=x`,
+    `#/mcp/servers/${id}?tab=authentication&filter_status=failed`,
+    "#/system?tab=admin-credentials&filter_status=active",
+  ])
+    assert.equal(parseFragment(fragment), undefined, fragment);
+});
+
 test("legacy agent fragments canonicalize only valid locations without loops", () => {
   for (const suffix of [
     "",

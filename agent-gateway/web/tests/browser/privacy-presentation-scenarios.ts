@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { assertSecretAbsent, fail, waitForLifecycle } from "./shared.ts";
 import { createHash } from "node:crypto";
 import {
@@ -37,7 +37,7 @@ export async function runVisualAccessibilityPrivacyCanary(
   );
   if (blocking.length !== 0)
     fail(
-      `Visual/accessibility/privacy canary findings: ${JSON.stringify(blocking.map((violation) => ({ id: violation.id, nodes: violation.nodes.slice(0, 5).map((node) => ({ target: node.target, summary: node.failureSummary?.slice(0, 512) })) })))}`,
+      `Visual/accessibility/privacy canary findings: ${JSON.stringify(blocking.map((violation) => ({ id: violation.id, nodes: violation.nodes.slice(0, 5).map((node) => ({ target: node.target, summary: node.failureSummary?.slice(0, 512) })) })))}; theme: ${JSON.stringify(await page.evaluate(() => ({ resolved: document.documentElement.dataset.theme, preference: document.documentElement.dataset.themePreference, muted: getComputedStyle(document.documentElement).getPropertyValue("--muted"), facts: [...document.querySelectorAll(".overview-facts > span")].slice(0, 5).map((node) => ({ color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor })) })))}`,
     );
   const screenshot = await page.screenshot({
     fullPage: true,
@@ -490,12 +490,8 @@ export async function runAccessibilityKeyboardResponsive(
   await page.locator('[data-testid="admin-credential-row"]').first().waitFor();
   await page.locator('[data-testid="admin-credential-create"]').waitFor();
   await page.getByLabel("Fingerprint or ID", { exact: true }).fill(ids[0]!);
-  await page.waitForFunction(
-    (id) =>
-      window.location.hash ===
-      `#/system?tab=admin-credentials&filter_identity=${id}`,
-    ids[0],
-  );
+  await expect(page.getByTestId("admin-credential-row")).toHaveCount(1);
+  await expect(page).toHaveURL(/#\/system\?tab=admin-credentials$/);
   await page.locator('[data-testid="admin-credentials-view"]').waitFor();
   await page.getByRole("button", { name: "Reset" }).click();
   await scan("credential-table");

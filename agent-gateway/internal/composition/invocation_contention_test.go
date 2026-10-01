@@ -175,6 +175,10 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, history.Records, 32)
 			for _, record := range history.Records {
+				if record.TerminalClass == nil {
+					status := built.traffic.Status(ctx)
+					t.Logf("missing terminal evidence: traffic_ready=%t traffic_faulted=%t traffic_pressure=%t quota_refusals=%d context_done=%t authority_expired=%d", status.Ready, status.Faulted, status.Pressure, status.QuotaRefusals, ctx.Err() != nil, observed.authorityExpired.Load())
+				}
 				require.NotNil(t, record.TerminalClass)
 				assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
 			}

@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
+import { captureDetailLayout, captureTableState } from "./detail-layout.ts";
 import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
@@ -247,6 +248,16 @@ export async function runAudit(
     await page.screenshot({ path, fullPage, animations: "disabled" });
     screenshots.push(path);
     if (
+      [
+        "invalid-filters",
+        "partial-error",
+        "unfiltered-empty",
+        "filtered-empty",
+        "loading",
+      ].includes(name)
+    )
+      await captureTableState(page, `audit-${name}`);
+    if (
       await page.evaluate(
         () =>
           document.documentElement.scrollWidth >
@@ -258,12 +269,12 @@ export async function runAudit(
   await assertTableConventions(
     page,
     "Control-plane audit history",
-    ["Time", "Event", "Performer", "Target", "Outcome"],
+    ["Time", "Event", "Performer", "Action", "Target", "Outcome"],
     "Event",
   );
   expect(
     await page
-      .getByRole("combobox", { name: "Add filter", exact: true })
+      .getByRole("combobox", { name: "Event", exact: true })
       .evaluate((control) => control.getBoundingClientRect().height),
   ).toBeGreaterThanOrEqual(38);
   await capture("desktop-list", 1440);
@@ -290,6 +301,7 @@ export async function runAudit(
     "Time",
     "Event",
     "Performer",
+    "Action",
     "Target",
     "Outcome",
   ]);
@@ -334,6 +346,12 @@ export async function runAudit(
     exact: true,
   });
   await expect(related.getByRole("table")).toContainText("Selected event");
+  await assertTableConventions(
+    page,
+    "Related control-plane events",
+    ["Time", "Event", "Performer", "Action", "Phase", "Outcome"],
+    "Event",
+  );
   await expect(related.getByText(/Newest recorded sequence first/)).toHaveCount(
     0,
   );
@@ -360,12 +378,17 @@ export async function runAudit(
     page.getByRole("heading", { name: `Audit event ${id(3)}` }),
   ).toBeVisible();
   await expect(related.getByRole("row")).toHaveCount(4);
+  await expect(
+    related.getByText("3 events loaded (stale)", { exact: true }),
+  ).toBeVisible();
+  await captureTableState(page, "audit-related-stale");
   mode = "normal";
   await related.getByRole("button", { name: "Refresh related events" }).click();
   await expect(
     related.getByText("Related events unavailable", { exact: true }),
   ).toHaveCount(0);
   await expect(related.getByRole("row")).toHaveCount(3);
+  await captureDetailLayout(page, "audit-event-related-populated");
   await capture("desktop-detail", 1440);
   await capture("narrow-detail", 390);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -432,12 +455,15 @@ export async function runAudit(
     .getByRole("button", { name: "Clear filters", exact: true })
     .click();
   await expect(page.getByText("More filters", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Target ID", { exact: true })).toHaveCount(0);
-  const addFilter = async (key: string, label: string) => {
-    await page
-      .getByRole("combobox", { name: "Add filter", exact: true })
-      .selectOption(key);
-    await expect(page.getByLabel(label, { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Target ID", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "Add filter", exact: true }),
+  ).toHaveCount(0);
+  const focusFilter = async (label: string) => {
+    const control = page.getByLabel(label, { exact: true });
+    await expect(control).toBeVisible();
+    await control.focus();
+    await expect(control).toBeFocused();
   };
   const from = page.getByLabel("From (inclusive, local time)", { exact: true });
   const until = page.getByLabel("Until (exclusive, local time)", {
@@ -477,9 +503,9 @@ export async function runAudit(
       "Invalid drafts must not issue queries",
     ).toEqual([]);
   }
-  await addFilter("target_id", "Target ID");
+  await focusFilter("Target ID");
   await page.getByLabel("Target ID", { exact: true }).fill("invalid");
-  await page.getByLabel("Category", { exact: true }).selectOption("server");
+  await page.getByLabel("Event", { exact: true }).selectOption("server");
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("server");
   expect(queries.at(-1)?.has("from")).toBe(false);
   expect(queries.at(-1)?.has("target_id")).toBe(false);
@@ -489,22 +515,19 @@ export async function runAudit(
   );
   await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
   await page
-    .getByLabel("Category", { exact: true })
+    .getByLabel("Event", { exact: true })
     .selectOption({ label: "Agent" });
-  await expect(page.getByLabel("Category", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Event", { exact: true })).toHaveValue(
     "principal",
   );
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("principal");
   expect(queries.at(-1)?.has("action")).toBe(false);
   await expect(page.getByLabel("Action", { exact: true })).toHaveValue("");
   await capture("invalid-filters", 320);
-  await page
-    .getByRole("button", { name: "Remove Target ID filter", exact: true })
-    .click();
-  await expect(page.getByLabel("Target ID", { exact: true })).toHaveCount(0);
-  await expect(
-    page.getByRole("combobox", { name: "Add filter", exact: true }),
-  ).toBeFocused();
+  await page.getByLabel("Target ID", { exact: true }).fill("");
+  await expect(page.getByLabel("Target ID", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Target ID", { exact: true })).toBeFocused();
+  await expect.poll(() => queries.at(-1)?.has("target_id")).toBe(false);
   await expect(
     page.getByText(/Draft changes are not yet applied/),
   ).toBeVisible();
@@ -514,6 +537,58 @@ export async function runAudit(
     window.location.hash =
       "#/audit-log?filter_from=2026-01-01T23%3A00%3A00.123456789Z&filter_until=2026-01-02T23%3A00%3A00.123456789Z";
   });
+  await expect(from).toHaveValue("2026-01-01T18:00");
+  await expect(until).toHaveValue("2026-01-02T18:00");
+  const boundViewport = page.viewportSize();
+  try {
+    for (const width of [640, 390, 320, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const bound of [from, until]) {
+        const fit = await bound.evaluate((node: HTMLInputElement) => {
+          const style = getComputedStyle(node);
+          const intrinsic = node.cloneNode() as HTMLInputElement;
+          intrinsic.removeAttribute("id");
+          intrinsic.setAttribute("aria-hidden", "true");
+          intrinsic.tabIndex = -1;
+          intrinsic.value = node.value;
+          Object.assign(intrinsic.style, {
+            position: "fixed",
+            left: "-10000px",
+            visibility: "hidden",
+            width: "max-content",
+            minWidth: "0",
+            maxWidth: "none",
+            font: style.font,
+            letterSpacing: style.letterSpacing,
+            padding: style.padding,
+            border: style.border,
+            boxSizing: style.boxSizing,
+          });
+          document.body.append(intrinsic);
+          try {
+            return {
+              actual: node.getBoundingClientRect().width,
+              required: intrinsic.getBoundingClientRect().width,
+            };
+          } finally {
+            intrinsic.remove();
+          }
+        });
+        expect(
+          fit.actual,
+          `Audit datetime bound must fit native content at ${width}px`,
+        ).toBeGreaterThanOrEqual(fit.required);
+      }
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
+    await captureTableState(page, "audit-datetime-bounds");
+  } finally {
+    if (boundViewport) await page.setViewportSize(boundViewport);
+  }
   await expect(from).toHaveValue("2026-01-01T18:00");
   await expect(until).toHaveValue("2026-01-02T18:00");
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
@@ -530,17 +605,20 @@ export async function runAudit(
   await expect(until).toHaveValue("");
   await expect.poll(() => queries.at(-1)?.has("from")).toBe(false);
   for (const [key, label] of [
-    ["actor_type", "Actor type"],
+    ["actor_type", "Performer type"],
     ["credential_id", "Credential ID"],
     ["target_type", "Target type"],
     ["target_id", "Target ID"],
   ]) {
-    await addFilter(key!, label!);
+    expect(key).toBeDefined();
+    await focusFilter(label!);
   }
   await expect(
     page.getByRole("combobox", { name: "Add filter", exact: true }),
-  ).toBeDisabled();
-  await page.getByLabel("Actor type", { exact: true }).selectOption("system");
+  ).toHaveCount(0);
+  await page
+    .getByLabel("Performer type", { exact: true })
+    .selectOption("system");
   await expect.poll(() => queries.at(-1)?.get("actor_type")).toBe("system");
   const beforeText = queries.length;
   await page.getByLabel("Credential ID", { exact: true }).fill(id(9));
@@ -549,7 +627,7 @@ export async function runAudit(
     "ID filtering must be debounced",
   ).toEqual([]);
   await expect.poll(() => queries.at(-1)?.get("credential_id")).toBe(id(9));
-  await page.getByLabel("Category", { exact: true }).selectOption("server");
+  await page.getByLabel("Event", { exact: true }).selectOption("server");
   await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
   await page.getByLabel("Target type", { exact: true }).selectOption("server");
   await page.getByLabel("Target ID", { exact: true }).fill(id(7));
@@ -714,6 +792,7 @@ export async function runAudit(
   await expect(
     page.getByText("Retention details", { exact: true }),
   ).toBeFocused();
+  await captureDetailLayout(page, "audit-retention-expanded");
   await capture("retention-expanded", 320, false);
   await assertSecretAbsent(page, context, baseURL, [bearer], true, "system");
   mode = "delayed";

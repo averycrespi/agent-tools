@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useUnsavedChanges } from "./navigation";
+import { parseFragment } from "./location";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
 import type {
   MutationController,
@@ -331,6 +332,7 @@ export class SystemController {
     views.registerPanel({
       id: "system-status",
       matches: (viewKey) => {
+        if (parseFragment(viewKey)?.destination !== "system") return false;
         const selected = tab(viewKey);
         return selected === "status" || selected === "resource-limits";
       },
@@ -467,7 +469,7 @@ function StatusPanel({
     saturatedLimits.length === 0;
   return (
     <section
-      class="panel domain-panel operator-status-view system-status-view"
+      class="operator-status-view system-status-view"
       aria-labelledby="system-status-title"
       data-testid="system-status-panel"
       data-panel-status={panelStatus}
@@ -586,7 +588,7 @@ function StatusPanel({
           )}
 
           <section
-            class="operator-status-section"
+            class="detail-section"
             aria-labelledby="system-operational-title"
             data-testid="system-status-operational"
           >
@@ -642,15 +644,6 @@ function StatusPanel({
                   )}
                 </dd>
               </div>
-              <div>
-                <dt>Control storage</dt>
-                <dd>
-                  <strong>{sentenceCase(status.sqliteState)}</strong>
-                  <span>
-                    Mutation admission {status.latched ? "closed" : "open"}
-                  </span>
-                </dd>
-              </div>
               {status.httpProxy && (
                 <div>
                   <dt>HTTP proxy</dt>
@@ -680,6 +673,24 @@ function StatusPanel({
                   </dd>
                 </div>
               )}
+            </dl>
+          </section>
+          <section
+            class="detail-section"
+            aria-labelledby="system-material-title"
+            data-testid="system-status-material"
+          >
+            <h3 id="system-material-title">Storage and credentials</h3>
+            <dl class="operator-status-grid">
+              <div>
+                <dt>Control storage</dt>
+                <dd>
+                  <strong>{sentenceCase(status.sqliteState)}</strong>
+                  <span>
+                    Mutation admission {status.latched ? "closed" : "open"}
+                  </span>
+                </dd>
+              </div>
               {status.traffic && (
                 <div>
                   <dt>Shared traffic storage</dt>
@@ -742,7 +753,7 @@ function StatusPanel({
           </section>
 
           <section
-            class="operator-status-details"
+            class="detail-section"
             aria-labelledby="system-technical-details-title"
             data-testid="system-status-details"
           >
@@ -1086,16 +1097,27 @@ function Backups({
         </StateNotice>
       )}
       {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      {panelStatus === "error" && backups !== undefined && (
+        <StateNotice state="stale" title="Last-known backups">
+          The inventory and count are stale. Use Refresh to try again.
+        </StateNotice>
+      )}
       {panelStatus === "error" && backups === undefined ? (
         <StateNotice state="error" title="Backups unavailable" />
       ) : (panelStatus === "loading" && panel?.hasValue !== true) ||
         backups === undefined ? (
         <StateNotice state="loading" title="Loading backups" />
-      ) : backups.length === 0 ? (
-        <StateNotice state="empty" title="No backups" />
       ) : (
         <CollectionTable
           caption="Published backup artifacts"
+          emptyTitle="No backups"
+          localStale={panelStatus === "error"}
+          summaryExtra={
+            <output class="table-filter-summary">
+              {backups.length} {backups.length === 1 ? "backup" : "backups"}
+              {panelStatus === "error" ? " (last-known)" : ""}
+            </output>
+          }
           rowHeaderKey="backup"
           items={backups}
           rowKey={(backup) => backup.id}
@@ -1144,12 +1166,14 @@ function Backups({
               render: (backup) => (
                 <div class="inline-actions">
                   <button
-                    ref={deleteButton}
                     class="danger-action"
                     data-testid="backup-delete"
                     type="button"
                     disabled={disabled}
-                    onClick={() => beginDelete(backup)}
+                    onClick={(event) => {
+                      deleteButton.current = event.currentTarget;
+                      beginDelete(backup);
+                    }}
                   >
                     Delete
                   </button>
@@ -1410,21 +1434,23 @@ function AdminCredentials({
                 Create one administrator authority whose bearer is displayed
                 once.
               </p>
-              <dl>
-                <dt>Expires</dt>
-                <dd>
-                  {expiry === "" ? (
-                    "No expiry"
-                  ) : (
-                    <UserTime
-                      value={
-                        Number.isFinite(Date.parse(expiry))
-                          ? new Date(expiry).toISOString()
-                          : expiry
-                      }
-                    />
-                  )}
-                </dd>
+              <dl class="detail-facts">
+                <div>
+                  <dt>Expires</dt>
+                  <dd>
+                    {expiry === "" ? (
+                      "No expiry"
+                    ) : (
+                      <UserTime
+                        value={
+                          Number.isFinite(Date.parse(expiry))
+                            ? new Date(expiry).toISOString()
+                            : expiry
+                        }
+                      />
+                    )}
+                  </dd>
+                </div>
               </dl>
             </div>
           }
@@ -1477,6 +1503,11 @@ function AdminCredentials({
         </StateNotice>
       )}
       {notice !== undefined && <StateNotice state="empty" title={notice} />}
+      {panelStatus === "error" && credentials !== undefined && (
+        <StateNotice state="stale" title="Last-known administrator credentials">
+          The inventory and count are stale. Use Refresh to try again.
+        </StateNotice>
+      )}
       {panelStatus === "error" && credentials === undefined ? (
         <StateNotice
           state="error"
@@ -1488,11 +1519,11 @@ function AdminCredentials({
           state="loading"
           title="Loading administrator credentials"
         />
-      ) : credentials.length === 0 ? (
-        <StateNotice state="empty" title="No administrator credentials" />
       ) : (
         <CollectionTable
           caption="Admin credentials"
+          emptyTitle="No administrator credentials"
+          localStale={panelStatus === "error"}
           rowHeaderKey="fingerprint"
           initialSort={{ key: "created", direction: "descending" }}
           additionalSorts={[
@@ -1582,23 +1613,34 @@ function AdminCredentials({
                   credential.nonExpiring &&
                   activeNonExpiring <= 1;
                 return credential.status === "active" ? (
-                  <button
-                    class="danger-action"
-                    data-testid="admin-credential-revoke"
-                    type="button"
-                    disabled={disabled || protectedLast}
-                    title={
-                      protectedLast
-                        ? "The last active non-expiring administrator authority cannot be revoked."
-                        : undefined
-                    }
-                    onClick={(event) => {
-                      revokeButton.current = event.currentTarget;
-                      beginRevoke(credential);
-                    }}
-                  >
-                    Revoke
-                  </button>
+                  <>
+                    <button
+                      class="danger-action"
+                      data-testid="admin-credential-revoke"
+                      type="button"
+                      disabled={disabled || protectedLast}
+                      aria-describedby={
+                        protectedLast
+                          ? `protected-revoke-${credential.id}`
+                          : undefined
+                      }
+                      onClick={(event) => {
+                        revokeButton.current = event.currentTarget;
+                        beginRevoke(credential);
+                      }}
+                    >
+                      Revoke
+                    </button>
+                    {protectedLast && (
+                      <p
+                        id={`protected-revoke-${credential.id}`}
+                        class="table-secondary table-action-guidance"
+                      >
+                        The last active non-expiring administrator credential
+                        cannot be revoked.
+                      </p>
+                    )}
+                  </>
                 ) : (
                   "—"
                 );
