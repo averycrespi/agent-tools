@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { FormField, StatusLabel } from "./primitives.tsx";
 import {
   copyToClipboard,
@@ -78,7 +78,8 @@ export function WriteOnlyField({
 }) {
   const input = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
+  // Attach before input is possible: attachment clears prior sensitive material.
+  useLayoutEffect(() => {
     const node = multiline ? textarea.current : input.current;
     if (node === null) return;
     value.attach(node);

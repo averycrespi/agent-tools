@@ -66,6 +66,16 @@ func TestCLIHelpTree(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Get an MCP invocation", invocationGet.Short)
 	assert.Contains(t, invocationGet.Long, "JSON includes retained redacted arguments")
+	for path, summary := range map[string]string{
+		"git traffic":      "View Git traffic history",
+		"git traffic list": "List recorded Git traffic",
+		"git traffic get":  "Get a Git traffic record",
+	} {
+		command, remaining, err := root.Find(strings.Fields(path))
+		require.NoError(t, err, path)
+		assert.Empty(t, remaining, path)
+		assert.Equal(t, summary, command.Short, path)
+	}
 
 	var snapshot strings.Builder
 	var walk func(*cobra.Command)
@@ -86,7 +96,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:0e810592a0870520b4c7be7672e288f3e967221a3f623a93af5ab8ac4f5edde9", digest)
+	assert.Equal(t, "sha256:cedbade2bf53d0d05d6d23b4d522f89dd9922ef21815975932ac57a7eb67e7e9", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {

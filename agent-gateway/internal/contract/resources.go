@@ -32,6 +32,8 @@ type ResourceMechanic struct {
 }
 
 var gitResourceMechanics = []ResourceMechanic{
+	{Pattern: "/api/v2/git/traffic", Method: "GET", RequestSchema: "GitListQuery", SuccessSchema: "GitTrafficPage", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/git/traffic/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GitTrafficRecord", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/git/repositories", Method: "GET", RequestSchema: "GitListQuery", SuccessSchema: "QueryPage<GitRepository>", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v2/git/repositories", Method: "POST", RequestSchema: "GitRepositoryWrite", SuccessSchema: "GitRepository", SuccessStatuses: []int{201}, ETag: true},
 	{Pattern: "/api/v2/git/repositories/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GitRepository", SuccessStatuses: []int{200}, ETag: true},

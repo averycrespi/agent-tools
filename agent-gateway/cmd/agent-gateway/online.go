@@ -491,6 +491,7 @@ func onlineSpec(path []string, use, manifestUse string, flags ...string) onlineC
 //nolint:gosec // Static help text names credential commands but contains no credentials.
 var onlineGroupDescriptions = map[string]string{
 	"git":                   "Manage Git configuration and access",
+	"git traffic":           "View Git traffic history",
 	"git repository":        "Manage Git repositories",
 	"git grant":             "Manage Git access grants",
 	"git credential":        "Manage Git credentials",

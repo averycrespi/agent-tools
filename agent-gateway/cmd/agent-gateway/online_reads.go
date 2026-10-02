@@ -15,6 +15,9 @@ import (
 var gatewayIDPattern = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) error {
+	if len(spec.Path) == 3 && spec.Path[0] == "git" && spec.Path[1] == "traffic" {
+		return runGitTrafficRead(command, options, args, spec.Path[2])
+	}
 	if len(spec.Path) == 3 && spec.Path[0] == "git" {
 		return runGitPolicy(command, options, args, spec.Path[1], spec.Path[2])
 	}

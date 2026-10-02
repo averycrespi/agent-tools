@@ -8,13 +8,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGitControlPlaneCapabilitiesHaveNoBrowserOwner(t *testing.T) {
+func TestGitControlPlaneCapabilitiesKeepDedicatedOwners(t *testing.T) {
 	rows := GitControlPlaneCapabilityManifest()
-	require.Len(t, rows, 4)
+	require.Len(t, rows, 5)
 	uses := make(map[string]bool)
 	for _, row := range rows {
-		assert.Empty(t, row.WebControl)
-		assert.Empty(t, row.WebScenario)
+		if row.ID == "git-routing-profile" {
+			assert.Empty(t, row.WebControl)
+			assert.Empty(t, row.WebScenario)
+		} else {
+			assert.NotEmpty(t, row.WebControl)
+			assert.Equal(t, "browser.git", row.WebScenario)
+		}
 		assert.Equal(t, "cli."+row.ID, row.CLIScenario)
 		assert.NotEmpty(t, row.Operation)
 		assert.NotEmpty(t, row.Mechanics)
@@ -23,7 +28,7 @@ func TestGitControlPlaneCapabilitiesHaveNoBrowserOwner(t *testing.T) {
 			uses[use] = true
 		}
 	}
-	require.Len(t, uses, 18)
+	require.Len(t, uses, 20)
 	rows[0].CLIUses[0] = "changed"
 	assert.Equal(t, "git repository list", GitControlPlaneCapabilityManifest()[0].CLIUses[0])
 }

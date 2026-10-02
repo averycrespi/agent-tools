@@ -91,6 +91,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 		"read": {
 			"git repository list", "git repository get ID", "git grant list", "git grant get ID",
 			"git credential list", "git credential get ID", "git routing-profile get",
+			"git traffic list", "git traffic get ID",
 			"http grant list", "http grant get ID", "http default get ID", "http test-access --file PATH",
 			"http credential list", "http credential get ID", "http traffic list", "http traffic get ID",
 			"audit list", "audit get AUDIT_EVENT_ID",
