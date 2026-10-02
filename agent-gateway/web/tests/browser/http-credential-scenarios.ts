@@ -276,15 +276,32 @@ export async function runHTTPCredentials(
   await expect(page.getByRole("table")).toContainText(created.id);
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(page).toHaveURL(/#\/http\/credentials$/);
+  // Enter as soon as the field mounts, before deferred effects can run.
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      const input = document.getElementById("http-credential-secret-rotate");
+      if (!(input instanceof HTMLInputElement)) return;
+      observer.disconnect();
+      input.value = "http-credential-rotate-canary";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
   await page
     .getByRole("link", { name: "Example HTTP credential", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Example HTTP credential", exact: true }),
   ).toBeVisible();
-  await page
-    .getByLabel("Secret", { exact: true })
-    .fill("http-credential-rotate-canary");
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(page.getByLabel("Secret", { exact: true })).toHaveValue(
+    "http-credential-rotate-canary",
+  );
   await page
     .getByRole("button", { name: "Review rotation", exact: true })
     .click();

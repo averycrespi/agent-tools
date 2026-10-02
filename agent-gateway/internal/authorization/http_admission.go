@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitwire"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
 )
@@ -22,6 +23,8 @@ type HTTPEvaluationCandidate struct {
 	id, revision, evidence string
 	material               *contract.HTTPTrafficMaterial
 	used                   atomic.Bool
+	opaqueOrigin           string
+	opaqueReleased         atomic.Bool
 }
 
 type HTTPEvaluation struct {
@@ -105,6 +108,28 @@ func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id
 			if err != nil {
 				return err
 			}
+			profile, err := gitRoutingProfileTx(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if slices.Contains(profile.Origins, "https://"+target.destination.Authority()) {
+				if target.connect && decision.Transport == contract.HTTPTransportTunnel {
+					return ErrAuthorizationUnavailable
+				}
+				if !target.connect && target.request.Scheme() == "https" {
+					repositories, err := readGitRepositoriesTx(ctx, tx)
+					if err != nil {
+						return err
+					}
+					_, _, shaped, _ := gitwire.Route(target.request, gitLocators(repositories)...)
+					// Classification can precede profile activation. Refuse under
+					// this same authority snapshot rather than rerouting or using
+					// an HTTP candidate at the newer policy revision.
+					if shaped {
+						return ErrAuthorizationUnavailable
+					}
+				}
+			}
 			evidence.Class = "evaluated"
 			evidence.Default = defaultPolicy
 			evidence.Decision = &decision
@@ -157,6 +182,9 @@ func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id
 					material = &copy
 				}
 				out.Candidate = &HTTPEvaluationCandidate{repository: r, lease: lease, id: id, revision: binding.AuthorizationRevision, evidence: string(encoded), material: material}
+				if target.connect && decision.Transport == contract.HTTPTransportTunnel {
+					out.Candidate.opaqueOrigin = "https://" + target.destination.Authority()
+				}
 			}
 			return nil
 		})
@@ -208,6 +236,9 @@ func (r *Repository) ConfirmHTTP(ctx context.Context, candidate *HTTPEvaluationC
 					return false
 				}
 				delete(registry.leases, candidate.lease)
+				if candidate.opaqueOrigin != "" {
+					registry.opaqueGitOrigins[candidate.opaqueOrigin]++
+				}
 				return true
 			})
 		})

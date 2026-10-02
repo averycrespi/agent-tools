@@ -165,6 +165,12 @@ func restoreKeyringAuthorityFence(
 		targetType = "installation"
 	case "http_credential":
 		targetType = "http_credential"
+	case "git_credential":
+		targetType = "git_credential"
+		if _, err := transaction.ExecContext(ctx, `UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1`); err != nil {
+			_ = transaction.Rollback()
+			return err
+		}
 	}
 	if err := audit.MutationTx(ctx, transaction, time.Now(), "keyring", "fence", contract.AuditTarget{Type: targetType, ID: recovery.Owner}); err != nil {
 		_ = transaction.Rollback()

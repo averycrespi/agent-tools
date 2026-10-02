@@ -457,6 +457,11 @@ func (coordinator *Coordinator) fenceAuthority(
 	epoch uint64,
 	callback AuthorityCallback,
 ) error {
+	release, err := acquireGitAuthority(ctx, namespace)
+	if err != nil {
+		return err
+	}
+	defer release()
 	coordinator.stateMu.Lock()
 	defer coordinator.stateMu.Unlock()
 	if coordinator.draining || coordinator.epoch != epoch {
@@ -513,6 +518,11 @@ func (coordinator *Coordinator) activateAuthority(
 	callback AuthorityCallback,
 	publishedRevision string,
 ) error {
+	release, err := acquireGitAuthority(ctx, namespace)
+	if err != nil {
+		return err
+	}
+	defer release()
 	coordinator.stateMu.Lock()
 	defer coordinator.stateMu.Unlock()
 	if coordinator.draining || coordinator.epoch != epoch {
@@ -560,6 +570,11 @@ func (coordinator *Coordinator) commitCandidate(
 	callback AuthorityCallback,
 	keepFenced bool,
 ) (string, error) {
+	release, admissionErr := acquireGitAuthority(ctx, namespace)
+	if admissionErr != nil {
+		return "", admissionErr
+	}
+	defer release()
 	coordinator.stateMu.Lock()
 	defer coordinator.stateMu.Unlock()
 	if coordinator.draining || coordinator.epoch != epoch {
@@ -669,6 +684,11 @@ func (coordinator *Coordinator) invalidateAuthority(
 	priorPublishedRevision string,
 	exact bool,
 ) (string, error) {
+	release, admissionErr := acquireGitAuthority(ctx, namespace)
+	if admissionErr != nil {
+		return "", admissionErr
+	}
+	defer release()
 	coordinator.stateMu.Lock()
 	defer coordinator.stateMu.Unlock()
 	if coordinator.draining || coordinator.epoch != epoch {
@@ -781,6 +801,8 @@ func (coordinator *Coordinator) removeCandidate(
 func authorityAuditTarget(namespace Namespace) contract.AuditTarget {
 	kind := "server"
 	switch namespace.kind {
+	case RecordGitCredential:
+		kind = "git_credential"
 	case RecordHTTPCredential:
 		kind = "http_credential"
 	case RecordHTTPCA:

@@ -306,12 +306,15 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		GrantRequests: controlAPI.GrantRequests,
 		Invocations:   controlAPI.Invocations,
 		HTTPTraffic:   controlAPI.HTTPTraffic,
+		GitTraffic:    controlAPI.GitTraffic,
 		Audit:         controlAPI.Audit,
 
 		RecordedActivity: controlAPI.RecordedActivity,
 
 		HTTPCredentials: controlAPI.HTTPCredentials,
 		HTTPPolicies:    controlAPI.HTTPPolicies,
+		GitPolicies:     controlAPI.GitPolicies,
+		GitCredentials:  controlAPI.GitCredentials,
 
 		AuthorizationCollections: controlAPI.AuthorizationCollections,
 

@@ -13,6 +13,10 @@ type CollectionContract struct {
 }
 
 var collectionContracts = []CollectionContract{
+	{Pattern: "/api/v2/git/traffic", DefaultOrder: "insertion_sequence descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "GitTrafficPage", QueryMembers: []string{"cursor", "limit"}},
+	{Pattern: "/api/v2/git/repositories", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GitRepository>", QueryMembers: []string{"cursor", "limit"}},
+	{Pattern: "/api/v2/git/grants", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GitGrant>", QueryMembers: []string{"cursor", "limit"}},
+	{Pattern: "/api/v2/git/credentials", DefaultOrder: "id ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GitCredential>", QueryMembers: []string{"cursor", "limit"}},
 	{Pattern: "/api/v2/http/traffic", DefaultOrder: "insertion_sequence descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "HTTPTrafficPage", QueryMembers: []string{"cursor", "limit", "principal_id", "principal", "search_locale", "destination", "type", "decision", "outcome", "connect_id"}},
 	{Pattern: "/api/v2/http/grants", DefaultOrder: "description ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<HTTPGrantTableItem>", QueryMembers: []string{"cursor", "limit", "principal_id", "identity", "principal", "target", "type", "state", "sort", "direction"}},
 	{Pattern: "/api/v2/http/credentials", DefaultOrder: "created descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<HTTPCredential>", QueryMembers: []string{"cursor", "limit", "name", "boundary", "recipe", "status"}},

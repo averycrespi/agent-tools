@@ -178,6 +178,44 @@ func extractTraffic(ctx context.Context, source *sql.Tx, destination *sql.DB, co
 			return err
 		}
 	}
+	var hasGit bool
+	if err = source.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='git_traffic')`).Scan(&hasGit); err != nil {
+		return err
+	}
+	if hasGit {
+		gitRows, err := source.QueryContext(ctx, gitTrafficSelect+` ORDER BY insertion_sequence LIMIT ?`, sourceLimit+1)
+		if err != nil {
+			return err
+		}
+		for gitRows.Next() {
+			record, charge, scanErr := scanGitTraffic(gitRows)
+			if scanErr != nil {
+				err = scanErr
+				break
+			}
+			count++
+			bytes += charge
+			if count > sourceLimit || count > config.RetainedRecords || record.Sequence <= 0 || record.Sequence > high || bytes > trafficPages(config)*trafficPageSize/4 {
+				err = ErrInvalidState
+				break
+			}
+			admission, _ := encodeGitAdmission(record.Admission)
+			var completion any
+			if record.Completion != nil {
+				completion, err = encodeGitCompletion(record.Admission, *record.Completion)
+				if err != nil {
+					break
+				}
+			}
+			if _, err = tx.ExecContext(ctx, `INSERT INTO git_traffic(insertion_sequence,id,admission,completion,bytes) VALUES(?,?,?,?,?)`, record.Sequence, record.Admission.ID, admission, completion, charge); err != nil {
+				break
+			}
+		}
+		err = errors.Join(err, gitRows.Err(), gitRows.Close())
+		if err != nil {
+			return err
+		}
+	}
 	if high < count {
 		return ErrInvalidState
 	}

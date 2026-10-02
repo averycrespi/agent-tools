@@ -173,6 +173,18 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	path := strings.Join(spec.Path, " ")
 	var parts []string
 	switch {
+	case strings.HasPrefix(path, "git credential "):
+		parts = gitCredentialETagPattern.FindStringSubmatch(options.etag)
+	case strings.HasPrefix(path, "git repository "):
+		parts = gitRepositoryETagPattern.FindStringSubmatch(options.etag)
+	case strings.HasPrefix(path, "git grant "):
+		parts = gitGrantETagPattern.FindStringSubmatch(options.etag)
+	case strings.HasPrefix(path, "git routing-profile "):
+		parts = gitProfileETagPattern.FindStringSubmatch(options.etag)
+		if len(parts) != 3 {
+			return controlclient.NewInputError("The routing-profile ETag is invalid.")
+		}
+		return nil
 	case strings.HasPrefix(path, "http credential "):
 		parts = httpCredentialETagPattern.FindStringSubmatch(options.etag)
 	case strings.HasPrefix(path, "http grant "):
@@ -287,13 +299,21 @@ func marshalIntent(value any) ([]byte, error) {
 }
 
 var onlineIntentSpecs = map[string]onlineIntentSpec{
-	"http grant create":      {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
-	"http grant update":      {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
-	"http default update":    {fileMembers: []string{"http_default"}},
-	"http test-access":       {fileMembers: []string{"principal_id", "url", "method", "connect"}},
-	"http credential create": {fileMembers: []string{"name", "boundary", "recipe", "secret"}},
-	"http credential update": {fileMembers: []string{"name", "boundary", "recipe"}},
-	"http credential rotate": {fileMembers: []string{"secret"}},
+	"git repository create":      {fileMembers: []string{"name", "url", "aliases", "credential_id"}},
+	"git repository update":      {fileMembers: []string{"name", "url", "aliases", "credential_id"}},
+	"git grant create":           {fileMembers: []string{"principal_id", "repository_id", "description", "policy", "expires_at"}},
+	"git grant update":           {fileMembers: []string{"principal_id", "repository_id", "description", "policy", "expires_at"}},
+	"git routing-profile update": {fileMembers: []string{"origins"}},
+	"git credential create":      {fileMembers: []string{"name", "origin", "recipe", "secret"}},
+	"git credential update":      {fileMembers: []string{"name", "origin", "recipe"}},
+	"git credential rotate":      {fileMembers: []string{"secret"}},
+	"http grant create":          {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
+	"http grant update":          {fileMembers: []string{"principal_id", "description", "policy", "expires_at"}},
+	"http default update":        {fileMembers: []string{"http_default"}},
+	"http test-access":           {fileMembers: []string{"principal_id", "url", "method", "connect"}},
+	"http credential create":     {fileMembers: []string{"name", "boundary", "recipe", "secret"}},
+	"http credential update":     {fileMembers: []string{"name", "boundary", "recipe"}},
+	"http credential rotate":     {fileMembers: []string{"secret"}},
 	"admin credential create": {
 		direct:        []onlineDirectFlag{{name: "expires-at"}},
 		defaultDirect: true,

@@ -13,6 +13,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/grantrequests"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
@@ -139,6 +140,12 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err != nil {
 		return storage.Identity{}, err
 	}
+	if err := authority.ValidateStartup(ctx, targets); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := gitcredentials.ValidateStartup(ctx, replacement); err != nil {
+		return storage.Identity{}, err
+	}
 	if err := grantrequests.ValidateStartup(ctx, replacement, authority, targets); err != nil {
 		return storage.Identity{}, err
 	}
@@ -154,6 +161,9 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		return storage.Identity{}, err
 	}
 	if err := httpcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
+		return storage.Identity{}, err
+	}
+	if err := gitcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
 		return storage.Identity{}, err
 	}
 	if err := httpca.InvalidateStaged(ctx, replacement, options.Clock); err != nil {
@@ -271,6 +281,9 @@ func verifyReplacementDomains(
 	}
 	if validationErr == nil {
 		validationErr = grantrequests.ValidateStartup(ctx, replacement, authority, targets)
+	}
+	if validationErr == nil {
+		validationErr = gitcredentials.ValidateStartup(ctx, replacement)
 	}
 	closeErr := replacement.Close()
 	if validationErr != nil {

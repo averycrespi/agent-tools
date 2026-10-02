@@ -12,6 +12,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRecordedActivityGitDoesNotFabricateMCPOrHTTPCounts(t *testing.T) {
+	s, _ := trafficFixture(t, nil, nil)
+	ring, clock := recordedFixture()
+	s.recorded = ring
+	git, err := s.AdmitGit(t.Context(), gitTrafficAdmission(1))
+	require.NoError(t, err)
+	require.True(t, s.Confirm(t.Context(), git))
+	denied := gitTrafficAdmission(2)
+	denied.Allowed = false
+	refusal, err := s.AdmitGit(t.Context(), denied)
+	require.NoError(t, err)
+	require.False(t, s.Confirm(t.Context(), refusal))
+	s.Release(refusal)
+	clock.advance(time.Minute)
+	result := s.RecordedActivity()
+	require.Equal(t, "process_start", result.EpochReason)
+	require.NotNil(t, result.Buckets[14].Counts)
+	assert.Equal(t, contract.RecordedProtocols{}, *result.Buckets[14].Counts)
+
+	require.NoError(t, s.CompleteGit(t.Context(), git, gitTrafficCompletion()))
+	require.Error(t, s.CompleteGit(t.Context(), git, gitTrafficCompletion()))
+	clock.advance(time.Minute)
+	result = s.RecordedActivity()
+	require.Equal(t, "process_start", result.EpochReason)
+	require.NotNil(t, result.Buckets[14].Counts)
+	assert.Equal(t, contract.RecordedProtocols{}, *result.Buckets[14].Counts)
+	history, err := s.GitHistory(t.Context(), 0, 10)
+	require.NoError(t, err)
+	require.Len(t, history.Records, 2)
+	require.NotNil(t, history.Records[0].Completion)
+	assert.Equal(t, "outcome_unknown", history.Records[0].Completion.Outcome)
+	assert.Nil(t, history.Records[1].Completion)
+
+	mcp, err := s.Admit(t.Context(), trafficPrepared(3))
+	require.NoError(t, err)
+	require.True(t, s.Confirm(t.Context(), mcp))
+	require.NoError(t, s.Complete(t.Context(), mcp, trafficCompletion()))
+	http, err := s.AdmitHTTP(t.Context(), httpTrafficAdmission(4))
+	require.NoError(t, err)
+	require.True(t, s.Confirm(t.Context(), http))
+	require.NoError(t, s.CompleteHTTP(t.Context(), http, httpTrafficCompletion()))
+	clock.advance(time.Minute)
+	counts := s.RecordedActivity().Buckets[14].Counts
+	require.NotNil(t, counts)
+	assert.Equal(t, contract.RecordedEvents{Admissions: contract.RecordedAdmissions{Allow: 1}, Completions: contract.RecordedCompletions{Succeeded: 1}}, counts.MCP)
+	assert.Equal(t, counts.MCP, counts.HTTPRequest)
+	assert.Equal(t, contract.RecordedEvents{}, counts.Connect)
+	assert.Equal(t, contract.RecordedEvents{}, counts.HTTPUnclassified)
+}
+
 func TestRecordedActivityHTTPSettlementAndSelection(t *testing.T) {
 	s, _ := trafficFixture(t, nil, nil)
 	ring, clock := recordedFixture()

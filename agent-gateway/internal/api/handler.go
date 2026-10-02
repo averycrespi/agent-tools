@@ -105,9 +105,12 @@ type Options struct {
 	Principals       PrincipalService
 	GrantRequests    GrantRequestService
 	Invocations      InvocationReader
+	GitTraffic       GitTrafficReader
 	HTTPTraffic      HTTPTrafficReader
 	RecordedActivity func() contract.RecordedActivitySummary
 	Audit            AuditReader
+	GitPolicies      GitPolicyService
+	GitCredentials   GitCredentialService
 	HTTPPolicies     HTTPPolicyService
 	HTTPCredentials  HTTPCredentialService
 	GrantTarget      authorization.CurrentGrantTargetValidator
@@ -139,12 +142,15 @@ type Handler struct {
 	collections             AuthorizationCollectionService
 	grantRequests           GrantRequestService
 	invocations             InvocationReader
+	gitTraffic              GitTrafficReader
 	httpTraffic             HTTPTrafficReader
 	recordedActivity        func() contract.RecordedActivitySummary
-	audit                   AuditReader
-	httpPolicies            HTTPPolicyService
 	httpCredentialCursorKey string
+	audit                   AuditReader
+	gitPolicies             GitPolicyService
+	httpPolicies            HTTPPolicyService
 	httpCredentials         HTTPCredentialService
+	gitCredentials          GitCredentialService
 	grantTarget             authorization.CurrentGrantTargetValidator
 	authFlows               AuthFlowService
 	replacements            CredentialReplacementService
@@ -201,7 +207,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, httpTraffic: options.HTTPTraffic, recordedActivity: options.RecordedActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -395,6 +401,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.auditCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v2/audit-events/") && handler.audit != nil:
 		handler.auditMember(writer, request, strings.TrimPrefix(path, "/api/v2/audit-events/"))
+	case path == "/api/v2/git/traffic" && handler.gitTraffic != nil && request.Method == http.MethodGet:
+		handler.gitTrafficCollection(writer, request)
+	case strings.HasPrefix(path, "/api/v2/git/traffic/") && handler.gitTraffic != nil && request.Method == http.MethodGet:
+		handler.gitTrafficMember(writer, request, strings.TrimPrefix(path, "/api/v2/git/traffic/"))
 	case path == "/api/v2/http/traffic" && handler.httpTraffic != nil && request.Method == http.MethodGet:
 		handler.httpTrafficCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v2/http/traffic/") && handler.httpTraffic != nil && request.Method == http.MethodGet:
@@ -436,6 +446,28 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		} else {
 			writeProblem(writer, contract.ProblemNotFound)
 		}
+	case path == "/api/v2/git/credentials" && handler.gitCredentials != nil:
+		handler.gitCredential(writer, request, "", false)
+	case strings.HasPrefix(path, "/api/v2/git/credentials/") && handler.gitCredentials != nil:
+		segments := strings.Split(strings.TrimPrefix(path, "/api/v2/git/credentials/"), "/")
+		switch {
+		case len(segments) == 1:
+			handler.gitCredential(writer, request, segments[0], false)
+		case len(segments) == 2 && segments[1] == "rotate":
+			handler.gitCredential(writer, request, segments[0], true)
+		default:
+			writeProblem(writer, contract.ProblemNotFound)
+		}
+	case path == "/api/v2/git/repositories" && handler.gitPolicies != nil:
+		handler.gitRepositories(writer, request, "")
+	case strings.HasPrefix(path, "/api/v2/git/repositories/") && handler.gitPolicies != nil:
+		handler.gitRepositories(writer, request, strings.TrimPrefix(path, "/api/v2/git/repositories/"))
+	case path == "/api/v2/git/grants" && handler.gitPolicies != nil:
+		handler.gitGrants(writer, request, "")
+	case strings.HasPrefix(path, "/api/v2/git/grants/") && handler.gitPolicies != nil:
+		handler.gitGrants(writer, request, strings.TrimPrefix(path, "/api/v2/git/grants/"))
+	case path == "/api/v2/git/routing-profile" && handler.gitPolicies != nil:
+		handler.gitProfile(writer, request)
 	case path == "/api/v2/http/grants" && handler.httpPolicies != nil:
 		handler.httpGrants(writer, request, "")
 	case strings.HasPrefix(path, "/api/v2/http/grants/") && handler.httpPolicies != nil:

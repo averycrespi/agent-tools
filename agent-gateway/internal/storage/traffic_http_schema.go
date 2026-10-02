@@ -56,6 +56,8 @@ func TrafficSchemaVersion(version int) string {
 		return TrafficSchema()
 	case 2:
 		return TrafficSchema() + "\n" + TrafficHTTPMigration()
+	case 3:
+		return TrafficSchema() + "\n" + TrafficHTTPMigration() + "\n" + TrafficGitMigration()
 	default:
 		return ""
 	}

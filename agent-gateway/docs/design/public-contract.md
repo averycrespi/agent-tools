@@ -89,7 +89,7 @@ The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for
 
 The closed representation carries `epoch`, `collection_start`, `as_of`, `window_start`, `window_end`, `bucket_seconds` (60), `coverage`, `epoch_reason`, and exactly 15 oldest-first `buckets`. The window is the last 15 **completed** UTC minutes, ending at the minute floor of `as_of`; the current incomplete minute appears only after it closes. Each bucket has `start`, `end`, nullable `observed_start`, `coverage`, and nullable `counts`. Coverage is `complete`, `partial`, or `unavailable`; unobserved buckets have null counts and observed start, not zeros. Partial first-bucket counts cover only the interval from collection start. The process-local ring holds at most 60 one-minute buckets and returns independent bounded snapshots. Epoch changes on restart, clock reset, or overflow; it is not a durable generation or a cross-restart comparison key. `epoch_reason` is `process_start`, `clock_reset`, or `counter_overflow`.
 
-`counts` has exactly `mcp`, `http_request`, `connect`, and `http_unclassified`. Each contains `admissions` with fixed counters `allow`, `deny`, `block`, `invalid_params`, `unknown_tool`, `invalid_arguments`, `authorization_unavailable`, `invalid_request`, `interception_selected`; and independent `completions` with `succeeded`, `prestart_failure`, `downstream_failure`, `upstream_failure`, `outcome_unknown`. Individual counters are nonnegative safe JSON integers, at most 2^53−1. Inapplicable fixed dimensions remain zero only within observed coverage. Invalid HTTP evidence lacking a canonical target remains unclassified, not guessed as request or CONNECT. A CONNECT interception is an admission selection, not a completion; inner requests have their own evidence.
+`counts` has exactly `mcp`, `http_request`, `connect`, and `http_unclassified`. Dedicated Git admissions and completions are outside this summary, not MCP or ordinary HTTP events. Each contains `admissions` with fixed counters `allow`, `deny`, `block`, `invalid_params`, `unknown_tool`, `invalid_arguments`, `authorization_unavailable`, `invalid_request`, `interception_selected`; and independent `completions` with `succeeded`, `prestart_failure`, `downstream_failure`, `upstream_failure`, `outcome_unknown`. Individual counters are nonnegative safe JSON integers, at most 2^53−1. Inapplicable fixed dimensions remain zero only within observed coverage. Invalid HTTP evidence lacking a canonical target remains unclassified, not guessed as request or CONNECT. A CONNECT interception is an admission selection, not a completion; inner requests have their own evidence.
 
 Counters advance once at the existing writer's final acknowledged settlement, after its admission cancellation fence. Admissions and terminal writes are separate event-time populations. Failed or uncertain persistence contributes nothing even if SQL is readable. Known failure completions include prestart/downstream/upstream failure, not policy refusals, explicit unknowns, or inferred missing completions. HTTP status 200 does not establish success. Subtracting completions from admissions is not in-flight work, and zero failures does not establish success, health, downstream reachability, effective access or safe replay. No identity, destination, path, arguments, bodies, status-code dimension, arbitrary labels, durable history, latency or administrative-mutation metrics enter this representation. See [aggregation ownership](invocation-and-ingress.md#process-local-recorded-activity).
 
@@ -180,6 +180,111 @@ HTTP default is the required `http_default:"block"|"allow"` member of every cano
 All use existing administrator bearer/session authority, strict bounded JSON, no-store responses, and no idempotency or automatic replay. GET collection uses `HTTPCredentialListQuery`, accepting singleton nonempty `cursor`, `limit` (default 50, maximum 100), `name`, `boundary`, `recipe` and `status`, in creation-descending order, returning `QueryPage<HTTPCredential>` (including `total_count` and `offset`). Item GET is bodyless and queryless. `HTTPCredential` contains `id`, `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, decimal-string `revision`, `available`, `referencing_grants:[{id}]`, `created_at`, and `updated_at`. Availability is coherent selected-generation metadata, not a guarantee of later keyring access. No secret or keyring handle is returned. Name searches safe names or literal case-sensitive identifier substrings; boundary recognizes host/port metadata and recipe recognizes header/fixed-prefix metadata, never material. Text follows the bounded NFKD/mark-removal/lowercase, conjunctive token-substring or nondigit four-character one-edit recognition used for resources. Status is `configured` or `unavailable`; filters combine before slicing the bounded authoritative inventory. Empty, repeated, unknown, oversized (>256 UTF-8 bytes) or control/format-bearing members fail closed. Recognition is not wildcard boundary authority. Version-two cursors (at most 512 bytes) authenticate the effective query, safe inventory/order/availability metadata, continuation position and original expiry with a private process-local API-owner HMAC key. The key is neither serialized nor persisted; a new API owner cannot resume an old traversal. Cursors expire five minutes after the first page and never extend on continuation. Failed authentication, changed query or metadata and expired traversal return `409 stale_cursor`; malformed/closed-shape failures return `400 invalid_cursor`. Unfiltered v1 clients may finish their existing traversal; newly issued cursors use v2.
 
 `HTTPCredentialCreate` requires `name`, `boundary`, `recipe`, and write-only `secret`; POST returns 201 plus the safe resource. PATCH `HTTPCredentialUpdate` is a complete secret-free metadata replacement requiring `name`, `boundary`, and `recipe`; it returns 200. POST rotate accepts only `HTTPCredentialRotate` with `{secret}` and returns 200. DELETE accepts `EmptyObject` and returns 204. Every mutation except create requires exact strong `If-Match: "http-credential-ID-REVISION"`; missing/stale preconditions use `precondition_required`/`stale_revision`. Resource reads and successful create/update/rotate return that ETag. Incompatible references use `conflict`; invalid recipes use `invalid_operation`, never reflected input. Secret ingress is bounded by the recipe and standard JSON body bounds; the browser validates those bounds before confirmation and clears rejected write-only input. Keyring capability/material failures use `keyring_unavailable`, not a storage latch; a joined actual storage latch retains `storage_unavailable` precedence. The [credential owner](downstream-servers.md#scoped-http-credentials) defines validation, lifecycle, containment, and failure behavior.
+
+## Git configuration resources
+
+| Pattern                               | Exact Allow          | Authority               |
+| ------------------------------------- | -------------------- | ----------------------- |
+| `/api/v2/git/traffic`                 | `GET`                | admin bearer or session |
+| `/api/v2/git/traffic/{id}`            | `GET`                | admin bearer or session |
+| `/api/v2/git/repositories`            | `GET, POST`          | admin bearer or session |
+| `/api/v2/git/repositories/{id}`       | `DELETE, GET, PATCH` | admin bearer or session |
+| `/api/v2/git/grants`                  | `GET, POST`          | admin bearer or session |
+| `/api/v2/git/grants/{id}`             | `DELETE, GET, PATCH` | admin bearer or session |
+| `/api/v2/git/routing-profile`         | `GET, PATCH`         | admin bearer or session |
+| `/api/v2/git/credentials`             | `GET, POST`          | admin bearer or session |
+| `/api/v2/git/credentials/{id}`        | `DELETE, GET, PATCH` | admin bearer or session |
+| `/api/v2/git/credentials/{id}/rotate` | `POST`               | admin bearer or session |
+
+All `/api/v2/git` resources use existing administrator bearer/session authority,
+strict bounded closed JSON, no-store responses and no automatic replay. They add
+no listener or agent identity. Configuration collections accept only singleton nonempty
+`cursor` and canonical `limit` (default 50, maximum 100), use ID ascending order
+and return `{items,next_cursor,total_count,offset}` from one bounded read. ID
+continuations are representation-bound, not frozen policy snapshots; a missing
+continuation identity is stale. Item/profile reads are bodyless and queryless.
+
+| Method and pattern                         | Closed request schema | Success schema/status            | Exact If-Match | Response ETag |
+| ------------------------------------------ | --------------------- | -------------------------------- | -------------- | ------------- |
+| `GET /api/v2/git/repositories`             | `GitListQuery`        | `QueryPage<GitRepository>` / 200 | no             | no            |
+| `POST /api/v2/git/repositories`            | `GitRepositoryWrite`  | `GitRepository` / 201            | no             | yes           |
+| `GET /api/v2/git/repositories/{id}`        | `None`                | `GitRepository` / 200            | no             | yes           |
+| `PATCH /api/v2/git/repositories/{id}`      | `GitRepositoryWrite`  | `GitRepository` / 200            | yes            | yes           |
+| `DELETE /api/v2/git/repositories/{id}`     | `None`                | `Empty` / 204                    | yes            | no            |
+| `GET /api/v2/git/grants`                   | `GitListQuery`        | `QueryPage<GitGrant>` / 200      | no             | no            |
+| `POST /api/v2/git/grants`                  | `GitGrantWrite`       | `GitGrant` / 201                 | no             | yes           |
+| `GET /api/v2/git/grants/{id}`              | `None`                | `GitGrant` / 200                 | no             | yes           |
+| `PATCH /api/v2/git/grants/{id}`            | `GitGrantWrite`       | `GitGrant` / 200                 | yes            | yes           |
+| `DELETE /api/v2/git/grants/{id}`           | `None`                | `Empty` / 204                    | yes            | no            |
+| `GET /api/v2/git/routing-profile`          | `None`                | `GitRoutingProfile` / 200        | no             | yes           |
+| `PATCH /api/v2/git/routing-profile`        | `GitProfileWrite`     | `GitRoutingProfile` / 200        | yes            | yes           |
+| `GET /api/v2/git/credentials`              | `GitListQuery`        | `QueryPage<GitCredential>` / 200 | no             | no            |
+| `POST /api/v2/git/credentials`             | `GitCredentialCreate` | `GitCredential` / 201            | no             | yes           |
+| `GET /api/v2/git/credentials/{id}`         | `None`                | `GitCredential` / 200            | no             | yes           |
+| `PATCH /api/v2/git/credentials/{id}`       | `GitCredentialUpdate` | `GitCredential` / 200            | yes            | yes           |
+| `DELETE /api/v2/git/credentials/{id}`      | `EmptyObject`         | `Empty` / 204                    | yes            | no            |
+| `POST /api/v2/git/credentials/{id}/rotate` | `GitCredentialRotate` | `GitCredential` / 200            | yes            | yes           |
+
+Traffic reads are `GET /api/v2/git/traffic` (`GitListQuery` → `GitTrafficPage`)
+and `GET /api/v2/git/traffic/{id}` (`None` → `GitTrafficRecord`), both status 200,
+bodyless, without ETags. List accepts only `limit` (50 default, 100 maximum) and
+`cursor`, returning `{items,next_cursor}` in insertion-sequence descending order.
+MAC-bound cursors pin process epoch, traffic generation, pruning and high-water;
+stale/replaced history cannot silently continue. Items contain immutable admission
+and nullable completion. Optional admission policy facts retain configured
+repository identity, bounded grant references and operation counts. Optional
+`rejection`/`denial` carry closed safe categories, never raw failure text.
+Completion `outcome` remains transport-oriented (`prestart_failure`,
+`outcome_unknown`, `nonmutation`); optional `reported_result` is independently
+`reported_success`, `reported_failure`, or `reported_partial`, only for a complete
+HTTP-200 push transfer with a supported complete request-bound upstream report.
+Absent reporting remains unknown. Historical rows without these optional fields
+remain valid without reinterpretation or a database migration.
+
+`GitRepositoryWrite` requires exactly `name`, `url`, nonnull `aliases` array and
+nullable `credential_id`. No omitted credential selector means public access:
+public configuration deliberately supplies null. `GitRepository` adds `id`,
+`revision`, `alias_revision`, `created_at`, `updated_at`. Locator retargeting and
+alias collisions conflict. `GitGrantWrite` requires exactly `principal_id`,
+`repository_id`, nullable `description`, `policy`, nullable `expires_at`.
+`GitGrant` adds `id`, `revision`, `state`, `created_at`, `updated_at`; state is
+active/expired, timestamps are fixed UTC nanoseconds, expiry follows creation.
+The [Git policy chapter](identity-and-authorization.md#persisted-git-authority)
+owns immutable identity and closed bounded selector semantics.
+
+`GitProfileWrite` is exactly `{origins:[HTTPS-origin,...]}`; `GitRoutingProfile`
+is `{origins,revision,active}` with read-only `active:true`. Adding an origin
+conflicts while a previously admitted opaque tunnel to that origin remains
+unsettled; the mutation neither cancels it nor waits for it. Enabled origins
+reject opaque tunnels and retain Git-shaped rejection with no repositories.
+Ordinary intercepted HTTP remains governed by HTTP policy. ETags are exact strong
+`"git-repository-ID-REVISION"`, `"git-grant-ID-REVISION"`,
+`"git-credential-ID-REVISION"` and `"git-profile-routing-REVISION"`.
+Missing/stale preconditions use `precondition_required`/`stale_revision`.
+Invalid configuration uses `invalid_grant` (policy/repository/profile) or
+`invalid_operation` (credential). Incompatible references use `conflict`;
+capacity uses `resource_limit`; storage/keyring failures use their existing safe
+problems without submitted input or dependency errors. Successful mutations emit
+only the shared ID-free authorization invalidation; no Git browser subscriptions
+or credential secrets are introduced.
+
+Git credential deletion requires exact `{}` and an exact credential ETag. A storage
+latch takes precedence over joined keyring failures: return `storage_unavailable`
+and treat the mutation outcome as uncertain, never a reason to replay.
+
+Git credential create requires `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
+and write-only `secret`. Update replaces the same metadata without a secret;
+rotate is exactly `{secret}`. `GitCredential` contains `id`, `name`, `origin`,
+`recipe`, `revision`, `available`, `referencing_repositories:[{id}]`, `created_at`,
+`updated_at`. Ordinary reads return neither secret nor handle. The credential
+owner retains the established 4,096-byte prefix-plus-secret bound and protected
+generation lifecycle; see [Git credentials](downstream-servers.md#scoped-git-credentials).
+
+Minimal Git admission/completion evidence is durable in traffic schema 3, with
+no public Git history route in this delivery. It retains only bounded safe
+identity/revision, operation/command-count, decision/material and transport facts;
+no observed refs, OIDs, request prefixes, packs or arbitrary upstream messages.
+Missing terminal is unknown and HTTP 200 never represents Git mutation success.
 
 ## Invocation history queries
 

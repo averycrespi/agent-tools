@@ -17,6 +17,9 @@ const (
 	onlineItemGrantRequest
 	onlineItemHTTPCredential
 	onlineItemHTTPGrant
+	onlineItemGitRepository
+	onlineItemGitGrant
+	onlineItemGitCredential
 )
 
 type validatedOnlineItem struct {
@@ -44,6 +47,12 @@ func resolveMutationETag(command *cobra.Command, options *onlineOptions, kind on
 func validItemETag(kind onlineItemKind, id, etag string) bool {
 	var parts []string
 	switch kind {
+	case onlineItemGitCredential:
+		parts = gitCredentialETagPattern.FindStringSubmatch(etag)
+	case onlineItemGitRepository:
+		parts = gitRepositoryETagPattern.FindStringSubmatch(etag)
+	case onlineItemGitGrant:
+		parts = gitGrantETagPattern.FindStringSubmatch(etag)
 	case onlineItemHTTPCredential:
 		parts = httpCredentialETagPattern.FindStringSubmatch(etag)
 	case onlineItemHTTPGrant:
@@ -90,6 +99,12 @@ func loadValidatedItem(command *cobra.Command, options *onlineOptions, kind onli
 
 func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 	switch kind {
+	case onlineItemGitCredential:
+		return "/api/v2/git/credentials/" + id, true
+	case onlineItemGitRepository:
+		return "/api/v2/git/repositories/" + id, true
+	case onlineItemGitGrant:
+		return "/api/v2/git/grants/" + id, true
 	case onlineItemHTTPCredential:
 		return "/api/v2/http/credentials/" + id, true
 	case onlineItemHTTPGrant:
@@ -109,6 +124,15 @@ func onlineItemPath(kind onlineItemKind, id string) (string, bool) {
 
 func validateOnlineItem(kind onlineItemKind, id, etag string, body []byte) bool {
 	switch kind {
+	case onlineItemGitCredential:
+		var c contract.GitCredential
+		return controlclient.DecodeExactResponse(body, &c) == nil && validGitCredential(c) && c.ID == id && etag == gitWireETag("credential", id, c.Revision)
+	case onlineItemGitRepository:
+		var g contract.GitRepository
+		return controlclient.DecodeExactResponse(body, &g) == nil && validGitRepository(g) && g.ID == id && etag == gitWireETag("repository", id, g.Revision)
+	case onlineItemGitGrant:
+		var g contract.GitGrant
+		return controlclient.DecodeExactResponse(body, &g) == nil && validGitGrant(g) && g.ID == id && etag == gitWireETag("grant", id, g.Revision)
 	case onlineItemHTTPGrant:
 		var g contract.HTTPGrant
 		return controlclient.DecodeExactResponse(body, &g) == nil && validHTTPGrant(g) && g.ID == id && etag == contract.HTTPGrantETag(id, g.Revision)

@@ -8,6 +8,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGitControlPlaneCapabilitiesKeepDedicatedOwners(t *testing.T) {
+	rows := GitControlPlaneCapabilityManifest()
+	require.Len(t, rows, 5)
+	uses := make(map[string]bool)
+	for _, row := range rows {
+		if row.ID == "git-routing-profile" {
+			assert.Empty(t, row.WebControl)
+			assert.Empty(t, row.WebScenario)
+		} else {
+			assert.NotEmpty(t, row.WebControl)
+			assert.Equal(t, "browser.git", row.WebScenario)
+		}
+		assert.Equal(t, "cli."+row.ID, row.CLIScenario)
+		assert.NotEmpty(t, row.Operation)
+		assert.NotEmpty(t, row.Mechanics)
+		for _, use := range row.CLIUses {
+			assert.False(t, uses[use], use)
+			uses[use] = true
+		}
+	}
+	require.Len(t, uses, 20)
+	rows[0].CLIUses[0] = "changed"
+	assert.Equal(t, "git repository list", GitControlPlaneCapabilityManifest()[0].CLIUses[0])
+}
+
 func TestControlPlaneCapabilityManifest(t *testing.T) {
 	capabilities := ControlPlaneCapabilityManifest()
 	require.Len(t, capabilities, 45)

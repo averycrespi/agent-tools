@@ -19,6 +19,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -187,6 +188,9 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	identity, err := storage.VerifyBackup(ctx, databasePath)
 	if err != nil {
 		return contract.Backup{}, false, fmt.Errorf("%w: %w", ErrInvalidArtifact, err)
+	}
+	if err := gitcredentials.VerifyBackup(ctx, databasePath, identity.SchemaVersion); err != nil {
+		return contract.Backup{}, false, fmt.Errorf("%w: Git configuration: %w", ErrInvalidArtifact, err)
 	}
 	info, err := os.Stat(databasePath)
 	if err != nil {
@@ -357,6 +361,9 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 	identity, err := storage.VerifyBackup(ctx, databasePath)
 	if err != nil || identity.InstallationID != metadata.InstallationID || fmt.Sprintf("%d", identity.SchemaVersion) != metadata.SchemaVersion || fmt.Sprintf("%d", identity.Revision) != metadata.SourceRevision {
 		return artifactMetadata{}, ErrInvalidArtifact
+	}
+	if err := gitcredentials.VerifyBackup(ctx, databasePath, identity.SchemaVersion); err != nil {
+		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 	}
 	info, err := os.Stat(databasePath)
 	if err != nil || info.Size() != metadata.SizeBytes {

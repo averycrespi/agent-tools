@@ -226,6 +226,89 @@ Grant writes validate whole-scope credential containment on the same SQL writer 
 
 Preview and the ingress-facing authenticated-lease seam load the same coherent policy snapshot and call the same pure selector. Preview is never admission authority. The HTTP traffic admission coordinator separately seals one evaluation, persists its immutable evidence outside authority, then confirms its acknowledged receipt and exact credential material generation before detaching the lease. The invocation chapter owns this protocol. No production HTTP listener is introduced. Pure policy eligibility is followed by complete address checks for ingress evaluation. Preview classifies literal addresses without lookup and explicitly leaves network/TLS/material unverified. No submitted target/path/query is retained in audit, diagnostics or events; persisted grant selectors are administrator configuration, not observed traffic.
 
+## Persisted Git authority
+
+Git is a dedicated configuration and policy domain over the existing principal,
+singular agent credential, authority gate and control database. Git grants and
+Git credentials confer no HTTP or MCP permission; HTTP grants/defaults and
+credentials confer no Git permission. Git always defaults to deny. There is no
+second identity slot, listener, database or protocol registry. Supported Git
+requests use the intercepted HTTPS proxy with separate Git admission and selected
+Git material; HTTP request grants and defaults never authorize a Git operation.
+
+Schema 22 retains up to 256 live repositories and 1,024 permanent repository
+identities, 4,096 grants including expired rows, and 256 live Git credentials with
+1,024 permanent identities. Repository IDs and canonical HTTPS origin/base paths
+are immutable. Changing a destination requires a new identity and new grants.
+Repository deletion retains a tombstone and its configuration, including credential
+references; deleted repositories cannot authorize reads or writes. Retained
+locators cannot be reused or overlap another repository's slash-delimited subtree.
+Display names, explicit aliases and credential selection can be edited only at the
+exact repository revision.
+
+Repository locators use canonical HTTPS hosts and explicit effective ports with a
+bounded ASCII unreserved segment path. SSH, userinfo, query/fragment, percent
+escaping, empty/repeated segments, dot segments and trailing slashes reject.
+Only explicit same-origin `.git` spelling aliases are supported: an alias may add
+or remove the terminal `.git` suffix of its immutable canonical base, never select
+another host or arbitrary path. The canonical locator and aliases must resolve
+unambiguously, including suffix collisions. Alias changes advance the separate
+alias revision as well as repository and shared authorization revisions. This
+supported spelling is configuration intent, not proof of upstream equivalence.
+
+The closed v1 grant policy is `{version:1,read:boolean,refs:[{ref:{kind,value},actions}]}`.
+Selectors are fully qualified exact refs or slash-terminated subtree prefixes;
+refs are at most 1,024 ASCII bytes with Git's forbidden character/component forms
+rejected. There are at most 128 rules and 128 requested ref actions. Each rule
+selects one or more distinct `create`, `update`, `delete` actions. Any mutation
+rule requires explicit `read:true` in that grant; write-only policies reject.
+Read alone authorizes no ref mutation. Unordered allows form a union, with each
+requested action checked independently; there is no priority or rule-order
+precedence. Malformed retained policy fails the entire bounded evaluation,
+including nonmatching rows. Expired grants retain references but confer no access.
+Grant ID, principal and repository stay immutable across complete policy edits.
+
+The sole authorization repository owns repository, grant and routing-profile SQL.
+Every authority-affecting mutation uses authority-before-storage ordering,
+advances the shared authorization revision and commits required attributed audit
+atomically. Older pending admissions fail confirmation without reevaluation.
+Exact repository, alias, profile, principal and authorization revisions are usable
+by immutable request binding; policy-only evaluation is neither authentication
+nor admission authority, material proof or network qualification. Receive-pack
+discovery and exact flush-only probes require read plus at least one active
+push-capable grant and have separate nonmutation receipts. Each actual push
+independently checks every requested create/update/delete before dispatch.
+
+The singleton routing profile stores an independently revisioned bounded set of
+HTTPS origins. Repository creation/deletion never modifies that intent, even when
+the last repository is deleted. `active:true` is read-only, not an editable switch.
+The shared authority gate serializes profile changes with final opaque CONNECT
+confirmation. Activation refuses while any matching previously confirmed tunnel
+owner remains unsettled, without canceling it. Owners survive through stream and
+completion cleanup; caller timeout does not release them. Enabled origins refuse
+opaque admission, including with an empty repository set. Intercepted ordinary
+GitHub HTTP remains supported under HTTP policy. Destination blocks, forbidden
+addresses, listener exclusions and TLS verification remain unconditional; existing
+explicit private-address grants supply only network permission, not repository or
+ref authority and never HTTP credential selection.
+
+Git evaluation seals the private request owner and exact parsed prefix, repository,
+alias, profile, principal, agent credential and shared policy revisions. The
+selected Git credential generation is acquired separately. Only acknowledged
+durable admission followed by unchanged-authority/material confirmation permits
+one dispatch of that same request owner. Equal retained summaries cannot
+substitute another prefix. Cancellation, revocation, edits, drain and storage
+health failure before confirmation refuse without reevaluation. Authority and
+storage ownership never span client body reads, secret provider I/O or network
+work. Ref names, OIDs and request binding remain memory-only.
+
+Startup and staged backup/restore validate the complete retained Git graph,
+canonical policy, capacities, timestamps, origins, overlap and references. Restore
+preserves configuration while invalidating all Git material authority; missing
+material is valid unavailable configuration, never uninjected or old-generation
+fallback. See [Git credentials](downstream-servers.md#scoped-git-credentials) and
+[Git administrative contracts](public-contract.md#git-configuration-resources).
+
 ## Principal and grant contract
 
 The [public principal and grant contract](public-contract.md#principal-and-grant-contract) owns routes, closed shapes, ETags and collection mechanics. This chapter owns identity, policy, transactional authority and failure semantics.

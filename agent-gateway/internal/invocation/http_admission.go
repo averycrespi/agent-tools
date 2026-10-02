@@ -15,6 +15,7 @@ type HTTPAdmissionResult struct {
 	DispatchAuthorized bool
 	Material           *httpcredentials.Material
 	receipt            *TrafficReceipt
+	candidate          *authorization.HTTPEvaluationCandidate
 }
 
 // AdmitHTTP uses the existing authenticator, authority gate and selected traffic
@@ -73,6 +74,7 @@ func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorizati
 	}
 	result.DispatchAuthorized = true
 	result.receipt = receipt
+	result.candidate = evaluation.Candidate
 	return result, nil
 }
 
@@ -86,5 +88,6 @@ func (c *AdmissionCoordinator) CompleteHTTP(ctx context.Context, result HTTPAdmi
 		defer result.Material.Clear()
 	}
 	defer c.audits.publishTrafficStatus()
+	defer c.authority.ReleaseOpaque(result.candidate)
 	return c.audits.traffic.CompleteHTTP(ctx, result.receipt, completion)
 }

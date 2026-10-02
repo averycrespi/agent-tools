@@ -31,6 +31,29 @@ type ResourceMechanic struct {
 	EventReplay          bool
 }
 
+var gitResourceMechanics = []ResourceMechanic{
+	{Pattern: "/api/v2/git/traffic", Method: "GET", RequestSchema: "GitListQuery", SuccessSchema: "GitTrafficPage", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/git/traffic/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GitTrafficRecord", SuccessStatuses: []int{200}},
+	{Pattern: "/api/v2/git/repositories", Method: "GET", RequestSchema: "GitListQuery", SuccessSchema: "QueryPage<GitRepository>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/git/repositories", Method: "POST", RequestSchema: "GitRepositoryWrite", SuccessSchema: "GitRepository", SuccessStatuses: []int{201}, ETag: true},
+	{Pattern: "/api/v2/git/repositories/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GitRepository", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/git/repositories/{id}", Method: "PATCH", RequestSchema: "GitRepositoryWrite", SuccessSchema: "GitRepository", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/git/repositories/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
+	{Pattern: "/api/v2/git/grants", Method: "GET", RequestSchema: "GitListQuery", SuccessSchema: "QueryPage<GitGrant>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/git/grants", Method: "POST", RequestSchema: "GitGrantWrite", SuccessSchema: "GitGrant", SuccessStatuses: []int{201}, ETag: true},
+	{Pattern: "/api/v2/git/grants/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GitGrant", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/git/grants/{id}", Method: "PATCH", RequestSchema: "GitGrantWrite", SuccessSchema: "GitGrant", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/git/grants/{id}", Method: "DELETE", RequestSchema: "None", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
+	{Pattern: "/api/v2/git/routing-profile", Method: "GET", RequestSchema: "None", SuccessSchema: "GitRoutingProfile", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/git/routing-profile", Method: "PATCH", RequestSchema: "GitProfileWrite", SuccessSchema: "GitRoutingProfile", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/git/credentials", Method: "GET", RequestSchema: "GitListQuery", SuccessSchema: "QueryPage<GitCredential>", SuccessStatuses: []int{200}, Cursor: true},
+	{Pattern: "/api/v2/git/credentials", Method: "POST", RequestSchema: "GitCredentialCreate", SuccessSchema: "GitCredential", SuccessStatuses: []int{201}, ETag: true},
+	{Pattern: "/api/v2/git/credentials/{id}", Method: "GET", RequestSchema: "None", SuccessSchema: "GitCredential", SuccessStatuses: []int{200}, ETag: true},
+	{Pattern: "/api/v2/git/credentials/{id}", Method: "PATCH", RequestSchema: "GitCredentialUpdate", SuccessSchema: "GitCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+	{Pattern: "/api/v2/git/credentials/{id}", Method: "DELETE", RequestSchema: "EmptyObject", SuccessSchema: "Empty", SuccessStatuses: []int{204}, Precondition: true},
+	{Pattern: "/api/v2/git/credentials/{id}/rotate", Method: "POST", RequestSchema: "GitCredentialRotate", SuccessSchema: "GitCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
+}
+
 var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/admin-sessions", Method: "POST"},
 	{Pattern: "/api/v2/admin-sessions/current", Method: "DELETE"},
@@ -103,10 +126,11 @@ var resourceMechanics = []ResourceMechanic{
 }
 
 func ResourceMechanics() []ResourceMechanic {
-	result := make([]ResourceMechanic, len(resourceMechanics))
-	for index, mechanic := range resourceMechanics {
-		result[index] = mechanic
-		result[index].SuccessStatuses = append([]int(nil), mechanic.SuccessStatuses...)
+	result := make([]ResourceMechanic, 0, len(resourceMechanics)+len(gitResourceMechanics))
+	result = append(result, resourceMechanics...)
+	result = append(result, gitResourceMechanics...)
+	for index := range result {
+		result[index].SuccessStatuses = append([]int(nil), result[index].SuccessStatuses...)
 	}
 	return result
 }

@@ -204,6 +204,80 @@ preserved. H2 can retain legal 304 representation length, which describes the se
 representation rather than bytes to be sent. This does not promise that every client
 library interprets that metadata correctly.
 
+## Git routing and dispatch
+
+On enabled HTTPS profile origins, validated method/URL coordinates classify
+upload-pack and receive-pack discovery/service endpoints before HTTP policy.
+Only configured canonical repositories and explicit `.git` aliases match.
+Content-Type validates consistency, never routing authority. Unknown, ambiguous,
+escaped, malformed or unsupported Git-shaped traffic rejects without HTTP fallback;
+pages, archives, releases and downloads remain ordinary HTTP. Endpoint detection
+uses coordinates relative to configured roots (including retained tombstones), or
+the owner/repository coordinates of unknown GitHub repositories; arbitrary asset
+names and query text are not service endpoints. HTTP admission rechecks Git
+exclusion inside its own authority/profile snapshot, so activation between initial
+classification and evaluation cannot create an HTTP-authorized Git dispatch.
+Destination/TLS and listener checks remain shared and unconditional.
+
+The request-local `gitwire` owner parses receive-pack commands before admission.
+Limits are 256 KiB control prefix, 128 commands, 4 KiB capabilities, 32 capability
+tokens, 1,024-byte refs, and one nonrenewable ten-second client-read deadline.
+Unsigned SHA-1 branch/tag create/update/delete commands validate OIDs, pkt-line
+framing and duplicate destinations. Every command must be authorized; no command
+removal or partial forwarding is permitted. Negotiated atomic pushes retain their
+exact wire controls without downgrade. Signed certificates, push options, shallow
+controls, SHA-256, HTTP content encoding, dumb HTTP and alternate object transfers
+are unsupported. PACK compression is opaque and permitted.
+
+Discovery bodies and flush-only `0000` probes require exact EOF. Delete-only bodies
+also require EOF before admission; create/update requests require the PACK signature
+then stream the opaque remainder with bounded buffers/backpressure. The exact
+validated prefix, source, actions and configuration revisions remain in one private
+owner; candidates bind its identity as well as durable evidence. Retained summary
+equality cannot substitute a different owner. Nothing invokes host Git or stores
+objects in production. Native Git and backend processes exist only in fixtures.
+
+After acknowledged admission and unchanged authority/material confirmation, the
+engine injects only the repository-selected Git credential and makes one exchange.
+There is no redirect, refresh, replay or uncertain-push retry. Each new client
+request needs independent admission. Cancellation, rejection, early responses and
+drain settle upload readers, streams, material and synchronous best-effort completion
+owners; a timeout does not assert settlement. Missing terminal evidence remains
+unknown, and even clean HTTP 200 never asserts a successful Git ref mutation.
+A complete transfer requires both the upload and response to finish; an early
+response to an unfinished upload is not a complete transfer.
+
+### Git report observation and history
+
+The request-local Git wire owner observes at most 256 KiB of response controls,
+without affecting live forwarding when observation is unsupported or exceeds the
+bound. Negotiated report-status/report-status-v2 basic status and side-band-64k
+channel-1 framing are supported; progress is discarded and channel-3 fatal or
+unsupported v2 option records leave the report unknown. Every requested command
+must appear exactly once, with no foreign refs, and both inner/outer flushes and
+exact terminal framing must be complete. Ref/OID/message data never leaves the
+request-local owner. Complete upstream reports distinguish reported success,
+failure and partial success, never independently verified effects.
+
+Observed pushes explicitly request `Accept-Encoding: identity`; any unexpected
+encoding, automatic decompression, unsupported content type, non-200 status,
+interrupted upload/response or incomplete report prevents a retained result.
+Response bytes and headers still relay live with the ordinary safe transport
+handling. Ordinary HTTP compression is unchanged. Completion-persistence failure
+never replaces the known live response and does not invent terminal evidence.
+
+Git traffic stays in the shared traffic store with one record per classified
+exchange and no duplicate ordinary HTTP request. Safely classified rejections
+retain only closed categories and authenticated identity/revision facts; unknown
+repository coordinates and unsupported request content are not retained.
+Optional admission-time policy facts hold configured repository name/canonical
+URL, at most four applicable grant references and their total, and create/update/
+delete counts. These are immutable historical configuration, not current labels
+or observed refs. Public API, CLI and browser history expose admission, transport
+and upstream-report evidence separately; absent historical additions remain
+unavailable/unknown. No guessed CONNECT link, raw capture, traffic-to-grant action
+or automatic retry is introduced.
+
 ## Governed invocation and audit evidence
 
 Administrative reads of MCP invocation evidence use only `GET /api/v2/mcp/invocations` and `GET /api/v2/mcp/invocations/{id}`, `agent-gateway mcp invocation list/get`, and `#/mcp/invocations` with supported detail/filter context. The former `/api/v2/invocations`, top-level `invocation` CLI, and `#/activity/invocations` locations are retired without aliases, redirects, fallback requests, or replay. See the [coordinated operator cutover](../operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover).
@@ -333,7 +407,7 @@ execution. There is no background completion backlog or retry.
 
 ### Process-local recorded activity
 
-The composition-selected `TrafficStore` constructs one memory-only observer before its writer starts. The existing `settleTraffic` boundary records each successful acknowledged admission or terminal write exactly once, after final error/cancellation disposition and before delivering its result. No ingress, API-response, invalidation, SQL-readability or higher-level confirmation hook adds a second count. Admission cancellation after commit but before receipt acknowledgment contributes nothing; an acknowledged ALLOW later losing confirmation remains an allow admission without a fabricated terminal. Failed/uncertain terminal persistence does not count, even when the row is readable. Existing receipt consumption supplies hook uniqueness, not exactly-once downstream effects.
+The composition-selected `TrafficStore` constructs one memory-only observer before its writer starts. The existing `settleTraffic` boundary records each successful acknowledged MCP/HTTP admission or terminal write exactly once, after final error/cancellation disposition and before delivering its result. No ingress, API-response, invalidation, SQL-readability or higher-level confirmation hook adds a second count. Admission cancellation after commit but before receipt acknowledgment contributes nothing; an acknowledged ALLOW later losing confirmation remains an allow admission without a fabricated terminal. Failed/uncertain terminal persistence does not count, even when the row is readable. Existing receipt consumption supplies hook uniqueness, not exactly-once downstream effects. Dedicated Git writes retain their independent durable evidence and receipt settlement but do not enter this MCP/HTTP-only summary; they must never be classified from a zero-value event as MCP allow.
 
 Only immutable fixed protocol/outcome enum values accompany queued evidence to the observer. The ring has at most 60 one-minute buckets with fixed dimensions; update and snapshot use one bounded memory-only lock, with no downstream call, SQL, second writer, callback, persistent cache or per-identity deduplication state. `internal/activity` stays value-only. The administration dependency exposes only a snapshot function. [The public summary contract](public-contract.md#recorded-activity-summary) fixes its closed fields and 15 completed-minute window; the current partial minute is deliberately excluded rather than approximating a sub-minute rolling cutoff from whole buckets.
 

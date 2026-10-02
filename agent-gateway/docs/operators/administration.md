@@ -158,6 +158,140 @@ Existing `--visibility`, API `visibility`, and creation `default_grant` names re
 
 `agent-gateway http --help` groups scoped credentials, grants, agent HTTP defaults and policy-only Test access. Use **HTTP → Grants** or `http grant list|get|create|update|delete`; `http default get|update` operates on an agent ID without changing MCP defaults. `http test-access --file PATH` previews policy without DNS, dispatch or secret resolution. The [HTTP access-control guide](access-control.md#http-grants-and-test-access) owns complete file shapes, examples, precedence and limitations. All writes retain the shared strict-file, exact-ETag, confirmation and no-replay mechanics. This surface starts no production proxy. Strict clients must follow the [agent HTTP-default cutover](upgrade-compatibility.md#principal-http-default-client-cutover); unknown outcomes require inspection, never replay.
 
+## Git configuration and access
+
+`agent-gateway git` manages repositories, Git-only grants/credentials and independent
+routing through `/api/v2/git`. Enabled HTTPS origins classify smart Git separately
+from ordinary HTTP and authorize every requested ref action before forwarding a
+push. Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and
+secrets never inherit HTTP defaults, request grants or HTTP credentials. Use
+`agent-gateway git --help` for the command tree. The dedicated **Git** browser
+section manages Repositories, Grants and Credentials, separately from HTTP/MCP.
+Canonical destinations are immutable; alias edits never retarget authority.
+Adding a push rule explicitly enables read. Secret controls are write-only and
+clear on submission, cancellation, navigation and session loss. Review changes
+before confirmation; uncertain mutations offer no replay.
+
+Create a repository from a strict JSON file with deliberate public access:
+
+```json
+{
+  "name": "Team repository",
+  "url": "https://github.com/team/repository",
+  "aliases": ["https://github.com/team/repository.git"],
+  "credential_id": null
+}
+```
+
+```bash
+agent-gateway git repository create --file /private/repository.json --yes
+agent-gateway git repository list
+agent-gateway git repository get ID
+agent-gateway git repository update ID --file /private/repository.json --yes
+agent-gateway git repository delete ID --yes
+agent-gateway git grant create --file /private/grant.json --yes
+agent-gateway git grant list
+agent-gateway git grant get ID
+agent-gateway git grant update ID --file /private/grant.json --yes
+agent-gateway git grant delete ID --yes
+agent-gateway git routing-profile get
+agent-gateway git routing-profile update --file /private/profile.json --yes
+agent-gateway git credential list
+agent-gateway git credential get ID
+agent-gateway git credential create --file /private/credential.json --yes
+agent-gateway git credential update ID --file /private/metadata.json --yes
+agent-gateway git credential rotate ID --file /private/rotation.json --yes
+agent-gateway git credential delete ID --yes
+```
+
+A grant file requires `principal_id`, `repository_id`, nullable `description`,
+nullable `expires_at`, and `policy`. A read-only policy is
+`{"version":1,"read":true,"refs":[]}`. To permit branch creation/update, include
+`{"ref":{"kind":"prefix","value":"refs/heads/team/"},"actions":["create","update"]}`
+in `refs`; deletion remains denied. Write-only grants reject. Exact selectors
+use `kind:"exact"` and a fully qualified ref. Different destinations require new
+repository identities and grants; aliases only add/remove terminal `.git`
+spelling at the same origin/base. Metadata update retains the canonical URL.
+
+Profile files are exactly `{"origins":["https://github.com"]}`. Origins normalize
+to explicit effective ports; repository deletion never removes profile intent.
+The read-only `active:true` field reports the enforcement gate. Activation refuses
+while a matching opaque tunnel is still settling; let that owner finish before
+submitting a new conditional update. Existing work is not canceled. Enabled origins
+refuse opaque CONNECT even after the last repository is removed. Receive-pack
+discovery and large-push flush probes require read plus a push-capable grant, but
+never authorize a later push. Unsupported signed pushes, push options, SHA-256,
+HTTP-compressed push bodies, dumb HTTP, LFS and SSH fail closed. HTTP 200 does not
+prove that the upstream accepted a push; use the native Git result. Local fixture
+coverage does not qualify live GitHub, native installation or client adoption.
+
+Credential files require `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
+and write-only `secret`; metadata files omit secret, and rotation files contain
+only secret. Deliberately supply existing HTTPS-compatible material using a
+private file or stdin, never argv/environment, host helper execution or credential
+store scanning. Do not save material in source, backups or browser storage.
+Selected missing/unavailable material has no public-access or old-generation
+fallback. Every retained repository reference, including deleted configuration,
+prevents credential deletion or incompatible origin/recipe edits. Restore
+invalidates protected material; deliberately resupply it after recovery.
+
+All edits/deletes/rotations use exact ETags. Omission performs one validated
+preflight; explicit `--etag` is never refreshed. Authority changes fence pending
+admissions and retain atomic administrative audit. No command replays an uncertain
+mutation. The [Git public contract](../design/public-contract.md#git-configuration-resources)
+owns exact shapes, bounds and failures.
+
+## Git traffic history
+
+Use **Git → Traffic**, `GET /api/v2/git/traffic`, or:
+
+```bash
+agent-gateway git traffic list --limit 50
+agent-gateway git traffic get TRAFFIC_ID
+```
+
+Lists are newest-first with bounded `--limit`/`--cursor` continuation; JSON retains
+exact admission and optional completion evidence. History is bounded and may be
+pruned. Stale cursors require a fresh read, not another Git operation. Each
+classified authenticated exchange has its own Git record when durable admission
+is available; it is not duplicated as an ordinary HTTP request. Discovery and
+flush-only probes are distinct from pushes. No guessed CONNECT association or
+traffic-to-grant shortcut is provided.
+
+**Admission**, **Transport**, and **Upstream report** answer different questions.
+Allowed does not mean dispatched; HTTP 200 and clean transfer do not mean push
+success. Read completion does not establish a valid local checkout. A complete
+supported receive-pack report can say reported success, failure, or partial
+success. This is an upstream claim, not independent verification of repository
+effects. Missing, malformed, interrupted, oversized or unsupported reports remain
+unknown, including a partial report missing one requested command. Git push
+observation requests identity encoding; an unexpectedly encoded response is
+relayed live but not interpreted. Ordinary HTTP encoding is unchanged.
+
+Configured repository name/destination, revisions, up to four applicable grant
+references plus their total, command operation counts, and transport facts are
+immutable admission-time evidence. Later rename/deletion/rotation never rewrites
+that history. Legacy rows without policy facts or terminal observation remain
+explicitly unavailable/unknown. Observed refs/OIDs, packs, request headers,
+command fingerprints, arbitrary upstream messages and secrets are not persisted.
+
+Blocked/unsupported exchanges are not authorized; unavailable Git credentials
+never fall back to public access. For an uncertain push, inspect the native Git
+result and reconcile the relevant remote refs with an independently authorized
+read before deciding on another operation. Do not infer rollback or safe retry
+from missing completion; a persistence failure does not replace a result already
+relayed to the live client.
+
+For clients, use HTTPS smart-Git remotes with the configured canonical spelling or
+explicit `.git` alias. Follow [proxy and CA setup](http-proxy.md) to activate the
+Gateway proxy, transfer only its public CA and the supported agent proxy
+credential through protected client configuration, and configure Git's HTTPS
+proxy and CA trust (`http.proxy`/`http.sslCAInfo`) in the client environment. Never
+disable certificate verification or transfer the upstream Git credential to the
+client. Keep host Git helpers, SSH, LFS, alternate transports and direct-egress
+bypass outside this integration. Source/Chromium/local TLS fixtures do not qualify
+live GitHub or actual sandbox egress, installed services, or native key custody.
+
 ## Scoped HTTP credentials
 
 Use **HTTP → Credentials** to create, inspect, edit, rotate or delete a reusable HTTPS credential. It has one host/port boundary, one header, an optional fixed prefix, and one write-only secret. `Authorization` with `Bearer ` and custom API-key headers are supported. Wildcard hosts require both `*.example.com` spelling and explicit opt-in; they do not cover the apex. Transport-control headers cannot be overwritten. Credentials alone grant no HTTP access and do not start a proxy.

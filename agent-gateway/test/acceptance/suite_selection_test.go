@@ -205,6 +205,14 @@ func (executor *browserSuiteExecutor) Run(_ context.Context, _ string, command C
 }
 
 func TestBrowserAggregateUsesDisjointLeavesAndStopsOnFailure(t *testing.T) {
+	bounds := map[string]struct {
+		test, command time.Duration
+	}{
+		"test-browser-workflows":     {6 * time.Minute, 7 * time.Minute},
+		"test-browser-privacy":       {30 * time.Second, 45 * time.Second},
+		"test-browser-visual":        {60 * time.Second, 75 * time.Second},
+		"test-browser-accessibility": {45 * time.Second, 60 * time.Second},
+	}
 	moduleRoot := filepath.Join(repositoryRoot(t), "agent-gateway")
 	inventory, err := DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
 	require.NoError(t, err)
@@ -222,6 +230,10 @@ func TestBrowserAggregateUsesDisjointLeavesAndStopsOnFailure(t *testing.T) {
 			require.Len(t, executor.calls, len(want))
 			for index, command := range executor.calls {
 				assert.Equal(t, want[index], command.CheckName)
+				bound, ok := bounds[command.CheckName]
+				require.True(t, ok)
+				assert.Contains(t, command.Arguments, "-timeout="+bound.test.String())
+				assert.Equal(t, bound.command, command.Timeout)
 				assert.Contains(t, command.Arguments, "-race")
 				assert.Contains(t, command.Arguments, "-count=1")
 				plan, err := PlanSuite(moduleRoot, want[index], inventory, 1)

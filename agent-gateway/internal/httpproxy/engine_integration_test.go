@@ -29,6 +29,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
@@ -71,14 +72,16 @@ func (m *memoryBackend) Delete(s, u string) error {
 }
 
 type proxyFixture struct {
-	engine     *Engine
-	address    string
-	credential contract.AgentCredentialCreation
-	traffic    *invocation.TrafficStore
-	authority  *authorization.Repository
-	materials  *httpcredentials.Service
-	roots      *x509.CertPool
-	backend    *memoryBackend
+	engine       *Engine
+	address      string
+	credential   contract.AgentCredentialCreation
+	traffic      *invocation.TrafficStore
+	authority    *authorization.Repository
+	materials    *httpcredentials.Service
+	gitMaterials *gitcredentials.Service
+	roots        *x509.CertPool
+	publicCA     []byte
+	backend      *memoryBackend
 }
 
 func fixture(t *testing.T) *proxyFixture {
@@ -116,6 +119,8 @@ func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func
 	require.NoError(t, err)
 	materials, err := httpcredentials.NewService(materialRepo, coordinator, installation)
 	require.NoError(t, err)
+	gitMaterials, err := gitcredentials.NewService(store, coordinator, authority, clock, rand.Reader, installation)
+	require.NoError(t, err)
 	ca, err := httpca.New(store, coordinator, installation, clock, rand.Reader)
 	require.NoError(t, err)
 	t.Cleanup(ca.Close)
@@ -138,7 +143,7 @@ func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func
 	if completionNow == nil {
 		completionNow = clock.Now
 	}
-	engine, err := New(Options{Authority: authority, Evidence: evidence, Admissions: admissions, Materials: materials, Remote: remote.New(remote.Options{}), Signer: signer, Listeners: func() []netip.AddrPort { return nil }, Now: completionNow})
+	engine, err := New(Options{Authority: authority, Evidence: evidence, Admissions: admissions, Materials: materials, GitMaterials: gitMaterials, Remote: remote.New(remote.Options{}), Signer: signer, Listeners: func() []netip.AddrPort { return nil }, Now: completionNow})
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -158,7 +163,7 @@ func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func
 			t.Error("proxy serve failed to join")
 		}
 	})
-	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, roots: roots, backend: backend}
+	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, gitMaterials: gitMaterials, roots: roots, publicCA: public, backend: backend}
 }
 func (f *proxyFixture) allow(t *testing.T, raw, kind, path, credential string) {
 	t.Helper()

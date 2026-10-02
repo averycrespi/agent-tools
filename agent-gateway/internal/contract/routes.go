@@ -75,6 +75,16 @@ var routes = []Route{
 	{Pattern: "/api/v2/http/credentials/{id}/rotate", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/traffic", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/http/traffic/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/traffic", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/traffic/{id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/repositories", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/repositories/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/grants", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/grants/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/routing-profile", Methods: []string{"GET", "PATCH"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/credentials", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/credentials/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
+	{Pattern: "/api/v2/git/credentials/{id}/rotate", Methods: []string{"POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/recorded-activity", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 }
 
