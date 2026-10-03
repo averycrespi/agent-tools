@@ -954,7 +954,11 @@ function GrantEditor(
         }}
       >
         <div role="group" aria-label="Agent and description">
-          <FormField id="http-grant-principal" label="Agent">
+          <FormField
+            id="http-grant-principal"
+            label="Agent"
+            {...(principal ? { hint: principal } : {})}
+          >
             {(a) => (
               <select
                 {...a}
@@ -973,6 +977,10 @@ function GrantEditor(
                 {principals.map((v) => (
                   <option value={v.id} key={v.id}>
                     {v.displayName}
+                    {principals.filter((p) => p.displayName === v.displayName)
+                      .length > 1
+                      ? ` · ${v.id}`
+                      : ""}
                   </option>
                 ))}
               </select>
@@ -1153,7 +1161,10 @@ function GrantEditor(
             <FormField
               id="http-grant-credential"
               label="Credential (optional)"
-              hint="Only HTTPS credentials covering this entire destination are eligible."
+              hint={
+                credential ||
+                "Only HTTPS credentials covering this entire destination are eligible."
+              }
             >
               {(a) => (
                 <select
@@ -1171,6 +1182,10 @@ function GrantEditor(
                   {compatible.map((c) => (
                     <option value={c.id}>
                       {c.name}
+                      {credentials.filter((item) => item.name === c.name)
+                        .length > 1
+                        ? ` · ${c.id}`
+                        : ""}
                       {c.available ? "" : " — unavailable"}
                     </option>
                   ))}
@@ -1434,7 +1449,11 @@ function AccessPreview(props: Props) {
             .finally(() => setPending(false));
         }}
       >
-        <FormField id="preview-principal" label="Agent">
+        <FormField
+          id="preview-principal"
+          label="Agent"
+          {...(principal ? { hint: principal } : {})}
+        >
           {(a) => (
             <select
               {...a}
@@ -1444,7 +1463,14 @@ function AccessPreview(props: Props) {
             >
               <option value="">Select agent</option>
               {principals.map((p) => (
-                <option value={p.id}>{p.displayName}</option>
+                <option value={p.id}>
+                  {p.displayName}
+                  {principals.filter(
+                    (item) => item.displayName === p.displayName,
+                  ).length > 1
+                    ? ` · ${p.id}`
+                    : ""}
+                </option>
               ))}
             </select>
           )}

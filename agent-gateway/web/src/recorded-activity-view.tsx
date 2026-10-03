@@ -14,71 +14,6 @@ const labels: Record<ActivityProtocol, string> = {
   http_unclassified: "HTTP unclassified",
 };
 
-function Trend({
-  value,
-  protocol,
-}: {
-  value: RecordedActivity;
-  protocol: ActivityProtocol;
-}) {
-  const samples = value.buckets.map((bucket) =>
-    bucket.counts ? activityCounts(bucket.counts[protocol]) : undefined,
-  );
-  const maximum = samples.reduce(
-    (max, sample) =>
-      sample
-        ? [sample.admissions, sample.failures].reduce(
-            (m, v) => (v > m ? v : m),
-            max,
-          )
-        : max,
-    1n,
-  );
-  const lines = (key: "admissions" | "failures") => {
-    const groups: string[][] = [];
-    let points: string[] = [];
-    samples.forEach((sample, index) => {
-      if (!sample) {
-        if (points.length) groups.push(points);
-        points = [];
-        return;
-      }
-      const y = 64 - Number((sample[key] * 56n) / maximum);
-      points.push(`${8 + index * 16},${y}`);
-    });
-    if (points.length) groups.push(points);
-    return groups.map((group, index) =>
-      group.length === 1 ? (
-        <circle
-          key={index}
-          class={`activity-line ${key}`}
-          cx={Number(group[0]!.split(",")[0])}
-          cy={Number(group[0]!.split(",")[1])}
-          r="2"
-        />
-      ) : (
-        <polyline
-          key={index}
-          class={`activity-line ${key}`}
-          points={group.join(" ")}
-        />
-      ),
-    );
-  };
-  return (
-    <svg
-      class="activity-trend"
-      viewBox="0 0 240 76"
-      role="img"
-      aria-label={`${labels[protocol]} per-minute recorded admissions and known failure completions; exact values in Minute evidence`}
-    >
-      <title>{labels[protocol]} recorded activity, oldest minute first</title>
-      {lines("admissions")}
-      {lines("failures")}
-    </svg>
-  );
-}
-
 export function RecordedActivityView({
   value,
   current,
@@ -88,10 +23,6 @@ export function RecordedActivityView({
 }) {
   return (
     <div class="activity-band">
-      <p class="overview-context">
-        Last 15 completed minutes · {formatUserTime(value.window_start)} –{" "}
-        {formatUserTime(value.window_end)}. As of {formatUserTime(value.as_of)}.
-      </p>
       <p
         class={
           value.coverage === "complete" && current
@@ -99,18 +30,24 @@ export function RecordedActivityView({
             : "overview-evidence"
         }
       >
+        Last 15 completed minutes ·{" "}
         {value.coverage === "complete"
-          ? "Complete observed window"
+          ? "Complete coverage"
           : value.coverage === "partial"
-            ? "Partial coverage; counts cover only observed minutes"
-            : "Window unavailable; no numeric activity claim"}
-        {current ? "." : " · last known; current activity unknown."}{" "}
-        {value.epoch_reason === "clock_reset"
-          ? "Collection reset after a clock discontinuity."
-          : value.epoch_reason === "counter_overflow"
-            ? "Collection reset after counter overflow."
-            : "Collection began with this process."}
+            ? "Partial coverage"
+            : "Window unavailable"}
+        {current ? "" : " · Last known"}
       </p>
+      {value.epoch_reason === "clock_reset" && (
+        <p class="overview-evidence">
+          Collection reset after a clock discontinuity.
+        </p>
+      )}
+      {value.epoch_reason === "counter_overflow" && (
+        <p class="overview-evidence">
+          Collection reset after counter overflow.
+        </p>
+      )}
       <div class="activity-series">
         {(["mcp", "http_request", "connect"] as const).map((protocol) => {
           const total = activityTotals(value.buckets, protocol);
@@ -122,62 +59,80 @@ export function RecordedActivityView({
             >
               <h3>{labels[protocol]}</h3>
               {total ? (
-                <>
-                  <dl class="activity-totals">
+                <dl class="activity-totals">
+                  <div>
+                    <dt>Recorded admissions</dt>
+                    <dd>{total.admissions.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Known failure completions</dt>
+                    <dd>{total.failures.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Refusals</dt>
+                    <dd>{total.refusals.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Unknown completions</dt>
+                    <dd>{total.unknown.toLocaleString()}</dd>
+                  </div>
+                  {protocol === "connect" && (
                     <div>
-                      <dt>Recorded admissions</dt>
-                      <dd>{total.admissions.toLocaleString()}</dd>
+                      <dt>Interception selections</dt>
+                      <dd>{total.interception.toLocaleString()}</dd>
                     </div>
-                    <div>
-                      <dt>Known failure completions</dt>
-                      <dd>{total.failures.toLocaleString()}</dd>
-                    </div>
-                  </dl>
-                  <Trend value={value} protocol={protocol} />
-                  <p>
-                    {total.refusals.toLocaleString()} recorded refusals ·{" "}
-                    {total.unknown.toLocaleString()} explicit unknown
-                    completions
-                    {protocol === "connect"
-                      ? ` · ${total.interception.toLocaleString()} interception selections`
-                      : ""}
-                  </p>
-                </>
+                  )}
+                </dl>
               ) : (
                 <p>Unobserved window</p>
               )}
+              <a
+                class="activity-history-link"
+                href={
+                  protocol === "mcp"
+                    ? "#/mcp/invocations"
+                    : protocol === "connect"
+                      ? "#/http/traffic?filter_type=connect"
+                      : "#/http/traffic?filter_type=request"
+                }
+              >
+                {protocol === "mcp"
+                  ? "MCP invocation history"
+                  : protocol === "connect"
+                    ? "CONNECT history"
+                    : "HTTP request history"}
+              </a>
             </section>
           );
         })}
       </div>
-      {value.coverage !== "unavailable" && (
-        <p class="activity-legend">
-          <span class="activity-admission-key">Admissions</span> ·{" "}
-          <span class="activity-failure-key">Known failure completions</span> ·
-          gaps are unobserved minutes
-        </p>
-      )}
-      <p>
-        {activityTotals(
-          value.buckets,
-          "http_unclassified",
-        )?.admissions.toLocaleString() ?? "Unavailable"}{" "}
-        HTTP unclassified recorded admissions; invalid target evidence cannot
-        identify request versus CONNECT.
-      </p>
-      <p class="overview-context">
-        Admissions and completions settle separately. Their difference is not
-        in-flight work; missing completions or zero failures do not establish
-        success. CONNECT is not an inner request; interception selection is not
-        completion.
-      </p>
-      <details>
+      <details class="detail-group">
         <summary>Minute evidence</summary>
-        <p>
-          Collection epoch {value.epoch} · started{" "}
-          {formatUserTime(value.collection_start)}. Current incomplete minute is
-          excluded.
-        </p>
+        <dl class="detail-facts">
+          <div>
+            <dt>Window</dt>
+            <dd>
+              {formatUserTime(value.window_start)} –{" "}
+              {formatUserTime(value.window_end)}
+            </dd>
+          </div>
+          <div>
+            <dt>As of</dt>
+            <dd>{formatUserTime(value.as_of)}</dd>
+          </div>
+          <div>
+            <dt>Collection started</dt>
+            <dd>{formatUserTime(value.collection_start)}</dd>
+          </div>
+          <div>
+            <dt>Epoch</dt>
+            <dd>{value.epoch}</dd>
+          </div>
+          <div>
+            <dt>Collection reason</dt>
+            <dd>{value.epoch_reason.replaceAll("_", " ")}</dd>
+          </div>
+        </dl>
         {activityProtocols.map((protocol) => (
           <div key={protocol} class="activity-text-evidence">
             <h4>{labels[protocol]}</h4>
@@ -211,10 +166,6 @@ export function RecordedActivityView({
           </div>
         ))}
       </details>
-      <div class="activity-history-links">
-        <a href="#/mcp/invocations">MCP invocation history</a>
-        <a href="#/http/traffic">HTTP and CONNECT history</a>
-      </div>
     </div>
   );
 }

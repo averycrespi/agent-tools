@@ -1058,7 +1058,7 @@ p {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 20px;
   overflow-wrap: anywhere;
-  align-items: start;
+  align-items: stretch;
 }
 
 .overview-panel {
@@ -1066,6 +1066,8 @@ p {
   min-width: 0;
   margin: 0;
   padding: 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .overview-panel[data-testid="overview-servers"],
@@ -1136,8 +1138,47 @@ p {
 }
 
 .overview-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 12px;
+}
+
+.overview-stack > a:last-child {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.overview-panel[data-testid="overview-inventory"] {
   display: grid;
-  gap: 9px;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px 24px;
+}
+
+.overview-panel[data-testid="overview-inventory"] .overview-headline {
+  margin: 0;
+}
+
+.overview-panel[data-testid="overview-inventory"] .overview-headline > strong {
+  display: inline;
+  font-size: 18px;
+}
+
+.overview-panel[data-testid="overview-inventory"] .overview-context:empty,
+.overview-headline + p:empty {
+  display: none;
+}
+
+.overview-panel[data-testid="overview-inventory"] .overview-catalog {
+  border: 0;
+  padding: 0;
+}
+
+@media (max-width: 960px) {
+  .overview-panel[data-testid="overview-inventory"] {
+    grid-template-columns: 1fr;
+  }
 }
 
 .overview-facts {
@@ -1246,6 +1287,20 @@ p {
 
 .activity-protocol {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-history-link {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.activity-totals > div:nth-child(n + 3) dt {
+  min-height: 0;
+}
+.activity-totals > div:nth-child(n + 3) dd {
+  font-size: 16px;
 }
 
 .activity-protocol h3 {
@@ -1306,6 +1361,43 @@ p {
 
 .activity-failure-key {
   color: var(--danger);
+}
+
+.git-list-editor {
+  display: grid;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.git-list-editor > button,
+.git-list-editor fieldset > button {
+  justify-self: start;
+}
+.git-list-editor h3,
+.git-list-editor .form-field {
+  margin: 0;
+}
+.git-list-editor .form-row {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+.git-list-editor .form-row .form-field {
+  flex: 1;
+  min-width: 0;
+}
+.git-list-editor fieldset {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+@media (max-width: 700px) {
+  .git-list-editor .form-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 .activity-history-links {
@@ -2533,30 +2625,34 @@ button.sort-button:not(:disabled):hover {
 }
 
 .audit-filter-grid {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.audit-filter-grid > .form-field {
-  flex: 1 1 9rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
 }
 
 .audit-filter-group {
-  display: flex;
-  flex: 2 1 22rem;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 1.5fr);
   gap: 12px;
   min-width: 0;
 }
 
-.audit-filter-group > .form-field {
-  flex: 1 1 10rem;
+.audit-date-bounds {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.audit-filter-group:has(input[type="datetime-local"]) > .form-field {
-  flex-basis: 14rem;
+@media (max-width: 960px) {
+  .audit-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .audit-filter-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .audit-filter-grid .form-field {

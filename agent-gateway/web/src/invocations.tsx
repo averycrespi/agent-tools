@@ -1471,7 +1471,8 @@ function InvocationDetail({
       <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 id="invocation-page-title" tabindex={-1}>
-            MCP Invocation {item.id}
+            {invocationTargetLabel(item.target, item.requestedName) ||
+              "MCP invocation"}
           </h1>
           <StatusLabel state={invocationState(item.outcome)}>
             {item.outcome === "invalid_params"
@@ -1479,6 +1480,7 @@ function InvocationDetail({
               : sentenceCase(item.outcome)}
           </StatusLabel>
         </div>
+        <p class="technical-value">{item.id}</p>
       </header>
       <section class="detail-section" aria-labelledby="invocation-detail-title">
         <div class="panel-heading">

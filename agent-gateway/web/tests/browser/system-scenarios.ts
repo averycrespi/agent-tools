@@ -996,6 +996,7 @@ export async function runOverview(
     | "stale"
     | "partial"
     | "quiet"
+    | "saturated"
     | "empty"
     | "error" = "complete";
   let statusMode: "abnormal" | "quiet" | "error" = "abnormal";
@@ -1123,12 +1124,18 @@ export async function runOverview(
       });
       return;
     }
-    if (serverMode === "quiet" || serverMode === "empty") {
+    if (
+      serverMode === "quiet" ||
+      serverMode === "empty" ||
+      serverMode === "saturated"
+    ) {
+      const server = httpServer();
+      if (serverMode === "saturated") server.runtime.dispatch.saturated = true;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          items: serverMode === "empty" ? [] : [httpServer()],
+          items: serverMode === "empty" ? [] : [server],
           next_cursor: null,
         }),
       });
@@ -1507,9 +1514,7 @@ export async function runOverview(
           fail(`Overview ${state}/${theme}/${width} clipped content or links`);
         const screenshot = await page.screenshot({
           fullPage: true,
-          ...(state === "quiet" || state === "invalid-headers"
-            ? { path: join(screenshots, `${state}-${theme}-${width}.png`) }
-            : {}),
+          path: join(screenshots, `${state}-${theme}-${width}.png`),
         });
         if (screenshot.length === 0) fail(`Overview ${state} screenshot empty`);
       }
@@ -1666,6 +1671,7 @@ export async function runOverview(
     "1 additional pool under pressure",
   );
   await expect(source("material")).toContainText("Traffic storeFaulted");
+  await assertCardAlignment();
   await capture("reported-pools");
   proxyDisabled = true;
   await page.getByTestId("manual-refresh").click();
@@ -1698,10 +1704,10 @@ export async function runOverview(
   ).toHaveAttribute("href", "#/mcp/invocations");
   await expect(
     source("activity").getByRole("link", {
-      name: "HTTP and CONNECT history",
+      name: "HTTP request history",
       exact: true,
     }),
-  ).toHaveAttribute("href", "#/http/traffic");
+  ).toHaveAttribute("href", "#/http/traffic?filter_type=request");
   const accessibility = await new AxeBuilder({ page })
     .include('[data-testid="overview-grid"]')
     .analyze();
@@ -1764,6 +1770,14 @@ export async function runOverview(
   await assertCurrent("activity");
   await expect(source("activity")).toContainText("Partial coverage");
   await capture("partial");
+  serverMode = "saturated";
+  await page.getByTestId("manual-refresh").click();
+  await expect(source("servers")).toContainText("Capacity saturated");
+  await expect(
+    source("servers").getByTestId("overview-server-row"),
+  ).toHaveCount(1);
+  await capture("capacity-only-attention");
+  serverMode = "partial";
   activityMode = "reset";
   await page.getByTestId("manual-refresh").click();
   await expect(source("activity")).toContainText(
@@ -1780,7 +1794,7 @@ export async function runOverview(
   await page.waitForFunction(() =>
     document
       .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("No servers flagged"),
+      ?.textContent?.includes("0 servers flagged"),
   );
   await assertCurrent("status");
   await assertCurrent("requests");
@@ -1795,8 +1809,8 @@ export async function runOverview(
     "HTTP work0 / 128",
     "SQLiteReady · Not latched",
     "Keyring startupReady",
-    "No servers flagged for attention in the current read",
-    "No pending access requests in the current read",
+    "0 servers flagged",
+    "0 pending",
     "1 Configured MCP servers",
     "1 Active MCP catalog tools",
   ])
@@ -1813,6 +1827,44 @@ export async function runOverview(
       .getAttribute("data-mutation-availability")) === "storage_latched"
   )
     fail("Fresh unlatched read did not reopen admission");
+  async function assertCardAlignment() {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const cardGeometry = await Promise.all(
+      ["status", "material", "capacity"].map(async (id) => {
+        const card = source(id);
+        const box = await card.boundingBox();
+        const heading = await card
+          .getByRole("heading", { level: 2 })
+          .boundingBox();
+        const footer = await card
+          .locator(".overview-stack > a")
+          .last()
+          .boundingBox();
+        return {
+          top: box!.y,
+          bottom: box!.y + box!.height,
+          heading: heading!.y,
+          footer: footer!.y,
+        };
+      }),
+    );
+    for (const key of ["top", "bottom", "heading", "footer"] as const)
+      expect(
+        Math.max(...cardGeometry.map((c) => c[key])) -
+          Math.min(...cardGeometry.map((c) => c[key])),
+      ).toBeLessThanOrEqual(1);
+  }
+  await assertCardAlignment();
+  await expect(
+    source("material").getByText("Idle", { exact: true }),
+  ).toHaveAttribute("data-state", "neutral");
+  for (const removed of [
+    "downstream reachability",
+    "client trust",
+    "recovery assurance",
+    "callability count",
+  ])
+    await expect(overview).not.toContainText(removed);
   await capture("quiet");
   await compareBaseline("quiet");
 
@@ -1890,9 +1942,7 @@ export async function runOverview(
     "error",
   );
   await expect(source("catalog")).toHaveAttribute("data-panel-status", "error");
-  await expect(source("activity")).toContainText(
-    "last known; current activity unknown",
-  );
+  await expect(source("activity")).toContainText("Last known");
   await expect(source("catalog")).toContainText(
     "last known; current state unknown",
   );
@@ -2636,7 +2686,7 @@ export async function runInvocations(
   await expect(detailAuthorization).toHaveAttribute("data-state", "current");
   body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    `Invocation ${invocationIDs.missing}`,
+    invocationIDs.missing,
     "Gateway-owned local target",
     "not proof of downstream handoff",
     "does not automatically replay",
@@ -3063,7 +3113,10 @@ export async function runSystemStatus(
   ])
     if (!body.includes(phrase)) fail(`System status omitted ${phrase}`);
   const statusPanel = page.locator('[data-testid="system-status-panel"]');
-  await expect(statusPanel.locator(".detail-section")).toHaveCount(3);
+  await expect(statusPanel.locator(".detail-section")).toHaveCount(4);
+  await expect(
+    statusPanel.locator(".panel-heading.detail-section"),
+  ).toContainText("Gateway status");
   expect(
     await statusPanel.evaluate(
       (node) => getComputedStyle(node).backgroundColor,
@@ -3179,6 +3232,7 @@ export async function runSystemStatus(
   await expect(
     statusPanel.getByText("Gateway API", { exact: true }),
   ).toBeVisible();
+  await expect(statusPanel.locator(".status-label.current")).toHaveCount(0);
   await captureStateFeedback(page, "system-stale");
   failStatus = false;
   await page.getByTestId("manual-refresh").click();

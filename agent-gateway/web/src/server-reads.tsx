@@ -18,6 +18,7 @@ import {
   sentenceCase,
   StateNotice,
   StatusLabel,
+  FactStatus,
 } from "./primitives";
 import {
   authFlowIsTerminal,
@@ -1251,7 +1252,17 @@ function ReadPanel({
     return <StateNotice state="error" title="Read unavailable" />;
   if (panel === undefined || (panel.status === "loading" && !panel.hasValue))
     return <StateNotice state="loading" title="Loading authoritative data" />;
-  return <>{children}</>;
+  return (
+    <>
+      {panel.status !== "current" && panel.hasValue && (
+        <StateNotice
+          state="stale"
+          title="Last known data — refresh unavailable"
+        />
+      )}
+      {children}
+    </>
+  );
 }
 function ServerTabs({
   serverID,
@@ -1422,10 +1433,12 @@ function ServerNavigation({
   server,
   serverID,
   current,
+  fresh,
 }: {
   server: ServerView | undefined;
   serverID: string;
   current: string;
+  fresh: boolean;
 }) {
   if (server === undefined) return null;
   const presentation = serverPresentation(server);
@@ -1434,8 +1447,8 @@ function ServerNavigation({
       <header class="server-context" data-testid="server-context">
         <div class="server-context-heading">
           <h2 tabindex={-1}>{server.displayName}</h2>
-          <StatusLabel state={presentation.state}>
-            {presentation.label}
+          <StatusLabel state={fresh ? presentation.state : "stale"}>
+            {fresh ? presentation.label : `Last known · ${presentation.label}`}
           </StatusLabel>
         </div>
       </header>
@@ -1535,8 +1548,12 @@ function ServerRows({
           render: (server) => {
             const presentation = serverPresentation(server);
             return (
-              <StatusLabel state={presentation.state}>
-                {presentation.label}
+              <StatusLabel
+                state={controls.stale ? "stale" : presentation.state}
+              >
+                {controls.stale
+                  ? `Last known · ${presentation.label}`
+                  : presentation.label}
               </StatusLabel>
             );
           },
@@ -1762,7 +1779,12 @@ function CatalogRows({
           render: (descriptor) => {
             const available = descriptor.serverCatalogState === "current";
             return (
-              <StatusLabel state={available ? "current" : "warning"}>
+              <StatusLabel
+                state={
+                  controls.stale ? "stale" : available ? "current" : "warning"
+                }
+              >
+                {controls.stale ? "Last known · " : ""}
                 {available ? "Available" : "Catalog issue"}
               </StatusLabel>
             );
@@ -1836,8 +1858,15 @@ function DescriptorRows({
             descriptor.retiredAt === null ? "available" : "retired",
           render: (descriptor) => (
             <StatusLabel
-              state={descriptor.retiredAt === null ? "current" : "neutral"}
+              state={
+                controls.stale
+                  ? "stale"
+                  : descriptor.retiredAt === null
+                    ? "current"
+                    : "neutral"
+              }
             >
+              {controls.stale ? "Last known · " : ""}
               {descriptor.retiredAt === null ? "Available" : "Retired"}
             </StatusLabel>
           ),
@@ -2069,6 +2098,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={authenticationTab[1]!}
+          fresh={overviewPanel?.status === "current"}
           current="authentication"
         />
         <ReadPanel panel={overviewPanel}>
@@ -2136,6 +2166,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={serverID}
+          fresh={panel?.status === "current"}
           current="authentication"
         />
         <ReadPanel panel={panel}>
@@ -2167,6 +2198,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={activityTab[1]!}
+          fresh={overviewPanel?.status === "current"}
           current="operations"
         />
         {operationPanel?.status === "error" && (
@@ -2223,6 +2255,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={serverID}
+          fresh={panel?.status === "current"}
           current="operations"
         />
         <ReadPanel panel={panel}>
@@ -2247,6 +2280,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={descriptorItem[1]!}
+          fresh={panel?.status === "current"}
           current="tools"
         />
         <ReadPanel panel={panel}>
@@ -2275,7 +2309,11 @@ export function ServerReads({
                     </div>
                     <StatusLabel
                       state={
-                        descriptor.retiredAt === null ? "current" : "neutral"
+                        panel?.status !== "current"
+                          ? "stale"
+                          : descriptor.retiredAt === null
+                            ? "current"
+                            : "neutral"
                       }
                     >
                       {descriptor.retiredAt === null ? "Available" : "Retired"}
@@ -2316,7 +2354,9 @@ export function ServerReads({
                         </dd>
                       </div>
                     </dl>
-                    <h3 id="server-hints-title">Server hints</h3>
+                    <h3 id="server-hints-title" class="detail-group">
+                      Server hints
+                    </h3>
                     <div
                       class="tool-annotations"
                       aria-labelledby="server-hints-title"
@@ -2340,7 +2380,9 @@ export function ServerReads({
                           : "Closed world"}
                       </span>
                     </div>
-                    <h2>Schema summary</h2>
+                  </section>
+                  <section class="detail-section">
+                    <h3>Schema summary</h3>
                     <div class="tool-schema-grid">
                       <ToolSchema
                         label="Input schema"
@@ -2366,6 +2408,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={descriptorList}
+          fresh={overviewPanel?.status === "current"}
           current="tools"
         />
         <section
@@ -2376,10 +2419,6 @@ export function ServerReads({
             <h2 id="descriptor-list-title">Tools</h2>
             <a href="#/mcp/tools">All available tools</a>
           </div>
-          <p class="bounded-note">
-            Available means non-retired catalog evidence, not permission or
-            current callability.
-          </p>
           <ServerCollectionTable
             session={session}
             resolved={resolved}
@@ -2399,6 +2438,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={settingsTab[1]!}
+          fresh={panel?.status === "current"}
           current="settings"
         />
         <ReadPanel panel={panel}>
@@ -2435,6 +2475,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={statusServerID}
+          fresh={panel?.status === "current"}
           current="status"
         />
         <section
@@ -2526,7 +2567,10 @@ export function ServerReads({
                         <div>
                           <dt>Runtime</dt>
                           <dd>
-                            <strong>{sentenceCase(server.runtimeState)}</strong>
+                            <FactStatus
+                              value={server.runtimeState}
+                              current={panel?.status === "current"}
+                            />
                             <span>
                               Desired {sentenceCase(server.desiredState)}
                             </span>
@@ -2540,9 +2584,10 @@ export function ServerReads({
                         <div>
                           <dt>Authentication</dt>
                           <dd>
-                            <strong>
-                              {sentenceCase(server.credentialState)}
-                            </strong>
+                            <FactStatus
+                              value={server.credentialState}
+                              current={panel?.status === "current"}
+                            />
                             {presentation.href !==
                               `#/mcp/servers/${server.id}?tab=authentication` && (
                               <a
@@ -2556,7 +2601,10 @@ export function ServerReads({
                         <div>
                           <dt>Catalog</dt>
                           <dd>
-                            <strong>{sentenceCase(server.activeState)}</strong>
+                            <FactStatus
+                              value={server.activeState}
+                              current={panel?.status === "current"}
+                            />
                             <span>
                               {server.activeToolCount} active ·{" "}
                               {server.durableToolCount} durable tools
@@ -2684,6 +2732,7 @@ export function ServerReads({
         <ServerNavigation
           server={snapshot.server}
           serverID={otherTab[1]!}
+          fresh={panel?.status === "current"}
           current={otherTab[2]!}
         />
         <StateNotice state="unavailable" title="Workflow not yet available" />

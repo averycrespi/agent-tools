@@ -2036,7 +2036,7 @@ export async function runGrantReadsCreate(
   await page.locator('[data-testid="grant-detail"]').waitFor();
   const grantDetail = page.locator('[data-testid="grant-detail"]');
   await expect(grantDetail.locator("#grant-page-title")).toHaveText(
-    `MCP Grant ${firstGrantID}`,
+    active.description || "Unnamed MCP grant",
   );
   const grantFactLabels = await grantDetail.locator("dt").allTextContents();
   if (
@@ -3070,7 +3070,10 @@ export async function runGrantCorrection(
     await page.locator('[data-testid="grant-actions"]').waitFor();
     try {
       await page
-        .getByRole("heading", { name: `MCP Grant ${grantID}`, exact: true })
+        .getByRole("heading", {
+          name: grants.get(grantID)!.description || "Unnamed MCP grant",
+          exact: true,
+        })
         .waitFor({ timeout: 3000 });
     } catch {
       fail(

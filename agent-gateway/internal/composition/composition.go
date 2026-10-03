@@ -621,10 +621,6 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct selfservice_service: %w", err)
 	}
-	built.auditRepository, err = audit.NewRepository(options.Store)
-	if err != nil {
-		return nil, fmt.Errorf("construct audit repository: %w", err)
-	}
 	if err := check("invocation_repository"); err != nil {
 		return nil, err
 	}
@@ -839,6 +835,10 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	built.gitCredentials, err = gitcredentials.NewService(options.Store, built.keyring, built.authorization, options.Clock, options.Entropy, options.InstallationID)
 	if err != nil {
 		return nil, fmt.Errorf("construct Git credentials: %w", err)
+	}
+	built.auditRepository, err = audit.NewRepository(options.Store, built.authorization, built.servers, built.httpCredentials, built.gitCredentials)
+	if err != nil {
+		return nil, fmt.Errorf("construct audit repository: %w", err)
 	}
 	if err := check("replacement_service"); err != nil {
 		return nil, err

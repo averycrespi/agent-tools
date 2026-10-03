@@ -116,6 +116,42 @@ const history = {
   },
   pruned: true,
 };
+test("audit current recognition stays separate from evidence and validates complete unique coverage", () => {
+  const envelope = {
+    items: [event],
+    next_cursor: null,
+    history,
+    target_recognition: [
+      { target: event.target, display_name: "Renamed server" },
+    ],
+  };
+  assert.equal(
+    decodeAuditPage(envelope).items[0]!.currentTargetName,
+    "Renamed server",
+  );
+  assert.deepEqual(decodeAuditPage(envelope).items[0]!.target, event.target);
+  assert.equal(
+    decodeAuditPage({
+      ...envelope,
+      target_recognition: [{ target: event.target, display_name: null }],
+    }).items[0]!.currentTargetName,
+    undefined,
+  );
+  for (const target_recognition of [
+    [],
+    [...envelope.target_recognition, ...envelope.target_recognition],
+    [
+      {
+        target: { ...event.target, id: "00000000000000000000000002" },
+        display_name: "Unrelated",
+      },
+    ],
+    [{ target: event.target, display_name: "x".repeat(257) }],
+  ])
+    assert.throws(() => decodeAuditPage({ ...envelope, target_recognition }));
+  assert.equal("currentTargetName" in event, false);
+});
+
 test("audit strict projections preserve attribution, uncertain outcomes and retention", () => {
   const page = { items: [event], next_cursor: "opaque", history };
   assert.deepEqual(decodeAuditPage(page), page);

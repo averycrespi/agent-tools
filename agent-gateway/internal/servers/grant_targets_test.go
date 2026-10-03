@@ -20,6 +20,12 @@ func TestGrantDisplayNamesUsesCallerTransaction(t *testing.T) {
 	_, err := repository.Delete(context.Background(), deleted.ID, deleted.DesiredRevision)
 	require.NoError(t, err)
 	require.NoError(t, store.View(context.Background(), func(tx *sql.Tx) error {
+		currentTarget := contract.AuditTarget{Type: "server", ID: current.ID}
+		deletedTarget := contract.AuditTarget{Type: "server", ID: deleted.ID}
+		recognition, err := repository.AuditTargetNamesTx(t.Context(), tx, []contract.AuditTarget{currentTarget, deletedTarget})
+		require.NoError(t, err)
+		require.Equal(t, current.DisplayName, recognition[currentTarget])
+		require.NotContains(t, recognition, deletedTarget)
 		names, err := repository.GrantDisplayNamesTx(context.Background(), tx)
 		require.NoError(t, err)
 		require.Equal(t, "Gateway self-service tools", names[contract.SyntheticServerID])

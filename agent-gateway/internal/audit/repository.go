@@ -31,16 +31,21 @@ type Store interface {
 	Latched() bool
 }
 
-type Repository struct {
-	store     Store
-	cursorKey [32]byte
+type TargetNames interface {
+	AuditTargetNamesTx(context.Context, *sql.Tx, []contract.AuditTarget) (map[contract.AuditTarget]string, error)
 }
 
-func NewRepository(store Store) (*Repository, error) {
+type Repository struct {
+	store       Store
+	cursorKey   [32]byte
+	targetNames []TargetNames
+}
+
+func NewRepository(store Store, targetNames ...TargetNames) (*Repository, error) {
 	if store == nil {
 		return nil, ErrInvalidInput
 	}
-	repository := &Repository{store: store}
+	repository := &Repository{store: store, targetNames: targetNames}
 	if _, err := rand.Read(repository.cursorKey[:]); err != nil {
 		return nil, fmt.Errorf("prepare audit cursors: %w", err)
 	}
@@ -137,6 +142,10 @@ func (repository *Repository) Read(ctx context.Context, id, generation string) (
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
+		if err != nil {
+			return err
+		}
+		item.TargetRecognition, err = repository.recognize(ctx, tx, []contract.AuditSummary{item.Event.AuditSummary})
 		return err
 	})
 	if err != nil {

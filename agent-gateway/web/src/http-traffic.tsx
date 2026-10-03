@@ -379,8 +379,18 @@ export function HTTPTraffic({
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
             <h1 id="http-traffic-page-title" tabindex={-1}>
-              HTTP Traffic
+              {current.item?.admission.target
+                ? (current.item.admission.target as TrafficTarget).scheme
+                  ? "HTTP request"
+                  : "CONNECT exchange"
+                : "HTTP traffic"}
             </h1>
+            {current.item && (
+              <TrafficRecordStatus
+                item={current.item}
+                stale={panel?.status === "error"}
+              />
+            )}
           </div>
           <div class="copyable-value">
             <code>{location.segments[1]}</code>
@@ -891,6 +901,41 @@ function responseSourceLabel(source: unknown): string {
       ? "Upstream"
       : "Unavailable";
 }
+function TrafficRecordStatus({
+  item,
+  stale,
+}: {
+  item: TrafficItem;
+  stale: boolean;
+}) {
+  const decision = item.admission.decision as Record<string, unknown> | null;
+  const outcome =
+    decision?.transport === "intercept"
+      ? "interception_selected"
+      : item.completion?.outcome
+        ? String(item.completion.outcome)
+        : decision?.allowed
+          ? "outcome_unknown"
+          : "not_dispatched";
+  return (
+    <StatusLabel
+      state={
+        stale
+          ? "stale"
+          : outcome === "succeeded"
+            ? "current"
+            : outcome === "outcome_unknown"
+              ? "warning"
+              : ["not_dispatched", "interception_selected"].includes(outcome)
+                ? "neutral"
+                : "error"
+      }
+    >
+      {sentenceCase(outcome)}
+    </StatusLabel>
+  );
+}
+
 function TrafficDetail({
   item,
   link,
@@ -1083,10 +1128,6 @@ function TrafficDetail({
       </section>
       <section class="detail-section">
         <h2>Admission-time authority</h2>
-        <p>
-          These references and matched policy selectors describe admission time,
-          not current grants or credential authority.
-        </p>
         <dl class="detail-facts">
           {[
             ["Agent", a.principal],

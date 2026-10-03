@@ -291,6 +291,7 @@ export interface AuditSummary {
   initiator: AuditCredential | null;
   correlation_id: string;
   target: { type: string; id: string };
+  currentTargetName?: string;
 }
 export interface AuditEvent extends AuditSummary {
   detail: { reason: string | null; problem: string | null };
@@ -427,8 +428,52 @@ function summary(value: unknown, detail = false): AuditSummary | AuditEvent {
     throw new Error("Invalid audit attempt");
   return { ...result, detail: { reason, problem } };
 }
+function recognitionMember(value: unknown): string[] {
+  return typeof value === "object" &&
+    value !== null &&
+    "target_recognition" in value
+    ? ["target_recognition"]
+    : [];
+}
+function applyRecognition(value: unknown, items: AuditSummary[]) {
+  // Accept the prior envelope during client/Gateway version skew; never infer a name.
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > 100)
+    throw new Error("Invalid target recognition");
+  const targets = new Map(
+    items.map((item) => [`${item.target.type}/${item.target.id}`, item.target]),
+  );
+  const names = new Map<string, string | null>();
+  for (const entry of value) {
+    const r = record(entry, ["target", "display_name"]);
+    const target = record(r.target, ["type", "id"]);
+    const key = `${closed(target.type, auditTargets)}/${matching(target.id, gatewayID)}`;
+    if (
+      !targets.has(key) ||
+      names.has(key) ||
+      (r.display_name !== null &&
+        (typeof r.display_name !== "string" ||
+          !r.display_name ||
+          new TextEncoder().encode(r.display_name).length > 256 ||
+          /\p{Cc}/u.test(r.display_name)))
+    )
+      throw new Error("Invalid target recognition");
+    names.set(key, r.display_name as string | null);
+  }
+  if (names.size !== targets.size)
+    throw new Error("Incomplete target recognition");
+  for (const item of items) {
+    const name = names.get(`${item.target.type}/${item.target.id}`);
+    if (name) item.currentTargetName = name;
+  }
+}
 export function decodeAuditPage(value: unknown): AuditPage {
-  const page = record(value, ["items", "next_cursor", "history"]);
+  const page = record(value, [
+    "items",
+    "next_cursor",
+    "history",
+    ...recognitionMember(value),
+  ]);
   if (!Array.isArray(page.items) || page.items.length > 100)
     throw new Error("Invalid audit page");
   const items = page.items.map((item) => summary(item));
@@ -447,10 +492,11 @@ export function decodeAuditPage(value: unknown): AuditPage {
     )
       throw new Error("Invalid audit ordering");
   }
+  applyRecognition(page.target_recognition, items);
   return { items, next_cursor: next, history: boundary };
 }
 export function decodeAuditItem(value: unknown): AuditItem {
-  const item = record(value, ["event", "history"]);
+  const item = record(value, ["event", "history", ...recognitionMember(value)]);
   const event = summary(item.event, true) as AuditEvent;
   const boundary = history(item.history);
   if (
@@ -458,5 +504,6 @@ export function decodeAuditItem(value: unknown): AuditItem {
     BigInt(event.sequence) < BigInt(boundary.oldest_retained.sequence)
   )
     throw new Error("Invalid audit boundary");
+  applyRecognition(item.target_recognition, [event]);
   return { event, history: boundary };
 }

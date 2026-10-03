@@ -1377,7 +1377,7 @@ export function Grants({
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
             <h1 id="grant-page-title" tabindex={-1}>
-              MCP Grant {detail.id}
+              {detail.description || "Unnamed MCP grant"}
             </h1>
             <StatusLabel
               state={detail.state === "active" ? "current" : "neutral"}
@@ -1385,6 +1385,7 @@ export function Grants({
               {detail.state === "active" ? "Active" : "Expired"}
             </StatusLabel>
           </div>
+          <p class="technical-value">{detail.id}</p>
         </header>
         <section class="detail-section" aria-labelledby="grant-title">
           <div class="panel-heading">

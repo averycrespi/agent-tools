@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
   auditFilterOptions,
+  auditActions,
   decodeAuditItem,
   decodeAuditPage,
   parseAuditJSON,
@@ -708,11 +709,55 @@ function Filters({
         </div>
       )}
       <div class="audit-filter-grid">
-        <div class="audit-filter-group">
+        <div class="audit-filter-group audit-date-bounds">
           {field("from")}
           {field("until")}
         </div>
-        {field("category")}
+        <FormField id="audit-event" label="Event">
+          {(attributes) => (
+            <select
+              {...attributes}
+              value={
+                draft.filter_category
+                  ? `${draft.filter_category}.${draft.filter_action || "*"}`
+                  : draft.filter_action
+                    ? `*.${draft.filter_action}`
+                    : ""
+              }
+              onChange={(event) => {
+                const [category = "", action = ""] =
+                  event.currentTarget.value.split(".");
+                const patch = {
+                  filter_category: category === "*" ? "" : category,
+                  filter_action: action === "*" ? "" : action,
+                };
+                setDraft({ ...draft, ...patch });
+                apply(patch);
+              }}
+            >
+              <option value="">Any event</option>
+              {Object.entries(auditActions)
+                .toSorted(([a], [b]) => a.localeCompare(b))
+                .map(([category, actions]) => (
+                  <optgroup label={sentenceCase(category)}>
+                    <option value={`${category}.*`}>
+                      {category} · All actions
+                    </option>
+                    {actions.map((action) => (
+                      <option value={`${category}.${action}`}>
+                        {category}.{action}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              <optgroup label="Action across categories">
+                {auditFilterOptions("action")!.map((action) => (
+                  <option value={`*.${action}`}>Any category · {action}</option>
+                ))}
+              </optgroup>
+            </select>
+          )}
+        </FormField>
         <div
           class="audit-filter-group"
           role="group"
@@ -721,7 +766,6 @@ function Filters({
           {field("actor_type")}
           {field("credential_id")}
         </div>
-        {field("action")}
         <div
           class="audit-filter-group"
           role="group"
@@ -839,7 +883,7 @@ function RelatedAudit({
                           segments: ["audit", row.id],
                         })}
                       >
-                        {sentenceCase(row.category)}
+                        {row.category}.{row.action}
                       </a>
                       {row.id === resolved.location.segments[1] && (
                         <div class="muted">Selected event</div>
@@ -873,10 +917,20 @@ function RelatedAudit({
               ),
             },
             {
-              key: "action",
-              label: "Action",
-              role: "text",
-              render: (row) => sentenceCase(row.action),
+              key: "target",
+              label: "Target",
+              role: "relation",
+              render: (row) => (
+                <TableIdentity
+                  primary={
+                    row.currentTargetName ||
+                    (row.target.type === "principal"
+                      ? "Agent"
+                      : sentenceCase(row.target.type))
+                  }
+                  secondary={row.target.id}
+                />
+              ),
             },
             {
               key: "phase",
@@ -960,13 +1014,18 @@ export function Audit({
           </nav>
           <header class="detail-context" data-testid="detail-context">
             <div class="detail-context-heading">
-              <h1 tabindex={-1}>Audit event {resolved.location.segments[1]}</h1>
+              <h1 tabindex={-1}>
+                {snapshot.item
+                  ? `${snapshot.item.category}.${snapshot.item.action}`
+                  : "Audit event"}
+              </h1>
               {snapshot.item !== undefined && (
                 <StatusLabel state={outcomeState(snapshot.item.outcome)}>
                   {sentenceCase(snapshot.item.outcome)}
                 </StatusLabel>
               )}
             </div>
+            <p class="technical-value">{resolved.location.segments[1]}</p>
           </header>
         </>
       ) : null}
@@ -990,9 +1049,7 @@ export function Audit({
           <>
             <section class="detail-section" aria-label="Audit event detail">
               <div class="panel-heading">
-                <h2>
-                  {snapshot.item.category}.{snapshot.item.action}
-                </h2>
+                <h2>Event details</h2>
               </div>
               <h3>Event and attribution</h3>
               <dl class="detail-facts">
@@ -1029,9 +1086,10 @@ export function Audit({
                 <div>
                   <dt>Target</dt>
                   <dd>
-                    {snapshot.item.target.type === "principal"
-                      ? "Agent"
-                      : sentenceCase(snapshot.item.target.type)}
+                    {snapshot.item.currentTargetName ||
+                      (snapshot.item.target.type === "principal"
+                        ? "Agent"
+                        : sentenceCase(snapshot.item.target.type))}
                     :{" "}
                     {snapshot.targetLink === undefined ? (
                       snapshot.item.target.id
@@ -1155,7 +1213,7 @@ export function Audit({
                             segments: ["audit", item.id],
                           })}
                         >
-                          {sentenceCase(item.category)}
+                          {item.category}.{item.action}
                         </a>
                       }
                       secondary={item.id}
@@ -1186,20 +1244,15 @@ export function Audit({
                   ),
                 },
                 {
-                  key: "action",
-                  label: "Action",
-                  role: "text",
-                  render: (item) => sentenceCase(item.action),
-                },
-                {
                   key: "target",
                   label: "Target",
                   role: "relation",
                   render: (item) => (
                     <>
-                      {item.target.type === "principal"
-                        ? "Agent"
-                        : sentenceCase(item.target.type)}
+                      {item.currentTargetName ||
+                        (item.target.type === "principal"
+                          ? "Agent"
+                          : sentenceCase(item.target.type))}
                       <span class="table-identifier">
                         {controller.listTarget(item) === undefined ? (
                           item.target.id

@@ -89,12 +89,51 @@ func (repository *Repository) List(ctx context.Context, query Query) (contract.A
 			}
 			page.Items = append(page.Items, event.AuditSummary)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		page.TargetRecognition, err = repository.recognize(ctx, tx, page.Items)
+		return err
 	})
 	if err != nil {
 		return contract.AuditPage{}, err
 	}
 	return page, nil
+}
+
+func (repository *Repository) recognize(ctx context.Context, tx *sql.Tx, items []contract.AuditSummary) ([]contract.AuditTargetRecognition, error) {
+	targets := make([]contract.AuditTarget, 0, len(items))
+	seen := make(map[contract.AuditTarget]bool)
+	for _, item := range items {
+		if !seen[item.Target] {
+			targets = append(targets, item.Target)
+			seen[item.Target] = true
+		}
+	}
+	names := make(map[contract.AuditTarget]string)
+	for _, owner := range repository.targetNames {
+		batch, err := owner.AuditTargetNamesTx(ctx, tx, targets)
+		if err != nil {
+			return nil, err
+		}
+		for target, name := range batch {
+			if seen[target] {
+				names[target] = name
+			}
+		}
+	}
+	result := make([]contract.AuditTargetRecognition, 0, len(targets))
+	for _, target := range targets {
+		entry := contract.AuditTargetRecognition{Target: target}
+		if name := names[target]; name != "" {
+			entry.DisplayName = &name
+		}
+		result = append(result, entry)
+	}
+	return result, nil
 }
 
 func listStatement(filters contract.AuditFilters, binding cursor, limit int) (string, []any) {

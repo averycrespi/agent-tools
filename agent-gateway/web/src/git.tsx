@@ -1,4 +1,10 @@
 import type { RefObject } from "preact";
+import {
+  useGitChoices,
+  choiceLabel,
+  compatibleGitCredential,
+  type GitChoices,
+} from "./git-choices";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResolvedLocation } from "./location";
 import type { MutationCoordinator, MutationSnapshot } from "./mutation";
@@ -91,6 +97,7 @@ function useGitDetail<T>(
 export function GitConfiguration(props: Props & { kind: GitKind }) {
   const { kind } = props,
     selected = props.resolved.location.segments[1];
+  const choices = useGitChoices(props.session, props.view.generation, kind);
   const { value, error } = useGitDetail(
     props,
     selected && selected !== "new"
@@ -102,8 +109,10 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
       return r;
     },
   );
-  if (selected === undefined) return <GitCollection {...props} />;
-  if (selected === "new") return <GitEditor {...props} mode="create" />;
+  if (selected === undefined)
+    return <GitCollection {...props} choices={choices} />;
+  if (selected === "new")
+    return <GitEditor {...props} choices={choices} mode="create" />;
   if (!value)
     return (
       <StateNotice
@@ -120,17 +129,26 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         <div class="detail-context-heading">
           <h1 tabindex={-1}>{label(value)}</h1>
           {kind === "credentials" ? (
-            <StatusLabel state={value.available ? "current" : "warning"}>
+            <StatusLabel
+              state={error ? "stale" : value.available ? "current" : "warning"}
+            >
               {value.available ? "Configured" : "Unavailable"}
             </StatusLabel>
           ) : kind === "grants" ? (
             <StatusLabel
-              state={value.state === "active" ? "current" : "neutral"}
+              state={
+                error
+                  ? "stale"
+                  : value.state === "active"
+                    ? "current"
+                    : "neutral"
+              }
             >
               {value.state === "active" ? "Active" : "Expired"}
             </StatusLabel>
           ) : null}
         </div>
+        <p class="technical-value">{value.id}</p>
       </header>
       {error && (
         <StateNotice state="error" title="Git resource refresh unavailable">
@@ -166,9 +184,11 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
                 <dt>Git credential</dt>
                 <dd>
                   {value.credential_id ? (
-                    <a href={`#/git/credentials/${value.credential_id}`}>
-                      {value.credential_id}
-                    </a>
+                    <GitRelationship
+                      id={value.credential_id}
+                      kind="credentials"
+                      choices={choices}
+                    />
                   ) : (
                     "None"
                   )}
@@ -181,17 +201,21 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
               <div>
                 <dt>Agent</dt>
                 <dd>
-                  <a href={`#/agents/${value.principal_id}`}>
-                    {value.principal_id}
-                  </a>
+                  <GitRelationship
+                    id={value.principal_id!}
+                    kind="agents"
+                    choices={choices}
+                  />
                 </dd>
               </div>
               <div>
                 <dt>Repository</dt>
                 <dd>
-                  <a href={`#/git/repositories/${value.repository_id}`}>
-                    {value.repository_id}
-                  </a>
+                  <GitRelationship
+                    id={value.repository_id!}
+                    kind="repositories"
+                    choices={choices}
+                  />
                 </dd>
               </div>
               <div>
@@ -224,7 +248,11 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
                   {value.referencing_repositories?.length
                     ? value.referencing_repositories.map((r) => (
                         <p key={r.id}>
-                          <a href={`#/git/repositories/${r.id}`}>{r.id}</a>
+                          <GitRelationship
+                            id={r.id}
+                            kind="repositories"
+                            choices={choices}
+                          />
                         </p>
                       ))
                     : "None"}
@@ -244,10 +272,17 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
           </ul>
         )}
       </section>
-      <GitEditor {...props} resource={value} mode="edit" unavailable={error} />
+      <GitEditor
+        {...props}
+        choices={choices}
+        resource={value}
+        mode="edit"
+        unavailable={error}
+      />
       {kind === "credentials" && (
         <GitEditor
           {...props}
+          choices={choices}
           resource={value}
           mode="rotate"
           unavailable={error}
@@ -255,6 +290,7 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
       )}
       <GitEditor
         {...props}
+        choices={choices}
         resource={value}
         mode="delete"
         unavailable={error}
@@ -262,7 +298,31 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
     </div>
   );
 }
-function GitCollection(props: Props & { kind: GitKind }) {
+function GitRelationship({
+  id,
+  kind,
+  choices,
+}: {
+  id: string;
+  kind: "agents" | "repositories" | "credentials";
+  choices: GitChoices;
+}) {
+  const name = choices[kind].find((item) => item.id === id)?.name;
+  return (
+    <TableIdentity
+      primary={
+        <a href={kind === "agents" ? `#/agents/${id}` : `#/git/${kind}/${id}`}>
+          {name ||
+            (choices.loading ? "Loading relationship" : "Resource unavailable")}
+          {name && choices.error ? " · Last known" : ""}
+        </a>
+      }
+      secondary={id}
+    />
+  );
+}
+
+function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
   const navigate = useUnsavedChanges(false),
     { kind } = props;
   const { items, controls } = useCollectionPage<GitResource>(
@@ -320,9 +380,11 @@ function GitCollection(props: Props & { kind: GitKind }) {
               role: "relation",
               render: (r) =>
                 kind === "grants" ? (
-                  <a href={`#/git/repositories/${r.repository_id}`}>
-                    {r.repository_id}
-                  </a>
+                  <GitRelationship
+                    id={r.repository_id!}
+                    kind="repositories"
+                    choices={props.choices}
+                  />
                 ) : (
                   (r.url ?? r.origin)
                 ),
@@ -334,9 +396,11 @@ function GitCollection(props: Props & { kind: GitKind }) {
                     label: "Agent",
                     role: "relation" as const,
                     render: (r: GitResource) => (
-                      <a href={`#/agents/${r.principal_id}`}>
-                        {r.principal_id}
-                      </a>
+                      <GitRelationship
+                        id={r.principal_id!}
+                        kind="agents"
+                        choices={props.choices}
+                      />
                     ),
                   },
                 ]
@@ -348,9 +412,11 @@ function GitCollection(props: Props & { kind: GitKind }) {
               render: (r) =>
                 kind === "repositories" ? (
                   r.credential_id ? (
-                    <a href={`#/git/credentials/${r.credential_id}`}>
-                      {r.credential_id}
-                    </a>
+                    <GitRelationship
+                      id={r.credential_id}
+                      kind="credentials"
+                      choices={props.choices}
+                    />
                   ) : (
                     "None"
                   )
@@ -384,12 +450,14 @@ function GitCollection(props: Props & { kind: GitKind }) {
 }
 function GitEditor({
   kind,
+  choices,
   resource,
   mode,
   unavailable = false,
   ...props
 }: Props & {
   kind: GitKind;
+  choices: GitChoices;
   resource?: GitResource;
   mode: "create" | "edit" | "rotate" | "delete";
   unavailable?: boolean;
@@ -518,6 +586,27 @@ function GitEditor({
         (!gitID.test(draft.principal) || !gitID.test(draft.repository))
       )
         return "Enter valid agent and repository IDs.";
+      if (
+        (kind === "repositories" || (kind === "grants" && mode === "create")) &&
+        (choices.loading || choices.error)
+      )
+        return "Refresh resource choices before reviewing.";
+      if (
+        kind === "repositories" &&
+        draft.credential !== "" &&
+        !choices.credentials.some(
+          (c) =>
+            c.id === draft.credential && compatibleGitCredential(c, draft.url),
+        )
+      )
+        return "Select an available credential for this HTTPS origin, or choose None.";
+      if (
+        kind === "grants" &&
+        mode === "create" &&
+        (!choices.agents.some((a) => a.id === draft.principal) ||
+          !choices.repositories.some((r) => r.id === draft.repository))
+      )
+        return "Select an existing agent and repository.";
       if (kind === "grants" && draft.refs.length > 0 && !draft.read)
         return "Push permissions require read access.";
       if (
@@ -640,50 +729,85 @@ function GitEditor({
                 true,
                 resource !== undefined,
               )}
-              <p>
-                Aliases recognize this same immutable repository; they cannot
-                retarget its authority.
-              </p>
-              {draft.aliases.map((alias, i) => (
-                <div class="form-row" key={i}>
-                  <FormField id={`git-alias-${i}`} label={`Alias ${i + 1}`}>
-                    {(attributes) => (
-                      <input
-                        {...attributes}
-                        required
-                        value={alias}
-                        onInput={(e) =>
-                          change(
-                            "aliases",
-                            draft.aliases.map((a, j) =>
-                              i === j ? e.currentTarget.value : a,
-                            ),
-                          )
-                        }
-                      />
-                    )}
-                  </FormField>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      change(
-                        "aliases",
-                        draft.aliases.filter((_, j) => i !== j),
-                      )
+              <section class="git-list-editor" aria-label="Repository aliases">
+                <h3>Aliases</h3>
+                {draft.aliases.map((alias, i) => (
+                  <div class="form-row" key={i}>
+                    <FormField id={`git-alias-${i}`} label={`Alias ${i + 1}`}>
+                      {(attributes) => (
+                        <input
+                          {...attributes}
+                          required
+                          value={alias}
+                          onInput={(e) =>
+                            change(
+                              "aliases",
+                              draft.aliases.map((a, j) =>
+                                i === j ? e.currentTarget.value : a,
+                              ),
+                            )
+                          }
+                        />
+                      )}
+                    </FormField>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        change(
+                          "aliases",
+                          draft.aliases.filter((_, j) => i !== j),
+                        )
+                      }
+                    >
+                      Remove alias {i + 1}
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  disabled={draft.aliases.length >= 4}
+                  onClick={() => change("aliases", [...draft.aliases, ""])}
+                >
+                  Add alias
+                </button>
+              </section>
+              <FormField
+                id={`git-credential-${mode}`}
+                label="Git credential"
+                {...(draft.credential ? { hint: draft.credential } : {})}
+              >
+                {(attributes) => (
+                  <select
+                    {...attributes}
+                    value={draft.credential}
+                    onChange={(e) =>
+                      change("credential", e.currentTarget.value)
                     }
                   >
-                    Remove alias {i + 1}
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                disabled={draft.aliases.length >= 4}
-                onClick={() => change("aliases", [...draft.aliases, ""])}
-              >
-                Add alias
-              </button>
-              {field("credential", "Git credential ID (optional)", false)}
+                    <option value="">None — public repository</option>
+                    {draft.credential &&
+                      !choices.credentials.some(
+                        (c) =>
+                          c.id === draft.credential &&
+                          compatibleGitCredential(c, draft.url),
+                      ) && (
+                        <option value={draft.credential} disabled>
+                          {choices.credentials.find(
+                            (c) => c.id === draft.credential,
+                          )?.name || draft.credential}{" "}
+                          · Unavailable or incompatible
+                        </option>
+                      )}
+                    {choices.credentials
+                      .filter((c) => compatibleGitCredential(c, draft.url))
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {choiceLabel(c, choices.credentials)}
+                        </option>
+                      ))}
+                  </select>
+                )}
+              </FormField>
             </>
           )}
           {metadata && kind === "credentials" && (
@@ -695,13 +819,53 @@ function GitEditor({
           )}
           {metadata && kind === "grants" && (
             <>
-              {field("principal", "Agent ID", true, resource !== undefined)}
-              {field(
-                "repository",
-                "Repository ID",
-                true,
-                resource !== undefined,
-              )}
+              {(["principal", "repository"] as const).map((key) => {
+                const items =
+                  key === "principal" ? choices.agents : choices.repositories;
+                const title = key === "principal" ? "Agent" : "Repository";
+                return (
+                  <FormField
+                    id={`git-${key}-${mode}`}
+                    label={`${title}${resource ? " (immutable)" : ""}`}
+                    {...(draft[key] ? { hint: draft[key] } : {})}
+                  >
+                    {(attributes) => (
+                      <select
+                        {...attributes}
+                        required
+                        disabled={
+                          resource !== undefined ||
+                          choices.loading ||
+                          choices.error
+                        }
+                        value={draft[key]}
+                        onChange={(e) => change(key, e.currentTarget.value)}
+                      >
+                        <option value="">
+                          {choices.loading
+                            ? `Loading ${title.toLowerCase()}s`
+                            : choices.error
+                              ? `${title} choices unavailable`
+                              : items.length
+                                ? `Select ${title.toLowerCase()}`
+                                : `No ${title.toLowerCase()}s configured`}
+                        </option>
+                        {draft[key] &&
+                          !items.some((item) => item.id === draft[key]) && (
+                            <option value={draft[key]}>
+                              {draft[key]} · Unavailable
+                            </option>
+                          )}
+                        {items.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {choiceLabel(item, items)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </FormField>
+                );
+              })}
               {field("description", "Description (optional)", false)}
               <FormField id={`git-read-${mode}`} label="Read repository">
                 {(attributes) => (
@@ -715,88 +879,59 @@ function GitEditor({
                   />
                 )}
               </FormField>
-              <h3>Push ref permissions</h3>
-              <p>
-                Adding a push rule includes read access. No write-only grants.
-              </p>
-              {draft.refs.map((rule, i) => (
-                <fieldset key={i}>
-                  <legend>Ref rule {i + 1}</legend>
-                  <FormField id={`git-rule-kind-${i}`} label="Match">
-                    {(attributes) => (
-                      <select
-                        {...attributes}
-                        value={rule.ref.kind}
-                        onChange={(e) =>
-                          change(
-                            "refs",
-                            draft.refs.map((r, j) =>
-                              i === j
-                                ? {
-                                    ...r,
-                                    ref: {
-                                      ...r.ref,
-                                      kind: e.currentTarget.value as
-                                        | "exact"
-                                        | "prefix",
-                                    },
-                                  }
-                                : r,
-                            ),
-                          )
-                        }
-                      >
-                        <option value="exact">Exact ref</option>
-                        <option value="prefix">
-                          Namespace prefix ending in /
-                        </option>
-                      </select>
-                    )}
-                  </FormField>
-                  <FormField id={`git-rule-ref-${i}`} label="Ref selector">
-                    {(attributes) => (
-                      <input
-                        {...attributes}
-                        required
-                        value={rule.ref.value}
-                        onInput={(e) =>
-                          change(
-                            "refs",
-                            draft.refs.map((r, j) =>
-                              i === j
-                                ? {
-                                    ...r,
-                                    ref: {
-                                      ...r.ref,
-                                      value: e.currentTarget.value,
-                                    },
-                                  }
-                                : r,
-                            ),
-                          )
-                        }
-                      />
-                    )}
-                  </FormField>
-                  {["create", "update", "delete"].map((action) => (
-                    <FormField
-                      id={`git-rule-${i}-${action}`}
-                      label={action[0]!.toUpperCase() + action.slice(1)}
-                    >
+              <section class="git-list-editor" aria-label="Push permissions">
+                <h3>Push permissions</h3>
+                {draft.refs.map((rule, i) => (
+                  <fieldset key={i}>
+                    <legend>Ref rule {i + 1}</legend>
+                    <FormField id={`git-rule-kind-${i}`} label="Match">
                       {(attributes) => (
-                        <BinaryToggle
-                          attributes={attributes}
-                          checked={rule.actions.includes(action)}
-                          onChange={(v) =>
+                        <select
+                          {...attributes}
+                          value={rule.ref.kind}
+                          onChange={(e) =>
                             change(
                               "refs",
                               draft.refs.map((r, j) =>
                                 i === j
                                   ? {
                                       ...r,
-                                      actions: v
-                                        ? [...r.actions, action]
-                                        : r.actions.filter((a) => a !== action),
+                                      ref: {
+                                        ...r.ref,
+                                        kind: e.currentTarget.value as
+                                          | "exact"
+                                          | "prefix",
+                                      },
+                                    }
+                                  : r,
+                              ),
+                            )
+                          }
+                        >
+                          <option value="exact">Exact ref</option>
+                          <option value="prefix">
+                            Namespace prefix ending in /
+                          </option>
+                        </select>
+                      )}
+                    </FormField>
+                    <FormField id={`git-rule-ref-${i}`} label="Ref selector">
+                      {(attributes) => (
+                        <input
+                          {...attributes}
+                          required
+                          value={rule.ref.value}
+                          onInput={(e) =>
+                            change(
+                              "refs",
+                              draft.refs.map((r, j) =>
+                                i === j
+                                  ? {
+                                      ...r,
+                                      ref: {
+                                        ...r.ref,
+                                        value: e.currentTarget.value,
+                                      },
                                     }
                                   : r,
                               ),
@@ -805,33 +940,66 @@ function GitEditor({
                         />
                       )}
                     </FormField>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      change(
-                        "refs",
-                        draft.refs.filter((_, j) => i !== j),
-                      )
-                    }
-                  >
-                    Remove ref rule {i + 1}
-                  </button>
-                </fieldset>
-              ))}
-              <button
-                type="button"
-                disabled={draft.refs.length >= 128}
-                onClick={() => {
-                  change("read", true);
-                  change("refs", [
-                    ...draft.refs,
-                    { ref: { kind: "exact", value: "" }, actions: ["update"] },
-                  ]);
-                }}
-              >
-                Add push rule
-              </button>
+                    {["create", "update", "delete"].map((action) => (
+                      <FormField
+                        id={`git-rule-${i}-${action}`}
+                        label={action[0]!.toUpperCase() + action.slice(1)}
+                      >
+                        {(attributes) => (
+                          <BinaryToggle
+                            attributes={attributes}
+                            checked={rule.actions.includes(action)}
+                            onChange={(v) =>
+                              change(
+                                "refs",
+                                draft.refs.map((r, j) =>
+                                  i === j
+                                    ? {
+                                        ...r,
+                                        actions: v
+                                          ? [...r.actions, action]
+                                          : r.actions.filter(
+                                              (a) => a !== action,
+                                            ),
+                                      }
+                                    : r,
+                                ),
+                              )
+                            }
+                          />
+                        )}
+                      </FormField>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        change(
+                          "refs",
+                          draft.refs.filter((_, j) => i !== j),
+                        )
+                      }
+                    >
+                      Remove ref rule {i + 1}
+                    </button>
+                  </fieldset>
+                ))}
+                <button
+                  type="button"
+                  disabled={draft.refs.length >= 128}
+                  onClick={() => {
+                    change("read", true);
+                    change("refs", [
+                      ...draft.refs,
+                      {
+                        ref: { kind: "exact", value: "" },
+                        actions: ["update"],
+                      },
+                    ]);
+                  }}
+                >
+                  Add push rule
+                </button>
+              </section>
               <FormField id={`git-expires-${mode}`} label="Expiry (optional)">
                 {(attributes) => (
                   <input
@@ -859,6 +1027,13 @@ function GitEditor({
               hint="Write-only. Cleared on submission or cancellation."
             />
           )}
+          {metadata &&
+            (kind === "repositories" || kind === "grants") &&
+            choices.error && (
+              <StateNotice state="error" title="Resource choices unavailable">
+                Refresh to load choices. Your draft is retained.
+              </StateNotice>
+            )}
           {inputError && (
             <StateNotice state="error" title="Check Git configuration">
               <p>
@@ -891,20 +1066,22 @@ function GitEditor({
               automatic retry.
             </StateNotice>
           )}
-          <button
-            ref={button}
-            type="submit"
-            class={`${mode === "delete" ? "danger-action" : mode === "create" ? "create-action" : ""} form-submit-action`}
-            disabled={blocked}
-          >
-            {mode === "create"
-              ? "Review and create"
-              : mode === "edit"
-                ? "Review changes"
-                : mode === "rotate"
-                  ? "Review rotation"
-                  : "Review deletion"}
-          </button>
+          <div class="form-actions">
+            <button
+              ref={button}
+              type="submit"
+              class={`${mode === "delete" ? "danger-action" : mode === "create" ? "create-action" : ""} form-submit-action`}
+              disabled={blocked}
+            >
+              {mode === "create"
+                ? "Review and create"
+                : mode === "edit"
+                  ? "Review changes"
+                  : mode === "rotate"
+                    ? "Review rotation"
+                    : "Review deletion"}
+            </button>
+          </div>
         </fieldset>
       </form>
       <ConfirmationDialog
@@ -941,7 +1118,17 @@ function GitEditor({
                     </div>
                     <div>
                       <dt>Git credential</dt>
-                      <dd>{draft.credential || "None"}</dd>
+                      <dd>
+                        {draft.credential ? (
+                          <GitRelationship
+                            id={draft.credential}
+                            kind="credentials"
+                            choices={choices}
+                          />
+                        ) : (
+                          "None — public repository"
+                        )}
+                      </dd>
                     </div>
                   </>
                 )}
@@ -963,11 +1150,23 @@ function GitEditor({
                   <>
                     <div>
                       <dt>Agent</dt>
-                      <dd>{draft.principal}</dd>
+                      <dd>
+                        <GitRelationship
+                          id={draft.principal}
+                          kind="agents"
+                          choices={choices}
+                        />
+                      </dd>
                     </div>
                     <div>
                       <dt>Repository</dt>
-                      <dd>{draft.repository}</dd>
+                      <dd>
+                        <GitRelationship
+                          id={draft.repository}
+                          kind="repositories"
+                          choices={choices}
+                        />
+                      </dd>
                     </div>
                     <div>
                       <dt>Read repository</dt>
@@ -1050,7 +1249,23 @@ export function GitTrafficView(props: Props) {
         <a href="#/git/traffic">Back to Git traffic</a>
       </nav>
       <header class="detail-context">
-        <h1 tabindex={-1}>Git exchange: {a.id}</h1>
+        <div class="detail-context-heading">
+          <h1 tabindex={-1}>{a.policy?.repository_name || "Git exchange"}</h1>
+          <StatusLabel
+            state={
+              error
+                ? "stale"
+                : !a.allowed
+                  ? "neutral"
+                  : f.transport === "Complete"
+                    ? "current"
+                    : "warning"
+            }
+          >
+            {f.transport}
+          </StatusLabel>
+        </div>
+        <p class="technical-value">{a.id}</p>
       </header>
       {error && (
         <StateNotice state="warning" title="Git traffic refresh unavailable" />
@@ -1199,10 +1414,6 @@ export function GitTrafficView(props: Props) {
               </ul>
             </>
           )}
-          <p>
-            Historical references are not current authority. No observed ref
-            names, OIDs or upstream messages are retained.
-          </p>
         </details>
       </section>
     </div>
