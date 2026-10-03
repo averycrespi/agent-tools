@@ -166,7 +166,7 @@ from ordinary HTTP and authorize every requested ref action before forwarding a
 push. Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and
 secrets never inherit HTTP defaults, request grants or HTTP credentials. Use
 `agent-gateway git --help` for the command tree. The dedicated **Git** browser
-section manages Repositories, Grants and Credentials, separately from HTTP/MCP.
+section manages Routing, Repositories, Grants and Credentials, separately from HTTP/MCP.
 Canonical destinations are immutable; alias edits never retarget authority.
 Adding a push rule explicitly enables read. Secret controls are write-only and
 clear on submission, cancellation, navigation and session loss. Review changes
@@ -213,7 +213,14 @@ use `kind:"exact"` and a fully qualified ref. Different destinations require new
 repository identities and grants; aliases only add/remove terminal `.git`
 spelling at the same origin/base. Metadata update retains the canonical URL.
 
-Profile files are exactly `{"origins":["https://github.com"]}`. Origins normalize
+Use **Git → Routing** to inspect enforcement status and edit enabled HTTPS origins.
+Add `https://github.com` to route GitHub smart-HTTPS Git through Git policy and
+credentials. Review the complete current/proposed origin list before saving;
+removing an origin returns it to ordinary HTTP policy. This does not create
+repository grants or configure client proxy/CA trust. Revision conflicts retain
+your draft for explicit review; an uncertain save must not be replayed.
+
+CLI profile files are exactly `{"origins":["https://github.com"]}`. Origins normalize
 to explicit effective ports; repository deletion never removes profile intent.
 The read-only `active:true` field reports the enforcement gate. Activation refuses
 while a matching opaque tunnel is still settling; let that owner finish before

@@ -165,7 +165,7 @@ func validGitRefResponse(value string) bool {
 }
 
 func validGitProfile(g contract.GitRoutingProfile) bool {
-	if !validCanonicalRevision(g.Revision) || g.Revision == "0" || g.Active || g.Origins == nil || len(g.Origins) > contract.GitRepositories {
+	if !validCanonicalRevision(g.Revision) || g.Revision == "0" || g.Origins == nil || len(g.Origins) > contract.GitRepositories {
 		return false
 	}
 	for i, origin := range g.Origins {
@@ -213,7 +213,7 @@ func gitProfileTable(body []byte) (controlclient.Table, error) {
 	if controlclient.DecodeExactResponse(body, &g) != nil || !validGitProfile(g) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"ORIGINS", "REVISION", "ACTIVE"}, Rows: [][]string{{strings.Join(g.Origins, ", "), g.Revision, "false"}}}, nil
+	return controlclient.Table{Headers: []string{"ORIGINS", "REVISION", "ACTIVE"}, Rows: [][]string{{strings.Join(g.Origins, ", "), g.Revision, strconv.FormatBool(g.Active)}}}, nil
 }
 func gitListTable[T any](body []byte, maximum int, table func([]byte) (controlclient.Table, error)) (controlclient.Table, error) {
 	var page contract.QueryCollection[T]
@@ -303,7 +303,7 @@ func runGitPolicy(cmd *cobra.Command, options *onlineOptions, args []string, gro
 		body = []byte(`{}`)
 	}
 	defer clear(body)
-	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change Git configuration or authority? Production Git enforcement remains inactive. Never replay an uncertain mutation."}); err != nil {
+	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: options.yes, Consequence: "Change Git configuration or authority? This affects subsequent Git proxy requests. Never replay an uncertain mutation."}); err != nil {
 		return writeOnlineFailure(cmd, options.output, controlclient.ClassifyClientError(err))
 	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
