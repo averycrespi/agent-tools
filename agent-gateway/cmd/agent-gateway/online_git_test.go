@@ -114,6 +114,55 @@ func TestCLIGitRepositoryExactPreconditionsAndNoReplay(t *testing.T) {
 	}
 }
 
+func TestCLIGitRoutingProfileActive(t *testing.T) {
+	for _, action := range []string{"get", "update"} {
+		t.Run(action, func(t *testing.T) {
+			profile := contract.GitRoutingProfile{Origins: []string{}, Revision: "1", Active: true}
+			var reads, writes atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/api/v2/git/routing-profile", r.URL.Path)
+				require.Equal(t, "Bearer "+testAdministratorBearer, r.Header.Get("Authorization"))
+				w.Header().Set("Content-Type", contract.MediaTypeJSON)
+				if r.Method == http.MethodGet {
+					reads.Add(1)
+				} else {
+					require.Equal(t, http.MethodPatch, r.Method)
+					writes.Add(1)
+					require.Equal(t, gitWireETag("profile", "routing", "1"), r.Header.Get("If-Match"))
+					body, err := io.ReadAll(r.Body)
+					require.NoError(t, err)
+					require.JSONEq(t, `{"origins":["https://github.com"]}`, string(body))
+					profile.Origins = []string{"https://github.com:443"}
+					profile.Revision = "2"
+				}
+				w.Header().Set("ETag", gitWireETag("profile", "routing", profile.Revision))
+				require.NoError(t, json.NewEncoder(w).Encode(profile))
+			}))
+			defer server.Close()
+			args := []string{"git", "routing-profile", action}
+			if action == "update" {
+				path := filepath.Join(t.TempDir(), "profile.json")
+				require.NoError(t, os.WriteFile(path, []byte(`{"origins":["https://github.com"]}`), 0o600))
+				args = append(args, "--file", path, "--yes")
+			}
+			output, err := executePrincipalRequestETagCommand(t, server.URL, args...)
+			require.NoError(t, err, string(output))
+			require.Contains(t, string(output), `"active":true`)
+			require.Equal(t, int32(1), reads.Load())
+			if action == "update" {
+				require.Equal(t, int32(1), writes.Load())
+			} else {
+				require.Zero(t, writes.Load())
+			}
+			raw, err := json.Marshal(profile)
+			require.NoError(t, err)
+			table, err := gitProfileTable(raw)
+			require.NoError(t, err)
+			require.Equal(t, "true", table.Rows[0][2])
+		})
+	}
+}
+
 func TestCLIGitResponseValidation(t *testing.T) {
 	g := contract.GitRepository{ID: idForSecurityTest(), GitRepositoryDefinition: contract.GitRepositoryDefinition{Name: "Repository", URL: "https://example.com:443/team/repo", Aliases: []string{}}, Revision: "1", AliasRevision: "1", CreatedAt: "2026-09-21T00:00:00.000000000Z", UpdatedAt: "2026-09-21T00:00:00.000000000Z"}
 	require.True(t, validGitRepository(g))
@@ -122,5 +171,5 @@ func TestCLIGitResponseValidation(t *testing.T) {
 	profile := contract.GitRoutingProfile{Origins: []string{"https://example.com:443"}, Revision: "1"}
 	require.True(t, validGitProfile(profile))
 	profile.Active = true
-	require.False(t, validGitProfile(profile))
+	require.True(t, validGitProfile(profile))
 }

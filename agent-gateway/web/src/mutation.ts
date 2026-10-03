@@ -75,6 +75,7 @@ const idempotencyRoutes: Readonly<
   operation_start: new RegExp(`^/api/v2/mcp/servers/${gatewayID}/operations$`),
 };
 const preconditionRoutes = [
+  /^PATCH \/api\/v2\/git\/routing-profile$/,
   new RegExp(
     `^(?:PATCH|DELETE) /api/v2/git/(?:repositories|grants|credentials)/${gatewayID}$`,
   ),

@@ -1,5 +1,6 @@
 import { type Browser, chromium, firefox, webkit } from "@playwright/test";
 import { runGit } from "./browser/git-scenarios.ts";
+import { runGitRouting } from "./browser/git-routing-scenarios.ts";
 import { runHTTPCredentials } from "./browser/http-credential-scenarios.ts";
 import { runHTTPGrants } from "./browser/http-grant-scenarios.ts";
 import { runHTTPTraffic } from "./browser/http-traffic-scenarios.ts";
@@ -81,6 +82,7 @@ interface BridgeInput {
     | "system-administration-canary"
     | "visual-accessibility-privacy-canary"
     | "git"
+    | "git-routing"
     | "http-credentials"
     | "http-grants"
     | "http-traffic"
@@ -164,6 +166,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "system-administration-canary" &&
       value.scenario !== "visual-accessibility-privacy-canary" &&
       value.scenario !== "git" &&
+      value.scenario !== "git-routing" &&
       value.scenario !== "http-credentials" &&
       value.scenario !== "http-grants" &&
       value.scenario !== "http-traffic" &&
@@ -714,6 +717,14 @@ try {
         initialBearer,
         () => requests,
       );
+    } else if (input.scenario === "git-routing") {
+      gitExpectedFailures = await runGitRouting(
+        context,
+        page,
+        baseURL,
+        initialBearer,
+        () => requests,
+      );
     } else if (input.scenario === "git") {
       gitExpectedFailures = await runGit(
         browser.version(),
@@ -804,7 +815,7 @@ try {
             httpGrantExpectedFailures.filter((value) => value === status)
               .length,
         )) ||
-      (input.scenario === "git" &&
+      ((input.scenario === "git" || input.scenario === "git-routing") &&
         consoleFailures.length === gitExpectedFailures.length &&
         [...new Set(gitExpectedFailures)].every(
           (status) =>

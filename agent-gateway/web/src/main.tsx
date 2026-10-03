@@ -21,6 +21,7 @@ import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
 import { GitConfiguration, GitTrafficView } from "./git";
+import { GitRouting } from "./git-routing";
 import { HTTPCredentials } from "./http-credentials";
 import { HTTPGrants } from "./http-grants";
 import { HTTPTraffic, HTTPTrafficController } from "./http-traffic";
@@ -64,6 +65,7 @@ const navigation: ReadonlyArray<{
   {
     label: "Git",
     destinations: [
+      "git-routing",
       "git-repositories",
       "git-grants",
       "git-credentials",
@@ -81,6 +83,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
   servers: "Servers",
   catalog: "Tools",
   principals: "Agents",
+  "git-routing": "Routing",
   "git-repositories": "Repositories",
   "git-grants": "Grants",
   "git-credentials": "Credentials",
@@ -98,6 +101,7 @@ const destinationLabels: Readonly<Record<Destination, string>> = {
 
 const pageLabels: Readonly<Record<Destination, string>> = {
   ...destinationLabels,
+  "git-routing": "Git Routing",
   "git-repositories": "Git Repositories",
   "git-grants": "Git Grants",
   "git-credentials": "Git Credentials",
@@ -174,7 +178,9 @@ const registerInvalidationTrigger = (
 registerInvalidationTrigger(
   "git-invalidation",
   (key) =>
-    /^#\/git\/(?:repositories|grants|credentials|traffic)(?:[/?]|$)/.test(key),
+    /^#\/git\/(?:routing|repositories|grants|credentials|traffic)(?:[/?]|$)/.test(
+      key,
+    ),
   ["authorization", "system_status"],
 );
 registerInvalidationTrigger(
@@ -874,6 +880,13 @@ function App() {
               session={sessionClient}
               mutations={mutationCoordinator}
               resolved={resolved}
+              view={view}
+              onRefresh={() => viewCoordinator.manualRefresh()}
+            />
+          ) : destination === "git-routing" ? (
+            <GitRouting
+              session={sessionClient}
+              mutations={mutationCoordinator}
               view={view}
               onRefresh={() => viewCoordinator.manualRefresh()}
             />

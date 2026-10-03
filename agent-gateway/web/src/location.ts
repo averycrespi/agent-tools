@@ -9,6 +9,7 @@ export type Destination =
   | "servers"
   | "catalog"
   | "principals"
+  | "git-routing"
   | "git-repositories"
   | "git-grants"
   | "git-credentials"
@@ -41,6 +42,7 @@ export const destinationPaths: Readonly<Record<Destination, string>> = {
   servers: "mcp/servers",
   catalog: "mcp/tools",
   principals: "agents",
+  "git-routing": "git/routing",
   "git-repositories": "git/repositories",
   "git-grants": "git/grants",
   "git-credentials": "git/credentials",
@@ -296,7 +298,11 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   const [first, second, third, fourth] = segments;
 
   if (segments.length === 1) {
-    if (first === "overview" || first === "sign-in") {
+    if (
+      first === "overview" ||
+      first === "sign-in" ||
+      first === "git-routing"
+    ) {
       if (noQuery) return location(first, segments, query);
     }
     if (first === "catalog" && serverCollectionQuery(query, "catalog"))
