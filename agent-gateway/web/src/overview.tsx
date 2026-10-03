@@ -3,7 +3,12 @@ import { decodeDiagnosticCorrelation } from "./diagnostic-correlation";
 import { decodeReadOnly, readOnlyKeys } from "./read-only";
 import { useEffect, useState } from "preact/hooks";
 import { type PrincipalDirectory } from "./principals";
-import { sentenceCase, StateNotice, StatusLabel } from "./primitives";
+import {
+  sentenceCase,
+  StateNotice,
+  StatusLabel,
+  FactStatus,
+} from "./primitives";
 import type { SessionClient } from "./session";
 import { decodeCatalogPage, type CatalogView } from "./server-reads";
 import {
@@ -111,6 +116,7 @@ interface ServerView {
   catalog: string;
   activeToolCount: number;
   attention: boolean;
+  saturated: boolean;
 }
 interface ServerSummary {
   items: ServerView[];
@@ -336,8 +342,8 @@ export function decodeStatus(value: unknown): StatusView {
   };
 }
 
-function validateLimit(value: unknown): void {
-  limit(value, "http_regular");
+function validateLimit(value: unknown): LimitView {
+  return limit(value, "http_regular");
 }
 function validateTransport(value: unknown): void {
   const base = record(value, Object.keys(value as object));
@@ -497,8 +503,8 @@ function decodeServer(value: unknown): ServerView {
   ]);
   nullableString(runtime.reason);
   nullableString(runtime.runtime_id);
-  validateLimit(runtime.reconciliation);
-  validateLimit(runtime.dispatch);
+  const reconciliation = validateLimit(runtime.reconciliation);
+  const dispatch = validateLimit(runtime.dispatch);
   const catalog = record(item.catalog, [
     "durable_state",
     "active_state",
@@ -528,15 +534,18 @@ function decodeServer(value: unknown): ServerView {
   integer(catalog.durable_tool_count);
   const activeToolCount = integer(catalog.active_tool_count);
   nullableString(catalog.last_success_at);
-  validateLimit(catalog.traversal);
+  const traversal = validateLimit(catalog.traversal);
   stringValue(item.created_at);
   stringValue(item.updated_at);
   nullableString(item.deleted_at);
+  const saturated =
+    reconciliation.saturated || dispatch.saturated || traversal.saturated;
   const attention =
     desired === "enabled" &&
     (runtimeState !== "active" ||
       (credential !== "ready" && credential !== "not_required") ||
-      activeCatalog !== "current");
+      activeCatalog !== "current" ||
+      saturated);
   return {
     id,
     name: stringValue(item.display_name),
@@ -546,6 +555,7 @@ function decodeServer(value: unknown): ServerView {
     catalog: activeCatalog,
     activeToolCount,
     attention,
+    saturated,
   };
 }
 function decodeServerPage(value: unknown): {
@@ -887,7 +897,9 @@ function attentionReason(server: ServerView): string {
     return `Credentials ${sentenceCase(server.credential).toLowerCase()}`;
   if (server.runtime !== "active")
     return `Runtime ${sentenceCase(server.runtime).toLowerCase()}`;
-  return `Active catalog ${sentenceCase(server.catalog).toLowerCase()}`;
+  if (server.catalog !== "current")
+    return `Active catalog ${sentenceCase(server.catalog).toLowerCase()}`;
+  return "Capacity saturated";
 }
 
 function ReadinessFact({
@@ -1027,11 +1039,6 @@ export function Overview({
                 current={current("overview-status")}
               />
             </dl>
-            <p class="overview-context">
-              Readiness is admission capability, not downstream reachability or
-              access.
-            </p>
-            <a href="#/system">System readiness</a>
             {!status.ready && (
               <StateNotice
                 state="warning"
@@ -1043,6 +1050,7 @@ export function Overview({
                 </p>
               </StateNotice>
             )}
+            <a href="#/system">System readiness</a>
           </div>
         )}
       </Panel>
@@ -1057,7 +1065,10 @@ export function Overview({
               <div>
                 <dt>SQLite</dt>
                 <dd>
-                  {sentenceCase(status.sqliteState)}
+                  <FactStatus
+                    value={status.sqliteState}
+                    current={current("overview-status")}
+                  />
                   {status.sqliteState === "latched" && status.latched
                     ? ""
                     : status.latched
@@ -1068,34 +1079,54 @@ export function Overview({
               <div>
                 <dt>Traffic store</dt>
                 <dd>
-                  {!status.traffic
-                    ? "Not reported"
-                    : status.traffic.faulted
-                      ? "Faulted"
-                      : status.traffic.pressure
-                        ? "Storage pressure"
-                        : status.traffic.ready
-                          ? "Ready"
-                          : "Not ready"}
+                  <FactStatus
+                    value={
+                      !status.traffic
+                        ? undefined
+                        : status.traffic.faulted
+                          ? "faulted"
+                          : status.traffic.pressure
+                            ? "storage_pressure"
+                            : status.traffic.ready
+                              ? "ready"
+                              : "not_ready"
+                    }
+                    current={current("overview-status")}
+                  />
                 </dd>
               </div>
               <div>
                 <dt>Keyring startup</dt>
-                <dd>{sentenceCase(status.keyring)}</dd>
+                <dd>
+                  <FactStatus
+                    value={status.keyring}
+                    current={current("overview-status")}
+                  />
+                </dd>
               </div>
               <div>
                 <dt>HTTP CA capability</dt>
                 <dd>
-                  {!status.httpProxy
-                    ? "Not reported"
-                    : status.httpProxy.caReady
-                      ? "Ready"
-                      : "Not ready"}
+                  <FactStatus
+                    value={
+                      !status.httpProxy
+                        ? undefined
+                        : status.httpProxy.caReady
+                          ? "ready"
+                          : "not_ready"
+                    }
+                    current={current("overview-status")}
+                  />
                 </dd>
               </div>
               <div>
                 <dt>Backup activity</dt>
-                <dd>{sentenceCase(status.backupState)}</dd>
+                <dd>
+                  <FactStatus
+                    value={status.backupState}
+                    current={current("overview-status")}
+                  />
+                </dd>
               </div>
               <div>
                 <dt>Last reported backup</dt>
@@ -1106,11 +1137,6 @@ export function Overview({
                 </dd>
               </div>
             </dl>
-            <p class="overview-context">
-              Startup capability is not a current credential probe; CA readiness
-              does not establish client trust. Backup completion is not recovery
-              assurance.
-            </p>
             {(status.latched || status.sqliteState !== "ready") && (
               <StateNotice
                 state="error"
@@ -1175,9 +1201,6 @@ export function Overview({
                 </div>
               )}
             </dl>
-            <p class="overview-context">
-              Independent pools; not combined utilization.
-            </p>
             {pressure.length > 0 && (
               <div class="overview-capacity">
                 <ul class="overview-conditions">
@@ -1213,7 +1236,7 @@ export function Overview({
                 ? " · last known; current state unknown"
                 : !snapshot.servers.complete
                   ? " · loaded; incomplete"
-                  : " · current traversal"}
+                  : ""}
             </p>
             {!snapshot.servers.complete && (
               <p class="overview-evidence">
@@ -1224,12 +1247,12 @@ export function Overview({
             {serversNeedingAttention.length === 0 ? (
               <p>
                 {!current("overview-servers")
-                  ? "No affected servers in the last read; current state is unknown."
+                  ? ""
                   : !snapshot.servers.complete
                     ? "No affected servers among those loaded."
                     : configuredServers === 0
                       ? "No servers configured."
-                      : "No servers flagged for attention in the current read."}
+                      : ""}
               </p>
             ) : (
               <ul class="overview-triage-list">
@@ -1263,9 +1286,9 @@ export function Overview({
             {snapshot.requests.items.length === 0 ? (
               <p>
                 {!current("overview-requests")
-                  ? "No pending requests in the last read; current queue is unknown."
+                  ? ""
                   : snapshot.requests.complete
-                    ? "No pending access requests in the current read."
+                    ? ""
                     : "No pending requests loaded; queue incomplete."}
               </p>
             ) : (
@@ -1339,8 +1362,7 @@ export function Overview({
                 ? "Last known counts; current state unknown."
                 : !snapshot.servers.complete
                   ? "Loaded counts; traversal incomplete."
-                  : "Complete current server traversal."}{" "}
-              Catalog tools are not an access or callability count.
+                  : ""}
             </p>
           </>
         )}
@@ -1360,7 +1382,7 @@ export function Overview({
           ) : (
             <>
               <p>
-                Independent catalog snapshot:{" "}
+                Catalog:{" "}
                 {sentenceCase(snapshot.catalog.activeState).toLowerCase()} ·{" "}
                 {snapshot.catalog.issueCount} catalog issues
                 {current("overview-catalog")
@@ -1368,7 +1390,7 @@ export function Overview({
                   : " · last known; current state unknown"}
               </p>
               <details>
-                <summary>Catalog snapshot evidence</summary>
+                <summary>Catalog details</summary>
                 <p>Generation {snapshot.catalog.activeGeneration}</p>
                 <p>
                   {snapshot.catalog.changedAt

@@ -95,6 +95,47 @@ export function StatusLabel({
   );
 }
 
+export function FactStatus({
+  value,
+  current = true,
+}: {
+  value: string | undefined;
+  current?: boolean;
+}) {
+  const state: OperationalState = !current
+    ? "stale"
+    : value === undefined ||
+        [
+          "idle",
+          "disabled",
+          "inactive",
+          "not_required",
+          "retired",
+          "deleted",
+        ].includes(value)
+      ? "neutral"
+      : ["ready", "active", "current", "succeeded"].includes(value)
+        ? "current"
+        : [
+              "starting",
+              "activating",
+              "refreshing",
+              "running",
+              "scheduled",
+            ].includes(value)
+          ? "loading"
+          : value === "failed" || value === "faulted"
+            ? "error"
+            : "warning";
+  return (
+    <StatusLabel state={state}>
+      {value === undefined
+        ? "Not reported"
+        : value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " ")}
+    </StatusLabel>
+  );
+}
+
 export function StateNotice({
   state,
   title,

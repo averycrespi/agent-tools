@@ -17,6 +17,7 @@ import {
   sentenceCase,
   StateNotice,
   StatusLabel,
+  FactStatus,
 } from "./primitives";
 import type { SessionClient } from "./session";
 import type { PreparedOneTimeSink, SensitiveSinkCoordinator } from "./sinks";
@@ -474,7 +475,7 @@ function StatusPanel({
       data-testid="system-status-panel"
       data-panel-status={panelStatus}
     >
-      <div class="panel-heading">
+      <div class="panel-heading detail-section">
         <h2 id="system-status-title">Gateway status</h2>
         {status !== undefined && panelStatus === "current" && (
           <StatusLabel state={healthy ? "current" : "warning"}>
@@ -597,7 +598,10 @@ function StatusPanel({
               <div>
                 <dt>Process</dt>
                 <dd>
-                  <strong>{sentenceCase(status.processState)}</strong>
+                  <FactStatus
+                    value={status.processState}
+                    current={panelStatus === "current"}
+                  />
                   {!status.ready && <span>Not ready</span>}
                   <span>
                     Started <UserTime value={status.startedAt} />
@@ -607,11 +611,10 @@ function StatusPanel({
               <div>
                 <dt>Gateway API</dt>
                 <dd>
-                  <strong>
-                    {status.endpoints
-                      ? sentenceCase(status.endpoints.api)
-                      : "Not reported"}
-                  </strong>
+                  <FactStatus
+                    value={status.endpoints?.api}
+                    current={panelStatus === "current"}
+                  />
                   {status.endpoints && (
                     <span>{status.endpoints.authority}</span>
                   )}
@@ -626,11 +629,10 @@ function StatusPanel({
               <div>
                 <dt>MCP endpoint</dt>
                 <dd>
-                  <strong>
-                    {status.endpoints
-                      ? sentenceCase(status.endpoints.mcp)
-                      : "Not reported"}
-                  </strong>
+                  <FactStatus
+                    value={status.endpoints?.mcp}
+                    current={panelStatus === "current"}
+                  />
                   {status.endpoints && (
                     <span>{status.endpoints.authority}/mcp</span>
                   )}
@@ -648,20 +650,22 @@ function StatusPanel({
                 <div>
                   <dt>HTTP proxy</dt>
                   <dd>
-                    <strong>
-                      {!status.httpProxy.enabled
-                        ? "Disabled"
-                        : status.httpProxy.ready
-                          ? "Ready"
-                          : "Unavailable"}
-                    </strong>
+                    <FactStatus
+                      value={
+                        !status.httpProxy.enabled
+                          ? "disabled"
+                          : status.httpProxy.ready
+                            ? "ready"
+                            : "unavailable"
+                      }
+                      current={panelStatus === "current"}
+                    />
                     {status.httpProxy.enabled && (
                       <>
                         <span>{status.httpProxy.authority}</span>
                         <span>
                           Interception CA{" "}
-                          {status.httpProxy.caReady ? "loaded" : "unavailable"};
-                          client trust is separate
+                          {status.httpProxy.caReady ? "loaded" : "unavailable"}
                         </span>
                         <span>
                           {status.httpProxy.activeStreams} active
@@ -685,7 +689,10 @@ function StatusPanel({
               <div>
                 <dt>Control storage</dt>
                 <dd>
-                  <strong>{sentenceCase(status.sqliteState)}</strong>
+                  <FactStatus
+                    value={status.sqliteState}
+                    current={panelStatus === "current"}
+                  />
                   <span>
                     Mutation admission {status.latched ? "closed" : "open"}
                   </span>
@@ -695,13 +702,16 @@ function StatusPanel({
                 <div>
                   <dt>Shared traffic storage</dt>
                   <dd>
-                    <strong>
-                      {status.traffic.faulted
-                        ? "Persistence fault"
-                        : status.traffic.ready
-                          ? "Ready"
-                          : "Unavailable"}
-                    </strong>
+                    <FactStatus
+                      value={
+                        status.traffic.faulted
+                          ? "faulted"
+                          : status.traffic.ready
+                            ? "ready"
+                            : "unavailable"
+                      }
+                      current={panelStatus === "current"}
+                    />
                     <span>
                       {status.traffic.pressure
                         ? "Capacity pressure"
@@ -735,14 +745,19 @@ function StatusPanel({
               <div>
                 <dt>Credential storage</dt>
                 <dd>
-                  <strong>{sentenceCase(status.keyring)}</strong>
-                  <span>OS-managed keyring capability</span>
+                  <FactStatus
+                    value={status.keyring}
+                    current={panelStatus === "current"}
+                  />
                 </dd>
               </div>
               <div>
                 <dt>Backup</dt>
                 <dd>
-                  <strong>{sentenceCase(status.backupState)}</strong>
+                  <FactStatus
+                    value={status.backupState}
+                    current={panelStatus === "current"}
+                  />
                   <span>
                     Last completed{" "}
                     <UserTime value={status.lastBackupAt} fallback="never" />

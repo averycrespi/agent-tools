@@ -32,22 +32,26 @@ export async function runGit(
   const screenshots = await mkdtemp(join(tmpdir(), "gateway-git-"));
   const capture = async (name: string) => {
     await captureDetailLayout(page, `git-${name}`);
-    for (const [suffix, width, height] of [
-      ["desktop", 1280, 900],
-      ["narrow", 390, 844],
-      ["320", 320, 800],
-    ] as const) {
-      await page.setViewportSize({ width, height });
-      await page.screenshot({
-        path: join(screenshots, `${name}-${suffix}.png`),
-        fullPage: true,
-      });
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= window.innerWidth,
-        ),
-      ).toBe(true);
+    for (const theme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      for (const [suffix, width, height] of [
+        ["desktop", 1280, 900],
+        ["narrow", 390, 844],
+        ["320", 320, 800],
+      ] as const) {
+        await page.setViewportSize({ width, height });
+        await page.screenshot({
+          path: join(screenshots, `${name}-${theme}-${suffix}.png`),
+          fullPage: true,
+        });
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= window.innerWidth,
+          ),
+        ).toBe(true);
+      }
     }
+    await page.emulateMedia({ colorScheme: "light" });
     const axe = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
       .analyze();
@@ -87,6 +91,7 @@ export async function runGit(
   await page
     .getByLabel("Alias 1", { exact: true })
     .fill("https://example.com/team/workshop.git");
+  await capture("repository-alias-added");
   await page
     .getByRole("button", { name: "Review and create", exact: true })
     .click();
@@ -203,9 +208,11 @@ export async function runGit(
   const principal = await principalResponse.json();
   await nav("#/git/grants/new");
   await page
-    .getByLabel("Agent ID", { exact: true })
-    .fill(principal.principal.id);
-  await page.getByLabel("Repository ID", { exact: true }).fill(repository.id);
+    .getByLabel("Agent", { exact: true })
+    .selectOption(principal.principal.id);
+  await page
+    .getByLabel("Repository", { exact: true })
+    .selectOption(repository.id);
   await page
     .getByLabel("Description (optional)", { exact: true })
     .fill("Read and update workshop");
@@ -661,6 +668,124 @@ export async function runGit(
     [bearer, "git-browser-secret-canary"],
     true,
   );
+  // Choice traversal must include page two and preserve a selected identity through failed refresh.
+  const fixtureID = (n: number) => n.toString().padStart(26, "0");
+  const agents = Array.from({ length: 51 }, (_, i) => ({
+    ...principal.principal,
+    id: fixtureID(i + 1),
+    display_name: i >= 49 ? "Duplicate agent" : `Agent ${i}`,
+  }));
+  const repositories = Array.from({ length: 51 }, (_, i) => ({
+    ...repository,
+    id: fixtureID(i + 101),
+    name: i >= 49 ? "Duplicate repository" : `Repository ${i}`,
+  }));
+  const credentials = Array.from({ length: 51 }, (_, i) => ({
+    ...credential,
+    id: fixtureID(i + 201),
+    name: i >= 49 ? "Duplicate credential" : `Credential ${i}`,
+    available: true,
+  }));
+  let choicesUnavailable = false;
+  let missingCredential = false;
+  let secondPages = 0;
+  const choicesRoute =
+    /\/api\/v2\/(principals|git\/(repositories|credentials))\?/;
+  await page.route(choicesRoute, async (route) => {
+    if (choicesUnavailable) {
+      expectedFailures.push(503);
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        json: {},
+      });
+    }
+    const url = new URL(route.request().url());
+    const values = url.pathname.endsWith("principals")
+      ? agents
+      : url.pathname.endsWith("repositories")
+        ? repositories
+        : credentials.filter(
+            (c) => !missingCredential || c.id !== fixtureID(251),
+          );
+    const offset = url.searchParams.has("cursor") ? 50 : 0;
+    if (offset) secondPages++;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      json: {
+        items: values.slice(offset, offset + 50),
+        total_count: values.length,
+        offset,
+        next_cursor: offset + 50 < values.length ? "choice-page-two" : null,
+      },
+    });
+  });
+  await nav("#/git/grants/new");
+  await page.getByLabel("Agent", { exact: true }).selectOption(fixtureID(51));
+  await page
+    .getByLabel("Repository", { exact: true })
+    .selectOption(fixtureID(151));
+  await expect(
+    page.getByLabel("Agent", { exact: true }).locator("option:checked"),
+  ).toHaveText(`Duplicate agent · ${fixtureID(51)}`);
+  await expect(
+    page.getByLabel("Repository", { exact: true }).locator("option:checked"),
+  ).toHaveText(`Duplicate repository · ${fixtureID(151)}`);
+  expect(secondPages).toBeGreaterThanOrEqual(2);
+  await expect(page.locator("#git-principal-create-hint")).toHaveText(
+    fixtureID(51),
+  );
+  await expect(page.locator("#git-repository-create-hint")).toHaveText(
+    fixtureID(151),
+  );
+  await capture("duplicate-paginated-grant-choices");
+  choicesUnavailable = true;
+  await page
+    .getByRole("button", { name: "Refresh current view", exact: true })
+    .click();
+  await expect(
+    page.getByText("Resource choices unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Agent", { exact: true })).toHaveValue(
+    fixtureID(51),
+  );
+  await capture("choices-unavailable-retained-draft");
+  choicesUnavailable = false;
+  await page
+    .locator('#primary-navigation a[href="#/git/repositories"]')
+    .click();
+  await protectedNavigation
+    .getByRole("button", { name: "Discard and leave", exact: true })
+    .click();
+  await page
+    .getByRole("link", { name: "Create repository", exact: true })
+    .click();
+  await page
+    .getByLabel("Canonical HTTPS destination", { exact: true })
+    .fill("https://example.com/another/repository");
+  await page
+    .getByLabel("Git credential", { exact: true })
+    .selectOption(fixtureID(251));
+  await expect(
+    page
+      .getByLabel("Git credential", { exact: true })
+      .locator("option:checked"),
+  ).toHaveText(`Duplicate credential · ${fixtureID(251)}`);
+  missingCredential = true;
+  await page
+    .getByRole("button", { name: "Refresh current view", exact: true })
+    .click();
+  await expect(
+    page
+      .getByLabel("Git credential", { exact: true })
+      .locator("option:checked"),
+  ).toContainText("Unavailable or incompatible");
+  await expect(page.getByLabel("Git credential", { exact: true })).toHaveValue(
+    fixtureID(251),
+  );
+  await capture("missing-selected-credential");
+  await page.unroute(choicesRoute);
   process.stdout.write(
     JSON.stringify({
       event: "git_complete",

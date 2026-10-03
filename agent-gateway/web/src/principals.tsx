@@ -94,7 +94,7 @@ function closed<T extends string>(value: unknown, values: readonly T[]): T {
   if (!values.includes(valueText as T)) throw new Error("invalid response");
   return valueText as T;
 }
-function decodePrincipal(value: unknown): Principal {
+export function decodePrincipal(value: unknown): Principal {
   const item = record(value, [
     "id",
     "display_name",

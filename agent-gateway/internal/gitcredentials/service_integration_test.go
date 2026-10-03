@@ -105,6 +105,32 @@ func definition() contract.GitCredentialDefinition {
 func ref(c contract.GitCredential) contract.GitRevisionRef {
 	return contract.GitRevisionRef{ID: c.ID, Revision: c.Revision}
 }
+func TestIntegrationAuditCredentialNamesFollowRenameAndDeletion(t *testing.T) {
+	s, _, _ := fixture(t)
+	ctx := audit.WithSystem(t.Context())
+	created, err := s.Create(ctx, definition(), []byte("nonsecret-fixture-material"))
+	require.NoError(t, err)
+	target := contract.AuditTarget{Type: "git_credential", ID: created.ID}
+	read := func() map[contract.AuditTarget]string {
+		t.Helper()
+		var names map[contract.AuditTarget]string
+		require.NoError(t, s.store.View(ctx, func(tx *sql.Tx) error {
+			var err error
+			names, err = s.AuditTargetNamesTx(ctx, tx, []contract.AuditTarget{target})
+			return err
+		}))
+		return names
+	}
+	require.Equal(t, created.Name, read()[target])
+	def := definition()
+	def.Name = "Renamed Git credential"
+	updated, err := s.Update(ctx, created.ID, created.Revision, def)
+	require.NoError(t, err)
+	require.Equal(t, def.Name, read()[target])
+	require.NoError(t, s.Delete(ctx, updated.ID, updated.Revision))
+	require.Empty(t, read())
+}
+
 func TestIntegrationGitCredentialPinningPrivacyAndNoHTTPReuse(t *testing.T) {
 	s, _, root := fixture(t)
 	ctx := audit.WithSystem(t.Context())

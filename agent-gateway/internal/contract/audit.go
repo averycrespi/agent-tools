@@ -77,15 +77,23 @@ type AuditHistory struct {
 	Pruned         bool           `json:"pruned"`
 }
 
+// AuditTargetRecognition is current read-time metadata, never persisted event evidence.
+type AuditTargetRecognition struct {
+	Target      AuditTarget `json:"target"`
+	DisplayName *string     `json:"display_name"`
+}
+
 type AuditPage struct {
-	Items      []AuditSummary `json:"items"`
-	NextCursor *string        `json:"next_cursor"`
-	History    AuditHistory   `json:"history"`
+	TargetRecognition []AuditTargetRecognition `json:"target_recognition"`
+	Items             []AuditSummary           `json:"items"`
+	NextCursor        *string                  `json:"next_cursor"`
+	History           AuditHistory             `json:"history"`
 }
 
 type AuditItem struct {
-	Event   AuditEvent   `json:"event"`
-	History AuditHistory `json:"history"`
+	TargetRecognition []AuditTargetRecognition `json:"target_recognition"`
+	Event             AuditEvent               `json:"event"`
+	History           AuditHistory             `json:"history"`
 }
 
 // Empty filter members mean absent, never a wildcard or an inferred identity.

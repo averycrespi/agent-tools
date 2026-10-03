@@ -68,6 +68,22 @@ export async function runAudit(
     pruned: true,
   });
   let mode = "normal";
+  const recognition = (items: { target: { type: string; id: string } }[]) => [
+    ...new Map(
+      items.map((item) => [
+        `${item.target.type}/${item.target.id}`,
+        {
+          target: item.target,
+          display_name:
+            item.target.type === "server" && mode !== "target-deleted"
+              ? mode === "target-current"
+                ? "Renamed workshop server"
+                : "Workshop server"
+              : null,
+        },
+      ]),
+    ).values(),
+  ];
   let restarted = false;
   let hold: (() => void) | undefined;
   let holdTarget: (() => void) | undefined;
@@ -110,6 +126,7 @@ export async function runAudit(
             detail: { reason: "interrupted", problem: null },
           },
           history: history(),
+          target_recognition: recognition([fixture(3)]),
         }),
       });
     }
@@ -179,6 +196,7 @@ export async function runAudit(
         items,
         next_cursor: items.length === 2 ? "opaque-page-2" : null,
         history: history(mode === "replaced" ? replacement : generation),
+        target_recognition: recognition(items),
       }),
     });
   });
@@ -269,7 +287,7 @@ export async function runAudit(
   await assertTableConventions(
     page,
     "Control-plane audit history",
-    ["Time", "Event", "Performer", "Action", "Target", "Outcome"],
+    ["Time", "Event", "Performer", "Target", "Outcome"],
     "Event",
   );
   expect(
@@ -277,6 +295,12 @@ export async function runAudit(
       .getByRole("combobox", { name: "Event", exact: true })
       .evaluate((control) => control.getBoundingClientRect().height),
   ).toBeGreaterThanOrEqual(38);
+  await expect(
+    page.getByTestId("audit-row").first().locator('[data-label="Event"]'),
+  ).toContainText("server.reconcile");
+  await expect(
+    page.getByTestId("audit-row").first().locator('[data-label="Target"]'),
+  ).toContainText("Workshop server");
   await capture("desktop-list", 1440);
   await capture("narrow-list", 390);
   await capture("small-list", 320);
@@ -301,7 +325,6 @@ export async function runAudit(
     "Time",
     "Event",
     "Performer",
-    "Action",
     "Target",
     "Outcome",
   ]);
@@ -321,9 +344,8 @@ export async function runAudit(
     .locator(`a[href="#/audit-log/${id(3)}?filter_outcome=unknown"]`)
     .focus();
   await page.keyboard.press("Enter");
-  await expect(
-    page.getByRole("heading", { name: `Audit event ${id(3)}` }),
-  ).toBeFocused();
+  await expect(page.locator("h1")).toBeFocused();
+  await expect(page.locator("h1")).toHaveText("server.reconcile");
   await expect(page.getByText("interrupted", { exact: true })).toBeVisible();
   await expect.poll(() => holdTarget !== undefined).toBe(true);
   await expect(
@@ -346,10 +368,11 @@ export async function runAudit(
     exact: true,
   });
   await expect(related.getByRole("table")).toContainText("Selected event");
+  await expect(related.getByRole("table")).toContainText("Workshop server");
   await assertTableConventions(
     page,
     "Related control-plane events",
-    ["Time", "Event", "Performer", "Action", "Phase", "Outcome"],
+    ["Time", "Event", "Performer", "Target", "Phase", "Outcome"],
     "Event",
   );
   await expect(related.getByText(/Newest recorded sequence first/)).toHaveCount(
@@ -374,9 +397,7 @@ export async function runAudit(
   await expect(
     related.getByText("Related events unavailable", { exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: `Audit event ${id(3)}` }),
-  ).toBeVisible();
+  await expect(page.locator("h1")).toHaveText("server.reconcile");
   await expect(related.getByRole("row")).toHaveCount(4);
   await expect(
     related.getByText("3 events loaded (stale)", { exact: true }),
@@ -409,9 +430,7 @@ export async function runAudit(
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(0);
   await page.goBack();
-  await expect(
-    page.getByRole("heading", { name: `Audit event ${id(3)}` }),
-  ).toBeVisible();
+  await expect(page.locator("h1")).toHaveText("server.reconcile");
   await expect(
     page.getByText("Current target unavailable", { exact: true }),
   ).toBeVisible();
@@ -505,7 +524,7 @@ export async function runAudit(
   }
   await focusFilter("Target ID");
   await page.getByLabel("Target ID", { exact: true }).fill("invalid");
-  await page.getByLabel("Event", { exact: true }).selectOption("server");
+  await page.getByLabel("Event", { exact: true }).selectOption("server.*");
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("server");
   expect(queries.at(-1)?.has("from")).toBe(false);
   expect(queries.at(-1)?.has("target_id")).toBe(false);
@@ -513,16 +532,16 @@ export async function runAudit(
   await expect(page.getByLabel("Target ID", { exact: true })).toHaveValue(
     "invalid",
   );
-  await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
   await page
     .getByLabel("Event", { exact: true })
-    .selectOption({ label: "Agent" });
+    .selectOption("server.reconcile");
+  await page.getByLabel("Event", { exact: true }).selectOption("principal.*");
   await expect(page.getByLabel("Event", { exact: true })).toHaveValue(
-    "principal",
+    "principal.*",
   );
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("principal");
   expect(queries.at(-1)?.has("action")).toBe(false);
-  await expect(page.getByLabel("Action", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Action", { exact: true })).toHaveCount(0);
   await capture("invalid-filters", 320);
   await page.getByLabel("Target ID", { exact: true }).fill("");
   await expect(page.getByLabel("Target ID", { exact: true })).toBeVisible();
@@ -627,8 +646,9 @@ export async function runAudit(
     "ID filtering must be debounced",
   ).toEqual([]);
   await expect.poll(() => queries.at(-1)?.get("credential_id")).toBe(id(9));
-  await page.getByLabel("Event", { exact: true }).selectOption("server");
-  await page.getByLabel("Action", { exact: true }).selectOption("reconcile");
+  await page
+    .getByLabel("Event", { exact: true })
+    .selectOption("server.reconcile");
   await page.getByLabel("Target type", { exact: true }).selectOption("server");
   await page.getByLabel("Target ID", { exact: true }).fill(id(7));
   await expect.poll(() => queries.at(-1)?.get("target_id")).toBe(id(7));
@@ -659,6 +679,8 @@ export async function runAudit(
     page.getByText("Loading audit history", { exact: true }),
   ).toBeVisible();
   await expect(page.getByTestId("audit-row")).toHaveCount(0);
+  // Rendering the loading state can precede Playwright observing the request.
+  await expect.poll(() => hold !== undefined).toBe(true);
   if (hold === undefined) fail("Audit loading barrier not reached");
   await capture("loading", 1440);
   hold();

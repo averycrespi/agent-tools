@@ -99,9 +99,10 @@ export function prepareDetailBaseline(page: Page) {
         "data-session-lifecycle",
         "authenticated",
       );
-      await expect(baseline.locator("h1")).toHaveText(
-        await page.locator("h1").innerText(),
-      );
+      // Titles are part of the comparison, not the identity fence: a readable-title
+      // change must still be comparable with the prior ID-based heading.
+      expect(baseline.url()).toBe(page.url());
+      await expect(baseline.locator("h1")).toBeVisible();
       await expect(baseline.locator("dl").first()).toBeVisible();
       await expect(baseline.getByTestId("gateway-shell")).toHaveAttribute(
         "data-freshness",

@@ -441,7 +441,7 @@ export async function assertAuthoritativeHistory(
       page.locator('#primary-navigation a[aria-current="page"]'),
     ).toHaveText("Invocations");
     await expect(page.locator("#invocation-page-title")).toHaveText(
-      `MCP Invocation ${selected.items[0].id}`,
+      selected.items[0].requested_name,
     );
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
     await page.getByRole("link", { name: "Back to invocations" }).click();

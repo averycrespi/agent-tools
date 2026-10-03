@@ -3084,6 +3084,7 @@ export async function runServerCatalogReads(
   let descriptorReads = 0;
   let catalogReads = 0;
   let serverStale = false;
+  let failServerDetail = false;
   let serverRestarted = false;
   let descriptorRestarted = false;
   let catalogRestarted = false;
@@ -3121,6 +3122,16 @@ export async function runServerCatalogReads(
     const parts = url.pathname.split("/").filter(Boolean);
     if (parts.length === 5) {
       serverReads += 1;
+      if (failServerDetail)
+        return route.fulfill({
+          status: 503,
+          contentType: "application/problem+json",
+          json: {
+            status: 503,
+            code: "storage_unavailable",
+            title: "Storage is unavailable.",
+          },
+        });
       if (url.search !== "" || parts[4] !== serverReadIDs.active)
         fail("server item request changed shape");
       await route.fulfill({
@@ -3643,6 +3654,36 @@ export async function runServerCatalogReads(
     fail("server context retained redundant namespace or tool guidance");
   if (body.includes("Desired revision 7") || body.includes("Runtime identity"))
     fail("server overview exposed diagnostic implementation state");
+  activeServer.runtime.state = "active";
+  activeServer.runtime.reason = null;
+  activeServer.credential_state = "ready";
+  activeServer.catalog.active_state = "current";
+  await page.getByTestId("manual-refresh").click();
+  const serverStatus = page.getByTestId("server-status-view");
+  await expect(
+    serverStatus.locator(
+      '[data-testid="server-status-operational"] .status-label.current',
+    ),
+  ).toHaveCount(3);
+  failServerDetail = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    serverStatus.getByText("Last known data — refresh unavailable", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(serverStatus.locator(".status-label.current")).toHaveCount(0);
+  await expect(
+    serverStatus.locator('[data-testid="server-context"]'),
+  ).toContainText("Last known");
+  await captureStateFeedback(page, "server-stale-status");
+  failServerDetail = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    serverStatus.locator(
+      '[data-testid="server-status-operational"] .status-label.current',
+    ),
+  ).toHaveCount(3);
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=tools`;
