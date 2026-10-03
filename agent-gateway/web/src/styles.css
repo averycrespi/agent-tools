@@ -877,8 +877,7 @@ p {
   cursor: not-allowed;
 }
 
-.binary-toggle input:disabled + .binary-toggle-track,
-.binary-toggle input:disabled ~ .binary-toggle-state {
+.binary-toggle input:disabled + .binary-toggle-track {
   opacity: 0.55;
 }
 
@@ -1813,6 +1812,12 @@ button.sort-button:not(:disabled):hover {
   white-space: normal;
 }
 
+.table-identifier > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
 .table-identifier {
   display: block;
   margin-top: 4px;
@@ -1922,7 +1927,17 @@ button.sort-button:not(:disabled):hover {
   font-size: 11px;
 }
 
+.credential-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
 .detail-navigation a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
   font-weight: 650;
   white-space: nowrap;
 }

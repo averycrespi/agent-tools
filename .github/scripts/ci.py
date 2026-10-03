@@ -16,6 +16,7 @@ SUITE_JOBS = {
     "gateway-lint": "gateway",
     "gateway-harness": "gateway",
     "gateway-macos": "gateway",
+    "frontend-browser": "gateway",
 }
 
 

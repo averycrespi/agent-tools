@@ -1,3 +1,4 @@
+import { capture, hasCaptureOwner } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page } from "@playwright/test";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -32,6 +33,7 @@ export async function assertDetailComparison(
 
 // Public read-only fixture responses stay in memory, never in evidence artifacts.
 export function prepareDetailBaseline(page: Page) {
+  if (hasCaptureOwner(page)) return async (_name: string) => {};
   const reads = new Map<
     string,
     { body: Buffer; headers: Record<string, string>; status: number }
@@ -124,6 +126,7 @@ export async function captureTableState(
   page: Page,
   state: string,
 ): Promise<void> {
+  await capture(page, `table-${state}`);
   if (process.env.AGENT_GATEWAY_TABLE_ARTIFACT_DIR !== undefined)
     await captureDetailLayout(page, `table-${state}`);
 }
@@ -133,6 +136,7 @@ export async function captureDetailLayout(
   state: string,
   candidate = true,
 ): Promise<void> {
+  await capture(page, state);
   await expect(page.locator("dialog.sensitive-dialog[open]")).toHaveCount(0);
   const artifactRoot = state.startsWith("table-")
     ? process.env.AGENT_GATEWAY_TABLE_ARTIFACT_DIR

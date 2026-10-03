@@ -26,6 +26,7 @@ make vulncheck              # run blocking govulncheck scans for all Go tools
 make check-other-tools      # lint + test non-Gateway modules only
 make audit                  # tidy + fmt + lint + test + govulncheck for all Go tools
 make test-browser           # Gateway browser developer aggregate
+make test-frontend-browser  # mocked frontend states and screenshot gallery
 make frontend-typecheck
 npm run ui:dev              # foreground live-reload server
 make test-frontend-development

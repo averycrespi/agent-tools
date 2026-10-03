@@ -15,7 +15,7 @@ ifeq ($(filter __test-%,$(MAKECMDGOALS)),)
 .NOTPARALLEL:
 endif
 
-.PHONY: help install install-dev setup build test test-ci test-integration test-e2e lint fmt fmt-check tidy check vulncheck check-other-tools test-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
+.PHONY: help install install-dev setup build test test-ci test-integration test-e2e lint fmt fmt-check tidy check vulncheck check-other-tools test-browser test-frontend-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
 
 help:
 	@printf '%s\n' 'LOCAL_TEST_JOBS=1|2 bounds non-Gateway ordinary tests; Gateway and linters stay isolated'
@@ -73,6 +73,9 @@ check-other-tools:
 
 test-browser:
 	$(MAKE) -C agent-gateway test-browser
+
+test-frontend-browser:
+	$(MAKE) -C agent-gateway test-frontend-browser
 
 test-frontend-development:
 	$(MAKE) -C agent-gateway test-frontend-development

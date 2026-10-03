@@ -10,7 +10,7 @@ Start with the smallest applicable owner; release acceptance is not the default 
 
 - **Component behavior:** read its domain design; run focused `go test -race -count=1 -timeout=5m` in its package with the owning build tag.
 - **Suite/executor/fixtures:** `make test-harness`; inspect `make suite-inventory` before changing ownership.
-- **Frontend:** `npm ci`, then [disposable demo/live reload](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway).
+- **Frontend:** `npm ci`, then `make test-frontend-browser` for the [mocked state/gallery suite](docs/maintainers/frontend-browser-tests.md); use [disposable demo/live reload](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for real-service development.
 - **CI/cache:** root `make test-ci`, then affected disjoint leaves; see [CI mapping](docs/maintainers/release-verification.md#ci-mapping).
 - **Docs:** check links, `npm run format:check`, and affected harness documentation tests.
 - **Go commits:** `make verify` plus focused behavioral evidence.

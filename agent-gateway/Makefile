@@ -18,7 +18,7 @@ SUITE_OUTPUT_FLAG := $(if $(filter 1,$(AGENT_GATEWAY_TEST_JSON)),--json)
 
 .NOTPARALLEL: test test-browser test-frontend-development
 
-.PHONY: help build install serve-demo test test-unit test-integration test-harness test-material suite-inventory test-e2e test-security test-stress test-keyring-native test-serve-demo test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
+.PHONY: help build install serve-demo test test-unit test-integration test-harness test-material suite-inventory test-e2e test-security test-stress test-keyring-native test-serve-demo test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-browser test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
 
 help:
 	@printf '%s\n' \
@@ -26,6 +26,7 @@ help:
 		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-demo' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
 		'test-browser (required Chromium aggregate; one planner, isolated leaves)' \
+		'test-frontend-browser (mocked frontend states and screenshot gallery; no Gateway)' \
 		'test-browser-cross (optional Firefox/WebKit diagnostics)' \
 		'AGENT_GATEWAY_TEST_JSON=1 emits JSON events for planned Go test commands' \
 		'test-frontend-development-node | test-frontend-development-browser | test-frontend-development (developer aggregate)' \
@@ -101,6 +102,9 @@ test-browser-accessibility:
 
 test-browser-cross:
 	go run ./test/acceptance/cmd run-suite test-browser-cross $(SUITE_OUTPUT_FLAG)
+
+test-frontend-browser:
+	cd .. && npm run ui:test-browser
 
 test-frontend-development: test-frontend-development-node test-frontend-development-browser
 

@@ -120,9 +120,11 @@ export function HTTPCredentials(props: Props) {
   const selected = props.resolved.location.segments[1];
   const [detail, setDetail] = useState<Credential>();
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   useEffect(() => {
     let current = true;
     setError(false);
+    setLoading(true);
     if (selected === undefined || selected === "new") return;
     setDetail((prior) => (prior?.id === selected ? prior : undefined));
     void props.session
@@ -146,6 +148,9 @@ export function HTTPCredentials(props: Props) {
       })
       .catch(() => {
         if (current) setError(true);
+      })
+      .finally(() => {
+        if (current) setLoading(false);
       });
     return () => {
       current = false;
@@ -153,7 +158,7 @@ export function HTTPCredentials(props: Props) {
   }, [selected, props.view.generation]);
   if (selected === undefined) return <CredentialCollection {...props} />;
   if (selected === "new") return <CredentialEditor {...props} mode="create" />;
-  if (error)
+  if (error && detail?.id !== selected)
     return (
       <StateNotice state="error" title="HTTP credential data unavailable">
         <p>Refresh to load the credential.</p>
@@ -163,6 +168,17 @@ export function HTTPCredentials(props: Props) {
     return <StateNotice state="loading" title="Loading HTTP credential" />;
   return (
     <div class="domain-view">
+      {error && (
+        <StateNotice
+          state="error"
+          title="Current HTTP credential data unavailable"
+        >
+          <p>
+            Your safe draft is preserved. Refresh before reviewing the current
+            revision.
+          </p>
+        </StateNotice>
+      )}
       <nav class="detail-navigation" aria-label="HTTP credential navigation">
         <a href="#/http/credentials">Back to HTTP credentials</a>
       </nav>
@@ -234,18 +250,21 @@ export function HTTPCredentials(props: Props) {
         key={`${detail.id}-edit`}
         credential={detail}
         mode="edit"
+        unavailable={error || loading}
       />
       <CredentialEditor
         {...props}
         key={`${detail.id}-rotate`}
         credential={detail}
         mode="rotate"
+        unavailable={error || loading}
       />
       <CredentialEditor
         {...props}
         key={`${detail.id}-delete`}
         credential={detail}
         mode="delete"
+        unavailable={error || loading}
       />
     </div>
   );
@@ -377,8 +396,10 @@ function CredentialEditor({
   mode,
   onRefresh,
   view,
+  unavailable = false,
 }: Props & {
   credential?: Credential;
+  unavailable?: boolean;
   mode: "create" | "edit" | "rotate" | "delete";
 }) {
   const [name, setName] = useState(credential?.name ?? "");
@@ -400,6 +421,7 @@ function CredentialEditor({
   const [dirty, setDirty] = useState(false);
   const [inputError, setInputError] = useState<string>();
   const [blockedVersion, setBlockedVersion] = useState<number>();
+  const [reviewRequired, setReviewRequired] = useState(false);
   const [expectedETag, setExpectedETag] = useState(() =>
     credential === undefined ? null : etag(credential),
   );
@@ -407,6 +429,7 @@ function CredentialEditor({
     if (
       credential === undefined ||
       dirty ||
+      reviewRequired ||
       confirming ||
       mutation.state === "submitting"
     )
@@ -418,7 +441,7 @@ function CredentialEditor({
     setWildcard(credential.boundary.allow_wildcard);
     setHeader(credential.recipe.header);
     setPrefix(credential.recipe.prefix);
-  }, [credential, dirty, confirming, mutation.state]);
+  }, [credential, dirty, reviewRequired, confirming, mutation.state]);
   const button = useRef<HTMLButtonElement>(null);
   const navigate = useUnsavedChanges(dirty);
   const inputID = `http-credential-secret-${mode}`;
@@ -435,6 +458,8 @@ function CredentialEditor({
   const recipeReadOnly =
     mode === "edit" && (credential?.referencing_grants.length ?? 0) > 0;
   const blocked =
+    unavailable ||
+    reviewRequired ||
     mutation.state === "submitting" ||
     mutation.state === "uncertain" ||
     mutation.availability === "storage_latched" ||
@@ -496,6 +521,13 @@ function CredentialEditor({
   };
   const submit = () => {
     setConfirming(false);
+    // The resource can become unavailable after the confirmation was opened.
+    if (blocked) {
+      reportInvalid(
+        "Current credential state cannot authorize this change. Refresh and review again.",
+      );
+      return;
+    }
     const error = validationError();
     if (error !== undefined) {
       reportInvalid(error);
@@ -543,9 +575,13 @@ function CredentialEditor({
       return;
     }
     const pending = controller.submit();
-    clear();
+    // Write-only material is always cleared; safe edit drafts survive rejection.
+    if (mode === "edit") secret.clear();
+    else clear();
     void pending.then((outcome) => {
       if (outcome.kind === "acknowledged") {
+        setDirty(false);
+        setReviewRequired(false);
         controller.abandon();
         if (mode === "delete") navigate("#/http/credentials", true);
         else if (mode === "create" && outcome.value !== null)
@@ -556,6 +592,8 @@ function CredentialEditor({
         (outcome.kind === "rejected" && outcome.requiresRefresh)
       ) {
         setBlockedVersion(view.generation);
+        if (mode === "edit" && outcome.kind === "rejected")
+          setReviewRequired(true);
         onRefresh();
       }
     });
@@ -577,125 +615,167 @@ function CredentialEditor({
         }}
         onInput={() => setDirty(true)}
       >
-        {metadata && (
-          <>
-            <FormField id={`http-name-${mode}`} label="Name">
-              {(attributes) => (
-                <input
-                  {...attributes}
-                  required
-                  value={name}
-                  onInput={(e) => setName(e.currentTarget.value)}
-                />
-              )}
-            </FormField>
-            <FormField id={`http-host-${mode}`} label="HTTPS destination host">
-              {(attributes) => (
-                <input
-                  {...attributes}
-                  required
-                  value={host}
-                  onInput={(e) => setHost(e.currentTarget.value)}
-                />
-              )}
-            </FormField>
-            <FormField id={`http-port-${mode}`} label="Port">
-              {(attributes) => (
-                <input
-                  {...attributes}
-                  required
-                  type="number"
-                  min="1"
-                  max="65535"
-                  value={port}
-                  onInput={(e) => setPort(e.currentTarget.value)}
-                />
-              )}
-            </FormField>
-            <FormField
-              id={`http-wildcard-${mode}`}
-              label="Allow the explicit *. subdomain boundary"
-            >
-              {(attributes) => (
-                <BinaryToggle
-                  attributes={attributes}
-                  checked={wildcard}
-                  onChange={setWildcard}
-                />
-              )}
-            </FormField>
-            {recipeReadOnly && <p>Header recipe is fixed while referenced.</p>}
-            <FormField id={`http-header-${mode}`} label="Header name">
-              {(attributes) => (
-                <input
-                  {...attributes}
-                  required
-                  readOnly={recipeReadOnly}
-                  value={header}
-                  onInput={(e) => setHeader(e.currentTarget.value)}
-                />
-              )}
-            </FormField>
-            <FormField
-              id={`http-prefix-${mode}`}
-              label="Fixed prefix (optional)"
-            >
-              {(attributes) => (
-                <input
-                  {...attributes}
-                  readOnly={recipeReadOnly}
-                  value={prefix}
-                  onInput={(e) => setPrefix(e.currentTarget.value)}
-                />
-              )}
-            </FormField>
-          </>
-        )}
-        {material && (
-          <WriteOnlyField
-            id={inputID}
-            value={secret}
-            label="Secret"
-            hint="Write-only. Cleared after submission; stored values cannot be revealed."
-          />
-        )}
-        {mode === "delete" &&
-          (credential?.referencing_grants.length ?? 0) > 0 && (
-            <p>Remove referencing grants before deleting this credential.</p>
-          )}
-        {inputError !== undefined && (
-          <StateNotice state="error" title="Check credential fields">
-            <p>{inputError}</p>
-          </StateNotice>
-        )}
-        {mutation.problem !== undefined && (
-          <StateNotice state="error" title={mutation.problem.title} />
-        )}
-        {mutation.state === "uncertain" && (
-          <StateNotice
-            state="warning"
-            title="Credential change outcome unknown"
-          >
-            <p>
-              Inspect current metadata before making a new decision. No replay
-              is available.
-            </p>
-          </StateNotice>
-        )}
-        <button
-          ref={button}
-          type="submit"
-          class={
-            mode === "delete"
-              ? "danger-action form-submit-action"
-              : `${mode === "create" ? "create-action " : ""}form-submit-action`
+        <fieldset
+          class="credential-fields"
+          disabled={
+            mutation.state === "submitting" ||
+            mutation.state === "uncertain" ||
+            mutation.availability === "storage_latched"
           }
-          disabled={blocked}
         >
-          {mode === "create"
-            ? "Review and create"
-            : `Review ${mode === "edit" ? "changes" : mode === "rotate" ? "rotation" : "deletion"}`}
-        </button>
+          {metadata && (
+            <>
+              <FormField id={`http-name-${mode}`} label="Name">
+                {(attributes) => (
+                  <input
+                    {...attributes}
+                    required
+                    value={name}
+                    onInput={(e) => setName(e.currentTarget.value)}
+                  />
+                )}
+              </FormField>
+              <FormField
+                id={`http-host-${mode}`}
+                label="HTTPS destination host"
+              >
+                {(attributes) => (
+                  <input
+                    {...attributes}
+                    required
+                    value={host}
+                    onInput={(e) => setHost(e.currentTarget.value)}
+                  />
+                )}
+              </FormField>
+              <FormField id={`http-port-${mode}`} label="Port">
+                {(attributes) => (
+                  <input
+                    {...attributes}
+                    required
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value={port}
+                    onInput={(e) => setPort(e.currentTarget.value)}
+                  />
+                )}
+              </FormField>
+              <FormField
+                id={`http-wildcard-${mode}`}
+                label="Allow the explicit *. subdomain boundary"
+              >
+                {(attributes) => (
+                  <BinaryToggle
+                    attributes={attributes}
+                    checked={wildcard}
+                    onChange={setWildcard}
+                  />
+                )}
+              </FormField>
+              {recipeReadOnly && (
+                <p>Header recipe is fixed while referenced.</p>
+              )}
+              <FormField id={`http-header-${mode}`} label="Header name">
+                {(attributes) => (
+                  <input
+                    {...attributes}
+                    required
+                    readOnly={recipeReadOnly}
+                    value={header}
+                    onInput={(e) => setHeader(e.currentTarget.value)}
+                  />
+                )}
+              </FormField>
+              <FormField
+                id={`http-prefix-${mode}`}
+                label="Fixed prefix (optional)"
+              >
+                {(attributes) => (
+                  <input
+                    {...attributes}
+                    readOnly={recipeReadOnly}
+                    value={prefix}
+                    onInput={(e) => setPrefix(e.currentTarget.value)}
+                  />
+                )}
+              </FormField>
+            </>
+          )}
+          {material && (
+            <WriteOnlyField
+              id={inputID}
+              value={secret}
+              label="Secret"
+              hint="Write-only. Cleared after submission; stored values cannot be revealed."
+            />
+          )}
+          {mode === "delete" &&
+            (credential?.referencing_grants.length ?? 0) > 0 && (
+              <p>Remove referencing grants before deleting this credential.</p>
+            )}
+          {inputError !== undefined && (
+            <StateNotice state="error" title="Check credential fields">
+              <p>{inputError}</p>
+            </StateNotice>
+          )}
+          {reviewRequired && (
+            <StateNotice
+              state="warning"
+              title="Review current credential revision"
+            >
+              <p>
+                Compare the current facts above with your retained draft before
+                applying it.
+              </p>
+              <button
+                type="button"
+                disabled={
+                  unavailable ||
+                  credential === undefined ||
+                  (blockedVersion !== undefined &&
+                    view.generation <= blockedVersion)
+                }
+                onClick={() => {
+                  if (credential === undefined) return;
+                  setExpectedETag(etag(credential));
+                  setReviewRequired(false);
+                  controller.abandon();
+                }}
+              >
+                Use reviewed revision; keep draft
+              </button>
+            </StateNotice>
+          )}
+          {mutation.problem !== undefined && (
+            <StateNotice state="error" title={mutation.problem.title} />
+          )}
+          {mutation.state === "uncertain" && (
+            <StateNotice
+              state="warning"
+              title="Credential change outcome unknown"
+            >
+              <p>
+                Inspect current metadata before making a new decision. No replay
+                is available.
+              </p>
+            </StateNotice>
+          )}
+          <button
+            ref={button}
+            type="submit"
+            class={
+              mode === "delete"
+                ? "danger-action form-submit-action"
+                : `${mode === "create" ? "create-action " : ""}form-submit-action`
+            }
+            disabled={blocked}
+          >
+            {mode === "create"
+              ? "Review and create"
+              : `Review ${mode === "edit" ? "changes" : mode === "rotate" ? "rotation" : "deletion"}`}
+          </button>
+        </fieldset>
       </form>
       <ConfirmationDialog
         id={`http-credential-confirm-${mode}`}

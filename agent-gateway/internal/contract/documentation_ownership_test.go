@@ -18,7 +18,7 @@ func testDocumentationOwnershipManifestSchema(t *testing.T) {
 	guides := DocumentationGuideManifest()
 	commands := DocumentationCommandManifest()
 	security := DocumentationSecurityManifest()
-	require.Len(t, guides, 12)
+	require.Len(t, guides, 13)
 	require.Len(t, commands, 18)
 	require.Len(t, security, 8)
 

@@ -1,3 +1,4 @@
+import { capture } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureDetailLayout } from "./detail-layout.ts";
 import { expect, type Page } from "@playwright/test";
@@ -9,6 +10,7 @@ export async function captureStateFeedback(
   page: Page,
   state: string,
 ): Promise<void> {
+  await capture(page, state);
   if (
     [
       "tool-schema-summary",

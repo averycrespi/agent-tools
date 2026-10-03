@@ -34,6 +34,7 @@ var documentationGuides = []DocumentationGuide{
 	{ID: "docs.guide.invocation.evidence", Path: "docs/operators/invocation-evidence.md", Audience: "Operators investigating governed tool calls", Purpose: "Interpret invocation evidence, redaction, and unknown outcomes."},
 	{ID: "docs.guide.recovery", Path: "docs/operators/backup-and-recovery.md", Audience: "Operators responsible for Gateway recovery", Purpose: "Create backups and perform restore or stopped-process recovery safely."},
 	{ID: "docs.guide.frontend.development", Path: "docs/maintainers/frontend-development.md", Audience: "Maintainers developing the Gateway web application", Purpose: "Run trusted live reload without changing the production asset boundary."},
+	{ID: "docs.guide.frontend.browser.tests", Path: "docs/maintainers/frontend-browser-tests.md", Audience: "Maintainers and agents testing frontend behavior", Purpose: "Maintain mocked surface coverage and inspect browser artifacts without replacing real API evidence."},
 	{ID: "docs.guide.release.verification", Path: "docs/maintainers/release-verification.md", Audience: "Release owners and maintainers preparing release evidence", Purpose: "Prepare, run, and adopt exact-revision acceptance evidence without turning release acceptance into a development loop."},
 }
 

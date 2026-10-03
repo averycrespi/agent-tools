@@ -15,10 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBrowserInvocations(t *testing.T) {
-	testInvocationBrowser(t, "invocations")
-}
-
 func TestBrowserInvocationHistory(t *testing.T) {
 	testInvocationBrowser(t, "invocation-history")
 }
@@ -75,14 +71,7 @@ func testInvocationBrowser(t *testing.T, scenario string) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	if scenario == "invocations" {
-		assert.GreaterOrEqual(t, event.ListReads, 4)
-		assert.Positive(t, event.ContinuationReads)
-		assert.Equal(t, 8, event.ItemReads)
-		assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 20)
-	} else {
-		assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 30)
-	}
+	assert.GreaterOrEqual(t, len(event.HistoryScreenshots), 30)
 	t.Logf("History visual artifacts: %v", event.HistoryScreenshots)
 
 	harness.Stop(os.Interrupt)

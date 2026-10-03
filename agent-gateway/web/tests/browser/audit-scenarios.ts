@@ -1,3 +1,4 @@
+import { capture as captureFrontend } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { captureDetailLayout, captureTableState } from "./detail-layout.ts";
@@ -16,23 +17,39 @@ export async function runAudit(
   baseURL: string,
   bearer: string,
   requestCount: () => number,
+  evidence: "api" | "presentation" = "api",
 ): Promise<void> {
   await waitForLifecycle(page, "signed_out");
   await page.getByTestId("admin-bearer-input").fill(bearer);
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
-  const realResponse = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname === "/api/v2/audit-events" &&
-      response.status() === 200,
-  );
-  await page.locator('a[href="#/audit-log"]').click();
-  await expect(page.getByTestId("audit-row").first()).toBeVisible();
-  const real = await (await realResponse).json();
-  const realPage = decodeAuditPage(real);
-  if (realPage.items.length === 0)
-    fail("Real audit API had no produced events");
-  const generation = realPage.history.generation;
+  if (evidence === "api") {
+    const realResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/v2/audit-events" &&
+        response.status() === 200,
+    );
+    await page.locator('a[href="#/audit-log"]').click();
+    await expect(page.getByTestId("audit-row").first()).toBeVisible();
+    const real = await (await realResponse).json();
+    const realPage = decodeAuditPage(real);
+    if (realPage.items.length === 0)
+      fail("Real audit API had no produced events");
+    await assertSecretAbsent(page, context, baseURL, [bearer], true);
+    process.stdout.write(
+      JSON.stringify({
+        event: "audit_complete",
+        chromium_version: browserVersion,
+        playwright_version: "1.62.1",
+        requests: requestCount(),
+        real_api: true,
+        recorded_events: realPage.items.length,
+        evidence,
+      }) + "\n",
+    );
+    return;
+  }
+  const generation = "a".repeat(64);
   const replacement =
     generation === "b".repeat(64) ? "c".repeat(64) : "b".repeat(64);
   const id = (n: number) => `0000000000000000000000000${n}`;
@@ -239,7 +256,7 @@ export async function runAudit(
     page
       .getByRole("button", { name: "Refresh current view", exact: true })
       .click();
-  await refresh();
+  await page.locator('a[href="#/audit-log"]').click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(
     page.getByText("Older events pruned", { exact: true }),
@@ -257,6 +274,7 @@ export async function runAudit(
   const artifacts = await mkdtemp(join(tmpdir(), "gateway-audit-visual-"));
   const screenshots: string[] = [];
   const capture = async (name: string, width: number, fullPage = true) => {
+    await captureFrontend(page, name);
     await page.setViewportSize({ width, height: 900 });
     const path = join(artifacts, `${name}.png`);
     if (!fullPage)
@@ -885,7 +903,7 @@ export async function runAudit(
       requests: requestCount(),
       list_reads: queries.length,
       item_reads: itemReads,
-      real_api: true,
+      real_api: false,
       screenshots,
     }) + "\n",
   );

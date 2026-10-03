@@ -163,7 +163,7 @@ class GateTests(unittest.TestCase):
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
                          "vulnerability-scan": "tools", "gateway-demo": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
-                         "gateway-macos": "gateway"}.items():
+                         "gateway-macos": "gateway", "frontend-browser": "gateway"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
 
@@ -249,6 +249,25 @@ class CacheTests(unittest.TestCase):
                 path.write_text("original\n")
             (root / "agent-gateway/main.go").write_text("changed source\n")
             self.assertEqual(before, self.identity(root)["prefix"], "build material is not correctness evidence")
+
+    def test_frontend_browser_is_independent_required_and_delivers_artifacts(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        job = jobs["frontend-browser"]
+        for fragment in ("needs: changes", "if: needs.changes.outputs.gateway == 'true'",
+                         "run: npm ci", "playwright install --with-deps chromium --only-shell",
+                         "run: npm run ui:test-browser", "retention-days: 14", "if: always()",
+                         "path: .frontend-browser/", "steps.gallery.outputs.artifact-url",
+                         "GITHUB_STEP_SUMMARY", "No captures available"):
+            self.assertIn(fragment, job)
+        self.assertEqual(job.count("run: npm run ui:test-browser"), 1)
+        self.assertNotIn("continue-on-error", job)
+        self.assertNotIn("go-cache", job)
+        self.assertIn("      - frontend-browser\n", jobs["required"])
+        needs = GateTests().needs(["agent-gateway/web/src/main.tsx"])
+        del needs["frontend-browser"]
+        with self.assertRaises(ValueError):
+            check_gate(needs)
 
     def test_quality_executes_node_foundations_once(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()

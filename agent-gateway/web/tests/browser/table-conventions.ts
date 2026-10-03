@@ -141,7 +141,10 @@ export async function assertTableConventions(
           await row.locator(".table-identifier").evaluateAll((identifiers) =>
             identifiers.every((identifier) => {
               const range = document.createRange();
-              range.selectNodeContents(identifier);
+              // Measure glyph lines, not the link's larger accessible hit area.
+              range.selectNodeContents(
+                identifier.querySelector("a") ?? identifier,
+              );
               const style = getComputedStyle(identifier);
               const lineHeight =
                 parseFloat(style.lineHeight) ||

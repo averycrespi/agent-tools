@@ -1,3 +1,4 @@
+import { capture as captureFrontend } from "../frontend/capture.ts";
 import { expect, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ export async function exerciseCatalogPagination(page: Page): Promise<string[]> {
   const artifacts = await mkdtemp(join(tmpdir(), "tools8-visual-"));
   const screenshots: string[] = [];
   const capture = async (kind: string, state: string) => {
+    await captureFrontend(page, `${kind}-${state}`, state === "populated");
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page

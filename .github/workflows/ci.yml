@@ -53,6 +53,42 @@ jobs:
       - run: make fmt-check
       - run: make -C agent-gateway test-frontend-development-node frontend-typecheck
 
+  frontend-browser:
+    name: Frontend browser
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium --only-shell
+      - run: npm run ui:test-browser
+      - name: Upload frontend gallery and partial captures
+        if: always()
+        id: gallery
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-browser-gallery
+          path: .frontend-browser/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Link frontend artifacts
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.gallery.outputs.artifact-url }}
+        run: |
+          if [ -n "$ARTIFACT_URL" ]; then
+            printf '### Frontend browser evidence\n[Download screenshots, inventory and HTML gallery](%s)\n\nOpen index.html after extracting. Inspect missing states in inventory.json; assertions alone do not establish visual quality.\n' "$ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '### Frontend browser evidence\nNo captures available: setup or artifact upload failed.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   unit-tests:
     name: Go checks (${{ matrix.tool }}, Linux)
     needs: changes
@@ -242,6 +278,7 @@ jobs:
       - gateway-lint
       - gateway-harness
       - gateway-macos
+      - frontend-browser
       - vulnerability-scan
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -810,7 +810,15 @@ function App() {
                           ? "HTTP Grant details"
                           : destination === "http-traffic"
                             ? "HTTP Traffic details"
-                            : "Audit event details"}
+                            : destination === "git-repositories"
+                              ? "Git Repository details"
+                              : destination === "git-credentials"
+                                ? "Git Credential details"
+                                : destination === "git-grants"
+                                  ? "Git Grant details"
+                                  : destination === "git-traffic"
+                                    ? "Git Traffic details"
+                                    : "Audit event details"}
             </span>
           ) : (
             <h1

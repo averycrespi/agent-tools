@@ -43,23 +43,21 @@ func TestBrowserAudit(t *testing.T) {
 	assert.False(t, result.Cleanup.Survived)
 	assert.NotContains(t, string(result.Stdout), harness.bearer)
 	var event struct {
-		Event             string   `json:"event"`
-		ChromiumVersion   string   `json:"chromium_version"`
-		PlaywrightVersion string   `json:"playwright_version"`
-		Requests          int      `json:"requests"`
-		ListReads         int      `json:"list_reads"`
-		ItemReads         int      `json:"item_reads"`
-		RealAPI           bool     `json:"real_api"`
-		Screenshots       []string `json:"screenshots"`
+		Event             string `json:"event"`
+		ChromiumVersion   string `json:"chromium_version"`
+		PlaywrightVersion string `json:"playwright_version"`
+		Requests          int    `json:"requests"`
+		RecordedEvents    int    `json:"recorded_events"`
+		RealAPI           bool   `json:"real_api"`
 	}
 	require.NoError(t, json.Unmarshal(result.Stdout, &event))
 	assert.Equal(t, "audit_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.True(t, event.RealAPI)
-	assert.GreaterOrEqual(t, event.ListReads, 10)
-	assert.Equal(t, 19, event.ItemReads) // Detail and independently fenced related-history panels
-	assert.Len(t, event.Screenshots, 16)
-	t.Logf("Audit visual artifacts: %v", event.Screenshots)
+	// Presentation/history faults execute in the frontend-only owner. Keep the
+	// real authenticated audit API and browser projection here.
+	assert.Positive(t, event.Requests)
+	assert.Positive(t, event.RecordedEvents)
 	harness.Stop(os.Interrupt)
 }

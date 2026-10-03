@@ -23,6 +23,7 @@ Generated `agent-gateway --help` and subcommand help are the exact command and f
 Human maintainers and coding agents should begin with [maintainer and agent guidance](../CLAUDE.md), then use the focused workflow when applicable:
 
 - [Frontend development](maintainers/frontend-development.md) — trusted live reload, visual inspection, and focused frontend checks.
+- [Mocked frontend browser tests](maintainers/frontend-browser-tests.md) — source/state inventory, synthetic API fixtures, screenshot gallery, CI artifacts and real-Gateway ownership boundaries.
 - [Table conventions](design/browser-control-plane.md#table-conventions) — activity/resource column order, names, sizing, identity, status, and responsive behavior.
 - [Release verification](maintainers/release-verification.md) — exact-revision acceptance evidence and report adoption for release owners.
 - [Implementation evidence](maintainers/implementation-evidence.md) — producer-test provenance and historical measurements, not current-candidate qualification.

@@ -1,3 +1,4 @@
+import { capture as captureFrontend } from "../frontend/capture.ts";
 import { expect, type Page } from "@playwright/test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,6 +29,7 @@ export async function exerciseOperationPagination(
   const artifacts = await mkdtemp(join(tmpdir(), "tools23-visual-"));
   const screenshots: string[] = [];
   const capture = async (state: string) => {
+    await captureFrontend(page, state, true);
     for (const width of [1280, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await page

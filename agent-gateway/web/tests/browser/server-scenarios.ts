@@ -1,3 +1,8 @@
+import {
+  capture,
+  captureScreenshot,
+  hasCaptureOwner,
+} from "../frontend/capture.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
@@ -210,7 +215,7 @@ export async function runServerManagementCanary(
     await correlation.scrollIntoViewIfNeeded();
     await expect(correlation).toBeVisible();
     const path = join(screenshotRoot, `correlation-${width}.png`);
-    await page.screenshot({ path });
+    await captureScreenshot(page, { path });
     diagnosticScreenshots.push(path);
   }
   Object.assign(server.runtime, { diagnostic_correlation: undefined });
@@ -222,7 +227,7 @@ export async function runServerManagementCanary(
     await page.setViewportSize({ width, height: 900 });
     await correlation.scrollIntoViewIfNeeded();
     const path = join(screenshotRoot, `unavailable-${width}.png`);
-    await page.screenshot({ path });
+    await captureScreenshot(page, { path });
     diagnosticScreenshots.push(path);
   }
   Object.assign(server.runtime, {
@@ -252,7 +257,7 @@ export async function runServerManagementCanary(
     ).toBeLessThanOrEqual(width);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     const path = join(screenshotRoot, `healthy-${width}.png`);
-    await page.screenshot({ path, fullPage: true });
+    await captureScreenshot(page, { path, fullPage: true });
     diagnosticScreenshots.push(path);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -311,6 +316,27 @@ export async function runServerManagementCanary(
   );
 }
 
+export async function runServerUpstreamHeaders(
+  browserVersion: string,
+  page: Page,
+  bearer: string,
+  requestCount: () => number,
+): Promise<void> {
+  await page.getByTestId("admin-bearer-input").fill(bearer);
+  await page.getByTestId("sign-in-submit").click();
+  await waitForLifecycle(page, "authenticated");
+  const screenshots = await exerciseUpstreamHeaders(page);
+  process.stdout.write(
+    JSON.stringify({
+      event: "server_create_update_complete",
+      chromium_version: browserVersion,
+      playwright_version: "1.62.1",
+      requests: requestCount(),
+      header_screenshots: screenshots,
+    }) + "\n",
+  );
+}
+
 export async function runServerCreateUpdate(
   browserVersion: string,
   page: Page,
@@ -324,7 +350,11 @@ export async function runServerCreateUpdate(
   await waitForLifecycle(page, "authenticated");
 
   const serverID = serverReadIDs.active;
-  const headerScreenshots = await exerciseUpstreamHeaders(page);
+  const headerScreenshots: string[] = [];
+  let holdUpdate = false;
+  let releaseUpdate: (() => void) | undefined;
+  const resumeUpdate = () => releaseUpdate?.();
+  let uncertainUpdate = false;
   let currentServer = {
     ...serverReadFixture(serverID, {
       name: "Created server",
@@ -416,6 +446,17 @@ export async function runServerCreateUpdate(
         return;
       }
       updates += 1;
+      if (holdUpdate)
+        await new Promise<void>((resolve) => {
+          releaseUpdate = resolve;
+        });
+      if (uncertainUpdate) {
+        await route.fulfill({
+          status: 502,
+          body: "Synthetic lost update response",
+        });
+        return;
+      }
       etags.push((await route.request().allHeaders())["if-match"] ?? "");
       const patch = JSON.parse(route.request().postData() ?? "null") as Record<
         string,
@@ -596,6 +637,7 @@ export async function runServerCreateUpdate(
     )
   )
     fail("server creation omitted immutable namespace guidance");
+  await capture(page, "create-blank", true);
   const initialInputs = await editor.locator("input").evaluateAll((nodes) =>
     nodes.map((node) => ({
       name: node.getAttribute("name"),
@@ -624,6 +666,7 @@ export async function runServerCreateUpdate(
       .count()) !== 0
   )
     fail("HTTP selection did not reveal only automatic HTTP configuration");
+  await capture(page, "create-http-transport");
   await page.locator("#server-url").fill("file:///tmp/mcp");
   await page.locator("#server-auth-none").check();
   await page.locator("#server-namespace").fill("url-validation");
@@ -635,6 +678,7 @@ export async function runServerCreateUpdate(
   )
     fail("invalid HTTP endpoint was not associated with its field");
   if (creates !== 0) fail("invalid HTTP endpoint submitted a create");
+  await capture(page, "create-http-invalid-endpoint");
   await page.locator("#server-url").fill("https://resource.example/mcp");
   await page.locator("#server-auth-oauth").check();
   if (
@@ -647,6 +691,7 @@ export async function runServerCreateUpdate(
     )
   )
     fail("OAuth controls did not explain registration or offline access");
+  await capture(page, "create-oauth-dynamic");
   await page.locator("#server-registration-mode").selectOption("static");
   const oauthFieldOrder = await editor
     .locator(".form-field input, .form-field select")
@@ -668,6 +713,7 @@ export async function runServerCreateUpdate(
     )
   )
     fail("existing OAuth client guidance did not match the selected mode");
+  await capture(page, "create-oauth-static");
   await page.locator("#server-client-id").fill("   ");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.getByText("Enter the OAuth client ID.").waitFor();
@@ -697,6 +743,7 @@ export async function runServerCreateUpdate(
     .evaluateAll((nodes) => nodes.map((node) => node.id));
   if (advancedInputs[0] !== "server-issuer")
     fail("issuer was not the first advanced field");
+  await capture(page, "create-oauth-advanced", true);
   await page.locator("#server-issuer").fill("http://issuer.example");
   await advancedToggle.click();
   await page
@@ -1029,6 +1076,8 @@ export async function runServerCreateUpdate(
     )
   )
     fail("create body contained inline secret material");
+  await expect(page.getByTestId("toast")).toContainText("Server created.");
+  await page.getByRole("button", { name: "Dismiss notification" }).click();
 
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   if (
@@ -1038,6 +1087,7 @@ export async function runServerCreateUpdate(
     fail(
       "stdio edit form hid configured settings or retained create-only guidance",
     );
+  await capture(page, "settings-stdio", true);
   await page.locator("#server-display-name").fill("Display only draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.getByText("Precondition required").waitFor();
@@ -1049,24 +1099,46 @@ export async function runServerCreateUpdate(
     "Display only draft"
   )
     fail("428 refresh discarded safe draft");
+  await capture(page, "settings-precondition-required");
+  holdUpdate = true;
   await page.locator('[data-testid="server-editor-submit"]').click();
+  await expect(page.locator("#server-display-name")).toBeDisabled();
+  await expect.poll(() => releaseUpdate !== undefined).toBe(true);
+  await capture(page, "settings-metadata-pending");
+  holdUpdate = false;
+  resumeUpdate();
   const toast = page.locator('[data-testid="toast"]');
   await toast.getByText("Server settings saved.", { exact: true }).waitFor();
   if ((await toast.getAttribute("role")) !== "status")
     fail("save toast was not exposed as an accessible status");
+  await page.getByRole("button", { name: "Dismiss notification" }).click();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
 
   const serverEnabled = page.getByRole("switch", { name: "Server enabled" });
   if (await serverEnabled.isChecked())
     fail("disabled server switch was checked");
   await serverEnabled.click();
+  await capture(page, "settings-behavioral-draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Apply behavioral server change?",
+  );
+  await capture(page, "settings-behavioral-confirmation", true);
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
   await page.getByText("Stale server revision").waitFor();
   if (!(await serverEnabled.isChecked()))
     fail("412 refresh discarded behavioral draft");
+  await capture(page, "settings-conflict");
+  holdUpdate = true;
+  releaseUpdate = undefined;
   await page.locator('[data-testid="server-editor-submit"]').click();
   await page.locator('[data-testid="server-change-confirm-submit"]').click();
+  await expect(serverEnabled).toBeChecked();
+  await expect(serverEnabled).toBeDisabled();
+  await expect.poll(() => releaseUpdate !== undefined).toBe(true);
+  await capture(page, "settings-behavioral-pending");
+  holdUpdate = false;
+  resumeUpdate();
   await page
     .locator('[data-testid="toast"]')
     .getByText("Server settings saved; applying changes.", { exact: true })
@@ -1077,7 +1149,72 @@ export async function runServerCreateUpdate(
     `"server-${serverID}-1","server-${serverID}-2","server-${serverID}-3","server-${serverID}-4"`
   )
     fail(`updates did not use fresh ETags: ${etags.join(",")}`);
+  await page.getByRole("button", { name: "Dismiss notification" }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.locator("#server-display-name").fill("Uncertain settings draft");
+  uncertainUpdate = true;
+  await page.getByTestId("server-editor-submit").click();
+  await expect(
+    page.getByText("Mutation outcome unknown", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("server-create-replay")).toHaveCount(0);
+  await expect(page.locator("#server-display-name")).toHaveValue(
+    "Uncertain settings draft",
+  );
+  await capture(page, "settings-uncertain");
+  const beforeRefresh = updates;
+  await page.getByTestId("manual-refresh").click();
+  await expect(page.getByTestId("gateway-shell")).toHaveAttribute(
+    "data-freshness",
+    "current",
+  );
+  expect(updates).toBe(beforeRefresh);
+  await page.getByRole("link", { name: "Status", exact: true }).click();
+  await page.getByTestId("unsaved-changes-submit").click();
   await assertOAuthScopeEditing(page, baseURL, serverID);
+  let readMode = "loading";
+  let releaseRead!: () => void;
+  const readGate = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      if (readMode === "loading") await readGate;
+      if (readMode === "error")
+        return route.fulfill({
+          status: 503,
+          json: {
+            status: 503,
+            code: "unavailable",
+            title: "Synthetic settings read unavailable",
+          },
+        });
+      return route.fallback();
+    },
+  );
+  await page.goto("about:blank");
+  await page.goto(`${baseURL}/#/mcp/servers/${serverID}?tab=settings`);
+  await expect(
+    page.getByText("Loading authoritative data", { exact: true }),
+  ).toBeVisible();
+  await capture(page, "settings-loading");
+  readMode = "error";
+  releaseRead();
+  await expect(
+    page.getByText("Read unavailable", { exact: true }),
+  ).toBeVisible();
+  await capture(page, "settings-unavailable");
+  readMode = "ready";
+  await page.getByTestId("manual-refresh").click();
+  await expect(page.getByTestId("server-editor")).toBeVisible();
+  readMode = "error";
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Last known data — refresh unavailable", { exact: true }),
+  ).toBeVisible();
+  await capture(page, "settings-stale");
   assertClosedStorage(await browserStorage(page));
   if (((await page.locator("body").textContent()) ?? "").includes(bearer))
     fail("admin bearer reached server workflow DOM");
@@ -1175,9 +1312,12 @@ async function assertOAuthScopeEditing(
     fail(
       "OAuth edit form hid configured overrides or retained create-only guidance",
     );
+  await capture(page, "settings-oauth-configured", true);
   const submit = async () => {
     const previous = submitted.length;
     await page.getByTestId("server-editor-submit").click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await capture(page, `settings-oauth-review-${previous + 1}`);
     await page.getByTestId("server-change-confirm-submit").click();
     await page
       .getByText("Check scope configuration", { exact: true })
@@ -1199,6 +1339,7 @@ async function assertOAuthScopeEditing(
     '["fixture.read","fixture.write"]'
   )
     fail("scope rows were not normalized in the actual update request");
+  await capture(page, "settings-oauth-validation");
   for (let index = 3; index > 0; index -= 1)
     await page
       .getByRole("button", { name: `Remove scope ${index}`, exact: true })
@@ -1206,12 +1347,14 @@ async function assertOAuthScopeEditing(
   await submit();
   if (JSON.stringify(submitted.at(-1)?.scopes) !== "[]")
     fail("explicit empty scopes were not serialized as an empty list");
+  await capture(page, "settings-oauth-empty-scopes");
   await page.getByRole("button", { name: "Add scope", exact: true }).click();
   await scopeRows.fill("fixture.inactive");
   await page.locator("#server-explicit-scopes").uncheck();
   await submit();
   if (Object.hasOwn(submitted.at(-1) ?? {}, "scopes"))
     fail("default scopes submitted inactive draft rows");
+  await capture(page, "settings-oauth-provider-default-scopes");
   await page.locator("#server-explicit-scopes").check();
   if ((await scopeRows.inputValue()) !== "fixture.inactive")
     fail("scope submission cleared inactive draft rows");
@@ -1522,9 +1665,41 @@ export async function runServerOperations(
   );
   await page.waitForTimeout(100);
   await captureDetailLayout(page, "server-operation-scheduled");
+  const controlledClock = hasCaptureOwner(page);
+  if (controlledClock) {
+    await page.clock.pauseAt(await page.evaluate(() => Date.now()));
+    await expect(page.getByTestId("gateway-shell")).toHaveAttribute(
+      "data-freshness",
+      "current",
+    );
+    // Establish a new visible polling interval after potentially slow captures.
+    // Wall-clock sleeps under concurrent Chromium/axe load can span two ticks.
+    await page.evaluate(() => {
+      for (const value of ["hidden", "visible"]) {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          get: () => value,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }
+    });
+  }
+  const advancePoll = async () => {
+    if (controlledClock) await page.clock.runFor(2100);
+    else await page.waitForTimeout(2100);
+  };
   const beforePoll = detailPollReads;
   detailState = "running";
-  await page.waitForTimeout(2100);
+  if (controlledClock) {
+    await page.clock.runFor(1999);
+    expect(detailPollReads).toBe(beforePoll);
+    await page.clock.runFor(101);
+    await expect.poll(() => detailPollReads).toBe(beforePoll + 1);
+    await expect(page.getByTestId("gateway-shell")).toHaveAttribute(
+      "data-freshness",
+      "current",
+    );
+  } else await advancePoll();
   if (detailPollReads !== beforePoll + 1)
     fail(
       `nonterminal operation did not poll at two seconds (${beforePoll} -> ${detailPollReads})`,
@@ -1537,7 +1712,7 @@ export async function runServerOperations(
     document.dispatchEvent(new Event("visibilitychange"));
   });
   const hiddenReads = detailPollReads;
-  await page.waitForTimeout(2100);
+  await advancePoll();
   if (detailPollReads !== hiddenReads)
     fail("operation detail polled while hidden");
   detailState = "succeeded";
@@ -1548,15 +1723,23 @@ export async function runServerOperations(
     });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await page.waitForTimeout(2100);
+  await advancePoll();
+  if (controlledClock) {
+    await expect.poll(() => detailPollReads).toBe(hiddenReads + 1);
+    await expect(page.getByTestId("gateway-shell")).toHaveAttribute(
+      "data-freshness",
+      "current",
+    );
+  }
   if (detailPollReads !== hiddenReads + 1)
     fail("operation polling did not resume to terminal state");
   const terminalReads = detailPollReads;
-  await page.waitForTimeout(2100);
+  await advancePoll();
   if (detailPollReads !== terminalReads)
     fail(
       `terminal operation continued polling (${beforePoll}, ${hiddenReads}, ${terminalReads} -> ${detailPollReads})`,
     );
+  if (controlledClock) await page.clock.resume();
   await captureDetailLayout(page, "server-operation-succeeded");
   const detailText =
     (await page.locator('[data-testid="operation-detail"]').textContent()) ??
@@ -1890,6 +2073,7 @@ export async function runServerDisconnectDelete(
       .textContent()) ?? "";
   if (!disconnectText.includes("not guaranteed"))
     fail("disconnect consequence overstated cleanup");
+  await capture(page, "disconnect-confirmation", true);
   await page.locator('[data-testid="operation-start-confirm-cancel"]').click();
   if (disconnects !== 0) fail("cancelled disconnect submitted");
   await disconnect.click();
@@ -1905,6 +2089,7 @@ export async function runServerDisconnectDelete(
   );
   if (Number(disconnects) !== 1)
     fail("stale disconnect replayed automatically");
+  await capture(page, "disconnect-conflict");
   await disconnect.click();
   await page.locator('[data-testid="operation-start-confirm-submit"]').click();
   await page.locator('[data-testid="operation-detail"]').waitFor();
@@ -1920,13 +2105,17 @@ export async function runServerDisconnectDelete(
   const deleteSubmit = page.locator(
     '[data-testid="server-delete-confirm-submit"]',
   );
+  await expect(deleteSubmit).toBeDisabled();
+  await capture(page, "delete-confirmation-empty");
   await typed.fill("wrong-namespace");
   if (!(await deleteSubmit.isDisabled()))
     fail("namespace mismatch enabled permanent deletion");
+  await capture(page, "delete-confirmation-invalid");
   await page.locator('[data-testid="server-delete-confirm-cancel"]').click();
   if (deletes !== 0) fail("cancelled deletion submitted");
   await deleteButton.click();
   await typed.fill(currentServer.namespace);
+  await capture(page, "delete-confirmation", true);
   await deleteSubmit.click();
   await page.getByText("Stale server revision").waitFor();
   await page.waitForFunction(
@@ -1938,6 +2127,7 @@ export async function runServerDisconnectDelete(
       )?.disabled,
   );
   if (Number(deletes) !== 1) fail("stale deletion replayed automatically");
+  await capture(page, "delete-conflict");
   await deleteButton.click();
   if ((await typed.inputValue()) !== "")
     fail("typed namespace survived authoritative conflict");
@@ -1979,6 +2169,7 @@ export async function runServerDisconnectDelete(
     fail("tombstone retained mutation controls");
   if (/force|restore authority|re-enable/i.test(tombstone))
     fail("tombstone offered force or authority restoration");
+  await capture(page, "deleted-tombstone", true);
 
   assertClosedStorage(await browserStorage(page));
   process.stdout.write(
@@ -2374,6 +2565,7 @@ export async function runAuthFlows(
     fail("authorization URL became active content");
   if ((await display.textContent()) !== authorizationURL)
     fail("authorization URL display changed");
+  await capture(page, "oauth-one-time-url");
 
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: new URL(baseURL).origin,
@@ -2390,6 +2582,7 @@ export async function runAuthFlows(
   });
   await page.locator('[data-testid="open-oauth-url"]').click();
   await page.getByText("The browser blocked the new page.").waitFor();
+  await capture(page, "oauth-popup-blocked");
   const copyURL = page.locator('[data-testid="copy-oauth-url"]');
   await copyURL.waitFor();
   await copyURL.click();
@@ -2442,6 +2635,7 @@ export async function runAuthFlows(
   await page.locator('[data-testid="start-auth-flow"]').click();
   const awaitingDialog = page.locator("dialog.sensitive-dialog[open]");
   await awaitingDialog.waitFor();
+  await capture(page, "oauth-one-time-pending");
   await awaitingDialog.evaluate((dialog) =>
     (dialog as HTMLDialogElement).close(),
   );
@@ -2467,6 +2661,7 @@ export async function runAuthFlows(
   await expect(
     page.getByText("Flow start outcome unknown", { exact: true }),
   ).toHaveCount(1);
+  await capture(page, "oauth-one-time-lost");
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   await expect(
     page.getByText(
@@ -2814,6 +3009,7 @@ export async function runServerCredentials(
       fail(`credential field ${fieldID} was not blank and write-only`);
   };
   await assertEligible("credential-slot-primary");
+  await capture(page, "stdio-secret-slots");
   await page.getByTestId("credential-replacement-submit").click();
   await expect(
     page.getByText("Enter every credential again; the fields were cleared.", {
@@ -2831,6 +3027,7 @@ export async function runServerCredentials(
   };
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-bearer");
+  await capture(page, "http-bearer-slot");
   await page
     .getByRole("textbox", { name: "Bearer token", exact: true })
     .waitFor();
@@ -2857,6 +3054,7 @@ export async function runServerCredentials(
   };
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-client_secret");
+  await capture(page, "static-oauth-client-secret");
   await assertCredentialActionGap();
   const oauthHeadings = await page
     .getByTestId("server-authentication-view")
@@ -2883,6 +3081,7 @@ export async function runServerCredentials(
     .waitFor();
   if (!(await page.getByTestId("start-auth-flow").isDisabled()))
     fail("missing client secret allowed authorization");
+  await capture(page, "oauth-client-secret-missing");
   currentServer = {
     ...currentServer,
     credential_revisions: {
@@ -2920,6 +3119,7 @@ export async function runServerCredentials(
       .count()) !== 0
   )
     fail("no-auth server repeated state or offered irrelevant actions");
+  await capture(page, "no-authentication");
   eligibilityModes += 1;
   currentServer = {
     ...currentServer,
@@ -2936,6 +3136,7 @@ export async function runServerCredentials(
       .count()) !== 0
   )
     fail("dynamic OAuth offered client-secret replacement");
+  await capture(page, "dynamic-oauth");
   eligibilityModes += 1;
 
   currentServer = { ...currentServer, transport: stdioTransport };
@@ -2963,6 +3164,7 @@ export async function runServerCredentials(
     .getByRole("link", { name: "Overview", exact: true })
     .click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
+  await capture(page, "unsaved-secret-navigation-confirmation");
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
   await page
     .locator('dialog[aria-labelledby="unsaved-changes-title"]')
@@ -2979,6 +3181,7 @@ export async function runServerCredentials(
     !consequence.includes("unknown outcomes")
   )
     fail("credential confirmation omitted interruption consequence");
+  await capture(page, "replace-authority-confirmation", true);
   await page
     .locator('[data-testid="credential-replacement-confirm-cancel"]')
     .click();
@@ -2994,6 +3197,7 @@ export async function runServerCredentials(
     fail("credential field changed before confirmation handoff");
   await confirmReplacement("stale");
   await page.getByText("Stale credential revision").waitFor();
+  await capture(page, "replacement-conflict");
   if ((await field.inputValue()) !== "")
     fail("stale credential submission retained a secret");
   await page.waitForFunction(
@@ -3007,6 +3211,7 @@ export async function runServerCredentials(
   await page.locator('[data-testid="credential-replacement-submit"]').click();
   await confirmReplacement("uncertain");
   await page.getByText("Replacement outcome unknown").waitFor();
+  await capture(page, "replacement-uncertain");
   if ((await field.inputValue()) !== "")
     fail("uncertain credential submission retained a secret");
   await page.waitForTimeout(350);
@@ -3639,7 +3844,7 @@ export async function runServerCatalogReads(
     const bounds = await serverTitle.boundingBox();
     if (bounds === null || bounds.x < 0 || bounds.x + bounds.width > width)
       fail("MCP server title exceeded the viewport");
-    await page.screenshot({
+    await captureScreenshot(page, {
       path: join(titleArtifacts, `server-${width}.png`),
     });
   }
