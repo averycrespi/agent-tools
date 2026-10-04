@@ -89,7 +89,7 @@ func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
 	delete(built.oauthCallbacks.leases, "reserved-fixture")
 	built.oauthCallbacks.mu.Unlock()
 	built.traffic.BeginDrain()
-	require.Equal(t, 403, request())
+	require.Equal(t, 503, request())
 	require.EqualValues(t, 1, calls.Load(), "diagnostics must not authorize dispatch")
 	require.True(t, observer.Finish(nil))
 	require.Contains(t, diagnosticOutput.String(), `"event":"http_proxy_rejected"`)

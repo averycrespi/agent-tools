@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -40,11 +41,11 @@ func (f *Factory) ResolveProxy(ctx context.Context, d httppolicy.Destination, li
 		var err error
 		addresses, err = f.resolver.LookupNetIP(ctx, "ip", d.Host())
 		if err != nil {
-			return nil, ErrAddressPolicy
+			return nil, proxyTransportFailure(err)
 		}
 	}
 	if len(addresses) == 0 || len(addresses) > contract.HTTPAddressFacts {
-		return nil, ErrAddressPolicy
+		return nil, ErrProxyConnection
 	}
 	owned := listeners()
 	if len(owned) > contract.HTTPAddressFacts {
@@ -85,7 +86,7 @@ func (p *ProxyAddress) Dial(ctx context.Context, private bool) (net.Conn, error)
 	defer cancel()
 	conn, err := p.factory.dial(ctx, "tcp", netip.AddrPortFrom(p.facts.Addresses[0], p.destination.Port()).String())
 	if err != nil {
-		return nil, ErrAddressPolicy
+		return nil, proxyTransportFailure(err)
 	}
 	return &proxyIdleConn{Conn: conn}, nil
 }
@@ -129,7 +130,13 @@ func (p *ProxyAddress) ProxyExchange(ctx context.Context, target httppolicy.Requ
 	if err != nil {
 		cancel()
 		transport.CloseIdleConnections()
-		return nil, ErrAddressPolicy
+		if errors.Is(err, ErrAddressPolicy) {
+			return nil, ErrAddressPolicy
+		}
+		if errors.Is(err, ErrProxyTimeout) {
+			return nil, ErrProxyTimeout
+		}
+		return nil, proxyTransportFailure(err)
 	}
 	if response.StatusCode == http.StatusSwitchingProtocols || ValidateProxyHeaders(response.Header) != nil {
 		cancel()
@@ -154,13 +161,13 @@ func (c *proxyIdleConn) CloseWrite() error {
 
 func (c *proxyIdleConn) Read(b []byte) (int, error) {
 	if err := c.SetReadDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
-		return 0, err
+		return 0, errors.Join(ErrProxyDeadline, proxyTransportFailure(err))
 	}
 	return c.Conn.Read(b)
 }
 func (c *proxyIdleConn) Write(b []byte) (int, error) {
 	if err := c.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
-		return 0, err
+		return 0, errors.Join(ErrProxyDeadline, proxyTransportFailure(err))
 	}
 	return c.Conn.Write(b)
 }

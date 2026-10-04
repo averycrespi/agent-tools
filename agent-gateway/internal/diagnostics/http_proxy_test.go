@@ -27,6 +27,7 @@ func TestHTTPProxyDiagnosticClosedBoundary(t *testing.T) {
 	}
 	for _, mutate := range []func(*Facts){
 		func(f *Facts) { f.InvocationID = "secret-canary" },
+		func(f *Facts) { f.ProxyID = "secret-canary" },
 		func(f *Facts) { f.Upstream = 1 },
 		func(f *Facts) { f.Call = 1 },
 		func(f *Facts) { f.Mutation = 1 },
@@ -37,6 +38,12 @@ func TestHTTPProxyDiagnosticClosedBoundary(t *testing.T) {
 	} {
 		f := validEventExample(HTTPProxyRejected)
 		mutate(&f)
+		require.False(t, validFacts(f))
+	}
+	for stage := ProxyCapacity; stage <= ProxyConnect; stage++ {
+		f := Facts{Event: HTTPProxyFailure, Stage: stage, Cause: Unavailable, ProxyID: "0123456789abcdef0123456789abcdef"}
+		require.True(t, validFacts(f))
+		f.ProxyID = "0123456789ABCDEF0123456789ABCDEF"
 		require.False(t, validFacts(f))
 	}
 	// Proxy stages must not expand the durability event vocabulary.

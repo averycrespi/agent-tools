@@ -165,14 +165,29 @@ func admissionContext(inside *intercepted) authorization.HTTPAdmissionContext {
 
 func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercepted) {
 	started := time.Now()
+	tracked := &failureWriter{ResponseWriter: w, id: proxyID()}
+	w = tracked
 	// Never allow net/http's default panic logger to receive request material.
 	defer func() {
-		if recover() != nil {
+		if recovered := recover(); recovered != nil {
+			recoveredErr, _ := recovered.(error)
+			if !errors.Is(recoveredErr, http.ErrAbortHandler) {
+				e.observeFailure(w, diagnostics.ProxyPanic, ErrUnavailable)
+				if !tracked.started {
+					reject(w, http.StatusServiceUnavailable)
+					return
+				}
+			}
 			panic(http.ErrAbortHandler)
 		}
 	}()
-	if (e.options.Ready != nil && !e.options.Ready()) || !e.acquire("") {
+	if e.options.Ready != nil && !e.options.Ready() {
 		reject(w, http.StatusServiceUnavailable)
+		return
+	}
+	if !e.acquire("") {
+		e.observeProxy(started, diagnostics.HTTPProxyFailure, diagnostics.ProxyCapacity, diagnostics.Capacity, tracked.id)
+		rejectCapacity(w, http.StatusServiceUnavailable)
 		return
 	}
 	defer e.release("")
@@ -206,7 +221,8 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		return
 	}
 	if !e.acquire(binding.PrincipalID) {
-		reject(w, http.StatusServiceUnavailable)
+		e.observeProxy(started, diagnostics.HTTPProxyFailure, diagnostics.ProxyCapacity, diagnostics.Capacity, tracked.id)
+		rejectCapacity(w, http.StatusTooManyRequests)
 		return
 	}
 	defer e.release(binding.PrincipalID)
@@ -277,18 +293,18 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 			}
 			e.rejectGit(w, r, lease, reason)
 		} else {
-			e.observeRejection(started, diagnostics.ProxyRouting, proxyFailureCause(err))
-			reject(w, http.StatusForbidden)
+			e.observeRejection(started, diagnostics.ProxyRouting, proxyFailureCause(err), w)
+			reject(w, http.StatusServiceUnavailable)
 		}
 		return
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), target.Destination(), e.options.Listeners)
 	if err != nil {
 		if git {
-			e.rejectGit(w, r, lease, "destination_unavailable")
+			e.rejectGit(w, r, lease, "destination_unavailable", upstreamStatus(err))
 		} else {
-			e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err))
-			reject(w, http.StatusForbidden)
+			e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), w)
+			reject(w, upstreamStatus(err))
 		}
 		return
 	}
@@ -304,9 +320,19 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: binding.PrincipalID, URL: target.URL().String(), Method: target.Method()}, address.Facts(), e.options.Materials, admissionContext(inside))
 	if err != nil || !result.DispatchAuthorized {
 		if err != nil {
-			e.observeRejection(started, result.FailureStage, result.FailureCause)
+			e.observeRejection(started, result.FailureStage, result.FailureCause, w)
+			if result.FailureCause == diagnostics.Capacity {
+				rejectCapacity(w, http.StatusServiceUnavailable)
+			} else {
+				reject(w, http.StatusServiceUnavailable)
+			}
+			return
 		}
-		reject(w, http.StatusForbidden)
+		if result.Evidence.Decision != nil && result.Evidence.Decision.Reason == contract.HTTPReasonCredentialUnavailable {
+			reject(w, http.StatusServiceUnavailable)
+		} else {
+			reject(w, http.StatusForbidden)
+		}
 		return
 	}
 	completion := contract.HTTPTrafficCompletion{Outcome: "prestart_failure"}
@@ -320,7 +346,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	if result.Material != nil {
 		header, err = result.Material.Headers(target, header)
 		if err != nil {
-			rejectResponse(http.StatusBadGateway)
+			rejectResponse(http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -348,7 +374,8 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	response, err := address.ProxyExchange(r.Context(), target, header, outgoingBody, r.ContentLength, result.Evidence.Decision.PrivateGrant != nil, e.roots)
 	if err != nil {
 		completion.Termination = termination(r.Context(), "exchange", err)
-		rejectResponse(http.StatusBadGateway)
+		e.observeFailure(w, diagnostics.ProxyExchange, err)
+		rejectResponse(upstreamStatus(err))
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
@@ -364,10 +391,12 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		// normal closure as an error. Leave bounded finalization to the server.
 		if err := controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
 			completion.Termination = termination(r.Context(), "deadline", err)
+			e.observeFailure(w, diagnostics.ProxyDeadline, err)
 			panic(http.ErrAbortHandler)
 		}
 		if err := r.Context().Err(); err != nil {
 			completion.Termination = termination(r.Context(), "response_headers", err)
+			e.observeFailure(w, diagnostics.ProxyWrite, err)
 			panic(http.ErrAbortHandler)
 		}
 		completion.Termination = &contract.HTTPTermination{Stage: "response_headers", Condition: "clean"}
@@ -377,12 +406,14 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	writer := &streamWriter{writer: w, controller: controller}
 	if err := writer.Flush(); err != nil {
 		completion.Termination = termination(r.Context(), "downstream_flush", err)
+		e.observeTransfer(w, "downstream_flush", err)
 		panic(http.ErrAbortHandler)
 	}
 	n, err := io.CopyBuffer(writer, response.Body, make([]byte, contract.HTTPProxyBufferBytes))
 	completion.BytesReceived = n
 	if err != nil {
 		completion.Termination = termination(r.Context(), "upstream_read", err)
+		e.observeTransfer(w, "upstream_read", err)
 		panic(http.ErrAbortHandler)
 	}
 	completion.Termination = &contract.HTTPTermination{Stage: "complete", Condition: "clean"}
@@ -418,7 +449,24 @@ func (e *Engine) complete(result invocation.HTTPAdmissionResult, identity invoca
 	_ = e.options.Admissions.CompleteHTTP(ctx, result, completion)
 }
 
+func rejectCapacity(w http.ResponseWriter, status int) {
+	rejectReason(w, status, "connection_limit_reached")
+}
+
 func reject(w http.ResponseWriter, status int) {
+	rejectReason(w, status, contract.HTTPProxyFailureReason(status))
+}
+
+func rejectReason(w http.ResponseWriter, status int, reason string) {
+	if tracked, ok := w.(*failureWriter); ok {
+		if tracked.started {
+			panic(http.ErrAbortHandler)
+		}
+		if tracked.id != "" {
+			w.Header().Set(contract.HTTPProxyCorrelationHeader, tracked.id)
+		}
+	}
+	w.Header().Set("Proxy-Status", "AgentGateway; error="+reason)
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(time.Now().Add(contract.HTTPProxyDrainTimeout))
 	_ = controller.SetWriteDeadline(time.Now().Add(contract.HTTPProxyDrainTimeout))
@@ -445,7 +493,7 @@ func stripHopHeaders(header http.Header) {
 			header.Del(strings.TrimSpace(name))
 		}
 	}
-	for _, name := range []string{"Connection", "Proxy-Authorization", "Proxy-Authenticate", "Proxy-Connection", "Keep-Alive", "TE", "Trailer", "Transfer-Encoding", "Upgrade"} {
+	for _, name := range []string{"Connection", "Proxy-Authorization", "Proxy-Authenticate", "Proxy-Connection", "Keep-Alive", "TE", "Trailer", "Transfer-Encoding", "Upgrade", "Proxy-Status", contract.HTTPProxyCorrelationHeader, contract.HTTPProxyConnectionHeader} {
 		header.Del(name)
 	}
 }

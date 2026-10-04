@@ -63,8 +63,15 @@ func TestIntegrationProxyRejectionDiagnostics(t *testing.T) {
 			r.Header.Set("Authorization", "Bearer private-upstream-token-canary")
 			response := httptest.NewRecorder()
 			f.engine.handle(response, r, inside)
-			require.Equal(t, http.StatusForbidden, response.Code)
-			require.Equal(t, "Forbidden\n", response.Body.String())
+			status := http.StatusBadGateway
+			if mode == "traffic-unavailable" {
+				status = http.StatusServiceUnavailable
+			}
+			if mode == "policy-denial" {
+				status = http.StatusForbidden
+			}
+			require.Equal(t, status, response.Code)
+			require.Equal(t, http.StatusText(status)+"\n", response.Body.String())
 			require.True(t, observer.Finish(nil))
 			history, err := f.traffic.HTTPHistory(t.Context(), 0, 10)
 			require.NoError(t, err)
@@ -78,6 +85,8 @@ func TestIntegrationProxyRejectionDiagnostics(t *testing.T) {
 			require.NoError(t, json.Unmarshal(output.Bytes(), &record))
 			require.Equal(t, "http_proxy_rejected", record["event"])
 			require.Equal(t, "WARN", record["level"])
+			require.Equal(t, response.Header().Get("Gateway-Request-ID"), record["proxy_id"])
+			require.Len(t, record["proxy_id"], 32)
 			require.Equal(t, "unavailable", record["cause"])
 			stage := "resolution"
 			if mode == "traffic-unavailable" {

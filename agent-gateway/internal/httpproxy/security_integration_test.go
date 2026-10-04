@@ -101,7 +101,11 @@ func TestIntegrationCredentialConflictOrMissingMaterialNeverDials(t *testing.T) 
 				require.NoError(t, err)
 				response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "GET"})
 				require.NoError(t, err)
-				require.Equal(t, 403, response.StatusCode)
+				expected := http.StatusForbidden
+				if mode == "key-loss" {
+					expected = http.StatusServiceUnavailable
+				}
+				require.Equal(t, expected, response.StatusCode)
 				require.NoError(t, response.Body.Close())
 				require.NoError(t, conn.Close())
 				require.Zero(t, connections.Load())

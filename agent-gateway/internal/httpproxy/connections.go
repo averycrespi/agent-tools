@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -32,6 +33,7 @@ func (l *boundListener) Accept() (net.Conn, error) {
 		l.engine.mu.Lock()
 		if l.engine.draining || len(l.engine.connections) >= contract.HTTPProxyConnections {
 			l.engine.mu.Unlock()
+			l.engine.observeProxy(time.Now(), diagnostics.HTTPProxyFailure, diagnostics.ProxyCapacity, diagnostics.Capacity, proxyID())
 			_ = c.Close()
 			continue
 		}
@@ -94,8 +96,8 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), destination, e.options.Listeners)
 	if err != nil {
-		e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err))
-		reject(w, http.StatusForbidden)
+		e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), w)
+		reject(w, upstreamStatus(err))
 		return
 	}
 	identity, err := e.options.Evidence.PrepareIdentity()
@@ -106,7 +108,13 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID, Connect: &contract.HTTPDestinationSelector{Host: destination.Host(), Port: destination.Port()}}, address.Facts(), e.options.Materials)
 	if err != nil || !result.Committed || result.Evidence.Decision == nil {
 		if err != nil {
-			e.observeRejection(started, result.FailureStage, result.FailureCause)
+			e.observeRejection(started, result.FailureStage, result.FailureCause, w)
+			if result.FailureCause == diagnostics.Capacity {
+				rejectCapacity(w, http.StatusServiceUnavailable)
+			} else {
+				reject(w, http.StatusServiceUnavailable)
+			}
+			return
 		}
 		reject(w, http.StatusForbidden)
 		return
@@ -130,7 +138,8 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 		upstream, err := address.Dial(dialCtx, decision.PrivateGrant != nil)
 		cancelDial()
 		if err != nil {
-			reject(w, http.StatusBadGateway)
+			e.observeFailure(w, diagnostics.ProxyExchange, err)
+			reject(w, upstreamStatus(err))
 			return
 		}
 		defer func() { _ = upstream.Close() }()
@@ -143,26 +152,37 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 		if remaining <= 0 {
 			return
 		}
-		stop := e.afterFunc(remaining, func() { _ = client.Close(); _ = upstream.Close() })
+		stop := e.afterFunc(remaining, func() {
+			e.observeFailure(w, diagnostics.ProxyDeadline, context.DeadlineExceeded)
+			_ = client.Close()
+			_ = upstream.Close()
+		})
 		defer stop()
-		if err = writeConnected(client, buffered); err != nil {
+		if err = writeConnected(client, buffered, w); err != nil {
+			e.observeFailure(w, diagnostics.ProxyConnect, err)
 			return
 		}
-		sent, received, complete := tunnel(client, buffered.Reader, upstream)
+		sent, received, transferErr := tunnel(client, buffered.Reader, upstream)
 		completion.BytesSent = sent
 		completion.BytesReceived = received
-		if complete {
+		if transferErr == nil {
 			completion.Outcome = "succeeded"
+		} else {
+			e.observeTransfer(w, "upstream_read", transferErr)
 		}
 		return
 	}
-	if decision.Transport != contract.HTTPTransportIntercept || decision.Reason != contract.HTTPReasonIntercept || e.options.Signer == nil {
+	if decision.Transport != contract.HTTPTransportIntercept || decision.Reason != contract.HTTPReasonIntercept {
 		reject(w, http.StatusForbidden)
+		return
+	}
+	if e.options.Signer == nil {
+		reject(w, http.StatusServiceUnavailable)
 		return
 	}
 	certificate, err := e.options.Signer.Certificate(destination.Host())
 	if err != nil {
-		reject(w, http.StatusBadGateway)
+		reject(w, http.StatusServiceUnavailable)
 		return
 	}
 	client, buffered, err := http.NewResponseController(w).Hijack()
@@ -170,7 +190,8 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 		return
 	}
 	defer func() { _ = client.Close() }()
-	if err = writeConnected(client, buffered); err != nil {
+	if err = writeConnected(client, buffered, w); err != nil {
+		e.observeFailure(w, diagnostics.ProxyConnect, err)
 		return
 	}
 	tlsConn := tls.Server(&bufferedConn{Conn: client, reader: buffered.Reader}, &tls.Config{MinVersion: tls.VersionTLS12, NextProtos: []string{"h2", "http/1.1"}, GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
@@ -183,6 +204,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	err = tlsConn.HandshakeContext(ctx)
 	cancel()
 	if err != nil {
+		e.observeFailure(w, diagnostics.ProxyHandshake, err)
 		return
 	}
 	_ = client.SetDeadline(time.Time{})
@@ -205,11 +227,15 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	_ = server.Serve(&singleListener{conn: tlsConn, done: bound.done})
 }
 
-func writeConnected(client net.Conn, b *bufio.ReadWriter) error {
+func writeConnected(client net.Conn, b *bufio.ReadWriter, w http.ResponseWriter) error {
 	if err := client.SetWriteDeadline(time.Now().Add(contract.HTTPProxyHeaderTimeout)); err != nil {
 		return err
 	}
-	if _, err := b.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+	headers := "HTTP/1.1 200 Connection Established\r\n"
+	if tracked, ok := w.(*failureWriter); ok && tracked.id != "" {
+		headers += contract.HTTPProxyConnectionHeader + ": " + tracked.id + "\r\n"
+	}
+	if _, err := b.WriteString(headers + "\r\n"); err != nil {
 		return err
 	}
 	if err := b.Flush(); err != nil {
@@ -218,7 +244,7 @@ func writeConnected(client net.Conn, b *bufio.ReadWriter) error {
 	return client.SetDeadline(time.Time{})
 }
 
-func tunnel(client net.Conn, reader io.Reader, upstream net.Conn) (int64, int64, bool) {
+func tunnel(client net.Conn, reader io.Reader, upstream net.Conn) (int64, int64, error) {
 	type copied struct {
 		sent bool
 		n    int64
@@ -229,17 +255,17 @@ func tunnel(client net.Conn, reader io.Reader, upstream net.Conn) (int64, int64,
 		n, err := io.CopyBuffer(writer, source, make([]byte, contract.HTTPProxyBufferBytes))
 		if err == nil {
 			if half, ok := destination.(interface{ CloseWrite() error }); ok {
-				err = half.CloseWrite()
+				err = transferFailure("connect", half.CloseWrite())
 			} else {
-				err = destination.Close()
+				err = transferFailure("connect", destination.Close())
 			}
 		}
 		results <- copied{sent, n, err}
 	}
-	go copySide(true, upstream, upstream, &idleTunnelReader{client, reader})
+	go copySide(true, upstream, &tunnelUploadWriter{upstream}, &idleTunnelReader{client, reader})
 	go copySide(false, client, &idleTunnelWriter{client}, upstream)
 	var sent, received int64
-	complete := true
+	var failure error
 	for range 2 {
 		result := <-results
 		if result.sent {
@@ -248,12 +274,14 @@ func tunnel(client net.Conn, reader io.Reader, upstream net.Conn) (int64, int64,
 			received = result.n
 		}
 		if result.err != nil {
-			complete = false
+			if failure == nil {
+				failure = result.err
+			}
 			_ = client.Close()
 			_ = upstream.Close()
 		}
 	}
-	return sent, received, complete
+	return sent, received, failure
 }
 
 type idleTunnelReader struct {
@@ -263,16 +291,34 @@ type idleTunnelReader struct {
 
 func (r *idleTunnelReader) Read(p []byte) (int, error) {
 	if err := r.conn.SetReadDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
-		return 0, err
+		return 0, transferFailure("deadline", err)
 	}
-	return r.reader.Read(p)
+	n, err := r.reader.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		err = transferFailure("downstream_read", err)
+	}
+	return n, err
+}
+
+type tunnelUploadWriter struct{ net.Conn }
+
+func (w *tunnelUploadWriter) Write(p []byte) (int, error) {
+	n, err := w.Conn.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	return n, transferFailure("upstream_write", err)
 }
 
 type idleTunnelWriter struct{ net.Conn }
 
 func (w *idleTunnelWriter) Write(p []byte) (int, error) {
 	if err := w.SetWriteDeadline(time.Now().Add(contract.HTTPProxyIdleTimeout)); err != nil {
-		return 0, err
+		return 0, transferFailure("deadline", err)
 	}
-	return w.Conn.Write(p)
+	n, err := w.Conn.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	return n, transferFailure("downstream_write", err)
 }

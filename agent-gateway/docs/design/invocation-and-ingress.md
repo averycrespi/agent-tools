@@ -204,6 +204,41 @@ preserved. H2 can retain legal 304 representation length, which describes the se
 representation rather than bytes to be sent. This does not promise that every client
 library interprets that metadata correctly.
 
+### Live HTTP failures
+
+Gateway-generated responses distinguish invalid authenticated requests (400),
+proxy authentication (407), policy/address denial (403), authority admission
+capacity and per-principal work capacity (429), global work capacity (503),
+authority/traffic admission or credential/CA material unavailability (503),
+upstream DNS/connection/TLS/protocol failure (502), and typed upstream timeout
+(504). The accepted-socket limit closes before HTTP parsing, without attempting
+an HTTP response. Parser-level framing failures remain owned by `net/http` and
+may lack Gateway correlation. These classifications do not change authentication
+ordering, policy, mandatory traffic admission, material fencing or one-shot dispatch.
+
+Before response start, errors carry bounded status text, no-store, and the RFC 9209
+`Proxy-Status` member `AgentGateway` with a closed `error` token. The executable
+mapping is `contract.HTTPProxyFailureReason`; explicit work capacity uses
+`connection_limit_reached` even with 503. Authentication and policy both use
+`http_request_denied`, distinguished by 407/403. No details, destination, raw error
+or retry instruction is included. A Gateway-generated `Gateway-Request-ID`, when
+available, is 128 independent random bits encoded as 32 lowercase hexadecimal
+characters, unrelated to client headers or audit identity. Successful CONNECT
+instead exposes `Gateway-Connection-ID` for the enclosing connection. Neither ID
+is authority, proof of dispatch, or proof of a stored record. Inner requests have
+independent request IDs; they do not inherit CONNECT authority or correlation.
+
+Client and upstream `Proxy-Status`, `Gateway-Request-ID`, and
+`Gateway-Connection-ID` fields are stripped at the forwarding boundary, including
+Connection-nominated fields. Upstream application statuses and bodies are preserved;
+Gateway never annotates an upstream 403 as its own policy refusal. This deliberately
+omits upstream Proxy-Status claims rather than allowing them to impersonate Gateway.
+After response start or CONNECT establishment, observed failures terminate the
+stream/connection without a second response. Internal panic values are discarded;
+a pre-response panic selects 503, while a started response aborts. Typed lossy
+process diagnostics observe failure stages separately from durable completion.
+No universal client receipt, sink delivery, or durable logging is promised.
+
 ## Git routing and dispatch
 
 On enabled HTTPS profile origins, validated method/URL coordinates classify

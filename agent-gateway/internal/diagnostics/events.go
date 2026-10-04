@@ -74,10 +74,11 @@ const (
 	OAuthStage
 	CatalogPollScheduled
 	HTTPProxyRejected
+	HTTPProxyFailure
 	Loss
 )
 
-var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "http_proxy_rejected", "diagnostic_loss"}
+var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "http_proxy_rejected", "http_proxy_failure", "diagnostic_loss"}
 
 type Cause uint8
 
@@ -114,9 +115,20 @@ const (
 	ProxyMaterial
 	ProxyTraffic
 	ProxyConfirmation
+	ProxyCapacity
+	ProxyHandshake
+	ProxyExchange
+	ProxyRead
+	ProxyWrite
+	ProxyFlush
+	ProxyDeadline
+	ProxyPanic
+	ProxyDownstreamRead
+	ProxyUpstreamWrite
+	ProxyConnect
 )
 
-var stageNames = [...]string{"", "size_check", "identity_check", "intent_arm", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback", "intent_cleanup", "routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation"}
+var stageNames = [...]string{"", "size_check", "identity_check", "intent_arm", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback", "intent_cleanup", "routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation", "connection_capacity", "intercept_handshake", "exchange", "upstream_read", "downstream_write", "downstream_flush", "deadline", "internal_panic", "downstream_read", "upstream_write", "connect"}
 
 type WriterKind uint8
 
@@ -131,6 +143,7 @@ var writerNames = [...]string{"foreign", "invocation_admission", "terminal_annot
 // Facts has no arbitrary keys, error, payload, or resource identity slots. The
 // adapter validates event-specific subsets before retaining even these fields.
 type Facts struct {
+	ProxyID      string
 	Upstream     uint64
 	Attempt      uint64
 	Phase        Phase

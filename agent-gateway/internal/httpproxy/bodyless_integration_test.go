@@ -121,6 +121,8 @@ func TestIntegrationInterceptBodylessResponses(t *testing.T) {
 						}
 						return
 					}
+					w.Header().Set("Proxy-Status", "AgentGateway; error=private-spoof-canary")
+					w.Header().Set(contract.HTTPProxyCorrelationHeader, "private-spoof-canary")
 					w.Header().Set("ETag", `"fixture"`)
 					if tc.length != "" {
 						w.Header().Set("Content-Length", tc.length)
@@ -164,6 +166,8 @@ func TestIntegrationInterceptBodylessResponses(t *testing.T) {
 					require.NoError(t, err)
 				}
 				require.NoError(t, response.Body.Close())
+				require.Empty(t, response.Header.Get("Proxy-Status"))
+				require.Empty(t, response.Header.Get(contract.HTTPProxyCorrelationHeader))
 				require.Equal(t, tc.status, response.StatusCode)
 				require.Equal(t, tc.body, string(body))
 				require.Equal(t, `"fixture"`, response.Header.Get("ETag"))

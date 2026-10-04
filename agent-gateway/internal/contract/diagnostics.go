@@ -90,7 +90,8 @@ func DiagnosticEvents() []DiagnosticEvent {
 		}
 		events = append(events, item)
 	}
-	events = append(events, DiagnosticEvent{Name: "http_proxy_rejected", Level: "warn", RequiredFields: []string{"cause", "stage"}, OptionalFields: []string{"duration_ms"}, Causes: rejection, Stages: []string{"routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation"}, Conditions: []string{"pre-dispatch infrastructure refusal, not a policy denial", "duration is elapsed request handling time capped at 24 hours; no request or resource identity"}})
+	events = append(events, DiagnosticEvent{Name: "http_proxy_rejected", Level: "warn", RequiredFields: []string{"cause", "stage"}, OptionalFields: []string{"duration_ms", "proxy_id"}, Causes: rejection, Stages: []string{"routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation"}, Conditions: []string{"pre-dispatch infrastructure refusal, not a policy denial", "proxy_id is optional independent 128-bit lowercase hex; no request or resource identity"}})
+	events = append(events, DiagnosticEvent{Name: "http_proxy_failure", Level: "warn", RequiredFields: []string{"cause", "stage"}, OptionalFields: []string{"duration_ms", "proxy_id"}, Causes: rejection, Stages: []string{"connection_capacity", "intercept_handshake", "exchange", "upstream_read", "downstream_write", "downstream_flush", "deadline", "internal_panic", "downstream_read", "upstream_write", "connect"}, Conditions: []string{"observed transport or internal failure; no delivery or nonexecution claim", "proxy_id is optional independent 128-bit lowercase hex"}})
 	events = append(events, DiagnosticEvent{Name: "diagnostic_loss", Level: "warn", RequiredFields: []string{"dropped", "invalid"}, Causes: []string{""}})
 	for index := range events {
 		if events[index].Level == "warn" || events[index].Level == "error" {

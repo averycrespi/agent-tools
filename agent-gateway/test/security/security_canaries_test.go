@@ -30,10 +30,10 @@ import (
 
 func TestDiagnosticFactsHaveOnlyClosedScalarSlots(t *testing.T) {
 	shape := reflect.TypeOf(diagnostics.Facts{})
-	require.Equal(t, []string{"Attempt", "Call", "Cause", "Delay", "Disposition", "Duration", "Event", "InvocationID", "Limit", "Mutation", "Owned", "Phase", "Reason", "Retry", "Stage", "Suppressed", "Upstream", "Waiting", "Writer"}, exportedFields(shape))
+	require.Equal(t, []string{"Attempt", "Call", "Cause", "Delay", "Disposition", "Duration", "Event", "InvocationID", "Limit", "Mutation", "Owned", "Phase", "ProxyID", "Reason", "Retry", "Stage", "Suppressed", "Upstream", "Waiting", "Writer"}, exportedFields(shape))
 	for index := range shape.NumField() {
 		field := shape.Field(index)
-		if field.Name == "InvocationID" {
+		if field.Name == "InvocationID" || field.Name == "ProxyID" {
 			require.Equal(t, reflect.String, field.Type.Kind())
 			continue
 		}
@@ -150,6 +150,9 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 		{"CLI argv and environment", "./cmd/agent-gateway", "TestCLISensitiveSinks"}, {"CLI stdout and stderr", "./cmd/agent-gateway", "TestCLISensitiveSinks"},
 		{"serve debug diagnostics", "./internal/invocation", "TestInvocationDiagnosticPrivacyAndUnknownOutcome"},
 		{"upstream diagnostic scalar boundary", "./internal/diagnostics", "TestUpstreamMalformedFactsAndSecretCanaries"},
+		{"HTTP failure diagnostic scalar boundary", "./internal/diagnostics", "TestHTTPProxyDiagnosticClosedBoundary"},
+		{"HTTP failure wire provenance", "./internal/httpproxy", "TestIntegrationFailureContractPlainWire"},
+		{"HTTP diagnostic sink loss", "./internal/httpproxy", "TestIntegrationDiagnosticLossDoesNotGateForwarding"},
 		{"foreground OAuth failure diagnostics", "./internal/oauth", "TestForegroundOAuthDiagnosticsObserveRealServiceOutcomes"},
 		{"upstream producer stderr wiring", "./test/e2e", "TestUpstreamDiagnosticsRealBinaryRetryAndRecovery"},
 		{"logs and acceptance reports", "./test/acceptance", "TestReleaseReportSecretSinkBoundaries"}, {"events", "./test/e2e", "TestE2EInvocationReadPrivacy"},
@@ -157,7 +160,7 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 		{"generated frontend assets", "./test/security", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
 		{"process output", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "./test/security", "TestSecurityEvidenceOwnerManifest"},
 	}
-	require.Len(t, owners, 22)
+	require.Len(t, owners, 25)
 	moduleRoot := filepath.Join(repositoryRoot(t), "agent-gateway")
 	inventory, err := acceptance.DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
 	require.NoError(t, err)

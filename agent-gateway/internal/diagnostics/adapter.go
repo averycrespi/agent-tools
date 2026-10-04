@@ -114,7 +114,7 @@ func (adapter *Adapter) HTTPProxy(facts Facts) {
 	if adapter == nil {
 		return
 	}
-	if facts.Event != HTTPProxyRejected {
+	if facts.Event != HTTPProxyRejected && facts.Event != HTTPProxyFailure {
 		increment(&adapter.invalid)
 		return
 	}
@@ -195,11 +195,18 @@ func HTTPErrorLog() *log.Logger { return log.New(io.Discard, "", 0) }
 func increment(counter *atomic.Uint64) { _ = NextID(counter) }
 
 func validFacts(f Facts) bool {
-	if f.Event == HTTPProxyRejected {
+	if f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure {
 		base := f
-		base.Event, base.Cause, base.Stage, base.Duration = 0, 0, 0, 0
-		return base == (Facts{}) && f.Stage >= ProxyRouting && f.Stage <= ProxyConfirmation &&
+		base.Event, base.Cause, base.Stage, base.Duration, base.ProxyID = 0, 0, 0, 0, ""
+		stageValid := f.Stage >= ProxyRouting && f.Stage <= ProxyConfirmation
+		if f.Event == HTTPProxyFailure {
+			stageValid = f.Stage >= ProxyCapacity && f.Stage <= ProxyConnect
+		}
+		return base == (Facts{}) && stageValid && validProxyID(f.ProxyID) &&
 			f.Cause >= Capacity && f.Cause <= Unavailable && f.Duration >= 0 && f.Duration <= contract.DiagnosticElapsedMaximum
+	}
+	if f.ProxyID != "" {
+		return false
 	}
 	if upstreamEvent(f.Event) {
 		return validUpstream(f)
@@ -377,7 +384,7 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 	if f.Event == LifecycleFailure || f.Event == DurabilityFailure || f.Event == StorageLatch {
 		level = slog.LevelError
 	}
-	if f.Event == Loss || f.Event == ReconciliationSettlementFailure || f.Event == HTTPProxyRejected {
+	if f.Event == Loss || f.Event == ReconciliationSettlementFailure || f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure {
 		level = slog.LevelWarn
 	}
 	if upstreamEvent(f.Event) {
@@ -424,6 +431,9 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 	}
 	if f.Mutation != 0 {
 		record.AddAttrs(slog.Uint64("mutation_id", f.Mutation))
+	}
+	if f.ProxyID != "" {
+		record.AddAttrs(slog.String("proxy_id", f.ProxyID))
 	}
 	if f.InvocationID != "" {
 		record.AddAttrs(slog.String("invocation_id", f.InvocationID))

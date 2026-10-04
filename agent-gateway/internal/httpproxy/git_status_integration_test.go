@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,7 +64,11 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 			case "interrupted":
 				want = ""
 			}
+			var calls atomic.Int64
 			upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Proxy-Status", "AgentGateway; error=private-spoof-canary")
+				w.Header().Set(contract.HTTPProxyCorrelationHeader, "private-spoof-canary")
 				if r.Header.Get("Accept-Encoding") != "identity" {
 					t.Error("observed push did not request identity")
 				}
@@ -116,6 +121,9 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 				require.NoError(t, readErr)
 				require.Equal(t, string(wire), string(got))
 			}
+			require.EqualValues(t, 1, calls.Load())
+			require.Empty(t, response.Header.Get("Proxy-Status"))
+			require.Empty(t, response.Header.Get(contract.HTTPProxyCorrelationHeader))
 			require.Equal(t, encoding, response.Header.Get("Content-Encoding"))
 			require.NoError(t, response.Body.Close())
 			drain, cancel := context.WithTimeout(t.Context(), 5*time.Second)

@@ -222,6 +222,8 @@ func validEventExample(event Event) Facts {
 		return upstreamExample(event)
 	case event == HTTPProxyRejected:
 		f.Cause, f.Stage = Unavailable, ProxyResolution
+	case event == HTTPProxyFailure:
+		f.Cause, f.Stage = Unavailable, ProxyHandshake
 	case event == Startup || event == Readiness || event == Drain || event == Loss || event == ReconciliationDisplaced:
 	case event == Shutdown:
 		f.Cause = Success
