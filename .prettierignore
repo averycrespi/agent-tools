@@ -1,5 +1,6 @@
 .claude/
 .design/
 .handoffs/
+.frontend-browser/
 .pi/tickets/
 agent-gateway/internal/api/static/

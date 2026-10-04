@@ -39,7 +39,7 @@ import {
 import {
   runAuthFlows,
   runServerCatalogReads,
-  runServerCreateUpdate,
+  runServerUpstreamHeaders,
   runServerCredentials,
   runServerDisconnectDelete,
   runServerManagementCanary,
@@ -760,10 +760,9 @@ try {
         () => requests,
       );
     } else if (input.scenario === "server-create-update") {
-      await runServerCreateUpdate(
+      await runServerUpstreamHeaders(
         browser.version(),
         page,
-        baseURL,
         initialBearer,
         () => requests,
       );

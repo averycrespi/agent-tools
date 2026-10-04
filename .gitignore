@@ -41,6 +41,7 @@ go.work.sum
 
 # Agent tool scratch output (Playwright CLI page/console dumps)
 .playwright-cli/
+/.frontend-browser/
 
 # Editor/IDE
 # .idea/

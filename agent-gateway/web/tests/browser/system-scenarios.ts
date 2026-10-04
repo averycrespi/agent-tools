@@ -1,3 +1,4 @@
+import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
 import {
@@ -12,6 +13,7 @@ import {
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { capture as captureFrontend } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { assertTableConventions } from "./table-conventions.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
@@ -433,6 +435,7 @@ export async function runBackups(
     backup(0).created_at,
   );
   await page.locator('[data-testid="backup-create"]').click();
+  await captureFrontend(page, "backup-create");
   await page
     .locator('[data-testid="backup-create-view"]')
     .getByRole("link", { name: "Cancel", exact: true })
@@ -447,9 +450,11 @@ export async function runBackups(
     page.locator('[data-testid="backup-review-create"]'),
   ).toBeFocused();
   await page.locator('[data-testid="backup-review-create"]').click();
+  await captureFrontend(page, "backup-create-confirmation");
   if (Number(creates) !== 0) fail("backup submitted before final review");
   await page.locator('[data-testid="backup-create-confirm-submit"]').click();
   await page.getByText("Backup outcome is unknown", { exact: true }).waitFor();
+  await captureFrontend(page, "backup-create-uncertain");
   if (creates !== 1) fail("uncertain backup create replayed automatically");
   await page.locator('[data-testid="backup-replay"]').click();
   await page.getByText(/is durably published/).waitFor();
@@ -517,6 +522,7 @@ export async function runBackups(
         .querySelector('[data-testid="gateway-shell"]')
         ?.getAttribute("data-mutation-availability") === "storage_latched",
   );
+  await captureFrontend(page, "backup-storage-latched");
   if (await page.locator('[data-testid="backup-review-create"]').isEnabled())
     fail("storage latch left backup mutation enabled");
   const body = (await page.locator("body").textContent()) ?? "";
@@ -749,6 +755,7 @@ export async function runAdminCredentials(
     "datetime-local"
   )
     fail("admin credential expiry did not use a date/time control");
+  await captureFrontend(page, "admin-credential-create");
   const expiryInput = page.getByTestId("admin-credential-expiry");
   await expiryInput.fill("2030-01-01T12:34:56");
   await expiryInput.press("Backspace");
@@ -796,6 +803,7 @@ export async function runAdminCredentials(
       { exact: true },
     )
     .waitFor();
+  await captureFrontend(page, "admin-credential-validation");
   if (creates !== 0) fail("invalid admin expiry reached the API");
   const localExpiry = await page.evaluate(() => {
     const future = new Date(Date.now() + 60 * 60_000);
@@ -825,6 +833,7 @@ export async function runAdminCredentials(
     issuedBearer
   )
     fail("admin bearer did not reach the prepared sink");
+  await captureFrontend(page, "admin-one-time-bearer");
   await page.locator('[data-testid="copy-one-time-value"]').click();
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   await page.evaluate(() => {
@@ -1464,6 +1473,7 @@ export async function runOverview(
       );
   };
   const capture = async (state: string) => {
+    await captureFrontend(page, `overview-${state}`, true);
     overviewPhase = state;
     if ((await overview.locator("nav").count()) !== 0)
       fail(`Overview ${state} retained redundant destination navigation`);
@@ -1708,13 +1718,15 @@ export async function runOverview(
       exact: true,
     }),
   ).toHaveAttribute("href", "#/http/traffic?filter_type=request");
-  const accessibility = await new AxeBuilder({ page })
-    .include('[data-testid="overview-grid"]')
-    .analyze();
-  if (accessibility.violations.length > 0)
-    fail(
-      `Overview accessibility violations: ${accessibility.violations.map((item) => item.id).join(",")}`,
-    );
+  if (!hasCaptureOwner(page)) {
+    const accessibility = await new AxeBuilder({ page })
+      .include('[data-testid="overview-grid"]')
+      .analyze();
+    if (accessibility.violations.length > 0)
+      fail(
+        `Overview accessibility violations: ${accessibility.violations.map((item) => item.id).join(",")}`,
+      );
+  }
   await capture("attention");
   await compareBaseline("attention");
   for (const fault of ["total", "offset", "cursor", "label"] as const) {
@@ -2612,7 +2624,7 @@ export async function runInvocations(
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     const path = join(linkScreenshots, `tools-${width}.png`);
-    await page.screenshot({ path, fullPage: true });
+    await captureScreenshot(page, { path, fullPage: true });
     historyScreenshots.push(path);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -2630,7 +2642,7 @@ export async function runInvocations(
       .locator('[data-label="Outcome"] .status-label'),
   ).toHaveAttribute("data-state", "neutral");
   const blockScreenshot = join(linkScreenshots, "authorization-block.png");
-  await page.screenshot({ path: blockScreenshot, fullPage: true });
+  await captureScreenshot(page, { path: blockScreenshot, fullPage: true });
   historyScreenshots.push(blockScreenshot);
   await authorizationFilter.selectOption("");
   await expect(page.getByTestId("invocation-row")).toHaveCount(2);
@@ -2760,7 +2772,7 @@ export async function runInvocations(
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const path = join(linkScreenshots, `legacy-detail-${width}.png`);
-    await page.screenshot({ path, fullPage: true });
+    await captureScreenshot(page, { path, fullPage: true });
     historyScreenshots.push(path);
   }
   failureDiagnostics = {
@@ -2788,7 +2800,7 @@ export async function runInvocations(
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     const path = join(linkScreenshots, `diagnostics-detail-${width}.png`);
-    await page.screenshot({ path, fullPage: true });
+    await captureScreenshot(page, { path, fullPage: true });
     historyScreenshots.push(path);
     expect(
       await page.evaluate(
@@ -2856,7 +2868,7 @@ export async function runInvocations(
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     const path = join(linkScreenshots, `validation-detail-${width}.png`);
-    await page.screenshot({ path, fullPage: true });
+    await captureScreenshot(page, { path, fullPage: true });
     historyScreenshots.push(path);
     expect(
       await page.evaluate(
@@ -3292,13 +3304,15 @@ export async function runSystemStatus(
         )
       )
         fail("Traffic status overflowed the viewport");
-      const violations = (
-        await new AxeBuilder({ page }).analyze()
-      ).violations.filter(
-        (item) => item.impact === "serious" || item.impact === "critical",
-      );
-      if (violations.length) fail("Traffic status accessibility regression");
-      await page.screenshot({
+      if (!hasCaptureOwner(page)) {
+        const violations = (
+          await new AxeBuilder({ page }).analyze()
+        ).violations.filter(
+          (item) => item.impact === "serious" || item.impact === "critical",
+        );
+        if (violations.length) fail("Traffic status accessibility regression");
+      }
+      await captureScreenshot(page, {
         path: join(
           trafficScreenshots,
           `${faulted ? "fault" : "ready"}-${width}.png`,
@@ -3452,7 +3466,7 @@ export async function runSystemStatus(
       .locator(".panel-heading .status-label"),
   ).toHaveCount(0);
   await captureStateFeedback(page, "limits-stale");
-  await page.screenshot({
+  await captureScreenshot(page, {
     path: join(trafficScreenshots, "resources-error-1280.png"),
     fullPage: true,
   });
@@ -3489,13 +3503,15 @@ export async function runSystemStatus(
         () => document.documentElement.scrollWidth > window.innerWidth,
       ),
     ).toBe(false);
-    const violations = (
-      await new AxeBuilder({ page }).analyze()
-    ).violations.filter(
-      (item) => item.impact === "serious" || item.impact === "critical",
-    );
-    expect(violations).toEqual([]);
-    await page.screenshot({
+    if (!hasCaptureOwner(page)) {
+      const violations = (
+        await new AxeBuilder({ page }).analyze()
+      ).violations.filter(
+        (item) => item.impact === "serious" || item.impact === "critical",
+      );
+      expect(violations).toEqual([]);
+    }
+    await captureScreenshot(page, {
       path: join(trafficScreenshots, `resources-${width}.png`),
       fullPage: true,
     });
@@ -3515,7 +3531,7 @@ export async function runSystemStatus(
       await expect(
         limitsTable.getByRole("columnheader", { name: "Status", exact: true }),
       ).toBeInViewport();
-      await page.screenshot({
+      await captureScreenshot(page, {
         path: join(trafficScreenshots, `resources-scrolled-${width}.png`),
         fullPage: false,
       });

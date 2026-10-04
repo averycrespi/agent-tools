@@ -1,3 +1,4 @@
+import { capture, hasCaptureOwner } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
 import {
@@ -21,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 async function captureRequestState(page: Page, state: string): Promise<void> {
+  await capture(page, `request-${state}`, true);
   if (
     [
       "changed-evidence",
@@ -116,16 +118,18 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
     await page.setViewportSize({ width: 1280, height: 900 });
   }
   await page.emulateMedia({ colorScheme: "light" });
-  const audit = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-    .analyze();
-  const violations = audit.violations.filter(
-    (item) => item.impact === "serious" || item.impact === "critical",
-  );
-  if (violations.length > 0)
-    fail(
-      `Request ${state} accessibility: ${JSON.stringify(violations.map((item) => ({ id: item.id, targets: item.nodes.map((node) => node.target) })))}`,
+  if (!hasCaptureOwner(page)) {
+    const audit = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    const violations = audit.violations.filter(
+      (item) => item.impact === "serious" || item.impact === "critical",
     );
+    if (violations.length > 0)
+      fail(
+        `Request ${state} accessibility: ${JSON.stringify(violations.map((item) => ({ id: item.id, targets: item.nodes.map((node) => node.target) })))}`,
+      );
+  }
 }
 
 export async function runReadOnlyBackendFlow(
@@ -664,6 +668,7 @@ export async function runPrincipals(
       .getAttribute("aria-sort")) !== "ascending"
   )
     fail(`principals did not default to Name ascending: ${principalNames}`);
+  await capture(page, "agents-populated", true);
   if (staleListRestarted) fail("principal list traversed without navigation");
   await expect(
     page
@@ -714,6 +719,7 @@ export async function runPrincipals(
   await waitForCollectionRows(page, "principal", 0);
   if ((await page.locator('[data-testid="principal-row"]').count()) !== 0)
     fail("principal ID search was not literal");
+  await capture(page, "agents-filtered-empty");
   await principalSearch.fill(secondID);
   await waitForCollectionRows(page, "principal", 1);
   if (
@@ -801,6 +807,7 @@ export async function runPrincipals(
       action.getBoundingClientRect().top - field.getBoundingClientRect().bottom
     );
   });
+  await capture(page, "agent-create-blank");
   if (principalActionGap < 15)
     fail(`principal create action gap was ${principalActionGap}px`);
   await page
@@ -834,6 +841,7 @@ export async function runPrincipals(
   await page
     .getByRole("heading", { name: "Review agent", exact: true })
     .waitFor();
+  await capture(page, "agent-create-confirmation");
   if (creates !== 0) fail("principal creation submitted before final review");
   const principalReview =
     (await page
@@ -891,6 +899,7 @@ export async function runPrincipals(
     fail("principal detail did not use the shared detail hierarchy");
   body = (await page.locator("body").textContent()) ?? "";
   await page.getByLabel("MCP discovery visibility", { exact: true }).waitFor();
+  await capture(page, "agent-detail-edit", true);
   if (
     !body.includes(
       "Discovery visibility grants no access; MCP grants remain authoritative.",
@@ -923,6 +932,7 @@ export async function runPrincipals(
     window.location.hash = `#/principals/${id}`;
   }, secondID);
   await page.getByText("Disabled agent", { exact: true }).waitFor();
+  await capture(page, "agent-disabled-no-credential");
   if (
     (
       ((await page.locator("body").textContent()) ?? "").match(/Not issued/g) ??
@@ -972,6 +982,7 @@ export async function runPrincipals(
   await page
     .getByText("The agent revision is stale.", { exact: true })
     .waitFor();
+  await capture(page, "agent-edit-conflict");
   if ((await principalState.isChecked()) !== false)
     fail("principal stale refresh discarded safe draft");
   await expect(
@@ -1166,6 +1177,7 @@ export async function runPrincipalCredentials(
       'dialog[aria-labelledby="principal-credential-confirm-title"][open]',
     )
     .waitFor();
+  await capture(page, "agent-rotate-confirmation");
   const openCredentialDialogs = await page
     .locator("dialog[open]")
     .evaluateAll((dialogs) =>
@@ -1218,6 +1230,7 @@ export async function runPrincipalCredentials(
     issuedBearer
   )
     fail("issued bearer did not reach the prepared one-time display");
+  await capture(page, "agent-one-time-bearer");
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   if ((await page.locator('[data-testid="one-time-value"]').count()) !== 0)
     fail("dismissed bearer remained in the DOM");
@@ -1227,6 +1240,7 @@ export async function runPrincipalCredentials(
     .locator('[data-testid="principal-credential-confirm-submit"]')
     .click();
   await lostStarted;
+  await capture(page, "agent-one-time-pending");
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   releaseLost?.();
   await page
@@ -1309,6 +1323,7 @@ export async function runPrincipalCredentials(
       .count()) !== 1
   )
     fail("principal credential revoke omitted authority result");
+  await capture(page, "agent-credential-revoked");
   await page.locator('[data-testid="principal-credential-issue"]').click();
   await page
     .locator('[data-testid="principal-credential-confirm-submit"]')
@@ -1363,19 +1378,21 @@ export async function assertMatcherAuthoringAccessibility(
     fail(
       `${workflow} has missing descriptions: ${missingDescriptions.join(",")}`,
     );
-  const axe = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-    .analyze();
-  const blocking = axe.violations.filter(
-    (violation) =>
-      violation.impact === "serious" || violation.impact === "critical",
-  );
-  if (blocking.length !== 0)
-    fail(
-      `${workflow} matcher accessibility findings: ${blocking
-        .map((violation) => violation.id)
-        .join(",")}`,
+  if (!hasCaptureOwner(page)) {
+    const axe = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    const blocking = axe.violations.filter(
+      (violation) =>
+        violation.impact === "serious" || violation.impact === "critical",
     );
+    if (blocking.length !== 0)
+      fail(
+        `${workflow} matcher accessibility findings: ${blocking
+          .map((violation) => violation.id)
+          .join(",")}`,
+      );
+  }
   for (const viewport of [
     { width: 320, height: 800 },
     { width: 720, height: 450 },
@@ -2749,6 +2766,7 @@ export async function runGrantReadsCreate(
   await page
     .getByText("/regex/~1resource: pattern is not valid RE2", { exact: true })
     .waitFor();
+  await capture(page, "grant-matcher-validation");
   if (creates !== 1) fail("invalid RE2 grant matcher reached confirmation");
   await page
     .locator('[data-testid="constraint-value"]')

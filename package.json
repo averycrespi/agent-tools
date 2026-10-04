@@ -8,6 +8,7 @@
     "format:go": "gofmt -w $(git ls-files '*.go')",
     "format:prettier": "prettier --write \"**/*.{md,json,yml,yaml,ts,tsx,css,html}\"",
     "format:check": "prettier --check \"**/*.{md,json,yml,yaml,ts,tsx,css,html}\"",
+    "ui:test-browser": "playwright test --config agent-gateway/web/playwright.config.ts",
     "ui:typecheck": "tsc -p agent-gateway/web/tsconfig.json --noEmit",
     "ui:dev": "node agent-gateway/web/dev-server.ts",
     "ui:test-dev": "node --test --test-concurrency=1 --test-timeout=30000",

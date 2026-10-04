@@ -1,3 +1,4 @@
+import { capture, hasCaptureOwner } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page } from "@playwright/test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -5,6 +6,7 @@ import { join } from "node:path";
 
 // Only public GET projections are replayed; authentication stays with the fixture.
 export function prepareOverviewBaseline(page: Page) {
+  if (hasCaptureOwner(page)) return async (_state: string) => {};
   const reads = new Map<string, { body: Buffer; contentType: string }>();
   const pending = new Set<Promise<void>>();
   page.on("response", (response) => {
@@ -84,6 +86,7 @@ export async function captureOverviewLayout(
   state: string,
   candidate = true,
 ) {
+  await capture(page, `overview-${state}`, true);
   const root = process.env.AGENT_GATEWAY_OVERVIEW_ARTIFACT_DIR;
   if (!root) return;
   const directory = join(root, state);
@@ -215,15 +218,17 @@ export async function captureOverviewLayout(
               `rendered contrast ${state}/${color}/${name}: ${JSON.stringify(item)}`,
             ).toBeGreaterThanOrEqual(item.minimum);
           if (width === 320) {
-            const scan = await new AxeBuilder({ page })
-              .include('[data-testid="overview-grid"]')
-              .analyze();
-            expect(
-              scan.violations.filter(
-                (item) =>
-                  item.impact === "serious" || item.impact === "critical",
-              ),
-            ).toEqual([]);
+            if (!hasCaptureOwner(page)) {
+              const scan = await new AxeBuilder({ page })
+                .include('[data-testid="overview-grid"]')
+                .analyze();
+              expect(
+                scan.violations.filter(
+                  (item) =>
+                    item.impact === "serious" || item.impact === "critical",
+                ),
+              ).toEqual([]);
+            }
           }
         }
         const indicators = await page

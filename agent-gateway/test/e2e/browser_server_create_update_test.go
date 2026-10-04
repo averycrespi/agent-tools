@@ -52,20 +52,20 @@ func TestBrowserServerCreateUpdate(t *testing.T) {
 	assert.NotContains(t, string(result.Stderr), harness.bearer)
 
 	var event struct {
-		Event             string `json:"event"`
-		ChromiumVersion   string `json:"chromium_version"`
-		PlaywrightVersion string `json:"playwright_version"`
-		Requests          int    `json:"requests"`
-		Creates           int    `json:"creates"`
-		Updates           int    `json:"updates"`
+		Event             string   `json:"event"`
+		ChromiumVersion   string   `json:"chromium_version"`
+		PlaywrightVersion string   `json:"playwright_version"`
+		Requests          int      `json:"requests"`
+		HeaderScreenshots []string `json:"header_screenshots"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(string(result.Stdout))), &event))
 	assert.Equal(t, "server_create_update_complete", event.Event)
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.GreaterOrEqual(t, event.Creates, 3)
-	assert.GreaterOrEqual(t, event.Updates, 3)
+	// Mocked editor states now belong to the frontend-only suite. This owner
+	// retains real API creation, header updates and persistence after reload.
+	assert.Len(t, event.HeaderScreenshots, 15)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "T24 must own one Gateway lifecycle")
