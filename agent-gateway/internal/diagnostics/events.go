@@ -73,10 +73,11 @@ const (
 	OAuthRefreshFailed
 	OAuthStage
 	CatalogPollScheduled
+	HTTPProxyRejected
 	Loss
 )
 
-var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "diagnostic_loss"}
+var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "http_proxy_rejected", "diagnostic_loss"}
 
 type Cause uint8
 
@@ -107,9 +108,15 @@ const (
 	TransactionCommit
 	TransactionRollback
 	IntentCleanup
+	ProxyRouting
+	ProxyResolution
+	ProxyEvaluation
+	ProxyMaterial
+	ProxyTraffic
+	ProxyConfirmation
 )
 
-var stageNames = [...]string{"", "size_check", "identity_check", "intent_arm", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback", "intent_cleanup"}
+var stageNames = [...]string{"", "size_check", "identity_check", "intent_arm", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback", "intent_cleanup", "routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation"}
 
 type WriterKind uint8
 
@@ -161,7 +168,12 @@ type ReconciliationObserver interface {
 	Reconciliation(Facts)
 }
 
+type HTTPProxyObserver interface {
+	HTTPProxy(Facts)
+}
+
 type Observer interface {
+	HTTPProxyObserver
 	ReconciliationObserver
 	StorageObserver
 	AuthorityObserver

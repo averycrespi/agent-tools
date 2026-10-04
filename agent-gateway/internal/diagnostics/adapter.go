@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
 // Adapter is the sole diagnostic encoder and sink writer. Callers retain it
@@ -108,6 +110,17 @@ func (adapter *Adapter) Reconciliation(facts Facts) {
 	adapter.Observe(facts)
 }
 
+func (adapter *Adapter) HTTPProxy(facts Facts) {
+	if adapter == nil {
+		return
+	}
+	if facts.Event != HTTPProxyRejected {
+		increment(&adapter.invalid)
+		return
+	}
+	adapter.Observe(facts)
+}
+
 func (adapter *Adapter) Observe(facts Facts) {
 	if adapter == nil {
 		return
@@ -182,6 +195,12 @@ func HTTPErrorLog() *log.Logger { return log.New(io.Discard, "", 0) }
 func increment(counter *atomic.Uint64) { _ = NextID(counter) }
 
 func validFacts(f Facts) bool {
+	if f.Event == HTTPProxyRejected {
+		base := f
+		base.Event, base.Cause, base.Stage, base.Duration = 0, 0, 0, 0
+		return base == (Facts{}) && f.Stage >= ProxyRouting && f.Stage <= ProxyConfirmation &&
+			f.Cause >= Capacity && f.Cause <= Unavailable && f.Duration >= 0 && f.Duration <= contract.DiagnosticElapsedMaximum
+	}
 	if upstreamEvent(f.Event) {
 		return validUpstream(f)
 	}
@@ -358,7 +377,7 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 	if f.Event == LifecycleFailure || f.Event == DurabilityFailure || f.Event == StorageLatch {
 		level = slog.LevelError
 	}
-	if f.Event == Loss || f.Event == ReconciliationSettlementFailure {
+	if f.Event == Loss || f.Event == ReconciliationSettlementFailure || f.Event == HTTPProxyRejected {
 		level = slog.LevelWarn
 	}
 	if upstreamEvent(f.Event) {

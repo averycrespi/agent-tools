@@ -1,6 +1,7 @@
 package composition
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/stretchr/testify/require"
 )
@@ -23,6 +25,10 @@ import (
 func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
+	var diagnosticOutput bytes.Buffer
+	observer := diagnostics.New(&diagnosticOutput, diagnostics.Warn)
+	t.Cleanup(func() { observer.Finish(nil); <-observer.Done() })
+	options.Diagnostics = observer
 	built, err := newWithHooks(options, constructorHooks{provider: func(id string) (*keyring.Provider, error) {
 		return keyring.NewProviderWithBackend(id, newMemoryBackend())
 	}})
@@ -82,4 +88,12 @@ func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
 	built.oauthCallbacks.mu.Lock()
 	delete(built.oauthCallbacks.leases, "reserved-fixture")
 	built.oauthCallbacks.mu.Unlock()
+	built.traffic.BeginDrain()
+	require.Equal(t, 403, request())
+	require.EqualValues(t, 1, calls.Load(), "diagnostics must not authorize dispatch")
+	require.True(t, observer.Finish(nil))
+	require.Contains(t, diagnosticOutput.String(), `"event":"http_proxy_rejected"`)
+	require.Contains(t, diagnosticOutput.String(), `"stage":"traffic_admission"`)
+	require.NotContains(t, diagnosticOutput.String(), credential.Bearer)
+	require.NotContains(t, diagnosticOutput.String(), upstream.URL)
 }

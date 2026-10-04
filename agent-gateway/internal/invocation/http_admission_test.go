@@ -13,6 +13,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,6 +158,16 @@ func TestHTTPReceiptAdmissionConfirmationRaces(t *testing.T) {
 			if mode == "lost acknowledgment" {
 				require.False(t, result.Committed)
 				require.Error(t, err)
+				require.Equal(t, diagnostics.ProxyTraffic, result.FailureStage)
+				require.Equal(t, diagnostics.Unavailable, result.FailureCause)
+			}
+			if mode == "policy" || mode == "revoke" {
+				require.Equal(t, diagnostics.ProxyConfirmation, result.FailureStage)
+				require.Equal(t, diagnostics.Unavailable, result.FailureCause)
+			}
+			if err == nil {
+				require.Equal(t, diagnostics.NoStage, result.FailureStage)
+				require.Equal(t, diagnostics.None, result.FailureCause)
 			}
 			history, readErr := traffic.HTTPHistory(t.Context(), 0, 10)
 			require.NoError(t, readErr)
