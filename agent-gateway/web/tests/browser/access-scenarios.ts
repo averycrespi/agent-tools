@@ -1,4 +1,4 @@
-import { capture } from "../frontend/capture.ts";
+import { capture, hasCaptureOwner } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
 import {
@@ -118,16 +118,18 @@ async function captureRequestState(page: Page, state: string): Promise<void> {
     await page.setViewportSize({ width: 1280, height: 900 });
   }
   await page.emulateMedia({ colorScheme: "light" });
-  const audit = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-    .analyze();
-  const violations = audit.violations.filter(
-    (item) => item.impact === "serious" || item.impact === "critical",
-  );
-  if (violations.length > 0)
-    fail(
-      `Request ${state} accessibility: ${JSON.stringify(violations.map((item) => ({ id: item.id, targets: item.nodes.map((node) => node.target) })))}`,
+  if (!hasCaptureOwner(page)) {
+    const audit = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    const violations = audit.violations.filter(
+      (item) => item.impact === "serious" || item.impact === "critical",
     );
+    if (violations.length > 0)
+      fail(
+        `Request ${state} accessibility: ${JSON.stringify(violations.map((item) => ({ id: item.id, targets: item.nodes.map((node) => node.target) })))}`,
+      );
+  }
 }
 
 export async function runReadOnlyBackendFlow(
@@ -1376,19 +1378,21 @@ export async function assertMatcherAuthoringAccessibility(
     fail(
       `${workflow} has missing descriptions: ${missingDescriptions.join(",")}`,
     );
-  const axe = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-    .analyze();
-  const blocking = axe.violations.filter(
-    (violation) =>
-      violation.impact === "serious" || violation.impact === "critical",
-  );
-  if (blocking.length !== 0)
-    fail(
-      `${workflow} matcher accessibility findings: ${blocking
-        .map((violation) => violation.id)
-        .join(",")}`,
+  if (!hasCaptureOwner(page)) {
+    const axe = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    const blocking = axe.violations.filter(
+      (violation) =>
+        violation.impact === "serious" || violation.impact === "critical",
     );
+    if (blocking.length !== 0)
+      fail(
+        `${workflow} matcher accessibility findings: ${blocking
+          .map((violation) => violation.id)
+          .join(",")}`,
+      );
+  }
   for (const viewport of [
     { width: 320, height: 800 },
     { width: 720, height: 450 },

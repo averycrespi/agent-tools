@@ -1,4 +1,4 @@
-import { captureScreenshot } from "../frontend/capture.ts";
+import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
 import {
@@ -1718,13 +1718,15 @@ export async function runOverview(
       exact: true,
     }),
   ).toHaveAttribute("href", "#/http/traffic?filter_type=request");
-  const accessibility = await new AxeBuilder({ page })
-    .include('[data-testid="overview-grid"]')
-    .analyze();
-  if (accessibility.violations.length > 0)
-    fail(
-      `Overview accessibility violations: ${accessibility.violations.map((item) => item.id).join(",")}`,
-    );
+  if (!hasCaptureOwner(page)) {
+    const accessibility = await new AxeBuilder({ page })
+      .include('[data-testid="overview-grid"]')
+      .analyze();
+    if (accessibility.violations.length > 0)
+      fail(
+        `Overview accessibility violations: ${accessibility.violations.map((item) => item.id).join(",")}`,
+      );
+  }
   await capture("attention");
   await compareBaseline("attention");
   for (const fault of ["total", "offset", "cursor", "label"] as const) {
@@ -3302,12 +3304,14 @@ export async function runSystemStatus(
         )
       )
         fail("Traffic status overflowed the viewport");
-      const violations = (
-        await new AxeBuilder({ page }).analyze()
-      ).violations.filter(
-        (item) => item.impact === "serious" || item.impact === "critical",
-      );
-      if (violations.length) fail("Traffic status accessibility regression");
+      if (!hasCaptureOwner(page)) {
+        const violations = (
+          await new AxeBuilder({ page }).analyze()
+        ).violations.filter(
+          (item) => item.impact === "serious" || item.impact === "critical",
+        );
+        if (violations.length) fail("Traffic status accessibility regression");
+      }
       await captureScreenshot(page, {
         path: join(
           trafficScreenshots,
@@ -3499,12 +3503,14 @@ export async function runSystemStatus(
         () => document.documentElement.scrollWidth > window.innerWidth,
       ),
     ).toBe(false);
-    const violations = (
-      await new AxeBuilder({ page }).analyze()
-    ).violations.filter(
-      (item) => item.impact === "serious" || item.impact === "critical",
-    );
-    expect(violations).toEqual([]);
+    if (!hasCaptureOwner(page)) {
+      const violations = (
+        await new AxeBuilder({ page }).analyze()
+      ).violations.filter(
+        (item) => item.impact === "serious" || item.impact === "critical",
+      );
+      expect(violations).toEqual([]);
+    }
     await captureScreenshot(page, {
       path: join(trafficScreenshots, `resources-${width}.png`),
       fullPage: true,

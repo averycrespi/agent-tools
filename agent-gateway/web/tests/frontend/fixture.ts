@@ -25,6 +25,20 @@ export const test = base.extend<{
 }>({
   frontend: async ({ context, page }, use) => {
     const failures: string[] = [];
+    // This suite deliberately owns assertions/captures, not automated WCAG
+    // scans. Fail if a shared scenario accidentally reintroduces axe injection;
+    // independent real-Gateway accessibility owners do not use this fixture.
+    await context.addInitScript(() => {
+      Object.defineProperty(window, "axe", {
+        configurable: false,
+        get: () => undefined,
+        set: () => {
+          throw new Error(
+            "Automated axe scans are not owned by the frontend suite",
+          );
+        },
+      });
+    });
     const streams = new Set<ServerResponse>();
     const server = createServer((req, res) => {
       const asset = files.get(req.url ?? "");

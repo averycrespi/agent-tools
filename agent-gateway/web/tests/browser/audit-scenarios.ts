@@ -1,4 +1,7 @@
-import { capture as captureFrontend } from "../frontend/capture.ts";
+import {
+  capture as captureFrontend,
+  hasCaptureOwner,
+} from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { captureDetailLayout, captureTableState } from "./detail-layout.ts";
@@ -431,18 +434,20 @@ export async function runAudit(
   await capture("desktop-detail", 1440);
   await capture("narrow-detail", 390);
   await page.setViewportSize({ width: 1440, height: 900 });
-  const axe = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-    .analyze();
-  if (
-    axe.violations.some(
-      (finding) =>
-        finding.impact === "serious" || finding.impact === "critical",
+  if (!hasCaptureOwner(page)) {
+    const axe = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    if (
+      axe.violations.some(
+        (finding) =>
+          finding.impact === "serious" || finding.impact === "critical",
+      )
     )
-  )
-    fail(
-      `Audit accessibility: ${axe.violations.map((finding) => finding.id).join(",")}`,
-    );
+      fail(
+        `Audit accessibility: ${axe.violations.map((finding) => finding.id).join(",")}`,
+      );
+  }
   mode = "normal";
   await page.getByRole("link", { name: "Back to audit history" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);

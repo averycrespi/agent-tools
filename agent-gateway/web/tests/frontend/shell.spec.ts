@@ -4,6 +4,9 @@ import { capture, registerCapture } from "./capture.ts";
 
 test("shell", async ({ page, frontend }) => {
   registerCapture(page, "shell");
+  await expect(
+    page.evaluate(() => Reflect.set(window, "axe", {})),
+  ).rejects.toThrow("Automated axe scans are not owned by the frontend suite");
   const bearer = page.getByTestId("admin-bearer-input");
   const submit = page.getByTestId("sign-in-submit");
   await expect(page.getByRole("alert")).toHaveCount(0);

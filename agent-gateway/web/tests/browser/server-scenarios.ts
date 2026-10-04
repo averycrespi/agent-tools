@@ -255,7 +255,9 @@ export async function runServerManagementCanary(
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(width);
-    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    if (!hasCaptureOwner(page)) {
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    }
     const path = join(screenshotRoot, `healthy-${width}.png`);
     await captureScreenshot(page, { path, fullPage: true });
     diagnosticScreenshots.push(path);
@@ -3836,7 +3838,9 @@ export async function runServerCatalogReads(
     fail("non-OAuth server offered OAuth authorization");
   const serverTitle = page.locator('[data-testid="server-context"] h2');
   await expect(serverTitle).toHaveText(activeServer.display_name);
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (!hasCaptureOwner(page)) {
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
   const titleArtifacts = await mkdtemp(join(tmpdir(), "gateway-mcp-titles-"));
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });

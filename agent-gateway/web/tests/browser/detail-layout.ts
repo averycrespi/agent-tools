@@ -324,12 +324,14 @@ export async function captureDetailLayout(
               expect(fact.valueTop).toBeGreaterThanOrEqual(fact.labelBottom);
           }
           if (directory !== undefined && width === 320 && color === "light") {
-            const scan = await new AxeBuilder({ page }).analyze();
-            expect(
-              scan.violations.filter(
-                (v) => v.impact === "serious" || v.impact === "critical",
-              ),
-            ).toEqual([]);
+            if (!hasCaptureOwner(page)) {
+              const scan = await new AxeBuilder({ page }).analyze();
+              expect(
+                scan.violations.filter(
+                  (v) => v.impact === "serious" || v.impact === "critical",
+                ),
+              ).toEqual([]);
+            }
           }
         }
         if (directory === undefined) continue;

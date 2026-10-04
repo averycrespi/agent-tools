@@ -218,15 +218,17 @@ export async function captureOverviewLayout(
               `rendered contrast ${state}/${color}/${name}: ${JSON.stringify(item)}`,
             ).toBeGreaterThanOrEqual(item.minimum);
           if (width === 320) {
-            const scan = await new AxeBuilder({ page })
-              .include('[data-testid="overview-grid"]')
-              .analyze();
-            expect(
-              scan.violations.filter(
-                (item) =>
-                  item.impact === "serious" || item.impact === "critical",
-              ),
-            ).toEqual([]);
+            if (!hasCaptureOwner(page)) {
+              const scan = await new AxeBuilder({ page })
+                .include('[data-testid="overview-grid"]')
+                .analyze();
+              expect(
+                scan.violations.filter(
+                  (item) =>
+                    item.impact === "serious" || item.impact === "critical",
+                ),
+              ).toEqual([]);
+            }
           }
         }
         const indicators = await page

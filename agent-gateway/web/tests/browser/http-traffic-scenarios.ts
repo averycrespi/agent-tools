@@ -1,4 +1,4 @@
-import { captureScreenshot } from "../frontend/capture.ts";
+import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
 import { capture as captureFrontend } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
@@ -37,7 +37,11 @@ export async function runHTTPTraffic(
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
       ).toBeLessThanOrEqual(width);
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      if (!hasCaptureOwner(page)) {
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual(
+          [],
+        );
+      }
     }
     await page.setViewportSize({ width: 1280, height: 900 });
   };
@@ -104,12 +108,14 @@ export async function runHTTPTraffic(
         fullPage: true,
       });
     }
-    const searchAxe = await new AxeBuilder({ page }).analyze();
-    expect(
-      searchAxe.violations.filter((v) =>
-        ["serious", "critical"].includes(v.impact ?? ""),
-      ),
-    ).toEqual([]);
+    if (!hasCaptureOwner(page)) {
+      const searchAxe = await new AxeBuilder({ page }).analyze();
+      expect(
+        searchAxe.violations.filter((v) =>
+          ["serious", "critical"].includes(v.impact ?? ""),
+        ),
+      ).toEqual([]);
+    }
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.reload();
     await waitForLifecycle(page, "authenticated");
@@ -864,7 +870,9 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("Response: Gateway", { exact: true }),
   ).toHaveCount(0);
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (!hasCaptureOwner(page)) {
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
   await captureScreenshot(page, {
     path: join(screenshots, "rejection-history.png"),
     fullPage: true,
@@ -889,7 +897,9 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("target · invalid_request_target", { exact: true }),
   ).toBeVisible();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (!hasCaptureOwner(page)) {
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
   await captureScreenshot(page, {
     path: join(screenshots, "rejection-detail-narrow.png"),
     fullPage: true,
@@ -923,7 +933,11 @@ export async function runHTTPTraffic(
     await page.locator(`a[href*="/http/traffic/${id(4)}"]`).click();
     await expect(page.getByText(label!, { exact: true })).toBeVisible();
     if (reason === "target_too_long") {
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      if (!hasCaptureOwner(page)) {
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual(
+          [],
+        );
+      }
       await captureScreenshot(page, {
         path: join(screenshots, "target-byte-limit-detail.png"),
         fullPage: true,
@@ -997,7 +1011,9 @@ export async function runHTTPTraffic(
   await expect(page.getByText("Upstream read", { exact: true })).toBeVisible();
   await expect(page.getByText("Cancelled", { exact: true })).toHaveCount(2);
   await page.getByText("Transfer evidence limits", { exact: true }).click();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (!hasCaptureOwner(page)) {
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
   await captureScreenshot(page, {
     path: join(screenshots, "transfer-incomplete-desktop.png"),
     fullPage: true,
@@ -1042,7 +1058,9 @@ export async function runHTTPTraffic(
   await expect(
     page.getByText("Opaque tunnel allowed", { exact: true }),
   ).toBeVisible();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (!hasCaptureOwner(page)) {
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
   await captureScreenshot(page, {
     path: join(screenshots, "connect-history.png"),
     fullPage: true,
@@ -1068,7 +1086,9 @@ export async function runHTTPTraffic(
   await expect(page.getByText("Not dispatched", { exact: true })).toHaveCount(
     0,
   );
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  if (!hasCaptureOwner(page)) {
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  }
   await captureScreenshot(page, {
     path: join(screenshots, "interception-narrow.png"),
     fullPage: true,

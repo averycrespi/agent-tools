@@ -1,5 +1,4 @@
 import { expect, type Page } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve, join, basename } from "node:path";
 
@@ -145,15 +144,6 @@ export async function capture(
             element.scrollTop = 0;
           });
         }
-        const scan = await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
-          .analyze();
-        expect(
-          scan.violations.filter(
-            (v) => v.impact === "serious" || v.impact === "critical",
-          ),
-          `${scenario}/${state}/${theme}/${viewport} accessibility`,
-        ).toEqual([]);
         await writeFile(
           join(directory, `${theme}-${viewport}.json`),
           JSON.stringify({

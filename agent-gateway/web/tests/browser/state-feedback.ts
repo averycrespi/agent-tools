@@ -1,4 +1,4 @@
-import { capture } from "../frontend/capture.ts";
+import { capture, hasCaptureOwner } from "../frontend/capture.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureDetailLayout } from "./detail-layout.ts";
 import { expect, type Page } from "@playwright/test";
@@ -30,12 +30,14 @@ export async function captureStateFeedback(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    const scan = await new AxeBuilder({ page }).analyze();
-    expect(
-      scan.violations.filter(
-        (item) => item.impact === "serious" || item.impact === "critical",
-      ),
-    ).toEqual([]);
+    if (!hasCaptureOwner(page)) {
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(
+        scan.violations.filter(
+          (item) => item.impact === "serious" || item.impact === "critical",
+        ),
+      ).toEqual([]);
+    }
     await page.screenshot({
       path: join(directory, `${width}.png`),
       fullPage: (await page.locator("dialog[open]").count()) === 0,
