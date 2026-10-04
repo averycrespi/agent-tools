@@ -39,6 +39,7 @@ type Options struct {
 	Listeners    func() []netip.AddrPort
 	Now          func() time.Time
 	Ready        func() bool
+	Diagnostics  diagnostics.HTTPProxyObserver
 }
 
 type Engine struct {
@@ -163,6 +164,7 @@ func admissionContext(inside *intercepted) authorization.HTTPAdmissionContext {
 }
 
 func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercepted) {
+	started := time.Now()
 	// Never allow net/http's default panic logger to receive request material.
 	defer func() {
 		if recover() != nil {
@@ -233,7 +235,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 			e.rejectInvalid(w, r, lease, inside, "request_form", "connect_body")
 			return
 		}
-		e.connect(w, r, lease, bearer)
+		e.connect(w, r, lease, bearer, started)
 		return
 	}
 	e.mu.Lock()
@@ -275,6 +277,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 			}
 			e.rejectGit(w, r, lease, reason)
 		} else {
+			e.observeRejection(started, diagnostics.ProxyRouting, proxyFailureCause(err))
 			reject(w, http.StatusForbidden)
 		}
 		return
@@ -284,6 +287,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		if git {
 			e.rejectGit(w, r, lease, "destination_unavailable")
 		} else {
+			e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err))
 			reject(w, http.StatusForbidden)
 		}
 		return
@@ -299,6 +303,9 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	}
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: binding.PrincipalID, URL: target.URL().String(), Method: target.Method()}, address.Facts(), e.options.Materials, admissionContext(inside))
 	if err != nil || !result.DispatchAuthorized {
+		if err != nil {
+			e.observeRejection(started, result.FailureStage, result.FailureCause)
+		}
 		reject(w, http.StatusForbidden)
 		return
 	}

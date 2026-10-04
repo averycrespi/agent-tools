@@ -89,6 +89,7 @@ type ControlAPIDependencies struct {
 type Composition struct {
 	traffic              *invocation.TrafficStore
 	diagnosticReferences *diagnosticReferences
+	httpDiagnostics      diagnostics.HTTPProxyObserver
 	servers              *servers.Repository
 	authorization        *authorization.Repository
 	selfProjections      *authorization.SelfProjectionService
@@ -177,7 +178,7 @@ func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy neti
 		}
 		return all
 	}
-	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, GitMaterials: built.gitCredentials, Remote: built.remoteFactory, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
+	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, GitMaterials: built.gitCredentials, Remote: built.remoteFactory, Diagnostics: built.httpDiagnostics, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
 	if err == nil {
 		built.httpProxyAuthority = proxy.String()
 	}
@@ -520,7 +521,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil
 	}
 	references := &diagnosticReferences{process: options.DiagnosticProcessID}
-	built := &Composition{diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
+	built := &Composition{httpDiagnostics: options.Diagnostics, diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
 	cleanup := true
 	defer func() {
 		if cleanup {

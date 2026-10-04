@@ -86,7 +86,7 @@ func (l *singleListener) Accept() (net.Conn, error) {
 func (l *singleListener) Close() error   { return l.conn.Close() }
 func (l *singleListener) Addr() net.Addr { return l.conn.LocalAddr() }
 
-func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, bearer string) {
+func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, bearer string, started time.Time) {
 	destination, err := httppolicy.ParseConnect(r.RequestURI, r.Host)
 	if err != nil {
 		e.rejectInvalid(w, r, lease, nil, "target", "invalid_connect_target")
@@ -94,6 +94,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), destination, e.options.Listeners)
 	if err != nil {
+		e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err))
 		reject(w, http.StatusForbidden)
 		return
 	}
@@ -104,6 +105,9 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	}
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID, Connect: &contract.HTTPDestinationSelector{Host: destination.Host(), Port: destination.Port()}}, address.Facts(), e.options.Materials)
 	if err != nil || !result.Committed || result.Evidence.Decision == nil {
+		if err != nil {
+			e.observeRejection(started, result.FailureStage, result.FailureCause)
+		}
 		reject(w, http.StatusForbidden)
 		return
 	}
