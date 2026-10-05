@@ -3,9 +3,11 @@
 package e2e
 
 import (
+	"encoding/json"
 	"net/http"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +17,13 @@ import (
 func TestInvocationReadOnlyAPICanary(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
+
+	// This history-read canary needs the optional store; serving readiness does not.
+	require.Eventually(t, func() bool {
+		response := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
+		var status contract.SystemStatus
+		return response.StatusCode == http.StatusOK && json.Unmarshal(response.Body, &status) == nil && status.Traffic != nil && status.Traffic.Ready
+	}, 5*time.Second, 10*time.Millisecond)
 
 	response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations?limit=1", nil)
 	var page contract.InvocationPage
