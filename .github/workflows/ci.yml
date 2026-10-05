@@ -114,7 +114,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           if [ "$TOOL" = agent-gateway ]; then
-            AGENT_GATEWAY_TEST_JSON=1 make -C "$TOOL" test-unit
+            make -C "$TOOL" test-unit
           else
             make -C "$TOOL" test
           fi
@@ -177,6 +177,7 @@ jobs:
       - name: Run platform owner
         env:
           SUITE: ${{ matrix.suite }}
+          AGENT_GATEWAY_TEST_JSON: "1"
         run: make -C agent-gateway "test-$SUITE"
 
   integration-tests:
@@ -199,6 +200,8 @@ jobs:
           role: ${{ matrix.suite }}
           tool: ${{ matrix.tool }}
       - run: make -C "$TOOL" "test-$SUITE"
+        env:
+          AGENT_GATEWAY_TEST_JSON: "1"
 
   e2e-tests:
     name: End-to-end tests (${{ matrix.tool }})
