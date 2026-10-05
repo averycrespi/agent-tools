@@ -96,143 +96,157 @@ func isolateProxyHistory(t *testing.T, f *proxyFixture, mode string) {
 }
 
 func TestIntegrationProxyOutcomesIndependentOfHistory(t *testing.T) {
-	for _, protocol := range []string{"http", "connect", "http/1.1", "h2", "git"} {
-		for _, mode := range []string{"healthy", "absent", "faulted", "full", "stalled-open"} {
-			t.Run(protocol+"/"+mode, func(t *testing.T) {
-				f := fixtureWithTrafficConfig(t, nil, nil, func(c *invocation.TrafficConfig) { c.BudgetBytes = 1 << 20 })
-				isolateProxyHistory(t, f, mode)
-				const bodyCanary = "private-request-body-canary"
-				const reply = "upstream-response-canary"
-				var calls atomic.Int32
-				upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					calls.Add(1)
-					data, err := io.ReadAll(r.Body)
-					if err != nil || string(data) != bodyCanary {
-						t.Error("upstream request identity changed")
-					}
-					if r.Header.Get("Proxy-Authorization") != "" {
-						t.Error("proxy credential reached upstream")
-					}
-					w.Header().Set("Proxy-Status", "AgentGateway; error=spoofed")
-					w.Header().Set(contract.HTTPProxyCorrelationHeader, "spoofed")
-					w.WriteHeader(http.StatusCreated)
-					_, _ = io.WriteString(w, reply)
-				}))
-				if protocol == "http" || protocol == "connect" {
-					upstream.Start()
-				} else {
-					upstream.StartTLS()
-					f.engine.roots = x509.NewCertPool()
-					f.engine.roots.AddCert(upstream.Certificate())
-				}
-				t.Cleanup(upstream.Close)
-				f.allow(t, upstream.URL, "allow_requests", "", "")
-				if protocol == "connect" {
-					f.allow(t, upstream.URL, "allow_tunnel", "", "")
-				}
-				path := "/resource"
-				if protocol == "git" {
-					ctx := audit.WithSystem(t.Context())
-					repo, err := f.authority.PutGitRepository(ctx, "", "", contract.GitRepositoryDefinition{Name: "isolation", URL: upstream.URL + "/repo", Aliases: []string{}})
-					require.NoError(t, err)
-					_, err = f.authority.PutGitGrant(ctx, "", "", authorization.GitGrantInput{PrincipalID: f.credential.Principal.ID, RepositoryID: repo.ID, Policy: json.RawMessage(`{"version":1,"read":true,"refs":[]}`)})
-					require.NoError(t, err)
-					profile, err := f.authority.GetGitRoutingProfile(ctx)
-					require.NoError(t, err)
-					_, err = f.authority.PutGitRoutingProfile(ctx, profile.Revision, []string{upstream.URL})
-					require.NoError(t, err)
-					path = "/repo/git-upload-pack"
-				}
-				// A second independently authorized request proves a previously faulted
-				// recorder cannot change the next live outcome or cause a hidden replay.
-				for index := range 2 {
-					ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-					request, err := http.NewRequestWithContext(ctx, "POST", upstream.URL+path, strings.NewReader(bodyCanary))
-					require.NoError(t, err)
-					if protocol == "git" {
-						request.Header.Set("Content-Type", "application/x-git-upload-pack-request")
-					}
-					var response *http.Response
-					var closeConn func()
-					if protocol == "http" {
-						request.Header.Set("Proxy-Authorization", "Bearer "+f.credential.Bearer)
-						response, err = f.client(t).Do(request)
-						closeConn = func() {}
-					} else if protocol == "connect" {
-						conn, dialErr := net.DialTimeout("tcp", f.address, time.Second)
-						require.NoError(t, dialErr)
-						t.Cleanup(func() { _ = conn.Close() })
-						require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
-						_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: Bearer %s\r\n\r\n", request.URL.Host, request.URL.Host, f.credential.Bearer)
-						require.NoError(t, err)
-						reader := bufio.NewReader(conn)
-						connected, readErr := http.ReadResponse(reader, &http.Request{Method: "CONNECT"})
-						require.NoError(t, readErr)
-						require.Equal(t, http.StatusOK, connected.StatusCode)
-						require.NoError(t, request.Write(conn))
-						response, err = http.ReadResponse(reader, request)
-						closeConn = func() { require.NoError(t, conn.Close()) }
-					} else {
-						alpn := "http/1.1"
-						if protocol == "h2" {
-							alpn = "h2"
-						}
-						conn := f.intercept(t, upstream.URL, alpn)
-						require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
-						closeConn = func() { require.NoError(t, conn.Close()) }
-						if protocol == "h2" {
-							client, clientErr := (&http2.Transport{}).NewClientConn(conn)
-							require.NoError(t, clientErr)
-							response, err = client.RoundTrip(request)
-						} else {
-							require.NoError(t, request.Write(conn))
-							response, err = http.ReadResponse(bufio.NewReader(conn), request)
-						}
-					}
-					require.NoError(t, err)
-					got, err := io.ReadAll(response.Body)
-					require.NoError(t, err)
-					require.NoError(t, response.Body.Close())
-					require.Equal(t, http.StatusCreated, response.StatusCode)
-					require.Equal(t, reply, string(got))
-					if protocol == "connect" {
-						// Opaque bytes are not interpreted or rewritten by Gateway.
-						require.Equal(t, "AgentGateway; error=spoofed", response.Header.Get("Proxy-Status"))
-					} else {
-						require.Empty(t, response.Header.Get("Proxy-Status"))
-						require.Empty(t, response.Header.Get(contract.HTTPProxyCorrelationHeader))
-					}
-					closeConn()
-					cancel()
-					require.EqualValues(t, index+1, calls.Load())
-					require.Eventually(t, func() bool {
-						s := f.engine.Status()
-						return s.Work.InUse == 0 && s.ActiveStreams == 0 && s.ActiveTunnels == 0
-					}, 5*time.Second, time.Millisecond)
-					if mode == "faulted" {
-						require.Eventually(t, func() bool { return f.traffic.Status(t.Context()).Faulted }, time.Second, time.Millisecond)
-					}
-				}
-				status := f.traffic.Status(t.Context())
-				switch mode {
-				case "absent":
-					require.Equal(t, "disabled", status.State)
-				case "stalled-open":
-					require.Equal(t, "opening", status.State)
-				case "full":
-					require.Eventually(t, func() bool { return f.traffic.Status(t.Context()).Delivery.Discarded > 0 }, 2*time.Second, time.Millisecond)
-					require.True(t, f.traffic.Healthy())
-				}
-				if mode != "healthy" {
-					require.Positive(t, f.traffic.Status(t.Context()).Delivery.Discarded)
-				}
-				snapshot, err := json.Marshal(f.engine.options.Observations.Status())
-				require.NoError(t, err)
-				require.NotContains(t, string(snapshot), bodyCanary)
-				require.NotContains(t, string(snapshot), reply)
-				require.NotContains(t, string(snapshot), f.credential.Bearer)
-				require.EqualValues(t, 2, calls.Load(), fmt.Sprintf("%s/%s dispatched twice only", protocol, mode))
-			})
+	for _, mode := range []string{"healthy", "absent", "faulted", "full", "stalled-open"} {
+		t.Run(mode, func(t *testing.T) {
+			// Each fault retains its own installation/writer. Serial protocols reuse
+			// only setup, after live owners settle; all 25 comparisons still run.
+			f := fixtureWithTrafficConfig(t, nil, nil, func(c *invocation.TrafficConfig) { c.BudgetBytes = 1 << 20 })
+			isolateProxyHistory(t, f, mode)
+			for _, protocol := range []string{"http", "connect", "http/1.1", "h2", "git"} {
+				t.Run(protocol, func(t *testing.T) { qualifyProxyHistory(t, f, protocol, mode) })
+			}
+		})
+	}
+}
+
+func qualifyProxyHistory(t *testing.T, f *proxyFixture, protocol, mode string) {
+	t.Helper()
+	discardedBefore := f.traffic.Status(t.Context()).Delivery.Discarded
+	const bodyCanary = "private-request-body-canary"
+	const reply = "upstream-response-canary"
+	var calls atomic.Int32
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		data, err := io.ReadAll(r.Body)
+		if err != nil || string(data) != bodyCanary {
+			t.Error("upstream request identity changed")
+		}
+		if r.Header.Get("Proxy-Authorization") != "" {
+			t.Error("proxy credential reached upstream")
+		}
+		w.Header().Set("Proxy-Status", "AgentGateway; error=spoofed")
+		w.Header().Set(contract.HTTPProxyCorrelationHeader, "spoofed")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, reply)
+	}))
+	if protocol == "http" || protocol == "connect" {
+		upstream.Start()
+	} else {
+		upstream.StartTLS()
+		f.engine.roots = x509.NewCertPool()
+		f.engine.roots.AddCert(upstream.Certificate())
+	}
+	t.Cleanup(upstream.Close)
+	f.allow(t, upstream.URL, "allow_requests", "", "")
+	if protocol == "connect" {
+		f.allow(t, upstream.URL, "allow_tunnel", "", "")
+	}
+	path := "/resource"
+	if protocol == "git" {
+		ctx := audit.WithSystem(t.Context())
+		repo, err := f.authority.PutGitRepository(ctx, "", "", contract.GitRepositoryDefinition{Name: "isolation", URL: upstream.URL + "/repo", Aliases: []string{}})
+		require.NoError(t, err)
+		_, err = f.authority.PutGitGrant(ctx, "", "", authorization.GitGrantInput{PrincipalID: f.credential.Principal.ID, RepositoryID: repo.ID, Policy: json.RawMessage(`{"version":1,"read":true,"refs":[]}`)})
+		require.NoError(t, err)
+		profile, err := f.authority.GetGitRoutingProfile(ctx)
+		require.NoError(t, err)
+		_, err = f.authority.PutGitRoutingProfile(ctx, profile.Revision, []string{upstream.URL})
+		require.NoError(t, err)
+		path = "/repo/git-upload-pack"
+	}
+	// A second independently authorized request proves a previously faulted
+	// recorder cannot change the next live outcome or cause a hidden replay.
+	for index := range 2 {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		request, err := http.NewRequestWithContext(ctx, "POST", upstream.URL+path, strings.NewReader(bodyCanary))
+		require.NoError(t, err)
+		if protocol == "git" {
+			request.Header.Set("Content-Type", "application/x-git-upload-pack-request")
+		}
+		var response *http.Response
+		var closeConn func()
+		if protocol == "http" {
+			request.Header.Set("Proxy-Authorization", "Bearer "+f.credential.Bearer)
+			response, err = f.client(t).Do(request)
+			closeConn = func() {}
+		} else if protocol == "connect" {
+			conn, dialErr := net.DialTimeout("tcp", f.address, time.Second)
+			require.NoError(t, dialErr)
+			t.Cleanup(func() { _ = conn.Close() })
+			require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+			_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: Bearer %s\r\n\r\n", request.URL.Host, request.URL.Host, f.credential.Bearer)
+			require.NoError(t, err)
+			reader := bufio.NewReader(conn)
+			connected, readErr := http.ReadResponse(reader, &http.Request{Method: "CONNECT"})
+			require.NoError(t, readErr)
+			require.Equal(t, http.StatusOK, connected.StatusCode)
+			require.NoError(t, request.Write(conn))
+			response, err = http.ReadResponse(reader, request)
+			closeConn = func() { require.NoError(t, conn.Close()) }
+		} else {
+			alpn := "http/1.1"
+			if protocol == "h2" {
+				alpn = "h2"
+			}
+			conn := f.intercept(t, upstream.URL, alpn)
+			require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+			closeConn = func() { require.NoError(t, conn.Close()) }
+			if protocol == "h2" {
+				client, clientErr := (&http2.Transport{}).NewClientConn(conn)
+				require.NoError(t, clientErr)
+				response, err = client.RoundTrip(request)
+			} else {
+				require.NoError(t, request.Write(conn))
+				response, err = http.ReadResponse(bufio.NewReader(conn), request)
+			}
+		}
+		require.NoError(t, err)
+		got, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, http.StatusCreated, response.StatusCode)
+		require.Equal(t, reply, string(got))
+		if protocol == "connect" {
+			// Opaque bytes are not interpreted or rewritten by Gateway.
+			require.Equal(t, "AgentGateway; error=spoofed", response.Header.Get("Proxy-Status"))
+		} else {
+			require.Empty(t, response.Header.Get("Proxy-Status"))
+			require.Empty(t, response.Header.Get(contract.HTTPProxyCorrelationHeader))
+		}
+		closeConn()
+		cancel()
+		require.EqualValues(t, index+1, calls.Load())
+		require.Eventually(t, func() bool {
+			s := f.engine.Status()
+			return s.Work.InUse == 0 && s.ActiveStreams == 0 && s.ActiveTunnels == 0 && s.Connections.InUse == 0
+		}, 5*time.Second, time.Millisecond)
+		if mode == "faulted" {
+			require.Eventually(t, func() bool { return f.traffic.Status(t.Context()).Faulted }, time.Second, time.Millisecond)
 		}
 	}
+	status := f.traffic.Status(t.Context())
+	switch mode {
+	case "absent":
+		require.Equal(t, "disabled", status.State)
+	case "stalled-open":
+		require.Equal(t, "opening", status.State)
+	case "full":
+		require.Eventually(t, func() bool {
+			health := f.traffic.Status(t.Context())
+			return health.Delivery.Discarded > discardedBefore && health.Delivery.QueueRecords == 0
+		}, 2*time.Second, time.Millisecond)
+		// Status reads can themselves occupy the read gate. Both reasons are
+		// bounded capacity refusals while the independently pinned WAL survives.
+		require.Contains(t, []string{"checkpoint_reader", "checkpoint_unavailable"}, f.traffic.Status(t.Context()).PressureReason)
+		require.True(t, f.traffic.Healthy())
+	}
+	if mode != "healthy" {
+		require.Greater(t, f.traffic.Status(t.Context()).Delivery.Discarded, discardedBefore)
+	}
+	snapshot, err := json.Marshal(f.engine.options.Observations.Status())
+	require.NoError(t, err)
+	require.NotContains(t, string(snapshot), bodyCanary)
+	require.NotContains(t, string(snapshot), reply)
+	require.NotContains(t, string(snapshot), f.credential.Bearer)
+	require.EqualValues(t, 2, calls.Load(), fmt.Sprintf("%s/%s dispatched twice only", protocol, mode))
 }
