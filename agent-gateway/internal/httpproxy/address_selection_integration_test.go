@@ -104,12 +104,15 @@ func TestIntegrationAddressSelectionHTTPWire(t *testing.T) {
 			defer upstream.Close()
 			origin := "http://" + net.JoinHostPort("approved.example", strconv.Itoa(upstream.Listener.Addr().(*net.TCPAddr).Port))
 			allowNamedAddress(t, f, origin, "allow_requests", "")
-			answers := []string{"127.0.0.2", "127.0.0.1", "127.0.0.3"}
+			// Unconfigured 127/8 aliases can stall on Darwin. The IPv4-only
+			// fixture has no IPv6 listener, so use configured loopback refusal.
+			answers := []string{"::1", "127.0.0.1", "127.0.0.3"}
 			if mode == "mixed-blocked" {
 				answers = append(answers, "169.254.169.254")
 			}
 			if mode == "all-fail" {
-				answers = []string{"127.0.0.2", "127.0.0.3"}
+				upstream.Close()
+				answers = []string{"::1", "127.0.0.1"}
 			}
 			resolver, dials := installAddressCandidates(f, answers...)
 			response := f.request(t, f.client(t), "POST", origin+"/upload", strings.NewReader(payload))
@@ -181,7 +184,7 @@ func TestIntegrationAddressSelectionOpaqueConnectWire(t *testing.T) {
 	}()
 	authority := net.JoinHostPort("approved.example", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
 	allowNamedAddress(t, f, "http://"+authority, "allow_tunnel", "")
-	resolver, dials := installAddressCandidates(f, "127.0.0.2", "127.0.0.1")
+	resolver, dials := installAddressCandidates(f, "::1", "127.0.0.1")
 	conn, err := net.DialTimeout("tcp", f.address, time.Second)
 	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
@@ -252,7 +255,7 @@ func TestIntegrationAddressSelectionGitPostWriteWire(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.authority.PutGitRoutingProfile(ctx, profile.Revision, []string{origin})
 	require.NoError(t, err)
-	_, dials := installAddressCandidates(f, "127.0.0.2", "127.0.0.1", "127.0.0.3")
+	_, dials := installAddressCandidates(f, "::1", "127.0.0.1", "127.0.0.3")
 	conn := f.intercept(t, origin, "http/1.1")
 	require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
 	u, err := url.Parse(origin)
